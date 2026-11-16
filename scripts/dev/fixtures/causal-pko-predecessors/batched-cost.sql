@@ -1,8 +1,9 @@
 -- Realistic nine-seat1255-candidate old/new differential, no timing threshold.
 BEGIN;
+SET LOCAL track_functions='all';
 DO $$
 DECLARE x jsonb;t uuid;a uuid;b uuid;c uuid;d uuid;tb uuid;r jsonb;k record;
- old_result jsonb; old_ms numeric; count_now integer:=0;goal integer;started timestamptz;
+ proof_before bigint; proof_after_old bigint; proof_after_new bigint; old_proofs bigint; new_proofs bigint; old_result jsonb; old_ms numeric; count_now integer:=0;goal integer;started timestamptz;
 BEGIN
  x:=fixture_chain();t:=(x->>'t')::uuid;a:=(x->>'a')::uuid;b:=(x->>'b')::uuid;c:=(x->>'c')::uuid;d:=(x->>'d')::uuid;
  SELECT * INTO k FROM tournament_knockout_candidates WHERE tournament_id=t AND eliminated_user_id=b;
@@ -32,11 +33,18 @@ BEGIN
   UPDATE settlement_idempotency_keys s SET result=jsonb_set(result,'{written}',a.stack_result->'written') FROM hand_atomic_commits a
     WHERE s.table_id=a.table_id AND s.hand_id=a.hand_id AND a.hand_id IN(SELECT h FROM added_candidates);
   started:=clock_timestamp();
+  SELECT coalesce(sum(calls),0)::bigint INTO proof_before FROM pg_stat_xact_user_functions WHERE funcid='public.fn_pko_candidate_accepted_scope_v1(uuid,uuid)'::regprocedure;
   old_result:=pg_temp.fixture_original_predecessor(t,b,k.table_id,k.hand_id,k.hand_number,k.seat_joined_at);
+  SELECT coalesce(sum(calls),0)::bigint INTO proof_after_old FROM pg_stat_xact_user_functions WHERE funcid='public.fn_pko_candidate_accepted_scope_v1(uuid,uuid)'::regprocedure;
   old_ms:=extract(epoch FROM clock_timestamp()-started)*1000;
   count_now:=goal;ANALYZE tournament_knockout_candidates;ANALYZE hand_atomic_commits;ANALYZE settlement_idempotency_keys;ANALYZE hand_history;
   started:=clock_timestamp();
   r:=fn_pko_claim_predecessor_status_v1(t,b,k.table_id,k.hand_id,k.hand_number,k.seat_joined_at);
+  SELECT coalesce(sum(calls),0)::bigint INTO proof_after_new FROM pg_stat_xact_user_functions WHERE funcid='public.fn_pko_candidate_accepted_scope_v1(uuid,uuid)'::regprocedure;
+  old_proofs:=proof_after_old-proof_before;new_proofs:=proof_after_new-proof_after_old;
+  RAISE NOTICE 'BATCH_PROOF_WORK candidates=% old_calls=% new_calls=%',goal+1,old_proofs,new_proofs;
+  PERFORM fixture_assert(old_proofs>goal,'old serial reader reproduces per-candidate accepted proof work');
+  PERFORM fixture_assert(new_proofs=1,'joined reader performs only the target accepted proof');
   PERFORM fixture_assert(old_result IS NOT DISTINCT FROM r,'1255 scope and all proof details equal the original');
   RAISE NOTICE 'BATCH_COST original_ms=% joined_ms=%',old_ms,extract(epoch FROM clock_timestamp()-started)*1000;
   RAISE NOTICE 'SCOPE_COST synthetic_nonparticipants=% elapsed_ms=% status=% inspected=%',goal,extract(epoch from clock_timestamp()-started)*1000,r->>'status',r->>'inspected';
@@ -51,9 +59,10 @@ ROLLBACK;
 
 -- Exercise the successor reader at the complete maximum and the first overflow.
 BEGIN;
+SET LOCAL track_functions='all';
 DO $$
 DECLARE x jsonb;t uuid;a uuid;b uuid;c uuid;d uuid;tb uuid;r jsonb;k record;
- old_result jsonb; count_now integer:=0;goal integer;started timestamptz;
+ proof_before bigint; proof_after_old bigint; proof_after_new bigint; old_proofs bigint; new_proofs bigint; old_result jsonb; count_now integer:=0;goal integer;started timestamptz;
 BEGIN
  x:=fixture_chain();t:=(x->>'t')::uuid;a:=(x->>'a')::uuid;b:=(x->>'b')::uuid;c:=(x->>'c')::uuid;d:=(x->>'d')::uuid;
  SELECT * INTO k FROM tournament_knockout_candidates WHERE tournament_id=t AND eliminated_user_id=b;
@@ -74,9 +83,16 @@ BEGIN
   INSERT INTO tournament_knockout_candidates(tournament_id,eliminated_user_id,table_id,seat_id,seat_joined_at,hand_id,hand_number,stack_before,stack_after,state,created_at)
    SELECT t,u,tb,gen_random_uuid(),'2026-09-10 00:00:00+00',h,7000000+i,1000,0,'pending',now()-interval '63 seconds' FROM added_candidates;
   count_now:=goal;ANALYZE tournament_knockout_candidates;ANALYZE hand_atomic_commits;ANALYZE settlement_idempotency_keys;ANALYZE hand_history;
+  SELECT coalesce(sum(calls),0)::bigint INTO proof_before FROM pg_stat_xact_user_functions WHERE funcid='public.fn_pko_candidate_accepted_scope_v1(uuid,uuid)'::regprocedure;
   old_result:=pg_temp.fixture_original_predecessor(t,b,k.table_id,k.hand_id,k.hand_number,k.seat_joined_at);
+  SELECT coalesce(sum(calls),0)::bigint INTO proof_after_old FROM pg_stat_xact_user_functions WHERE funcid='public.fn_pko_candidate_accepted_scope_v1(uuid,uuid)'::regprocedure;
   started:=clock_timestamp();
   r:=fn_pko_claim_predecessor_status_v1(t,b,k.table_id,k.hand_id,k.hand_number,k.seat_joined_at);
+  SELECT coalesce(sum(calls),0)::bigint INTO proof_after_new FROM pg_stat_xact_user_functions WHERE funcid='public.fn_pko_candidate_accepted_scope_v1(uuid,uuid)'::regprocedure;
+  old_proofs:=proof_after_old-proof_before;new_proofs:=proof_after_new-proof_after_old;
+  RAISE NOTICE 'BATCH_PROOF_WORK candidates=% old_calls=% new_calls=%',goal+1,old_proofs,new_proofs;
+  PERFORM fixture_assert(old_proofs>goal,'old serial reader reproduces per-candidate accepted proof work');
+  PERFORM fixture_assert(new_proofs=1,'joined reader performs only the target accepted proof');
   PERFORM fixture_assert(old_result IS NOT DISTINCT FROM r,'maximum and overflow complete verdict equal original at '||goal);
   RAISE NOTICE 'BATCH_BOUNDARY old_and_new_equal synthetic=% inspected=% status=% reason=%',goal,r->>'inspected',r->>'status',r->>'reason';
   RAISE NOTICE 'SCOPE_COST synthetic_nonparticipants=% elapsed_ms=% status=% inspected=%',goal,extract(epoch from clock_timestamp()-started)*1000,r->>'status',r->>'inspected';
