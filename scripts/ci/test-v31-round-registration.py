@@ -58,7 +58,7 @@ class Cluster:
         os.environ['LC_ALL'] = 'C'
         os.environ['LANG'] = 'C'
         self.scratch = Path(tempfile.mkdtemp(prefix='v31-reg-', dir=os.environ.get('RUNNER_TEMP') or None))
-        self.sock = Path(tempfile.mkdtemp(prefix='pgreg', dir='/tmp'))
+        self.sock = Path(tempfile.mkdtemp(prefix='pgreg', dir=os.environ.get('RUNNER_TEMP') or None))
         self.port = str(56000 + os.getpid() % 4000)
         self.data = self.scratch / 'data'
         subprocess.run([pg_bin('initdb'), '-D', str(self.data), '-U', 'postgres', '-A', 'trust'], check=True, capture_output=True)
@@ -72,8 +72,14 @@ class Cluster:
         shutil.rmtree(self.sock, ignore_errors=True)
 
     def psql(self, db, args):
+        # Linux limits one argv entry to 128 KiB, below our real model fixtures.
+        # Stream large SQL through psql while retaining -c's transaction boundary.
+        sql_input = None
+        if len(args) == 2 and args[0] == '-c' and len(args[1].encode()) >= 65536:
+            sql_input = args[1] + '\n;\n'
+            args = ['--single-transaction', '-f', '-']
         return subprocess.run([pg_bin('psql'), '-h', str(self.sock), '-p', self.port, '-U', 'postgres', '-d', db,
-                               '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', *args], capture_output=True, text=True)
+                               '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', *args], input=sql_input, capture_output=True, text=True)
 
     def fresh(self, migration_text):
         self.n += 1

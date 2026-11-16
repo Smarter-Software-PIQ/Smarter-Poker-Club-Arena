@@ -756,6 +756,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V32'
   ),
   flag('v33DepthCeiling', 'solver depth ceiling (300bb)', 'V33'),
+  flag(
+    'gtoV31CellContractV3Serving',
+    'V31 cell contract v3 serving (FLOP-5 D6): true reads the v3 cell readers and keys the certified consult by the v3 cell (line class, donk, 200 bb) when the loaded store declares cell contract v3; unset or false is the v2 path exactly. Off-only under the owner R7/R8 hold (V31 serving is registration-gated); a v3 store also needs a sealed, promoted and bound v3 dataset',
+    'V31 cell contract v3',
+    'HorseV31CertifiedPolicy.decideV31Certified, GtoPostflopV31Loader'
+  ),
   flag('v37Satellite', 'satellite survival play', 'V37'),
   flag('v38Ev', 'the EV engine arbiter for solverless games and the MDF river', 'V38'),
   flag(
@@ -1106,6 +1112,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaOnePairDiscipline',
     'Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700, 59426444): PLO4/PLO5 high on one board, no bomb pot: one pair or less never bets or raises the river for value (a river bluff the reference brain declared keeps its wager); a river call of a 0.66-pot+ wager with two pair or less on a straight- or flush-possible board folds unless the bettor is a measured postflop over-bluffer; on the flop and turn one pair with fewer than four nut-class outs does not raise (call when the call is small, fold when it costs more than half the effective stack) and does not call a wager costing more than half the effective stack (HorseOmahaOnePair.ts). Default OFF (opt-in): its declared evaluation failed (Horse-only PLO4 -0.77 bb/100, z -2.30)',
+    'V94'
+  ),
+  flag(
+    'holdemHeadsUpPostflopBalance',
+    "HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised pot, hero in position, effective stack 20 bb or more: the flop c-bet after a check is one 0.75-pot size at a frequency by hand tier; a flop fold to a check-raise after the c-bet with a middle pair or better or a flush or open-ended straight draw becomes a call; a turn checked to hero bets one 0.70-pot size at a frequency by tier; the river is not covered (its full-pot part was removed 2026-11-16 after the solver score: 11 of 41 river games of the FLOP-5 D1 bank got worse by more than 5 points of the pot) (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4 C1, FLOP-5 D1). Default OFF (opt-in): only an explicit true switches it on. League card nlh_hu_postflop_balance",
     'V94'
   ),
   flag(
@@ -4138,6 +4149,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_one_pair_raise_folded',
     'HorseLogic wager_rules (HorseOmahaOnePair)',
     'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing more than half the effective stack: became a fold',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_flop_cbet',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash flop c-bet decision after a check (single-raised pot) was replaced by the one 0.75-pot size or a check at the tier frequency',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_check_raise_defend',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up NLH cash flop fold to a check-raise after the horse c-bet, with a middle pair or better or a flush or open-ended straight draw, became a call',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_later_street',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash turn decision after a check (single-raised pot) was replaced by the one 0.70-pot size or a check at the tier frequency (the river is not covered)',
     'V94'
   ),
   receipt(

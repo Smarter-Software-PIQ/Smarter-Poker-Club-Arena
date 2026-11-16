@@ -101,6 +101,7 @@ for i in range(0,44):
     if stage(r)=='round_paid' and json.loads(r['out'])['round']==2:
         snap_r2=one(SNAP); exec((F/'between-rounds.py').read_text())
         exec((F/'stale-player-window.py').read_text())
+        exec((F/'cashier-player-read.py').read_text())
         assert one(SNAP)==snap_r2,'a between-rounds probe left something behind'
         armed=('round 3 killed at the TQ player leg',arm("NEW.to_entity_id=rr.u('TQ') AND NEW.category='rakeback'",'round 3 killed at TQ'))
         exec((F/'credit-cutoff.py').read_text())
@@ -119,6 +120,7 @@ assert D2(J[2]['receipt']['amount'])==84 and D2(J[2]['receipt']['downstream_amou
 assert all(j['scope']['kind']=='union' for j in J[1:4]) and len(J[0]['scopes'])==1
 case(f"the real weekly_payout_next_round, one cron tick per minute: {waiting} waiting tick(s), then booked, round 1, round 2, round 3 (funding inside the round 3 unit), finalize; one unit per tick, none refused")
 RUN_ID=J[0]['run_id']
+exec((F/'posted-credit-notices.py').read_text())
 case('round 3 unit: the funding step finds all five edges already carried by round 2 (state already_funded, nothing sent, nothing reserved again); round 2 records the split (funding 210.50, 2 combined legs, 3 funding-only legs, 121.50 reserved) and still reports 84.00 of commission')
 # ---------------------------------------------------------------- order of the books
 ORD=lambda a,b: f"(SELECT max(chain_seq) FROM rr.legs WHERE stage IN({a}))<(SELECT min(chain_seq) FROM rr.legs WHERE stage IN({b}))"
