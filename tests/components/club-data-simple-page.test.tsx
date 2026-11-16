@@ -75,6 +75,25 @@ import ClubDataSimplePage, {
 } from '../../src/pages/club/ClubDataSimplePage';
 
 const today = chicagoToday();
+const calendarName = (day: string) =>
+  new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+function selectCalendarDay(day: string) {
+  const target = calendarName(day);
+  for (let i = 0; i < 120 && !screen.queryByRole('button', { name: target }); i++) {
+    const shownMonth = Date.parse(screen.getByRole('grid').getAttribute('aria-label')!);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: Date.parse(`${day}T12:00:00Z`) < shownMonth ? 'Previous Month' : 'Next Month',
+      })
+    );
+  }
+  fireEvent.click(screen.getByRole('button', { name: target }));
+}
 
 const live = {
   scope: 'club',
@@ -545,11 +564,8 @@ describe('Selectable Chicago Dates And Player Totals', () => {
     render(<ClubDataSimplePage />);
     await screen.findByText('Shark Tank');
     fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
-    fireEvent.change(screen.getByLabelText('Start Date'), {
-      target: { value: addDays(today, -5) },
-    });
-    // The end date is the boundary the window stops at: the last day is the day before.
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -1) } });
+    selectCalendarDay(addDays(today, -5));
+    selectCalendarDay(addDays(today, -2));
     fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith(
@@ -568,7 +584,7 @@ describe('Selectable Chicago Dates And Player Totals', () => {
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith(
         'ca_club_data_screen',
-        expect.objectContaining({ p_start: addDays(today, -6), p_end: addDays(today, -6) })
+        expect.objectContaining({ p_start: today, p_end: today })
       )
     );
   });
@@ -589,12 +605,11 @@ it('keeps selected dates when access hydration unmounts and remounts the page', 
   const view = render(<ClubDataSimplePage />);
   await screen.findByText('Shark Tank');
   fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
-  fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: addDays(today, -5) } });
-  // The end date is the boundary the window stops at: the last day is the day before.
-  fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -1) } });
+  selectCalendarDay(addDays(today, -5));
+  selectCalendarDay(addDays(today, -2));
   fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
-  expect(routeState.search.get('dataUntil')).toBe(addDays(today, -1));
-  expect(routeState.search.has('dataEnd')).toBe(false);
+  expect(routeState.search.get('dataEnd')).toBe(addDays(today, -2));
+  expect(routeState.search.has('dataUntil')).toBe(false);
   view.unmount();
   rpcMock.mockClear();
   render(<ClubDataSimplePage />);
@@ -732,8 +747,8 @@ describe('the union invoice basis', () => {
     render(<ClubDataSimplePage />);
     expect(await screen.findByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
-    fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-10-01' } });
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-10-08' } });
+    selectCalendarDay('2026-10-01');
+    selectCalendarDay('2026-10-07');
     fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
     expect(await screen.findByText('Oct 1, 2026 12:00 AM To Oct 8, 2026 12:00 AM')).toBeTruthy();
     expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
@@ -748,20 +763,22 @@ describe('the union invoice basis', () => {
     expect(screen.getByText(/^Days Run Midnight To Midnight Chicago Time\./)).toBeTruthy();
   });
 
-  it('the date editor stops the window at 02:00 on the end date it shows', async () => {
+  it('selects one inclusive accounting day with one click and Apply', async () => {
     routeState.search = new URLSearchParams({ dataStart: '2026-11-02', dataUntil: '2026-11-09' });
     rpcMock.mockResolvedValue({ data: unionLive, error: null });
     render(<ClubDataSimplePage />);
     await screen.findByText('Shark Tank');
     fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
-    expect(screen.getByLabelText('Start Date')).toHaveValue('2026-11-02');
-    expect(screen.getByLabelText('End Date')).toHaveValue('2026-11-09');
-    expect(
-      screen.getByText(/The Window Starts At 2:00 AM On The Start Date And Stops At 2:00 AM/)
-    ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-11-02' } });
+    expect(screen.getByRole('dialog')).toHaveTextContent('Through Nov 8, 2026');
+    expect(screen.queryByLabelText('Start Date')).toBeNull();
+    selectCalendarDay('2026-11-02');
     fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
-    expect(screen.getByText('The End Must Be After The Start.')).toBeTruthy();
+    await waitFor(() =>
+      expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+        p_start: '2026-11-02',
+        p_end: '2026-11-02',
+      })
+    );
   });
 
   it('between midnight and 02:00 Chicago it reads the accounting day still open', async () => {
@@ -845,7 +862,7 @@ describe('the union invoice basis', () => {
     ).toBeLessThanOrEqual(2);
     expect(asked[0]).toMatchObject({ p_start: '2026-11-16', p_end: '2026-11-16' });
     expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
-    expect(screen.getByText('Nov 15, 2026 12:00 AM To Nov 16, 2026 12:00 AM')).toBeTruthy();
+    expect(screen.getByText('Nov 15, 2026 12:00 AM To Now')).toBeTruthy();
     expect(screen.getByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
   });
 
@@ -924,4 +941,42 @@ describe('the union invoice basis', () => {
       ).length
     ).toBeGreaterThan(0);
   });
+});
+
+it('starts a fresh visit on today even with a saved previous preset', async () => {
+  localStorage.setItem('ca_player_preference:guest:club/ClubDataSimplePage:preset', '14');
+  localStorage.setItem('ca_player_preference:owner-1:club/ClubDataSimplePage:preset', '14');
+  rpcMock.mockResolvedValue({ data: live, error: null });
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  expect(screen.getByRole('button', { name: '1 Day' })).toHaveAttribute('aria-pressed', 'true');
+  expect(rpcMock).toHaveBeenCalledWith(
+    'ca_club_data_screen',
+    expect.objectContaining({ p_start: today, p_end: today })
+  );
+});
+
+it('selects Monday through Sunday as seven inclusive accounting dates', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
+  rpcMock.mockResolvedValue({
+    data: {
+      ...live,
+      accounting_basis: 'union_invoice_accounting',
+      day_basis: 'America/Chicago 02:00',
+    },
+    error: null,
+  });
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+  selectCalendarDay('2026-11-09');
+  selectCalendarDay('2026-11-15');
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+  await waitFor(() =>
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: '2026-11-09',
+      p_end: '2026-11-15',
+    })
+  );
 });

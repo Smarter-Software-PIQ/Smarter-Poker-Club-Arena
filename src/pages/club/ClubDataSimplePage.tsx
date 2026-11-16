@@ -28,12 +28,12 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * records: Fee is the rake credited to the club, Total Winnings the players'
  * accounting result. Any other club keeps Chicago midnight days. The reader
  * says which basis it answered on, and the page labels and counts by it.
- * The page carries the first and last day (what the readers take); it SHOWS
- * and SELECTS the window by its boundaries, and the end date is the boundary
- * the window stops at: Nov 2 to Nov 9 is [Nov 2 02:00, Nov 9 02:00), seven
- * days, the invoice week, never eight. The URL carries the same pair
- * (dataStart, dataUntil); a legacy dataEnd is still read as the last day.
- * Times on the page are Chicago time.
+ * The page and calendar carry the first and last day, inclusive, just as the
+ * readers do. Nov 9 through Nov 15 is Monday through Sunday, seven days.
+ * New URLs carry dataStart/dataEnd; older exclusive dataUntil links remain readable.
+ * The calendar selects inclusive dates: the same date twice selects one day.
+ * A fresh visit and every 1 Day preset start on today; explicit links retain their range.
+ * Boundary timestamps on the page are Chicago time.
  * The full operator report (union statement, per-player breakdown, export)
  * lives one tap away at ./advanced.
  */
@@ -46,9 +46,11 @@ import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
-import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
+import { clubDataRangeDays, clubDataRangeError, readClubDataRange } from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
 import DataHelpTip from '../../components/club/DataHelpTip';
+import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
+import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
@@ -186,9 +188,8 @@ export function addDays(iso: string, days: number): string {
 }
 
 /**
- * The window a date picker asks for: from the start of `start` to the start
- * of `until` (the boundary it stops at), so the readers get the last day
- * `until - 1`. Null when the pair is not a window the readers accept.
+ * Legacy exclusive-boundary links stop at the start of `until`, so their
+ * last day is `until - 1`. The visible calendar uses inclusive dates instead.
  */
 export function clubDataWindowError(start: string, until: string, today: string): string | null {
   if (!isCalendarDate(until)) return 'Choose A Start And End Date.';
@@ -259,7 +260,8 @@ export default function ClubDataSimplePage() {
   const clubParam = params.clubId || searchParams.get('club') || '';
 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
-  const [preset, setPreset] = usePlayerPreference<Preset>('club/ClubDataSimplePage:preset', 1);
+  // A fresh visit starts today, regardless of a previously saved preset.
+  const [preset, setPreset] = useState<Preset>(1);
   // The day this club counts, as its last answer stated it (calendar until an
   // answer says otherwise). A union club's day starts at 02:00 Chicago.
   const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('calendar');
@@ -269,36 +271,22 @@ export default function ClubDataSimplePage() {
   const today = clubDataToday(new Date(), dayBasis);
   // Access hydration can unmount this page. Public date filters belong to the
   // route so refreshes and browser history retain the requested reporting window.
-  // dataUntil is the boundary the window stops at (the date the picker shows);
-  // a legacy dataEnd is the last day itself.
-  const requestedUntil = searchParams.get('dataUntil');
-  const requestedEnd =
-    requestedUntil !== null
-      ? isCalendarDate(requestedUntil)
-        ? addDays(requestedUntil, -1)
-        : ''
-      : (searchParams.get('dataEnd') ?? '');
-  const requestedStart = searchParams.get('dataStart');
-  const validRange =
-    (requestedUntil === null ||
-      !clubDataWindowError(requestedStart ?? requestedEnd, requestedUntil, today)) &&
-    !clubDataRangeError(requestedStart ?? requestedEnd, requestedEnd, today);
-  const endDate = validRange ? requestedEnd : currentDay;
-  const customStart = validRange ? requestedStart : null;
+  // Inclusive dataEnd is the last selected day. Older dataUntil links remain exclusive.
+  const requestedRange = readClubDataRange(searchParams, today);
+  const endDate = requestedRange?.end ?? currentDay;
+  const customStart = requestedRange?.start ?? null;
   const selectDates = (start: string | null, end: string) => {
+    if (end === clubDataToday(new Date(), dayBasisRef.current)) setCurrentDay(end);
     const next = new URLSearchParams(searchParams);
     if (start !== null) next.set('dataStart', start);
     else next.delete('dataStart');
-    next.delete('dataEnd');
+    next.delete('dataUntil');
     if (start !== null || end !== clubDataToday(new Date(), dayBasisRef.current)) {
-      next.set('dataUntil', addDays(end, 1));
-    } else next.delete('dataUntil');
+      next.set('dataEnd', end);
+    } else next.delete('dataEnd');
     setSearchParams(next);
   };
   const [editingDates, setEditingDates] = useState(false);
-  const [draftStart, setDraftStart] = useState('');
-  const [draftEnd, setDraftEnd] = useState('');
-  const [rangeError, setRangeError] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<'total_winnings' | 'mtt_winnings' | 'fee' | null>(
     null
   );
@@ -554,22 +542,8 @@ export default function ClubDataSimplePage() {
     setCurrentDay(clubDataToday(new Date(), dayBasis));
   }, [dayBasis]);
 
-  // When the day turns over on an open "today" view, follow it.
-  useEffect(() => {
-    const followDay = () => {
-      const now = clubDataToday(new Date(), dayBasisRef.current);
-      setCurrentDay(now);
-    };
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') followDay();
-    };
-    const id = window.setInterval(followDay, 30_000);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      window.clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, []);
+  // Explicit URL dates stay fixed; only an unpinned today view follows midnight.
+  useClubDataDayRollover(dayBasis, setCurrentDay);
 
   // Search waits for the typing to stop.
   useEffect(() => {
@@ -597,9 +571,12 @@ export default function ClubDataSimplePage() {
     visibleSnapshot?.member_fees?.definition === 'downline_accounting_fees' ||
     visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS;
   const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
-  const windowLabel =
+  const completeWindowLabel =
     (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
     clubDataWindowLabel(startDate, endDate, answerBasis);
+  const windowLabel = isToday
+    ? completeWindowLabel.replace(/ To .*$/, ' To Now')
+    : completeWindowLabel;
   const startClock = clubDataBoundaryClock(answerBasis, startDate);
   const boundaryClock = clubDataBoundaryClock(answerBasis, addDays(endDate, 1));
   const feeText = isDownline
@@ -638,7 +615,10 @@ export default function ClubDataSimplePage() {
         /* The full report is the whole club's; an agent's view is his own. */
         onAdvanced={
           visibleSnapshot?.scope === 'club'
-            ? () => navigate(`/clubs/${clubKey}/data/advanced`)
+            ? () =>
+                navigate(
+                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ dataStart: startDate, dataEnd: endDate })}`
+                )
             : undefined
         }
       />
@@ -666,11 +646,6 @@ export default function ClubDataSimplePage() {
           aria-expanded={editingDates}
           aria-controls="club-data-date-range"
           onClick={() => {
-            setDraftStart(startDate);
-            // The end the owner picks is the 02:00 boundary the window stops
-            // at, the day after the last accounting day it holds.
-            setDraftEnd(addDays(endDate, 1));
-            setRangeError(null);
             setEditingDates((open) => !open);
           }}
         >
@@ -691,50 +666,19 @@ export default function ClubDataSimplePage() {
       </div>
 
       {editingDates && (
-        <form
-          id="club-data-date-range"
-          className={styles.dateEditor}
-          onSubmit={(event) => {
-            event.preventDefault();
-            // draftEnd is the boundary; the readers take the last day it closes.
-            const problem = clubDataWindowError(draftStart, draftEnd, today);
-            setRangeError(problem);
-            if (problem) return;
-            selectDates(draftStart, addDays(draftEnd, -1));
+        <ClubDataRangeCalendar
+          start={startDate}
+          end={endDate}
+          today={today}
+          zoneLabel={
+            answerBasis === 'accounting' ? 'Pacific Accounting Dates' : 'Chicago Calendar Dates'
+          }
+          onClose={() => setEditingDates(false)}
+          onApply={(first, last) => {
+            selectDates(first, last);
             setEditingDates(false);
           }}
-        >
-          <label>
-            Start Date
-            <input
-              type="date"
-              aria-label="Start Date"
-              value={draftStart}
-              max={draftEnd ? addDays(draftEnd, -1) : today}
-              onChange={(event) => setDraftStart(event.target.value)}
-              required
-            />
-          </label>
-          <label>
-            End Date
-            <input
-              type="date"
-              aria-label="End Date"
-              value={draftEnd}
-              min={draftStart ? addDays(draftStart, 1) : undefined}
-              max={addDays(today, 1)}
-              onChange={(event) => setDraftEnd(event.target.value)}
-              required
-            />
-          </label>
-          {rangeError && <p role="alert">{rangeError}</p>}
-          <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
-            Cancel
-          </button>
-          <button type="submit" className={styles.retry}>
-            Apply Dates
-          </button>
-        </form>
+        />
       )}
       <div className={styles.segment} role="group" aria-label="Date Range">
         {PRESETS.map((p) => (
@@ -744,7 +688,7 @@ export default function ClubDataSimplePage() {
             aria-pressed={customStart === null && preset === p}
             className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
             onClick={() => {
-              selectDates(null, endDate);
+              selectDates(null, clubDataToday(new Date(), dayBasisRef.current));
               setPreset(p);
               setEditingDates(false);
             }}
@@ -832,7 +776,7 @@ export default function ClubDataSimplePage() {
         </div>
       </dl>
       {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
-        <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={customStart} />
+        <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={startDate} />
       )}
       {breakdown && visibleSnapshot && clubUuid && userId && (
         <ClubDataTotalsBreakdown
@@ -887,7 +831,8 @@ export default function ClubDataSimplePage() {
         <DataHelpTip alert={Boolean(notices.incomplete)}>
           <p>
             {clubDataDayRule(answerBasis)}. The Window Starts At {startClock} On The Start Date And
-            Stops At {boundaryClock} On The End Date. Up To 93 Days.
+            Stops At {boundaryClock} After The Last Selected Day. Both Selected Dates Are Included.
+            Up To 93 Days.
           </p>
           {visibleSnapshot && unionBasis && <p>{UNION_BASIS_DEFINITIONS}</p>}
           {unionBasis && (
