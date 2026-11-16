@@ -101,6 +101,7 @@ for i in range(0,44):
     if stage(r)=='round_paid' and json.loads(r['out'])['round']==2:
         snap_r2=one(SNAP); exec((F/'between-rounds.py').read_text())
         exec((F/'stale-player-window.py').read_text())
+        exec((F/'cashier-player-read.py').read_text())
         assert one(SNAP)==snap_r2,'a between-rounds probe left something behind'
         armed=('round 3 killed at the TQ player leg',arm("NEW.to_entity_id=rr.u('TQ') AND NEW.category='rakeback'",'round 3 killed at TQ'))
         exec((F/'credit-cutoff.py').read_text())
