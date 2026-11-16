@@ -6,7 +6,11 @@ import {
   styleSwitchStatesFrom,
 } from '../HorseStyleSwitch.js';
 import { isHorseDecisionReplayState } from './replayState.js';
-import { noteStyleShadowEngaged } from '../HorseStyleShadow.js';
+import {
+  noteStyleEngaged,
+  noteStyleShadowEngaged,
+  takeStyleLiveEngaged,
+} from '../HorseStyleShadow.js';
 import { HORSE_PHASE14_DOMAINS } from '../HorsePhase14Authority.js';
 import { HandController } from '../HandController.js';
 import { priceDiamondCashFees } from '../../domain/diamondCashFeeSnapshot.js';
@@ -6651,5 +6655,258 @@ describe('style read live switch and shadow in the live worker (2026-11-13)', ()
     h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
     await h.runtime.drain();
     expect(h.decisionOpts).toHaveLength(1);
+  });
+});
+
+describe('live style engagement receipts in the live worker (2026-11-15)', () => {
+  const TABLE = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const LIGHTNING = { version: 1, speed: 'lightning', ante: 'none' } as const;
+  const CLASSIC = { version: 1, speed: 'table', ante: 'none' } as const;
+
+  /** A cash request on a fresh hand, in the given public memory domain (null: none). */
+  function requestFor(
+    domain: typeof LIGHTNING | typeof CLASSIC | null,
+    hand = 1_000_101
+  ): FastHorseDecisionRequest {
+    const request = independentFastForHand(TABLE, hand, '9');
+    if (domain) request.gameState.publicMemoryDomain = domain;
+    return rekey(request);
+  }
+
+  /**
+   * A brain whose ON options act: each listed option that arrives explicitly true records that it engaged (when
+   * `engage` says so for this call, numbered from 1) and turns the committed call into a fold; with the option off
+   * the call stands. An option in shadow records its shadow engagement, as the real consumers do.
+   */
+  function live(
+    options: Record<string, string>,
+    acting: string[],
+    {
+      engage = () => true,
+      changes = true,
+      twice = false,
+    }: { engage?: (call: number) => boolean; changes?: boolean; twice?: boolean } = {}
+  ) {
+    const fastAtPost: number[] = [];
+    const notedOn: Array<{ call: number; option: string }> = [];
+    const h = harness(false, (m) => {
+      if (m.type === 'FAST_RESULT') fastAtPost.push(h.decisionOpts.length);
+    });
+    const base = h.deps.decide;
+    let call = 0;
+    h.deps.decide = (player, gameState, style, mods, opts, ...rest) => {
+      const out = base(player, gameState, style, mods, opts, ...rest);
+      call++;
+      const o = (opts ?? {}) as Record<string, unknown>;
+      let acted = false;
+      for (const name of acting) {
+        if (o[name] === true) {
+          if (engage(call)) {
+            noteStyleEngaged(name as never, 0.7, 'on');
+            if (twice) noteStyleEngaged(name as never, 0.2, 'on');
+            notedOn.push({ call, option: name });
+          }
+          acted = true;
+        } else if ((opts?.styleShadow ?? []).includes(name as never) && engage(call))
+          noteStyleShadowEngaged(name as never, 0.5);
+      }
+      return acted && changes ? { ...out, action: 'fold', amount: 0 } : out;
+    };
+    h.deps.styleSwitch = new StyleSwitchHolder(
+      (nowMs: number) => ({ kind: 'present', receivedAtMs: nowMs, raw: { version: 1, options } }),
+      (f) => h.features.push(f)
+    );
+    return { h, fastAtPost, notedOn };
+  }
+
+  const receipts = (features: string[]) => features.filter((f) => f.startsWith('style_shadow.'));
+  const engagedKeys = (features: string[]) =>
+    features.filter((f) => f.startsWith('style_engaged_'));
+  const liveKeys = (features: string[]) => features.filter((f) => f.startsWith('style_live'));
+
+  it('(a) Lightning: an engaged ON option is counted once under format l, and nothing re-decides', async () => {
+    const { h, fastAtPost } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('fold');
+    expect(fastAtPost).toEqual([1]);
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(h.decisionOpts[0].styleFoldBluff).toBe(true);
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_l_seen']);
+    expect(receipts(h.features)).toEqual([]);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_shadow_redecide');
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_live_redecide');
+  });
+
+  it('(a) Classic cash (table speed) is format c', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(requestFor(CLASSIC));
+    await h.runtime.drain();
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_c_seen']);
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('(a) a cash game with no memory domain is Classic cash', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(requestFor(null));
+    await h.runtime.drain();
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_c_seen']);
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('(a) a tournament is format t', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(phase6TournamentRequest(81));
+    await h.runtime.drain();
+    expect(h.messages.at(-1)).toMatchObject({ type: 'FAST_RESULT', requestId: 81 });
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_t_seen']);
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('several ON options engaged: each is counted once, and the decision is still not repeated', async () => {
+    const acting = ['styleFoldBluff', 'styleRaiseRespect', 'styleValueExtraction'];
+    const { h } = live(
+      { styleFoldBluff: 'on', styleRaiseRespect: 'on', styleValueExtraction: 'on' },
+      acting,
+      { twice: true }
+    );
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(engagedKeys(h.features)).toEqual([
+      'style_engaged_fb_l_seen',
+      'style_engaged_rr_l_seen',
+      'style_engaged_ve_l_seen',
+    ]);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.features).not.toContain('style_shadow_rotated_out_seen');
+  });
+
+  it('an ON option that did not engage: no counter, no re-decision (as before)', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff'], { engage: () => false });
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(engagedKeys(h.features)).toEqual([]);
+    expect(liveKeys(h.features)).toEqual([]);
+  });
+
+  it('an ON option that engages without changing the action is counted the same way', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff'], { changes: false });
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_l_seen']);
+    expect(receipts(h.features)).toEqual([]);
+  });
+
+  it('(b) the committed decision and RNG are identical with and without engagement recording', async () => {
+    const runs = [];
+    for (const engage of [true, false]) {
+      const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff'], { engage: () => engage });
+      h.setRng(777);
+      h.runtime.receive(requestFor(LIGHTNING));
+      await h.runtime.drain();
+      runs.push({
+        h,
+        fast: h.messages.filter((m) => m.type === 'FAST_RESULT'),
+        rngAfterAll: h.rng(),
+      });
+    }
+    const [recorded, unrecorded] = runs;
+    expect(engagedKeys(recorded.h.features)).toEqual(['style_engaged_fb_l_seen']);
+    expect(engagedKeys(unrecorded.h.features)).toEqual([]);
+    expect(recorded.h.decisionOpts).toHaveLength(1);
+    expect(unrecorded.h.decisionOpts).toHaveLength(1);
+    expect(recorded.h.decisionsAtRng).toEqual(unrecorded.h.decisionsAtRng);
+    // the sent result (decision, amount, rngBefore, rngAfter, effects, authorities) is the same either way
+    expect(recorded.fast).toHaveLength(1);
+    // (authority epochs are random per runtime, so they are left out of the comparison)
+    const sentAs = (m: unknown) => JSON.stringify(m, (k, v) => (k === 'epoch' ? undefined : v));
+    expect(sentAs(recorded.fast)).toBe(sentAs(unrecorded.fast));
+    // and the worker's random stream after the turn is where it is without the recording
+    expect(recorded.rngAfterAll).toBe(unrecorded.rngAfterAll);
+    expect(recorded.h.appliedEffects).toEqual(unrecorded.h.appliedEffects);
+    expect(recorded.h.restored).toEqual(unrecorded.h.restored);
+    // the only difference in what the worker counted is the engagement receipt itself
+    expect(recorded.h.features.filter((f) => !f.startsWith('style_engaged_'))).toEqual(
+      unrecorded.h.features
+    );
+  });
+
+  it('(d) the shadow arm is unchanged: on Lightning its receipt keeps format c, and no engagement is counted', async () => {
+    const { h, fastAtPost } = live({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    const request = requestFor(LIGHTNING);
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('call');
+    expect(fastAtPost).toEqual([1]);
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(h.decisionOpts[1]).toMatchObject({ styleFoldBluff: true, styleShadow: [] });
+    expect(receipts(h.features)).toEqual([
+      `style_shadow.fb.c.${request.gameState.gameVariant}.p.c.f.s_seen`,
+    ]);
+    expect(engagedKeys(h.features)).toEqual([]);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).toContain('style_shadow_redecide');
+  });
+
+  it('(d) a shadow and an ON option both engaged: the one re-decision is the shadow one, the ON one is only counted', async () => {
+    const { h } = live({ styleFoldBluff: 'shadow', styleRaiseRespect: 'on' }, [
+      'styleFoldBluff',
+      'styleRaiseRespect',
+    ]);
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    // the one re-decision is the shadow one (fb on, rr still on), exactly as before
+    expect(h.decisionOpts[1]).toMatchObject({ styleFoldBluff: true, styleRaiseRespect: true });
+    expect(h.features).toContain('style_shadow_unchanged_seen');
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_rr_l_seen']);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_live_redecide');
+  });
+
+  it('what a shadow re-decision records for an ON option after the take is cleared before the next decision', async () => {
+    // control: the shadow re-decision (call 2) runs the shadow option explicitly on and the ON option still on, so
+    // both record an ON engagement after the decision's take
+    const control = live({ styleFoldBluff: 'shadow', styleRaiseRespect: 'on' }, [
+      'styleFoldBluff',
+      'styleRaiseRespect',
+    ]);
+    control.h.runtime.receive(requestFor(LIGHTNING));
+    await control.h.runtime.drain();
+    expect(control.notedOn).toEqual([
+      { call: 1, option: 'styleRaiseRespect' },
+      { call: 2, option: 'styleFoldBluff' },
+      { call: 2, option: 'styleRaiseRespect' },
+    ]);
+    expect(engagedKeys(control.h.features)).toEqual(['style_engaged_rr_l_seen']);
+    expect(takeStyleLiveEngaged()).toEqual([
+      { option: 'styleFoldBluff', confidence: 0.7 },
+      { option: 'styleRaiseRespect', confidence: 0.7 },
+    ]);
+
+    // the next decision (nothing engages in it) starts by clearing those entries, so neither is ever counted
+    const { h, notedOn } = live(
+      { styleFoldBluff: 'shadow', styleRaiseRespect: 'on' },
+      ['styleFoldBluff', 'styleRaiseRespect'],
+      { engage: (call) => call <= 2 }
+    );
+    h.runtime.receive(requestFor(LIGHTNING, 1_000_101));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(notedOn.map((n) => n.call)).toEqual([1, 2, 2]);
+    const afterFirst = h.features.length;
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_rr_l_seen']);
+    h.runtime.receive(requestFor(LIGHTNING, 1_000_102));
+    await h.runtime.drain();
+    expect(h.messages.filter((m) => m.type === 'FAST_RESULT')).toHaveLength(2);
+    expect(h.decisionOpts).toHaveLength(3);
+    expect(engagedKeys(h.features.slice(afterFirst))).toEqual([]);
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_rr_l_seen']);
   });
 });

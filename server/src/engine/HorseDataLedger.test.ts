@@ -118,6 +118,8 @@ const RECEIPT_ONLY_FILES = [
   // Lightning participation (2026-11-15, default off): the predicate and its cells count their own
   // opportunity, change and refusal receipts where they answer.
   'engine/HorseLightningParticipation.ts',
+  // Lightning cheap entry (2026-11-15, default off): same, for its own receipts.
+  'engine/HorseLightningCheapEntry.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
