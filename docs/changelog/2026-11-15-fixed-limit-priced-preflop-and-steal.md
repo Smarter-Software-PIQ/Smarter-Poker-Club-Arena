@@ -28,9 +28,8 @@ No evaluation: the league deals no fixed limit (refused matchups `flh_priced_pre
 
 ## Live switch (2026-11-15, Fixed-Limit lane)
 
-- Both options are registered in the Horse option switch (release default OFF, owner Fixed-Limit), shipped as the follow-up list migration `20261115212312_horse_option_switch_fixed_limit_preflop.sql`. `fixedLimitStealVsTightBlinds` is off-only by the existing steal hold. Registering changes no decision: with no row every Horse decides as before.
-- `docs/horse-default-on.d/fixedLimitPricedPreflop.md` records the eight evidence rows for switching `fixedLimitPricedPreflop` on by a row after review. Value is measured for unfloored cash tables only; floored tables and tournaments are not yet evaluated.
-- `HorseOptionSwitchMigrationLists.test.ts` (a) now compares the newest list migration to the registry (the same edit as the Fixed-Limit F1 live-switch head), so a first follow-up does not fail it.
+- Both options are registered in the Horse option switch (release default OFF, owner Fixed-Limit), shipped as the follow-up list migration `20261116010528_horse_option_switch_fixed_limit_preflop.sql` (the list below it plus exactly these two names). `fixedLimitStealVsTightBlinds` is off-only by the existing steal hold. Registering changes no decision: with no row every Horse decides as before.
+- `docs/horse-default-on.d/fixedLimitPricedPreflop.md` records the eight evidence rows table type by table type. No ON row is proposed: four cash table types are not measured (see the file), and tournament tables are out of scope by the cash-only gate below.
 
 ## Cash tables only (2026-11-15, Fixed-Limit lane owner)
 
