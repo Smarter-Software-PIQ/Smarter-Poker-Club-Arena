@@ -6,7 +6,7 @@
  * HorseLogic.decide with the live Hybrid persona (HuVariantSpot.test-support).
  */
 import type { HorseDecideOpts } from './HorseLogic.js';
-import { cards, deal, decide, lcg, type Table } from './HuVariantSpot.test-support.js';
+import { cards, deal, decide, lcg, type Fmt, type Table } from './HuVariantSpot.test-support.js';
 
 export const RIVER_BETTOR_SEAT = 2;
 
@@ -20,10 +20,12 @@ export function fixedLimitRiverFacingOneBet(o: {
   seed?: number;
   /** The seat that must face the river bet; default the first non-bettor. */
   hero?: number;
+  /** The table's format; default cash. */
+  fmt?: Fmt;
 }): Table | null {
   const t = deal({
     variant: o.variant,
-    fmt: 'cash',
+    fmt: o.fmt ?? 'cash',
     stacks: Array(o.seats).fill(o.stack),
     ...(o.deck ? { prefix: cards(o.deck) } : { rnd: lcg(o.seed ?? 1) }),
   });
