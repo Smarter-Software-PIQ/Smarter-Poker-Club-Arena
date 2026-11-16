@@ -12,7 +12,7 @@ PLO Strategy built one gate for its 2026-11-15 options (`omahaStrategyGameInScop
 - `HorsePlo6StrategyCalibration.ts`: `PLO6_OMAHA_STRATEGY_ACCESSOR_VALUES` maps each of the accessor's 17 keys to the calibration entry its PLO6 value comes from; `registerPlo6OmahaStrategyCalibration()` registers the keys that differ from the default: `turnRedrawNutFullHouseOnly` 1, `cardImpactDistinctDrawOuts` 1, `bigDrawContinueStraightOuts` 13. `applyPlo6OmahaStrategyCalibration(gateOn)` registers them only for a decision whose gate is on and takes them back otherwise.
 - `HorseDataLedger.ts`: the flag row (V94), default off. `HorseOptionSwitch.ts`: off-only (a hold of the PLO6 lane) and release default off. `HorseReferenceDecisionSources.ts`: the calibration file is a reference source now that `HorseLogic` imports it.
 - `HorseLeague.ts`: the refused matchup `plo6_omaha_strategy_in_plo6`. The gate alone switches no rule on (seed 20261116, 300 pairs, 0 diverged); a card with the ported options on is owed once the port is complete.
-- Option switch whitelist follow-up `supabase/migrations/20261116010600_horse_option_switch_omaha_strategy_in_plo6.sql` (generated; it re-asserts the lists, the option among the off-only names, and switches nothing) and the proof script lists.
+- Option switch whitelist follow-up `supabase/migrations/20261116074500_horse_option_switch_plo6_strategy.sql` (generated; it re-asserts the lists, the option among the off-only names, and switches nothing) and the proof script lists.
 - Authority file `docs/horse-option-authority.d/omahaStrategyInPlo6.md`: OFF-ONLY, evidence NOT MET, the gap list.
 - `HorseOmahaStrategyGame.ts` (PLO Strategy's file) is not changed.
 
