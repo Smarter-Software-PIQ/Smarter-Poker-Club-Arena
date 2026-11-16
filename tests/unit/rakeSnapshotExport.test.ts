@@ -513,3 +513,47 @@ describe('complete immutable Rake exports', () => {
     );
   });
 });
+
+describe('Pacific Data report exports keep their source date basis', () => {
+  it('uses the Pacific start door and retains its basis in the immutable CSV metadata', async () => {
+    const meta = metadata('club', { day_basis: 'America/Los_Angeles 00:00' });
+    const rpc = vi.fn((name: string) => {
+      if (name === 'ca_rake_export_start_pacific_v2') return result(receipt('club', 1, meta));
+      if (name === 'ca_club_data_export_page')
+        return result(page('club', [agentRow(1)], 1, 0, meta));
+      return result(true);
+    }) as ClubDataExportRpc;
+    const exported = await fetchRakeSnapshotExport({
+      rpc,
+      reportBasis: 'pacific',
+      scope: 'club',
+      scopeId: CLUB_ID,
+      start: '2026-09-01',
+      end: '2026-09-13',
+      viewerUserId: VIEWER_ID,
+      requestId: 'pacific-export',
+      signal: new AbortController().signal,
+    });
+    expect(rpc).toHaveBeenCalledWith('ca_rake_export_start_pacific_v2', expect.any(Object));
+    expect(rakeSnapshotExportToCsv(exported)).toContain('America/Los_Angeles 00:00');
+  });
+  it('refuses a legacy receipt when a Pacific report was requested', async () => {
+    const rpc = vi.fn((name: string) =>
+      name === 'ca_rake_export_start_pacific_v2' ? result(receipt('club', 1)) : result(true)
+    ) as ClubDataExportRpc;
+    await expect(
+      fetchRakeSnapshotExport({
+        rpc,
+        reportBasis: 'pacific',
+        scope: 'club',
+        scopeId: CLUB_ID,
+        start: '2026-09-01',
+        end: '2026-09-13',
+        viewerUserId: VIEWER_ID,
+        requestId: 'wrong-basis-export',
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrow();
+    expect(rpc).not.toHaveBeenCalledWith('ca_club_data_export_page', expect.any(Object));
+  });
+});

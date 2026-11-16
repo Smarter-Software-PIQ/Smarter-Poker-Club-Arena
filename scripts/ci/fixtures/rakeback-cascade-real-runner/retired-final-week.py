@@ -11,6 +11,9 @@ try:
       SELECT rr.person('retired-owner');
       INSERT INTO public.clubs(id,name,owner_id,chip_treasury)
       VALUES(rr.u('retired'),'Retired test club',rr.u('retired-owner'),0);
+      SELECT rr.person('retired-deleted');
+      INSERT INTO public.club_members(club_id,user_id,role,status,chip_balance)
+        VALUES(rr.u('retired'),rr.u('retired-deleted'),'player','active',0);
       INSERT INTO public.tournament_rake_settlements(tournament_id,club_id,amount,destination,settled_at)
       VALUES(rr.u('final-tournament'),rr.u('retired'),0.20,'chip_retirement:'||rr.u('retired'),rr.we()-interval '2 days');
       BEGIN;
@@ -42,6 +45,22 @@ try:
     q('BEGIN;'+round2+wallet+wallet+
       ok("(SELECT count(*) FROM public.agents WHERE club_id=rr.u('retired') AND status='wallet_only' AND agent_wallet_balance=0)=1","one empty owner routing wallet")+
       'COMMIT;')
+    round3 = owner.replace("rr.we(),1);","rr.we(),3);")
+    refund = "SELECT public.fn_ca_deleted_wallet_bank_return(rr.u('retired'),rr.u('retired-deleted'),'player_wallet')"
+    # A real one-cent journal credit from the already-funded bank. Set the
+    # profile's status after the credit so the return is exercised explicitly.
+    q('BEGIN;'+round3+"""
+      SELECT public.fn_ca_declare_ledger('club_bank_send','club_treasury',rr.u('retired'),NULL,'retired-fixture-cent',ARRAY['clubs']);
+      UPDATE public.club_members SET chip_balance=chip_balance+0.01 WHERE club_id=rr.u('retired') AND user_id=rr.u('retired-deleted');
+      UPDATE public.clubs SET chip_treasury=chip_treasury-0.01 WHERE id=rr.u('retired');
+      UPDATE public.profiles SET status='deleted' WHERE id=rr.u('retired-deleted');
+      COMMIT;""")
+    assert 'not_active_chip_club' in q('BEGIN;'+round3+refund+';ROLLBACK;').stdout
+    q((R/'supabase/migrations/20261116163600_return_deleted_player_wallets_in_a_retired_clubs_final_round.sql').read_text())
+    assert 'not_active_chip_club' in q(refund).stdout
+    q('BEGIN;'+round3+refund+';'+refund+';'+
+      ok("rr.bank('retired')=0.20 AND (SELECT chip_balance FROM public.club_members WHERE user_id=rr.u('retired-deleted'))=0","retired bank receives the deleted wallet cent once")+
+      ok("(SELECT count(*) FROM public.chip_ledger WHERE club_id=rr.u('retired') AND category='club_bank_claim' AND amount=0.01)=1","exactly one matching bank return debit")+ 'COMMIT;')
     case('retired final week: a pre-retirement fee uses the owned bank and ledger once, with the original paid union receipt intact')
 finally:
     DB = 'postgres'

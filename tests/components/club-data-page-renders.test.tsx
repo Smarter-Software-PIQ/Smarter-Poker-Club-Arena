@@ -9,10 +9,10 @@ const FIXTURE_NOW = vi.hoisted(() => {
   return now;
 });
 
-// Club Data counts America/Chicago days (20261022120121): today is the Chicago date.
-const chicagoToday = (): string =>
+// Current Data reports count Pacific calendar dates for every club.
+const pacificToday = (): string =>
   new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
+    timeZone: 'America/Los_Angeles',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -20,7 +20,7 @@ const chicagoToday = (): string =>
 
 const CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
-const TEST_END_DATE = chicagoToday();
+const TEST_END_DATE = pacificToday();
 const testRangeStart = new Date(`${TEST_END_DATE}T00:00:00Z`);
 testRangeStart.setUTCDate(testRangeStart.getUTCDate());
 const TEST_START_DATE = testRangeStart.toISOString().slice(0, 10);
@@ -382,7 +382,7 @@ describe('ClubDataPage', () => {
   });
 
   it('paints a recent verified snapshot immediately while the live RPC revalidates', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(`${endDate}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate());
     const cachedSnapshot = {
@@ -421,7 +421,7 @@ describe('ClubDataPage', () => {
   });
 
   it('rejects a cached game ledger that claims another page without a cursor', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(`${endDate}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate());
     const queryKey = clubDataQueryKey({
@@ -509,7 +509,7 @@ describe('ClubDataPage', () => {
   });
 
   it('rejects a cached player ledger that claims another page without a cursor', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(`${endDate}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate());
     const queryKey = clubDataQueryKey({
@@ -1918,7 +1918,7 @@ describe('ClubDataPage', () => {
   });
 
   it('revalidates a cached player sort without accepting the previous sort response', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(endDate + 'T00:00:00Z');
     start.setUTCDate(start.getUTCDate());
     const loser = {
@@ -2308,7 +2308,7 @@ describe('ClubDataPage', () => {
 
   it('keeps an expanded recent ledger through the 60-second verified refresh', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now: FIXTURE_NOW });
-    expect(chicagoToday()).toBe(snapshot.range.end);
+    expect(pacificToday()).toBe(snapshot.range.end);
     const recentRows = Array.from({ length: 200 }, (_, index) => ({
       ...snapshot.rows[0],
       id: `heartbeat-game-${index + 1}`,
@@ -2370,7 +2370,7 @@ describe('ClubDataPage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(chicagoToday()).toBe(snapshot.range.end);
+      expect(pacificToday()).toBe(snapshot.range.end);
 
       // Two hundred ledger rows render after the page lands; under a loaded CI
       // runner that took longer than the default 1s (publish run 38981365558).
@@ -2385,7 +2385,7 @@ describe('ClubDataPage', () => {
   });
 
   it('revalidates a cached game sort without accepting the previous sort response', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(endDate + 'T00:00:00Z');
     start.setUTCDate(start.getUTCDate());
     const cachedFee = { ...snapshot.rows[0], id: 'cached-fee', name: 'Cached Fee Game' };
@@ -2910,7 +2910,7 @@ it('updates an open report from legacy exclusive links to inclusive single-day n
   );
 });
 
-it('revalidates an explicit date that becomes tomorrow when Pacific basis is discovered', async () => {
+it('rejects a future Pacific date before its first read', async () => {
   vi.setSystemTime(new Date('2026-11-16T07:30:00Z'));
   routeState.search = new URLSearchParams('dataStart=2026-11-16&dataEnd=2026-11-16');
   rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
@@ -2946,7 +2946,25 @@ it('revalidates an explicit date that becomes tomorrow when Pacific basis is dis
   render(<ClubDataPage />);
   await screen.findByText('Shark Table One');
   const calls = rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2');
-  expect(calls).toHaveLength(2);
-  expect(calls[0][1]).toMatchObject({ p_start: '2026-11-16', p_end: '2026-11-16' });
-  expect(calls[1][1]).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1]).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+});
+
+it('clears Advanced totals and cached rows when Pacific source coverage becomes incomplete', async () => {
+  render(<ClubDataPage />);
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+  await screen.findByText('Shark Table One');
+  expect(Object.keys(sessionStorage).some((key) => key.includes('kind=games'))).toBe(true);
+  const previousRpc = rpcMock.getMockImplementation()!;
+  rpcMock.mockImplementation(async (name: string, args?: Record<string, unknown>) =>
+    name === 'ca_club_data_snapshot_v2' || name === 'ca_club_game_page'
+      ? { data: null, error: { code: 'P0001', message: 'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE' } }
+      : previousRpc(name, args)
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
+  await screen.findByText(
+    'Pacific Day Data Is Not Yet Complete. Totals Are Unavailable Until The Selected Days Are Verified.'
+  );
+  expect(screen.queryByText('Shark Table One')).toBeNull();
+  expect(Object.keys(sessionStorage).some((key) => key.includes('kind=games'))).toBe(false);
 });

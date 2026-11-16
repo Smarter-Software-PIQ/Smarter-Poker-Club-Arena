@@ -73,3 +73,13 @@ export function clubDataListState({
 /** What an unavailable list says when no more specific message was set. */
 export const CLUB_GAMES_UNAVAILABLE_COPY = 'Could Not Load Club Data.';
 export const CLUB_PLAYERS_UNAVAILABLE_COPY = 'Could Not Load Player Data.';
+
+/** Historical Pacific totals must not be mistaken for an empty/live result. */
+export const CLUB_DATA_PACIFIC_INCOMPLETE_COPY =
+  'Pacific Day Data Is Not Yet Complete. Totals Are Unavailable Until The Selected Days Are Verified.';
+
+export function isClubDataPacificIncomplete(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.includes('CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE');
+}
