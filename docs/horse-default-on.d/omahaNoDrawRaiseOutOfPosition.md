@@ -54,3 +54,7 @@ Status: MET
 - A draw raise chosen inside a signed policy graph before the wager rules, and a raise chosen by an authority-backed pack selection, are converted by the final rule only where the worker receipt validator admits the change with the request.
 - One pair with a draw counts as a draw; one pair with no draw is not covered.
 - Live behaviour is unverified: the option is off.
+
+## The combo draw made precise (2026-11-16, owner 12:30 and 12:52)
+
+One definition (`omahaComboDrawForRaise`, `HorseOmahaBigDrawAggression.ts`) serves omahaTurnRiverRaiseNeedsNuts's in-position turn exception, omahaNoDrawRaiseOutOfPosition's bar and omahaBigDrawAggression's in-position raise: a hand below two pair holding a flush draw (five or more flush outs) together with a straight draw of eight or more outs, a 13+ out wrap with a flush draw included; straight outs are counted by rank under the two-card rule, a card that also completes the flush included (`omahaComboStraightOuts`). A pair adds nothing: a pair with the nut flush draw is not a combo draw, nor a pair with the nut flush draw and a gutshot (it does not raise), nor a pair with a wrap and no flush draw. Before this, a strong pair with any draw counted (and in the big-draw rule every class but the bare wrap). Tests: HorseOmahaBigDrawAggression.test.ts (`omahaComboDrawForRaise`).

@@ -36,3 +36,7 @@ HorseOmahaBigDrawAggression.test.ts, HorseOmahaStrategyPrecedence.test.ts (all p
 ## Limits
 
 No evaluation run; one-street model; the 0.8 out-of-position realisation and the 0.42 default fold rate are assumptions; the measured human fold to a Horse raise was 20 of 114.
+
+## The combo draw made precise (2026-11-16, owner 12:30 and 12:52)
+
+One definition (`omahaComboDrawForRaise`, `HorseOmahaBigDrawAggression.ts`) serves omahaTurnRiverRaiseNeedsNuts's in-position turn exception, omahaNoDrawRaiseOutOfPosition's bar and omahaBigDrawAggression's in-position raise: a hand below two pair holding a flush draw (five or more flush outs) together with a straight draw of eight or more outs, a 13+ out wrap with a flush draw included; straight outs are counted by rank under the two-card rule, a card that also completes the flush included (`omahaComboStraightOuts`). A pair adds nothing: a pair with the nut flush draw is not a combo draw, nor a pair with the nut flush draw and a gutshot (it does not raise), nor a pair with a wrap and no flush draw. Before this, a strong pair with any draw counted (and in the big-draw rule every class but the bare wrap). Tests: HorseOmahaBigDrawAggression.test.ts (`omahaComboDrawForRaise`).
