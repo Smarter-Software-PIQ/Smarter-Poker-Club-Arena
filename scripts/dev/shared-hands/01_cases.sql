@@ -49,3 +49,16 @@ SET ROLE anon;
 SELECT pg_temp.check('a deleted sender''s link opens nothing', fn_ca_shared_hand_open('Zz23Zz23') = '{"found": false}'::jsonb);
 SELECT pg_temp.check('a malformed token opens nothing', fn_ca_shared_hand_open('../../etc') = '{"found": false}'::jsonb);
 RESET ROLE;
+
+-- The short-link store transports the browser's recording opaquely. It only
+-- admits a larger payload inside the versioned hand's presentation field.
+SELECT translate(rtrim(replace(encode(convert_to('v4' || repeat('~x',20) ||
+  '~3o.' || repeat('abcd', 1900),'UTF8'),'base64'), E'\n',''),'='),'+/','-_') AS captured \gset
+SET ROLE authenticated; SELECT pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+SELECT fn_ca_shared_hand_reserve(:'captured') ->> 'token' AS recorded_token \gset
+SELECT pg_temp.check('a long recording receives a short token', length(:'recorded_token') = 8);
+SELECT pg_temp.check('unstructured large payload is refused', fn_ca_shared_hand_reserve(repeat('a',12000)) ->> 'code' = 'bad_payload');
+RESET ROLE;
+SET ROLE anon; SELECT pg_temp.as_user('');
+SELECT pg_temp.check('signed-out replay retrieves the complete recording', fn_ca_shared_hand_open(:'recorded_token',false) ->> 'payload' = :'captured');
+RESET ROLE;

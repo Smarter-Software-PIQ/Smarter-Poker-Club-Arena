@@ -1,3 +1,7 @@
+import { captureChip, type SharedChip } from '../lib/sharedChipFlights';
+import { seatPaint, type SeatPaint, type SeatPaintEvent } from '../lib/sharedSeatPresentation';
+import type { SeatSlotProps } from '../components/table/SeatSlot';
+import { throwSeed, type SharedThrow } from '../lib/sharedThrows';
 import { useActionControllerSettings } from '../hooks/useActionControllerSettings';
 import { lightningJackpotAward } from '../lightning/lightningJackpotAward';
 import { lightningSeatKey } from '../lightning/lightningSeatKey';
@@ -139,6 +143,7 @@ import { TournamentLateRegCallToAction } from '../components/table/TournamentLat
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   startTransition,
@@ -210,7 +215,8 @@ import { useHeldValue } from '../hooks/useHeldValue';
 import { useVIPStatus } from '../hooks/useVIP';
 import { CommunityCards } from '../components/table/CommunityCards';
 import { DealerButton } from '../components/table/DealerButton';
-import { DealAnimation } from '../components/table/DealAnimation';
+import type { SharedDeal } from '../lib/sharedDeal';
+import { DealAnimation, type DealFrame } from '../components/table/DealAnimation';
 import { ActionClockWarning } from '../components/table/ActionClockReadouts';
 import type { SeatPlayer, Card, LastAction, PositionBadge } from '../components/table/SeatSlot';
 import type { SidePot } from '../components/table/PotDisplay';
@@ -242,6 +248,10 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
  * table_id values working.
  */
 
+import { boardStreet, type SharedBoardTiming } from '../lib/sharedBoardTiming';
+import { captureTableGeometry } from '../lib/sharedTableGeometry';
+import { TableScene } from '../components/table/TableScene';
+import TableFelt from '../components/table/TableFelt';
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
 
 import {
@@ -10663,8 +10673,10 @@ function LiveTablePage({
   const shareAppearance = {
     faceDeck: v8Theme.faceDeckId,
     showAvatars: v8Settings.show_avatars,
+    showStackInBB: v8Settings.show_stack_in_bb,
     skin: tableSkinId,
     background: tableBackgroundId,
+    buttonSkin: v8Theme.button_id || 'classic-white',
     cardBack: activeCardBack,
     fourColor: !!userSettings.fourColorDeck,
     maxPlayers: tableState.maxPlayers,
@@ -11093,6 +11105,131 @@ function LiveTablePage({
     Array<{ seat: number; action: string; amount?: number; street: string; atMs?: number }>
   >([]);
   const shareStartedAt = useRef<number | null>(null);
+  const paintedSeats = useRef<{
+    hand: number;
+    latest: Map<number, SeatPaint>;
+    events: SeatPaintEvent[];
+  }>({ hand: 0, latest: new Map(), events: [] });
+  const paintedChips = useRef<{ seen: Set<string>; paths: SharedChip[] }>({
+    seen: new Set(),
+    paths: [],
+  });
+  const observeChipFlights = useCallback(
+    (events: ChipAnimationEvent[]) => {
+      if (
+        !events.length ||
+        !isActive ||
+        document.hidden ||
+        shareStartedAt.current == null ||
+        paintedSeats.current.hand !== tableState.handNumber
+      )
+        return;
+      const rect = tableScalerRef.current?.getBoundingClientRect();
+      if (!rect?.width || !rect.height) return;
+      const at = Math.round(performance.now() - shareStartedAt.current);
+      for (const event of events) {
+        if (paintedChips.current.seen.has(event.id) || paintedChips.current.paths.length >= 4096)
+          continue;
+        paintedChips.current.seen.add(event.id);
+        paintedChips.current.paths.push(captureChip(at, event, rect));
+      }
+    },
+    [isActive, tableState.handNumber]
+  );
+  const paintedDeal = useRef<SharedDeal | undefined>(undefined);
+  const observeDeal = useCallback(
+    (frame: DealFrame) => {
+      if (
+        paintedDeal.current ||
+        shareStartedAt.current == null ||
+        document.hidden ||
+        !isActive ||
+        paintedSeats.current.hand !== frame.handNumber
+      )
+        return;
+      paintedDeal.current = {
+        at: Math.round(performance.now() - shareStartedAt.current),
+        flightMs: frame.flightMs,
+        paths: frame.cards.map((c) => [c.originX, c.originY, c.targetX, c.targetY, c.delay]),
+      };
+    },
+    [isActive]
+  );
+  const refreshCompletedPresentation = useRef<((archiveOnly?: boolean) => void) | null>(null);
+  useEffect(() => {
+    const persistLastHand = () => refreshCompletedPresentation.current?.(true);
+    window.addEventListener('pagehide', persistLastHand);
+    return () => {
+      window.removeEventListener('pagehide', persistLastHand);
+      persistLastHand();
+      refreshCompletedPresentation.current = null;
+    };
+  }, [tableId, userId]);
+  const observeShareSeat = useCallback(
+    (props: SeatSlotProps) => {
+      const journal = paintedSeats.current;
+      if (
+        document.hidden ||
+        !isActive ||
+        !tableState.handNumber ||
+        tableState.handNumber !== journal.hand ||
+        shareStartedAt.current == null ||
+        journal.events.length >= 4096
+      )
+        return;
+      const paint = seatPaint(props);
+      if (!paint || paint.every((v, i) => journal.latest.get(props.seatNumber)?.[i] === v)) return;
+      journal.latest.set(props.seatNumber, paint);
+      journal.events.push([
+        Math.round(performance.now() - shareStartedAt.current),
+        props.seatNumber,
+        ...paint,
+      ]);
+    },
+    [tableState.handNumber, isActive]
+  );
+  const paintedThrows = useRef<{ hand: number; seen: Set<string>; events: SharedThrow[] }>({
+    hand: 0,
+    seen: new Set(),
+    events: [],
+  });
+  useLayoutEffect(() => {
+    const journal = paintedThrows.current;
+    if (
+      !v8Settings.emoji_enabled ||
+      !isActive ||
+      document.hidden ||
+      !journal.hand ||
+      journal.hand !== tableState.handNumber ||
+      shareStartedAt.current === null
+    )
+      return;
+    for (const event of activeThrows) {
+      if (
+        journal.seen.has(event.id) ||
+        journal.events.length >= 256 ||
+        !seatPositionsRef.current[event.toSeat - 1] ||
+        !seatPositionsRef.current[event.fromSeat - 1]
+      )
+        continue;
+      journal.seen.add(event.id);
+      journal.events.push([
+        Math.round(performance.now() - shareStartedAt.current),
+        event.fromSeat,
+        event.toSeat,
+        event.throwable.id,
+        throwSeed(event.id),
+      ]);
+    }
+  }, [activeThrows, isActive, tableState.handNumber, v8Settings.emoji_enabled]);
+  const visibleBoard = useRef<{ hand: number; times: SharedBoardTiming }>({ hand: 0, times: {} });
+  const observeSharedBoard = useCallback((hand: string | number, count: number) => {
+    const street = boardStreet(count);
+    const started = shareStartedAt.current;
+    const observation = visibleBoard.current;
+    if (started == null || observation.hand !== Number(hand) || !street || document.hidden) return;
+    observation.times[street] ??= Math.round(performance.now() - started);
+  }, []);
   const handStartStacksRef = useRef<Record<number, number>>({});
   /** Button seat captured at HAND_STARTED — the live dealerSeat has already
    *  rotated by the time the hand completes. */
@@ -20369,7 +20506,14 @@ function LiveTablePage({
         // and the starting stacks BEFORE any chips move, so the shared replay
         // shows what each player sat down with rather than what they finished
         // with. (The button seat is needed for position labels on the replay.)
+        refreshCompletedPresentation.current?.();
+        refreshCompletedPresentation.current = null;
+        paintedChips.current = { seen: new Set(), paths: [] };
+        paintedDeal.current = undefined;
         shareStartedAt.current = performance.now();
+        paintedSeats.current = { hand: Number(startedHandNumber), latest: new Map(), events: [] };
+        visibleBoard.current = { hand: Number(startedHandNumber), times: {} };
+        paintedThrows.current = { hand: Number(startedHandNumber), seen: new Set(), events: [] };
         handActionsRef.current = [];
         handStartStacksRef.current = {};
         {
@@ -21012,6 +21156,8 @@ function LiveTablePage({
                     seat: i + 1,
                     name: p.name || `Seat ${i + 1}`,
                     avatar: p.avatar,
+                    frame: p.frame,
+                    aura: p.aura,
                     // Stack as it was at the top of the hand, not post-payout.
                     stack: handStartStacksRef.current[i + 1] ?? p.stack ?? 0,
                     // Only cards actually visible on screen travel in the link
@@ -21026,15 +21172,76 @@ function LiveTablePage({
             .filter(Boolean) as ShareableHand['players'];
 
           if (sharePlayers.length > 0) {
-            if (tableId && userId && st.handNumber && st.heroSeat > 0) {
-              rememberObservedTable(
-                tableId,
-                userId,
-                st.handNumber,
-                shareAppearanceRef.current,
-                st.players
+            const appearance = {
+              ...shareAppearanceRef.current,
+              deal: paintedDeal.current,
+              chips: [...paintedChips.current.paths],
+              throws:
+                paintedThrows.current.hand === Number(st.handNumber)
+                  ? [...paintedThrows.current.events]
+                  : undefined,
+              geometry: captureTableGeometry(tableScalerRef.current, seatPositionsRef.current),
+              animationSpeed: getAnimationSpeed(),
+              seatPaints:
+                paintedSeats.current.hand === Number(st.handNumber)
+                  ? [...paintedSeats.current.events]
+                  : undefined,
+              endAtMs:
+                visibleBoard.current.hand === Number(st.handNumber) &&
+                shareStartedAt.current != null
+                  ? Math.round(performance.now() - shareStartedAt.current)
+                  : undefined,
+              boardTiming:
+                visibleBoard.current.hand === Number(st.handNumber)
+                  ? { ...visibleBoard.current.times }
+                  : undefined,
+            };
+            const completedHand = st.handNumber;
+            const completedSeats = st.players.map(
+              (player) =>
+                player && {
+                  id: player.id,
+                  avatar: player.avatar,
+                  frame: player.frame,
+                  aura: player.aura,
+                }
+            );
+            const completedTiming = Object.fromEntries(
+              ['preflop', 'flop', 'turn', 'river'].map((street) => [
+                street,
+                byStreet(street).map(({ seat, action, atMs }) => ({ seat, action, atMs })),
+              ])
+            );
+            const seatedViewer = st.heroSeat > 0;
+            const persistAppearance = (value: typeof appearance) => {
+              if (tableId && userId && completedHand && seatedViewer)
+                rememberObservedTable(
+                  tableId,
+                  userId,
+                  completedHand,
+                  value,
+                  completedSeats,
+                  completedTiming
+                );
+            };
+            persistAppearance(appearance);
+            // Settlement is received before the seat awards are painted. Keep the original
+            // hand's journal until the next deal, and flush it when either share entry opens.
+            refreshCompletedPresentation.current = (archiveOnly) => {
+              if (paintedSeats.current.hand !== completedHand) return;
+              const updated = {
+                ...appearance,
+                chips: [...paintedChips.current.paths],
+                seatPaints: [...paintedSeats.current.events],
+                throws: [...paintedThrows.current.events],
+                boardTiming: { ...visibleBoard.current.times },
+              };
+              persistAppearance(updated);
+              if (archiveOnly) return;
+              setSharedHandData((hand: ShareableHand | null) =>
+                hand?.handNumber === completedHand ? { ...hand, appearance: updated } : hand
               );
-            }
+            };
             /* THE TABLE KNEW FOUR OF THE SEVEN GAMES. This list was
                ['NLH','PLO4','PLO5','PLO6'] with everything else falling to
                NLH, so a PLO8 hand shared from the felt reached the recipient
@@ -21061,7 +21268,7 @@ function LiveTablePage({
               stakes: st.blinds || '',
               timestamp: Date.now(),
               buttonSeat: shareButtonSeatRef.current || st.dealerSeat || 0,
-              appearance: shareAppearanceRef.current,
+              appearance,
               players: sharePlayers,
               preflop: byStreet('preflop'),
               flop:
@@ -29126,6 +29333,7 @@ function LiveTablePage({
                     toast?.info?.('Play a hand to the end, then share it.');
                     return;
                   }
+                  refreshCompletedPresentation.current?.();
                   setShowShareHand(true);
                 }}
               />
@@ -29166,9 +29374,10 @@ function LiveTablePage({
             guess. scalerSize comes from the ResizeObserver already on this
             element, so it is the real painted width - including in landscape,
             where the table is height-driven and has no width to infer from. */}
-        <div
-          className="table-scaler"
+        <TableScene
           ref={tableScalerRef}
+          observeSeat={observeShareSeat}
+          observeBoard={observeSharedBoard}
           style={
             {
               '--table-w': `${scalerSize.w}px`,
@@ -29204,238 +29413,217 @@ function LiveTablePage({
           }
         >
           {/* Table Felt */}
-          <div className="table-felt">
-            {/* Dan 2026-08-17 — the painted table itself. object-fit: cover
-                inside the 605/1000 scaler crops the 896x1200 composite to
-                x [9.5%, 90.5%], putting the rail centerline exactly where
-                SEAT_POSITIONS_* expect it. This is what guarantees villains
-                and + SIT buttons sit ON the rail at every breakpoint. */}
-            <img
-              className="table-art"
-              src={tableArt.skinSrc || undefined}
-              alt=""
-              draggable={false}
-              decoding="sync"
-            />
-            <div className="table-rail">
-              <div className="table-surface">
-                {tableState.tournamentId && (
-                  <TournamentStartCountdown
-                    key={tableState.tournamentId}
-                    tournamentId={tableState.tournamentId}
-                    hasLiveHand={(tableState.handNumber ?? 0) > 0}
-                  />
-                )}
-                {/* Hand Number — Dan 2026-08-15 (second revision): moved OFF
+          <TableFelt src={tableArt.skinSrc || undefined}>
+            {tableState.tournamentId && (
+              <TournamentStartCountdown
+                key={tableState.tournamentId}
+                tournamentId={tableState.tournamentId}
+                hasLiveHand={(tableState.handNumber ?? 0) > 0}
+              />
+            )}
+            {/* Hand Number — Dan 2026-08-15 (second revision): moved OFF
                     the upper-right corner and into the felt masthead as line 2,
                     centred under the date/club/game row. It renders inside
                     .table-brand now; nothing draws it here. */}
 
-                {/* ── TABLE CENTRE BRAND (Dan 2026-08-15) ──────────────────
+            {/* ── TABLE CENTRE BRAND (Dan 2026-08-15) ──────────────────
                     "Use the smarter.poker letter logo in the middle of the
                     table, then under that it should say the date, game,
                     blinds, and what club or union it's in."
                     Sits behind the pot and community cards (z-index 1, the
                     pot area is 2+) and is fully click-through so it can never
                     intercept a seat or action tap. */}
-                {/* Sits directly above the wordmark, in felt coordinates, and
+            {/* Sits directly above the wordmark, in felt coordinates, and
                     paints over everything on the surface. See the note in
                     .table-container above for why it moved off the top rail. */}
-                <TableConnectionBanner
-                  status={engineWsStatus}
-                  isActive={isActive}
-                  authRefused={engineRefusedAuth}
-                  accessRefusal={engineAccessRefusal}
-                  /* A dealt hand number proves the felt is showing real state,
+            <TableConnectionBanner
+              status={engineWsStatus}
+              isActive={isActive}
+              authRefused={engineRefusedAuth}
+              accessRefusal={engineAccessRefusal}
+              /* A dealt hand number proves the felt is showing real state,
                      which silences 'connecting' — see the prop's own doc. */
-                  hasLiveState={(tableState.handNumber ?? 0) > 0}
-                />
-                {/* The engine's verdict on THIS seat's presence, on the same
+              hasLiveState={(tableState.handNumber ?? 0) > 0}
+            />
+            {/* The engine's verdict on THIS seat's presence, on the same
                     line. Defers to the socket banner whenever the socket is
                     down (Dan 2026-09-04: every connection message lives on
                     the felt, and none of them says "refresh"). */}
-                <DisconnectToast
-                  heroUserId={userId}
-                  disconnectStates={disconnectStates}
-                  socketStatus={engineWsStatus}
-                  isActive={isActive}
-                  /* Dan 2026-10-04: a seat the tournament has just moved here
+            <DisconnectToast
+              heroUserId={userId}
+              disconnectStates={disconnectStates}
+              socketStatus={engineWsStatus}
+              isActive={isActive}
+              /* Dan 2026-10-04: a seat the tournament has just moved here
                      is not "reconnecting" - say what happened. */
-                  movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}
-                  tableName={
-                    tableState.tableName && tableState.tableName !== 'Loading...'
-                      ? formatGameTitle(tableState.tableName)
-                      : undefined
-                  }
-                />
-                {/* LIGHTNING: THE ROOM'S WORDS ON THE FELT (Lightning transition,
+              movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}
+              tableName={
+                tableState.tableName && tableState.tableName !== 'Loading...'
+                  ? formatGameTitle(tableState.tableName)
+                  : undefined
+              }
+            />
+            {/* LIGHTNING: THE ROOM'S WORDS ON THE FELT (Lightning transition,
                     phase 1). "Next Hand..." after a long quiet, and "Lightning
                     Is Ending" while the Cluster drains, in felt coordinates
                     just above the wordmark (the band the connection banner
                     uses), so they read the same between hands and in a hand.
                     Words only: nothing here navigates (CLAUDE.md 10.6). */}
-                {lightningRoom ? (
-                  <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
-                    <LightningNextHand
-                      handInProgress={lightningHandLive && tableState.isHandInProgress}
-                      handComplete={tableHandIsOver}
-                      dealing={lightningHandLive && lightningDealPending}
-                      eligible={
-                        engineWsStatus === 'connected' &&
-                        !!engineSnapshot &&
-                        !lightningObserver &&
-                        !lightningRoomClosed &&
-                        !heroIsSittingOut &&
-                        !lightningHold
-                      }
-                    />
-                    <LightningEndingNotice clusterId={lightningRoom.clusterId} />
-                  </div>
-                ) : lightningStartingHere ? (
-                  <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
-                    <LightningStartingNotice show />
-                  </div>
-                ) : null}
+            {lightningRoom ? (
+              <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
+                <LightningNextHand
+                  handInProgress={lightningHandLive && tableState.isHandInProgress}
+                  handComplete={tableHandIsOver}
+                  dealing={lightningHandLive && lightningDealPending}
+                  eligible={
+                    engineWsStatus === 'connected' &&
+                    !!engineSnapshot &&
+                    !lightningObserver &&
+                    !lightningRoomClosed &&
+                    !heroIsSittingOut &&
+                    !lightningHold
+                  }
+                />
+                <LightningEndingNotice clusterId={lightningRoom.clusterId} />
+              </div>
+            ) : lightningStartingHere ? (
+              <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
+                <LightningStartingNotice show />
+              </div>
+            ) : null}
 
-                <div
-                  className="table-brand"
-                  aria-hidden={!(lightningRoom || lightningCapableClusterId || heroHandsOwed)}
-                >
-                  <img
-                    className="table-brand__logo"
-                    src={smarterPokerLetterLogo}
-                    alt=""
-                    draggable={false}
-                  />
-                  {/* Dan 2026-08-15 \u2014 felt masthead, two centered lines.
+            <div
+              className="table-brand"
+              aria-hidden={!(lightningRoom || lightningCapableClusterId || heroHandsOwed)}
+            >
+              <img
+                className="table-brand__logo"
+                src={smarterPokerLetterLogo}
+                alt=""
+                draggable={false}
+              />
+              {/* Dan 2026-08-15 \u2014 felt masthead, two centered lines.
                       Was three stacked lines (date / game+blinds / club) plus a
                       separate .table-game-info strip further down that repeated
                       the same stakes twice ("NLH 2.00/5.00" and "2/5 NLH").
                       Now line 1 is date, club and game on one centered row
                       under the wordmark, and line 2 is the hand number, which
                       used to float alone in the top-right corner. */}
-                  <div className="table-brand__meta">
-                    {(() => {
-                      // Shared: the short game label. Dan 2026-08-17 (audit):
-                      // raw DB enums like OFC_PINEAPPLE printed verbatim on
-                      // the felt -- format enums for display.
-                      const gameShort = (
-                        tableState.gameType === "No Limit Hold'em"
-                          ? 'NLH'
-                          : tableState.gameType === 'Pot Limit Omaha'
-                            ? 'PLO'
-                            : tableState.gameType === "Fixed Limit Hold'em"
-                              ? 'FLH'
-                              : (tableState.gameType || 'NLH').replace(/_/g, ' ')
-                      ).toUpperCase();
-                      /* Dan 2026-08-26 mobile pass, item 5: the DATE is gone
+              <div className="table-brand__meta">
+                {(() => {
+                  // Shared: the short game label. Dan 2026-08-17 (audit):
+                  // raw DB enums like OFC_PINEAPPLE printed verbatim on
+                  // the felt -- format enums for display.
+                  const gameShort = (
+                    tableState.gameType === "No Limit Hold'em"
+                      ? 'NLH'
+                      : tableState.gameType === 'Pot Limit Omaha'
+                        ? 'PLO'
+                        : tableState.gameType === "Fixed Limit Hold'em"
+                          ? 'FLH'
+                          : (tableState.gameType || 'NLH').replace(/_/g, ' ')
+                  ).toUpperCase();
+                  /* Dan 2026-08-26 mobile pass, item 5: the DATE is gone
                          from the masthead. Line 1 is club · union, line 2 is
                          game + stakes + hand number — and the hand number can
                          never be cut off (it gets a no-shrink span; the club
                          and union are what ellipsize). */
 
-                      if (tableState.isTournament) {
-                        // Dan 2026-08-20, from a seat at a live Spin: "1st
-                        // line Date, (game type) Poker Spins, Club Name,
-                        // Union Name. 2nd line Level #, Blinds, and the
-                        // clock. 3rd line hand number."
-                        const formatWord =
-                          tournamentFormat === 'spin'
-                            ? 'Poker Spins'
-                            : tournamentFormat === 'sng'
-                              ? 'Poker Heads Up'
-                              : 'Poker Tournament';
-                        const price = tournamentTabBuyInLabel(tournamentBuyInTotal);
-                        const entryLine = [
-                          price && tournamentBuyInTotal ? `${price} Buy-In` : price,
-                          tournamentTypeLine,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ');
-                        return (
-                          <>
-                            <span className="table-brand__line table-brand__line--level">
-                              <span className="table-brand__game">
-                                {tournamentEventName || `${gameShort} ${formatWord}`}
-                              </span>
-                            </span>
-                            {entryLine && (
-                              <span
-                                className="table-brand__line"
-                                data-testid="tournament-type-line"
-                              >
-                                {entryLine}
-                              </span>
+                  if (tableState.isTournament) {
+                    // Dan 2026-08-20, from a seat at a live Spin: "1st
+                    // line Date, (game type) Poker Spins, Club Name,
+                    // Union Name. 2nd line Level #, Blinds, and the
+                    // clock. 3rd line hand number."
+                    const formatWord =
+                      tournamentFormat === 'spin'
+                        ? 'Poker Spins'
+                        : tournamentFormat === 'sng'
+                          ? 'Poker Heads Up'
+                          : 'Poker Tournament';
+                    const price = tournamentTabBuyInLabel(tournamentBuyInTotal);
+                    const entryLine = [
+                      price && tournamentBuyInTotal ? `${price} Buy-In` : price,
+                      tournamentTypeLine,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return (
+                      <>
+                        <span className="table-brand__line table-brand__line--level">
+                          <span className="table-brand__game">
+                            {tournamentEventName || `${gameShort} ${formatWord}`}
+                          </span>
+                        </span>
+                        {entryLine && (
+                          <span className="table-brand__line" data-testid="tournament-type-line">
+                            {entryLine}
+                          </span>
+                        )}
+                        <span className="table-brand__line table-brand__line--identity">
+                          <span className="table-brand__club">
+                            <span className="table-brand__club-name">{tableState.clubName}</span>
+                            {tableState.unionName && (
+                              <>
+                                {' '}
+                                {tableState.clubName ? ' - ' : ''}
+                                <span className="table-brand__union">{tableState.unionName}</span>
+                              </>
                             )}
-                            <span className="table-brand__line table-brand__line--identity">
-                              <span className="table-brand__club">
-                                <span className="table-brand__club-name">
-                                  {tableState.clubName}
+                          </span>
+                        </span>
+                        {tournamentFormat === 'spin' ||
+                        (tournamentFormat === 'sng' && Number(tableState.maxPlayers) === 2) ? (
+                          <>
+                            {!spinDraw &&
+                              (tableState.spinPrizePool ?? 0) > 0 &&
+                              arenaAssetUnitCentsIfRead(tableState.arenaAsset) != null && (
+                                <span className="table-brand__line table-brand__prize">
+                                  {formatPrizeAtUnit(
+                                    tableState.spinPrizePool as number,
+                                    arenaAssetUnitCents(tableState.arenaAsset)
+                                  )}{' '}
+                                  {moneyWordAtUnit(arenaAssetUnitCents(tableState.arenaAsset))}
                                 </span>
-                                {tableState.unionName && (
-                                  <>
-                                    {' '}
-                                    {tableState.clubName ? ' - ' : ''}
-                                    <span className="table-brand__union">
-                                      {tableState.unionName}
-                                    </span>
-                                  </>
-                                )}
+                              )}
+                            {(tableState.handNumber ?? 0) > 0 && (
+                              <span className="table-brand__line table-brand__hand">
+                                Hand #{tableState.handNumber}
                               </span>
-                            </span>
-                            {tournamentFormat === 'spin' ||
-                            (tournamentFormat === 'sng' && Number(tableState.maxPlayers) === 2) ? (
-                              <>
-                                {!spinDraw &&
-                                  (tableState.spinPrizePool ?? 0) > 0 &&
-                                  arenaAssetUnitCentsIfRead(tableState.arenaAsset) != null && (
-                                    <span className="table-brand__line table-brand__prize">
-                                      {formatPrizeAtUnit(
-                                        tableState.spinPrizePool as number,
-                                        arenaAssetUnitCents(tableState.arenaAsset)
-                                      )}{' '}
-                                      {moneyWordAtUnit(arenaAssetUnitCents(tableState.arenaAsset))}
-                                    </span>
-                                  )}
-                                {(tableState.handNumber ?? 0) > 0 && (
-                                  <span className="table-brand__line table-brand__hand">
-                                    Hand #{tableState.handNumber}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <span className="table-brand__line table-brand__line--level">
-                                  {tournamentTableLabel(tableState.tableName) && (
-                                    <span
-                                      className="table-brand__line"
-                                      data-testid="tournament-table-number"
-                                    >
-                                      {tournamentTableLabel(tableState.tableName)}
-                                    </span>
-                                  )}
-                                  {(tableState.handNumber ?? 0) > 0 && (
-                                    <span className="table-brand__hand">
-                                      Hand #{tableState.handNumber}
-                                    </span>
-                                  )}
-                                </span>
-                              </>
                             )}
                           </>
-                        );
-                      }
+                        ) : (
+                          <>
+                            <span className="table-brand__line table-brand__line--level">
+                              {tournamentTableLabel(tableState.tableName) && (
+                                <span
+                                  className="table-brand__line"
+                                  data-testid="tournament-table-number"
+                                >
+                                  {tournamentTableLabel(tableState.tableName)}
+                                </span>
+                              )}
+                              {(tableState.handNumber ?? 0) > 0 && (
+                                <span className="table-brand__hand">
+                                  Hand #{tableState.handNumber}
+                                </span>
+                              )}
+                            </span>
+                          </>
+                        )}
+                      </>
+                    );
+                  }
 
-                      // Cash tables keep the two-line masthead.
-                      /* Dan 2026-08-26 mobile pass, item 5: NO date. Line 1 is
+                  // Cash tables keep the two-line masthead.
+                  /* Dan 2026-08-26 mobile pass, item 5: NO date. Line 1 is
                          "Club Name" - "Union Name"; line 2 is game + stakes +
                          hand number, and the hand number may never be cut off
                          \u2014 it sits in its own no-shrink span while the game
                          label is the part that ellipsizes (see
                          .table-brand__hand in TablePage.css). */
-                      return (
-                        <>
-                          {/* ── LINE 1: WHO THIS TABLE BELONGS TO ────────────
+                  return (
+                    <>
+                      {/* ── LINE 1: WHO THIS TABLE BELONGS TO ────────────
                               Dan 2026-09-07, 7A: "LINE ONE UNDER SMARTER.POKER
                               IS THE CLUB NAME AND THE UNION NAME, (NEVER
                               ABBREVIATE ANY NAME, THEY NEED TO BE FULLY SPELT
@@ -29448,10 +29636,10 @@ function LiveTablePage({
                               "MIDWAY U..." is not a shorter name, it is a
                               wrong one, and a club paying to be on this felt
                               should not be truncated to fit a wordmark. */}
-                          {(tableState.clubName || tableState.unionName) && (
-                            <span className="table-brand__line table-brand__line--identity">
-                              <span className="table-brand__club">
-                                {/* A NAME IS ONE WORD TO THE LINE BREAKER (Dan 2026-09-23:
+                      {(tableState.clubName || tableState.unionName) && (
+                        <span className="table-brand__line table-brand__line--identity">
+                          <span className="table-brand__club">
+                            {/* A NAME IS ONE WORD TO THE LINE BREAKER (Dan 2026-09-23:
                                     '"Shark Club" needs to be on the same line, not stacked').
                                     The union span below is nowrap and carried its own
                                     separator, so the only break opportunity on the row was
@@ -29460,22 +29648,20 @@ function LiveTablePage({
                                     now, and the one breakable space on the row sits between
                                     the two names, so a row too long for one line breaks
                                     club / union and never inside either. */}
-                                <span className="table-brand__club-name">
-                                  {tableState.clubName}
+                            <span className="table-brand__club-name">{tableState.clubName}</span>
+                            {tableState.unionName && (
+                              <>
+                                {tableState.clubName ? ' ' : ''}
+                                <span className="table-brand__union">
+                                  {tableState.clubName ? '· ' : ''}
+                                  {tableState.unionName}
                                 </span>
-                                {tableState.unionName && (
-                                  <>
-                                    {tableState.clubName ? ' ' : ''}
-                                    <span className="table-brand__union">
-                                      {tableState.clubName ? '· ' : ''}
-                                      {tableState.unionName}
-                                    </span>
-                                  </>
-                                )}
-                              </span>
-                            </span>
-                          )}
-                          {/* ── LINE 2: THE GAME, ON ONE LINE ────────────────
+                              </>
+                            )}
+                          </span>
+                        </span>
+                      )}
+                      {/* ── LINE 2: THE GAME, ON ONE LINE ────────────────
                               Dan 2026-09-07, 7B: "LINE TWO SHOULD HAVE THE
                               GAME TYPE 'CLASSIC, ACTION, MADNESS' AND THEN THE
                               GAME AND STAKES. (SO 'ACTION PLO4 2/5' ALL ON ONE
@@ -29494,7 +29680,7 @@ function LiveTablePage({
                               it either blind would be a lie and it prints
                               "+ Ante". If SB antes are a real format here they
                               need a column before they can be a label. */}
-                          {/* THE LINE FITS ITS BOX (audit 2026-09-09). The
+                      {/* THE LINE FITS ITS BOX (audit 2026-09-09). The
                               10.5cqw size above was measured for "NLH
                               0.10/0.25" alone; with the style in front and the
                               ante behind, a 375px phone ellipsized this row to
@@ -29502,26 +29688,26 @@ function LiveTablePage({
                               measures itself and scales down to fit, and wraps
                               at the floor rather than cutting the stakes off.
                               See MastheadGameLine. */}
-                          <span className="table-brand__line table-brand__line--level">
-                            <MastheadGameLine className="table-brand__game">
-                              {lightningRoom
-                                ? 'Lightning Games '
-                                : tableState.gameStyle
-                                  ? `${tableState.gameStyle} `
-                                  : ''}
-                              {gameShort} {tableState.blinds || '1/2'}
-                              {tableState.ante > 0 &&
-                                (tableState.anteMode === 'big_blind' ? ' + BB Ante' : ' + Ante')}
-                            </MastheadGameLine>
-                          </span>
-                          {customCashGameName(tableState.tableName) && (
-                            <span className="table-brand__line table-brand__line--level">
-                              <MastheadGameLine className="table-brand__game">
-                                {customCashGameName(tableState.tableName)}
-                              </MastheadGameLine>
-                            </span>
-                          )}
-                          {/* THE JACKPOT ROW IS GONE (Dan 2026-09-07, item 6).
+                      <span className="table-brand__line table-brand__line--level">
+                        <MastheadGameLine className="table-brand__game">
+                          {lightningRoom
+                            ? 'Lightning Games '
+                            : tableState.gameStyle
+                              ? `${tableState.gameStyle} `
+                              : ''}
+                          {gameShort} {tableState.blinds || '1/2'}
+                          {tableState.ante > 0 &&
+                            (tableState.anteMode === 'big_blind' ? ' + BB Ante' : ' + Ante')}
+                        </MastheadGameLine>
+                      </span>
+                      {customCashGameName(tableState.tableName) && (
+                        <span className="table-brand__line table-brand__line--level">
+                          <MastheadGameLine className="table-brand__game">
+                            {customCashGameName(tableState.tableName)}
+                          </MastheadGameLine>
+                        </span>
+                      )}
+                      {/* THE JACKPOT ROW IS GONE (Dan 2026-09-07, item 6).
                               "YOU'VE ADDED THE BOMBPOT TOTAL TO ALL OF THE
                               TABLES, THAT SHOULD NEVER BE THERE."
 
@@ -29537,23 +29723,21 @@ function LiveTablePage({
                               number is. If the placard idea comes back it
                               belongs in the jackpot widget, not on the felt
                               between the stakes and the hand number. */}
-                          {(tableState.handNumber ?? 0) > 0 && (
-                            <span className="table-brand__line table-brand__line--hand">
-                              <span className="table-brand__hand">
-                                Hand #{tableState.handNumber}
-                              </span>
-                            </span>
-                          )}
-                          <HitRunCountPill
-                            retryRead={heroHandCount.retryRead}
-                            hands={heroHandsOwed}
-                            reason={heroHandCount.reason ?? null}
-                            paused={heroHandCount.paused ?? null}
-                          />
-                        </>
-                      );
-                    })()}
-                    {/* THE BOMB POT CLOCK, UNDER THE BLINDS (Dan 2026-09-05):
+                      {(tableState.handNumber ?? 0) > 0 && (
+                        <span className="table-brand__line table-brand__line--hand">
+                          <span className="table-brand__hand">Hand #{tableState.handNumber}</span>
+                        </span>
+                      )}
+                      <HitRunCountPill
+                        retryRead={heroHandCount.retryRead}
+                        hands={heroHandsOwed}
+                        reason={heroHandCount.reason ?? null}
+                        paused={heroHandCount.paused ?? null}
+                      />
+                    </>
+                  );
+                })()}
+                {/* THE BOMB POT CLOCK, UNDER THE BLINDS (Dan 2026-09-05):
                         "THE 'DOUBLE BOARD BOMB POT NEXT HAND' DISPLAY AND
                         COUNTDOWN CLOCK NEEDS TO BE MUCH SMALLER ... IT SHOULD
                         BE UNDER THE BLINDS WHERE 'ACTION' IS LOCATED. AND
@@ -29567,46 +29751,46 @@ function LiveTablePage({
                         .table-brand__meta, outside the branch above. The live
                         state is NOT here - it hangs off the board (see
                         .bomb-pot-live). */}
-                    {bombPotBadge && bombPotBadge.state !== 'live' && (
-                      <span
-                        className={`table-brand__line table-brand__line--bomb${
-                          bombPotBadge.state === 'next' ? ' table-brand__line--bomb-next' : ''
-                        }`}
-                      >
-                        <span className="table-brand__bomb">{bombPotBadge.text}</span>
-                      </span>
-                    )}
-                    {!lightningRoom && <LightningStartTicker state={tableGameLightningState} />}
-                    {/* THE CLOSED MAINTENANCE BREAK (Dan 2026-10-14): "THIS
+                {bombPotBadge && bombPotBadge.state !== 'live' && (
+                  <span
+                    className={`table-brand__line table-brand__line--bomb${
+                      bombPotBadge.state === 'next' ? ' table-brand__line--bomb-next' : ''
+                    }`}
+                  >
+                    <span className="table-brand__bomb">{bombPotBadge.text}</span>
+                  </span>
+                )}
+                {!lightningRoom && <LightningStartTicker state={tableGameLightningState} />}
+                {/* THE CLOSED MAINTENANCE BREAK (Dan 2026-10-14): "THIS
                         NEEDS TO APPEAR BELOW 'BOMB POT IN 2:47' NOT UNDER THE
                         HERO." Shown once the player closes the break card,
                         and on every background tile of a multi-table view,
                         where the card itself is not drawn. */}
-                    {maintenanceBreak.active &&
-                      (maintenanceBreakClosed || (isMultiTable && !isActive)) && (
-                        <MaintenanceBreakLine
-                          phase={maintenanceBreak.phase}
-                          breakEndsAtMs={maintenanceBreak.breakEndsAtMs}
-                          onOpen={() => setMaintenanceBreakClosed(false)}
-                        />
-                      )}
-                    {/* KILL POTS (kill-v1): the next hand is a kill hand. The
+                {maintenanceBreak.active &&
+                  (maintenanceBreakClosed || (isMultiTable && !isActive)) && (
+                    <MaintenanceBreakLine
+                      phase={maintenanceBreak.phase}
+                      breakEndsAtMs={maintenanceBreak.breakEndsAtMs}
+                      onOpen={() => setMaintenanceBreakClosed(false)}
+                    />
+                  )}
+                {/* KILL POTS (kill-v1): the next hand is a kill hand. The
                         bomb clock's line, word for word the same pattern: a
                         masthead line under the blinds, not a pill on the felt.
                         The engine says so (kill_next); nothing here predicts. */}
-                    {tableState.killNext && (
-                      <span
-                        className="table-brand__line table-brand__line--bomb table-brand__line--bomb-next table-brand__line--kill"
-                        aria-live="polite"
-                      >
-                        <span className="table-brand__bomb">
-                          {killNextAnnouncement(tableState.killNext)}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* Dan 2026-08-19 item 15: the pot moved OUT of .table-surface.
+                {tableState.killNext && (
+                  <span
+                    className="table-brand__line table-brand__line--bomb table-brand__line--bomb-next table-brand__line--kill"
+                    aria-live="polite"
+                  >
+                    <span className="table-brand__bomb">
+                      {killNextAnnouncement(tableState.killNext)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* Dan 2026-08-19 item 15: the pot moved OUT of .table-surface.
                     That element sets z-index:1 and so creates a stacking
                     context, which trapped the pot below the chip-flight layer
                     no matter what z-index it was given - every chip flying to
@@ -29614,283 +29798,273 @@ function LiveTablePage({
                     the chip layer (see .pot-area in TablePage.css, whose
                     percentages are converted so it does not move a pixel). */}
 
-                {/* Community Cards.
+            {/* Community Cards.
                     When the hand is run twice or three times, all boards render
                     directly on the table felt with run badges, winning hand names,
                     winner labels, and winning card highlights. */}
-                <div className="community-area">
-                  {/* The offer belongs above the board, never over player cards. */}
-                  {ritFeltBanner && (
-                    <div className="rit-felt-banner" role="status" aria-live="polite">
-                      <span className="rit-felt-banner__text">{ritFeltBanner}</span>
-                    </div>
-                  )}
-                  {ritBoardsView.length >= 2 ? (
-                    ritBoardsView.map((board) => (
-                      <div
-                        className={`community-area__run community-area__run--board-${board.boardIndex + 1}${
-                          board.boardIndex > 0 ? ' community-area__run--extra' : ''
-                        }`}
-                        key={`rit-run-${board.boardIndex + 1}`}
-                        /* RIT BOARD FIX (Dan 2026-08-30): runs 2+ render the
+            <div className="community-area">
+              {/* The offer belongs above the board, never over player cards. */}
+              {ritFeltBanner && (
+                <div className="rit-felt-banner" role="status" aria-live="polite">
+                  <span className="rit-felt-banner__text">{ritFeltBanner}</span>
+                </div>
+              )}
+              {ritBoardsView.length >= 2 ? (
+                ritBoardsView.map((board) => (
+                  <div
+                    className={`community-area__run community-area__run--board-${board.boardIndex + 1}${
+                      board.boardIndex > 0 ? ' community-area__run--extra' : ''
+                    }`}
+                    key={`rit-run-${board.boardIndex + 1}`}
+                    /* RIT BOARD FIX (Dan 2026-08-30): runs 2+ render the
                            FULL board — the shared flop/turn appear on every
                            run exactly as dealt, plus that run's re-dealt
                            streets. CSS previously hid the shared prefix on
                            extra runs (a turn all-in run 3x showed runs 2/3 as
                            a lone river card); that rule is deleted.
                            data-base-count remains as data only. */
-                        data-base-count={
-                          board.boardIndex > 0 ? (ritResult?.baseBoardCount ?? 0) : 0
-                        }
-                        style={
-                          {
-                            '--rit-run-delay': `${board.boardIndex * 0.4}s`,
-                          } as React.CSSProperties
-                        }
-                      >
-                        <div className="community-area__run-header">
-                          <span className="community-area__run-badge">
-                            RUN {board.boardIndex + 1}
-                          </span>
-                          {board.winnerNames.length > 0 && (
-                            <span
-                              className="community-area__run-winner"
-                              title={board.winnerNames.join(', ')}
-                            >
-                              {/* HOUSE RULE (Dan 2026-08-26): First Letter Of
+                    data-base-count={board.boardIndex > 0 ? (ritResult?.baseBoardCount ?? 0) : 0}
+                    style={
+                      {
+                        '--rit-run-delay': `${board.boardIndex * 0.4}s`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <div className="community-area__run-header">
+                      <span className="community-area__run-badge">RUN {board.boardIndex + 1}</span>
+                      {board.winnerNames.length > 0 && (
+                        <span
+                          className="community-area__run-winner"
+                          title={board.winnerNames.join(', ')}
+                        >
+                          {/* HOUSE RULE (Dan 2026-08-26): First Letter Of
                                   Every Word — the evaluator's "Three of a
                                   Kind" renders "Three Of A Kind". Names keep
                                   their interior capitals. */}
-                              {formatPopupText(
-                                /* The engine's line wins when the wire has it
+                          {formatPopupText(
+                            /* The engine's line wins when the wire has it
                                    (hi-lo halves named, no "Chop" on a split).
                                    The local evaluation is the fallback for
                                    older payloads only. */
-                                board.engineLabel
-                                  ? board.engineLabel
-                                  : board.winnerNames.length > 1
-                                    ? `${board.winnerNames.join(' & ')} • ${board.winnerHandName ? `${board.winnerHandName} (Chop)` : 'Chop'}`
-                                    : `${board.winnerNames[0]}${board.winnerHandName ? ` • ${board.winnerHandName}` : ''}`
-                              )}
-                            </span>
+                            board.engineLabel
+                              ? board.engineLabel
+                              : board.winnerNames.length > 1
+                                ? `${board.winnerNames.join(' & ')} • ${board.winnerHandName ? `${board.winnerHandName} (Chop)` : 'Chop'}`
+                                : `${board.winnerNames[0]}${board.winnerHandName ? ` • ${board.winnerHandName}` : ''}`
                           )}
-                          {/* Share %/amount only once the reveal has finished —
+                        </span>
+                      )}
+                      {/* Share %/amount only once the reveal has finished —
                               the reference shows nothing on a board still
                               dealing. Tournament chips carry no currency mark
                               (RIT ALL FORMATS 2026-08-26). */}
-                          {board.revealed && (
-                            <span className="community-area__run-equity">
-                              {board.sharePct}%
-                              {board.shareAmount > 0
-                                ? ` (${board.shareAmount.toLocaleString()})`
-                                : ''}
-                            </span>
-                          )}
-                        </div>
-                        {/* POKERBROS PARITY 2026-08-26: each run deals street
+                      {board.revealed && (
+                        <span className="community-area__run-equity">
+                          {board.sharePct}%
+                          {board.shareAmount > 0 ? ` (${board.shareAmount.toLocaleString()})` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {/* POKERBROS PARITY 2026-08-26: each run deals street
                             by street on the reveal timeline — the cards and
                             stage below advance flop → turn → river per run,
                             so CommunityCards plays its own deal animation for
                             every street exactly like a live board. */}
-                        <CommunityCards
-                          cards={board.cards.slice(0, board.visibleCount)}
-                          rabbitCards={board.revealed ? liveRabbitCards : []}
-                          stage={
-                            board.visibleCount >= 5
-                              ? 'river'
-                              : board.visibleCount === 4
-                                ? 'turn'
-                                : board.visibleCount >= 3
-                                  ? 'flop'
-                                  : 'preflop'
-                          }
-                          highlightedIndices={board.highlightedIndices}
-                          winningHandName={board.winnerHandName}
-                          deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                          cardBack={activeCardBack}
-                          playSounds={board.boardIndex === 0 && ambientSoundsAllowed}
-                          /* RIVER SQUEEZE 2026-09-04: presentation identity
+                    <CommunityCards
+                      cards={board.cards.slice(0, board.visibleCount)}
+                      rabbitCards={board.revealed ? liveRabbitCards : []}
+                      stage={
+                        board.visibleCount >= 5
+                          ? 'river'
+                          : board.visibleCount === 4
+                            ? 'turn'
+                            : board.visibleCount >= 3
+                              ? 'flop'
+                              : 'preflop'
+                      }
+                      highlightedIndices={board.highlightedIndices}
+                      winningHandName={board.winnerHandName}
+                      deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                      cardBack={activeCardBack}
+                      playSounds={board.boardIndex === 0 && ambientSoundsAllowed}
+                      /* RIVER SQUEEZE 2026-09-04: presentation identity
                              and focus for the card presentation engine. Each
                              run is its own board lane. */
-                          tableId={tableId}
-                          handId={tableState.handNumber}
-                          boardIndex={board.boardIndex}
-                          onRiverPresented={() =>
-                            markRitBoardPresented(board.boardIndex, tableState.handNumber ?? 0)
-                          }
-                          /* VIP ALL-IN SQUEEZE 2026-09-05: a re-run board is
+                      tableId={tableId}
+                      handId={tableState.handNumber}
+                      boardIndex={board.boardIndex}
+                      onRiverPresented={() =>
+                        markRitBoardPresented(board.boardIndex, tableState.handNumber ?? 0)
+                      }
+                      /* VIP ALL-IN SQUEEZE 2026-09-05: a re-run board is
                              told it is one of several, so it can never
                              squeeze whatever else it is handed. */
-                          runs={Math.max(2, ritBoardsView.length)}
-                          gameMode={boardPresentationMode}
-                          isFocused={isActive}
-                          isVisible={isVisible}
-                        />
-                      </div>
-                    ))
-                  ) : (
-                    <>
-                      <CommunityCards
-                        /* P1 2026-09-05: while a reveal's retained board is
+                      runs={Math.max(2, ritBoardsView.length)}
+                      gameMode={boardPresentationMode}
+                      isFocused={isActive}
+                      isVisible={isVisible}
+                    />
+                  </div>
+                ))
+              ) : (
+                <>
+                  <CommunityCards
+                    /* P1 2026-09-05: while a reveal's retained board is
                            showing, the felt paints THAT copy (cards, stage,
                            ghost cards, hand id) and the live hand plays on
                            around it. See retainedBoardShows. */
-                        rabbitStartIndex={
-                          showRetainedRabbitGhosts ? retainedRabbitBoard!.cards.length : undefined
-                        }
-                        rabbitHandId={retainedRabbitBoard?.handNumber ?? rabbitRevealedHandNumber}
-                        cards={showRetainedRabbitBoard ? retainedCards : tableState.communityCards}
-                        rabbitCards={
-                          showRetainedRabbitBoard || showRetainedRabbitGhosts
-                            ? retainedRabbitCards
-                            : liveRabbitCards
-                        }
-                        stage={
-                          showRetainedRabbitBoard
-                            ? retainedRabbitBoard!.stage
-                            : bombPotHoldFlop && tableState.boardStage === 'flop'
-                              ? 'preflop'
-                              : tableState.boardStage
-                        }
-                        highlightedIndices={winnerBandActive ? winnerInfo.cardIndices : []}
-                        winningHandName={
-                          winnerBandActive
-                            ? winnerInfo.boardHandNames?.[0] || winnerInfo.handName
-                            : undefined
-                        }
-                        /* SHOWDOWN SYSTEM 2026-08-25 (spec section 14): the
+                    rabbitStartIndex={
+                      showRetainedRabbitGhosts ? retainedRabbitBoard!.cards.length : undefined
+                    }
+                    rabbitHandId={retainedRabbitBoard?.handNumber ?? rabbitRevealedHandNumber}
+                    cards={showRetainedRabbitBoard ? retainedCards : tableState.communityCards}
+                    rabbitCards={
+                      showRetainedRabbitBoard || showRetainedRabbitGhosts
+                        ? retainedRabbitCards
+                        : liveRabbitCards
+                    }
+                    stage={
+                      showRetainedRabbitBoard
+                        ? retainedRabbitBoard!.stage
+                        : bombPotHoldFlop && tableState.boardStage === 'flop'
+                          ? 'preflop'
+                          : tableState.boardStage
+                    }
+                    highlightedIndices={winnerBandActive ? winnerInfo.cardIndices : []}
+                    winningHandName={
+                      winnerBandActive
+                        ? winnerInfo.boardHandNames?.[0] || winnerInfo.handName
+                        : undefined
+                    }
+                    /* SHOWDOWN SYSTEM 2026-08-25 (spec section 14): the
                            engine's descriptive line under the hand name.
                            Single-board only — per-board labels already carry
                            their own hand names. */
-                        winningHandDescription={
-                          !winnerBandActive || winnerInfo.boardHandNames
-                            ? undefined
-                            : winnerInfo.handDescription
-                        }
-                        /* SHOWDOWN POLISH 2026-08-25 (spec 33): the hi-lo
+                    winningHandDescription={
+                      !winnerBandActive || winnerInfo.boardHandNames
+                        ? undefined
+                        : winnerInfo.handDescription
+                    }
+                    /* SHOWDOWN POLISH 2026-08-25 (spec 33): the hi-lo
                            split's LOW WINNER line. Review fix: NOT gated on
                            boardHandNames — a double-board hi-lo hand has both
                            per-board names AND a low winner, and suppressing
                            the label hid a real winner's credit line. */
-                        lowWinnerLabel={winnerBandActive ? winnerInfo.lowWinnerLabel : ''}
-                        /* Dan 2026-10-24: the band names WHO won a contested
+                    lowWinnerLabel={winnerBandActive ? winnerInfo.lowWinnerLabel : ''}
+                    /* Dan 2026-10-24: the band names WHO won a contested
                            single-board showdown. A fold-around win already
                            reads "Wins The Pot" on the winner's seat, and a
                            per-board label carries its own names. */
-                        winningPlayerLabel={
-                          winnerBandActive &&
-                          !winnerInfo.boardHandNames &&
-                          tableState.boardStage === 'showdown'
-                            ? showdownWinnerLine(
-                                winnerInfo.playerIds.map(
-                                  (id) => tableState.players.find((p) => p?.id === id)?.name || ''
-                                )
-                              )
-                            : undefined
-                        }
-                        deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                        cardBack={activeCardBack}
-                        playSounds={ambientSoundsAllowed}
-                        /* POKERBROS PARITY 2026-08-26: during the all-in
+                    winningPlayerLabel={
+                      winnerBandActive &&
+                      !winnerInfo.boardHandNames &&
+                      tableState.boardStage === 'showdown'
+                        ? showdownWinnerLine(
+                            winnerInfo.playerIds.map(
+                              (id) => tableState.players.find((p) => p?.id === id)?.name || ''
+                            )
+                          )
+                        : undefined
+                    }
+                    deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                    cardBack={activeCardBack}
+                    playSounds={ambientSoundsAllowed}
+                    /* POKERBROS PARITY 2026-08-26: during the all-in
                            runout (equity overlay live) the turn/river land
                            face down and flip - the reference slowed reveal. */
-                        slowReveal={allInEquities.length > 0}
-                        /* VIP ALL-IN SQUEEZE 2026-09-05: this viewer's right
+                    slowReveal={allInEquities.length > 0}
+                    /* VIP ALL-IN SQUEEZE 2026-09-05: this viewer's right
                            to squeeze, and the run count so a re-run never
                            does (see heroSqueezeEligible). */
-                        squeezeEligible={heroSqueezeEligible}
-                        runs={ritRunsThisHand}
-                        onSqueezeHold={setSqueezeHolding}
-                        /* RIVER SQUEEZE 2026-09-04: presentation identity and
+                    squeezeEligible={heroSqueezeEligible}
+                    runs={ritRunsThisHand}
+                    onSqueezeHold={setSqueezeHolding}
+                    /* RIVER SQUEEZE 2026-09-04: presentation identity and
                            focus. The engine keys the river by table + hand +
                            board so a duplicate snapshot never replays it and
                            a background table gets the compact profile. */
-                        tableId={tableId}
-                        handId={
-                          showRetainedRabbitBoard
-                            ? retainedRabbitBoard!.handNumber
-                            : tableState.handNumber
-                        }
-                        boardIndex={0}
-                        gameMode={boardPresentationMode}
-                        isFocused={isActive}
-                        isVisible={isVisible}
-                      />
-                      {/* DOUBLE-BOARD BOMB POT 2026-08-20: board 2, stacked
+                    tableId={tableId}
+                    handId={
+                      showRetainedRabbitBoard
+                        ? retainedRabbitBoard!.handNumber
+                        : tableState.handNumber
+                    }
+                    boardIndex={0}
+                    gameMode={boardPresentationMode}
+                    isFocused={isActive}
+                    isVisible={isVisible}
+                  />
+                  {/* DOUBLE-BOARD BOMB POT 2026-08-20: board 2, stacked
                           directly under board 1 like the reference — no label,
                           same stage (both boards deal in lockstep), silent so
                           each street sounds once. */}
-                      {/* RABBIT FIX 2026-08-28 (spec §19): a rabbit hunt is
+                  {/* RABBIT FIX 2026-08-28 (spec §19): a rabbit hunt is
                           board-1's would-have-come cards — appending them to
                           board 2/3 drew the same cards on two boards. The
                           engine no longer offers rabbits on multi-board hands
                           at all; the empty rabbitCards here are defence. */}
-                      {tableState.communityCards2.length > 0 && (
-                        <div className="community-area__board2">
-                          <CommunityCards
-                            cards={tableState.communityCards2}
-                            rabbitCards={[]}
-                            stage={
-                              bombPotHoldFlop && tableState.boardStage === 'flop'
-                                ? 'preflop'
-                                : tableState.boardStage
-                            }
-                            winningHandName={
-                              winnerBandActive
-                                ? winnerInfo.boardHandNames?.[1] || undefined
-                                : undefined
-                            }
-                            /* POKERBROS PARITY 2026-08-26 (round 3): board 2
+                  {tableState.communityCards2.length > 0 && (
+                    <div className="community-area__board2">
+                      <CommunityCards
+                        cards={tableState.communityCards2}
+                        rabbitCards={[]}
+                        stage={
+                          bombPotHoldFlop && tableState.boardStage === 'flop'
+                            ? 'preflop'
+                            : tableState.boardStage
+                        }
+                        winningHandName={
+                          winnerBandActive ? winnerInfo.boardHandNames?.[1] || undefined : undefined
+                        }
+                        /* POKERBROS PARITY 2026-08-26 (round 3): board 2
                                dims and lights exactly like board 1. */
-                            highlightedIndices={board2HighlightedIndices}
-                            deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                            cardBack={activeCardBack}
-                            playSounds={false}
-                            slowReveal={allInEquities.length > 0}
-                            tableId={tableId}
-                            handId={tableState.handNumber}
-                            boardIndex={1}
-                            gameMode={boardPresentationMode}
-                            isFocused={isActive}
-                            isVisible={isVisible}
-                          />
-                        </div>
-                      )}
-                      {/* TRIPLE-BOARD BOMB POT 2026-08-27: board 3, stacked
-                          under board 2, same lockstep stage and silence. */}
-                      {tableState.communityCards3.length > 0 && (
-                        <div className="community-area__board2 community-area__board3">
-                          <CommunityCards
-                            cards={tableState.communityCards3}
-                            rabbitCards={[]}
-                            stage={
-                              bombPotHoldFlop && tableState.boardStage === 'flop'
-                                ? 'preflop'
-                                : tableState.boardStage
-                            }
-                            winningHandName={
-                              winnerBandActive
-                                ? winnerInfo.boardHandNames?.[2] || undefined
-                                : undefined
-                            }
-                            highlightedIndices={board3HighlightedIndices}
-                            deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                            cardBack={activeCardBack}
-                            playSounds={false}
-                            slowReveal={allInEquities.length > 0}
-                            tableId={tableId}
-                            handId={tableState.handNumber}
-                            boardIndex={2}
-                            gameMode={boardPresentationMode}
-                            isFocused={isActive}
-                            isVisible={isVisible}
-                          />
-                        </div>
-                      )}
-                    </>
+                        highlightedIndices={board2HighlightedIndices}
+                        deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                        cardBack={activeCardBack}
+                        playSounds={false}
+                        slowReveal={allInEquities.length > 0}
+                        tableId={tableId}
+                        handId={tableState.handNumber}
+                        boardIndex={1}
+                        gameMode={boardPresentationMode}
+                        isFocused={isActive}
+                        isVisible={isVisible}
+                      />
+                    </div>
                   )}
+                  {/* TRIPLE-BOARD BOMB POT 2026-08-27: board 3, stacked
+                          under board 2, same lockstep stage and silence. */}
+                  {tableState.communityCards3.length > 0 && (
+                    <div className="community-area__board2 community-area__board3">
+                      <CommunityCards
+                        cards={tableState.communityCards3}
+                        rabbitCards={[]}
+                        stage={
+                          bombPotHoldFlop && tableState.boardStage === 'flop'
+                            ? 'preflop'
+                            : tableState.boardStage
+                        }
+                        winningHandName={
+                          winnerBandActive ? winnerInfo.boardHandNames?.[2] || undefined : undefined
+                        }
+                        highlightedIndices={board3HighlightedIndices}
+                        deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                        cardBack={activeCardBack}
+                        playSounds={false}
+                        slowReveal={allInEquities.length > 0}
+                        tableId={tableId}
+                        handId={tableState.handNumber}
+                        boardIndex={2}
+                        gameMode={boardPresentationMode}
+                        isFocused={isActive}
+                        isVisible={isVisible}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
 
-                  {/* SCOOP LABELS (spec §9.2/§13.3): one player swept the
+              {/* SCOOP LABELS (spec §9.2/§13.3): one player swept the
                       multi-board bomb pot — announced only after the awards
                       have pushed, never before.
 
@@ -29911,16 +30085,16 @@ function LiveTablePage({
                       three boards, at any width, without a single magic
                       percentage to go stale the next time the stack is
                       resized. */}
-                  {scoopBanner && scoopBanner.handNumber === tableState.handNumber && (
-                    <div className="bomb-scoop-banner" aria-live="polite">
-                      <span className="bomb-scoop-banner__label">{scoopBanner.text}</span>
-                      {scoopBanner.name && (
-                        <span className="bomb-scoop-banner__name">{scoopBanner.name}</span>
-                      )}
-                    </div>
+              {scoopBanner && scoopBanner.handNumber === tableState.handNumber && (
+                <div className="bomb-scoop-banner" aria-live="polite">
+                  <span className="bomb-scoop-banner__label">{scoopBanner.text}</span>
+                  {scoopBanner.name && (
+                    <span className="bomb-scoop-banner__name">{scoopBanner.name}</span>
                   )}
+                </div>
+              )}
 
-                  {/* THE BOMB HAND ITSELF. Dan 2026-09-05: "THE 'DOUBLE BOARD
+              {/* THE BOMB HAND ITSELF. Dan 2026-09-05: "THE 'DOUBLE BOARD
                       BOMB POT' IS COVERING THE TOP OF THE CARDS ... IT NEEDS
                       TO BE HIGHER, AND SMALLER, AND IT NEEDS TO BE
                       SMARTER.POKER COLOR SCHEMA, NOT PINK."
@@ -29934,45 +30108,43 @@ function LiveTablePage({
                       the felt it sat inside the two- and three-board stack,
                       which is the only time this label is ever shown. An
                       anchor cannot go stale; a percentage can. */}
-                  {bombPotBadge?.state === 'live' && (
-                    <div className="bomb-pot-live" aria-live="polite">
-                      <span className="bomb-pot-live__dot" />
-                      {bombPotBadge.text}
-                    </div>
-                  )}
-                  {/* KILL POTS (kill-v1): THIS hand is a kill hand. Same pill,
+              {bombPotBadge?.state === 'live' && (
+                <div className="bomb-pot-live" aria-live="polite">
+                  <span className="bomb-pot-live__dot" />
+                  {bombPotBadge.text}
+                </div>
+              )}
+              {/* KILL POTS (kill-v1): THIS hand is a kill hand. Same pill,
                       same anchor as the live bomb (the two never share a hand:
                       a kill table runs no bomb pots). It states the hand's
                       effective limits as the engine published them, "Kill Pot
                       8/16" or "Half Kill 6/12"; the killer's seat carries the
                       matching marker. */}
-                  {tableState.killHand && bombPotBadge?.state !== 'live' && (
-                    <div
-                      className="bomb-pot-live kill-pot-live"
-                      aria-live="polite"
-                      aria-label={`${killPotPillText(tableState.killHand)}, Killer In Seat ${tableState.killHand.killerSeat}`}
-                    >
-                      <span className="bomb-pot-live__dot" aria-hidden="true" />
-                      {killPotPillText(tableState.killHand)}
-                    </div>
-                  )}
+              {tableState.killHand && bombPotBadge?.state !== 'live' && (
+                <div
+                  className="bomb-pot-live kill-pot-live"
+                  aria-live="polite"
+                  aria-label={`${killPotPillText(tableState.killHand)}, Killer In Seat ${tableState.killHand.killerSeat}`}
+                >
+                  <span className="bomb-pot-live__dot" aria-hidden="true" />
+                  {killPotPillText(tableState.killHand)}
                 </div>
+              )}
+            </div>
 
-                {/* Dan 2026-08-15: the "Game Info Strip" that lived here is
+            {/* Dan 2026-08-15: the "Game Info Strip" that lived here is
                     gone. It printed the stakes a second and third time
                     ("NLH 2.00/5.00", then "2/5 NLH" in yellow) right under the
                     masthead that already states them. Date, club and game now
                     appear once, on one centered line in .table-brand. */}
 
-                {/* Spectator Badge + Overlay REMOVED from table surface.
+            {/* Spectator Badge + Overlay REMOVED from table surface.
                     Observer count belongs inside the chat panel, not on the felt.
                     SpectatorBadge and SpectatorOverlay components still exist for
                     future integration into the chat panel. */}
 
-                {/* FIX 194: HandStrengthIndicator REMOVED — not allowed for live online gameplay */}
-              </div>
-            </div>
-          </div>
+            {/* FIX 194: HandStrengthIndicator REMOVED — not allowed for live online gameplay */}
+          </TableFelt>
 
           {/* Dealer Button — Animated "D" chip */}
           <DealerButton
@@ -30041,6 +30213,7 @@ function LiveTablePage({
           {dealAnimationKey > 0 && (
             <DealAnimation
               key={dealAnimationKey}
+              onPaint={observeDeal}
               handNumber={dealPresentationHandRef.current}
               cardsPerSeat={lightningRoom ? seatHoleCardCount : undefined}
               active={true}
@@ -31001,7 +31174,7 @@ function LiveTablePage({
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null
             }
           />
-        </div>
+        </TableScene>
 
         {/* AUDIT FIX 2026-07-19: mount the chip-flight layer. Every wager
             (bet/raise/call/all-in) + blinds + pot-to-winner pushes events into
@@ -31016,6 +31189,7 @@ function LiveTablePage({
             still hides with the table in multi-table mode. */}
         <ChipAnimationManager
           animations={chipAnimations}
+          onPaint={observeChipFlights}
           floats={potWinFloats}
           onAnimationComplete={handleAnimationComplete}
         />
@@ -32401,7 +32575,12 @@ function LiveTablePage({
             : []
         }
         heroId={userId || ''}
-        loadState={handHistoryState}
+        loadState={
+          handHistoryViewerRef.current === userId &&
+          loadedHandHistoryScopeRef.current === handHistoryScopeRef.current
+            ? handHistoryState
+            : 'idle'
+        }
         initialHandId={handDetailFocusId}
         onLoadOlder={loadOlderReviewHands}
         hasOlderHands={hasOlderHands}
@@ -32437,6 +32616,7 @@ function LiveTablePage({
            the record, so it is converted rather than looked up. */
         onShare={(hand) => {
           try {
+            refreshCompletedPresentation.current?.();
             setSharedHandData(panelHandToShareable(hand, tableState.tableName || 'Club Arena'));
             /* A stored record: its id is the hand_history row (Share As Video). */
             setSharedHandId(hand.id || null);

@@ -1,3 +1,12 @@
+import { readSharedChips, type SharedChip } from './sharedChipFlights';
+import { readSharedDeal, type SharedDeal } from './sharedDeal';
+import { readSeatPaints, type SeatPaintEvent } from './sharedSeatPresentation';
+import { readSharedThrows, type SharedThrow } from './sharedThrows';
+import { readTableGeometry, type SharedTableGeometry } from './sharedTableGeometry';
+import { ANIMATION_SPEED_MAX, ANIMATION_SPEED_MIN } from '../utils/animationSpeed';
+import type { ShareableAction, ShareableHand } from '../components/table/ShareHand';
+import { cosmeticClassName } from '../cosmetics/avatarCosmetics';
+import { readBoardTiming, type SharedBoardTiming } from './sharedBoardTiming';
 import { getLocalStorage, setLocalStorage } from './storage';
 import { normalizeFaceDeckId, type FaceDeckId } from './faceDeck';
 
@@ -10,6 +19,16 @@ export interface SharedTableAppearance {
   showAvatars: boolean;
   fourColor: boolean;
   maxPlayers: number;
+  chips?: SharedChip[];
+  deal?: SharedDeal;
+  boardTiming?: SharedBoardTiming;
+  endAtMs?: number;
+  throws?: SharedThrow[];
+  seatPaints?: SeatPaintEvent[];
+  geometry?: SharedTableGeometry;
+  buttonSkin?: string;
+  animationSpeed?: number;
+  showStackInBB?: boolean;
 }
 
 export function readSharedTableAppearance(value: unknown): SharedTableAppearance | undefined {
@@ -35,6 +54,27 @@ export function readSharedTableAppearance(value: unknown): SharedTableAppearance
     showAvatars: v.showAvatars !== false,
     fourColor: v.fourColor,
     maxPlayers: v.maxPlayers,
+    animationSpeed:
+      typeof v.animationSpeed === 'number' &&
+      v.animationSpeed >= ANIMATION_SPEED_MIN &&
+      v.animationSpeed <= ANIMATION_SPEED_MAX
+        ? v.animationSpeed
+        : undefined,
+    showStackInBB: typeof v.showStackInBB === 'boolean' ? v.showStackInBB : undefined,
+    seatPaints: readSeatPaints(v.seatPaints),
+    throws: readSharedThrows(v.throws),
+    endAtMs:
+      typeof v.endAtMs === 'number' &&
+      Number.isSafeInteger(v.endAtMs) &&
+      v.endAtMs >= 0 &&
+      v.endAtMs <= 86400000
+        ? v.endAtMs
+        : undefined,
+    geometry: readTableGeometry(v.geometry),
+    chips: readSharedChips(v.chips),
+    deal: readSharedDeal(v.deal),
+    boardTiming: readBoardTiming(v.boardTiming),
+    buttonSkin: token(v.buttonSkin) ? v.buttonSkin : undefined,
   };
 }
 
@@ -49,6 +89,35 @@ interface ObservedSeat {
   seat: number;
   userId: string;
   avatar?: string;
+  frame?: string;
+  aura?: string;
+}
+
+type ActionTiming = Pick<ShareableAction, 'action' | 'seat' | 'atMs'>;
+type StreetTiming = Partial<Record<'preflop' | 'flop' | 'turn' | 'river', ActionTiming[]>>;
+
+export function applyObservedActionTimes(share: ShareableHand, timing?: StreetTiming) {
+  if (!timing) return;
+  for (const street of ['preflop', 'flop', 'turn', 'river'] as const) {
+    const saved = timing[street];
+    const rows = street === 'preflop' ? share.preflop : share[street]?.actions;
+    if (!rows || !Array.isArray(saved)) continue;
+    // Archive-generated blinds or returns need not have had a visible seat action.
+    const choices = (action: ShareableAction['action']) =>
+      ['FOLD', 'CHECK', 'CALL', 'BET', 'RAISE', 'ALL_IN', 'DISCARD'].includes(action);
+    const tracked = saved.filter((row) => row && choices(row.action));
+    const archived = rows.filter((row) => choices(row.action));
+    if (
+      tracked.length !== archived.length ||
+      !tracked.every((row, i) => row.seat === archived[i].seat && row.action === archived[i].action)
+    )
+      continue;
+    for (const [i, row] of archived.entries()) {
+      const at = tracked[i].atMs;
+      if (typeof at === 'number' && Number.isSafeInteger(at) && at >= 0 && at <= 86400000)
+        row.atMs = at;
+    }
+  }
 }
 
 interface ObservedTable {
@@ -57,6 +126,7 @@ interface ObservedTable {
   hand: string;
   appearance: SharedTableAppearance;
   seats: ObservedSeat[];
+  timing?: StreetTiming;
 }
 
 // Keep cosmetics only. Financial facts and visible cards always come from the archive.
@@ -70,7 +140,8 @@ export function rememberObservedTable(
   viewer: string,
   hand: number,
   appearance: SharedTableAppearance,
-  seats: ReadonlyArray<{ id: string; avatar?: string } | null>
+  seats: ReadonlyArray<{ id: string; avatar?: string; frame?: string; aura?: string } | null>,
+  timing?: StreetTiming
 ) {
   if (!table || !viewer || !Number.isSafeInteger(hand) || hand < 1) return;
   const observation: ObservedTable = {
@@ -78,8 +149,19 @@ export function rememberObservedTable(
     viewer,
     hand: String(hand),
     appearance,
+    timing,
     seats: seats.flatMap((p, i) =>
-      p ? [{ seat: i + 1, userId: p.id, avatar: sharedAvatar(p.avatar) }] : []
+      p
+        ? [
+            {
+              seat: i + 1,
+              userId: p.id,
+              avatar: sharedAvatar(p.avatar),
+              frame: cosmeticClassName(p.frame, 'frame') || undefined,
+              aura: cosmeticClassName(p.aura, 'aura') || undefined,
+            },
+          ]
+        : []
     ),
   };
   setLocalStorage(observationKey(hand), observation);
@@ -101,5 +183,5 @@ export function observedTable(
     return;
   const appearance = readSharedTableAppearance(saved.appearance);
   if (!appearance) return;
-  return { appearance, seats: saved.seats };
+  return { appearance, seats: saved.seats, timing: saved.timing };
 }

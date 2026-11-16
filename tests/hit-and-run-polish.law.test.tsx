@@ -151,7 +151,7 @@ describe('the count between Lightning hands', () => {
   it('TablePage wires the cash countdown and Lightning retry below the hand number', () => {
     const page = flat('src/pages/TablePage.tsx');
     expect(page).toMatch(
-      /Hand #\{tableState\.handNumber\} <\/span> <\/span> \)\} <HitRunCountPill retryRead=\{heroHandCount\.retryRead\} hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} paused=\{heroHandCount\.paused \?\? null\} \/>/
+      /Hand #\{tableState\.handNumber\}\s*<\/span> <\/span> \)\} <HitRunCountPill retryRead=\{heroHandCount\.retryRead\} hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} paused=\{heroHandCount\.paused \?\? null\} \/>/
     );
     const css = read('src/components/table/HitRunCountPill.css')
       .replace(/\/\*[\s\S]*?\*\//g, '')
