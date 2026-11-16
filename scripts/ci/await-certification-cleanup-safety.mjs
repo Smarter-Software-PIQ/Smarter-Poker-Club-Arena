@@ -8,6 +8,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 export const VERSION = '20261029193107';
 export const NAME = 'certification_cleanup_locks_only_its_own_club_graph';
+const SETTLEMENT_VERSION = '20261116131652';
+const SETTLEMENT_NAME = 'retired_clubs_settle_their_final_earned_week';
+const RETIRED_GUARD = 'public.fn_guard_retired_club_mutation()';
 export const EXPECTED = Object.freeze({
   'public.fn_ca_prepare_unused_welcome_certification_board_leases(uuid)':
     '9b0480f2e3b78233289c31f8484a5bb2',
@@ -19,6 +22,11 @@ export const EXPECTED = Object.freeze({
   'public.fn_ca_prepare_unused_welcome_certification_board_origins(uuid)':
     '8bf604a9e6ea826412234d552e83e2a9',
 });
+// The settlement migration patches exactly one of the five guarded definitions.
+const AFTER_SETTLEMENT = Object.freeze({
+  ...EXPECTED,
+  [RETIRED_GUARD]: '8c7ad1d34e6893f5c43b9c1204afc390',
+});
 // Derived from the exact migration in the isolated PostgreSQL fixture.
 export const HELPER_HASH = 'be823a508db58c1c54158f106cc677be';
 export const WAIT_MS = 12 * 60_000;
@@ -26,6 +34,8 @@ export const POLL_MS = 15_000;
 export const PROOF_SQL = `SELECT
   (SELECT coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name)), '[]'::jsonb)
      FROM supabase_migrations.schema_migrations WHERE version=$1 OR name=$2) AS history,
+  (SELECT coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name)), '[]'::jsonb)
+     FROM supabase_migrations.schema_migrations WHERE version=$4 OR name=$5) AS settlement_history,
   (SELECT jsonb_object_agg(signature, md5(pg_get_functiondef(to_regprocedure(signature))))
      FROM unnest($3::text[]) AS signatures(signature)) AS definitions,
   md5(pg_get_functiondef(to_regprocedure('smarter_private.certification_club_admission(uuid)'))) AS helper_hash,
@@ -51,7 +61,16 @@ export function classifyProof(row) {
     Object.keys(row.definitions).length !== Object.keys(EXPECTED).length
   )
     throw new Error('Cleanup function catalog is incomplete');
-  for (const [signature, hash] of Object.entries(EXPECTED)) {
+  const settlement = row.settlement_history;
+  if (
+    !Array.isArray(settlement) ||
+    settlement.length > 1 ||
+    (settlement.length === 1 &&
+      (settlement[0]?.version !== SETTLEMENT_VERSION || settlement[0]?.name !== SETTLEMENT_NAME))
+  )
+    throw new Error('Settlement migration history identity differs');
+  const expected = settlement.length === 1 ? AFTER_SETTLEMENT : EXPECTED;
+  for (const [signature, hash] of Object.entries(expected)) {
     if (row.definitions[signature] !== hash)
       throw new Error(`Cleanup function identity differs: ${signature}`);
   }
@@ -117,7 +136,13 @@ export function connectionConfig(raw) {
 export async function readProof(client) {
   await client.query('BEGIN TRANSACTION READ ONLY');
   try {
-    const result = await client.query(PROOF_SQL, [VERSION, NAME, Object.keys(EXPECTED)]);
+    const result = await client.query(PROOF_SQL, [
+      VERSION,
+      NAME,
+      Object.keys(EXPECTED),
+      SETTLEMENT_VERSION,
+      SETTLEMENT_NAME,
+    ]);
     if (result.rows?.length !== 1)
       throw new Error('Cleanup catalog proof must return exactly one row');
     return result.rows[0];
@@ -131,6 +156,7 @@ export function safeFailure(error) {
     'Cleanup migration history is unreadable',
     'Cleanup migration history identity differs',
     'Cleanup function catalog is incomplete',
+    'Settlement migration history identity differs',
     'Cleanup admission helper is missing or grants non-owner access',
     'Cleanup admission helper identity differs',
     'Cleanup catalog connection became unreadable',
