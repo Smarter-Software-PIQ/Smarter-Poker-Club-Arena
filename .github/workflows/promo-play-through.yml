@@ -48,6 +48,10 @@ on:
       - scripts/ci/test-promo-expiry-thaw.py
       - scripts/ci/test-on-time-maintenance-thaw.py
       - scripts/ci/test-thaw-preserves-retired-clubs.py
+      - scripts/ci/test-promo-integrity.py
+      - scripts/ci/test-promo-integrity-accepted-hand.py
+      - tests/fixtures/promo-integrity-*.json
+      - scripts/ci/test-mtt-unlimited.py
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -95,6 +99,17 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-promo-expiry-thaw.py --output artifacts/promo-expiry-thaw
+      - name: Build the stock PostgreSQL isolation client
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/build_pg17_isolationtester.py
+      - name: Review holds follow actual restricted principal
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          PG_ISOLATION_TESTER: ${{ github.workspace }}/artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester
+        run: python3 -B scripts/ci/test-promo-integrity.py --output artifacts/promo-integrity
+      - name: Actual accepted hands and response-loss replay preserve review custody
+        run: python3 -B scripts/ci/test-promo-integrity-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-integrity-accepted-hand
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -111,5 +126,8 @@ jobs:
             artifacts/promo-custody-accepted-hand/RESULTS.json
             artifacts/signup-promo-identity/RESULTS.json
             artifacts/promo-fee-basis/RESULTS.json
+            artifacts/promo-integrity/RESULTS.json
+            artifacts/promo-integrity/review-race-*.log
+            artifacts/promo-integrity-accepted-hand/RESULTS.json
           retention-days: 7
           if-no-files-found: warn
