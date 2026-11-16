@@ -169,8 +169,11 @@ export const HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES = 32 * 1024 * 1024 * 1024;
    guarantee off on one that predates the drain), FIRST set
    HORSE_DECISION_JOURNAL_ARCHIVE_MAX_BYTES at least to the largest shard's
    current compressedBytes (writer status / horseJournal in /health) plus one
-   hour of writes (about 2 GiB), restart once on that setting, and only then
-   lower it in steps the ring drains between appends. */
+   hour of writes (about 2 GiB), restart once on that setting, and KEEP that
+   raised value for as long as a release without the drain is serving: lowering
+   it there, even in steps, refuses capture again for every step (about 3 h lost
+   per GiB lowered; Hand Analysis D1 on #10996). Lower it only after rolling
+   forward to a release that has this drain. */
 /** The free space a draining ring always leaves on the archive filesystem
  * (or the disk floor, when a smaller floor is configured). */
 export const HORSE_JOURNAL_DRAIN_MIN_FREE_BYTES = 1024 * 1024 * 1024;
