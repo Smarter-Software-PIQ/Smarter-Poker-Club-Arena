@@ -21,7 +21,13 @@
  *     accumulate per arm (part of the treatment);
  *   - participation is reported with its quality: opportunities, voluntary
  *     entries, first-in raise / limp / fold, the big blind's answer by price,
- *     and the strength of the range that enters and that sees a flop.
+ *     and the strength of the range that enters and that sees a flop;
+ *   - a mixed cell (stackMix 'mixed') deals every seat its own starting stack
+ *     per hand from the declared distribution, the same in both arms;
+ *   - every Horse decision's wall-clock is held against the production
+ *     deadline the host passes with the request (and the worker client's
+ *     execution deadline): counted for the subject seats, and in `apply`
+ *     mode answered, on any Horse seat, by the host's own liveness path.
  *
  * Measurement plumbing only: no production caller, no database, no writer.
  * Run inside vitest (the fixture is built on vi.fn and fake timers). The
@@ -39,6 +45,10 @@ import { completedHandActionsForMind } from '../engine/horseDecision/completedHa
 import { horseMindHandFromCompletion } from '../engine/HorseMindHandIdentity.js';
 import { observeHandResults, resetWinnerReads } from '../engine/HorseWinnerRead.js';
 import type { CompletedHandObservation } from '../engine/horseDecision/index.js';
+import {
+  HorseDecisionExpiredError,
+  LiveHorseDecisionWorkerClient,
+} from '../engine/horseDecision/client.js';
 import { EXPLOITER_POLICIES, type ExploiterPolicy } from '../benchmark/ExploiterLeague.js';
 import { styleLeagueField } from '../benchmark/StyleReadLeagueField.js';
 import type { LeagueSeatSpot } from '../benchmark/HorseLeague.js';
@@ -49,14 +59,21 @@ import {
   LIGHTNING_EVAL_BIG_BLIND,
   LIGHTNING_EVAL_CONSERVATION_TOLERANCE,
   LIGHTNING_EVAL_SMALL_BLIND,
+  addLightningEvalLatency,
   bbPriceBucket,
   classifyLightningEntry,
   createLightningDryStreakTracker,
+  emptyDeadlineCounts,
   emptyPositionStats,
+  lightningEvalCellKey,
   lightningEvalConservationGap,
+  lightningEvalDeadlineMiss,
+  lightningEvalEffectiveStackBB,
   lightningEvalIsPreflopRaise,
   lightningEvalMix,
   lightningEvalPosition,
+  lightningEvalStacksBB,
+  recordLightningEvalDeadline,
   strengthBin,
   type LightningEvalArmResult,
   type LightningEvalArmSpec,
@@ -68,6 +85,8 @@ import {
 } from './LightningPairedEval.test-support.js';
 
 type Decision = { action: string; amount?: number };
+/** The options the host passes with a FAST request: its deadline (horseDecisionDeadlineMs). */
+type LaneRequest = { deadlineMs?: number };
 
 /**
  * The scripted opponents, each an EXISTING maintained definition (nothing is
@@ -144,6 +163,35 @@ function percentile(sorted: number[], q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
 }
 
+/**
+ * The live worker client's execution deadline: its DEFAULT_JOB_TIMEOUT_MS
+ * (TypeScript-private, a plain static at run time). The production lane
+ * constructs its clients with no jobTimeoutMs (GameServer
+ * startLiveHorseDecisionWorker), so the default is the production value.
+ */
+function productionExecutionDeadlineMs(): number {
+  const v = Number(
+    (LiveHorseDecisionWorkerClient as unknown as { DEFAULT_JOB_TIMEOUT_MS?: unknown })
+      .DEFAULT_JOB_TIMEOUT_MS
+  );
+  if (!Number.isFinite(v) || v <= 0)
+    throw new Error(
+      'LiveHorseDecisionWorkerClient.DEFAULT_JOB_TIMEOUT_MS is gone: re-read the production execution deadline'
+    );
+  return v;
+}
+
+/** Our own deadline answers are expected in apply mode; anything else still reaches the console. */
+const isOwnDeadlineMiss = (err: unknown) =>
+  err instanceof HorseDecisionExpiredError && String(err.message).startsWith('lightning eval:');
+const applyModeLogger = {
+  log: (m: string) => console.log(m),
+  warn: (m: string) => console.warn(m),
+  error: (m: string, err?: unknown) => {
+    if (!isOwnDeadlineMiss(err)) console.error(m, err ?? '');
+  },
+};
+
 export async function playLightningEvalArm(input: {
   cell: LightningEvalCell;
   arm: LightningEvalArmSpec;
@@ -152,6 +200,10 @@ export async function playLightningEvalArm(input: {
   baselineDecideOpts: Record<string, unknown>;
   /** Sets the seeded deck's state (the caller owns the CryptoRandom mock). */
   setDeckState: (state: number) => void;
+  /** `measure` (default) or `apply` (LightningEvalArmPlayer). */
+  deadlineMode?: 'measure' | 'apply';
+  /** Tests and sensitivity reads only: replaces the caller deadline the host passed, ms. */
+  deadlineOverrideMs?: number;
 }): Promise<LightningEvalArmResult> {
   const { cell, arm } = input;
   const n = cell.players;
@@ -159,11 +211,25 @@ export async function playLightningEvalArm(input: {
   const policy = fieldPolicy(cell.field);
   const villains = cell.field === 'all_horse' ? 0 : Math.min(cell.villains ?? 1, n - 1);
   const scope = arm.scope ?? 'hero';
-  const cellKey = lightningEvalMix(
-    input.seed,
-    cell.variant.length * 131 + n * 17 + cell.stackBB,
-    cell.field.length * 7919 + cell.field.charCodeAt(0) * 31 + villains
-  );
+  const cellKey = lightningEvalCellKey(input.seed, cell);
+  const applyDeadline = input.deadlineMode === 'apply';
+  const executionDeadlineMs = productionExecutionDeadlineMs();
+  const deadline = emptyDeadlineCounts(executionDeadlineMs);
+  const latencyHistogram: Record<string, number> = {};
+  // The override (tests, sensitivity reads) replaces the caller deadline as
+  // is: a 0 ms override makes every decision miss.
+  const override = input.deadlineOverrideMs;
+  const deadlineMissOf = (ms: number, requestDeadlineMs: unknown) => {
+    const miss = lightningEvalDeadlineMiss(ms, requestDeadlineMs, executionDeadlineMs);
+    if (override === undefined) return miss;
+    const overCaller = ms > override;
+    return {
+      ...miss,
+      callerDeadlineMs: override,
+      overCaller,
+      over: overCaller || miss.overExecution,
+    };
+  };
   const previousRng = saveFastRandom();
   equityGovernor.__setScaleForTest(1);
   vi.useFakeTimers({
@@ -253,9 +319,12 @@ export async function playLightningEvalArm(input: {
       };
       const horseIds = new Set(players.filter((p) => !villainIds.includes(p)));
       const subjectIds = scope === 'all_horses' ? horseIds : new Set([HERO]);
+      // One starting stack per table slot: the cell's depth (uniform), or a
+      // draw from its own stream (mixed), the same in both arms.
+      const stacksBB = lightningEvalStacksBB(cell, cellKey, h);
       const t = kit.buildHost(
         formed,
-        Array.from({ length: n }, () => cell.stackBB * bb),
+        stacksBB.map((stack) => stack * bb),
         {
           horses: horseIds,
           rules: {
@@ -271,7 +340,9 @@ export async function playLightningEvalArm(input: {
             rake_percent: null,
             rake_cap_bb: null,
           },
-          deps: { random: hostRandom },
+          deps: applyDeadline
+            ? { random: hostRandom, logger: applyModeLogger }
+            : { random: hostRandom },
         }
       );
       vi.mocked(t.backend.nextHandNumber).mockResolvedValue(1_000_001 + h);
@@ -280,7 +351,7 @@ export async function playLightningEvalArm(input: {
       let villainStep = 0;
       try {
         const lane = t.horseLane.raw;
-        lane.decideFast.mockImplementation(async (snap: any) => {
+        lane.decideFast.mockImplementation(async (snap: any, _s?: unknown, req?: LaneRequest) => {
           const uid: string = snap.player.user_id;
           const isSubject = subjectIds.has(uid);
           const used = isSubject && arm.snapshotPatch ? arm.snapshotPatch(snap) : snap;
@@ -312,6 +383,10 @@ export async function playLightningEvalArm(input: {
           }
           const ms = performance.now() - t0;
           counters.decisions++;
+          // The production deadline this request carried (the host computed it
+          // with horseDecisionDeadlineMs), and the client's execution deadline.
+          const miss = deadlineMissOf(ms, req?.deadlineMs);
+          const fellBack = applyDeadline && miss.over;
           // An early look carries the host's own fence suffix. The game state
           // cannot tell: asIfToAct reports the hero as the seat to act.
           const early = String(snap.fence ?? '').endsWith(':early');
@@ -333,6 +408,8 @@ export async function playLightningEvalArm(input: {
           if (isSubject) {
             counters.subjectDecisions++;
             latency.push(ms);
+            addLightningEvalLatency(latencyHistogram, ms);
+            recordLightningEvalDeadline(deadline, miss);
             if (decision.policyFallback) counters.policyFallbacks++;
             if (
               gs.stage === 'preflop' &&
@@ -342,9 +419,24 @@ export async function playLightningEvalArm(input: {
             )
               bbFirstPriced.set(uid, {
                 price: gs.toCall / (Number(gs.pot) + gs.toCall),
-                action: String(decision.action),
+                // A missed deadline in apply mode: the seat folds (it owes chips).
+                action: fellBack ? 'fold' : String(decision.action),
                 early,
               });
+          }
+          if (fellBack) {
+            // As production: the request expires and decideLightningHorse
+            // answers with its liveness answer (check, or fold facing a bet).
+            deadline.appliedFallbacks++;
+            decisionLog.push(
+              `${uid.slice(-6)}|${isSubject ? 'S' : 'H'}|${gs.stage}|${early ? 'e' : 't'}|deadline_fallback|`
+            );
+            throw new HorseDecisionExpiredError(
+              `lightning eval: decide took ${ms.toFixed(3)} ms, over the ${Math.min(
+                miss.callerDeadlineMs,
+                executionDeadlineMs
+              )} ms deadline`
+            );
           }
           decisionLog.push(
             `${uid.slice(-6)}|${isSubject ? 'S' : 'H'}|${gs.stage}|${early ? 'e' : 't'}|${decision.action}|${
@@ -458,8 +550,23 @@ export async function playLightningEvalArm(input: {
         const preFolds = new Set(pre.filter((a) => a.action === 'fold').map((a) => a.userId));
         const reachedFlop = n - preFolds.size >= 2;
         const subjects: LightningEvalSubjectHand[] = [];
+        let engineStackMismatches = 0;
         if (!settled) counters.unsettledHands++;
         else {
+          // The stacks reached the engine: each seat's settled start
+          // (stackAfter - won + contributed) is the stack it was dealt.
+          for (const res of settled.results) {
+            const slot = players.indexOf(res.playerId);
+            const start =
+              (Number(res.stackAfter) || 0) -
+              (Number(res.won) || 0) +
+              (Number(res.contributed) || 0);
+            if (
+              slot < 0 ||
+              Math.abs(start - stacksBB[slot]! * bb) > LIGHTNING_EVAL_CONSERVATION_TOLERANCE
+            )
+              engineStackMismatches++;
+          }
           const handRake = Number(settled.rake) || 0;
           // The bad-beat-jackpot fee: the settlement's `bbj`, taken beside the rake.
           const handFee = Number(settled.bbj) || 0;
@@ -479,6 +586,7 @@ export async function playLightningEvalArm(input: {
             const res = settled.results.find((r: any) => r.playerId === id);
             if (!res) continue;
             const seat = seatOf(id);
+            const slot = players.indexOf(id);
             const position = lightningEvalPosition(seat, n);
             const mine = pre.filter((a) => a.userId === id);
             const firstIdx = pre.findIndex((a) => a.userId === id);
@@ -525,6 +633,8 @@ export async function playLightningEvalArm(input: {
               bbPrice: bbAns ? Math.round(bbAns.price * 10000) / 10000 : null,
               bbAnswer: bbAns ? bbAns.action : null,
               bbAnswerEarly: bbAns ? bbAns.early : null,
+              stackBB: stacksBB[slot]!,
+              effectiveStackBB: lightningEvalEffectiveStackBB(stacksBB, slot),
             };
             subjects.push(row);
             for (const s of [total, (byPosition[position] ??= emptyPositionStats())]) {
@@ -580,6 +690,8 @@ export async function playLightningEvalArm(input: {
             (a) =>
               `${String(a.userId).slice(-6)}|${a.stage}|${a.action}|${Math.round(Number(a.amount ?? 0) * 100)}`
           ),
+          stacksBB: [...stacksBB],
+          engineStackMismatches,
         });
       } finally {
         await t.host.abort('lightning_eval_done');
@@ -608,7 +720,9 @@ export async function playLightningEvalArm(input: {
         p95: percentile(sorted, 0.95),
         p99: percentile(sorted, 0.99),
         max: sorted.length ? sorted[sorted.length - 1]! : 0,
+        deadline,
       },
+      latencyHistogram,
     };
   } finally {
     vi.useRealTimers();

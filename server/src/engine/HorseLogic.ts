@@ -195,6 +195,10 @@ import {
   nutLowBlockersHeld,
   streetWagerSignal,
 } from './HorseFixedLimitWagerRead.js';
+import {
+  fixedLimitRiverLeadStrength,
+  fixedLimitRiverStrongHandLeads,
+} from './HorseFixedLimitRiverLead.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -326,6 +330,7 @@ import {
   maniacRaiseWidth,
   reRaiseWidth,
   isPostflopManiac,
+  isAggressor,
   preflopVsOpener,
   aggressiveOpenerPressure,
   aggressiveBettorPressure,
@@ -349,6 +354,13 @@ import {
   type OmahaTightReRaiser,
   type OmahaTightSteal,
 } from './HorseOmahaTightOpponent.js';
+import {
+  fixedLimitOpenShare,
+  fixedLimitPersonaShareMul,
+  fixedLimitStealStrengthWiden,
+  fixedLimitStealWiden,
+  type FixedLimitPricedCtx,
+} from './HorseFixedLimitPreflop.js';
 import {
   HU_STEAL_CASH_OPEN_CEILING_BB,
   HU_STEAL_MAX_STACK_BB,
@@ -3620,7 +3632,8 @@ export interface HorseDecideOpts {
    * call is under 40% of the stack: a refusal by the price arithmetic goes
    * to the range play instead of folding outright (PLO6-AUDIT-013,
    * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
-   * on; false only for the regression's non-vacuity control. */
+   * OFF (opt-in) since 2026-11-16: its reach row was not met by the deadline
+   * Hand Analysis set (production changed-decision count not shown). */
   plo6ManiacPriceRefusalToRangePlay?: boolean;
   /** PLO6 cash, one board, no bomb pot: in the solverless flop/turn call
    * menu a top set that is the current nuts (board unpaired, no three of a
@@ -3652,6 +3665,18 @@ export interface HorseDecideOpts {
    * and no raise-frequency draw; the one-pair, war and danger gates stay.
    * OPT-IN, default off. Read as `=== true`. */
   fixedLimitRiverOneBetValueRaise?: boolean;
+  /** Fixed limit, river, nothing to call, the Horse first to act (no opponent
+   * has acted on the river), the reference checks, and the hand is a full
+   * house or better that at most 12 percent of the opponents' holdings beat
+   * (HorseFixedLimitRiverLead.ts, card-exact with the engine's scorers; hold'em
+   * also refuses a board that plays and an under-full boat): bet one big bet.
+   * Hi-lo with a low possible and no Horse low leads only into two or more
+   * opponents who can act; an aggressive read on the next opponent to act
+   * (isAggressor / isPostflopManiac) keeps the check. Not facing a wager,
+   * not checked to, no bomb pot or multi-board, never an all-in bet, never a
+   * tournament stack under 20 big blinds (Fixed-Limit lane W8). OPT-IN,
+   * default off. Read as `=== true`. */
+  fixedLimitRiverStrongHandLeads?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -4096,6 +4121,42 @@ export interface HorseDecideOpts {
    *  (presumedAggressorRead) is not applied; the opponent's own measured read
    *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
   fixedLimitOmahaNoPresumption?: boolean;
+  /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15): at
+   *  fixed-limit CASH tables only (inert at every tournament table: the
+   *  !isTournamentMode(gs) gate at the priced-context entry and the pack
+   *  precedence), first in the seat raises the stated reference share by
+   *  players behind (the small blind folded to also completes a band; the
+   *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
+   *  exactly one raise becomes a call when its realized equity against the
+   *  opener's reference range covers its raw pot price (the calibration's
+   *  price; 2026-11-15 fix) (HorseFixedLimitPreflop.ts). 3-bet/cap ranges are
+   *  unchanged. With it on, the
+   *  phase12 pack's round-3 preflop FIRST-IN entry rules retain this reference in fixed limit.
+   *  Read only as === true: default OFF. */
+  fixedLimitPricedPreflop?: boolean;
+  /** FIXED-LIMIT STEAL VS TIGHT BLINDS (Fixed-Limit lane W5, 2026-11-15): at
+   *  fixed-limit CASH tables only (inert at every tournament table: it shares
+   *  the priced preflop's !isTournamentMode(gs) entry), first in from the
+   *  cutoff, button or small blind (or the
+   *  heads-up button), when every player still to act is a read over-folder
+   *  (own exploit read, foldToBet engaged high on adequate decayed
+   *  opportunities, not presumed, nothing preflop engaged wide), the open
+   *  widens by up to 15 points of hands (HorseFixedLimitPreflop.ts). Read
+   *  only as === true: default OFF. */
+  fixedLimitStealVsTightBlinds?: boolean;
+  /** FIXED-LIMIT BETS ARE NEVER PROBES, live switch (2026-11-15, Fixed-Limit lane, owner rule
+   *  11:26): the registry's on/off for the PROCESS switch HorseMind.setFixedLimitBetsAreNeverProbes.
+   *  The decision never reads it: counting also happens outside a decision, so the decision worker
+   *  applies it to the process switch before every job (HorseMind.applyFixedLimitBetsAreNeverProbesOption)
+   *  and the whole thread counts with one value. Absent: the source default (on). */
+  fixedLimitBetsAreNeverProbes?: boolean;
+  /** A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED ("F1b", 2026-11-15, own
+   *  option since 2026-11-16, Fixed-Limit lane): at a fixed-limit decision,
+   *  with the F1 process switch on, an opponent's pooled no-limit/pot-limit
+   *  probe share does not discount his fixed-limit aggression reads
+   *  (HorseMind.fixedLimitReadIgnoresProbes, four read sites). Read only as
+   *  === true: default OFF; registered in the live option switch. */
+  fixedLimitReadIgnoresProbes?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -5369,6 +5430,117 @@ function maniacCallDown(
     return allInCall
       ? { ...decision, action: 'all_in', amount: undefined }
       : { ...decision, action: 'call', amount: Math.round(call * 100) / 100 };
+  } catch {
+    return decision;
+  }
+}
+
+/**
+ * FIXED LIMIT: A STRONG RIVER HAND LEADS (opt-in fixedLimitRiverStrongHandLeads,
+ * Fixed-Limit lane W8). Inside the reference like the maniac call-down, so
+ * every later owner sees the lead as the reference's own choice. Returns the
+ * reference untouched unless the option is on and every gate of
+ * HorseFixedLimitRiverLead.fixedLimitRiverStrongHandLeads passes; then one
+ * big bet (the legalizer clamps it to the street's fixed size). No random
+ * draw is taken on any path, so off and inert are byte-identical.
+ */
+function fixedLimitRiverStrongHandLead(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.fixedLimitRiverStrongHandLeads !== true) return decision;
+  if (decision.action !== 'check' || gs.stage !== 'river' || vi.isFixedLimit !== true)
+    return decision;
+  try {
+    const board = gs.communityCards ?? [];
+    const toCall = Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+    const hist = gs.actionHistory ?? [];
+    const firstToActOnRiver = !hist.some((a) => a.stage === 'river');
+    const players =
+      gs.dealtSeatIds !== undefined
+        ? horsePolicyDealtPlayers(gs.players, player.seat, gs.dealtSeatIds)
+        : gs.players;
+    const canAct = players.filter(
+      (p) =>
+        p.seat !== player.seat && !p.is_folded && !p.is_all_in && !p.is_sitting_out && p.stack > 0
+    );
+    const betUnit = Number(gs.fixedBetSize ?? gs.minRaiseTo ?? 0);
+    const bb = Number(gs.bigBlind) > 0 ? Number(gs.bigBlind) : 1;
+    const betLegal = !Array.isArray(gs.legalActions) || gs.legalActions.includes('bet');
+    const multi =
+      gs.bombPot === true ||
+      (gs.boardCount ?? 1) > 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0;
+    // Cheap gates first: the card-exact strength walk runs only when it can matter.
+    const pre = fixedLimitRiverStrongHandLeads({
+      isFixedLimit: true,
+      isRiver: board.length === 5,
+      toCall,
+      firstToActOnRiver,
+      referenceAction: decision.action,
+      betLegal,
+      bombPotOrMultiBoard: multi,
+      opponentsWhoCanAct: canAct.length,
+      betLeavesChips: betUnit > 0 && player.stack > betUnit,
+      tournament: isTournamentMode(gs),
+      stackBigBlinds: player.stack / bb,
+      isHiLo: false,
+      lowPossible: false,
+      horseHoldsLow: false,
+      strong: true,
+      nextOpponentAggressive: false,
+    });
+    if (pre !== 'lead') return decision;
+    const strength = fixedLimitRiverLeadStrength(
+      player.cards,
+      board,
+      vi.isOmaha === true,
+      canAct.length,
+      player.cards.length,
+      player.knownDeadCards ?? []
+    );
+    if (!strength.strong) return decision;
+    const isHiLo = vi.isHiLo === true;
+    const lowPossible = isHiLo && !noLowPossible(board);
+    const horseHoldsLow = lowPossible && scoreOmahaLow(player.cards, board) !== Infinity;
+    // The first opponent to act after the Horse (clockwise by seat).
+    const next = [...canAct].sort(
+      (a, b) => ((a.seat - player.seat + 1000) % 1000) - ((b.seat - player.seat + 1000) % 1000)
+    )[0];
+    let nextOpponentAggressive = false;
+    if (opts.mind !== false && next) {
+      try {
+        const read = HorseMind.opponentRead(next.user_id);
+        nextOpponentAggressive = isAggressor(read) || isPostflopManiac(read);
+      } catch {
+        /* reads are best-effort: no read is the baseline */
+      }
+    }
+    const verdict = fixedLimitRiverStrongHandLeads({
+      isFixedLimit: true,
+      isRiver: true,
+      toCall,
+      firstToActOnRiver,
+      referenceAction: decision.action,
+      betLegal,
+      bombPotOrMultiBoard: multi,
+      opponentsWhoCanAct: canAct.length,
+      betLeavesChips: true,
+      tournament: isTournamentMode(gs),
+      stackBigBlinds: player.stack / bb,
+      isHiLo,
+      lowPossible,
+      horseHoldsLow,
+      strong: true,
+      nextOpponentAggressive,
+    });
+    if (verdict !== 'lead') return decision;
+    if (telemetryOn(opts)) noteFire('fixed_limit_river_strong_hand_lead');
+    return { ...decision, action: 'bet', amount: betUnit };
   } catch {
     return decision;
   }
@@ -11261,6 +11433,14 @@ export class HorseLogic {
       typeof gameState.gameVariant === 'string' ? gameState.gameVariant : null,
       gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash'
     );
+    // The decision's betting structure, as the state states it (the same
+    // value observe() counts with below), so the fixed-limit reads key on the
+    // structure and not on the variant name. Cleared with the scope.
+    HorseMind.setDecisionBettingStructure(
+      gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)
+    );
+    // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
+    HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
@@ -11872,6 +12052,7 @@ export class HorseLogic {
       // every later owner sees it as the reference's own choice.
       decision = maniacCallDown(decision, player, gs, vi, opts);
       decision = maniacShortStackJam(decision, player, gs, opts);
+      decision = fixedLimitRiverStrongHandLead(decision, player, gs, vi, opts);
       return { decision };
     }).decision;
 
@@ -11996,7 +12177,11 @@ export class HorseLogic {
               opts.phase12EvidenceMode && !tele ? () => 0 : undefined,
               phase12DecisionEquityCeiling ?? 1,
               true,
-              readStation
+              readStation,
+              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode)
+              opts.fixedLimitPricedPreflop === true &&
+                vi.isFixedLimit === true &&
+                !isTournamentMode(gs)
             )
           : null;
       if (phase12) {
@@ -12172,6 +12357,8 @@ export class HorseLogic {
                 decision = { ...selected, tournamentUtility: result.ledger };
                 if (tele) {
                   noteFire('phase7_tournament_utility');
+                  if (phase8UtilityInput.stackScaledMargin === true)
+                    noteFire('tournament_utility_stack_scaled_margin_seen');
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
@@ -14312,8 +14499,10 @@ export class HorseLogic {
           // the raiser is not all in), a refusal hands the decision to the
           // range play below. PLO6 cash only: the evidence is one PLO6 cash
           // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
+          // Opt-in since 2026-11-16 (=== true): its reach row was not met by the
+          // deadline Hand Analysis set; unset, the refusal folds as before.
           const refusalToRangePlay38 =
-            opts.plo6ManiacPriceRefusalToRangePlay !== false &&
+            opts.plo6ManiacPriceRefusalToRangePlay === true &&
             vi.isOmaha &&
             !vi.isHiLo &&
             vi.holeCount === 6 &&
@@ -14685,6 +14874,83 @@ export class HorseLogic {
       }
     }
 
+    // ═══ FIXED-LIMIT PRICED PREFLOP / STEAL VS TIGHT BLINDS (W5, default off) ═══
+    // HorseFixedLimitPreflop: fixed limit only, CASH only (a fixed-limit
+    // tournament table plays exactly as before: no separately evaluated
+    // tournament policy exists; same isTournamentMode test as every other
+    // cash/tournament split here), never in a bomb pot, a straddled pot or
+    // All-In-Or-Fold. The reads are the players still to act
+    // (folded and sitting-out players are not), each its own exploit read.
+    let fixedLimitPriced: FixedLimitPricedCtx | undefined;
+    let fixedLimitStealOpenWiden: number | undefined;
+    const flVariant: 'flh' | 'flo8' | null = vi.isFixedLimit
+      ? vi.isOmaha
+        ? vi.isHiLo
+          ? 'flo8'
+          : null
+        : player.cards.length === 2 && !vi.isShortDeck
+          ? 'flh'
+          : null
+      : null;
+    if (
+      flVariant !== null &&
+      !isTournamentMode(gs) &&
+      (opts.fixedLimitPricedPreflop === true || opts.fixedLimitStealVsTightBlinds === true) &&
+      gs.bombPot !== true &&
+      gs.allInOrFold !== true &&
+      gs.straddleActive !== true
+    ) {
+      try {
+        const dealtFl = dealtHorseTableSize(gs, player.seat);
+        const behindFl = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+        let stealWidenShare = 0;
+        const stealSeat = behindFl !== null && (dealtFl <= 2 ? behindFl === 1 : behindFl <= 3);
+        if (
+          opts.fixedLimitStealVsTightBlinds === true &&
+          opts.mind !== false &&
+          raises === 0 &&
+          limpers === 0 &&
+          stealSeat
+        ) {
+          const leftFl = gs.players.filter(
+            (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+          );
+          if (leftFl.length > 0 && !leftFl.some((p) => p.is_all_in)) {
+            const w = fixedLimitStealWiden(leftFl.map((p) => HorseMind.opponentRead(p.user_id)));
+            if (w) stealWidenShare = w.widenShare;
+          }
+        }
+        if (opts.fixedLimitPricedPreflop === true) {
+          const raiserFl =
+            raises === 1 && lastRaiserSeat >= 0
+              ? gs.players.find((p) => p.seat === lastRaiserSeat)
+              : undefined;
+          fixedLimitPriced = {
+            variant: flVariant,
+            dealt: dealtFl,
+            behind: behindFl,
+            openerBehind: raiserFl
+              ? preflopPlayersBehind(raiserFl.seat, gs, opts.v13 !== false)
+              : null,
+            openerAllIn: raiserFl?.is_all_in === true,
+            stealWidenShare,
+          };
+        } else if (stealWidenShare > 0) {
+          const refFl = fixedLimitOpenShare(flVariant, dealtFl, behindFl);
+          if (refFl) {
+            const widenFl = fixedLimitStealStrengthWiden(
+              flVariant,
+              refFl.raise * fixedLimitPersonaShareMul(params.tightness),
+              stealWidenShare,
+              dealtFl
+            );
+            if (widenFl > 0) fixedLimitStealOpenWiden = widenFl;
+          }
+        }
+      } catch {
+        /* reads are best-effort */
+      }
+    }
     // ═══ HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, default off) ═══
     // HorseHuTightBigBlindSteal: the heads-up no-limit hold'em small blind
     // first in, against a big blind the existing counters prove a tight
@@ -15523,6 +15789,8 @@ export class HorseLogic {
       ...(omahaTightOpener ? { omahaTightOpener } : {}),
       ...(omahaTightReRaiser ? { omahaTightReRaiser } : {}),
       ...(omahaTightSteal ? { omahaTightSteal: { openWiden: omahaTightSteal.openWiden } } : {}),
+      ...(fixedLimitPriced ? { fixedLimitPriced } : {}),
+      ...(fixedLimitStealOpenWiden !== undefined ? { fixedLimitStealOpenWiden } : {}),
       ...(huTightBigBlindSteal ? { huTightBigBlindSteal } : {}),
       ...(styleTightIsoWiden !== undefined ? { styleTightIsoWiden } : {}),
       ...(styleTightStealWiden !== undefined ? { styleTightStealWiden } : {}),
@@ -15621,6 +15889,12 @@ export class HorseLogic {
               noteFire('style_tight_opener_respect_seen');
             else if (layer === 'style_tight_reraiser_respect_seen')
               noteFire('style_tight_reraiser_respect_seen');
+            else if (layer === 'fixed_limit_priced_first_in')
+              noteFire('fixed_limit_priced_first_in');
+            else if (layer === 'fixed_limit_priced_blind_defence')
+              noteFire('fixed_limit_priced_blind_defence');
+            else if (layer === 'fixed_limit_steal_vs_tight_blinds')
+              noteFire('fixed_limit_steal_vs_tight_blinds');
             else if (layer === 'holdem_persona_3bet_bluff_eligible_seen')
               noteFire('holdem_persona_3bet_bluff_eligible_seen');
             else if (layer === 'holdem_persona_3bet_bluff_changed_seen')
@@ -19236,6 +19510,9 @@ export class HorseLogic {
           exploit.bluffMod >= 0.9 &&
           unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58) * (personaPost87?.cbet ?? 1)
         ) {
+          // counted where the persona's c-bet scale let the range c-bet branch in (a scale below 1 that kept it
+          // out is not an event this branch can see)
+          if (tele15 && personaPost87) noteFire('holdem_persona_postflop_cbet_seen');
           let rangeCbetBlocked87 = stationValue;
           if (useMind && singleOpp87) {
             try {
@@ -23140,6 +23417,7 @@ export class HorseLogic {
         this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
       if (!commits87) {
         if (tele15) noteFire('v87_flop_stab_check_raise');
+        if (tele15 && personaPost87) noteFire('holdem_persona_postflop_check_raise_seen');
         planBarrel(equity);
         return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
       }

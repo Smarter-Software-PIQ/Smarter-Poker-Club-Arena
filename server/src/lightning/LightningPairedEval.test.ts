@@ -10,6 +10,10 @@
  *    the report carries (G7 dry streaks, Q3, Q4, entry kinds, pooled G5 / P1).
  *    A positive control (an option known to change decisions) proves a real
  *    candidate moves the subject seat and only the subject seat.
+ *    The declared smoke, full, selection and final configurations are pinned
+ *    byte for byte; mixed stacks (an opt-in cell dimension) pair, stay in the
+ *    declared range, reach the engine and are recorded per subject hand; the
+ *    production decision deadline is counted (and, opt-in, applied).
  * 2. The runner (only when LIGHTNING_EVAL_CONFIG is set): plays the declared
  *    smoke or full configuration and writes the report and the per-hand
  *    paired side file. The merge (only when LIGHTNING_EVAL_MERGE is set) pools
@@ -17,11 +21,37 @@
  *
  * Measurement plumbing: no database, no production caller.
  */
+import { createHash } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadline.js';
 import {
   LIGHTNING_EVAL_BB_PRICE_BUCKETS,
+  LIGHTNING_EVAL_DEFINITIONS,
+  LIGHTNING_EVAL_DEV_MIXED,
+  LIGHTNING_EVAL_DEV_MIXED_SMOKE,
+  LIGHTNING_EVAL_LATENCY_SCHEMA,
+  LIGHTNING_EVAL_MIXED_STACKS,
+  addLightningEvalLatency,
+  emptyDeadlineCounts,
+  lightningEvalCellKey,
+  lightningEvalDeadlineMiss,
+  lightningEvalEffectiveStackBB,
+  lightningEvalHistogramPercentile,
+  lightningEvalLatencyBin,
+  lightningEvalLatencyBinUpperMs,
+  lightningEvalLatencyMarkdown,
+  lightningEvalMix,
+  lightningEvalMixedStacksBB,
+  lightningEvalPairRows,
+  lightningEvalStacksBB,
+  mergeLightningEvalLatency,
+  pairLightningEvalArms,
+  recordLightningEvalDeadline,
+  type LightningEvalCell,
+  type LightningEvalLatencyArmRow,
+  type LightningEvalLatencyRow,
   LIGHTNING_EVAL_ENTRY_KINDS,
   LIGHTNING_EVAL_FIELDS,
   LIGHTNING_EVAL_FULL,
@@ -45,6 +75,7 @@ import {
   lightningEvalQ3,
   lightningEvalQ4,
   lightningEvalSeedClassOf,
+  lightningEvalStackLabel,
   mergeLightningEvalPairs,
   runLightningPairedEval,
   type LightningEvalArmPlayer,
@@ -137,7 +168,12 @@ describe('the paired Lightning evaluation harness', () => {
       ...LIGHTNING_EVAL_SEEDS.final,
     ];
     expect(new Set(all).size).toBe(all.length);
-    for (const config of [LIGHTNING_EVAL_SMOKE, LIGHTNING_EVAL_FULL])
+    for (const config of [
+      LIGHTNING_EVAL_SMOKE,
+      LIGHTNING_EVAL_FULL,
+      LIGHTNING_EVAL_DEV_MIXED,
+      LIGHTNING_EVAL_DEV_MIXED_SMOKE,
+    ])
       for (const seed of config.seeds) expect(lightningEvalSeedClassOf(seed)).toBe('development');
     // The staged configurations deal only their own class, on the declared matrix.
     for (const config of [LIGHTNING_EVAL_SELECTION, LIGHTNING_EVAL_FINAL]) {
@@ -490,10 +526,33 @@ describe('the paired Lightning evaluation harness', () => {
         'handsPerCell',
         'pooled',
         'schema',
+        'latency',
         'seedClass',
         'seeds',
         'totals',
       ].sort()
+    );
+    // A uniform report carries none of the mixed-stack keys (its digest is unchanged).
+    expect(report.contract).not.toHaveProperty('mixedStacks');
+    expect(report.definitions).toEqual(LIGHTNING_EVAL_DEFINITIONS);
+    expect(report.cells.every((c) => !('stacks' in c))).toBe(true);
+    expect(report).not.toHaveProperty('deadlineMode');
+    // The production deadline: counted for every subject decision, never applied.
+    expect(report.latency.schema).toBe(LIGHTNING_EVAL_LATENCY_SCHEMA);
+    expect(report.latency.deadlineMode).toBe('measure');
+    expect(report.latency.executionDeadlineMs).toBe(8000);
+    expect(report.latency.figures.map((f) => f.variant)).toEqual(['nlh', 'plo4', 'all']);
+    for (const cell of report.cells)
+      for (const l of [cell.latencyMs.baseline, cell.latencyMs.candidate]) {
+        expect(l.deadline.decisions).toBe(l.n);
+        expect(l.deadline.appliedFallbacks).toBe(0);
+        // The host passed the turn clock's deadline: 15 s less the 1,500 ms margin.
+        expect(l.deadline.minCallerDeadlineMs).toBe(13500);
+        expect(l.deadline.maxCallerDeadlineMs).toBe(13500);
+      }
+    const all = report.latency.figures.at(-1)!;
+    expect(all.baseline.decisions).toBe(
+      report.cells.reduce((s, c) => s + c.latencyMs.baseline.n, 0)
     );
     expect(report.schema).toBe('lightning-paired-eval/v2');
     expect(Object.keys(report.cells[0]!).sort()).toEqual(
@@ -598,12 +657,346 @@ describe('the paired Lightning evaluation harness', () => {
     expect(report.totals.divergentDecisions).toBe(0);
     const { digest, ...body } = report;
     expect(digest).toBe(lightningEvalDigest(body));
+    // The pin's digest, printed so a harness change can show it unchanged.
+    console.log(`[lightning-eval-pin] digest ${digest}`);
     const markdown = lightningEvalMarkdown(report);
     expect(markdown).toContain('| cell | arm | hands |');
     expect(markdown).toContain('## Guards and quality: G7');
     expect(markdown).toContain('chip-conservation violations 0');
     expect(markdown).toContain('table jackpot fee');
     expect(markdown).toContain('reads accumulate per arm');
+  }, 420_000);
+
+  it('keeps the declared smoke, full, selection and final configurations byte for byte, and declares the mixed-stack development configurations', () => {
+    const sha = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex');
+    // Hashed before the mixed-stack and deadline change (base e04fd91baaa).
+    expect({
+      smoke: sha(LIGHTNING_EVAL_SMOKE),
+      full: sha(LIGHTNING_EVAL_FULL),
+      selection: sha(LIGHTNING_EVAL_SELECTION),
+      final: sha(LIGHTNING_EVAL_FINAL),
+      definitions: sha(LIGHTNING_EVAL_DEFINITIONS),
+      seeds: sha(LIGHTNING_EVAL_SEEDS),
+    }).toEqual({
+      smoke: '1af7645f70191ec81bfb462262b865d8abb179619063aa6a6cb4d0b369dbc6cd',
+      full: '96e13ec5713ecc099c10a12ed2a803158417d5997c132ce812d030e996d285ed',
+      selection: '9b8b87bbd1c65f06aad174856adfb108ac81f1437e9acc6a5caa37e8a76b796f',
+      final: 'a02455f35c810b3eb8f8976b09f2c28817b7e445f97ab745e1fe0557398e382d',
+      definitions: 'ceeab559bd4b5399c343781e8b20a71ec71ca23f8655af06ba6709f009468fa2',
+      seeds: 'deb5a1bd77a4503a66912a32a15352105f05aab56d1764c0eaa1d68d89009dc7',
+    });
+    for (const config of [
+      LIGHTNING_EVAL_SMOKE,
+      LIGHTNING_EVAL_FULL,
+      LIGHTNING_EVAL_SELECTION,
+      LIGHTNING_EVAL_FINAL,
+    ])
+      for (const cell of config.cells) expect(cell).not.toHaveProperty('stackMix');
+    // The cell key is the arithmetic the arm has always used.
+    const before = (seed: number, cell: LightningEvalCell) => {
+      const n = cell.players;
+      const villains = cell.field === 'all_horse' ? 0 : Math.min(cell.villains ?? 1, n - 1);
+      return lightningEvalMix(
+        seed,
+        cell.variant.length * 131 + n * 17 + cell.stackBB,
+        cell.field.length * 7919 + cell.field.charCodeAt(0) * 31 + villains
+      );
+    };
+    for (const seed of LIGHTNING_EVAL_SEEDS.development)
+      for (const cell of LIGHTNING_EVAL_FULL.cells) {
+        expect(lightningEvalCellKey(seed, cell)).toBe(before(seed, cell));
+        // A mixed cell deals the cards, seats and dice of its uniform twin.
+        expect(lightningEvalCellKey(seed, { ...cell, stackMix: 'mixed' })).toBe(before(seed, cell));
+      }
+    // dev_mixed: the declared matrix with the stack dimension replaced by the mixed draw.
+    expect(LIGHTNING_EVAL_DEV_MIXED.cells).toHaveLength(3 * 3 * (LIGHTNING_EVAL_FIELDS.length + 1));
+    expect(LIGHTNING_EVAL_DEV_MIXED.cells.every((c) => c.stackMix === 'mixed')).toBe(true);
+    expect(LIGHTNING_EVAL_DEV_MIXED.seedClass).toBe('development');
+    expect(
+      new Set(
+        LIGHTNING_EVAL_DEV_MIXED.cells.map(
+          (c) => `${c.variant}|${c.players}|${c.field}|${c.villains ?? 1}`
+        )
+      ).size
+    ).toBe(LIGHTNING_EVAL_DEV_MIXED.cells.length);
+    // dev_mixed_smoke: the six smoke cells, mixed; a few hundred hands on seed 20261114.
+    expect(LIGHTNING_EVAL_DEV_MIXED_SMOKE.cells.map(({ stackMix: _m, ...c }) => c)).toEqual(
+      LIGHTNING_EVAL_SMOKE.cells
+    );
+    expect(LIGHTNING_EVAL_DEV_MIXED_SMOKE.cells.every((c) => c.stackMix === 'mixed')).toBe(true);
+    expect(LIGHTNING_EVAL_DEV_MIXED_SMOKE.seeds).toEqual([20261114]);
+    expect(
+      LIGHTNING_EVAL_DEV_MIXED_SMOKE.cells.length * LIGHTNING_EVAL_DEV_MIXED_SMOKE.handsPerCell
+    ).toBeLessThan(500);
+  });
+
+  it('deals mixed stacks from the declared distribution, per hand and seat, and reads the effective stack', () => {
+    expect(LIGHTNING_EVAL_MIXED_STACKS).toMatchObject({ minBB: 50, maxBB: 200 });
+    const cell = LIGHTNING_EVAL_DEV_MIXED_SMOKE.cells[0]!;
+    const key = lightningEvalCellKey(20261114, cell);
+    const all: number[] = [];
+    let unequalTables = 0;
+    for (let h = 0; h < 2000; h++) {
+      const stacks = lightningEvalMixedStacksBB(key, h, 6);
+      // A function of (cell, hand) only: the two arms of a pair draw the same.
+      expect(lightningEvalMixedStacksBB(key, h, 6)).toEqual(stacks);
+      expect(lightningEvalStacksBB(cell, key, h)).toEqual(stacks);
+      expect(stacks).toHaveLength(6);
+      for (const x of stacks) {
+        expect(Number.isInteger(x)).toBe(true);
+        expect(x).toBeGreaterThanOrEqual(50);
+        expect(x).toBeLessThanOrEqual(200);
+      }
+      if (new Set(stacks).size > 1) unequalTables++;
+      all.push(...stacks);
+    }
+    expect(unequalTables).toBe(2000);
+    expect(Math.min(...all)).toBe(50);
+    expect(Math.max(...all)).toBe(200);
+    // Uniform on 151 whole depths: mean 125, sd 43.6, 12,000 draws (se 0.4).
+    const mean = all.reduce((s, x) => s + x, 0) / all.length;
+    expect(mean).toBeGreaterThan(123);
+    expect(mean).toBeLessThan(127);
+    for (const [lo, hi] of [
+      [50, 99],
+      [100, 149],
+      [150, 200],
+    ] as const) {
+      const share = all.filter((x) => x >= lo && x <= hi).length / all.length;
+      expect(share).toBeGreaterThan(0.3);
+      expect(share).toBeLessThan(0.37);
+    }
+    // Another cell (or seed) draws other stacks; a uniform cell is its depth everywhere.
+    expect(lightningEvalMixedStacksBB(lightningEvalCellKey(20261115, cell), 0, 6)).not.toEqual(
+      lightningEvalMixedStacksBB(key, 0, 6)
+    );
+    const uniform = LIGHTNING_EVAL_SMOKE.cells[2]!;
+    expect(lightningEvalStacksBB(uniform, lightningEvalCellKey(20261114, uniform), 7)).toEqual(
+      Array.from({ length: uniform.players }, () => uniform.stackBB)
+    );
+    // Effective stack: min(own, deepest other), before blinds and antes.
+    expect(lightningEvalEffectiveStackBB([80, 150, 60, 200], 0)).toBe(80);
+    expect(lightningEvalEffectiveStackBB([80, 150, 60, 200], 3)).toBe(150);
+    expect(lightningEvalEffectiveStackBB([80, 150, 60, 200], 1)).toBe(150);
+    expect(lightningEvalEffectiveStackBB([100, 100, 100], 2)).toBe(100);
+  });
+
+  it('counts decisions past the production deadline and pools them per variant for G4', () => {
+    // The production numbers: the 15 s Lightning clock less the engine's margin.
+    expect(horseDecisionDeadlineMs({ actionTimeSeconds: 15, elapsedMs: 0 })).toBe(13500);
+    // The client's rule: the request's deadline, or its jobTimeoutMs when absent or invalid.
+    expect(lightningEvalDeadlineMiss(100, 13500, 8000)).toEqual({
+      callerDeadlineMs: 13500,
+      overCaller: false,
+      overExecution: false,
+      over: false,
+    });
+    expect(lightningEvalDeadlineMiss(9000, 13500, 8000)).toEqual({
+      callerDeadlineMs: 13500,
+      overCaller: false,
+      overExecution: true,
+      over: true,
+    });
+    expect(lightningEvalDeadlineMiss(2500, 2000.7, 8000)).toEqual({
+      callerDeadlineMs: 2000,
+      overCaller: true,
+      overExecution: false,
+      over: true,
+    });
+    for (const bad of [undefined, null, -1, 0, Number.NaN, '13500'])
+      expect(lightningEvalDeadlineMiss(5000, bad, 8000).callerDeadlineMs).toBe(8000);
+    const counts = emptyDeadlineCounts(8000);
+    for (const [ms, req] of [
+      [9000, 13500],
+      [100, 13500],
+      [14000, 13500],
+      [3000, 2500],
+    ] as const)
+      recordLightningEvalDeadline(counts, lightningEvalDeadlineMiss(ms, req, 8000));
+    expect(counts).toEqual({
+      decisions: 4,
+      overCallerDeadline: 2,
+      overExecutionDeadline: 2,
+      overDeadline: 3,
+      minCallerDeadlineMs: 2500,
+      maxCallerDeadlineMs: 13500,
+      executionDeadlineMs: 8000,
+      appliedFallbacks: 0,
+    });
+    // The histogram: a bin's upper edge is never below the value, at most 1% above.
+    for (const ms of [0.0004, 0.004, 0.37, 1, 12.5, 999, 13499]) {
+      const up = lightningEvalLatencyBinUpperMs(lightningEvalLatencyBin(ms));
+      expect(up).toBeGreaterThanOrEqual(Math.max(ms, 0.001) * (1 - 1e-9));
+      expect(up / Math.max(ms, 0.001)).toBeLessThan(1.0101);
+    }
+    const sample = (scale: number) => {
+      const histogram: Record<string, number> = {};
+      for (let i = 1; i <= 100; i++) addLightningEvalLatency(histogram, i * scale);
+      return histogram;
+    };
+    // p95 of 1..100 ms is the 96th value (the per-cell convention), at bin resolution.
+    const p95 = lightningEvalHistogramPercentile(sample(1), 0.95)!;
+    expect(p95).toBeGreaterThanOrEqual(96);
+    expect(p95).toBeLessThan(96 * 1.0101);
+    expect(lightningEvalHistogramPercentile({}, 0.5)).toBeNull();
+    const arm = (scale: number, over: number): LightningEvalLatencyArmRow => ({
+      histogram: sample(scale),
+      maxMs: 100 * scale,
+      deadline: {
+        ...emptyDeadlineCounts(8000),
+        decisions: 100,
+        overExecutionDeadline: over,
+        overDeadline: over,
+        minCallerDeadlineMs: 13500,
+        maxCallerDeadlineMs: 13500,
+      },
+    });
+    const row = (
+      variant: LightningEvalLatencyRow['variant'],
+      seed: number,
+      baseline: LightningEvalLatencyArmRow,
+      candidate: LightningEvalLatencyArmRow
+    ): LightningEvalLatencyRow => ({
+      seed,
+      variant,
+      players: 6,
+      stackBB: 100,
+      field: 'all_horse',
+      villains: 0,
+      baseline,
+      candidate,
+    });
+    // NLH: the candidate decides twice as slowly and misses three times as often;
+    // PLO4 (two seeds): no difference.
+    const rows = [
+      row('nlh', 20261114, arm(1, 1), arm(2, 3)),
+      row('plo4', 20261114, arm(1, 0), arm(1, 0)),
+      row('plo4', 20261115, arm(1, 0), arm(1, 0)),
+    ];
+    const merged = mergeLightningEvalLatency(rows);
+    expect(merged.executionDeadlineMs).toBe(8000);
+    expect(merged.figures.map((f) => [f.variant, f.cells])).toEqual([
+      ['nlh', 1],
+      ['plo4', 2],
+      ['all', 3],
+    ]);
+    const [nlh, plo4, pooled] = merged.figures;
+    expect(nlh!.ratio.p95).toBeGreaterThan(1.97);
+    expect(nlh!.ratio.p95).toBeLessThan(2.03);
+    expect(nlh!.ratio.overDeadlineShare).toBe(3);
+    expect(nlh!.baseline.overDeadlineSharePct).toBe(1);
+    expect(nlh!.candidate.overDeadlineSharePct).toBe(3);
+    expect(nlh!.candidate.maxMs).toBe(200);
+    expect(nlh!.g4WithinTenPercent).toBe(false);
+    expect(plo4!.ratio).toEqual({ p50: 1, p95: 1, p99: 1, overDeadlineShare: null });
+    expect(plo4!.g4WithinTenPercent).toBe(true);
+    expect(plo4!.seeds).toEqual([20261114, 20261115]);
+    expect(pooled!.baseline.decisions).toBe(300);
+    expect(pooled!.candidate.overDeadline).toBe(3);
+    expect(lightningEvalLatencyMarkdown(merged)).toContain('| nlh | 1 | baseline | 100 |');
+    // A cell met twice (overlapping files) is refused, as in the paired merge.
+    expect(() => mergeLightningEvalLatency([...rows, rows[0]!])).toThrow(/met twice/);
+  });
+
+  it('mixed stacks: both arms deal the same stacks, the engine receives them, and every subject hand records its effective stack', async () => {
+    const cell: LightningEvalCell = {
+      variant: 'nlh',
+      players: 6,
+      stackBB: 100,
+      field: 'all_horse',
+      stackMix: 'mixed',
+    };
+    const common = { cell, hands: 12, seed: 20261114, baselineDecideOpts: {} };
+    const a = await playArm({ ...common, arm: { name: 'baseline' } });
+    const b = await playArm({ ...common, arm: NULL_CANDIDATE });
+    const key = lightningEvalCellKey(20261114, cell);
+    const slotOf = (seat: number) => (seat === 2 ? 0 : seat === 1 ? 1 : seat - 1);
+    expect(a.hands).toHaveLength(12);
+    for (const [i, hand] of a.hands.entries()) {
+      // Dealt from the declared draw, identical in both arms.
+      expect(hand.stacksBB).toEqual(lightningEvalMixedStacksBB(key, hand.h, 6));
+      expect(b.hands[i]!.stacksBB).toEqual(hand.stacksBB);
+      expect(hand.settled).toBe(true);
+      // The engine settled every seat from the stack it was dealt.
+      expect(hand.engineStackMismatches).toBe(0);
+      expect(b.hands[i]!.engineStackMismatches).toBe(0);
+      expect(hand.subjects).toHaveLength(1);
+      for (const s of hand.subjects) {
+        const slot = slotOf(s.seat);
+        expect(s.stackBB).toBe(hand.stacksBB[slot]);
+        expect(s.effectiveStackBB).toBe(lightningEvalEffectiveStackBB(hand.stacksBB, slot));
+      }
+    }
+    expect(a.hands.every((h) => new Set(h.stacksBB).size > 1)).toBe(true);
+    // The paired side file carries them.
+    const rows = lightningEvalPairRows(cell, 20261114, a, b);
+    expect(rows).toHaveLength(12);
+    rows.forEach((row, i) =>
+      expect(row).toMatchObject({
+        stackMix: 'mixed',
+        heroStackBB: a.hands[i]!.subjects[0]!.stackBB,
+        effectiveStackBB: a.hands[i]!.subjects[0]!.effectiveStackBB,
+      })
+    );
+    // Pairing holds on mixed stacks: a null candidate changes nothing.
+    const paired = pairLightningEvalArms(6, a, b);
+    expect(paired.divergentDecisions).toBe(0);
+    expect(paired.divergentAcceptedHands).toBe(0);
+    for (const arm of [a, b]) {
+      expect(arm.counters.illegalActions).toBe(0);
+      expect(arm.counters.illegalAmounts).toBe(0);
+      expect(arm.counters.conservationViolations).toBe(0);
+      expect(arm.counters.unsettledHands).toBe(0);
+    }
+    // The uniform twin deals the same cards with every seat at 100 bb: the
+    // dimension is really used (other stacks, other play).
+    const { stackMix: _mix, ...twin } = cell;
+    const u = await playArm({ ...common, cell: twin, arm: { name: 'baseline' } });
+    for (const hand of u.hands) {
+      expect(hand.stacksBB).toEqual([100, 100, 100, 100, 100, 100]);
+      expect(hand.engineStackMismatches).toBe(0);
+    }
+    expect(u.hands.some((h, i) => h.accepted.join(';') !== a.hands[i]!.accepted.join(';'))).toBe(
+      true
+    );
+  }, 420_000);
+
+  it('apply mode: a decision past the deadline gets the host its own liveness answer, check or fold (opt-in)', async () => {
+    const cell: LightningEvalCell = {
+      variant: 'nlh',
+      players: 4,
+      stackBB: 100,
+      field: 'all_horse',
+    };
+    const common = {
+      cell,
+      hands: 6,
+      seed: 20261114,
+      baselineDecideOpts: {},
+      arm: { name: 'baseline' },
+    };
+    const measured = await playArm(common);
+    expect(measured.latencyMs.deadline).toMatchObject({
+      decisions: measured.latencyMs.n,
+      executionDeadlineMs: 8000,
+      appliedFallbacks: 0,
+    });
+    // Every decision misses a 0 ms deadline: every Horse seat gets the host's answer.
+    const applied = await playArm({ ...common, deadlineMode: 'apply', deadlineOverrideMs: 0 });
+    expect(applied.latencyMs.deadline.decisions).toBeGreaterThan(0);
+    expect(applied.latencyMs.deadline.overDeadline).toBe(applied.latencyMs.deadline.decisions);
+    expect(applied.latencyMs.deadline.appliedFallbacks).toBe(applied.counters.decisions);
+    expect(applied.total.vpip).toBe(0);
+    for (const hand of applied.hands) {
+      expect(hand.settled).toBe(true);
+      for (const d of hand.decisions) expect(d).toMatch(/\|deadline_fallback\|$/);
+      for (const a of hand.accepted) expect(a.split('|')[2]).toMatch(/^(fold|check)$/);
+    }
+    for (const arm of [measured, applied]) {
+      expect(arm.counters.illegalActions).toBe(0);
+      expect(arm.counters.conservationViolations).toBe(0);
+      expect(arm.counters.unsettledHands).toBe(0);
+    }
   }, 420_000);
 
   it('positive control: an option known to change decisions moves the subject, and only the subject starts it (N1)', async () => {
@@ -704,6 +1097,8 @@ const STAGED: Record<string, LightningEvalConfig> = {
   full: LIGHTNING_EVAL_FULL,
   selection: LIGHTNING_EVAL_SELECTION,
   final: LIGHTNING_EVAL_FINAL,
+  dev_mixed: LIGHTNING_EVAL_DEV_MIXED,
+  dev_mixed_smoke: LIGHTNING_EVAL_DEV_MIXED_SMOKE,
 };
 describe.runIf(requested !== undefined && requested in STAGED)(
   'the paired Lightning evaluation runner',
@@ -722,11 +1117,30 @@ describe.runIf(requested !== undefined && requested in STAGED)(
             decideOpts: candidateOpts,
           }
         : NULL_CANDIDATE;
+      // LIGHTNING_EVAL_DEADLINE=apply: answer a decision past the production
+      // deadline as production does (machine dependent; default measure).
+      const deadlineEnv = process.env.LIGHTNING_EVAL_DEADLINE ?? 'measure';
+      if (deadlineEnv !== 'measure' && deadlineEnv !== 'apply')
+        throw new Error(`LIGHTNING_EVAL_DEADLINE must be measure or apply, not ${deadlineEnv}`);
+      const deadlineMode: 'measure' | 'apply' = deadlineEnv;
       const stem = `${outDir}/lightning-paired-eval-${config.name}-${candidate.name}${
         range ? `-cells-${range.join('-')}` : ''
-      }`;
+      }${deadlineMode === 'apply' ? '-deadline-apply' : ''}`;
       mkdirSync(dirname(stem), { recursive: true });
       const pairsFile = `${stem}.pairs.jsonl`;
+      const latencyFile = `${stem}.latency.jsonl`;
+      writeFileSync(
+        latencyFile,
+        JSON.stringify({
+          schema: LIGHTNING_EVAL_LATENCY_SCHEMA,
+          config: config.name,
+          seedClass: config.seedClass,
+          candidate: candidate.name,
+          candidateDecideOpts: candidate.decideOpts ?? {},
+          cells: range ?? null,
+          deadlineMode,
+        }) + '\n'
+      );
       writeFileSync(
         pairsFile,
         JSON.stringify({
@@ -749,21 +1163,30 @@ describe.runIf(requested !== undefined && requested in STAGED)(
           if (rows.length)
             appendFileSync(pairsFile, rows.map((row) => JSON.stringify(row)).join('\n') + '\n');
         },
+        onLatency: (row) => appendFileSync(latencyFile, JSON.stringify(row) + '\n'),
+        deadlineMode,
         onCell: (c, i) =>
           console.log(
-            `[lightning-eval] cell ${i} ${c.cell.variant} ${c.cell.players}p ${c.cell.stackBB}bb ${c.cell.field}: diff ${c.paired.diffBB100} bb/100 (se ${c.paired.seBB100}), divergent decisions ${c.paired.divergentDecisions}`
+            `[lightning-eval] cell ${i} ${c.cell.variant} ${c.cell.players}p ${lightningEvalStackLabel(c.cell)} ${c.cell.field}: diff ${c.paired.diffBB100} bb/100 (se ${c.paired.seBB100}), divergent decisions ${c.paired.divergentDecisions}`
           ),
       });
       writeFileSync(`${stem}.json`, JSON.stringify(report, null, 1));
       writeFileSync(`${stem}.md`, lightningEvalMarkdown(report));
       console.log(
-        `[lightning-eval] wrote ${stem}.json, .md and .pairs.jsonl, digest ${report.digest}; illegal actions ${report.totals.illegalActions}, illegal amounts ${report.totals.illegalAmounts}, chip-conservation violations ${report.totals.conservationViolations}, unsettled hands ${report.totals.unsettledHands}`
+        `[lightning-eval] wrote ${stem}.json, .md, .pairs.jsonl and .latency.jsonl, digest ${report.digest}; illegal actions ${report.totals.illegalActions}, illegal amounts ${report.totals.illegalAmounts}, chip-conservation violations ${report.totals.conservationViolations}, unsettled hands ${report.totals.unsettledHands}`
+      );
+      console.log(
+        `[lightning-eval] deadline and G4\n${lightningEvalLatencyMarkdown(report.latency)}`
       );
       expect(report.totals.illegalActions).toBe(0);
       expect(report.totals.illegalAmounts).toBe(0);
       // N2: a hand whose chips do not add up fails the run.
       expect(report.totals.conservationViolations).toBe(0);
-      if (candidate === NULL_CANDIDATE) expect(report.totals.divergentDecisions).toBe(0);
+      // A mixed cell's stacks reached the engine, seat for seat.
+      for (const c of report.cells)
+        if (c.cell.stackMix === 'mixed') expect(c.stacks?.engineStackMismatches).toBe(0);
+      if (candidate === NULL_CANDIDATE && deadlineMode === 'measure')
+        expect(report.totals.divergentDecisions).toBe(0);
     }, 7_200_000);
   }
 );
@@ -804,15 +1227,46 @@ describe.runIf(Boolean(mergeDir))('the paired Lightning evaluation merge', () =>
       throw new Error(`more than one candidate in ${dir}: ${[...candidates].join(' | ')}`);
     if (classes.size !== 1) throw new Error(`more than one seed class in ${dir}`);
     const merged = mergeLightningEvalPairs(rows);
+    // The latency side files (G4), when the runs wrote them: the same candidate.
+    const latencyFiles = readdirSync(dir)
+      .filter((f) => f.endsWith('.latency.jsonl'))
+      .sort();
+    const latencyRows: LightningEvalLatencyRow[] = [];
+    const modes = new Set<string>();
+    for (const file of latencyFiles) {
+      const lines = readFileSync(join(dir, file), 'utf8').split('\n').filter(Boolean);
+      const header = JSON.parse(lines[0]!) as Record<string, unknown>;
+      if (header.schema !== LIGHTNING_EVAL_LATENCY_SCHEMA)
+        throw new Error(
+          `${file}: schema ${String(header.schema)}, expected ${LIGHTNING_EVAL_LATENCY_SCHEMA}`
+        );
+      const name = `${String(header.candidate)} ${JSON.stringify(header.candidateDecideOpts)}`;
+      if (!candidates.has(name))
+        throw new Error(`${file}: candidate ${name} is not the paired files' candidate`);
+      modes.add(String(header.deadlineMode));
+      for (const line of lines.slice(1))
+        latencyRows.push(JSON.parse(line) as LightningEvalLatencyRow);
+    }
+    if (modes.size > 1) throw new Error(`more than one deadline mode in ${dir}`);
+    const latency = latencyFiles.length
+      ? mergeLightningEvalLatency(latencyRows, modes.has('apply') ? 'apply' : 'measure')
+      : null;
     const body = {
       ...merged,
       candidate: [...candidates][0],
       seedClass: [...classes][0],
       files,
+      latency,
+      latencyFiles,
     };
     const markdown =
       lightningEvalMergeMarkdown(merged) +
-      `\nCandidate ${body.candidate}; ${body.seedClass} seeds; files: ${files.join(', ')}.\n`;
+      (latency
+        ? `\n## Decision deadline and G4 (pooled)\n\n${lightningEvalLatencyMarkdown(latency)}`
+        : '') +
+      `\nCandidate ${body.candidate}; ${body.seedClass} seeds; files: ${files.join(', ')}${
+        latencyFiles.length ? `; latency files: ${latencyFiles.join(', ')}` : ''
+      }.\n`;
     writeFileSync(join(dir, 'lightning-paired-eval-merged.json'), JSON.stringify(body, null, 1));
     writeFileSync(join(dir, 'lightning-paired-eval-merged.md'), markdown);
     console.log(`[lightning-eval-merge]\n${markdown}`);

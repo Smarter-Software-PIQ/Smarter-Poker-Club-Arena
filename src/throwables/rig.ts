@@ -52,6 +52,7 @@ export interface RigProps {
   uid: string;
   /** Shared identity, separate from the instance-local SVG prefix. */
   throwId?: string;
+  particleSeed?: number;
   /** Read-only copy of the target from this table, when visible. */
   targetAvatar?: AvatarSnapshot;
 }

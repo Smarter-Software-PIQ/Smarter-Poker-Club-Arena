@@ -1,6 +1,6 @@
 # omahaOopTurnCheckAfterFlopCall (owner ruling 2026-11-15 12:09 America/Chicago, hands 59517323, 59521326, 59526261; branch agent/plo-pairedriver-01BbZPDi/fix/omaha-paired-river-no-thin-lead-vs-value-leader, pull request not yet opened)
 
-Off by default in source (read `=== true`); ON live since 2026-11-16T02:55Z by option-switch row. This file records the evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md) as they stand; the option stays off until its declared evaluation passes.
+Off by default in source (read `=== true`); ON live since 2026-11-16T02:55Z by option-switch row (owner-forced; its declared evaluation has not passed). This file records the evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md) as they stand.
 
 ## Mechanism
 

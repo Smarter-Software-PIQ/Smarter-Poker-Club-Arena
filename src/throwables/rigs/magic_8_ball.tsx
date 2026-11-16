@@ -43,8 +43,8 @@ function Projectile(_props: RigProps) {
     </svg>
   );
 }
-function Payload({ throwId }: RigProps) {
-  const answer = magicEightBallAnswer(throwId ?? 'preview');
+function Payload({ throwId, particleSeed }: RigProps) {
+  const answer = magicEightBallAnswer(throwId ?? 'preview', particleSeed);
   return (
     <svg viewBox={RIG_VIEWBOX} aria-hidden="true" focusable="false">
       <g className="thr-magic_8_ball__rattle">
