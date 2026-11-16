@@ -17,3 +17,5 @@ and the CA reader that require the new revision. The isolated PostgreSQL 17
 proof runs in the existing required account-native CI shard and retains its
 source hashes and results. Publication and installed/live verification remain
 separate from source qualification.
+
+The existing profile-account native entrypoint invokes the focused revision proof after its own original checks. The workflow, execution projection and existing qualification pins remain unchanged.
