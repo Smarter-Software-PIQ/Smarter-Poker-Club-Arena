@@ -1,9 +1,10 @@
+import { cashHourlyPolicy } from '../CashHourlyPolicy.js';
 import { supabase } from './client.js';
 import { confirmedCashout, type SeatCashoutReceipt } from './seats.js';
 
 /** Named release door: the migration must be installed before this engine. */
-export const hourlyCashCloseRpcName = 'fn_cash_hourly_table_close';
-export const hourlyCashAdmissionRpcName = 'fn_cash_hourly_table_admissions';
+export const hourlyCashCloseRpcName = cashHourlyPolicy.closeRpc;
+export const hourlyCashAdmissionRpcName = cashHourlyPolicy.admissionsRpc;
 
 export type HourlyCashAdmission = { maxHorses: number; startsGame: boolean };
 export async function readHourlyCashAdmissions(): Promise<

@@ -16,7 +16,7 @@ else:
  installed=sorted(P('/usr/lib/postgresql').glob('*/bin'),key=lambda p:int(p.parent.name) if p.parent.name.isdigit() else -1,reverse=True)
  PG=next((p for p in [P('/usr/lib/postgresql/17/bin'),*installed] if (p/'initdb').is_file()),None)
  if PG is None:raise SystemExit('PostgreSQL server binaries unavailable; provide PG_BIN')
-parent=ROOT/'work'; parent.mkdir(exist_ok=True)
+parent=P(os.environ.get('TMPDIR',str(ROOT/'work'))); parent.mkdir(exist_ok=True)
 w=P(tempfile.mkdtemp(prefix='hc-',dir=parent)); sock=w/'s';sock.mkdir()
 env={'PATH':str(PG)+':/usr/bin:/bin','LC_ALL':'C','LANG':'C'}
 def run(args,sql=None):
@@ -97,6 +97,43 @@ try:
  migration=(ROOT/'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql').read_text()
  q(migration)
  assert_sql('NOT fn_cash_hourly_table_enabled()','migration alone leaves serving predecessor unchanged')
+ # The same maintained native fixture qualifies the catalog-only throughput producer.
+ q((ROOT/'supabase/migrations/20261112105743_lightning_throughput_baseline_names_the_installed_admission_.sql').read_text())
+ original_cohort=q('SELECT fingerprint FROM fn_lightning_admission_policy();')
+ cohort_migration=(ROOT/'supabase/migrations/20261116200642_cash_throughput_cohorts_name_the_adopted_hourly_admission_co.sql').read_text()
+ q(cohort_migration)
+ assert q('SELECT fingerprint FROM fn_lightning_admission_policy();')==original_cohort
+ assert_sql("(SELECT hourly_contract='cash-hourly-tables/v1' AND hourly_fingerprint>=0 AND hourly_fingerprint<4503599627370496 FROM fn_lightning_admission_policy())",'full catalog producer is readable before activation')
+ hourly_cohort=q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')
+ signatures=[
+  'fn_cash_hourly_table_range(timestamptz)','fn_cash_hourly_table_census()',
+  'fn_cash_hourly_table_excess(uuid)','fn_cash_hourly_table_enabled()',
+  'fn_cash_hourly_table_delay(uuid)','fn_cash_hourly_table_drain_candidate()',
+  'fn_cash_hourly_table_admit(uuid,uuid)','fn_cash_hourly_table_admissions()',
+  'fn_cash_hourly_table_close(uuid,uuid,text,uuid)','fn_ca_horse_roster_seat_guard()',
+  'fn_lightning_player_legality(uuid,timestamptz,uuid[],jsonb)']
+ for signature in signatures:
+  definition=q("SELECT pg_get_functiondef('"+signature+"'::regprocedure)")
+  changed=definition.replace('AS $function$','AS $function$\n-- changed admission definition',1)
+  assert changed!=definition
+  q(changed)
+  assert q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')!=hourly_cohort,signature
+  assert q('SELECT fingerprint FROM fn_lightning_admission_policy();')==original_cohort
+  q(definition)
+  name=signature.split('(')[0]
+  q('ALTER FUNCTION '+signature+' RENAME TO cohort_missing_input')
+  assert_sql('(SELECT hourly_fingerprint IS NULL FROM fn_lightning_admission_policy())','missing source never becomes zero or legacy')
+  q('ALTER FUNCTION cohort_missing_input('+signature.split('(',1)[1]+' RENAME TO '+name)
+ assert q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')==hourly_cohort
+ for signature,old,new in [('fn_cash_hourly_table_range(timestamptz)','ARRAY[18,15','ARRAY[19,15'),
+                           ('fn_cash_hourly_table_delay(uuid)','120+','121+')]:
+  definition=q("SELECT pg_get_functiondef('"+signature+"'::regprocedure)")
+  assert old in definition
+  q(definition.replace(old,new))
+  assert q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')!=hourly_cohort
+  q(definition)
+ assert_sql("has_function_privilege('service_role','fn_lightning_admission_policy()','EXECUTE') AND NOT has_function_privilege('anon','fn_lightning_admission_policy()','EXECUTE') AND NOT has_function_privilege('authenticated','fn_lightning_admission_policy()','EXECUTE')",'catalog producer remains service-only')
+
  for table in ['cash_hourly_table_pacing','cash_hourly_table_starts','cash_hourly_table_closures']:
   assert_sql("NOT has_table_privilege('service_role','"+table+"','SELECT,INSERT,UPDATE,DELETE')",'engine uses definer doors, no direct pacing/receipt writes')
 
@@ -258,7 +295,8 @@ try:
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
  refuses(migration,'already exists')
- print(json.dumps({'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
+ assert q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')==hourly_cohort,'activation/rollback/live population are not policy definitions'
+ print(json.dumps({'throughput_policy_inputs':11,'base_cohort_preserved':True,'missing_and_changed_inputs':True,'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
 finally:
  if (w/'d/postmaster.pid').exists():run([PG/'pg_ctl','-D',w/'d','-m','immediate','-w','stop'])
  shutil.rmtree(w)
