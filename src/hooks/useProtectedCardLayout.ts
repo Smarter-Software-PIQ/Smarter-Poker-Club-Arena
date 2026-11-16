@@ -1262,9 +1262,12 @@ export function useProtectedCardLayout(
         // last resort: on the smallest phones (320px) the players, the board and
         // the pot leave almost no bare felt, and printing over the felt's own
         // lettering beats stacking two players' chips in one spot.
-        const printing = Array.from(page.querySelectorAll('.table-brand'))
+        const brandBoxes = Array.from(page.querySelectorAll('.table-brand'))
           .map(visibleBox)
           .filter((box): box is CardBox => box !== null);
+        // The nine-seat reference canvas has room beside the masthead. Its
+        // edges must participate in the exact slot search and retained slots.
+        const printing = ninePhoneFelt ? [] : brandBoxes;
         const hardObstacles = obstacles.filter(
           (box) =>
             !printing.some(
@@ -1390,6 +1393,7 @@ export function useProtectedCardLayout(
             });
         };
         const permanentKeepouts = [
+          ...(ninePhoneFelt ? brandBoxes : []),
           ...(reservedDealer ? [reservedDealer] : []),
           ...Array.from(
             page.querySelectorAll(
@@ -1478,6 +1482,8 @@ export function useProtectedCardLayout(
                 sameWager(bet, stored) &&
                 (!ninePhoneFelt || wagerOnFelt(box)) &&
                 clearsWagerBoard(box, board) &&
+                (!ninePhoneFelt ||
+                  !brandBoxes.some((brand) => retainedWagerTouches(box!, brand))) &&
                 (stored.landed ||
                   (stillOwned &&
                     Math.abs(stored.width - box.width) < 0.5 &&
