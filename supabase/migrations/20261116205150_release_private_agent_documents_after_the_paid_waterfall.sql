@@ -24,10 +24,10 @@ REVOKE ALL ON FUNCTION smarter_private.weekly_agent_documents_released(timestamp
 CREATE TABLE smarter_private.weekly_rakeback_document_runs(
   period_end timestamptz PRIMARY KEY,
   completed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-  club_receipt jsonb NOT NULL
+  club_receipt jsonb NOT NULL,
+  kings_welcome_receipt jsonb
 );
 REVOKE ALL ON smarter_private.weekly_rakeback_document_runs FROM PUBLIC,anon,authenticated,service_role;
-ALTER TABLE public.union_weekly_horse_promo_runs ADD COLUMN kings_welcome_receipt jsonb;
 
 CREATE FUNCTION smarter_private.weekly_rakeback_documents(p_from timestamptz,p_to timestamptz)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $phase$
@@ -111,7 +111,8 @@ $delegate$);
          OR NOT EXISTS (SELECT FROM public.union_weekly_horse_promo_runs h
               WHERE h.union_id='fade0000-0000-0000-0000-000000000001' AND h.period_end=p.period_end)
          OR EXISTS(SELECT FROM public.union_weekly_horse_promo_runs h
-              WHERE h.union_id='fade0000-0000-0000-0000-000000000001' AND h.period_end=p.period_end AND h.kings_welcome_receipt IS NULL
+              WHERE h.union_id='fade0000-0000-0000-0000-000000000001' AND h.period_end=p.period_end
+                AND NOT EXISTS(SELECT FROM smarter_private.weekly_rakeback_document_runs d WHERE d.period_end=h.period_end AND d.kings_welcome_receipt IS NOT NULL)
                 AND NOT EXISTS(SELECT FROM public.union_accounting_runs r WHERE r.scope_id=h.union_id AND r.scope_kind='union'
                   AND r.period_end=h.period_end AND r.result->'kings_welcome_chips' IS NOT NULL)))
      ORDER BY p.period_end LIMIT 1;
@@ -181,17 +182,17 @@ $early$);
    strpos(src,'IF NOT FOUND THEN RETURN NULL;')-strpos(src,'SELECT r.period_start,r.period_end,h.id AS horse_run INTO book')),$select$
   SELECT h.period_start,h.period_end,h.id AS horse_run INTO book FROM public.union_weekly_horse_promo_runs h
     JOIN smarter_private.weekly_rakeback_document_runs d ON d.period_end=h.period_end
-    WHERE h.union_id=midway AND h.period_end>='2026-11-16 08:00Z' AND h.kings_welcome_receipt IS NULL
+    WHERE h.union_id=midway AND h.period_end>='2026-11-16 08:00Z' AND d.kings_welcome_receipt IS NULL
       AND NOT EXISTS(SELECT FROM public.union_accounting_runs r WHERE r.scope_kind='union' AND r.scope_id=midway
         AND r.period_end=h.period_end AND r.result->'kings_welcome_chips' IS NOT NULL)
       AND h.result->>'eligibility'='all_active_midway_horses' AND h.result->>'success'='true'
       AND h.paid=CASE WHEN h.eligible_wallets>0 THEN h.budget ELSE 0 END
-    ORDER BY h.period_end LIMIT 1 FOR UPDATE OF h SKIP LOCKED;
+    ORDER BY h.period_end LIMIT 1 FOR UPDATE OF d SKIP LOCKED;
   $select$);
  src:=replace(src,'stage:=smarter_private.weekly_credit_invoices(book.period_start,book.period_end);',
     'stage:=smarter_private.weekly_rakeback_documents(book.period_start,book.period_end);');
  src:=replace(src,'  UPDATE public.union_accounting_runs SET result=jsonb_set',
-    '  UPDATE public.union_weekly_horse_promo_runs SET kings_welcome_receipt=receipt WHERE id=book.horse_run;'||chr(10)||
+    '  UPDATE smarter_private.weekly_rakeback_document_runs SET kings_welcome_receipt=receipt WHERE period_end=book.period_end;'||chr(10)||
     '  UPDATE public.union_accounting_runs SET result=jsonb_set');
  -- Never contend with the unfinished independent ECO certification writer.
  EXECUTE replace(src,'WHERE scope_kind=''union'' AND scope_id=midway AND period_end=book.period_end;',

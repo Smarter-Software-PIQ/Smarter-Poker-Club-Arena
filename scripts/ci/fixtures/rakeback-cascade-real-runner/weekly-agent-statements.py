@@ -81,7 +81,22 @@ case('the weekly promo owner commits all agent summaries before distributing pro
 # Early document release uses the same cron entry even with an open P&L and
 # the main scheduler busy. A finalized bill can be published while another
 # cutoff basis is still awaiting its matching document.
-q(next(migrations.glob('20261116205150_*.sql')).read_text())
+# Production's in-flight club P&L owns an AccessShareLock on the existing
+# horse run relation for its entire transaction. Installation must finish
+# inside the normal budget while this read is still in progress.
+reader=subprocess.Popen([str(A.pg_bin/'psql'),'-XqAt','-h','127.0.0.1','-p',port,'-U','postgres','-d',DB,'-c',
+ "BEGIN; SELECT count(*) FROM public.union_weekly_horse_promo_runs; SET application_name='rr_original_promo_reader'; SELECT pg_sleep(8); COMMIT;"],
+ env=E,stdout=subprocess.DEVNULL)
+try:
+    for _ in range(100):
+        if one("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='rr_original_promo_reader' AND wait_event='PgSleep')")=='t':break
+        time.sleep(.02)
+    else: raise AssertionError('existing horse run reader was not holding its snapshot')
+    q("SET lock_timeout='750ms';"+next(migrations.glob('20261116205150_*.sql')).read_text())
+    assert reader.poll() is None
+finally:
+    reader.wait(timeout=15)
+case('weekly document installation finishes while a genuine read holds the original horse promo table')
 clock('2026-12-08 18:00:00Z')
 early_from="'2026-11-30 08:00Z'::timestamptz"
 early_to="'2026-12-07 08:00Z'::timestamptz"
@@ -167,7 +182,7 @@ later_promo=json.loads(one('SELECT smarter_private.weekly_union_books_due()'))['
 assert later_promo['success'] and later_promo['paid']==50 and later_promo['paid_wallets']>=2,later_promo
 later_welcome=json.loads(one('SELECT smarter_private.weekly_union_books_due()'))
 assert later_welcome['paid_players']==1 and later_welcome['paid']==25,later_welcome
-assert one(f"SELECT (kings_welcome_receipt->>'paid')::numeric=25 FROM public.union_weekly_horse_promo_runs WHERE period_end={early_to}")=='t'
+assert one(f"SELECT (kings_welcome_receipt->>'paid')::numeric=25 FROM smarter_private.weekly_rakeback_document_runs WHERE period_end={early_to}")=='t'
 assert not one(welcome)
 assert one(f"SELECT count(*) FROM public.union_accounting_runs WHERE scope_id='{mid}' AND period_end={early_to} AND status='complete'")=='0'
 assert one(f"SELECT count(*) FROM smarter_private.weekly_agent_statements WHERE period_end={early_to}")==early_sent
