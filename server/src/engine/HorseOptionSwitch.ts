@@ -297,6 +297,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
   'omahaNutClassValueSize',
+  // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
+  'fixedLimitBetsAreNeverProbes',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTightOpponentSteal',
@@ -566,6 +568,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   huSmallBlindStealsVsTightBigBlind: [
     'Heads Up',
     'NLH heads-up, small blind first in vs a tight big blind',
+  ],
+  fixedLimitBetsAreNeverProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
+    'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
   ],
 };
 
