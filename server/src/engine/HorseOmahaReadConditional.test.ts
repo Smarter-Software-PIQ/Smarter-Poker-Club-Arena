@@ -16,6 +16,7 @@
  *    changed decision is admitted by the worker receipt validator.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { fastRandom, omahaNutStatus, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
@@ -253,8 +254,7 @@ function fourBetGs(variant: string, hole: string): { hero: SeatPlayer; gs: Horse
 }
 
 const SEEDS = Array.from({ length: 16 }, (_, i) => 3000 + i);
-const decisionBytes = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+const decisionBytes = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 interface Outcome {
   bytes: string[];
   actions: string[];

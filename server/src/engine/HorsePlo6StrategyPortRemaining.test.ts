@@ -15,6 +15,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { sliceBlockAfter, sliceMethod } from '../testHelpers/sourceWindow.js';
 import type { Card, CardRank, CardSuit } from '../types.js';
 import {
   omahaBigDrawContinues,
@@ -135,9 +136,7 @@ describe('PLO6 port: options that need no new six-card branch', () => {
   it('3.17 omahaMadeHandDefenseVsValueLeader: PLO4/PLO5 scope through the PLO6 gate, cash only, never a bomb pot (H35)', () => {
     expect(plo6StrategyOptionVerdict.omahaMadeHandDefenseVsValueLeader.verdict).toBe('take');
     const src = SRC('HorseLogic.ts');
-    const at = src.indexOf('\nfunction omahaValueLeaderDefenseInScope(');
-    expect(at).toBeGreaterThan(-1);
-    const body = src.slice(at, src.indexOf('\n}\n', at));
+    const body = sliceMethod(src, 'function omahaValueLeaderDefenseInScope(');
     expect(body).toContain('omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&');
     expect(body).toContain('gs.bombPot !== true &&');
     expect(body).toContain('!omahaCashOnlyExcludes(player, gs)');
@@ -154,11 +153,8 @@ describe('PLO6 port: options that need no new six-card branch', () => {
   it('3.31 omahaSmallBlindSteal: the full-table steal serves four and five cards only', () => {
     expect(plo6StrategyOptionVerdict.omahaSmallBlindSteal.verdict).toBe('skip');
     const src = SRC('HorseOmahaTournamentFirstIn.ts');
-    const at = src.indexOf('if (omahaSmallBlindStealTable(i, p)) {');
-    expect(at).toBeGreaterThan(-1);
-    expect(src.slice(at, at + 220)).toContain(
-      'if (i.holeCount !== 4 && i.holeCount !== 5) return null;'
-    );
+    const block = sliceBlockAfter(src, 'if (omahaSmallBlindStealTable(i, p))');
+    expect(block).toContain('if (i.holeCount !== 4 && i.holeCount !== 5) return null;');
     expect(src).not.toContain('omahaStrategyGameInScope');
   });
 });

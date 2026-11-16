@@ -16,6 +16,7 @@ import {
 } from './HorseOmahaRiverMediumBetCalls.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { sliceStatement } from '../testHelpers/sourceWindow.js';
 import {
   omahaEvHandCounts,
   omahaFacingBetEvSpot,
@@ -471,9 +472,7 @@ describe('PLO6 port: the validator re-runs the six-card guard before admitting a
       fileURLToPath(new URL('./horseDecision/responseValidation.ts', import.meta.url)),
       'utf8'
     );
-    const at = src.indexOf('const omahaFacingBetEvCalled =');
-    expect(at).toBeGreaterThan(-1);
-    const block = src.slice(at, at + 1400);
+    const block = sliceStatement(src, 'const omahaFacingBetEvCalled =');
     expect(block).toContain("if (variant === 'plo6')");
     expect(block).toContain('omahaPlo6FacingBetEvFoldStands(');
     expect(block).toContain(') === false');

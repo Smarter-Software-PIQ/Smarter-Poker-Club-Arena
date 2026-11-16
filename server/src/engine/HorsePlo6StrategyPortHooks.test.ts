@@ -22,6 +22,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { sliceCall, sliceEnclosingBlock, sliceMethod } from '../testHelpers/sourceWindow.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 import { replayProfiles, stateAt, type ComplaintFixture } from './HorseComplaintReplay.js';
 import { seedFastRandom } from './HorseEval.js';
@@ -89,8 +91,7 @@ function node(ord: number, hole: string, board?: string, variant = 'plo6'): Node
   st.gs.gameVariant = variant;
   return st;
 }
-const bytesOf = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (/Ms$/.test(k) ? undefined : v));
+const bytesOf = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 function play(build: () => Node, opts: HorseDecideOpts) {
   const out = {
     bytes: [] as string[],
@@ -119,19 +120,7 @@ afterEach(() => {
 });
 
 const SRC = readFileSync(fileURLToPath(new URL('./HorseLogic.ts', import.meta.url)), 'utf8');
-/** The source from `anchor` for `chars` characters. */
-const after = (anchor: string, chars: number): string => {
-  const at = SRC.indexOf(anchor);
-  expect(at, anchor).toBeGreaterThan(-1);
-  expect(SRC.indexOf(anchor, at + 1), `${anchor} is unique`).toBe(-1);
-  return SRC.slice(at, at + chars);
-};
-const bodyOf = (fn: string): string => {
-  const at = SRC.indexOf(`\nfunction ${fn}(`);
-  expect(at, fn).toBeGreaterThan(-1);
-  const end = SRC.indexOf('\n}\n', at);
-  return SRC.slice(at, end);
-};
+const bodyOf = (fn: string): string => sliceMethod(SRC, `function ${fn}(`);
 
 describe('the options the PLO6 port skips never act in PLO6, gate on or not', () => {
   it('the four catalogue verdicts are skip', () => {
@@ -145,11 +134,11 @@ describe('the options the PLO6 port skips never act in PLO6, gate on or not', ()
   });
 
   it('3.19 and 3.28: the two inline game gates admit four and five cards only', () => {
-    for (const anchor of [
-      'opts.omahaRiverNutBlockerBluffReachable === true &&',
-      'opts.omahaEliteContinuesVsMeasuredWideThreeBettor === true &&',
+    for (const callAnchor of [
+      '(opts.omahaRiverNutBlockerBluffReachable === true &&',
+      'if (\n            opts.omahaEliteContinuesVsMeasuredWideThreeBettor === true &&',
     ]) {
-      const gate = after(anchor, 520);
+      const gate = sliceCall(SRC, callAnchor);
       expect(gate).toContain('(vi.holeCount === 4 || vi.holeCount === 5) &&');
       expect(gate).not.toContain('holeCount === 6');
       expect(gate).not.toContain('omahaStrategyGameInScope');
@@ -206,7 +195,10 @@ describe('3.24 item 7: against a measured maniac the out-of-position call rule s
       "String(gs.gameVariant ?? '').toLowerCase() === 'plo6' &&\n      omahaStrategyGameScopeOf(opts).plo6 === true &&\n      opts.mind !== false\n    ) {"
     );
     expect(at).toBeGreaterThan(-1);
-    const branch = body.slice(at, at + 420);
+    const branch = sliceEnclosingBlock(
+      body,
+      'const raiserRead = HorseMind.opponentRead(raiser.user_id);'
+    );
     expect(branch).toContain(
       'raiserRead.presumed !== true && maniacRaiseWidth(raiserRead) !== null'
     );

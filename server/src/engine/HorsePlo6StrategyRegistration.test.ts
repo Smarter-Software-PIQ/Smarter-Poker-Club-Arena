@@ -27,6 +27,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card, CardRank, CardSuit } from '../types.js';
 import { UNMEASURABLE_MATCHUPS } from '../benchmark/HorseLeague.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import {
   replayProfiles,
   stateAt,
@@ -396,8 +397,7 @@ const recorded = (fx: unknown, ord: number, six: boolean) => (): NodeState => {
     }
   throw new Error('no neutral sixth card');
 };
-const bytesOf = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (/Ms$/.test(k) ? undefined : v));
+const bytesOf = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 const leader = { measured: true, tightReRaiser: false, valueLeader: true } as OmahaReadConditional;
 
 /**
