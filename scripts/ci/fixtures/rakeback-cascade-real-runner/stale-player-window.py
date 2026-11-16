@@ -26,6 +26,17 @@ try:
     assert one(probe)=='f','reproduce the stale window accepted by the old reader'
     q(migration)
     assert one(probe)=='t', 'a contradictory count must force validation against the original earning rows'
+    # Restore the synthetic unexplained mismatch. Then reproduce a real late
+    # earning in TN's window: snapshot after cutoff, before the source posted.
+    q(damage.replace("::bigint-1","::bigint+1"))
+    q("""UPDATE public.accounting_close_partials p SET
+          computed_at=rr.we(),value=jsonb_set(p.value,'{pairs}','[]'::jsonb)
+        FROM public.accounting_cash_rake_sources s
+        WHERE p.kind='round3_union_window' AND s.player_id=rr.u('TN')
+          AND s.earned_at>=p.window_start AND s.earned_at<p.window_end
+          AND s.recorded_at>rr.we() RETURNING p.window_start;""")
+    assert one("SELECT count(*) FROM public.accounting_close_partials WHERE kind='round3_union_window' AND computed_at=rr.we()")=='1'
+    assert one(probe)=='f', 'late cash window must reconcile and reuse the certified payout plan'
     rc, out, err = cron(RUNNER)
     assert rc==0 and json.loads(out)['round']==3,(out,err)
     case('stale player-source window: original runner pays the player round from current sources and preserves the earlier agent and club receipts',
