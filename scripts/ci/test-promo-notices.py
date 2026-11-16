@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native original FIFO meter + actual notification bridge, isolated PostgreSQL only."""
 import argparse, importlib.util, json, os, re, subprocess, tempfile, time, hashlib
+from contextlib import contextmanager
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 ROOT=Path(__file__).resolve().parents[2]
@@ -19,7 +20,9 @@ ALTER TABLE rake_records ADD COLUMN source text;
 ALTER TABLE rake_attributions ADD COLUMN hand_id uuid;
 CREATE TABLE ca_promo_cash_hand_clocks(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,accepted_at timestamptz);
 CREATE TABLE hand_atomic_commits(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,committed_at timestamptz);
-ALTER TABLE accounting_tournament_fee_sources ADD COLUMN rake_record_id uuid;
+ALTER TABLE accounting_tournament_fee_sources ADD COLUMN rake_record_id uuid,ADD COLUMN source_charge_ledger_id uuid;
+CREATE TABLE tournament_refund_entitlements(id uuid PRIMARY KEY,source_ledger_id uuid UNIQUE,tournament_id uuid,refund_wallet_club_id uuid,user_id uuid,refund_fee numeric);
+CREATE TABLE tournament_refund_tranches(entitlement_id uuid,tournament_id uuid,user_id uuid,source_wallet_club_id uuid,refund_fee numeric);
 CREATE TABLE tournament_unregistration_receipts(tournament_id uuid,user_id uuid,fees_reversed numeric,fee_reversal_ids uuid[],fee_source_rake_record_ids uuid[]);
 CREATE TABLE tournament_cancellation_receipts(tournament_id uuid,total_rake_after numeric,fees_reversed numeric,total_rake_before numeric,fee_reversal_ids uuid[]);
 CREATE TABLE ca_promo_principal_custody(grant_id uuid,amount numeric);
@@ -42,7 +45,8 @@ CREATE FUNCTION fn_ca_raise_drift_incident(p_source text,p_classification text,p
 RETURNS uuid LANGUAGE sql AS $$INSERT INTO test_promo_incidents(classification,entity_id,expected,actual) VALUES(p_classification,p_entity_id,p_expected,p_actual) RETURNING id$$;
 """
 def main():
- p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--integrity-migration',type=Path,default=ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql');args=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--ticket-migration',type=Path,default=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql');p.add_argument('--integrity-migration',type=Path,default=ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql');args=p.parse_args()
+ if not args.ticket_migration.exists():raise SystemExit('original paid fee source prerequisite unavailable; provide --ticket-migration')
  if not args.integrity_migration.exists():
   raise SystemExit('integrity source prerequisite unavailable; provide --integrity-migration')
  if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):
@@ -70,6 +74,13 @@ def main():
    custody=args.custody_migration.read_text()
    (args.output/'INPUTS.json').write_text(json.dumps({'custody_migration_sha256':hashlib.sha256(custody.encode()).hexdigest(),'custody_components_sha256':{name:hashlib.sha256(function(custody,name).encode()).hexdigest() for name in ['fn_ca_promo_cash_fee_clock_missing','fn_ca_promo_fee_events','fn_ca_promo_play_through_state']},'integrity_migration_sha256':hashlib.sha256(integrity.encode()).hexdigest(),'integrity_components_sha256':{name:hashlib.sha256(function(integrity,name).encode()).hexdigest() for name in ['fn_ca_promo_integrity_move','fn_ca_promo_integrity_release']},'notices_migration_sha256':hashlib.sha256(MIG.read_bytes()).hexdigest(),'owners_sha256':hashlib.sha256((ROOT/'tests/fixtures/promo-notices/owners.sql').read_bytes()).hexdigest()},indent=2)+'\n')
    for name in ['fn_ca_promo_cash_fee_clock_missing','fn_ca_promo_fee_events','fn_ca_promo_play_through_state']:db.run(function(custody,name))
+   ticket=args.ticket_migration.read_text()
+   paid_ddl=re.search(r'CREATE TABLE public\.ca_promo_event_fee_consumption_receipts \(.*?\n\);',ticket,re.S).group(0)
+   paid_index=re.search(r'CREATE INDEX ca_promo_original_paid_fee_member.*?;',ticket,re.S).group(0)
+   paid_reader=function(ticket,'fn_ca_promo_original_entry_fee_events')
+   meter_patch=re.search(r'DO \$entry_meter\$.*?END \$entry_meter\$;',ticket,re.S).group(0)
+   db.run(paid_ddl);db.run(paid_index);db.run(paid_reader);db.run(meter_patch)
+   inputs=json.loads((args.output/'INPUTS.json').read_text());inputs.update({'ticket_migration_sha256':hashlib.sha256(ticket.encode()).hexdigest(),'paid_entry_components_sha256':{'receipt':hashlib.sha256(paid_ddl.encode()).hexdigest(),'index':hashlib.sha256(paid_index.encode()).hexdigest(),'reader':hashlib.sha256(paid_reader.encode()).hexdigest(),'meter_patch':hashlib.sha256(meter_patch.encode()).hexdigest()}});(args.output/'INPUTS.json').write_text(json.dumps(inputs,indent=2)+'\n')
    db.run((ROOT/'tests/fixtures/promo-notices/owners.sql').read_text())
    db.run((ROOT/'tests/fixtures/promo-notices/incident.sql').read_text())
    db.run('CREATE TRIGGER actual_incident_bridge AFTER INSERT ON ledger_reconcile_log FOR EACH ROW EXECUTE FUNCTION fn_ca_reconcile_log_to_incident()')
@@ -168,6 +179,85 @@ def main():
    check('unrelated current grants do not inherit donor flags',next(x for x in report['funding_owners'] if x['funded_from_id']==A)['flagged'],0)
    check('daily club totals retain exact given principal',report['clubs'][0]['given'],50)
    check('daily club total counts distinct cases once',report['clubs'][0]['flagged'],1)
+   @contextmanager
+   def held_notice(sql):
+    proc=subprocess.Popen([str(pg/'psql'),'-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-h',directory,'-p',str(port),'-U','postgres','-d','promo_notices'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
+    try:
+     proc.stdin.write("BEGIN; SET LOCAL statement_timeout='5s'; "+sql+"; SELECT 'NOTICE_READY';\n");proc.stdin.flush()
+     while True:
+      line=proc.stdout.readline()
+      if line.strip()=='NOTICE_READY':break
+      if not line:raise RuntimeError('held notice owner failed: '+proc.stderr.read())
+     yield
+     proc.stdin.write('COMMIT;\n\\q\n');proc.stdin.flush();_,error=proc.communicate(timeout=5)
+     if proc.returncode:raise RuntimeError(error)
+    finally:
+     if proc.poll() is None:proc.kill();proc.communicate()
+   def race_source(user,amount):
+    return f"WITH clock AS(INSERT INTO ca_promo_cash_hand_clocks VALUES(gen_random_uuid(),'{C}',1,clock_timestamp()) RETURNING hand_id) INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount) SELECT hand_id,'{user}','{C}',{amount} FROM clock"
+   for first,second,expected in [(180,100,'received,near'),(100,180,'received,half')]:
+    user=db.one('SELECT gen_random_uuid()');db.run(f"INSERT INTO profiles VALUES('{user}'); INSERT INTO club_members VALUES('{C}','{user}',80,'member')")
+    race_grant=db.one(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{user}',50,'club_promo',gen_random_uuid()::text,NULL,'promo_wallet','{A}',NULL)")
+    with held_notice(race_source(user,first)+'; SET CONSTRAINTS ca_promo_fee_notice IMMEDIATE'):
+     db.run(race_source(user,second))
+    check(f'progress order {first} then {second} skips only busy optional notice',db.one(f"SELECT string_agg(milestone,',' ORDER BY created_at) FROM ca_promo_notice_milestones WHERE grant_id='{race_grant}'"),expected)
+    db.run(race_source(user,1))
+    check(f'progress order {first} then {second} never puts halfway after near',db.one(f"SELECT string_agg(milestone,',' ORDER BY created_at) FROM ca_promo_notice_milestones WHERE grant_id='{race_grant}'"),'received,near' if first==180 else 'received,half,near')
+   # A valid synthetic grant row names its id before insertion so another
+   # session can hold only that optional notice key. Original insert/settle
+   # triggers must still persist received and actual met completion.
+   user=db.one('SELECT gen_random_uuid()');forced=db.one('SELECT gen_random_uuid()')
+   db.run(f"INSERT INTO profiles VALUES('{user}'); INSERT INTO club_members VALUES('{C}','{user}',80,'member')")
+   with held_notice(f"SELECT pg_advisory_xact_lock(hashtextextended('ca-promo-progress-notice:'||'{forced}',0))"):
+    columns=db.one("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid='ca_promo_play_through_grants'::regclass AND attnum>0 AND NOT attisdropped AND attgenerated=''")
+    db.run(f"INSERT INTO ca_promo_play_through_grants({columns}) SELECT {columns} FROM jsonb_populate_record(NULL::ca_promo_play_through_grants,(SELECT to_jsonb(g)||jsonb_build_object('id','{forced}','user_id','{user}','source_ref','{forced}','remaining',50,'closed_at',NULL,'close_reason',NULL,'granted_at',clock_timestamp(),'cycle_started_at',clock_timestamp()) FROM ca_promo_play_through_grants g WHERE id='{g2}'))")
+    db.run(race_source(user,200));db.run(f"SELECT fn_ca_promo_play_through_settle('{C}','{user}')")
+   check('received and actual met completion always persist despite a busy optional progress key',db.one(f"SELECT string_agg(milestone,',' ORDER BY created_at) FROM ca_promo_notice_milestones WHERE grant_id='{forced}'"),'received,unlocked')
+   # Original paid fees qualify immediately without a commission agreement
+   # or a later accounting source. The immutable rendezvous is the event.
+   db.run(f"INSERT INTO club_members VALUES('{C}','{base.CARL}',80,'member') ON CONFLICT DO NOTHING")
+   paid_grant=db.one(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{base.CARL}',50,'club_promo',gen_random_uuid()::text,NULL,'promo_wallet','{A}',NULL)")
+   def paid_fee(amount):
+    charge=db.one(f"INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('player_wallet','{base.CARL}','prize_liability','{base.TOUR_A}',{amount},'tournament_buyin','{C}') RETURNING id")
+    entitlement=db.one(f"INSERT INTO tournament_refund_entitlements VALUES(gen_random_uuid(),'{charge}','{base.TOUR_A}','{C}','{base.CARL}',{amount}) RETURNING id")
+    db.run(f"INSERT INTO ca_promo_event_fee_consumption_receipts(charge_ledger_id,entitlement_id,gross_fee,original_promo,charge_amount,principal,club_id,player_id) VALUES('{charge}','{entitlement}',{amount},0,{amount},0,'{C}','{base.CARL}')")
+    return charge,entitlement
+   first_charge,first_entitlement=paid_fee(100)
+   check('paid entry without earning agreement immediately reaches halfway',db.one(f"SELECT string_agg(milestone,',' ORDER BY created_at) FROM ca_promo_notice_milestones WHERE grant_id='{paid_grant}'"),'received,half')
+   second_charge,second_entitlement=paid_fee(80)
+   check('next original paid entry immediately reaches ninety',db.one(f"SELECT string_agg(milestone,',' ORDER BY created_at) FROM ca_promo_notice_milestones WHERE grant_id='{paid_grant}'"),'received,half,near')
+   check('original entry meter does not wait for canonical recognition',db.one(f"SELECT sum(fee_credit) FROM fn_ca_promo_fee_events('{C}','{base.CARL}',(SELECT granted_at FROM ca_promo_play_through_grants WHERE id='{paid_grant}'),'infinity')"),'180')
+   db.run(f"INSERT INTO accounting_tournament_fee_sources(tournament_id,player_id,club_id,rake_credit,source_charge_ledger_id,charged_at) VALUES('{base.TOUR_A}','{base.CARL}','{C}',100,'{first_charge}',clock_timestamp()),('{base.TOUR_A}','{base.CARL}','{C}',80,'{second_charge}',clock_timestamp()+interval '1 hour')")
+   check('late canonical source cannot credit an original paid fee twice',db.one(f"SELECT sum(fee_credit) FROM fn_ca_promo_fee_events('{C}','{base.CARL}',(SELECT granted_at FROM ca_promo_play_through_grants WHERE id='{paid_grant}'),'infinity')"),'180')
+   check('late recognition outside original clock window adds no fee',db.one(f"SELECT count(*) FROM fn_ca_promo_fee_events('{C}','{base.CARL}',clock_timestamp()+interval '30 minutes',clock_timestamp()+interval '2 hours')"),'0')
+   db.run(f"INSERT INTO ca_promo_event_fee_consumption_receipts(charge_ledger_id,entitlement_id,gross_fee,original_promo,charge_amount,principal,club_id,player_id) VALUES('{first_charge}','{first_entitlement}',100,0,100,0,'{C}','{base.CARL}') ON CONFLICT DO NOTHING")
+   check('original paid receipt replay and canonical recognition cannot duplicate milestones',db.one(f"SELECT count(*) FROM notifications WHERE data->>'grant_id'='{paid_grant}'"),'3')
+   db.run(f"INSERT INTO tournament_refund_tranches VALUES('{first_entitlement}','{base.TOUR_A}','{base.CARL}','{C}',100)")
+   check('actual canonical tranche reverses unfinished original paid fee progress',db.one(f"SELECT sum(fee_credit) FROM fn_ca_promo_fee_events('{C}','{base.CARL}',(SELECT granted_at FROM ca_promo_play_through_grants WHERE id='{paid_grant}'),'infinity')"),'80')
+   check('refund never forges a completed unlock notice',db.one(f"SELECT count(*) FROM notifications WHERE data->>'grant_id'='{paid_grant}' AND data->>'milestone'='unlocked'"),'0')
+   # Bounded original paid-fee lookup on the new member/clock index.
+   # Synthetic load-only rows bypass producer triggers, never production.
+   db.run(f"""BEGIN; SET LOCAL session_replication_role=replica;
+    CREATE TEMP TABLE paid_load AS SELECT gen_random_uuid() charge,gen_random_uuid() entitlement FROM generate_series(1,30000);
+    INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id)
+     SELECT charge,'player_wallet','{base.CARL}','prize_liability','{base.TOUR_B}',1,'tournament_buyin','{C}' FROM paid_load;
+    INSERT INTO tournament_refund_entitlements SELECT entitlement,charge,'{base.TOUR_B}','{C}','{base.CARL}',1 FROM paid_load;
+    INSERT INTO ca_promo_event_fee_consumption_receipts(charge_ledger_id,entitlement_id,gross_fee,original_promo,charge_amount,principal,club_id,player_id,earned_at)
+     SELECT charge,entitlement,1,0,1,0,'{C}','{base.CARL}',clock_timestamp()-interval '31 days' FROM paid_load;
+    COMMIT; ANALYZE ca_promo_event_fee_consumption_receipts; ANALYZE tournament_refund_entitlements;""")
+   db.run('SELECT pg_stat_reset()');paid_fee(1);time.sleep(.1)
+   check('one meter evaluation for original paid notice with thirty thousand historical entries',db.one("SELECT calls FROM pg_stat_user_functions WHERE funcid='fn_ca_promo_play_through_state(uuid,uuid)'::regprocedure"),'1')
+   body=paid_reader.split('AS $$',1)[1].rsplit('$$',1)[0].strip().rstrip(';')
+   bounds=db.json("SELECT jsonb_build_object('from',clock_timestamp()-interval '1 hour','to',clock_timestamp())")
+   body=body.replace('p_club',f"'{C}'::uuid").replace('p_user',f"'{base.CARL}'::uuid").replace('p_from',"'"+bounds['from']+"'::timestamptz").replace('p_to',"'"+bounds['to']+"'::timestamptz")
+   plan=db.json('EXPLAIN (ANALYZE,FORMAT JSON) '+body)
+   check('actual original paid reader uses bounded member and clock index','ca_promo_original_paid_fee_member' in json.dumps(plan),True)
+   def index_conditions(node):
+    if isinstance(node,dict):return [str(node.get('Index Cond',''))]+[item for value in node.values() for item in index_conditions(value)]
+    if isinstance(node,list):return [item for value in node for item in index_conditions(value)]
+    return []
+   check('paid index restricts actual earned clock as well as member',any('earned_at' in condition and 'player_id' in condition for condition in index_conditions(plan)),True)
+   performance=json.loads((args.output/'PERFORMANCE.json').read_text());performance.update({'paid_source_rows':30003,'paid_source_state_calls':1,'paid_source_index':'ca_promo_original_paid_fee_member','paid_reader_execution_ms':plan[0]['Execution Time']});(args.output/'PERFORMANCE.json').write_text(json.dumps(performance,indent=2)+'\n')
    # The original grant schema deliberately permits orphan historical rows.
    # A deleted recipient must not make a future fee or closure fail on the
    # notification foreign key, nor invent a delivery receipt.

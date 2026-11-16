@@ -1,12 +1,14 @@
 -- @install-window: daily-maintenance
 -- @locks: public.rake_attributions, public.accounting_tournament_fee_sources, public.ledger_reconcile_log
--- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.rake_attributions'::regclass AND tgname='ca_promo_fee_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.accounting_tournament_fee_sources'::regclass AND tgname='ca_promo_entry_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check' AND convalidated AND position('promo_principal_custody' in pg_get_constraintdef(oid))>0) AND EXISTS (SELECT 1 FROM pg_proc WHERE oid='public.reconcile_ledger_nightly()'::regprocedure AND position('fn_ca_promo_custody_reconcile_rows' in prosrc)>0) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_integrity_releases'::regclass AND tgname='ca_promo_integrity_release_notice' AND tgenabled='O')
+-- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.rake_attributions'::regclass AND tgname='ca_promo_fee_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.accounting_tournament_fee_sources'::regclass AND tgname='ca_promo_entry_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check' AND convalidated AND position('promo_principal_custody' in pg_get_constraintdef(oid))>0) AND EXISTS (SELECT 1 FROM pg_proc WHERE oid='public.reconcile_ledger_nightly()'::regprocedure AND position('fn_ca_promo_custody_reconcile_rows' in prosrc)>0) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_integrity_releases'::regclass AND tgname='ca_promo_integrity_release_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_event_fee_consumption_receipts'::regclass AND tgname='ca_promo_paid_entry_notice' AND tgenabled='O')
 -- Existing notification delivery owns push preferences, caps and devices.
 -- Notices observe original grants and accepted fees; they never settle a grant,
 -- acquire a member wallet lock, return chips or change an earned fee.
 BEGIN;
 SET LOCAL lock_timeout='1s';
 DO $dependencies$ BEGIN
+ IF to_regclass('public.ca_promo_event_fee_consumption_receipts') IS NULL OR to_regprocedure('public.fn_ca_promo_original_entry_fee_events(uuid,uuid,timestamptz,timestamptz)') IS NULL THEN
+  RAISE EXCEPTION 'original_paid_entry_fee_source_required'; END IF;
  IF to_regclass('public.ca_promo_principal_custody') IS NULL
   OR to_regclass('public.ca_promo_principal_return_receipts') IS NULL
   OR to_regclass('public.ca_promo_integrity_source_grants') IS NULL
@@ -53,6 +55,9 @@ BEGIN
   body:=trim(to_char(p_principal,'FM999999999999990.00'))||' Remaining Promo Chips Are Now Unlocked.';
  ELSE
   IF p_milestone NOT IN('half','near') OR g.closed_at IS NOT NULL THEN RETURN false; END IF;
+  -- Optional progress snapshots never wait across original money owners.
+  -- A busy snapshot is observed by a later actual fee, without a repair task.
+  IF NOT pg_try_advisory_xact_lock(hashtextextended('ca-promo-progress-notice:'||p_grant::text,0)) THEN RETURN false; END IF;
   -- A jump to ninety gets one useful push, and a later refund cannot create
   -- an out-of-order fifty-percent message after the near-completion receipt.
   IF p_milestone='half' AND EXISTS(SELECT 1 FROM public.ca_promo_notice_milestones WHERE grant_id=p_grant AND milestone='near') THEN RETURN false; END IF;
@@ -113,6 +118,12 @@ CREATE CONSTRAINT TRIGGER ca_promo_fee_notice AFTER INSERT ON public.rake_attrib
  EXECUTE FUNCTION public.fn_ca_promo_fee_notice();
 CREATE CONSTRAINT TRIGGER ca_promo_entry_notice AFTER INSERT ON public.accounting_tournament_fee_sources
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN(NEW.rake_credit>0)
+ EXECUTE FUNCTION public.fn_ca_promo_fee_notice();
+
+-- The immutable original paid fee is available even without an earning
+-- agreement. Observe only after both charge and entitlement are complete.
+CREATE CONSTRAINT TRIGGER ca_promo_paid_entry_notice AFTER INSERT ON public.ca_promo_event_fee_consumption_receipts
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN(NEW.gross_fee>0)
  EXECUTE FUNCTION public.fn_ca_promo_fee_notice();
 
 -- This existing closed observer table has a validated type whitelist.

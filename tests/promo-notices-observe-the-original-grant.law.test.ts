@@ -20,6 +20,20 @@ describe('promo notices observe original financial authority', () => {
     expect(sql).toMatch(
       /ca_promo_entry_notice AFTER INSERT ON public\.accounting_tournament_fee_sources\s+DEFERRABLE INITIALLY DEFERRED/
     );
+    expect(sql).toMatch(
+      /ca_promo_paid_entry_notice AFTER INSERT ON public\.ca_promo_event_fee_consumption_receipts\s+DEFERRABLE INITIALLY DEFERRED/
+    );
+  });
+  it('never waits on optional progress ordering or skips received and completed receipts', () => {
+    const emitter = sql
+      .split('CREATE FUNCTION public.fn_ca_promo_emit_notice(')[1]
+      .split('END $$;')[0];
+    expect(emitter).toContain(
+      "pg_try_advisory_xact_lock(hashtextextended('ca-promo-progress-notice:'"
+    );
+    expect(emitter).not.toMatch(/\bpg_advisory_xact_lock\(/);
+    expect(emitter.split(' ELSE')[0]).not.toContain('pg_try_advisory');
+    expect(sql).not.toContain('pg_sleep');
   });
   it('only announces earned completion after the original final met closure', () => {
     expect(sql).toContain("NEW.close_reason='met'");

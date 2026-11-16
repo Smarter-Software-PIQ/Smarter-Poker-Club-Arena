@@ -16,6 +16,7 @@ on:
       - scripts/ci/test-promo-play-through.py
       - supabase/migrations/*_promo_grant_notices_*.sql
       - scripts/ci/test-promo-notices.py
+      - supabase/migrations/*_promo_tickets_require_cashable_wallets_*.sql
       - supabase/migrations/*_promo_principal_follows_*.sql
       - supabase/migrations/*_suspect_promo_chip_dumping_*.sql
       - tests/fixtures/promo-notices/**
