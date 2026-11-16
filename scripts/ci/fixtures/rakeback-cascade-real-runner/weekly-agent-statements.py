@@ -97,6 +97,9 @@ try:
 finally:
     reader.wait(timeout=15)
 case('weekly document installation finishes while a genuine read holds the original horse promo table')
+payment_schema=next(migrations.glob('20260721132851_*.sql')).read_text()
+q(payment_schema[payment_schema.index('CREATE TABLE IF NOT EXISTS public.credit_payments'):payment_schema.index('ALTER TABLE public.credit_invoices ENABLE ROW LEVEL SECURITY')])
+q(next(migrations.glob('20261116221012_*.sql')).read_text())
 clock('2026-12-08 18:00:00Z')
 early_from="'2026-11-30 08:00Z'::timestamptz"
 early_to="'2026-12-07 08:00Z'::timestamptz"
@@ -124,6 +127,12 @@ q(f"""INSERT INTO smarter_private.weekly_payout_financial_receipts(scope_kind,sc
  SELECT scope_kind,scope_id,{early_from},{early_to},run_id,original_round_receipts FROM smarter_private.weekly_payout_financial_receipts
  WHERE scope_id=rr.u('U') AND period_end=rr.we();""")
 assert one(f"SELECT {early_gate}")=='t'
+q(f"""UPDATE public.weekly_accounting_payout_pauses SET phase='paying' WHERE period_end={early_to};
+ SELECT smarter_private.weekly_payout_finalize(run_id) FROM public.weekly_accounting_payout_pauses WHERE period_end={early_to};""")
+assert one("SELECT status='pending' AND debt_owed=48 AND amount_remaining=48 FROM public.credit_invoices WHERE id=rr.u('early-credit-bill')")=='t'
+# Reproduce the old release writer's pending shape, after the owner already
+# approved the original 60 less 12 document.
+q("UPDATE public.credit_invoices SET debt_owed=12.34,amount_remaining=12.34 WHERE id=rr.u('early-credit-bill')")
 early_payment=q(f"SELECT public.fn_midway_weekly_horse_promo({early_from},{early_to})",check=False)
 assert early_payment.returncode and 'midway_promo_requires_posted_weekly_documents' in early_payment.stderr
 # This synthetic board has no real Midway R1 settlement. Its separate native
@@ -158,6 +167,7 @@ finally:
     holds.wait(timeout=20)
 early_sent=one(f"SELECT count(*) FROM smarter_private.weekly_agent_statements WHERE period_end={early_to}")
 assert int(early_sent)>2
+assert one("SELECT debt_owed=48 AND amount_remaining=48 AND amount_paid=0 FROM public.credit_invoices WHERE id=rr.u('early-credit-bill')")=='t'
 assert one("""SELECT count(*)=1 AND bool_and(d.recipient_id=rr.u('SUB') AND position('48.00' in m.content)>0)
  FROM public.accounting_invoice_deliveries d JOIN public.social_messages m ON m.id=d.message_id
  JOIN public.settlement_invoices i ON i.id=d.invoice_id WHERE i.source_credit_invoice_id=rr.u('early-credit-bill')""")=='t'
@@ -173,8 +183,10 @@ case('the released weekly scheduler delivers private summaries and adjusted cred
 q(f"""INSERT INTO public.credit_invoices(id,agent_id,period_start,period_end,debt_owed,amount_paid,amount_remaining,status,due_date)
  SELECT rr.u('late-agent-bill'),id,{early_from},{early_to},60,0,60,'pending',{early_to}+interval '2 days' FROM public.agents WHERE user_id=rr.u('AG');
  INSERT INTO public.settlement_invoices(club_id,invoice_type,from_entity_type,from_entity_id,to_entity_type,to_entity_id,gross_amount,net_amount,deductions,breakdown,status,chips_transferred,source_credit_invoice_id)
- VALUES(rr.u('T'),'transaction_receipt','club',rr.u('T')::text,'agent',rr.u('AG')::text,60,60,0,'{{"kind":"credit_invoice"}}','generated',false,rr.u('late-agent-bill'));""")
+ VALUES(rr.u('T'),'transaction_receipt','club',rr.u('T')::text,'agent',rr.u('AG')::text,60,60,0,'{{"kind":"credit_invoice"}}','generated',false,rr.u('late-agent-bill'));
+ UPDATE public.credit_invoices SET status='void',debt_owed=0,amount_remaining=0,void_reason='Agent wallet covers the credit line after weekly rakeback' WHERE id=rr.u('late-agent-bill');""")
 assert json.loads(one('SELECT smarter_private.weekly_union_books_due()'))['stage']=='invoices_delivered'
+assert one("SELECT status='pending' AND debt_owed=60 AND amount_remaining=60 AND void_reason IS NULL FROM public.credit_invoices WHERE id=rr.u('late-agent-bill')")=='t'
 assert one(f"SELECT count(*) FROM public.union_weekly_horse_promo_runs WHERE period_end={early_to}")=='0'
 assert one(f"SELECT count(*) FROM smarter_private.weekly_rakeback_document_runs WHERE period_end={early_to} AND club_receipt->>'clubs'='4'")=='1'
 assert one("SELECT count(*) FROM public.sp_signup_welcome_back_awards WHERE user_id=rr.u('new_late_player')")=='0'
@@ -184,6 +196,18 @@ later_welcome=json.loads(one('SELECT smarter_private.weekly_union_books_due()'))
 assert later_welcome['paid_players']==1 and later_welcome['paid']==25,later_welcome
 assert one(f"SELECT (kings_welcome_receipt->>'paid')::numeric=25 FROM smarter_private.weekly_rakeback_document_runs WHERE period_end={early_to}")=='t'
 assert not one(welcome)
+credit_check=f"SELECT smarter_private.weekly_final_credit_documents({early_from},{early_to},true);"
+assert one(f"""BEGIN;
+ INSERT INTO public.credit_payments(invoice_id,amount,payment_method) VALUES(rr.u('early-credit-bill'),7,'external');
+ UPDATE public.credit_invoices SET status='partial',debt_owed=26,amount_paid=7,amount_remaining=19 WHERE id=rr.u('early-credit-bill');
+ UPDATE public.credit_invoices SET status='void',debt_owed=0,amount_remaining=0,void_reason='Owner waiver' WHERE id=rr.u('late-agent-bill');
+ {credit_check}
+ SELECT (SELECT status='partial' AND amount_paid=7 AND amount_remaining=19 AND debt_owed=26 FROM public.credit_invoices WHERE id=rr.u('early-credit-bill'))
+ AND (SELECT count(*)=1 AND sum(amount)=7 FROM public.credit_payments WHERE invoice_id=rr.u('early-credit-bill'))
+ AND (SELECT status='void' AND void_reason='Owner waiver' FROM public.credit_invoices WHERE id=rr.u('late-agent-bill'))
+ AND (SELECT count(*)=2 FROM public.accounting_invoice_deliveries d JOIN public.settlement_invoices i ON i.id=d.invoice_id WHERE i.source_credit_invoice_id IN(rr.u('early-credit-bill'),rr.u('late-agent-bill')));
+ ROLLBACK;""")=='t'
+case('the actual payout finalizer preserves the approved Pacific bill. Historical post-rakeback changes recover from its original document, leaving payments, waivers and delivered copies alone')
 assert one(f"SELECT count(*) FROM public.union_accounting_runs WHERE scope_id='{mid}' AND period_end={early_to} AND status='complete'")=='0'
 assert one(f"SELECT count(*) FROM smarter_private.weekly_agent_statements WHERE period_end={early_to}")==early_sent
 case('after the twelve-hour intake window, real paid and documented wallets receive one equal promo and one eligible KINGS welcome, with an unfinished independent club book')
