@@ -49,3 +49,8 @@ opening. The new real-funded purchase, original bounty marker, exact response
 replay, principal loss receipts and all financial journals/deferred guards are
 actual. It proves own100→90 stays cashable after old P8 is definitively lost;
 it does not claim a later prize or rakeback payment witness.
+
+`bust-money-owners.json` retains the five actual original reentry/bounty owner
+definitions read on November16, with source hashes and no account records.
+The full closure loads these preimages before applying the maintained source
+patches, preserving the patched admission owner instead of replacing it later.
