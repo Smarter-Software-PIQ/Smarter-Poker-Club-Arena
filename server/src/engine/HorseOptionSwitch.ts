@@ -339,6 +339,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitCallIsNotACommitment',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
+  'fixedLimitPopulationCells',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -566,6 +567,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   huSmallBlindStealsVsTightBigBlind: [
     'Heads Up',
     'NLH heads-up, small blind first in vs a tight big blind',
+  ],
+  fixedLimitPopulationCells: [
+    'Fixed-Limit',
+    'Fixed-limit style and exploit reads (flh, flo8)',
+    'fixed-limit reads judged against the measured fixed-limit Horse cells',
   ],
 };
 

@@ -1906,6 +1906,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitPopulationCells',
+    '2026-11-16 default OFF: on a fixed-limit decision (flh, flo8) every style and exploit read is judged against FIXED_LIMIT_POPULATION_ENVELOPE (HorseOpponentExploit.ts, version fixed-limit-population-2026-11-16): the game own measured Horse cell at its own table size, measured from every Horse-only fixed-limit cash hand of 2026-11-09T04:00Z..2026-11-16T04:00Z (107,538 hands, public actions only, the 2026-10-16 band rule, nothing borrowed from another size or a family), instead of the 2026-10-16 cells (sparse +/- 0.20, and flo8 full ring borrowed flo8 short: a VPIP mean of 0.526 against 0.31 measured, so an ordinary flo8 player read tight and a loose one neutral); thresholds, margins, minimum hands and credibility unchanged; no-limit and pot-limit reads unchanged; Phase 3 diagnosis P3-TIGHT-READ-DESIGN.md; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'lightningParticipationHoldem',
     "2026-11-15 default OFF: Lightning cash no-limit hold'em only (public memory domain speed lightning, four to six dealt, big-blind ante, not all-in-or-fold): where the facing-one-open branch folds the big blind, nobody else in, the (defender, opener seat) continue width gains up to 10 share points for the price the ante lays (90 points per unit of price under 0.31, none at 50bb or less, all from 85bb) and a hand inside it calls; hold'em opens are untouched (they already scale with the ante); no own-participation input, no floor, not applied where a tight-opener respect read moved the bars; development evidence only (HorseLightningParticipation.ts, paired Lightning harness, seeds 20261114-20261118), so it stays off",
     'Lightning participation'
@@ -6564,6 +6569,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_omaha_presumption_withheld',
     'HorseMind.opponentRead (fixedLimitOmahaNoPresumption)',
     'a fixed-limit Omaha opponent read was returned without the shared aggressive raise presumption',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit reads only, with the opt-in option on.
+  receipt(
+    'fixed_limit_population_cell_read',
+    'HorseOpponentExploit.exploitEnvelopeFor (fixedLimitPopulationCells)',
+    'a fixed-limit style or exploit read was judged against its game own measured fixed-limit population cell',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit showdowns only, and only with the process switch on.

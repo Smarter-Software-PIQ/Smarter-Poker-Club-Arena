@@ -100,7 +100,7 @@ import {
   type ExploitStat,
   type ExploitStatRead,
   type OpponentExploitRead,
-  OPPONENT_EXPLOIT_ENVELOPE_VERSION,
+  exploitEnvelopeVersionFor,
   OPPONENT_EXPLOIT_VERSION,
 } from './HorseOpponentExploit.js';
 
@@ -238,7 +238,7 @@ export function omahaReadConditional(
       EXPLOIT_FAST_OFF_CREDIBILITY;
   const measuredRead: OpponentExploitRead = exploit ?? {
     version: OPPONENT_EXPLOIT_VERSION,
-    envelope: OPPONENT_EXPLOIT_ENVELOPE_VERSION,
+    envelope: exploitEnvelopeVersionFor(scope, variant),
     scope,
     stats,
   };

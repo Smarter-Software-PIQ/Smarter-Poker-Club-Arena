@@ -103,6 +103,7 @@ import {
   barrelNarrowingScale,
   callDownRespectShift,
   exploitEnvelopeFor,
+  registerFixedLimitPopulationCellsProbe,
   exploitFlopStabIncrements,
   flopStabStatRead,
   statRead,
@@ -448,6 +449,10 @@ export interface DecisionReadOptions {
    *  decision (flo8) the shared aggressive raise presumption is not applied;
    *  the opponent's own measured read stands. Only an explicit true engages. */
   fixedLimitOmahaNoPresumption?: boolean;
+  /** FIXED-LIMIT POPULATION CELLS (2026-11-16, Fixed-Limit lane, HorseDecideOpts.fixedLimitPopulationCells): on a
+   *  fixed-limit decision every style and exploit read is judged against FIXED_LIMIT_POPULATION_ENVELOPE (the
+   *  game's own measured cell at its own size) instead of the 2026-10-16 cells. Only an explicit true engages. */
+  fixedLimitPopulationCells?: boolean;
   /** STYLE READ pre-repair (2026-11-14): the same switch as ExploitReadOptions.styleFoldRatePreRepair, carried with
    *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
    *  explicit true engages; absent, the style read is what it was. */
@@ -1317,6 +1322,12 @@ export class HorseMind {
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
+  static {
+    // FIXED-LIMIT POPULATION CELLS: exploitEnvelopeFor asks the decision in flight whether the option is on.
+    registerFixedLimitPopulationCellsProbe(
+      () => HorseMind.decisionReadOptions.fixedLimitPopulationCells === true
+    );
+  }
   /** omaha_maniac_reraise_width_measured already fired in the decision in progress. */
   private static maniacReRaiseReceiptFired = false;
   /** dedupe of processed ActionRecords across repeated decide() calls */
@@ -2826,6 +2837,8 @@ export class HorseMind {
       this.decisionVariant,
       this.decisionMode,
       this.decisionReadOptions,
+      // FIXED-LIMIT POPULATION CELLS: the envelope a read is judged against depends on this option.
+      this.decisionReadOptions.fixedLimitPopulationCells === true,
       this.exploitCounters,
       this.stats,
       this.scoped,
