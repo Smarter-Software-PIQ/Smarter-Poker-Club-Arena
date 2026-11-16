@@ -73,6 +73,9 @@ BEGIN
  END LOOP;
 END $f$;
 
+REVOKE ALL ON FUNCTION public.claim_weekly_rakeback_credit_emails() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_weekly_rakeback_credit_emails() TO service_role;
+
 -- Revisit already-prepared player rounds to represent every original paid
 -- player receipt. The original receipt key preserves all previously queued or sent notices.
 UPDATE smarter_private.weekly_rakeback_notice_rounds SET prepared_at=NULL WHERE round_no=3 AND prepared_at IS NOT NULL;
