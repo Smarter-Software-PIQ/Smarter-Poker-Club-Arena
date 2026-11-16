@@ -4006,8 +4006,9 @@ export interface HorseDecideOpts {
    *  fixed-limit CASH tables only (inert at every tournament table: the
    *  !isTournamentMode(gs) gate at the priced-context entry and the pack
    *  precedence) and only at the cash table types with a credited PASS cell
-   *  (fixedLimitPreflopInScope's allow-list, AB-EVALUATION-2 0.22: flh dealt
-   *  2/6/9 unfloored and 2/3/6/7/9 floored, flo8 dealt 6 unfloored), first in the seat raises the stated reference share by
+   *  (fixedLimitPreflopInScope's allow-list, AB-EVALUATION-2 0.22 with rule
+   *  0.3's sizes: flh dealt 2/5/6/8/9 unfloored and 2/3/5/6/7/8/9 floored,
+   *  flo8 dealt 5/6 unfloored), first in the seat raises the stated reference share by
    *  players behind (the small blind folded to also completes a band; the
    *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
    *  exactly one raise becomes a call when its realized equity against the
@@ -5916,8 +5917,9 @@ function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
  * which shares this entry): the fixed-limit CASH table types with a credited
  * PASS cell, keyed by variant, floored or not, and the dealt seat count (Phase
  * 2, AB-EVALUATION-2 0.22 "use of the result", lane owner decision
- * 2026-11-16). At every other cash table type, and at every tournament table,
- * a Horse decides exactly as with the option off.
+ * 2026-11-16, as corrected by the lane owner the same day: see Sizes below).
+ * At every other cash table type, and at every tournament table, a Horse
+ * decides exactly as with the option off.
  *
  * "Dealt" is dealtHorseTableSize(gs, heroSeat): the players of gs.players
  * whose seat is in the hand's dealt census gs.dealtSeatIds, which the table
@@ -5931,12 +5933,20 @@ function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
  * the VPIP floor rule's own test (harness C2F FL_VPIP; live, the public
  * node's vpipFloor).
  *
- * Not listed, so inert: dealt 4, 5 and 8 everywhere (dealt 5 and 8 never
- * measured as their own size); unfloored flh 3 and 7 (3.16: group HARM, no
- * PASS); floored flh 4 (3.16 diagnostic only: big blind defence NOT VALID in
- * 2.4); unfloored flo8 2 (0.18: heads-up big blind defence not judged), 3 (2.4:
- * no preflop class judgeable), 4 (3.16 HARM), 7 to 9 (never measured; no live
- * table); floored flo8 of any size (3.6: diagnostic only, rule 0.16a).
+ * Sizes (lane owner correction 2026-11-16 of the 07:53Z decision, which had
+ * called dealt 5 and 8 "never measured"): AB-EVALUATION-2 rule 0.3 maps
+ * harness 6 seats to live dealt 5-6 and harness 9 seats to live dealt 8-9, so
+ * a credited 6-seat cell credits dealt 5 and 6, and a credited 9-seat cell
+ * dealt 8 and 9. Dealt 3 and 7 are credited by their own cells (3.16), whose
+ * strata are per size (2.4), so they credit no neighbouring size.
+ *
+ * Not listed, so inert: dealt 4 everywhere (unfloored flh 4 and flo8 4: 3.16
+ * group HARM, no PASS of their own; floored flh 4: 3.16 diagnostic only, big
+ * blind defence NOT VALID in 2.4); unfloored flh 3 and 7 (3.16: group HARM, no
+ * PASS); unfloored flo8 2 (0.10 / 0.18: heads-up big blind defence not
+ * judged), 3 (2.4: no preflop class judgeable), 7 to 9 (no cell: rule 0.3,
+ * flo8 has no 7-9 tables); floored flo8 of any size (3.6: diagnostic only,
+ * rule 0.16a).
  */
 const FIXED_LIMIT_PRICED_PREFLOP_CREDITED: Readonly<
   Record<'flh' | 'flo8', Readonly<Record<'unfloored' | 'floored', readonly number[]>>>
@@ -5944,19 +5954,24 @@ const FIXED_LIMIT_PRICED_PREFLOP_CREDITED: Readonly<
   flh: Object.freeze({
     unfloored: Object.freeze([
       2, // AB-EVALUATION-2 3.4: unfloored flh heads-up (P PASS, pooled +1.44 +/- 0.09)
+      5, // 3.4: unfloored flh 6, by rule 0.3 (harness 6 seats <-> live dealt 5-6)
       6, // 3.4: unfloored flh 6
+      8, // 3.4: unfloored flh 9, by rule 0.3 (harness 9 seats <-> live dealt 8-9)
       9, // 3.4: unfloored flh 9
     ]),
     floored: Object.freeze([
       2, // 3.12: floored flh heads-up (PASS, pooled +2.04 +/- 0.11)
-      3, // 3.16: floored flh 3 (group P22F PASS, pooled +0.79 +/- 0.20)
+      3, // 3.16: floored flh 3 (group P22F PASS, pooled +0.79 +/- 0.20; 2.4 per-size stratum)
+      5, // 3.6: floored flh 6, by rule 0.3 (harness 6 seats <-> live dealt 5-6)
       6, // 3.6: floored flh 6 (PASS, pooled +0.88 +/- 0.22)
-      7, // 3.16: floored flh 7 (group P22F PASS)
+      7, // 3.16: floored flh 7 (group P22F PASS; 2.4 per-size stratum)
+      8, // 3.6: floored flh 9, by rule 0.3 (harness 9 seats <-> live dealt 8-9)
       9, // 3.6: floored flh 9
     ]),
   }),
   flo8: Object.freeze({
     unfloored: Object.freeze([
+      5, // 3.4: unfloored flo8 6, by rule 0.3 (harness 6 seats <-> live dealt 5-6)
       6, // 3.4: unfloored flo8 6
     ]),
     floored: Object.freeze([]), // none: floored flo8 is diagnostic only (3.6, rule 0.16a)

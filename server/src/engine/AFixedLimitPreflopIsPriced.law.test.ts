@@ -28,14 +28,18 @@
  * fires); at cash tables on the same spots and seeds it still acts.
  *
  * CREDITED SCOPE (2026-11-16, Phase 2, AB-EVALUATION-2 0.22 "use of the
- * result"; it replaces the 0.18 hi-lo scope): the option acts only at the cash
- * table types with a credited PASS cell, by variant, floor and dealt seats:
- * flh dealt 2/6/9 unfloored and 2/3/6/7/9 floored, flo8 dealt 6 unfloored. At
- * every other cash table type it is inert (every decision equals off, no W5
- * receipt fires); at every listed type it still acts on the same spots and
- * seeds.
+ * result", with the lane owner's same-day correction: rule 0.3 maps harness 6
+ * seats to live dealt 5-6 and harness 9 seats to live dealt 8-9): the option
+ * acts only at the cash table types with a credited PASS cell, by variant,
+ * floor and dealt seats: flh dealt 2/5/6/8/9 unfloored and 2/3/5/6/7/8/9
+ * floored, flo8 dealt 5/6 unfloored. At every other cash table type (dealt 2
+ * to 9, both variants, floored or not) it is inert (every decision equals off,
+ * no W5 receipt fires); at every listed type it still acts on the same spots
+ * and seeds. The steal shares the entry and is narrowed by the same gate: with
+ * the read memory on and every seat read as an over-folder it acts at a listed
+ * type and is inert at every out-of-list type.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card } from '../types.js';
 import { deal, decide, lcg, menuOf, type Table } from './HuVariantSpot.test-support.js';
 import {
@@ -51,6 +55,13 @@ import { horseCallDeductionFraction } from './HorseCallDeductions.js';
 import { holdemPreflopScore, omahaElitePreflopStrength } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { evaluateRemainingVariantPolicy } from './remainingVariants/RemainingVariantLivePolicy.js';
+import { HorseMind } from './HorseMind.js';
+import {
+  EXPLOIT_STATS,
+  OPPONENT_EXPLOIT_VERSION,
+  type ExploitStatRead,
+  type OpponentExploitRead,
+} from './HorseOpponentExploit.js';
 import type { HorseDecision } from '../types.js';
 
 const ON = { fixedLimitPricedPreflop: true } as const;
@@ -110,8 +121,8 @@ describe('first in, the fixed-limit open is the reference range by seat (option 
     it(`${variant}: every seat's raise share lands in the reference band`, () => {
       const rows: string[] = [];
       for (const [dealt, seat, behind] of SEATS) {
-        // flo8 is credited only at dealt 6 unfloored (AB 0.22): see the
-        // credited scope block (flo8 heads-up and full ring are inert).
+        // flo8 is credited only at dealt 5 and 6 unfloored (AB 0.22, rule 0.3):
+        // see the credited scope block (flo8 heads-up and full ring are inert).
         if (variant === 'flo8' && dealt !== 6) continue;
         const ref = fixedLimitOpenShare(variant, dealt, behind)!;
         const on = firstIn(variant, dealt, seat, ON);
@@ -159,7 +170,7 @@ function bbSpot(variant: string, n: number, i: number) {
 
 describe('the big blind defends to its price (option on)', () => {
   for (const variant of VARIANTS) {
-    // flo8 is credited only at dealt 6 unfloored (AB 0.22): see the credited scope block.
+    // flo8 is credited only at dealt 5 and 6 unfloored (AB 0.22, rule 0.3): see the credited scope block.
     for (const n of variant === 'flo8' ? [6] : [6, 2]) {
       it(`${variant} ${n === 2 ? 'heads-up (3 to 1)' : 'vs the button (3.5 to 1)'}: no hand above the price folds; fewer folds than main`, () => {
         enableBrainTelemetry();
@@ -476,8 +487,9 @@ describe('2026-11-15 fix: the blind defends to its price under production rake a
       }, 240_000);
     }
   }
-  // flo8 heads-up big blind: out of scope since AB 0.18 (the option is inert
-  // there); pinned in the hi-lo scope block below.
+  // flo8 heads-up big blind: not on the credited allow-list (AB 0.22; 3.4 rule
+  // 0.10: heads-up big blind defence not judged), so the option is inert
+  // there; pinned in the credited scope block below.
   // The small blind is in scope (the design defends "a blind"): with the big
   // blind still to act its realization is discounted once (0.85). It never
   // folds a hand above its own verdict and never folds a hand the old code
@@ -700,15 +712,38 @@ const caseLabel = ({ variant, n, floored }: ScopeCase) =>
   `${variant} dealt ${n} ${floored ? 'floored' : 'unfloored'}`;
 
 describe('credited scope: P acts only at the cash table types with a credited PASS cell', () => {
-  // Out of the allow-list: 3.16 HARM or no PASS, floored flh 4 diagnostic,
-  // flo8 3 not judgeable, dealt 5 and 8 never measured, flo8 heads-up and
-  // floored flo8 (0.18 / 3.6), flo8 7-9 never measured.
-  const OUT: ScopeCase[] = [
-    ...[3, 4, 5, 7, 8].map((n) => ({ variant: 'flh' as const, n, floored: false })),
-    ...[4, 5, 8].map((n) => ({ variant: 'flh' as const, n, floored: true })),
-    ...[2, 3, 4, 5, 7, 8, 9].map((n) => ({ variant: 'flo8' as const, n, floored: false })),
-    ...[2, 6].map((n) => ({ variant: 'flo8' as const, n, floored: true })),
+  // The allow-list, entry by entry: 3.4 unfloored flh 2/6/9 and flo8 6; 3.6
+  // floored flh 6/9; 3.12 floored flh 2; 3.16 floored flh 3/7 (per-size strata,
+  // 2.4); rule 0.3 (harness 6 seats <-> live dealt 5-6, 9 seats <-> dealt 8-9)
+  // adds dealt 5 to every credited 6-seat cell and dealt 8 to every credited
+  // 9-seat cell (lane owner correction 2026-11-16).
+  const IN: ScopeCase[] = [
+    ...[2, 5, 6, 8, 9].map((n) => ({ variant: 'flh' as const, n, floored: false })),
+    ...[2, 3, 5, 6, 7, 8, 9].map((n) => ({ variant: 'flh' as const, n, floored: true })),
+    ...[5, 6].map((n) => ({ variant: 'flo8' as const, n, floored: false })),
   ];
+  // Every other cash type, dealt 2 to 9: unfloored flh 3/4/7 and flo8 4 (3.16
+  // HARM or no PASS), floored flh 4 (3.16 diagnostic), unfloored flo8 2 (3.4
+  // diagnostic, rule 0.10), 3 (2.4: not judgeable) and 7-9 (no cell: rule 0.3,
+  // no live table), floored flo8 at every size (3.6 diagnostic, rule 0.16a).
+  const OUT: ScopeCase[] = [
+    ...[3, 4, 7].map((n) => ({ variant: 'flh' as const, n, floored: false })),
+    { variant: 'flh', n: 4, floored: true },
+    ...[2, 3, 4, 7, 8, 9].map((n) => ({ variant: 'flo8' as const, n, floored: false })),
+    ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ variant: 'flo8' as const, n, floored: true })),
+  ];
+
+  it('the listed and the inert types together are every cash type (dealt 2-9, flh and flo8, floored or not), each once', () => {
+    const grid: string[] = [];
+    for (const variant of ['flh', 'flo8'] as const)
+      for (const floored of [false, true])
+        for (let n = 2; n <= 9; n++) grid.push(caseLabel({ variant, n, floored }));
+    const both = [...IN, ...OUT].map(caseLabel);
+    expect(new Set(both).size).toBe(both.length);
+    expect([...both].sort()).toEqual([...grid].sort());
+    expect([IN.length, OUT.length]).toEqual([14, 18]);
+  });
+
   for (const c of OUT) {
     it(`${caseLabel(c)}: with the option on (and with the steal too) every decision equals off, and no W5 receipt fires`, () => {
       enableBrainTelemetry();
@@ -746,13 +781,6 @@ describe('credited scope: P acts only at the cash table types with a credited PA
     }, 240_000);
   }
 
-  // The allow-list, entry by entry (3.4: unfloored flh 2/6/9 and flo8 6;
-  // 3.6: floored flh 6/9; 3.12: floored flh 2; 3.16: floored flh 3/7).
-  const IN: ScopeCase[] = [
-    ...[2, 6, 9].map((n) => ({ variant: 'flh' as const, n, floored: false })),
-    ...[2, 3, 6, 7, 9].map((n) => ({ variant: 'flh' as const, n, floored: true })),
-    { variant: 'flo8', n: 6, floored: false },
-  ];
   for (const c of IN) {
     it(`${caseLabel(c)}: the option still changes a first-in or big-blind decision, and its receipts fire`, () => {
       enableBrainTelemetry();
@@ -771,6 +799,108 @@ describe('credited scope: P acts only at the cash table types with a credited PA
       }
       expect(changed, `${caseLabel(c)} decisions changed`).toBeGreaterThan(0);
       expect(fires, `${caseLabel(c)} receipts`).toBeGreaterThan(0);
+    }, 240_000);
+  }
+});
+
+// ─── THE STEAL IS NARROWED BY THE SAME GATE (review note 3, 2026-11-16) ───
+// fixedLimitStealVsTightBlinds (S) shares P's entry (fixedLimitPreflopInScope),
+// so it acts only at P's credited cash types. S needs the read memory
+// (opts.mind !== false) and an own adequate over-folder read on every player
+// still to act, so the P cases above (mind off, fresh memory) can never see
+// it. Here the memory is on and every seat reads as an over-folder
+// (HorseMind.opponentRead spied, as the steal's own law does): S alone (P off)
+// widens the open at listed types, and at every out-of-list type, where it
+// would act if it skipped the gate, every steal-seat decision equals off and
+// no W5 receipt fires. S stays off-only in the registry (steal hold).
+const STEAL_DEALS = 40;
+const STEAL = { mind: true, fixedLimitStealVsTightBlinds: true, telemetry: true } as const;
+const stealUid = (seat: number) => `10000000-0000-4000-8000-00000000000${seat}`;
+
+function overFolderRead(): OpponentExploitRead {
+  const stats = Object.fromEntries(
+    EXPLOIT_STATS.map((st) => [st, { mean: 0.3, n: 40, engaged: null, excess: 0 }])
+  ) as Record<string, ExploitStatRead>;
+  stats.foldToBet = { mean: 0.78, n: 40, engaged: 'high', excess: 0.3 };
+  return {
+    version: OPPONENT_EXPLOIT_VERSION,
+    envelope: 'test',
+    scope: 'holdem:short',
+    stats: stats as OpponentExploitRead['stats'],
+  };
+}
+
+/** The steal seats first in: the heads-up button; else the cutoff (4+ dealt), the button and the small blind. */
+function stealSeats(n: number): number[] {
+  if (n === 2) return [1];
+  return n === 3 ? [1, 2] : [n, 1, 2];
+}
+
+describe('credited scope: the steal (S) is narrowed by the same gate, read memory on', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  function everySeatOverFolds(n: number): void {
+    const reads = new Map<string, OpponentExploitRead>();
+    for (let seat = 1; seat <= n; seat++) reads.set(stealUid(seat), overFolderRead());
+    vi.spyOn(HorseMind, 'opponentRead').mockImplementation((id: string) => reads.get(id) ?? null);
+  }
+  function stealRun(c: ScopeCase) {
+    enableBrainTelemetry();
+    everySeatOverFolds(c.n);
+    const gsExtra = c.floored ? FLOOR[c.variant] : {};
+    let changed = 0;
+    let fires = 0;
+    let spots = 0;
+    const diffs: string[] = [];
+    for (let i = 0; i < STEAL_DEALS; i++) {
+      for (const seat of stealSeats(c.n)) {
+        const t = fmtTable(c.variant, 'cash', c.n, 24000 + i * 11 + seat);
+        foldTo(t, seat);
+        const seed = 25000 + i;
+        const off = decide(t, seed, { mind: true, telemetry: true }, gsExtra).d;
+        drainFires();
+        const on = decide(t, seed, STEAL, gsExtra).d;
+        const fired = drainFires().filter((f) => W5_FIRES.test(f.feature));
+        if (fired.length > 0) fires++;
+        if (JSON.stringify(pick(on)) !== JSON.stringify(pick(off))) {
+          changed++;
+          diffs.push(`seat ${seat} deal ${i}: ${off.action} -> ${on.action}`);
+        }
+        spots++;
+      }
+    }
+    return { changed, fires, spots, diffs };
+  }
+
+  // Listed types (controls): with these reads the steal acts, so the inert
+  // cases below are inert because of the gate, not because S had nothing to do.
+  const STEAL_IN: ScopeCase[] = [
+    { variant: 'flh', n: 6, floored: false },
+    { variant: 'flh', n: 5, floored: true },
+    { variant: 'flo8', n: 6, floored: false },
+  ];
+  for (const c of STEAL_IN) {
+    it(`${caseLabel(c)} (listed): the steal alone widens some steal-seat open and its receipt fires`, () => {
+      const r = stealRun(c);
+      expect(r.changed, `${caseLabel(c)} steal decisions changed`).toBeGreaterThan(0);
+      expect(r.fires, `${caseLabel(c)} steal receipts`).toBeGreaterThan(0);
+    }, 240_000);
+  }
+
+  // Every out-of-list cash type (the OUT list of the block above).
+  const STEAL_OUT: ScopeCase[] = [
+    ...[3, 4, 7].map((n) => ({ variant: 'flh' as const, n, floored: false })),
+    { variant: 'flh', n: 4, floored: true },
+    ...[2, 3, 4, 7, 8, 9].map((n) => ({ variant: 'flo8' as const, n, floored: false })),
+    ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ variant: 'flo8' as const, n, floored: true })),
+  ];
+  for (const c of STEAL_OUT) {
+    it(`${caseLabel(c)} (not listed): with the steal alone on, every steal-seat decision equals off and no W5 receipt fires`, () => {
+      const r = stealRun(c);
+      expect(r.spots).toBe(STEAL_DEALS * stealSeats(c.n).length);
+      expect(r.diffs, caseLabel(c)).toEqual([]);
+      expect(r.fires, `${caseLabel(c)} receipts`).toBe(0);
     }, 240_000);
   }
 });
