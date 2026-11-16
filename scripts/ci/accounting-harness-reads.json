@@ -1778,6 +1778,7 @@
     "supabase/migrations/20261116044125_a_shared_mystery_chest_settles_in_its_whole_chip_split.sql",
     "supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql",
     "supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+    "supabase/migrations/20261116195541_club_arena_terms_acceptance_records_the_exact_reviewed_revis.sql",
     "supabase/tests/fixed_limit_buyin_policy.sql",
     "tests/fixtures/accounting-agreement-history/bootstrap.sql",
     "tests/fixtures/accounting-agreement-history/eco-bootstrap.sql",
