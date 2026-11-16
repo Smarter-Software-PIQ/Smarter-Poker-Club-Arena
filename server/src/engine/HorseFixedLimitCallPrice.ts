@@ -22,7 +22,8 @@
  *   closing call (no live player left to act behind, the street capped, or
  *   the caller all in after calling):
  *       bare = toCall / ((pot + toCall) * (1 - deduction))      [pot odds plus rake]
- *   otherwise, with p = 1 - (1 - FIXED_LIMIT_RAISE_BEHIND_RATE)^playersBehind
+ *   otherwise, with p = 1 - (1 - rate)^playersBehind, rate =
+ *   fixedLimitRaiseBehindRate(game, street) per player left to act,
  *   the chance at least one player behind raises, and e the expected further
  *   wagers the caller must match before the street closes,
  *       e = unit * (p + p^2 + ... + p^wagersLeft), at most the stack left,
@@ -32,17 +33,37 @@
  *   understated. required > bare whenever the pot before the call exceeds
  *   the call (pot > toCall), which a facing-a-bet pot always does.
  *
- * FIXED_LIMIT_RAISE_BEHIND_RATE is a stated assumption, not a measurement:
- * how often a fixed-limit player behind raises after a call has not been
- * measured from recorded hands (docs/HORSE-DECISION-CHANGE-EVIDENCE.md row 4,
- * Continuation). That is one of the reasons the option is default off.
+ * THE RAISE-BEHIND RATE IS MEASURED (2026-11-15, Fixed-Limit lane). It was a
+ * stated assumption of 0.12 per player; replay of recorded hands showed the
+ * option's only production effect was calls turned into folds by that price
+ * (r2/R2-REACH-CONTINUATION.md, Continuation NOT MET). Measured on the lane's
+ * census D, Horse-only flh/flo8 cash, 2026-11-13T08:13Z to 2026-11-14T21:27Z,
+ * 64,660 hands (agent evidence fixed-limit-01Gw7aDr/AF-raise-behind-census-D.json,
+ * AF-F2-RAISE-BEHIND.md): after a call facing a bet on a street the call did
+ * not cap, each other player's first action after the call; raised share:
+ *   flh  flop 46/4,580 = 1.00%   turn 57/2,295 = 2.48%   river 37/1,213 = 3.05%
+ *   flo8 flop 45/8,343 = 0.54%   turn 89/5,954 = 1.49%   river 79/3,762 = 2.10%
+ * The table below is each street's Clopper-Pearson two-sided 95% UPPER bound,
+ * rounded up, so the price is not understated against this population; the
+ * all-street bound covers any other stage. Hold'em rows also serve non-hi-lo
+ * fixed-limit Omaha (flo4/5/6: not dealt, NOT measured). LIMIT: Horses only; no
+ * person has played fixed limit since 2026-11-03, so how often people raise
+ * behind is not measured. The option stays default off.
  */
 import { FIXED_LIMIT_MAX_WAGERS, fixedLimitWagerCount } from './BettingStructure.js';
 import type { ActionRecord, HandStage } from '../types.js';
 
+export const FIXED_LIMIT_RAISE_BEHIND_RATES = {
+  holdem: { flop: 0.014, turn: 0.033, river: 0.042, other: 0.021 },
+  hiLo: { flop: 0.008, turn: 0.019, river: 0.027, other: 0.014 },
+} as const;
+
 /** Per live player left to act behind the caller, the chance he raises one
- *  wager on an uncapped fixed-limit street. ASSUMED, not measured. */
-export const FIXED_LIMIT_RAISE_BEHIND_RATE = 0.12;
+ *  wager on an uncapped fixed-limit street (measured upper bound, above). */
+export function fixedLimitRaiseBehindRate(o: { hiLo: boolean; stage: HandStage }): number {
+  const row = o.hiLo ? FIXED_LIMIT_RAISE_BEHIND_RATES.hiLo : FIXED_LIMIT_RAISE_BEHIND_RATES.holdem;
+  return o.stage === 'flop' || o.stage === 'turn' || o.stage === 'river' ? row[o.stage] : row.other;
+}
 
 export interface FixedLimitRemainingAction {
   /** Live opponents (not folded, not all in, not sitting out) who still act
@@ -108,6 +129,8 @@ export function fixedLimitCallRequiredEquity(o: {
   stackAfterCall: number;
   /** Rake or call-deduction fraction of the pot (0 in tournaments). */
   deduction: number;
+  /** Per-player raise-behind chance (fixedLimitRaiseBehindRate). */
+  raiseBehindRate: number;
 }): FixedLimitCallPrice {
   const d = Number.isFinite(o.deduction) ? Math.min(0.99, Math.max(0, o.deduction)) : 0;
   const toCall = Math.max(0, o.toCall);
@@ -117,7 +140,8 @@ export function fixedLimitCallRequiredEquity(o: {
   const closing =
     !(o.playersBehind > 0) || !(o.wagersLeft > 0) || !(o.stackAfterCall > 0) || !(o.unit > 0);
   if (closing) return { bare, required: bare, expectedExtra: 0, closing: true };
-  const p = 1 - Math.pow(1 - FIXED_LIMIT_RAISE_BEHIND_RATE, o.playersBehind);
+  const rate = Number.isFinite(o.raiseBehindRate) ? Math.min(1, Math.max(0, o.raiseBehindRate)) : 0;
+  const p = 1 - Math.pow(1 - rate, o.playersBehind);
   let e = 0;
   let pk = 1;
   for (let k = 1; k <= o.wagersLeft; k++) {

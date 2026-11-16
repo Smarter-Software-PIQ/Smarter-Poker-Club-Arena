@@ -111,7 +111,9 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 64 since 2026-11-14: HorseMind reads the Omaha tight read (HorseOmahaTightOpponent).
     // 65 since 2026-11-15: HorseMind reads the durable shown river record (HorseLongShownMemory).
     // 66 since 2026-11-15: HorseLogic takes the think time from horsePublicActionTime.
-    expect(closure).toHaveLength(66);
+    // 68 since 2026-11-16: HorseMind reads the heads-up tight-folder read (HorseHuTightBigBlindSteal),
+    // which brings the heads-up open bands (HorseNlhOpenSize) into the closure.
+    expect(closure).toHaveLength(68);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');
