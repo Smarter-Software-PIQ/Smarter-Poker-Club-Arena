@@ -54,6 +54,8 @@ describe('Tickets use cashable player or agent chips; promo enters tournaments d
     const native = read('scripts/ci/test-promo-ticket-play-through.py');
     expect(native).toContain('free-buy-funding-owners.json');
     expect(native).toContain('covered guarantee U zero creates no coupon debt');
-    expect(native).toContain('late mystery funding does not reopen first loss');
+    expect(native).toContain(
+      'late mystery funding never attaches a new target to an already lost final registration'
+    );
   });
 });

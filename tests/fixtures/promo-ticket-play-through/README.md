@@ -30,3 +30,14 @@ The native run loads the actual private inventory-pin owner captured by the
 custody dependency, preserving its owner-only ACL. Union coupon principal
 uses the original registration wallet club and survives lawful registration
 deletion as immutable funding evidence.
+
+The current purchase-owner capture preserves the original direct rebuy/reentry/
+addon wallet debit and updates only its existing admission-body pin. The bust
+capture retains the actual accepted-hand and complete-bounty-marker owners.
+The narrow fixture compiles these definitions; actual monetary reentry and
+source-fund returns require the full original financial closure proof.
+Original expense receipts freeze entrant/earning club independently of refund
+wallet destination and use the original financial transaction clock. Both
+same-transaction fee/gift orders, true-zero funding, exact 4× completion,
+partial/full canonical fee reversals and terminal loss before a later gift are
+qualified without treating delayed commission recognition as the paid clock.

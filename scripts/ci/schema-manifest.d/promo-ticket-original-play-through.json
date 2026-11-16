@@ -5,7 +5,13 @@
     "ca_promo_event_principal_lots",
     "ca_promo_event_realization_receipts",
     "ca_promo_event_realization_slices",
-    "ca_promo_free_buy_funding_slices"
+    "ca_promo_free_buy_funding_slices",
+    "ca_promo_event_fee_consumption_receipts",
+    "ca_promo_event_fee_consumption_slices",
+    "ca_promo_event_fee_source_links",
+    "ca_promo_event_entry_loss_receipts",
+    "ca_promo_event_entry_loss_slices",
+    "ca_promo_free_buy_exhaustions"
   ],
   "functions": [
     "fn_ca_promo_record_event_charge",
@@ -21,6 +27,14 @@
     "fn_issue_tournament_ticket_agent",
     "fn_ca_issue_cashable_ticket_owned",
     "fn_cashier_agent_ticket_batch",
-    "fn_ca_promo_free_buy_funded"
+    "fn_ca_promo_free_buy_funded",
+    "fn_ca_promo_consume_event_fee",
+    "fn_ca_promo_event_fee_source",
+    "fn_ca_promo_consume_entry_fee",
+    "fn_ca_promo_entry_fee_entitlement",
+    "fn_ca_promo_entry_fee_is_immutable",
+    "fn_ca_promo_original_entry_fee_events",
+    "fn_ca_promo_entry_charge_identity",
+    "fn_ca_promo_retire_busted_entry"
   ]
 }

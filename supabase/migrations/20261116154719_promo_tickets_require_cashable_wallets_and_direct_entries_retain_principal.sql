@@ -1,5 +1,5 @@
 -- @install-window: daily-maintenance
--- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, smarter_private.free_buy_ticket_redemptions
+-- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, public.accounting_tournament_fee_sources, public.tournament_refund_entitlements, smarter_private.free_buy_ticket_redemptions
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.free_buy_ticket_redemptions'::regclass AND tgname='ca_promo_free_buy_principal' AND tgenabled='O')
 -- Promo may enter tournaments directly, but cannot purchase a gifted ticket.
 -- Original event principal follows entry, earned awards, refund and full loss.
@@ -40,18 +40,18 @@ GRANT SELECT ON public.ca_promo_event_principal_lots,public.ca_promo_event_reali
 -- per-grant delta, not a second funding allocator, creates that entry's lots.
 CREATE FUNCTION public.fn_ca_promo_record_event_charge(p_ledger_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
-DECLARE l public.chip_ledger%ROWTYPE;r record;extra numeric;total_extra numeric:=0;uid uuid;
+DECLARE l public.chip_ledger%ROWTYPE;r record;extra numeric;total_extra numeric:=0;uid uuid;earning_club uuid;
 BEGIN
  SELECT * INTO l FROM public.chip_ledger WHERE id=p_ledger_id;
  IF l.id IS NULL OR l.from_type NOT IN('player_wallet','agent_wallet','escrow','prize_liability') OR l.to_type<>'prize_liability'
   OR l.category NOT IN('tournament_buyin','tournament_rebuy','rebuy','reentry','addon','ticket_redeem') OR l.amount<=0 OR COALESCE(l.status,'posted')<>'posted' THEN
   RAISE EXCEPTION 'invalid_promo_event_charge'; END IF;
- uid:=CASE WHEN l.from_type IN('player_wallet','agent_wallet') THEN l.from_entity_id ELSE (l.metadata->>'user_id')::uuid END;
+ SELECT scope.user_id,scope.club_id INTO uid,earning_club FROM public.fn_ca_promo_entry_charge_identity(l.id) scope;
  IF uid IS NULL THEN RAISE EXCEPTION 'promo_event_charge_has_no_original_player'; END IF;
  FOR r IN SELECT c.grant_id,c.amount,g.granted_at FROM public.ca_promo_principal_custody c
   JOIN public.ca_promo_play_through_grants g ON g.id=c.grant_id
   WHERE c.kind='event' AND c.entity_id=l.to_entity_id AND c.amount>0 AND g.closed_at IS NULL
-   AND g.club_id=l.club_id AND g.user_id=uid ORDER BY g.granted_at,g.id FOR UPDATE OF g,c LOOP
+   AND g.club_id=earning_club AND g.user_id=uid ORDER BY g.granted_at,g.id FOR UPDATE OF g,c LOOP
   SELECT r.amount-COALESCE(sum(lot.remaining),0) INTO extra FROM public.ca_promo_event_principal_lots lot
    WHERE lot.grant_id=r.grant_id AND lot.tournament_id=l.to_entity_id;
   IF extra<0 THEN RAISE EXCEPTION 'promo_event_lots_exceed_principal'; END IF;
@@ -62,8 +62,183 @@ BEGIN
   END IF;
  END LOOP;
  IF total_extra>l.amount THEN RAISE EXCEPTION 'promo_event_charge_principal_exceeds_charge'; END IF;
+ PERFORM public.fn_ca_promo_consume_entry_fee(l.id);
+ IF to_regprocedure('public.fn_ca_promo_integrity_consume_entry_fee(uuid)') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(l.id); END IF;
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_record_event_charge(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+-- The original immutable financial entitlement fixes the fee independently
+-- of earning agreements. Spend once as soon as it and original custody exist.
+CREATE TABLE public.ca_promo_event_fee_consumption_receipts (
+ charge_ledger_id uuid PRIMARY KEY REFERENCES public.chip_ledger(id),
+ entitlement_id uuid NOT NULL UNIQUE,
+ gross_fee numeric NOT NULL CHECK(gross_fee>=0),
+ original_promo numeric NOT NULL CHECK(original_promo>=0),
+ charge_amount numeric NOT NULL CHECK(charge_amount>0),
+ principal numeric NOT NULL CHECK(principal>=0 AND principal<=original_promo),
+ club_id uuid NOT NULL,
+ player_id uuid NOT NULL,
+ earned_at timestamptz NOT NULL DEFAULT clock_timestamp() CHECK(isfinite(earned_at))
+);
+CREATE INDEX ca_promo_original_paid_fee_member ON public.ca_promo_event_fee_consumption_receipts(club_id,player_id,earned_at);
+CREATE TABLE public.ca_promo_event_fee_consumption_slices (
+ charge_ledger_id uuid NOT NULL REFERENCES public.ca_promo_event_fee_consumption_receipts(charge_ledger_id),
+ grant_id uuid NOT NULL REFERENCES public.ca_promo_play_through_grants(id),
+ lot_id uuid NOT NULL REFERENCES public.ca_promo_event_principal_lots(id),
+ amount numeric NOT NULL CHECK(amount>0),
+ PRIMARY KEY(charge_ledger_id,grant_id)
+);
+CREATE TABLE public.ca_promo_event_fee_source_links (
+ fee_source_id uuid PRIMARY KEY REFERENCES public.accounting_tournament_fee_sources(id),
+ charge_ledger_id uuid NOT NULL UNIQUE REFERENCES public.ca_promo_event_fee_consumption_receipts(charge_ledger_id)
+);
+ALTER TABLE public.ca_promo_event_fee_consumption_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ca_promo_event_fee_consumption_slices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ca_promo_event_fee_source_links ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_event_fee_consumption_receipts,public.ca_promo_event_fee_consumption_slices,public.ca_promo_event_fee_source_links FROM PUBLIC,anon,authenticated,service_role;
+-- Freeze the original fee earner independently of where a cancellation
+-- refunds its money. Nonwallet entry rows exist inside this admission owner.
+CREATE FUNCTION public.fn_ca_promo_entry_charge_identity(p_charge uuid)
+RETURNS TABLE(club_id uuid,user_id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+DECLARE l public.chip_ledger%ROWTYPE;v_club uuid;v_user uuid;registration uuid;
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id=p_charge) THEN
+  RETURN QUERY SELECT r.club_id,r.player_id FROM public.ca_promo_event_fee_consumption_receipts r WHERE r.charge_ledger_id=p_charge;RETURN; END IF;
+ SELECT * INTO STRICT l FROM public.chip_ledger WHERE id=p_charge;
+ IF l.from_type IN('player_wallet','agent_wallet') THEN v_club:=l.club_id;v_user:=l.from_entity_id;
+ ELSE
+  v_user:=NULLIF(l.metadata->>'user_id','')::uuid;
+  registration:=NULLIF(l.metadata->>'registration_id','')::uuid;
+  IF registration IS NULL THEN SELECT e.registration_id INTO registration FROM public.tournament_refund_entitlements e WHERE e.source_ledger_id=l.id; END IF;
+  SELECT p.club_id INTO v_club FROM public.tournament_players p WHERE p.id=registration AND p.tournament_id=l.to_entity_id AND p.user_id=v_user;
+ END IF;
+ IF v_user IS NULL OR v_club IS NULL THEN RAISE EXCEPTION 'promo_entry_original_earning_identity_missing'; END IF;
+ RETURN QUERY SELECT v_club,v_user;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_entry_charge_identity(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE FUNCTION public.fn_ca_promo_consume_entry_fee(p_charge_ledger_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+DECLARE l public.chip_ledger%ROWTYPE;e public.tournament_refund_entitlements%ROWTYPE;
+ lot record;original_p numeric;proved_p numeric;fee_p numeric;left_to_spend numeric;take numeric;earning_club uuid;entrant uuid;
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id=p_charge_ledger_id) THEN
+  RETURN(SELECT principal FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id=p_charge_ledger_id); END IF;
+ SELECT * INTO l FROM public.chip_ledger WHERE id=p_charge_ledger_id;
+ SELECT * INTO e FROM public.tournament_refund_entitlements WHERE source_ledger_id=l.id AND tournament_id=l.to_entity_id;
+ IF e.id IS NULL THEN RETURN 0; END IF;
+ SELECT scope.club_id,scope.user_id INTO earning_club,entrant FROM public.fn_ca_promo_entry_charge_identity(l.id) scope;
+ IF e.gross IS DISTINCT FROM l.amount OR l.amount<=0 OR e.refund_fee<0 OR e.refund_fee>l.amount
+  OR l.to_type<>'prize_liability' THEN RAISE EXCEPTION 'promo_fee_lost_original_charge'; END IF;
+ SELECT COALESCE(sum(x.original_amount),0) INTO original_p FROM public.ca_promo_event_principal_lots x
+  JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
+  WHERE x.charge_ledger_id=l.id AND g.club_id=earning_club AND g.user_id=entrant;
+ -- A genuine zero-P entry is complete only after its actual funding receipt.
+ -- Entitlement-first calls may precede the original custody allocator.
+ SELECT principal_moved INTO proved_p FROM public.ca_promo_funding_custody_receipts
+  WHERE ledger_id=l.id AND amount=l.amount AND destination_kind='event' AND destination_id=l.to_entity_id;
+ IF proved_p IS NULL THEN SELECT principal INTO proved_p FROM public.ca_promo_event_realization_receipts
+  WHERE ledger_id=l.id AND amount=l.amount AND club_id=earning_club AND user_id=entrant; END IF;
+ IF original_p=0 AND proved_p IS NULL THEN RETURN 0; END IF;
+ IF original_p>l.amount OR proved_p IS NOT NULL AND proved_p<>original_p THEN RAISE EXCEPTION 'promo_fee_original_funding_disagrees'; END IF;
+ fee_p:=round(e.refund_fee*original_p/l.amount,2);
+ INSERT INTO public.ca_promo_event_fee_consumption_receipts(charge_ledger_id,entitlement_id,gross_fee,original_promo,charge_amount,principal,club_id,player_id) VALUES(l.id,e.id,e.refund_fee,original_p,l.amount,fee_p,earning_club,entrant);
+ left_to_spend:=fee_p;
+ FOR lot IN SELECT x.id,x.grant_id,x.remaining,g.granted_at FROM public.ca_promo_event_principal_lots x
+  JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
+  WHERE x.charge_ledger_id=l.id AND x.remaining>0 AND g.club_id=earning_club AND g.user_id=entrant AND g.closed_at IS NULL
+  ORDER BY g.granted_at,g.id,x.id FOR UPDATE OF g,x LOOP
+  EXIT WHEN left_to_spend<=0;take:=least(lot.remaining,left_to_spend);
+  UPDATE public.ca_promo_principal_custody SET amount=amount-take WHERE grant_id=lot.grant_id AND kind='event' AND entity_id=e.tournament_id AND amount>=take;
+  IF NOT FOUND THEN RAISE EXCEPTION 'promo_fee_original_event_custody_missing'; END IF;
+  UPDATE public.ca_promo_event_principal_lots SET remaining=remaining-take WHERE id=lot.id;
+  INSERT INTO public.ca_promo_event_fee_consumption_slices VALUES(l.id,lot.grant_id,lot.id,take);
+  UPDATE public.ca_promo_play_through_grants SET remaining=remaining-take,
+   closed_at=CASE WHEN remaining=take THEN clock_timestamp() ELSE NULL END,
+   close_reason=CASE WHEN remaining=take THEN 'spent' ELSE NULL END WHERE id=lot.grant_id;
+  left_to_spend:=left_to_spend-take;
+ END LOOP;
+ IF left_to_spend<>0 THEN RAISE EXCEPTION 'promo_fee_cannot_spend_missing_original_principal'; END IF;
+ RETURN fee_p;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_consume_entry_fee(uuid) FROM PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.fn_ca_promo_consume_event_fee(p_fee_source_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+DECLARE f public.accounting_tournament_fee_sources%ROWTYPE;r public.ca_promo_event_fee_consumption_receipts%ROWTYPE;spent numeric;
+BEGIN
+ SELECT * INTO STRICT f FROM public.accounting_tournament_fee_sources WHERE id=p_fee_source_id;
+ IF f.source_charge_ledger_id IS NULL THEN RETURN 0; END IF;
+ SELECT * INTO r FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id=f.source_charge_ledger_id;
+ IF NOT FOUND THEN
+  IF (SELECT created_at FROM public.chip_ledger WHERE id=f.source_charge_ledger_id)>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) THEN RAISE EXCEPTION 'promo_original_entry_fee_receipt_missing'; END IF;
+  RETURN 0;
+ END IF;
+ spent:=r.principal;
+ IF r.entitlement_id IS DISTINCT FROM f.source_entitlement_id OR r.gross_fee IS DISTINCT FROM f.rake_credit OR r.club_id IS DISTINCT FROM f.club_id OR r.player_id IS DISTINCT FROM f.player_id THEN RAISE EXCEPTION 'promo_canonical_fee_lost_original_entitlement'; END IF;
+ INSERT INTO public.ca_promo_event_fee_source_links VALUES(f.id,r.charge_ledger_id) ON CONFLICT(fee_source_id) DO NOTHING;
+ RETURN spent;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_consume_event_fee(uuid) FROM PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.fn_ca_promo_event_fee_source() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN
+  PERFORM public.fn_ca_promo_consume_event_fee(NEW.id);
+ END IF;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_event_fee_source() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER ca_promo_event_fee_source AFTER INSERT ON public.accounting_tournament_fee_sources FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_event_fee_source();
+CREATE FUNCTION public.fn_ca_promo_entry_fee_entitlement() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN
+  PERFORM public.fn_ca_promo_consume_entry_fee(NEW.source_ledger_id);
+  IF to_regprocedure('public.fn_ca_promo_integrity_consume_entry_fee(uuid)') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(NEW.source_ledger_id); END IF;
+ END IF;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_entry_fee_entitlement() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER ca_promo_entry_fee_entitlement AFTER INSERT ON public.tournament_refund_entitlements FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_entitlement();
+INSERT INTO public.ca_declared_money_triggers(table_name,trigger_name,note) VALUES
+ ('accounting_tournament_fee_sources','ca_promo_event_fee_source','Canonical fee recognition verifies the already-spent exact entitlement fee; late agreement qualification never spends again.'),
+ ('tournament_refund_entitlements','ca_promo_entry_fee_entitlement','Exact immutable entry fee and original custody rendezvous spend original fee principal once before any final unlock.');
+
+-- These per-charge source facts are append-only; the mutable tournament
+-- position and source association live in their own original relations.
+CREATE FUNCTION public.fn_ca_promo_entry_fee_is_immutable() RETURNS trigger
+LANGUAGE plpgsql SET search_path='public','pg_temp' AS $$
+BEGIN RAISE EXCEPTION 'original_promo_entry_fee_is_immutable' USING ERRCODE='23514'; END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_entry_fee_is_immutable() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER ca_promo_entry_fee_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_event_fee_consumption_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_entry_fee_no_truncate BEFORE TRUNCATE ON public.ca_promo_event_fee_consumption_receipts FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_entry_fee_slices_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_event_fee_consumption_slices FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_entry_fee_slices_no_truncate BEFORE TRUNCATE ON public.ca_promo_event_fee_consumption_slices FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE FUNCTION public.fn_ca_promo_original_entry_fee_events(p_club uuid,p_user uuid,p_from timestamptz,p_to timestamptz)
+RETURNS TABLE(earned_at timestamptz,fee_credit numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+ SELECT fee.earned_at,greatest(0,fee.gross_fee-COALESCE((SELECT sum(tr.refund_fee) FROM public.tournament_refund_tranches tr
+  WHERE tr.entitlement_id=e.id AND tr.tournament_id=e.tournament_id AND tr.user_id=e.user_id AND tr.source_wallet_club_id=e.refund_wallet_club_id),0))
+ FROM public.ca_promo_event_fee_consumption_receipts fee JOIN public.tournament_refund_entitlements e
+  ON e.id=fee.entitlement_id AND e.source_ledger_id=fee.charge_ledger_id
+ WHERE fee.club_id=p_club AND fee.player_id=p_user AND e.user_id=fee.player_id AND fee.earned_at>=p_from AND fee.earned_at<p_to;
+$$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_original_entry_fee_events(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+DO $entry_meter$
+DECLARE def text;original_hash text;needle text;
+BEGIN
+ SELECT pg_get_functiondef(oid),md5(prosrc) INTO def,original_hash FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure;
+ IF original_hash<>'81ed474798763b9539a6d3aa0a4c09f1' THEN RAISE EXCEPTION 'promo_original_fee_reader_changed'; END IF;
+ needle:='WHERE s.club_id=p_club AND s.player_id=p_user AND s.charged_at>=p_from AND s.charged_at<p_to';
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_original_fee_source_anchor_changed'; END IF;
+ def:=replace(def,needle,needle||' AND NOT EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_receipts fee WHERE fee.charge_ledger_id=s.source_charge_ledger_id)');
+ needle:=$tail$COALESCE((c.metadata->'original_rake_record_ids') ? s.rake_record_id::text,false)));$tail$;
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_original_fee_reader_tail_changed'; END IF;
+ def:=replace(def,needle,left(needle,length(needle)-1)||E'\n UNION ALL SELECT paid.earned_at,paid.fee_credit FROM public.fn_ca_promo_original_entry_fee_events(p_club,p_user,p_from,p_to) paid;');
+ EXECUTE def;
+END $entry_meter$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION public.fn_ca_promo_realize_event_principal(p_ledger_id uuid)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
@@ -75,6 +250,9 @@ BEGIN
   OR l.amount<=0 OR COALESCE(l.status,'posted')<>'posted' THEN RAISE EXCEPTION 'invalid_promo_event_realization'; END IF;
  IF EXISTS(SELECT 1 FROM public.ca_promo_event_realization_receipts WHERE ledger_id=l.id) THEN
   RETURN (SELECT principal FROM public.ca_promo_event_realization_receipts WHERE ledger_id=l.id); END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.ca_promo_event_principal_lots x JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id WHERE x.tournament_id=l.from_entity_id AND x.remaining>0 AND g.closed_at IS NULL AND g.user_id=l.to_entity_id) THEN
+  INSERT INTO public.ca_promo_event_realization_receipts VALUES(l.id,l.from_entity_id,l.club_id,l.to_entity_id,l.amount,0);RETURN 0;
+ END IF;
  PERFORM public.fn_ca_promo_play_through_settle(l.club_id,l.to_entity_id);
  IF l.category IN('refund','tournament_refund') THEN
   refund_id:=current_setting('app.ca_promo_refund_entitlement',true);
@@ -93,7 +271,7 @@ BEGIN
  FOR lot IN SELECT x.id,x.grant_id,x.remaining,g.granted_at FROM public.ca_promo_event_principal_lots x
   JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
   WHERE x.tournament_id=l.from_entity_id AND x.remaining>0 AND g.closed_at IS NULL
-   AND g.club_id=l.club_id AND g.user_id=l.to_entity_id
+   AND (g.club_id=l.club_id OR e.id IS NOT NULL AND EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_receipts fee WHERE fee.charge_ledger_id=e.source_ledger_id AND fee.club_id=g.club_id AND fee.player_id=g.user_id)) AND g.user_id=l.to_entity_id
    AND (e.id IS NULL OR x.charge_ledger_id=e.source_ledger_id)
   ORDER BY g.granted_at,g.id,x.source_ref,x.id FOR UPDATE OF g,x LOOP
   EXIT WHEN left_to_realize<=0;
@@ -133,6 +311,7 @@ BEGIN
   paid:=public.fn_ca_promo_return_principal(r.grant_id,'player_wallet','returned',r.amount,'event_refund:'||l.id||':'||r.grant_id);
   total:=total+paid;
  END LOOP;
+ total:=total+public.fn_ca_promo_return_spent_event_fee(p_credit_ledger_id);
  RETURN total;
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_return_refunded_principal(uuid) FROM PUBLIC,anon,authenticated,service_role;
@@ -148,6 +327,105 @@ END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_clear_closed_event_lots() FROM PUBLIC,anon,authenticated,service_role;
 CREATE TRIGGER ca_promo_clear_closed_event_lots AFTER UPDATE OF closed_at ON public.ca_promo_play_through_grants
  FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_clear_closed_event_lots();
+
+-- The original validated rebuy owner proves this exact old generation is
+-- lost before it can admit new money. Preserve actual owed/ambiguous assets.
+CREATE TABLE public.ca_promo_event_entry_loss_receipts (
+ candidate_id uuid PRIMARY KEY,registration_id uuid NOT NULL,tournament_id uuid NOT NULL,
+ club_id uuid NOT NULL,user_id uuid NOT NULL,table_id uuid NOT NULL,hand_id uuid NOT NULL,
+ hand_number bigint NOT NULL,seat_id uuid,seat_joined_at timestamptz,
+ operation_ref text NOT NULL,principal numeric NOT NULL CHECK(principal>=0),
+ charge_ledger_ids uuid[] NOT NULL,
+ recorded_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TABLE public.ca_promo_event_entry_loss_slices (
+ candidate_id uuid NOT NULL REFERENCES public.ca_promo_event_entry_loss_receipts(candidate_id),
+ lot_id uuid NOT NULL REFERENCES public.ca_promo_event_principal_lots(id),
+ grant_id uuid NOT NULL REFERENCES public.ca_promo_play_through_grants(id),
+ charge_ledger_id uuid,amount numeric NOT NULL CHECK(amount>0),PRIMARY KEY(candidate_id,lot_id)
+);
+CREATE TABLE public.ca_promo_free_buy_exhaustions (
+ registration_id uuid PRIMARY KEY,candidate_id uuid REFERENCES public.ca_promo_event_entry_loss_receipts(candidate_id),
+ terminal_tournament_id uuid,CHECK(candidate_id IS NOT NULL OR terminal_tournament_id IS NOT NULL)
+);
+ALTER TABLE public.ca_promo_event_entry_loss_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ca_promo_event_entry_loss_slices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ca_promo_free_buy_exhaustions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_event_entry_loss_receipts,public.ca_promo_event_entry_loss_slices,public.ca_promo_free_buy_exhaustions FROM PUBLIC,anon,authenticated,service_role;
+CREATE INDEX ca_promo_entry_loss_original_charge ON public.ca_promo_event_entry_loss_slices(charge_ledger_id,grant_id);
+CREATE TRIGGER ca_promo_event_fee_source_links_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_event_fee_source_links FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_event_fee_source_links_no_truncate BEFORE TRUNCATE ON public.ca_promo_event_fee_source_links FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_event_entry_loss_receipts_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_event_entry_loss_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_event_entry_loss_receipts_no_truncate BEFORE TRUNCATE ON public.ca_promo_event_entry_loss_receipts FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_event_entry_loss_slices_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_event_entry_loss_slices FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_event_entry_loss_slices_no_truncate BEFORE TRUNCATE ON public.ca_promo_event_entry_loss_slices FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_free_buy_exhaustions_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_free_buy_exhaustions FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE TRIGGER ca_promo_free_buy_exhaustions_no_truncate BEFORE TRUNCATE ON public.ca_promo_free_buy_exhaustions FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_entry_fee_is_immutable();
+CREATE FUNCTION public.fn_ca_promo_retire_busted_entry(p_tournament uuid,p_user uuid,p_candidate uuid,p_operation text)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','smarter_private','pg_temp' AS $$
+DECLARE c public.tournament_knockout_candidates%ROWTYPE;p public.tournament_players%ROWTYPE;
+ prior public.ca_promo_event_entry_loss_receipts%ROWTYPE;lot record;total numeric;prior_charges uuid[];
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN RETURN 0; END IF;
+ SELECT * INTO prior FROM public.ca_promo_event_entry_loss_receipts WHERE candidate_id=p_candidate;
+ IF FOUND THEN
+  IF prior.tournament_id<>p_tournament OR prior.user_id<>p_user OR prior.operation_ref IS DISTINCT FROM p_operation THEN RAISE EXCEPTION 'promo_bust_loss_retry_intent_changed'; END IF;
+  RETURN prior.principal;
+ END IF;
+ SELECT * INTO c FROM public.tournament_knockout_candidates WHERE id=p_candidate FOR UPDATE;
+ SELECT * INTO p FROM public.tournament_players WHERE tournament_id=p_tournament AND user_id=p_user FOR UPDATE;
+ IF c.id IS NULL OR p.id IS NULL OR c.tournament_id IS DISTINCT FROM p_tournament OR c.eliminated_user_id IS DISTINCT FROM p_user
+  OR c.state IS NULL OR c.state NOT IN('pending','eliminated') OR c.stack_after IS DISTINCT FROM 0 OR p.status NOT IN('playing','eliminated') OR p.chips>0 OR COALESCE(p.prize,0)>0
+  OR public.fn_ca_latest_committed_knockout_candidate(p_tournament,p_user) IS DISTINCT FROM p_candidate
+  OR NULLIF(btrim(p_operation),'') IS NULL THEN RAISE EXCEPTION 'promo_entry_definitive_loss_proof_missing'; END IF;
+ IF EXISTS(SELECT 1 FROM public.tournament_obligations o WHERE o.tournament_id=p_tournament AND o.user_id=p_user AND o.terminal_closed_at IS NULL AND o.amount_owed>o.amount_paid)
+  OR EXISTS(SELECT 1 FROM public.tournament_payouts owed WHERE owed.tournament_id=p_tournament AND owed.user_id=p_user AND owed.terminal_closed_at IS NULL AND owed.amount>0 AND owed.paid_at IS NULL)
+  OR EXISTS(SELECT 1 FROM public.tournament_bounty_obligations b WHERE b.tournament_id=p_tournament
+   AND NOT(COALESCE(b.state='settled',false) AND COALESCE(public.fn_bounty_obligation_has_complete_marker(b.id),false))
+   AND (b.knocker_user_id=p_user OR b.claimants @> jsonb_build_array(jsonb_build_object('user_id',p_user))
+    OR b.knocker_user_id IS NULL AND b.claimants IS NULL OR b.claimants IS NOT NULL AND jsonb_typeof(b.claimants)<>'array'
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.claimants)='array' THEN b.claimants ELSE '[]'::jsonb END) item WHERE jsonb_typeof(item)<>'object' OR COALESCE(item->>'user_id','')!~*'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))) THEN
+  RETURN 0;
+ END IF;
+ -- Match existing funding order: original wallet before original grant rows.
+ PERFORM 1 FROM public.club_members WHERE club_id=p.club_id AND user_id=p_user FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'promo_bust_original_wallet_missing'; END IF;
+ PERFORM g.id FROM public.ca_promo_play_through_grants g WHERE g.club_id=p.club_id AND g.user_id=p_user AND g.closed_at IS NULL
+  AND EXISTS(SELECT 1 FROM public.ca_promo_event_principal_lots x WHERE x.grant_id=g.id AND x.tournament_id=p_tournament AND x.remaining>0)
+  ORDER BY g.granted_at,g.id FOR UPDATE;
+ SELECT COALESCE(sum(x.remaining),0) INTO total FROM public.ca_promo_event_principal_lots x JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
+  WHERE x.tournament_id=p_tournament AND g.club_id=p.club_id AND g.user_id=p_user AND g.closed_at IS NULL;
+ SELECT COALESCE(array_agg(DISTINCT old.charge),'{}'::uuid[]) INTO prior_charges FROM (
+  SELECT x.charge_ledger_id charge FROM public.ca_promo_event_principal_lots x JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id WHERE x.tournament_id=p_tournament AND g.club_id=p.club_id AND g.user_id=p_user
+  UNION SELECT fee.charge_ledger_id FROM public.ca_promo_event_fee_consumption_receipts fee JOIN public.tournament_refund_entitlements e ON e.id=fee.entitlement_id WHERE e.tournament_id=p_tournament AND fee.club_id=p.club_id AND fee.player_id=p_user
+ ) old WHERE old.charge IS NOT NULL;
+ INSERT INTO public.ca_promo_event_entry_loss_receipts VALUES(c.id,p.id,p_tournament,p.club_id,p_user,c.table_id,c.hand_id,c.hand_number,c.seat_id,c.seat_joined_at,p_operation,total,prior_charges,clock_timestamp());
+ FOR lot IN SELECT x.id,x.grant_id,x.charge_ledger_id,x.remaining FROM public.ca_promo_event_principal_lots x JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
+  WHERE x.tournament_id=p_tournament AND x.remaining>0 AND g.club_id=p.club_id AND g.user_id=p_user AND g.closed_at IS NULL
+  ORDER BY g.granted_at,g.id,x.id FOR UPDATE OF x,g LOOP
+  UPDATE public.ca_promo_principal_custody SET amount=amount-lot.remaining WHERE grant_id=lot.grant_id AND kind='event' AND entity_id=p_tournament AND amount>=lot.remaining;
+  IF NOT FOUND THEN RAISE EXCEPTION 'promo_bust_original_event_principal_missing'; END IF;
+  INSERT INTO public.ca_promo_event_entry_loss_slices VALUES(c.id,lot.id,lot.grant_id,lot.charge_ledger_id,lot.remaining);
+  UPDATE public.ca_promo_event_principal_lots SET remaining=0 WHERE id=lot.id;
+  UPDATE public.ca_promo_play_through_grants SET remaining=remaining-lot.remaining,
+   closed_at=CASE WHEN remaining=lot.remaining THEN clock_timestamp() ELSE NULL END,
+   close_reason=CASE WHEN remaining=lot.remaining THEN 'spent' ELSE NULL END WHERE id=lot.grant_id;
+ END LOOP;
+ INSERT INTO public.ca_promo_free_buy_exhaustions(registration_id,candidate_id) SELECT d.registration_id,c.id FROM smarter_private.free_buy_ticket_redemptions d
+  WHERE d.registration_id=p.id AND d.user_id=p_user AND d.tournament_id=p_tournament AND d.returned_at IS NULL
+  ON CONFLICT(registration_id) DO NOTHING;
+ RETURN total;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_retire_busted_entry(uuid,uuid,uuid,text) FROM PUBLIC,anon,authenticated,service_role;
+DO $rebuy_generation_owner$
+DECLARE def text;needle text;
+BEGIN
+ SELECT pg_get_functiondef('public.process_tournament_rebuy(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure) INTO def;
+ IF md5(def)<>'340946b9bef6be146cd1ba9d0354bd16' THEN RAISE EXCEPTION 'promo_original_rebuy_generation_owner_changed'; END IF;
+ needle:=E'    v_response:=public.fn_ca_process_tournament_chip_purchase_money_v1(\n      p_tournament_id,p_user_id,v_type,p_cost,p_chips,v_t.current_level,\n      v_effective_token);';
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_original_rebuy_generation_anchor_changed'; END IF;
+ EXECUTE replace(def,needle,E'    IF public.fn_ca_tournament_unit_cents(p_tournament_id)=1 THEN PERFORM public.fn_ca_promo_retire_busted_entry(p_tournament_id,p_user_id,v_candidate.id,v_effective_token); END IF;\n'||needle);
+END $rebuy_generation_owner$;
 
 -- Coupon allowance is not money. Principal starts only at the original
 -- actual promo debit, capped to the funded one-chip face of each coupon.
@@ -204,6 +482,7 @@ BEGIN
    INSERT INTO public.ca_promo_event_principal_lots(grant_id,tournament_id,charge_ledger_id,source_ref,original_amount,remaining)
     VALUES(gid,NEW.tournament_id,NEW.id,'free_buy_funding:'||NEW.id||':'||r.id,take,take);
    INSERT INTO public.ca_promo_free_buy_funding_slices VALUES(NEW.id,r.id,gid,take);
+   IF EXISTS(SELECT 1 FROM public.ca_promo_free_buy_exhaustions exhausted WHERE exhausted.registration_id=r.id) THEN UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='spent',close_note='Original Free Buy entry already exhausted before its deferred funding' WHERE id=gid; END IF;
   END IF;
  END LOOP;
  RETURN NULL;
@@ -231,6 +510,10 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 DECLARE r record;held numeric;state text;
 BEGIN
  IF upper(NEW.status) NOT IN('COMPLETED','CANCELLED','CANCELED') THEN RETURN NULL; END IF;
+ INSERT INTO public.ca_promo_free_buy_exhaustions(registration_id,terminal_tournament_id)
+ SELECT d.registration_id,NEW.id FROM smarter_private.free_buy_ticket_redemptions d JOIN public.tournament_players p ON p.id=d.registration_id AND p.tournament_id=d.tournament_id AND p.user_id=d.user_id
+ WHERE d.tournament_id=NEW.id AND d.returned_at IS NULL AND COALESCE(p.chips,0)<=0 AND COALESCE(p.prize,0)<=0
+ ON CONFLICT(registration_id) DO NOTHING;
  FOR r IN SELECT DISTINCT g.id,g.club_id,g.user_id,g.granted_at FROM public.ca_promo_event_principal_lots lot
   JOIN public.ca_promo_play_through_grants g ON g.id=lot.grant_id
   WHERE lot.tournament_id=NEW.id AND lot.remaining>0 AND g.closed_at IS NULL ORDER BY g.granted_at,g.id LOOP
@@ -274,6 +557,29 @@ BEGIN
  EXECUTE def;
 END $debit_owner$;
 
+-- Rebuys, reentries and addons own their original wallet UPDATE directly.
+-- Export its actual locked before-balance, preserving the same money owner.
+DO $purchase_owner$
+DECLARE def text;needle text;guard_def text;old_pin text;new_hash text;
+BEGIN
+ SELECT pg_get_functiondef('public.fn_ca_process_tournament_chip_purchase_money_v1(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure) INTO def;
+ IF md5(def)<>'c749e5de81a89556c602f34018087d3c' THEN RAISE EXCEPTION 'promo_original_purchase_owner_changed'; END IF;
+ def:=replace(def,E'  v_led_tid text;\nBEGIN',E'  v_led_tid text;\n  v_prev_promo_debit text:=current_setting(''app.ca_promo_wallet_debit'',true);\nBEGIN');
+ needle:=E'  UPDATE public.club_members\n     SET chip_balance=chip_balance-v_total,updated_at=now()';
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_purchase_wallet_anchor_changed'; END IF;
+ def:=replace(def,needle,E'  PERFORM set_config(''app.ca_promo_wallet_debit'',jsonb_build_object(''user_id'',p_user_id,''club_id'',v_club,''amount'',v_total,''balance_before'',v_balance,''category'',v_cat,''tournament_id'',p_tournament_id,''operation_key'',v_key,''context_token'',gen_random_uuid())::text,true);\n'||needle);
+ needle:=E'  GET DIAGNOSTICS v_rows=ROW_COUNT;\n  v_original_entitlement:=';
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_purchase_context_restore_anchor_changed'; END IF;
+ def:=replace(def,needle,E'  GET DIAGNOSTICS v_rows=ROW_COUNT;\n  PERFORM set_config(''app.ca_promo_wallet_debit'',COALESCE(v_prev_promo_debit,''''),true);\n  v_original_entitlement:=');
+ EXECUTE def;
+ SELECT md5(pg_get_functiondef('public.fn_ca_process_tournament_chip_purchase_money_v1(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure)) INTO new_hash;
+ SELECT pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure) INTO guard_def;
+ old_pin:=$pin$"signature":"public.fn_ca_process_tournament_chip_purchase_money_v1(uuid,uuid,text,numeric,numeric,integer,text)","definition_md5":"9ff346ac60f760311d884c6d63d9001d"$pin$;
+ IF position(old_pin IN guard_def)=0 THEN old_pin:=replace(old_pin,'9ff346ac60f760311d884c6d63d9001d','c749e5de81a89556c602f34018087d3c'); END IF;
+ IF length(guard_def)-length(replace(guard_def,old_pin,''))<>length(old_pin) THEN RAISE EXCEPTION 'promo_purchase_exact_admission_pin_changed'; END IF;
+ EXECUTE replace(guard_def,old_pin,regexp_replace(old_pin,'"definition_md5":"[a-f0-9]+"','"definition_md5":"'||new_hash||'"'));
+END $purchase_owner$;
+
 DO $refund_owner$
 DECLARE def text;needle text;
 BEGIN
@@ -282,10 +588,10 @@ BEGIN
  def:=replace(def,E'  v_entitlement record;\nBEGIN',E'  v_entitlement record;\n  v_prev_promo_refund text:=current_setting(''app.ca_promo_refund_entitlement'',true);\nBEGIN');
  needle:=E'  SELECT m.chip_balance INTO v_balance_before\n';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_refund_wallet_lock_anchor_changed'; END IF;
- def:=replace(def,needle,E'  PERFORM public.fn_ca_promo_lock_grant_funds(ARRAY(SELECT DISTINCT lot.grant_id FROM public.ca_promo_event_principal_lots lot JOIN public.ca_promo_play_through_grants gr ON gr.id=lot.grant_id WHERE lot.charge_ledger_id=v_entitlement.source_ledger_id AND lot.remaining>0 AND gr.closed_at IS NULL ORDER BY lot.grant_id));\n'||needle);
+ def:=replace(def,needle,E'  PERFORM public.fn_ca_promo_lock_grant_funds(ARRAY(SELECT DISTINCT lot.grant_id FROM public.ca_promo_event_principal_lots lot JOIN public.ca_promo_play_through_grants gr ON gr.id=lot.grant_id WHERE lot.charge_ledger_id=v_entitlement.source_ledger_id AND (lot.remaining>0 AND gr.closed_at IS NULL OR EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_slices fee WHERE fee.lot_id=lot.id) OR EXISTS(SELECT 1 FROM public.ca_promo_event_entry_loss_slices lost WHERE lost.lot_id=lot.id)) ORDER BY lot.grant_id));\n'||needle);
  needle:=E'  PERFORM public.fn_ca_declare_ledger(\n    ''refund'',''prize_liability'',p_tournament_id,NULL,v_key,NULL);';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_refund_credit_anchor_changed'; END IF;
- def:=replace(def,needle,E'  PERFORM set_config(''app.ca_promo_refund_entitlement'',v_entitlement.id::text,true);\n'||needle);
+ def:=replace(def,needle,E'  IF to_regprocedure(''public.fn_ca_promo_integrity_restore_event_fees(uuid)'') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_restore_event_fees(v_entitlement.id); END IF;\n  PERFORM set_config(''app.ca_promo_refund_entitlement'',v_entitlement.id::text,true);\n'||needle);
  needle:=E'  IF v_balance_after IS NULL\n';
  def:=replace(def,needle,E'  PERFORM set_config(''app.ca_promo_refund_entitlement'',COALESCE(v_prev_promo_refund,''''),true);\n'||needle);
  needle:=E'  RETURN jsonb_build_object(\n    ''ok'',true,''fully_settled'',true,''remaining'',0,';
@@ -322,20 +628,30 @@ END $restrict_promo_ticket$;
 -- without a wallet credit. The same original grant follows its entitlement.
 CREATE FUNCTION public.fn_ca_promo_roll_event_principal(p_ledger_id uuid,p_user uuid,p_destination text)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
-DECLARE l public.chip_ledger%ROWTYPE;lot record;take numeric;left_to_move numeric;moved numeric:=0;n integer;
+DECLARE l public.chip_ledger%ROWTYPE;lot record;take numeric;left_to_move numeric;moved numeric:=0;n integer;earning_club uuid;
 BEGIN
  SELECT * INTO l FROM public.chip_ledger WHERE id=p_ledger_id;
  IF l.id IS NULL OR l.from_type<>'prize_liability' OR p_destination NOT IN('event','ticket')
   OR l.amount<=0 OR l.metadata->>'user_id' IS DISTINCT FROM p_user::text THEN RAISE EXCEPTION 'invalid_promo_event_roll'; END IF;
  IF EXISTS(SELECT 1 FROM public.ca_promo_event_realization_receipts WHERE ledger_id=l.id) THEN
   RETURN (SELECT principal FROM public.ca_promo_event_realization_receipts WHERE ledger_id=l.id); END IF;
- PERFORM public.fn_ca_promo_play_through_settle(l.club_id,p_user);
- INSERT INTO public.ca_promo_event_realization_receipts VALUES(l.id,l.from_entity_id,l.club_id,p_user,l.amount,0);
+ IF p_destination='event' THEN SELECT scope.club_id INTO earning_club FROM public.fn_ca_promo_entry_charge_identity(l.id) scope; ELSE
+  SELECT min(scope.club_id::text)::uuid INTO earning_club FROM (
+   SELECT g.club_id FROM public.ca_promo_event_principal_lots x JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
+    WHERE x.tournament_id=l.from_entity_id AND x.remaining>0 AND g.user_id=p_user
+   UNION SELECT tp.club_id FROM public.tournament_players tp WHERE tp.tournament_id=l.from_entity_id AND tp.user_id=p_user
+   UNION SELECT f.club_id FROM public.ca_promo_event_fee_consumption_receipts f JOIN public.tournament_refund_entitlements e ON e.id=f.entitlement_id
+    WHERE e.tournament_id=l.from_entity_id AND f.player_id=p_user
+  ) scope HAVING count(DISTINCT scope.club_id)=1;
+  IF earning_club IS NULL THEN RAISE EXCEPTION 'earned_promo_award_original_scope_missing_or_ambiguous'; END IF;
+ END IF;
+ PERFORM public.fn_ca_promo_play_through_settle(earning_club,p_user);
+ INSERT INTO public.ca_promo_event_realization_receipts VALUES(l.id,l.from_entity_id,earning_club,p_user,l.amount,0);
  left_to_move:=l.amount;
  FOR lot IN SELECT x.id,x.grant_id,x.remaining,g.granted_at FROM public.ca_promo_event_principal_lots x
   JOIN public.ca_promo_play_through_grants g ON g.id=x.grant_id
   WHERE x.tournament_id=l.from_entity_id AND x.remaining>0 AND g.closed_at IS NULL
-   AND g.club_id=l.club_id AND g.user_id=p_user ORDER BY g.granted_at,g.id,x.source_ref,x.id FOR UPDATE OF g,x LOOP
+   AND g.club_id=earning_club AND g.user_id=p_user ORDER BY g.granted_at,g.id,x.source_ref,x.id FOR UPDATE OF g,x LOOP
   EXIT WHEN left_to_move<=0;take:=LEAST(left_to_move,lot.remaining);
   UPDATE public.ca_promo_principal_custody SET amount=amount-take
    WHERE grant_id=lot.grant_id AND kind='event' AND entity_id=l.from_entity_id AND amount>=take;
@@ -354,7 +670,7 @@ REVOKE ALL ON FUNCTION public.fn_ca_promo_roll_event_principal(uuid,uuid,text) F
 
 CREATE FUNCTION public.fn_ca_promo_nonwallet_entry() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
-DECLARE uid uuid;promo numeric:=0;
+DECLARE uid uuid;promo numeric:=0;earning_club uuid;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp())
   OR NEW.amount<=0 OR COALESCE(NEW.status,'posted')<>'posted' THEN RETURN NULL; END IF;
@@ -362,8 +678,10 @@ BEGIN
  IF NEW.from_type='escrow' AND NEW.to_type='prize_liability' AND NEW.category='ticket_redeem' THEN
   IF uid IS NULL OR NOT EXISTS(SELECT 1 FROM public.tournament_tickets t WHERE t.id=NEW.from_entity_id AND t.holder_id=uid AND t.club_id=NEW.club_id) THEN
    RAISE EXCEPTION 'promo_ticket_direct_entry_original_holder_missing'; END IF;
-  PERFORM public.fn_ca_promo_play_through_settle(NEW.club_id,uid);
-  promo:=public.fn_ca_promo_move_custody(NEW.club_id,uid,'ticket',NEW.from_entity_id,'event',NEW.to_entity_id,NEW.amount);
+  SELECT scope.club_id INTO earning_club FROM public.fn_ca_promo_entry_charge_identity(NEW.id) scope;
+  PERFORM public.fn_ca_promo_play_through_settle(earning_club,uid);
+  promo:=public.fn_ca_promo_move_custody(earning_club,uid,'ticket',NEW.from_entity_id,'event',NEW.to_entity_id,NEW.amount);
+  INSERT INTO public.ca_promo_event_realization_receipts VALUES(NEW.id,NEW.to_entity_id,earning_club,uid,NEW.amount,promo);
   PERFORM public.fn_ca_promo_record_event_charge(NEW.id);
   PERFORM public.fn_ca_promo_capture_entry_funding(NEW.id,promo);
  ELSIF NEW.from_type='prize_liability' AND NEW.to_type='prize_liability' AND NEW.category='tournament_buyin' THEN

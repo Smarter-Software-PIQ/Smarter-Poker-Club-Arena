@@ -105,3 +105,15 @@ CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_format(uuid) RETURNS tex
 CREATE TABLE public.hand_atomic_commits(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,committed_at timestamptz DEFAULT clock_timestamp());
 ALTER TABLE public.rake_attributions ADD COLUMN IF NOT EXISTS hand_id uuid;
 ALTER TABLE public.tournament_players ADD COLUMN IF NOT EXISTS club_id uuid;
+
+ALTER TABLE public.accounting_tournament_fee_sources ADD COLUMN IF NOT EXISTS source_charge_ledger_id uuid,ADD COLUMN IF NOT EXISTS source_entitlement_id uuid;
+ALTER TABLE public.tournament_refund_entitlements ADD COLUMN IF NOT EXISTS refund_fee numeric DEFAULT 0;
+CREATE TABLE public.tournament_refund_tranches(entitlement_id uuid,tournament_id uuid,user_id uuid,source_wallet_club_id uuid,refund_fee numeric DEFAULT 0,credit_ledger_id uuid,amount_paid_before numeric DEFAULT 0,amount_paid_now numeric DEFAULT 0);
+
+ALTER TABLE public.tournament_players ADD COLUMN IF NOT EXISTS chips numeric DEFAULT 0,ADD COLUMN IF NOT EXISTS prize numeric DEFAULT 0;
+ALTER TABLE public.tournament_obligations ADD COLUMN IF NOT EXISTS tournament_id uuid,ADD COLUMN IF NOT EXISTS user_id uuid,ADD COLUMN IF NOT EXISTS terminal_closed_at timestamptz;
+CREATE TABLE public.tournament_payouts(tournament_id uuid,user_id uuid,amount numeric,paid_at timestamptz,terminal_closed_at timestamptz);
+CREATE TABLE public.tournament_bounty_obligations(id uuid PRIMARY KEY,tournament_id uuid,knocker_user_id uuid,state text,claimants jsonb);
+CREATE TABLE public.tournament_knockout_candidates(id uuid PRIMARY KEY,tournament_id uuid,eliminated_user_id uuid,state text,stack_after numeric,table_id uuid,hand_id uuid,hand_number bigint,seat_id uuid,seat_joined_at timestamptz);
+ALTER TABLE public.hand_atomic_commits ADD COLUMN IF NOT EXISTS stack_result jsonb;
+CREATE TABLE public.settlement_idempotency_keys(table_id uuid,hand_id uuid,status text,completed_at timestamptz,result jsonb);

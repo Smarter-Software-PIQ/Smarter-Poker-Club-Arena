@@ -8,7 +8,7 @@ of older submitted promo intents.
 
 Promo chips may still directly enter tournaments. Original principal retains
 one 4× target through exact per-entry refunds, partial prizes, earned satellite
-entitlements and terminal loss. Profit and unrelated cash remain unrestricted.
+entitlements and terminal loss. Unrelated cash retains its original ownership.
 Five daily Free Buy coupons keep their original book and deferred guarantee
 funding. Coupon use alone creates no debt. Actual original promo funding creates
 only the funded coupon face, capped at one chip, with a 4× target. A covered
@@ -37,3 +37,23 @@ so another club's real balance stays cashable. Funding evidence retains the
 original registration UUID after lawful unregister deletes that transient row.
 The native custody prerequisite loads the actual private inventory pin owner
 and preserves its private ACL rather than replacing the financial guard.
+
+Actual entry fees consume only their exact original promo-funded share before
+maturity, preserving the original gross grant and 4× target. The original
+financial entitlement, rather than commission-agreement recognition, supplies
+the immediate paid-fee meter. Its immutable original clock excludes fees paid
+before a later gift, including within one transaction. Later canonical source
+recognition reuses the same charge receipt; exact canonical refund fee slices
+net only that original charge.
+
+Accepted zero-stack reentry candidates retire definitively lost old entry
+principal before the original new purchase, while positive or ambiguous owed
+prize/bounty evidence preserves it. Original terminal settlement handles a
+no-rebuy loss. Late cutoff funding is bound to the exhausted original coupon
+registration. Exact canonical refunds of consumed fees or lost entry principal
+return to the original source fund, even after closure, without reopening a
+grant. These returns retain the original journals and deferred financial guards.
+
+The later owner rule additionally requires 2× fees before promo-derived profit
+can cash out. That separate profit custody work must qualify before programme
+activation; this principal/fee source candidate does not establish it.
