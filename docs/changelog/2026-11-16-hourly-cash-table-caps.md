@@ -119,3 +119,10 @@ re-enters the same source-owned boundary and restores the policy and pacing.
 Preparation, source/test revisions, provider operation identities and live
 observations belong in the owning external CHECKPOINT.md. A local pass or merge
 is not deployment or live acceptance.
+
+The additional-capacity clarification ships in ordinary follow-up migration
+`20261116194028_human_started_cash_games_remain_additional_hourly_capacity.sql`,
+after `20261116153902`. The predecessor's original four policy function hashes
+are asserted before installation. The original migration remains byte exact;
+no installed version is rewritten or replayed. Both migrations require separate
+installation readback before the compatible engine is activated.

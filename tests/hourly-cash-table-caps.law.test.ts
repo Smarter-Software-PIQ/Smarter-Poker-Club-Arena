@@ -6,9 +6,12 @@ describe('owner hourly cash capacity is permanent and cash only', () => {
     expect(read('.github/workflows/ci.yml')).toContain(
       'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py'
     );
-    const sql = read(
-      'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql'
-    );
+    const sql = [
+      'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql',
+      'supabase/migrations/20261116194028_human_started_cash_games_remain_additional_hourly_capacity.sql',
+    ]
+      .map(read)
+      .join('\n');
     expect(sql).toContain("AT TIME ZONE 'America/Chicago'");
     expect(sql).toContain('t.tournament_id IS NOT NULL');
     expect(sql).toContain('fn_cashout_seat_occupancy');

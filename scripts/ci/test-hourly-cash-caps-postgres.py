@@ -95,7 +95,13 @@ try:
  q((fixtures/'roster.sql').read_text());q((fixtures/'lightning-legality.sql').read_text());q((fixtures/'seat-swap.sql').read_text())
  q('CREATE TRIGGER roster_guard BEFORE INSERT OR UPDATE OF user_id,table_id,left_at ON table_seats FOR EACH ROW WHEN(NEW.left_at IS NULL) EXECUTE FUNCTION fn_ca_horse_roster_seat_guard();')
  migration=(ROOT/'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql').read_text()
+ successor=(ROOT/'supabase/migrations/20261116194028_human_started_cash_games_remain_additional_hourly_capacity.sql').read_text()
+ try:q(successor)
+ except RuntimeError as e:assert 'cash_hourly_human_expansion_predecessor_changed' in str(e),str(e)
+ else:raise AssertionError('successor accepted without original policy')
+ assert_sql("to_regclass('public.cash_hourly_table_origins') IS NULL",'missing predecessor installs nothing')
  q(migration)
+ q(successor)
  assert_sql('NOT fn_cash_hourly_table_enabled()','migration alone leaves serving predecessor unchanged')
  for table in ['cash_hourly_table_pacing','cash_hourly_table_starts','cash_hourly_table_closures','cash_hourly_table_origins']:
   assert_sql("NOT has_table_privilege('service_role','"+table+"','SELECT,INSERT,UPDATE,DELETE')",'engine uses definer doors, no direct pacing/receipt writes')
@@ -283,6 +289,7 @@ try:
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
  refuses(migration,'already exists')
+ refuses(successor,'cash_hourly_human_expansion_predecessor_changed')
  print(json.dumps({'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'human_expansion_is_additional':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
 finally:
  if (w/'d/postmaster.pid').exists():run([PG/'pg_ctl','-D',w/'d','-m','immediate','-w','stop'])
