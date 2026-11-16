@@ -42,9 +42,7 @@ const result = (
 ): HorseRetainedEffectsQualification => ({ status, reason, batchSize, applicationVerified: false });
 
 export type HorseRetainedPlanContext =
-  | { kind: 'legacy' }
-  | { kind: 'current'; context: HorsePlanContext }
-  | { kind: 'invalid' };
+  { kind: 'legacy' } | { kind: 'current'; context: HorsePlanContext } | { kind: 'invalid' };
 
 /** Only this explicitly versioned producer captured a known empty DEEP batch.
  * This validates emission metadata, not source custody of the original FAST. */
@@ -96,7 +94,7 @@ export function horseRetainedPlanContext(
   const hasBinding = Object.hasOwn(value, 'planBinding');
   const frame = value.readFrame as { version?: unknown; json?: unknown } | null | undefined;
   let allocatedFrame = frame?.version === 'horse-decision-reads-v2';
-  // v4-v15 add public opponent counters/beliefs: the same allocation rules.
+  // v4-v17 add public opponent counters/beliefs: the same allocation rules.
   if (
     frame?.version === 'horse-decision-reads-v3' ||
     frame?.version === 'horse-decision-reads-v4' ||
@@ -110,7 +108,9 @@ export function horseRetainedPlanContext(
     frame?.version === 'horse-decision-reads-v12' ||
     frame?.version === 'horse-decision-reads-v13' ||
     frame?.version === 'horse-decision-reads-v14' ||
-    frame?.version === 'horse-decision-reads-v15'
+    frame?.version === 'horse-decision-reads-v15' ||
+    frame?.version === 'horse-decision-reads-v16' ||
+    frame?.version === 'horse-decision-reads-v17'
   ) {
     if (typeof frame.json !== 'string' || frame.json.length > HORSE_DECISION_READ_FRAME_MAX_BYTES)
       return { kind: 'invalid' };

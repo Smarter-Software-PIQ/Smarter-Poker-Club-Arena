@@ -3,6 +3,7 @@ import { bettingStructureFor } from '../BettingStructure.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
 import { durableProfileCounters, opponentMemoryKey } from '../HorseOpponentMemory.js';
+import { shownRiverReadOf, type ShownRiverRead } from '../HorseLongShownMemory.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
@@ -24,6 +25,7 @@ import {
   type HorseWinnerReadState,
 } from '../HorseWinnerRead.js';
 import type { FlopStabCounters } from '../HorseOpponentExploit.js';
+import { profileQualification } from '../HorseOpponentStyle.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
 
 export interface HorseObserverReadReceipt {
@@ -633,6 +635,34 @@ export class HorseObserverReads {
             provenance
           );
       }
+    // A LONG MEMORY OF SHOWN RIVER STRENGTH (2026-11-15). Each pooled exact row that carries a durable shown river
+    // record (horse_exact_profiles.shown_river) brings the read of it at THIS decision's time into the decision's own
+    // detached state, beside its counters, only when the decision's options turn styleLongShownMemory on. The row is
+    // the one the pooled read already chose by availability (accepted at or before decisionTimeMs), so the record
+    // holds only evidence accepted before the decision. Donor rows never carry one. With the option off nothing is
+    // carried, so the state, the read frame and the decision are exactly what they were.
+    const pooledShownRiver = new Map<string, ShownRiverRead>();
+    if (pooled && request.opts?.styleLongShownMemory === true)
+      for (const row of pooled.rows) {
+        const read = shownRiverReadOf(row.shown_river, request.decisionTimeMs);
+        if (read)
+          pooledShownRiver.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            read
+          );
+      }
+    // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
+    // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
+    // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
+    // carried, so the state, the read frame and the decision are exactly what they were.
+    const pooledProfileIncomplete = new Map<string, true>();
+    if (pooled && request.opts?.holdemProfileCompletenessCap === true)
+      for (const row of [...pooled.rows, ...pooled.donors.map((d) => d.profile)])
+        if (!profileQualification(row).complete)
+          pooledProfileIncomplete.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            true
+          );
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
     const executionState =
@@ -644,6 +674,8 @@ export class HorseObserverReads {
                   exploit: new Map(entry.state.exploit),
                   ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
                   ...(pooledProvenance.size ? { pooledProvenance } : {}),
+                  ...(pooledShownRiver.size ? { pooledShownRiver } : {}),
+                  ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),

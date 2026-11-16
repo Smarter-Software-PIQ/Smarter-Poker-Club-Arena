@@ -297,6 +297,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
   'omahaNutClassValueSize',
+  // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
+  'fixedLimitBetsAreNeverProbes',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTightOpponentSteal',
@@ -334,6 +336,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaReraisedPotStackOffRealistic',
   'omahaOnePairDiscipline',
   'fixedLimitRiverFullBetRead',
+  'fixedLimitRiverStrongHandLeads',
   'fixedLimitHiLoNutLowRiverBet',
   'fixedLimitRiverOneBetValueRaise',
   'fixedLimitCallIsNotACommitment',
@@ -400,6 +403,8 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also measured harm (-0.51 +/- 0.15, manifest section 4)`
   ),
   nashPushFoldIcm: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-15 Hold'em Strategy: the persona preflop layer widens or narrows opening ranges at deep cash tables.
+  holdemPersonaPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   huBbDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   facingOpenFullRingZone: hold(
     PREFLOP_HOLD_SOURCE,
@@ -412,8 +417,16 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   ),
   huOpenerDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
+  huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
+    OMAHA_TIGHT_SOURCE,
+    'Omaha tight response: promotion evidence rows unmet'
+  ),
+  // 2026-11-15 PLO Strategy: the read-conditional 4-bet fold against a measured tight re-raiser is an
+  // Omaha tight response, so it is under the same owner hold (Hand Analysis wiring note N1).
+  omahaReraisedFoldVsTight: hold(
     OMAHA_TIGHT_SOURCE,
     'Omaha tight response: promotion evidence rows unmet'
   ),
@@ -526,6 +539,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Omaha river',
     'river Omaha weak sets/trips keep call pricing without re-shoving',
   ],
+  fixedLimitRiverStrongHandLeads: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) river, first to act, nothing to call',
+    'a first-to-act fixed-limit river full house or better that few holdings beat leads one big bet (W8)',
+  ],
   commitUnderPot: [
     'Heads Up',
     'NLH heads-up, flop/turn (cash+tourney)',
@@ -561,6 +579,19 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   huBbDefendsToPrice: ['Heads Up', 'NLH heads-up cash, big blind facing the only open'],
   huOpenerDefendsToPrice: ['Heads Up', 'NLH heads-up cash, opener facing one 3-bet'],
   huLimpDefendsToPrice: ['Heads Up', 'NLH heads-up cash, small-blind limp facing one raise'],
+  huBbDefendsUnreadToPrice: [
+    'Heads Up',
+    'NLH heads-up, big blind facing the only open, opener unread',
+  ],
+  huSmallBlindStealsVsTightBigBlind: [
+    'Heads Up',
+    'NLH heads-up, small blind first in vs a tight big blind',
+  ],
+  fixedLimitBetsAreNeverProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
+    'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
+  ],
 };
 
 const STYLE_DESCRIPTION: Readonly<Record<StyleSwitchOption, readonly [string, string]>> = {
