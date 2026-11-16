@@ -28,7 +28,7 @@ The four sites named above, flop and turn only. League card `cash6_holdem_person
 
 ## Visibility
 
-Ledger flag `holdemPersonaPostflop`; receipts `holdem_persona_postflop_trap_seen` and `holdem_persona_postflop_stab_seen`.
+Ledger flag `holdemPersonaPostflop`; receipts `holdem_persona_postflop_trap_seen`, `holdem_persona_postflop_stab_seen`, `holdem_persona_postflop_cbet_seen` and `holdem_persona_postflop_check_raise_seen` (one per site the scales act at).
 
 ## Limits
 
