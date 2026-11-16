@@ -391,7 +391,7 @@ AS $function$
      WHERE d.club_id = p_club_id
        AND (p_user_id IS NULL OR d.user_id = p_user_id)
        AND d.day >= b.from_day
-       
+
      GROUP BY d.user_id
   ), tournament_share AS (
     -- All earned rake includes tournament entry/rebuy/add-on fee receipts.
