@@ -93,6 +93,7 @@ for i in range(0,44):
     if stage(r)=='rounds_booked': RUN_ID_PROBE=json.loads(r['out'])['run_id']
     if stage(r)=='round_paid' and json.loads(r['out'])['round']==1:
         snap_r1=one(SNAP); exec((F/'before-round2.py').read_text())
+        exec((F/'retired-final-week.py').read_text())
         assert one(SNAP)==snap_r1,'a before-round-2 probe left something behind'
         armed=('round 2 killed at its last leg, AG -> SUB',arm("NEW.to_entity_id=rr.u('SUB') AND NEW.from_type='agent_wallet'",'round 2 killed at AG to SUB'))
     if stage(r)=='round_paid' and json.loads(r['out'])['round']==2:
