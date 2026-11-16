@@ -543,8 +543,8 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   ],
   fixedLimitManiacCapNeedsValue: [
     'Fixed-Limit',
-    'Fixed limit (flh, flo8) preflop, the cap after an aggressive 3-bet',
-    'a fixed-limit preflop cap against an aggressive 3-bettor needs equity of 0.5 plus two standard errors, else the call',
+    'Fixed limit (flh, flo8) preflop, the cap after an aggressive 3-bet: heads-up after the 3-bet, cash tables only',
+    'a fixed-limit preflop cap against an aggressive 3-bettor, heads-up at a cash table, needs equity of 0.5 plus two standard errors, else the call',
   ],
   fixedLimitRiverStrongHandLeads: [
     'Fixed-Limit',

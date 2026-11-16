@@ -1927,7 +1927,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'fixedLimitManiacCapNeedsValue',
-    "2026-11-15 default OFF: in a fixed-limit game (betting structure), a V53 pressure raise that would be the preflop cap (after the Horse opens and an aggressive raiser 3-bets) fires only when the V38 equity against the raiser's read range is at least 0.5 + m, the break-even of the one-small-bet capping increment plus two standard errors of that estimate at the sample count the decision drew (m = 1/sqrt(n): n = 360, m = 0.0527 for flh and n = 176, m = 0.0754 for flo8 at full scale; HorseFixedLimitManiacCap.ts); otherwise the hand calls; measured before (AH-V38-FIXED-LIMIT.md, flh 6-max, observed maniac 3-bet, 20 seeds a hand): Q9o, J8o, 76s, 54s, 83o and 72o capped 112 of 120 times with 0.30-0.46 equity, each of which calls against an unknown 3-bettor; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
+    "2026-11-15 default OFF: in a fixed-limit game (betting structure), heads-up after the 3-bet, cash tables only, a V53 pressure raise that would be the preflop cap (after the Horse opens and an aggressive raiser 3-bets, the 3-bettor the only other player in the pot and no other live player able to respond; a fixed-limit tournament table and a multiway pot decide as without the option) fires only when the V38 equity against the raiser's read range is at least 0.5 + m, the one-caller break-even of the one-small-bet capping increment plus two standard errors of that estimate at the sample count the decision drew (m = 1/sqrt(n): n = 360, m = 0.0527 for flh and n = 176, m = 0.0754 for flo8 at full scale; HorseFixedLimitManiacCap.ts); otherwise the hand calls; measured before (AH-V38-FIXED-LIMIT.md, flh 6-max, observed maniac 3-bet, 20 seeds a hand): Q9o, J8o, 76s, 54s, 83o and 72o capped 112 of 120 times with 0.30-0.46 equity, each of which calls against an unknown 3-bettor; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
     'FixedLimitAdaptation'
   ),
   flag(
@@ -6634,7 +6634,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'fixed_limit_maniac_cap_value_call_seen',
     'HorseLogic V38/V53 preflop price, the pressure four-bet (fixedLimitManiacCapNeedsValue, HorseFixedLimitManiacCap.ts)',
-    'a fixed-limit V53 pressure raise that would have been the preflop cap, with equity under 0.5 plus two standard errors, became the call',
+    'a fixed-limit V53 pressure raise that would have been the preflop cap, heads-up after the 3-bet at a cash table, with equity under 0.5 plus two standard errors, became the call',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit showdowns only, and only with the process switch on.

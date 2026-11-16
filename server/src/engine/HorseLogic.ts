@@ -465,10 +465,7 @@ import {
   type TournamentMState,
   type TournamentPreflopPolicyInput,
 } from './HorseTournamentPreflop.js';
-import {
-  fixedLimitCapValueBar,
-  fixedLimitPreflopRaiseIsTheCap,
-} from './HorseFixedLimitManiacCap.js';
+import { fixedLimitManiacCapCall } from './HorseFixedLimitManiacCap.js';
 import {
   bettingStructureFor,
   failureFallbackAction,
@@ -3960,7 +3957,8 @@ export interface HorseDecideOpts {
    *  fires only when the V38 equity against the raiser's read range is at
    *  least 0.5 + m (m = two standard errors of that estimate at the sample
    *  count it used, HorseFixedLimitManiacCap.ts); otherwise the hand calls.
-   *  Read only as === true: default OFF. */
+   *  Heads-up after the 3-bet, cash tables only (2026-11-16); every other
+   *  spot decides as without the option. Read only as === true: default OFF. */
   fixedLimitManiacCapNeedsValue?: boolean;
   /** FIXED-LIMIT HI-LO LOW HALF (2026-11-14, Fixed-Limit lane): on a
    *  fixed-limit hi-lo river the V40 weak-high cap never goes below half of
@@ -13325,20 +13323,33 @@ export class HorseLogic {
             // FIXED-LIMIT MANIAC CAP NEEDS VALUE (2026-11-15, opt-in
             // fixedLimitManiacCapNeedsValue, default OFF): in fixed limit this
             // raise is one small bet, and when it is the preflop cap the raiser
-            // calls it and cannot answer, so it is worth (2e - 1) small bets.
-            // It fires only at e >= 0.5 + m, m = 1 / sqrt(n), two standard
-            // errors of this n-deal estimate (n = 360 for flh and 176 for
-            // flo8 at full scale: 0.0527 and 0.0754). Below that the hand takes
-            // the call. AH-V38-FIXED-LIMIT.md: Q9o-72o capped at 0.30-0.46.
-            if (
-              opts.fixedLimitManiacCapNeedsValue === true &&
-              vi.isFixedLimit &&
-              fixedLimitPreflopRaiseIsTheCap(gs.actionHistory ?? []) &&
-              eq38 < fixedLimitCapValueBar(eqSamples38)
-            ) {
+            // calls it and cannot answer, so heads-up it is worth (2e - 1)
+            // small bets. It fires only at e >= 0.5 + m, m = 1 / sqrt(n), two
+            // standard errors of this n-deal estimate (n = 360 for flh and 176
+            // for flo8 at full scale: 0.0527 and 0.0754). Below that the hand
+            // takes the call. AH-V38-FIXED-LIMIT.md: Q9o-72o capped at
+            // 0.30-0.46. Scope (2026-11-16): heads-up after the 3-bet (the
+            // 3-bettor is the only other player in and no other live player
+            // can respond: with k callers the cap breaks even at 1/(k + 1),
+            // not 0.5) and cash tables only (no tournament evidence). The cap
+            // test inside is redundant under V53 (raises === 2) and kept as a
+            // guard. The rule's only answer is the call; it is returned as is.
+            const capCall38 = fixedLimitManiacCapCall({
+              option: opts.fixedLimitManiacCapNeedsValue,
+              fixedLimit: vi.isFixedLimit,
+              tournament: isTournamentMode(gs),
+              playersInPot: inPotPlayers38.length,
+              otherLiveResponder: otherLiveResponder38,
+              actions: gs.actionHistory ?? [],
+              equity: eq38,
+              sampleSize: eqSamples38,
+              toCall,
+              stack: player.stack,
+            });
+            if (capCall38 !== null) {
               if (telemetryOn(opts)) noteFire('fixed_limit_maniac_cap_value_call_seen');
               notePhase6Route('variant_fallback', 'variant_price');
-              return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
+              return { ...capCall38, thinkTime: 0 };
             }
             const target53 = vi.isPotLimit
               ? gs.maxRaiseTo

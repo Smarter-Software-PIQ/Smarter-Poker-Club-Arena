@@ -18,6 +18,8 @@ With the option on, in a fixed-limit game (the betting structure) a V53 pressure
 
 At full scale that is n = 360 for flh (m = 0.0527) and n = 176 for flo8 (m = 0.0754). See `HorseFixedLimitManiacCap.ts`.
 
+Scope: heads-up after the 3-bet, cash tables only (2026-11-16, after the independent review of `237f1ad9`). The 0.5 break-even holds for one caller. With k players already in at the price the cap breaks even at 1/(k + 1), so the rule acts only when the 3-bettor is the only other player in the pot and no other live player can still respond. No evidence covers fixed-limit tournament tables, so a tournament table keeps the decision without the option (the same `isTournamentMode` test as W5). In every other spot the decision is the one without the option.
+
 ## Receipts
 
 `fixed_limit_maniac_cap_value_call_seen` in HorseDataLedger, noted only when the cap became the call. The league cannot deal fixed limit, so the option is a refused matchup (`UNMEASURABLE_MATCHUPS`) with its reason.
@@ -30,8 +32,11 @@ At full scale that is n = 360 for flh (m = 0.0527) and n = 176 for flo8 (m = 0.0
 - with the option on, in flh 6-max facing a maniac 3-bet after the open, the six 0.30–0.46 hands call, AA and 99 cap, KQs caps in most seeds, and every cap is at or above the bar;
 - with the option off, decisions are identical to the option unset, and the weak hands cap;
 - the receipt fires exactly when the action changes, and only from cap to call;
-- flh heads-up, flo8 at six seats and heads-up, an unknown 3-bettor, no-limit and pot-limit are unchanged.
+- flh heads-up, flo8 at six seats and heads-up, an unknown 3-bettor, no-limit and pot-limit are unchanged;
+- with a cold-caller in after the maniac 3-bet (flh 6-max), on decides exactly as off, 99 and KQs included;
+- at a fixed-limit tournament table, heads-up after the maniac 3-bet, on decides exactly as off;
+- the rule's decision function answers only with the call for the chips owed, never a fold or a raise.
 
 ## Switch
 
-The option registers itself in the live switch registry through its ledger flag (release default off). The database lists ship as follow-up migration `20261116041907_horse_option_switch_fixed_limit_maniac_cap_value.sql` (stacked above the Fixed-Limit W4 list `20261116011129`; it equals that list plus this one name). Registering enables nothing. AB-EVALUATION-2.md section 3.8 (Fixed-Limit lane evidence): no harm in any of the nine predeclared cells, value not demonstrated, so the option stays OFF; an ON row would need demonstrated value first.
+The option registers itself in the live switch registry through its ledger flag (release default off). The database lists ship as follow-up migration `20261116073614_horse_option_switch_fixed_limit_maniac_cap_value.sql` (it equals main's newest list, the Fixed-Limit W4 list `20261116011129`, plus this one name). Registering enables nothing. AB-EVALUATION-2.md section 3.8 (Fixed-Limit lane evidence) measured the broader rule, multiway pots and tournament tables included: no harm in any of the nine predeclared cells, value not demonstrated, so the option stays OFF. An ON row would need fresh predeclared cells at the narrowed scope (heads-up after the 3-bet, cash) plus the R2 reach first.

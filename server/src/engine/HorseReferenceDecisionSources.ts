@@ -229,7 +229,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseFixedLimitCallPrice.ts':
       'the default-off fixed-limit call price (2026-11-14, Fixed-Limit lane): a fixed-limit call is never a stack commitment; its price is the chips to call plus the expected further wagers of the street while a player left to act can still raise',
     'src/engine/HorseFixedLimitManiacCap.ts':
-      'the default-off fixed-limit cap bar (2026-11-15, Fixed-Limit lane): a V53 pressure raise that would be the fixed-limit preflop cap needs equity of at least 0.5 plus two standard errors of its estimate (1/sqrt(n)), else the call',
+      'the default-off fixed-limit cap bar (2026-11-15, Fixed-Limit lane): a V53 pressure raise that would be the fixed-limit preflop cap, heads-up after the 3-bet at a cash table, needs equity of at least 0.5 plus two standard errors of its estimate (1/sqrt(n)), else the call',
     'src/engine/HorseFixedLimitRiverLead.ts':
       'the default-off fixed-limit strong river lead (Fixed-Limit lane W8, 2026-11-15): a first-to-act full house or better that few holdings beat bets one big bet instead of the reference check, with the hi-lo low rule and the aggressive-next-opponent exception',
     'src/engine/HorseHiLoLowHalf.ts':
