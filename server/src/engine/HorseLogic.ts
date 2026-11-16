@@ -6677,6 +6677,9 @@ function pairedBoardFold(
       toCall: gs.toCall,
       pot: gs.pot,
       icmRisk: omahaTournamentIcmRisk(player, gs),
+      stage: String(gs.stage ?? ''),
+      heroSeat: player.seat,
+      actionHistory: gs.actionHistory,
     })
   ) {
     // The receipt describes the final action: a later rule can still fold
@@ -7413,10 +7416,24 @@ function omahaOopReraisedPotStrongRange(
       break;
     }
     if (!raiser || raiser.is_folded || raiser.is_all_in) return decision;
-    // In position against him a call of a 3-bet is unchanged (the cell's scope).
-    const outOfPosition =
-      postflopOrder(player.seat, gs.dealerSeat) < postflopOrder(raiser.seat, gs.dealerSeat);
+    // In position against him and every live player already voluntarily in the
+    // pot, a call of a 3-bet is unchanged (the cell's scope). A sandwiched
+    // blind cold-calling with live EP/MP raisers/callers still to act behind it
+    // is out of position against the pot (Hand #59728571).
     const bb = gs.bigBlind || 1;
+    const myOrder = postflopOrder(player.seat, gs.dealerSeat);
+    const outOfPosition =
+      myOrder < postflopOrder(raiser.seat, gs.dealerSeat) ||
+      (gs.players ?? []).some(
+        (p) =>
+          p.seat !== player.seat &&
+          p.seat !== raiser.seat &&
+          !p.is_folded &&
+          !p.is_sitting_out &&
+          !p.is_all_in &&
+          (p.bet ?? 0) > bb + 0.005 &&
+          postflopOrder(p.seat, gs.dealerSeat) > myOrder
+      );
     let band: [number, number] | null = null;
     if (opts.mind !== false) {
       try {
@@ -9874,7 +9891,15 @@ function omahaStrongHandValueRule(
 ): { decision: HorseDecision; priced: boolean } {
   const same = { decision, priced: false };
   if (opts.omahaStrongHandValue !== true) return same;
-  if (decision.action !== 'check' && decision.action !== 'call') return same;
+  const undersizedBet =
+    decision.action === 'bet' &&
+    Number.isFinite(decision.amount) &&
+    Number.isFinite(gs.pot) &&
+    gs.pot > 0 &&
+    Number.isFinite(player.stack) &&
+    (decision.amount as number) < gs.pot * 0.25 - 0.005 &&
+    (decision.amount as number) < player.stack - 0.005;
+  if (decision.action !== 'check' && decision.action !== 'call' && !undersizedBet) return same;
   try {
     const userOf = (seat: number): string | null =>
       opts.mind === false
@@ -12435,10 +12460,20 @@ export class HorseLogic {
           noteFire('omaha_one_pair_stack_off_folded');
         return r.decision;
       };
-      // Price missed checked-to turn boat and river value against the controller's menu.
+      // Price missed checked-to turn boat and river value against the controller's menu
+      // (including any undersized <25%-pot lead left by an earlier node).
+      const missedOrUndersizedValue =
+        finalWager.action === 'check' ||
+        (finalWager.action === 'bet' &&
+          Number.isFinite(finalWager.amount) &&
+          Number.isFinite(gs.pot) &&
+          gs.pot > 0 &&
+          Number.isFinite(player.stack) &&
+          (finalWager.amount as number) < gs.pot * 0.25 - 0.005 &&
+          (finalWager.amount as number) < player.stack - 0.005);
       if (
         !strongHand.priced &&
-        finalWager.action === 'check' &&
+        missedOrUndersizedValue &&
         (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
         !gs.wagersCapped &&

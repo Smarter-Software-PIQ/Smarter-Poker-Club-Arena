@@ -2841,6 +2841,7 @@ export class HorseMind {
         rc?.measured === true && exploit !== null && exploit.presumed !== true
           ? isPostflopManiac(exploit)
           : false,
+      valueLeader: rc?.measured === true && rc.valueLeader === true,
       sizeShown:
         cell && typeof cell.best === 'number' && Number.isFinite(cell.best)
           ? {
