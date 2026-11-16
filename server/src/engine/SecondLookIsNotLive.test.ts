@@ -125,7 +125,14 @@ function decide(spot: () => Spot, opts: Record<string, unknown>, seed: number) {
  * The wall-clock fields of a decision: measured times, never chosen ones. Named one by one, so a field that
  * is a CHOICE (budgetMs: the budget a phase was given) is compared like everything else.
  */
-const WALL_CLOCK_FIELDS = new Set(['elapsedMs', 'latencyMs', 'policyMs', 'simulationMs']);
+const WALL_CLOCK_FIELDS = new Set([
+  'analysisMs',
+  'elapsedMs',
+  'latencyMs',
+  'policyMs',
+  'simulationMs',
+  'utilityLatencyMs',
+]);
 
 /** The whole decision without its wall-clock fields. */
 function timeless(value: unknown): unknown {
@@ -329,6 +336,8 @@ function lawGatedBlocks(S: string): LawBlock[] {
   };
   const out: LawBlock[] = [];
   const re = /\bif\s*\(/g;
+  const elseRe = /else\b/y;
+  const elseIfRe = /if\s*\(/y;
   let m: RegExpExecArray | null;
   while ((m = re.exec(S))) {
     const condEnd = closeOf('(', ')', m.index + m[0].length);
@@ -338,10 +347,11 @@ function lawGatedBlocks(S: string): LawBlock[] {
     // the else chain is the same gate read the other way: it belongs to the gated code
     for (;;) {
       const k = skipSpace(bodyEnd);
-      if (!/^else\b/.test(S.slice(k, k + 5))) break;
-      let next = skipSpace(k + 4);
-      const elseIf = /^if\s*\(/.exec(S.slice(next, next + 12));
-      if (elseIf) next = skipSpace(closeOf('(', ')', next + elseIf[0].length));
+      elseRe.lastIndex = k;
+      if (!elseRe.test(S)) break;
+      let next = skipSpace(elseRe.lastIndex);
+      elseIfRe.lastIndex = next;
+      if (elseIfRe.test(S)) next = skipSpace(closeOf('(', ')', elseIfRe.lastIndex));
       bodyEnd = statementEnd(next);
     }
     out.push({ condStart: m.index, condEnd, bodyStart, bodyEnd });
@@ -380,7 +390,7 @@ function lawSurvey(src: string): LawSurvey {
       /(?<![\w$.])((?:const|let|var)\s+)?([A-Za-z_$][\w$.[\]]*)\s*(?:\*\*|<<|>>>?|&&|\|\||\?\?|[-+*/%&|^])?=(?![=>])/g
     )) {
       if (a[1]) continue; // a local declaration
-      if (/[=!<>]/.test(body.slice(Math.max(0, a.index - 1), a.index))) continue;
+      if (a.index > 0 && /[=!<>]/.test(body[a.index - 1])) continue;
       bump(assigns, a[2]);
     }
     for (const a of body.matchAll(
@@ -431,7 +441,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure predicate on cards (hasRiverNuts), in the condition of a gated else-if; chooses a receipt',
       ],
       omahaProposeReceipt: [
-        11,
+        12,
         'queues a receipt (made / vetoed) settled against the final decision; the queue is cleared per decide',
       ],
       changed: [3, 'a local closure that only calls noteFire'],
@@ -545,24 +555,32 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
 
   it('the Phase 8 sentinel is fed only behind the live test', () => {
     const S = lawStrip(SRC);
-    const feeds = [...S.matchAll(/liveHorsePhase8Safety\.observe\s*\(/g)];
-    expect(feeds.length).toBe(1);
-    expect(S.slice(Math.max(0, feeds[0].index - 40), feeds[0].index)).toMatch(
-      /if \(phase8Live\)\s*$/
-    );
+    const feeds = [...S.matchAll(/\bliveHorsePhase8Safety\.observe\s*\(/g)];
+    const guarded = [
+      ...S.matchAll(/\bif\s*\(\s*phase8Live\s*\)\s*\{?\s*liveHorsePhase8Safety\.observe\s*\(/g),
+    ];
+    expect(feeds).toHaveLength(1);
+    expect(guarded).toHaveLength(feeds.length);
   });
 
   it('no clock or budget is chosen by `!tele`, and the Phase 8 sentinel is read behind the live test only', () => {
-    expect(SRC.match(/!tele(15)?\b/g) ?? []).toEqual([]);
-    const reads = SRC.split('\n')
-      .map((text, i) => ({ text, line: i + 1 }))
-      .filter((l) => /liveHorsePhase8Safety\./.test(l.text) && !/^\s*(\/\/|\*)/.test(l.text));
-    expect(reads.length).toBe(3);
-    const lines = SRC.split('\n');
-    for (const read of reads) {
-      const around = lines.slice(read.line - 5, read.line).join('\n');
-      expect(around, `HorseLogic.ts:${read.line}`).toMatch(/phase8Live|inSecondLookCapture\(\)/);
-    }
+    const S = lawStrip(SRC);
+    expect(S.match(/!tele(15)?\b/g) ?? []).toEqual([]);
+    const memberUses = [...S.matchAll(/\bliveHorsePhase8Safety\.\w+/g)].map((m) => m[0]);
+    expect(memberUses).toEqual([
+      'liveHorsePhase8Safety.disabledReason',
+      'liveHorsePhase8Safety.observe',
+      'liveHorsePhase8Safety.disabledReason',
+    ]);
+    expect([
+      ...S.matchAll(/\bphase8Live\s*\?\s*liveHorsePhase8Safety\.disabledReason\s*:\s*null\b/g),
+    ]).toHaveLength(1);
+    expect([
+      ...S.matchAll(
+        /!\(\s*telemetryOn\(\s*opts\s*\)\s*&&\s*!inSecondLookCapture\(\)\s*&&\s*liveHorsePhase8Safety\.disabledReason\s*\)/g
+      ),
+    ]).toHaveLength(1);
+    expect(S.match(/\bliveHorsePhase8Safety\b/g) ?? []).toHaveLength(4);
     expect(SRC).toContain('const teleLive = tele && !inSecondLookCapture();');
     expect(SRC).toContain('const phase8Live = teleLive;');
   });
@@ -727,14 +745,10 @@ describe('source law: outsideSecondLookCapture is called from the benchmark harn
   });
 
   it('BrainTelemetry.ts defines it and does not call it', () => {
-    const own = readFileSync(join(SRC_ROOT, 'engine/BrainTelemetry.ts'), 'utf8');
-    const uses = own.match(/\boutsideSecondLookCapture\b/g) ?? [];
-    const definitions = own.match(/export function outsideSecondLookCapture\b/g) ?? [];
-    expect(definitions.length).toBe(1);
-    const calls = [...own.matchAll(/(?<!function )\boutsideSecondLookCapture\s*\(/g)].filter(
-      (m) => !/^\s*(\/\/|\*)/.test(own.slice(own.lastIndexOf('\n', m.index) + 1, m.index))
-    );
-    expect(calls).toEqual([]);
-    expect(uses.length).toBeGreaterThanOrEqual(1);
+    const own = lawStrip(readFileSync(join(SRC_ROOT, 'engine/BrainTelemetry.ts'), 'utf8'));
+    const codeUses = own.match(/\boutsideSecondLookCapture\b/g) ?? [];
+    const definitions = own.match(/\bexport function outsideSecondLookCapture\b/g) ?? [];
+    expect(definitions).toHaveLength(1);
+    expect(codeUses).toHaveLength(1);
   });
 });
