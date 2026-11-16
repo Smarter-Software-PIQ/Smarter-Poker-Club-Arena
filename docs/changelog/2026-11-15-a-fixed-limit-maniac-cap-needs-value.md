@@ -34,4 +34,4 @@ At full scale that is n = 360 for flh (m = 0.0527) and n = 176 for flo8 (m = 0.0
 
 ## Switch
 
-The option registers itself in the live switch registry through its ledger flag (release default off). The database lists ship as follow-up migration `20261115190336_horse_option_switch_fixed_limit_maniac_cap_value.sql`. Registering enables nothing.
+The option registers itself in the live switch registry through its ledger flag (release default off). The database lists ship as follow-up migration `20261116041907_horse_option_switch_fixed_limit_maniac_cap_value.sql` (stacked above the Fixed-Limit W4 list `20261116011129`; it equals that list plus this one name). Registering enables nothing. AB-EVALUATION-2.md section 3.8 (Fixed-Limit lane evidence): no harm in any of the nine predeclared cells, value not demonstrated, so the option stays OFF; an ON row would need demonstrated value first.
