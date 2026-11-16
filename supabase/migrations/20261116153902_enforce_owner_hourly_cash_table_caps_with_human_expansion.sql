@@ -238,8 +238,10 @@ BEGIN
  IF NOT FOUND OR t.tournament_id IS NOT NULL OR coalesce(t.is_spins,false) THEN
   RETURN jsonb_build_object('closed',false,'reason','not_cash'); END IF;
  IF public.fn_platform_frozen() THEN RETURN jsonb_build_object('closed',false,'reason','frozen'); END IF;
+ -- Original holder protocol: admit NO KEY UPDATE heartbeats; the maintained
+ -- claim_table_lease_v2 takeover's explicit FOR UPDATE excludes this holder.
  PERFORM 1 FROM public.engine_table_leases WHERE table_id=p_table_id
-  AND instance_id=p_instance_id AND lease_generation=p_lease_generation FOR SHARE NOWAIT;
+  AND instance_id=p_instance_id AND lease_generation=p_lease_generation FOR KEY SHARE NOWAIT;
  IF NOT FOUND THEN
   RAISE EXCEPTION 'cash_hourly_engine_lease_changed' USING ERRCODE='42501'; END IF;
  IF NOT EXISTS(SELECT 1 FROM public.engine_leader WHERE id=true AND instance_id=p_instance_id) THEN

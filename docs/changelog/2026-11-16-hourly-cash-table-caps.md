@@ -73,7 +73,9 @@ number limits Horse-started capacity. Human-started games can expand beyond it.
    transaction. Preserve wallet/ledger/receipt authority. Any refusal rolls back
    the whole closure. Recheck human occupancy after serialization. Retain the
    original operation id after unknown acknowledgments and join its original
-   database transaction before reading or repeating it. Stop the original
+   database transaction before reading or repeating it. Hold the original lease
+   with KEY SHARE so heartbeat renewal continues and the maintained explicit
+   takeover lock stays excluded. Stop the original
    dealer without awaiting its own loop.
 6. A Lightning anchor chosen for closure receives no replacement hand after
    its current hand. The original legality reason chain still identifies

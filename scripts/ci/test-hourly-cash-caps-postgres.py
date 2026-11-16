@@ -213,6 +213,10 @@ try:
   if line.startswith('{'):original_receipt=json.loads(line)
   if line=='CLOSED_NOT_COMMITTED':break
   if original.poll() is not None:raise AssertionError(original.stderr.read())
+ # An open settled-close transaction is still a holder: its heartbeat renews
+ # without queueing, while the original takeover's FOR UPDATE stays fenced.
+ assert q(f"WITH renewable AS (SELECT table_id FROM engine_table_leases WHERE table_id='{selected}' FOR NO KEY UPDATE SKIP LOCKED), renewed AS (UPDATE engine_table_leases l SET instance_id=l.instance_id FROM renewable r WHERE l.table_id=r.table_id RETURNING 1) SELECT count(*) FROM renewed;")=='1','closure does not starve lease heartbeat'
+ refuses(f"SELECT 1 FROM engine_table_leases WHERE table_id='{selected}' FOR UPDATE NOWAIT;",'could not obtain lock on row')
  replay=subprocess.Popen(psql,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
  replay.stdin.write(second_close);replay.stdin.close()
  import time
