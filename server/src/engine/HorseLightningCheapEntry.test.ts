@@ -75,6 +75,8 @@ interface Spot {
   bbAnte?: boolean;
   gameMode?: 'cash' | 'tournament';
   allInOrFold?: boolean;
+  /** Name the blind seats as the Lightning host does (the fold-through rule reads them). */
+  blindSeats?: boolean;
 }
 
 function gsOf(s: Spot, cards: Card[]): { hero: SeatPlayer; gs: HorseGameStateV2 } {
@@ -185,6 +187,7 @@ function gsOf(s: Spot, cards: Card[]): { hero: SeatPlayer; gs: HorseGameStateV2 
       ante: ante === 0 ? 'none' : 'big_blind',
     },
     actionHistory: history,
+    ...(s.blindSeats ? { blindSeats: { smallBlind: 1, bigBlind: 2 } } : {}),
   } as unknown as HorseGameStateV2;
   return { hero, gs };
 }
@@ -626,6 +629,68 @@ describe('Lightning cheap entry through HorseLogic.decide', () => {
         expect(on.fires.get('lightning_cheap_entry_eligible_seen')).toBe(1);
         expect(on.fires.has('lightning_cheap_entry_changed_seen')).toBe(false);
       }
+  }, 240_000);
+
+  it('with the early-fold fold-through on too (L-019): a small blind that folds in the unopened early look but clears the complete bar is not folded early, completes on its turn, and never raises', () => {
+    const FT: HorseDecideOpts = { lightningEarlyFoldNeedsFoldThrough: true };
+    const BOTH: HorseDecideOpts = { ...ON, ...FT };
+    for (const variant of ['plo4', 'plo5', 'nlh']) {
+      const early: Spot = {
+        variant,
+        dealt: 6,
+        stackBB: 100,
+        heroSeat: 1,
+        atTheDeal: true,
+        blindSeats: true,
+      };
+      const turn: Spot = { ...sbFoldedTo(variant), blindSeats: true };
+      let kept = 0;
+      let byCheapEntry = 0;
+      let raisesFt = 0;
+      let raisesBoth = 0;
+      for (let i = 0; i < 60; i++) {
+        const ftOnly = play(early, i, FT);
+        const both = play(early, i, BOTH);
+        const onTurn = play(turn, i, BOTH);
+        const isRaise = (a: string) => a === 'raise' || a === 'all_in';
+        if (isRaise(ftOnly.action)) raisesFt++;
+        if (isRaise(both.action)) raisesBoth++;
+        if (both.action !== ftOnly.action) {
+          // the only move cheap entry adds to the early look: an early fold that is not taken
+          expect(ftOnly.action, `${variant} hand ${i}`).toBe('fold');
+          expect(both.action, `${variant} hand ${i}`).toBe('call');
+          expect(ftOnly.fires.get('lightning_fold_through_kept')).toBe(1);
+        }
+        // the hand under test: the unopened early look folds, the folded-to small blind completes
+        // "Clears the bar" is by more than the decision jitter (+/- 0.03 on the strength): the
+        // frame is asked after the first ask, so its jitter is not the turn's, and a hand within
+        // the jitter of the bar can still be folded early (hold'em hand 7 here is one).
+        const completes = onTurn.events.some(
+          (e) =>
+            e.branch === 'lightning_cheap_entry_sb_complete' &&
+            e.strength >= e.effectiveThreeBetThreshold + 0.06
+        );
+        if (play(early, i, ON).action !== 'fold' || !completes) continue;
+        kept++;
+        expect(both.action, `${variant} hand ${i}: folded early`).not.toBe('fold');
+        expect(both.fires.get('lightning_fold_through_released')).toBe(1);
+        expect(both.fires.has('lightning_fold_through_kept')).toBe(false);
+        // Where the fold-through alone keeps the early fold, the completion is what releases it:
+        // the frame is the normal decide path, so it carries the cheap entry's code and receipt.
+        // (On a few hands the base policy already continues on the frame by its own jitter.)
+        if (ftOnly.action === 'fold') {
+          byCheapEntry++;
+          expect(both.action, `${variant} hand ${i}`).toBe('call');
+          expect(both.branches).toContain('lightning_cheap_entry_sb_complete');
+          expect(both.fires.get('lightning_cheap_entry_changed_seen')).toBe(1);
+        }
+        expect(onTurn.action, `${variant} hand ${i}: on its turn`).toBe('call');
+        expect(onTurn.fires.get('lightning_cheap_entry_changed_seen')).toBe(1);
+      }
+      expect(raisesBoth, `${variant}: cheap entry adds no raise to the early look`).toBe(raisesFt);
+      expect(kept, `${variant}: no hand reached the case`).toBeGreaterThan(0);
+      expect(byCheapEntry, `${variant}: the cheap entry never released a fold`).toBeGreaterThan(0);
+    }
   }, 240_000);
 
   it('composes with the participation options: their raise cells decide first, cheap entry only turns a fold into a call', () => {
