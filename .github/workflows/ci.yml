@@ -2067,21 +2067,6 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/build_pg17_isolationtester.py
-      - name: Original promo returns preserve journal custody and concurrent replay
-        id: promo_principal_returns
-        if: matrix.shard == 3
-        env:
-          PG_ISOLATION_TESTER: ${{ github.workspace }}/artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester
-          TMPDIR: ${{ runner.temp }}
-        run: python3 -B scripts/ci/test-promo-principal-returns.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-principal-returns
-      - name: Retain original promo return proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.promo_principal_returns.outcome)
-        uses: actions/upload-artifact@v4
-        with:
-          name: promo-principal-returns-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/promo-principal-returns/
-          if-no-files-found: error
-          retention-days: 7
       - name: Retain PostgreSQL isolation tool build evidence
         if: always() && (matrix.shard == 3 || matrix.shard == 4) && steps.pg17_isolation_tool.outcome != 'skipped'
         uses: actions/upload-artifact@v4

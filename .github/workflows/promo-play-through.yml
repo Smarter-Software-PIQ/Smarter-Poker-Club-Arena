@@ -120,6 +120,11 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/build_pg17_isolationtester.py
+      - name: Original promo returns preserve journal custody and concurrent replay
+        env:
+          PG_ISOLATION_TESTER: ${{ github.workspace }}/artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-promo-principal-returns.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-principal-returns
       - name: Review holds follow actual restricted principal
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
@@ -152,6 +157,10 @@ jobs:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-principal-returns/RESULTS.json
+            artifacts/promo-principal-returns/source-manifest.json
+            artifacts/promo-principal-returns/*race*.stdout
+            artifacts/promo-principal-returns/*race*.stderr
             artifacts/promo-ticket-principal-returns/RESULTS.json
             artifacts/promo-profit*/RESULTS.json
             artifacts/promo-profit*/INPUTS.json
