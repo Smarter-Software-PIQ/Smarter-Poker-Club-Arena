@@ -97,6 +97,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the game scope of the 2026-11-15 Omaha strategy options (one gate, omahaStrategyGameInScope: PLO4/PLO5 as before, PLO6 only with the PLO6 lane's omahaStrategyInPlo6) and their hand-size dependent constants (omahaStrategyConstant: PLO4/PLO5 the modules' own values, PLO6 from the PLO6 lane's registered calibration)",
     'src/engine/HorseOmahaTournamentScope.ts':
       'the default-off Omaha tournament scope (owner 2026-11-15 13:16, omahaStrategyInTournaments): where the cash-scoped PLO4/PLO5 rules of 2026-11-15 also run in a tournament hand (high only, one board, not All-In-Or-Fold, not Lightning, deeper than the 14 big blind push/fold line), and the tournament survival premium (icmRisk x sqrt(stack share)) a chip-adding conversion adds to its price',
+    'src/engine/HorsePlayStyle.ts':
+      "the default-off Horse playing styles (owner 2026-11-15 16:40 / 16:42, horsePlayStyles), shared by every game: which of tight, current and pressure a Horse plays for life (a hash of its id, or the authored persona.playStyle) and the table rule that sends a style to current (tournaments, Lightning, 50 bb or less, unmapped games, a VPIP floor above the tight style's expected VPIP)",
+    'src/engine/HorseOmahaPlayStyle.ts':
+      'the default-off Omaha mapping of the Horse playing styles (owner 2026-11-15 16:40 / 16:42, horsePlayStyles): the bounded scales (0.75 to 1.25) on the preflop bars, the bluff volume and the aggression, and the existing archetype band the persona gears are read from, for the tight style and for the pressure style in position in PLO4/PLO5 cash',
     'src/engine/HorseOmahaBigDrawAggression.ts':
       'the default-off Omaha big-draw aggression (owner 2026-11-15 11:55): on a PLO4/PLO5 cash flop or turn a check or call with a declared big draw becomes a pot-sized bet or raise only when its expected value (measured fold equity, equity against the continuing range) is above the passive line; the outermost wager rule',
     'src/engine/HorseOmahaMadeHandDefense.ts':

@@ -65,13 +65,15 @@
  * HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED
  * NUT FLUSH DRAWS." So this rule never raises out of position (any live
  * opponent acts after the Horse on later streets), raises in position only
- * with a combo draw (a flush draw with a straight draw, or a pair with a nut
- * draw: every class but the bare nut_wrap), and adds no bet out of position
+ * with a combo draw (omahaComboDrawForRaise: a flush draw with a straight
+ * draw of eight or more outs; since 2026-11-16 a pair with a nut flush draw
+ * and a pair with a wrap are not combo draws), and adds no bet out of position
  * either (today's play stays). omahaDrawRaiseBar is the same ruling for the
  * brain's EXISTING draw raises (option omahaNoDrawRaiseOutOfPosition): a hand
  * below two pair with a flush draw or 8+ straight outs does not raise out of
  * position, and in position does not raise a bare flush draw (no top pair or
- * better, under eight straight outs). Two pair or better is a made hand and
+ * better, under eight straight outs; since 2026-11-16 any flush draw without
+ * an eight-out straight draw, a pair or not). Two pair or better is a made hand and
  * is never barred.
  *
  * Pure: no state, no brain random draws, no telemetry.
@@ -182,11 +184,6 @@ function drawOuts(h: Card[], b: Card[], dead: readonly Card[]) {
   return { nutFlushOuts, nutStraightOuts, straightOuts, flushOuts };
 }
 
-/** A combo draw: a flush draw with a straight draw, or a pair with a nut draw. */
-export function omahaBigDrawIsCombo(cls: OmahaBigDrawClass): boolean {
-  return cls !== 'nut_wrap';
-}
-
 /**
  * In position after the flop: no live opponent acts after hero on a later
  * street (the button, or the live seat nearest before it, acts last).
@@ -203,11 +200,21 @@ export function omahaHeroInPosition(
 
 /**
  * THE ONE DEFINITION of the combo draw that may raise in position (owner
- * ruling 2026-11-15 12:30, read literally by the lane owner after the audit):
- * a draw below two pair (a flush draw, or eight or more straight outs) that is
- * a flush draw with eight or more straight outs, or a strong pair with a draw.
- * A bare flush draw and a bare straight draw or wrap are not. Used by the
- * draw-raise bar here and by omahaTurnRiverRaiseNeedsNuts's turn exception.
+ * rulings 2026-11-15 12:30 Chicago, "only in position when its combo draws,
+ * not naked nut flush draws", and 12:52, turn and river facing a bet raise
+ * only with the nuts; made precise 2026-11-16, review note on item 7): a hand
+ * below two pair holding a flush draw (five or more flush outs) TOGETHER with
+ * a straight draw of eight or more outs, a 13+ out wrap with a flush draw
+ * included. A made pair adds nothing: a pair with a nut flush draw is not a
+ * combo draw, nor a pair with a nut flush draw and a gutshot (it does not
+ * raise: the draw-raise bar makes the raise a call), nor
+ * a pair with a wrap and no flush draw, nor a bare flush draw or a bare wrap.
+ * Straight outs here are counted by rank under the two-card rule, a card that
+ * also completes the flush included (omahaComboStraightOuts), so the flush
+ * cards of an open-ender are not lost to the flush. Used by the draw-raise bar
+ * here (omahaNoDrawRaiseOutOfPosition), by omahaBigDrawVerdict's in-position
+ * raise (omahaBigDrawAggression) and by omahaTurnRiverRaiseNeedsNuts's turn
+ * exception.
  */
 export function omahaComboDrawForRaise(
   hole: readonly Card[],
@@ -218,16 +225,36 @@ export function omahaComboDrawForRaise(
     const h = [...hole];
     const b = [...board];
     if (b.length !== 3 && b.length !== 4) return false;
-    const cat = catOf(h, b);
-    if (cat >= 3) return false;
+    if (catOf(h, b) >= 3) return false;
     const o = drawOuts(h, b, dead);
-    const flush = o.flushOuts >= 5;
-    if (!flush && o.straightOuts < 8) return false;
-    if (flush && o.straightOuts >= 8) return true;
-    return strongPair(hole, board, cat);
+    if (o.flushOuts < 5) return false;
+    const straight = omahaComboStraightOuts(hole, board, dead);
+    return straight >= 8 || straight >= OMAHA_COMBO_WRAP_OUTS;
   } catch {
     return false;
   }
+}
+
+/** A wrap: thirteen or more straight outs (with a flush draw, a combo draw;
+ * every wrap is also an eight-out straight draw, so this names the case). */
+export const OMAHA_COMBO_WRAP_OUTS = 13;
+
+/**
+ * Unseen next cards that give the hand a straight under the two-card rule,
+ * counted by rank (a card that also completes a flush is counted), less the
+ * hand's own copies and the known dead cards of each such rank.
+ */
+export function omahaComboStraightOuts(
+  hole: readonly Card[],
+  board: readonly Card[],
+  dead: readonly Card[] = []
+): number {
+  const seen = new Set([...hole, ...board, ...dead].map(key));
+  let outs = 0;
+  for (const r of omahaStraightOutRanks(omahaRankMask(hole), omahaRankMask(board)))
+    for (const suit of SUITS)
+      for (const rank of RANKS) if (RANK_VALUES[rank] === r && !seen.has(`${rank}:${suit}`)) outs++;
+  return outs;
 }
 
 export type OmahaDrawRaiseBar = 'out_of_position' | 'bare_flush_draw' | 'bare_straight_draw';
@@ -614,7 +641,8 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
   // Owner 2026-11-15 12:30: no draw raise and no new draw lead out of
   // position; in position a raise only with a combo draw.
   if (!i.inPosition) return held('out_of_position');
-  if (toCall > 0.005 && !omahaBigDrawIsCombo(draw.cls)) return held('not_combo');
+  if (toCall > 0.005 && !omahaComboDrawForRaise(i.hole, i.board, i.dead ?? []))
+    return held('not_combo');
   const facing = toCall > 0.005;
   const total = heroBet + stack;
   const max = fin(i.maxRaiseTo);

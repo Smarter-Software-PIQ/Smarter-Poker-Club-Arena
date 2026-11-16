@@ -2641,6 +2641,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNoDrawRaiseOutOfPosition: true },
     b: {},
   })),
+  // 2026-11-15 HORSE PLAYING STYLES (HorsePlayStyle, HorseOmahaPlayStyle;
+  // owner 16:40 / 16:42; default OFF): each non-current style against a field
+  // of the current style. League seat ids are league-N, so the a seats are
+  // given their style by the league lever horsePlayStyleForce; b is today's
+  // brain (the current style is byte-identical to it). Every seat plays the
+  // live Hybrid profile (hybridBaseline, 2026-11-16), as the recent cards do.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    (['tight', 'pressure'] as const).map((style) => ({
+      name: `${variant}_horse_play_style_${style}`,
+      variant,
+      pairs: 6000,
+      hybridBaseline: true,
+      a: { horsePlayStyles: true, horsePlayStyleForce: style },
+      b: {},
+    }))
+  ),
   // 2026-11-15 OMAHA STRONG HAND VALUE (HorseOmahaStrongHandValue, default
   // OFF): the PLO4/PLO5 cash river check with a full house or better (or a
   // nut-class hand) priced against every value bet, and the river call facing

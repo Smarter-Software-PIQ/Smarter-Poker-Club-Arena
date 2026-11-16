@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import {
   UNDERPAIR_KEEP_PRICE,
   omahaColdFourBetCell,
@@ -82,7 +83,7 @@ interface Outcome {
 /** A digest of the whole decision (timings aside), so a difference fails with a short message. */
 const decisionBytes = (d: unknown): string =>
   createHash('sha256')
-    .update(JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v)))
+    .update(JSON.stringify(withoutMeasurements(d)))
     .digest('hex')
     .slice(0, 16);
 function playMany(ord: number, opts: HorseDecideOpts, v: Variation = {}): Outcome {

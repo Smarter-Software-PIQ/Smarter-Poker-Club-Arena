@@ -128,6 +128,48 @@ describe('what the route does not name tight', () => {
     expect(read(p, true, 'hu').receipt.tightMethodLine ?? 'none:').toMatch(/^none:/);
     expect(read(p, true, 'full', 'flh').receipt.tightMethodLine).toBeUndefined();
   });
+  it('non-NLH variants (flh, pineapple, short_deck, plo4) stay neutral and never run the route', () => {
+    const checkExcluded = (
+      scope: string,
+      variant: string,
+      vpip: number,
+      pfr: number,
+      hands: number,
+      shortVpip = vpip,
+      shortPfr = pfr
+    ) => {
+      const c = freshExploitCounters();
+      c.hands = Math.min(SHORT_N, hands);
+      c.vpip = c.hands * shortVpip;
+      c.pfr = c.hands * shortPfr;
+      const counters = { ...c, lHands: hands, lVpip: hands * vpip, lPfr: hands * pfr };
+      const off = classifyOpponentStyle({
+        scope: scope as never,
+        variant,
+        domain: 'cash',
+        counters,
+        provenance: { source: 'live', complete: true },
+      });
+      const on = classifyOpponentStyle({
+        scope: scope as never,
+        variant,
+        domain: 'cash',
+        counters,
+        provenance: { source: 'live', complete: true },
+        tightMethodLine: true,
+      });
+      expect(off.participation.side).toBe('neutral');
+      expect(on.participation.side).toBe('neutral');
+      expect(on.receipt.tightMethodLine).toBeUndefined();
+    };
+    // Each case has long-window rates that tightMethodLineRead would name tight against that variant's cell if ungated:
+    checkExcluded('holdem:full', 'flh', 0.18, 0.1, 80);
+    checkExcluded('holdem:short', 'pineapple', 0.3, 0.2, 50, 0.42, 0.26);
+    checkExcluded('sixplus:short', 'short_deck', 0.3, 0.2, 50, 0.43, 0.25);
+    checkExcluded('holdem:short', 'short_deck', 0.3, 0.2, 50, 0.43, 0.25);
+    checkExcluded('omaha:short', 'plo4', 0.295, 0.2, 120);
+    checkExcluded('holdem:short', 'plo4', 0.295, 0.2, 120);
+  });
 });
 
 describe('the 50-hand minimum decides (every other condition met, the earlier routes neutral)', () => {
