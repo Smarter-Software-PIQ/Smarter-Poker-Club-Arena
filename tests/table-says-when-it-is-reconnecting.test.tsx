@@ -197,7 +197,11 @@ describe('the table says when it is not connected', () => {
     expect(rule).toMatch(/transform:\s*translateY\(-100%\)/);
     // And it is rendered inside the felt surface, above .table-brand - not as
     // a sibling pinned to the top of the table container.
-    const surface = TABLE_PAGE.indexOf('className="table-surface"');
+    expect(read('src/components/table/TableFelt.tsx')).toMatch(
+      /className="table-surface">\s*\{children\}/
+    );
+    const surface = TABLE_PAGE.indexOf('<TableFelt');
+    const surfaceEnd = TABLE_PAGE.indexOf('</TableFelt>', surface);
     const brand = TABLE_PAGE.indexOf('className="table-brand"');
     /* Matched whitespace-insensitively, like the sibling pin above (2026-09-05).
        The element gained a third prop in Realtime Phase 3 (`authRefused`), so
@@ -207,6 +211,7 @@ describe('the table says when it is not connected', () => {
        banner is mounted, not how it happens to be formatted. */
     const banner = TABLE_PAGE.search(/<TableConnectionBanner\s+status=/);
     expect(surface).toBeGreaterThan(-1);
+    expect(surfaceEnd).toBeGreaterThan(brand);
     expect(banner).toBeGreaterThan(surface);
     expect(banner).toBeLessThan(brand);
     // Exactly one. Two would race each other on the same felt.

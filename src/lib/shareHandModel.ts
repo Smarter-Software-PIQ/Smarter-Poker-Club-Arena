@@ -215,6 +215,7 @@ function wireActions(model: ReplayModel, key: string): ShareableAction[] {
       else continue;
     }
     const action: ShareableAction = { seat: row.seat, action: verb };
+    if (row.atMs !== undefined) action.atMs = row.atMs;
     /* A returned uncalled bet is negative in the model and positive on the
        wire: the wire's money is unsigned, and the reconstruction re-applies
        the sign from the verb. Encoding it as-is clamped it to zero and left
@@ -269,6 +270,8 @@ export function shareableFromModel(
       seat: p.seat,
       name: p.username,
       avatar: p.avatarUrl ?? undefined,
+      frame: p.frame,
+      aura: p.aura,
     };
     if (p.startStack !== null && p.startStack !== undefined) player.stack = p.startStack;
     /* Only holdings the TABLE saw travel as shown cards. The sharer's own
@@ -520,6 +523,8 @@ export function replayFromShareable(hand: ShareableHand): ReplayModel {
       userId: idOf(p.seat),
       username: p.name,
       avatarUrl: p.avatar,
+      frame: p.frame,
+      aura: p.aura,
       seat: p.seat,
       /* The wire carries the STARTING stack; the settled one is not shared,
          and is not guessed. `startStacks` is what the felt counts down from. */
