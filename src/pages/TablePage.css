@@ -5243,8 +5243,14 @@ button.post-bb-overlay-button {
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='9'] .table-scaler {
     /* Preserve the width for side wagers around the board on height-limited phones. */
-    width: min(88%, calc(var(--sp-table-h, 100svh) * 0.76));
-    --sp-nine-cap-room: clamp(108px, 18vw, 120px);
+    width: min(88%, calc(var(--sp-table-h, 100svh) * 0.725));
+    /* When height is limited, give the side rows room for a complete shown
+       hand and its wager. Tall phones retain the full portrait headroom. */
+    --sp-nine-cap-room: clamp(
+      86px,
+      calc(var(--sp-table-h, 100svh) * 0.12),
+      clamp(108px, 18vw, 120px)
+    );
     height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
     margin-top: var(--sp-nine-cap-room);
   }
