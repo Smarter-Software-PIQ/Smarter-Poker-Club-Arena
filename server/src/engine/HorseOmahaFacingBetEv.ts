@@ -140,6 +140,8 @@ export interface OmahaFacingBetEvRead {
   betCheckedToRatio: number | null;
   /** isPostflopManiac on his measured read */
   postflopManiac: boolean;
+  /** measured postflop value leader (bets <= mean when checked to, folds >= mean, calls rivers <= mean) */
+  valueLeader?: boolean;
   /** his river bets of this size that reached showdown, those that were the best hand and, when known, those
    *  that showed a strong hand and did not win (thin value: half a bluff). Null: the memory has no such read
    *  (today always: see HorseMind.omahaFacingBetEvReadOf) */
@@ -149,6 +151,7 @@ export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
   betCheckedToRatio: null,
   postflopManiac: false,
+  valueLeader: false,
   sizeShown: null,
 });
 
@@ -160,6 +163,7 @@ export function omahaEvBluffShare(prior: number, read: OmahaFacingBetEvRead | nu
     if (read.betCheckedToRatio !== null && Number.isFinite(read.betCheckedToRatio))
       k = Math.max(0.7, Math.min(1.5, read.betCheckedToRatio));
     if (read.postflopManiac) k = Math.max(k, 1.3);
+    else if (read.valueLeader === true) k = Math.min(k, 0.65);
     q *= k;
   }
   const s = read?.sizeShown;
@@ -904,6 +908,8 @@ export interface OmahaFacingBetEvSpot {
   allIn: boolean;
   /** No chips of consequence are left after the call (or it is the river): no later decision. */
   final: boolean;
+  /** On a non-final turn, whether the bettor keeps enough stack behind (>25% final pot) to barrel the river. */
+  bettorCanBarrelRiver?: boolean;
   /** The value share used for this bet and line. */
   valueShare: number;
   /** The population-prior bluff share for this bet. */
@@ -1055,11 +1061,33 @@ export function omahaFacingBetEvSpot(
       street === 'river' ||
       allIn ||
       leftBehind <= OMAHA_FACING_BET_EV_TRIVIAL_BEHIND * (winnable + paid);
+    const bettorCanBarrelRiver =
+      street === 'turn' &&
+      !bettor.is_all_in &&
+      Number.isFinite(bettor.stack) &&
+      bettor.stack > 0.25 * (winnable + paid);
     const bucket = omahaBetSizeBucket(potFrac);
-    const valueShare =
-      OMAHA_EV_VALUE_SHARE[street][isRaise ? 'raise' : bucket] *
-      OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets *
-      OMAHA_EV_LINE_CALLER ** callerStreets;
+    const boardPaired = new Set(board.map((c) => c.rank)).size < board.length;
+    // Hand #59730132: a defender who only called earlier postflop street(s) and
+    // donk-leads >= 40% pot on a paired river directly into the turn aggressor is
+    // at least as polarized to full houses / quads as a river raise (never leading
+    // second-nut flushes or bare trips for thin value into an uncapped aggressor).
+    const pairedRiverDonkIntoAggressor =
+      street === 'river' &&
+      !isRaise &&
+      boardPaired &&
+      potFrac >= 0.4 &&
+      aggressorStreets === 0 &&
+      callerStreets >= 1 &&
+      lineOn('turn', player.seat).aggr;
+    const valueShare = pairedRiverDonkIntoAggressor
+      ? OMAHA_EV_VALUE_SHARE.river.raise * OMAHA_EV_LINE_AGGRESSOR ** callerStreets
+      : OMAHA_EV_VALUE_SHARE[street][isRaise ? 'raise' : bucket] *
+        OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets *
+        OMAHA_EV_LINE_CALLER ** callerStreets;
+    const priorBluff = pairedRiverDonkIntoAggressor
+      ? OMAHA_EV_PRIOR_BLUFF.river.raise
+      : omahaEvPriorBluffShare(street, potFrac, isRaise);
     return {
       street,
       bettorSeat: faced.bettorSeat,
@@ -1076,8 +1104,9 @@ export function omahaFacingBetEvSpot(
       winnable,
       allIn,
       final,
+      ...(street === 'turn' ? { bettorCanBarrelRiver } : {}),
       valueShare,
-      priorBluff: omahaEvPriorBluffShare(street, potFrac, isRaise),
+      priorBluff,
     };
   } catch {
     return null;
@@ -1162,9 +1191,38 @@ export function omahaFacingBetEvVerdict(
   if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
   pWin *= field;
   pTie *= field;
-  const realization = spot.final
+  let realization = spot.final
     ? 1
     : Math.max(0.5, Math.min(1, Number.isFinite(ctx.realization) ? ctx.realization! : 0.85));
+  // Hand #59725321: on an already-paired turn facing a >= 40%-pot wager with
+  // river barrel stacks still behind, a non-boat hand with zero full-house/quad
+  // river outs draws dead against every boat in the bettor's range and folds
+  // blank rivers when the aggressor barrels again, realizing equity only on
+  // river check-downs.
+  if (
+    spot.street === 'turn' &&
+    !spot.final &&
+    spot.potFrac >= 0.4 &&
+    spot.bettorCanBarrelRiver !== false &&
+    board.length === 4 &&
+    new Set(board.map((c) => c.rank)).size < 4 &&
+    scoreOmahaHiPartial(hole, board) < 7 * 0x100000
+  ) {
+    const seen = new Set([...hole, ...board, ...dead].map(key));
+    let boatOuts = 0;
+    for (const s of SUITS) {
+      for (const r of RANKS) {
+        const k = `${r}:${s}`;
+        if (seen.has(k)) continue;
+        if (scoreOmahaHiPartial(hole, [...board, { rank: r, suit: s }]) >= 7 * 0x100000) {
+          boatOuts++;
+          break;
+        }
+      }
+      if (boatOuts > 0) break;
+    }
+    if (boatOuts === 0) realization = Math.min(realization, 0.42);
+  }
   pWin *= realization;
   pTie *= realization;
   const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? ctx.rake! : 0));

@@ -285,3 +285,27 @@ describe('the final Diamond card belongs to its closed custody', () => {
     }
   );
 });
+
+it('uses the settled chip result when an add-on restored the stack to the original buy-in', async () => {
+  testState.rpc.mockImplementation(async (name: string) => ({
+    data: name === 'fn_my_settled_chip_result' ? { funding: 402, net: -2 } : null,
+    error: null,
+  }));
+  render(view());
+  act(() =>
+    publishSessionSummary(
+      oldMount({
+        arenaAsset: 'chips',
+        diamondRecap: undefined,
+        profitLoss: 0,
+        totalBuyIn: 400,
+        handStatsTarget: { tableId: target.tableId, userId: target.userId, asOf: Date.now() },
+        closeTableId: target.tableId,
+        closeOccupancyId: target.occupancyId,
+      })
+    )
+  );
+  await screen.findByText('402');
+  expect(screen.getAllByText('-2.00').length).toBeGreaterThan(0);
+  expect(screen.queryByText('+0.00')).toBeNull();
+});

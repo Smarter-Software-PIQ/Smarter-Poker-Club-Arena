@@ -501,7 +501,22 @@ try:
     # cohorts; unknown releases and malformed fields still fail closed.
     if population == legacy_population:
         population = 'legacy-release:' + legacy_release
-    fingerprint = int(hashlib.sha256(f'{fingerprint}:{population}'.encode()).hexdigest()[:13], 16)
+    contract = schedule.get('cashAdmissionContract')
+    if contract is None and health.get('releaseSha') == legacy_release:
+        contract = 'cash-population/v1'
+    if contract == 'cash-population/v1':
+        # Exactly the existing legacy wire key, including migration-first and rollback.
+        policy_key = f'{fingerprint}:{population}'
+    elif contract == 'cash-hourly-tables/v1':
+        hourly = rows[0].get('hourly_fingerprint')
+        if rows[0].get('hourly_contract') != contract or type(hourly) is not int or not 0 <= hourly < 2**52:
+            raise ValueError('hourly cash admission policy is unavailable')
+        # Adoption is explicit before the first hand-boundary close. Never key
+        # on the current instance, enablement row, wall clock or observed seats.
+        policy_key = f'{fingerprint}:{population}:{contract}:{hourly}'
+    else:
+        raise ValueError('engine cash admission contract is unavailable')
+    fingerprint = int(hashlib.sha256(policy_key.encode()).hexdigest()[:13], 16)
     lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
              '# TYPE poker_lightning_admission_policy_fingerprint gauge',
              f'poker_lightning_admission_policy_fingerprint {fingerprint:d}']

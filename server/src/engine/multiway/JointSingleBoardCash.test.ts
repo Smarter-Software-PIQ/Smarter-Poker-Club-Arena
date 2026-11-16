@@ -9,8 +9,13 @@ const VARIANTS = KNOWN_VARIANTS as readonly GameVariant[];
 const STREETS = ['preflop', 'flop', 'turn', 'river'] as const;
 
 describe('single-board cash stays with the variant brain where it beats the joint owner', () => {
-  it('keeps NLH and PLO4, the two variants whose matrices lost on one board', () => {
-    expect(VARIANTS.filter((v) => !jointSingleBoardCashActs(v)).sort()).toEqual(['nlh', 'plo4']);
+  it('keeps NLH, PLO4, PLO5 and PLO6, the variants whose single-board cash brain owns one board', () => {
+    expect(VARIANTS.filter((v) => !jointSingleBoardCashActs(v)).sort()).toEqual([
+      'nlh',
+      'plo4',
+      'plo5',
+      'plo6',
+    ]);
   });
 
   it('keeps the baseline on one board in cash, and can still change two and three boards and tournaments', () => {

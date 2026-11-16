@@ -2713,10 +2713,16 @@ export default function MultiTablePage() {
             masterBus.emit('TABLE_MENU_ACTION', { tableId: tabId, action: 'FORCE_LEAVE_TABLE' });
             break;
           }
-          if (remaining.length === 0) {
-            const club = homeClubIdRef.current;
-            const dest = club ? `/clubs/${club}` : '/';
-            if (pathnameRef.current !== dest) navigate(dest);
+          if (tablesRef.current[activeIndexRef.current]?.id === tabId) {
+            const next = remaining.find(isTableTab);
+            if (next) {
+              setActiveIndex(tablesRef.current.indexOf(next));
+              navigate(`/table/${next.id}${tableQuery(next)}`, { replace: true });
+            } else {
+              const club = homeClubIdRef.current;
+              const dest = club ? `/clubs/${club}` : '/';
+              if (pathnameRef.current !== dest) navigate(dest);
+            }
           }
           // The secure cashout path - the owning TablePage handles teardown.
           masterBus.emit('TABLE_MENU_ACTION', { tableId: tabId, action: 'FORCE_LEAVE_TABLE' });

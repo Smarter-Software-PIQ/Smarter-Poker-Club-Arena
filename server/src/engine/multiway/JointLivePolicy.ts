@@ -252,8 +252,28 @@ export function jointSelectedRow(
     s.gameMode !== 'tournament' &&
     (s.boardCount ?? 1) === 1 &&
     !jointSingleBoardCashActs(s.gameVariant);
+  // Never select an unforced postflop min-bet lead (< 25% pot) over a non-bet
+  // baseline when a legal quarter-pot+ wager exists (live hands #59717970,
+  // #59719509, #59694892: paired-SE favored 1 BB min-bets over real value bets).
+  const minSizedPostflopBet =
+    s.stage !== 'preflop' &&
+    s.bettingStructure !== 'fixed_limit' &&
+    typeof s.maxRaiseTo === 'number' &&
+    Number.isFinite(s.maxRaiseTo) &&
+    s.maxRaiseTo > (s.minRaiseTo ?? s.bigBlind) + 1e-6 &&
+    Number.isFinite(s.pot) &&
+    s.pot > 0
+      ? Math.min(s.maxRaiseTo, Math.max(s.minRaiseTo ?? 0, s.pot * 0.25))
+      : null;
   for (const row of owes || keepsVariantBrain ? [] : rows) {
     if (row === selected || row.pairedEdge === null || row.pairedStandardError === null) continue;
+    if (
+      minSizedPostflopBet !== null &&
+      row.action === 'bet' &&
+      row.amount !== null &&
+      row.amount < minSizedPostflopBet - 1e-6
+    )
+      continue;
     const lower = row.pairedEdge - rule.z * row.pairedStandardError;
     if (lower > best) {
       best = lower;

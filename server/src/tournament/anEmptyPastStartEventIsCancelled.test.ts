@@ -167,7 +167,7 @@ describe('the discovery loop wiring', () => {
       /tournament\.format_contract === 'sng-v1' &&\s*isFixedSngSatellite\(tournament\)/
     );
     expect(branch).toMatch(
-      /fixedSatellite\s*\? await supabase\.rpc\('fn_ca_expire_empty_fixed_sng_satellite'/
+      /throughCancellationLane\(\s*\(\) =>\s*fixedSatellite\s*\? supabase\.rpc\('fn_ca_expire_empty_fixed_sng_satellite'/
     );
     expect(branch).toContain('if (fixedSatellite && receipt?.fully_settled !== true) return;');
     expect(branch).toContain('if (!fixedSatellite) continue;');
