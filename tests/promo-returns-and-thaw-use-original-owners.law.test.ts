@@ -8,6 +8,14 @@ describe('promo returns and expiry retain their original owners', () => {
   it('gives nested financial fixtures the short private runner directory in step scope', () => {
     expect(promo.jobs['promo-play-through'].env).toBeUndefined();
     const steps = promo.jobs['promo-play-through'].steps;
+    const configure = steps.findIndex((step: any) =>
+      step.run?.includes('"${RUNNER_TEMP:?}" >> "$GITHUB_ENV"')
+    );
+    expect(configure).toBeGreaterThanOrEqual(0);
+    expect(steps[configure].run).toContain("printf 'TMPDIR=%s\\n'");
+    for (const [index, step] of steps.entries()) {
+      if (step.run?.includes('scripts/ci/')) expect(index).toBeGreaterThan(configure);
+    }
     for (const name of [
       'test-promo-tournament-earning-generation.py',
       'test-promo-profit-bbj.py',
