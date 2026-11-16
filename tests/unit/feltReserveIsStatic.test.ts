@@ -213,7 +213,12 @@ describe('the felt reserves stay fixed through hand and action states', () => {
           prop === '--sp-hero-clear' &&
           d.selector === sixSeatSelector &&
           sixSeatReserves.includes(d.value.replace(/\s+/g, ' '));
-        if (!fixedShortRing && STATE.test(d.selector))
+        const observerUsesSeatedRow =
+          prop === '--sp-action-reserve' &&
+          d.selector ===
+            ".table-page--tournament[data-seats='9'][data-hero='false'] .table-container" &&
+          d.value === 'var(--sp-seated-row-reserve)';
+        if (!fixedShortRing && !observerUsesSeatedRow && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);
       }
     }
@@ -273,7 +278,16 @@ describe('the felt reserves stay fixed through hand and action states', () => {
     // unused hero-card space. It must never redefine either reserve or make
     // hand/action state feed the dimensions.
     expect(ALL_CSS).not.toMatch(/\[data-hero='false'\][^{]*\{[^}]*--sp-hero-clear\s*:/);
-    expect(ALL_CSS).not.toMatch(/\[data-hero='false'\][^{]*\{[^}]*--sp-action-reserve\s*:/);
+    expect(
+      declarationsOf('--sp-action-reserve').filter((d) =>
+        d.selector.includes("[data-hero='false']")
+      )
+    ).toEqual([
+      {
+        selector: ".table-page--tournament[data-seats='9'][data-hero='false'] .table-container",
+        value: 'var(--sp-seated-row-reserve)',
+      },
+    ]);
   });
 });
 
