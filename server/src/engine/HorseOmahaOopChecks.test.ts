@@ -66,6 +66,26 @@ import { runMatchup } from '../benchmark/HorseLeague.js';
 import type { Card, CardRank, CardSuit } from '../types.js';
 import FIXTURE from './horseComplaints/plo5-aces-up-leads-the-board-pairing-river-into-a-two-street-caller.fixture.json';
 
+/**
+ * The continuation verdict as HorseLogic imports it, with a switch for the
+ * fail-safe tests: 'null' answers null, 'throw' throws, 'real' (every other
+ * test) is the module's own function untouched.
+ */
+const VERDICT = vi.hoisted(() => ({ mode: 'real' as 'real' | 'null' | 'throw' }));
+vi.mock('./HorseOmahaOopChecks.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./HorseOmahaOopChecks.js')>();
+  return {
+    ...actual,
+    omahaBareOverpairFlopFacingBetVerdict: (
+      ...args: Parameters<typeof actual.omahaBareOverpairFlopFacingBetVerdict>
+    ) => {
+      if (VERDICT.mode === 'null') return null;
+      if (VERDICT.mode === 'throw') throw new Error('verdict unavailable (test)');
+      return actual.omahaBareOverpairFlopFacingBetVerdict(...args);
+    },
+  };
+});
+
 const FX = FIXTURE as unknown as ComplaintFixture;
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 const cards = (spec: string): Card[] =>
@@ -81,6 +101,7 @@ const LIVE = PROFILES.find((p) => p.live)!;
 const SEEDS = [...FX.seeds, 101, 102, 103, 104, 105, 106];
 
 afterEach(() => {
+  VERDICT.mode = 'real';
   vi.restoreAllMocks();
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -943,6 +964,91 @@ describe('omahaBareOverpairOopFlopCheck, the continuation: facing the flop bet a
     expect(omahaBareOverpairFlopFacingBetRule(given, st.hero, st.gs, {})).toBeNull();
     const turn = facingAfterCheck(TURN, 185);
     expect(omahaBareOverpairFlopFacingBetRule(given, turn.hero, turn.gs, on)).toBeNull();
+  });
+
+  it('fail-safe: with no verdict (null or a throw) a raise becomes the exact-chip call, a fold or a call stands, with its receipt', () => {
+    enableBrainTelemetry();
+    const on = { telemetry: true, omahaBareOverpairOopFlopCheck: true } as HorseDecideOpts;
+    const FAILSAFE = 'omaha_bare_overpair_oop_flop_check_failsafe_flatted';
+    const SEEN = [...CONT, FAILSAFE, 'omaha_strategy_rule_failed'];
+    for (const mode of ['null', 'throw'] as const)
+      for (const c of [CLASSES[0], CLASSES[6]])
+        for (const frac of SIZES) {
+          const bet = Math.round(POT * frac);
+          const fire = (action: string, amount?: number) => {
+            HorseMind.reset();
+            drainFires();
+            const st = facing(c, frac);
+            const given = {
+              action,
+              thinkTime: 1,
+              ...(amount === undefined ? {} : { amount }),
+            } as never;
+            VERDICT.mode = mode;
+            let out;
+            try {
+              out = omahaBareOverpairFlopFacingBetRule(given, st.hero, st.gs, on);
+            } finally {
+              VERDICT.mode = 'real';
+            }
+            return {
+              st,
+              given,
+              out,
+              fires: drainFires()
+                .map((f) => f.feature)
+                .filter((f) => SEEN.includes(f)),
+            };
+          };
+          const failed = mode === 'throw' ? ['omaha_strategy_rule_failed'] : [];
+          for (const [action, amount] of [
+            ['raise', 2 * bet + 50],
+            ['bet', 2 * bet + 50],
+            ['all_in', undefined],
+          ] as const) {
+            const r = fire(action, amount);
+            expect(r.out, `${mode} ${c.name} ${frac} ${action}`).toMatchObject({
+              action: 'call',
+              amount: bet,
+            });
+            expect(r.fires).toEqual([...failed, FAILSAFE]);
+            // the exact chips of the call, as the worker receipt validator admits it
+            expect(omahaBareOverpairContAdmitsCall(r.st.hero, r.st.gs, r.out!.amount)).toBe(true);
+          }
+          for (const [action, amount] of [
+            ['fold', undefined],
+            ['call', bet],
+          ] as const) {
+            const r = fire(action, amount);
+            expect(r.out).toBe(r.given);
+            expect(r.fires).toEqual(failed);
+          }
+        }
+    // the whole brain with no verdict: never a raise in the spot, at any seed
+    for (const mode of ['null', 'throw'] as const)
+      for (const c of [CLASSES[0], CLASSES[2], CLASSES[6]])
+        for (const frac of SIZES) {
+          VERDICT.mode = mode;
+          let o: Outcome;
+          try {
+            o = play(() => facing(c, frac), FLOP_ON);
+          } finally {
+            VERDICT.mode = 'real';
+          }
+          for (const a of o.actions)
+            expect(['fold', 'call'], `${mode} ${c.name} ${frac}`).toContain(a);
+        }
+    // off: the switch is not read (the rule is not there)
+    VERDICT.mode = 'throw';
+    const st = facing(CLASSES[0], 0.5);
+    expect(
+      omahaBareOverpairFlopFacingBetRule(
+        { action: 'raise', amount: 500, thinkTime: 1 } as never,
+        st.hero,
+        st.gs,
+        {}
+      )
+    ).toBeNull();
   });
 
   it('the brain decisions it changes carry the receipt and are admitted by the worker receipt validator', () => {

@@ -4391,6 +4391,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_bare_overpair_oop_flop_check_failsafe_flatted',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck, the continuation)',
+    'one live opponent on the flop, the last preflop aggressor having checked the bare big pair out of position and facing a bet, and the continuation verdict could not be computed (null or a throw): a raise turned into the call of the exact chips owed; a fold or a call given stands (the fail-safe: never a raise without a verdict)',
+    'V94'
+  ),
+  receipt(
     'omaha_card_impact_defence_check',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'PLO4/PLO5 cash heads-up turn or river bet turned into a check: against the opponent range as the last card left it, the check is worth more than the bet and every other size by over 4% of the pot',

@@ -46,7 +46,7 @@ PLO4 and PLO5 cash, pot limit, one board, high only, flop, nothing to call, chec
 
 Status: MET
 
-Receipts in `HorseDataLedger.ts`: `omaha_bare_overpair_oop_flop_checked`; the continuation: `omaha_bare_overpair_oop_flop_check_called`, `omaha_bare_overpair_oop_flop_check_folded`, `omaha_bare_overpair_oop_flop_check_raise_flatted`. League cards `plo4_omaha_bare_overpair_oop_flop_check` and `plo5_omaha_bare_overpair_oop_flop_check`.
+Receipts in `HorseDataLedger.ts`: `omaha_bare_overpair_oop_flop_checked`; the continuation: `omaha_bare_overpair_oop_flop_check_called`, `omaha_bare_overpair_oop_flop_check_folded`, `omaha_bare_overpair_oop_flop_check_raise_flatted`, and the fail-safe `omaha_bare_overpair_oop_flop_check_failsafe_flatted` (no verdict: a raise becomes the exact-chip call). League cards `plo4_omaha_bare_overpair_oop_flop_check` and `plo5_omaha_bare_overpair_oop_flop_check`.
 
 ## Limits
 

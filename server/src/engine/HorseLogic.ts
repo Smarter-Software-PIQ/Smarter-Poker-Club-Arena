@@ -7992,8 +7992,12 @@ let omahaBareOverpairContMemo: {
  * (the Horse's exact cards against the bettor's range, his measured read, the
  * price, an out-of-position realisation discount) clears its margin, else a
  * fold. Null when the option is off or the spot does not hold (the caller
- * goes on, multiway included); the decision given when the verdict cannot be
- * computed or already agrees. Called from omahaOopCheckRules and again
+ * goes on, multiway included); the decision given when it already agrees.
+ * FAIL-SAFE (review note N1, 2026-11-16): when the verdict cannot be computed
+ * (null) or computing it throws, a fold or a call given stands and a raise
+ * given becomes the call of the exact chips owed
+ * (omahaBareOverpairContFailSafe), so "never a raise" holds in the spot
+ * whether or not a verdict exists. Called from omahaOopCheckRules and again
  * outermost from omahaOwnerRuledFinal. The turn and river raise rule
  * (omahaTurnRiverRaiseNeedsNuts) never sees a flop decision. Exported for
  * its tests.
@@ -8005,8 +8009,9 @@ export function omahaBareOverpairFlopFacingBetRule(
   opts: HorseDecideOpts
 ): HorseDecision | null {
   if (opts.omahaBareOverpairOopFlopCheck !== true || String(gs.stage ?? '') !== 'flop') return null;
+  let spot: ReturnType<typeof omahaBareOverpairFlopFacingBetSpot> = null;
   try {
-    const spot = omahaBareOverpairFlopFacingBetSpot(player, gs);
+    spot = omahaBareOverpairFlopFacingBetSpot(player, gs);
     if (spot === null) return null;
     const mind = opts.mind !== false;
     const memo = omahaBareOverpairContMemo;
@@ -8044,7 +8049,7 @@ export function omahaBareOverpairFlopFacingBetRule(
       });
       omahaBareOverpairContMemo = { player, gs, mind, verdict };
     }
-    if (verdict === null) return decision;
+    if (verdict === null) return omahaBareOverpairContFailSafe(decision, spot.call, opts);
     const tele = telemetryOn(opts);
     if (!verdict.call) {
       if (decision.action === 'fold') return decision;
@@ -8068,8 +8073,30 @@ export function omahaBareOverpairFlopFacingBetRule(
     return called;
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
-    return decision;
+    // A throw before the spot was established is outside the rule; after it,
+    // the spot holds and the fail-safe applies.
+    return spot === null ? decision : omahaBareOverpairContFailSafe(decision, spot.call, opts);
   }
+}
+
+/**
+ * The continuation with no verdict (null, or a throw while computing it), in
+ * the option's spot: a fold or a call given stands; anything that puts in
+ * more than the call (a raise, an all-in: the spot excludes the whole-stack
+ * call, so an all-in there is a raise) becomes the call of the exact chips
+ * owed. Never a raise, never a new fold.
+ */
+function omahaBareOverpairContFailSafe(
+  decision: HorseDecision,
+  call: number,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (decision.action !== 'raise' && decision.action !== 'bet' && decision.action !== 'all_in')
+    return decision;
+  if (telemetryOn(opts)) noteFire('omaha_bare_overpair_oop_flop_check_failsafe_flatted');
+  const called: HorseDecision = { ...decision, action: 'call', amount: call };
+  delete called.continuationGuard;
+  return called;
 }
 
 /**
