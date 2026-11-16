@@ -132,9 +132,43 @@ function formatTimestamp(iso: string | null): string {
    THE RANGE CONTROL (requirement 5)
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-type RangeMode = 'overall' | 'week' | 'custom';
+function ActivityFigures({ stats }: { stats: NonNullable<MemberDetail['stats']> }) {
+  return (
+    <>
+      <StatRow label="Cash Hands" value={count(stats.hands)} />
+      <StatRow label="MTT Hands" value={count(stats.mtt_hands)} />
+      <StatRow
+        label="Cash Fees"
+        value={playerRecordMoney(stats.total_fee_text ?? stats.total_fee)}
+      />
+      <StatRow label="MTT Fees" value={playerRecordMoney(stats.mtt_fee_text ?? stats.mtt_fee)} />
+      <StatRow
+        label="Claimed Back"
+        value={playerRecordMoney(stats.claimed_back_text ?? stats.claimed_back)}
+      />
+      <StatRow label="Sent Out" value={playerRecordMoney(stats.sent_out_text ?? stats.sent_out)} />
+      <StatRow
+        label="Total Winnings"
+        value={
+          stats.total_winnings === null
+            ? 'Unavailable'
+            : playerRecordMoney(stats.total_winnings_text ?? stats.total_winnings, true)
+        }
+        signed={stats.total_winnings}
+      />
+      <StatRow
+        label="MTT Winnings"
+        value={playerRecordMoney(stats.mtt_winnings_text ?? stats.mtt_winnings, true)}
+        signed={stats.mtt_winnings}
+      />
+    </>
+  );
+}
+
+type RangeMode = 'day' | 'overall' | 'week' | 'custom';
 
 const RANGE_LABEL: Record<RangeMode, string> = {
+  day: 'Today',
   overall: 'Overall',
   week: '7 Days',
   custom: 'Select',
@@ -189,7 +223,7 @@ export default function MemberManagementPage() {
   // A ledger window belongs to this visit, never to saved account preferences.
   // Use one Chicago day for the inputs and the first server read.
   const [initialRange] = useState(() => lastDaysRange(1));
-  const [rangeMode, setRangeMode] = useState<RangeMode>('custom');
+  const [rangeMode, setRangeMode] = useState<RangeMode>('day');
   const [customFrom, setCustomFrom] = useState(initialRange.from);
   const [customTo, setCustomTo] = useState(initialRange.to);
   const [range, setRange] = useState<MemberRange>(initialRange);
@@ -229,6 +263,7 @@ export default function MemberManagementPage() {
       ...(!row.can_view_financials
         ? {
             stats: null,
+            activity_breakdown: undefined,
             downline: null,
             identity: value.identity
               ? {
@@ -271,7 +306,7 @@ export default function MemberManagementPage() {
   const applyAccessDenial = (value: MemberDetail, denied: MemberDetail): MemberDetail => ({
     ...value,
     ...(!denied.capabilities.can_view_financials
-      ? { stats: null, wallets: null, downline: null }
+      ? { stats: null, activity_breakdown: undefined, wallets: null, downline: null }
       : {}),
     capabilities: {
       ...denied.capabilities,
@@ -679,6 +714,9 @@ export default function MemberManagementPage() {
                   ? { ...refreshed.identity, avatar_url: avatarUrl }
                   : refreshed.identity,
                 stats: restricted.capabilities.can_view_financials ? authority.stats : null,
+                activity_breakdown: restricted.capabilities.can_view_financials
+                  ? authority.activity_breakdown
+                  : undefined,
                 downline: restricted.capabilities.can_view_financials ? authority.downline : null,
                 range: authority.range,
               };
@@ -761,6 +799,7 @@ export default function MemberManagementPage() {
       setRangeMode(mode);
       if (mode === 'overall') setRange(RANGE_OVERALL);
       if (mode === 'week') setRange(lastDaysRange(7));
+      if (mode === 'day') setRange(lastDaysRange(1));
       // 'custom' waits for Confirm: re-fetching on every keystroke of a date field
       // would fire three times before the year is finished being typed.
     },
@@ -1158,10 +1197,16 @@ export default function MemberManagementPage() {
               </p>
               <p>
                 Claimed Back Counts Incoming Rakeback And Commission Transactions. Sent Out Counts
-                Outgoing Transfer, Send And Distribution Transactions In The Displayed Chicago
-                Window.
+                Outgoing Transfer, Send, Distribution, Rakeback And Commission Transactions In The
+                Displayed Chicago Window.
               </p>
               <p>Fees, Winnings And Transaction Totals Are Club Chip Wallet Amounts.</p>
+              {isAgentRole(identity!.role) && (
+                <p>
+                  Downline Only Includes Every Active Descendant Once. Agent + Downline Adds Their
+                  Activity To The Agent. Internal Sends Remain In The Sending Member's Activity.
+                </p>
+              )}
               <p>
                 Overall Means All Currently Recorded Activity. Older Activity May No Longer Be
                 Retained. Wallets And Downline Counts Are Current, Not Date-Filtered.
@@ -1170,38 +1215,30 @@ export default function MemberManagementPage() {
             {/* The RPC splits hands by tournament_id, and every other pair on
               this card is shown as cash / MTT. "Hands" was the cash half
               labelled as the whole; mtt_hands was fetched and never drawn. */}
-            <StatRow label="Cash Hands" value={count(stats.hands)} />
-            <StatRow label="MTT Hands" value={count(stats.mtt_hands)} />
-            <StatRow
-              label="Cash Fees"
-              value={playerRecordMoney(stats.total_fee_text ?? stats.total_fee)}
-            />
-            <StatRow
-              label="MTT Fees"
-              value={playerRecordMoney(stats.mtt_fee_text ?? stats.mtt_fee)}
-            />
-            <StatRow
-              label="Claimed Back"
-              value={playerRecordMoney(stats.claimed_back_text ?? stats.claimed_back)}
-            />
-            <StatRow
-              label="Sent Out"
-              value={playerRecordMoney(stats.sent_out_text ?? stats.sent_out)}
-            />
-            <StatRow
-              label="Total Winnings"
-              value={
-                stats.total_winnings === null
-                  ? 'Unavailable'
-                  : playerRecordMoney(stats.total_winnings_text ?? stats.total_winnings, true)
-              }
-              signed={stats.total_winnings}
-            />
-            <StatRow
-              label="MTT Winnings"
-              value={playerRecordMoney(stats.mtt_winnings_text ?? stats.mtt_winnings, true)}
-              signed={stats.mtt_winnings}
-            />
+            {isAgentRole(identity!.role) ? (
+              <>
+                <section aria-label="Agent Only">
+                  <h3 className="mm-card__title">Agent Only</h3>
+                  <ActivityFigures stats={stats} />
+                </section>
+                {detail!.activity_breakdown ? (
+                  <>
+                    <section aria-label="Downline Only">
+                      <h3 className="mm-card__title">Downline Only</h3>
+                      <ActivityFigures stats={detail!.activity_breakdown.downline} />
+                    </section>
+                    <section aria-label="Agent + Downline">
+                      <h3 className="mm-card__title">Agent + Downline</h3>
+                      <ActivityFigures stats={detail!.activity_breakdown.combined} />
+                    </section>
+                  </>
+                ) : (
+                  <p role="status">The Downline Activity Breakdown Is Unavailable.</p>
+                )}
+              </>
+            ) : (
+              <ActivityFigures stats={stats} />
+            )}
           </section>
         )}
 
