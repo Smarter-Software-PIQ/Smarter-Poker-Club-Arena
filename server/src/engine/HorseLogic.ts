@@ -147,7 +147,21 @@ import {
   omahaPlanToCall,
   omahaStreetPlanTurnSpot,
   OMAHA_STREET_PLAN_MARGIN_POT_SHARE,
+  omahaFlopPlanChoice,
+  omahaFlopPlanInputAt,
+  omahaFlopPlanRecord,
+  omahaPreflopStackPlan,
+  omahaPreflopStackPlanSpot,
+  omahaStreetPlanFlop,
+  omahaStreetPlanFlopSpot,
+  omahaStreetPlanThreeWay,
+  omahaStreetPlanThreeWayDomain,
+  omahaStreetPlanThreeWaySpot,
+  omahaThreeWayPlanInputAt,
+  omahaThreeWayPlanRecord,
+  type OmahaFlopPlan,
   type OmahaPlanTendency,
+  type OmahaThreeWayPlan,
 } from './HorseOmahaStreetPlan.js';
 import {
   omahaReraisedPostflopCell,
@@ -3386,6 +3400,45 @@ export interface HorseDecideOpts {
    * Default OFF (opt-in, read `=== true`) until its declared evaluation
    * passes; league cards plo4/plo5 _omaha_street_plan. */
   omahaStreetPlan?: boolean;
+  /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, the flop layer): PLO4/PLO5
+   * cash, heads-up, one board, high only. Before a FLOP bet facing no wager
+   * the Horse prices the bet and the check as two-street lines: the
+   * opponent's fold / call / raise, the turn card by class (texture classes,
+   * eight representative cards weighted by their exact share, each classed
+   * good / neutral / bad), its planned turn action on each (the turn layer's
+   * line model) and eight sampled rivers under each. A bet line that commits
+   * the stack (stack-to-pot after the call at or under 1.5) with a hand that
+   * folds to the expected raise or continues on under 65% of turn cards is
+   * not made; otherwise the bet stands only when its line beats the check
+   * line by 2% of the pot, and a smaller size of the engine's menu replaces
+   * the engine's size only when it beats it by the same margin. Only a bet
+   * becomes a check or a smaller bet; never a raise. Inside the owner-ruled
+   * chain (omahaOwnBetRules): the owner's flop checks act first and are
+   * final. No engine random number. Default OFF (read `=== true`); league
+   * cards plo4/plo5 _omaha_street_plan_flop. */
+  omahaStreetPlanFlop?: boolean;
+  /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, the turn three-way):
+   * the turn layer for exactly two live opponents, each with his own
+   * independent range and measured tendency; the bettor wins at once only
+   * when both fold, otherwise he must beat every caller at showdown (every
+   * river card exactly; no river betting modelled three-way). The turn bet
+   * becomes a check when the check line is worth more by 2% of the pot.
+   * Default OFF (read `=== true`); league cards plo4/plo5
+   * _omaha_street_plan_three_way. */
+  omahaStreetPlanThreeWay?: boolean;
+  /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, the preflop layer):
+   * PLO4/PLO5, before calling a preflop raise heads-up against the raiser,
+   * the Horse computes the stack-to-pot ratio the call creates; under 3 the
+   * call is priced as the stack it commits, (equity - charge) x final pot -
+   * chips put in, against folding (0), with the equity against the raiser's
+   * band and the charge from the hand's playability (realisation by
+   * position scaled by the ratio, halved for a nut-making hand; a stack-off
+   * charge of 0.06 for a hand that makes mostly one pair). A call with a
+   * negative value becomes a fold; nothing else changes. Runs before the
+   * day's 3-bet / 4-bet options, which keep precedence over the calls they
+   * make. Default OFF (read `=== true`); league cards plo4/plo5
+   * _omaha_preflop_stack_plan. */
+  omahaPreflopStackPlan?: boolean;
   /** Owner 2026-11-15 12:18 (the Horses' 3-bet and 4-bet ranges out of
    * position and under the gun must be capped): PLO4/PLO5 cash, a preflop
    * raise that would be the 3-bet or the 4-bet stands, when the Horse will be
@@ -7112,8 +7165,15 @@ function omahaOopReraisedPotStrongRange(
   // The re-raise rule first (its own option): a raise it turns into a call is
   // judged inside it. Then the flop rule (its own option); the three never
   // meet on one decision otherwise.
+  // The preflop stack plan (its own option) runs first: a call the re-raise
+  // rule makes from a raise is that rule's, and the stack plan never sees it.
   const decision = omahaReraisedPotFlopContinue(
-    omahaReraiseRangeRules(decision0, player, gs, opts),
+    omahaReraiseRangeRules(
+      omahaPreflopStackPlanRule(decision0, player, gs, opts),
+      player,
+      gs,
+      opts
+    ),
     player,
     gs,
     opts
@@ -7270,6 +7330,7 @@ function omahaReraiseRangeRules(
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
+          omahaPreflopStackPlan: false,
           telemetry: false,
         }).action !== 'fold';
     } else {
@@ -8399,6 +8460,8 @@ function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
   return (
     opts.omahaCardImpact === true ||
     opts.omahaStreetPlan === true ||
+    opts.omahaStreetPlanFlop === true ||
+    opts.omahaStreetPlanThreeWay === true ||
     opts.omahaStrongHandValue === true ||
     opts.omahaBigDrawAggression === true
   );
@@ -8453,6 +8516,18 @@ function omahaWagerIsChecked(
         omahaValueLeaderDefenseInScope(player, gs, opts))) &&
     omahaBeatenNoBet(wagered, player, gs, true).changed !== null &&
     (defenseOn || omahaEveryLiveOpponentIs(player, gs, quiet, (r) => r.valueLeader))
+  )
+    return true;
+  if (
+    opts.omahaStreetPlanFlop === true &&
+    !omahaNutClassNow(player, gs) &&
+    omahaStreetPlanFlopRules(wagered, player, gs, quiet).action === 'check'
+  )
+    return true;
+  if (
+    opts.omahaStreetPlanThreeWay === true &&
+    !omahaNutClassNow(player, gs) &&
+    omahaStreetPlanThreeWayRules(wagered, player, gs, quiet).action === 'check'
   )
     return true;
   return (
@@ -8741,8 +8816,21 @@ function omahaOwnBetRules(
 ): HorseDecision {
   const ruled = omahaOopCheckRules(decision, player, gs, opts);
   if (ruled !== decision) return ruled;
-  if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true) return ruled;
-  const planned = omahaStreetPlanRules(ruled, player, gs, opts);
+  if (
+    opts.omahaStreetPlan !== true &&
+    opts.omahaCardImpact !== true &&
+    opts.omahaStreetPlanFlop !== true &&
+    opts.omahaStreetPlanThreeWay !== true
+  )
+    return ruled;
+  // The street plan's three layers never meet on one decision (turn heads-up,
+  // flop heads-up, turn three-way).
+  const planned = omahaStreetPlanThreeWayRules(
+    omahaStreetPlanFlopRules(omahaStreetPlanRules(ruled, player, gs, opts), player, gs, opts),
+    player,
+    gs,
+    opts
+  );
   let priced = omahaCardImpactRule(planned, player, gs, opts);
   if (priced === ruled) return ruled;
   try {
@@ -9510,6 +9598,8 @@ function omahaClearDecisionMemos(): void {
   omahaFacingBetEvCountMemo = null;
   omahaStreetPlanMemo = null;
   omahaStreetPlanRiverMemo = null;
+  omahaStreetPlanFlopMemo = null;
+  omahaStreetPlanThreeWayMemo = null;
 }
 
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
@@ -9520,6 +9610,8 @@ export function omahaDecisionMemosHeld(): string[] {
   if (omahaFacingBetEvCountMemo !== null) held.push('omahaFacingBetEvCountMemo');
   if (omahaStreetPlanMemo !== null) held.push('omahaStreetPlanMemo');
   if (omahaStreetPlanRiverMemo !== null) held.push('omahaStreetPlanRiverMemo');
+  if (omahaStreetPlanFlopMemo !== null) held.push('omahaStreetPlanFlopMemo');
+  if (omahaStreetPlanThreeWayMemo !== null) held.push('omahaStreetPlanThreeWayMemo');
   return held;
 }
 
@@ -9741,6 +9833,240 @@ function omahaStreetPlanRules(
     }
     // A copy: the decision handed in is never written to (audit 2026-11-15, item 7).
     return { ...decision, streetPlan: omahaStreetPlanRecord(plan, bet, bet, tendency) };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/** The flop plans of the decision in progress, once per bet size (cleared with the other memos). */
+let omahaStreetPlanFlopMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  bySize: Map<number, { tendency: OmahaPlanTendency | null; plan: OmahaFlopPlan | null }>;
+} | null = null;
+/** The three-way turn plans of the decision in progress, once per bet size. */
+let omahaStreetPlanThreeWayMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  bySize: Map<
+    number,
+    {
+      tendencies: [OmahaPlanTendency | null, OmahaPlanTendency | null];
+      plan: OmahaThreeWayPlan | null;
+    }
+  >;
+} | null = null;
+
+/**
+ * omahaStreetPlanFlop, the flop layer (HorseOmahaStreetPlan.ts): the engine's
+ * heads-up flop bet facing no wager is priced against the check, and against
+ * the smaller sizes of the engine's menu, as two-street lines; the verdict is
+ * omahaFlopPlanChoice (check, the engine's bet, or a smaller bet). Runs in
+ * omahaOwnBetRules after the owner-ruled checks, which are final. Never
+ * touches a decision facing a bet; draws no random number. Unset or false it
+ * returns the decision it was given.
+ */
+function omahaStreetPlanFlopRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaStreetPlanFlop !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'all_in') return decision;
+  try {
+    if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanFlopSpot(player, gs)) return decision;
+    const opp = omahaStreetPlanDomain(player, gs);
+    if (!opp) return decision;
+    const amount = decision.action === 'all_in' ? player.stack : (decision.amount ?? 0);
+    if (!(amount > 0)) return decision;
+    if (
+      omahaStreetPlanFlopMemo === null ||
+      omahaStreetPlanFlopMemo.player !== player ||
+      omahaStreetPlanFlopMemo.gs !== gs
+    )
+      omahaStreetPlanFlopMemo = { player, gs, bySize: new Map() };
+    let hit = omahaStreetPlanFlopMemo.bySize.get(amount);
+    if (!hit) {
+      const tendency = omahaStreetPlanTendency(opp, opts);
+      hit = {
+        tendency,
+        plan: omahaStreetPlanFlop(omahaFlopPlanInputAt(player, opp, gs, amount, tendency)),
+      };
+      omahaStreetPlanFlopMemo.bySize.set(amount, hit);
+    }
+    const { tendency, plan } = hit;
+    if (!plan || plan.lines.length < 2) return decision;
+    const choice = omahaFlopPlanChoice(
+      plan,
+      omahaStrategyConstant('streetPlanFlopMarginPotShare', gs) * gs.pot
+    );
+    const tele = telemetryOn(opts);
+    if (choice.index === 0) {
+      if (tele) {
+        const finalChecks = (f: HorseDecision): boolean => f.action === 'check';
+        if (choice.reason === 'commit_avoided')
+          omahaProposeReceipt(
+            finalChecks,
+            () => noteFire('omaha_street_plan_flop_commit_avoided'),
+            () => noteFire('omaha_street_plan_flop_commit_avoided_vetoed')
+          );
+        else
+          omahaProposeReceipt(
+            finalChecks,
+            () => noteFire('omaha_street_plan_flop_checked'),
+            () => noteFire('omaha_street_plan_flop_checked_vetoed')
+          );
+      }
+      const checked: HorseDecision = {
+        ...decision,
+        action: 'check',
+        streetPlan: omahaFlopPlanRecord(plan, plan.lines[0], tendency),
+      };
+      delete checked.amount;
+      return checked;
+    }
+    if (choice.index > 1) {
+      const line = plan.lines[choice.index];
+      const resized: HorseDecision = {
+        ...decision,
+        action: 'bet',
+        amount: line.amount,
+        streetPlan: omahaFlopPlanRecord(plan, line, tendency),
+      };
+      if (tele)
+        omahaProposeReceipt(
+          (f) => omahaSameWager(f, resized),
+          () => noteFire('omaha_street_plan_flop_resized'),
+          () => noteFire('omaha_street_plan_flop_resized_vetoed')
+        );
+      return resized;
+    }
+    return { ...decision, streetPlan: omahaFlopPlanRecord(plan, plan.lines[1], tendency) };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaStreetPlanThreeWay, the turn with exactly two live opponents
+ * (HorseOmahaStreetPlan.ts): the engine's turn bet facing no wager becomes a
+ * check when the three-way check line is worth more by
+ * streetPlanMarginPotShare of the pot. Runs in omahaOwnBetRules after the
+ * owner-ruled checks. Never touches a decision facing a bet; no random
+ * number. Unset or false it returns the decision it was given.
+ */
+function omahaStreetPlanThreeWayRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaStreetPlanThreeWay !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'all_in') return decision;
+  try {
+    if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanThreeWaySpot(player, gs))
+      return decision;
+    const opps = omahaStreetPlanThreeWayDomain(player, gs);
+    if (!opps) return decision;
+    const amount = decision.action === 'all_in' ? player.stack : (decision.amount ?? 0);
+    if (!(amount > 0)) return decision;
+    if (
+      omahaStreetPlanThreeWayMemo === null ||
+      omahaStreetPlanThreeWayMemo.player !== player ||
+      omahaStreetPlanThreeWayMemo.gs !== gs
+    )
+      omahaStreetPlanThreeWayMemo = { player, gs, bySize: new Map() };
+    let hit = omahaStreetPlanThreeWayMemo.bySize.get(amount);
+    if (!hit) {
+      const tendencies: [OmahaPlanTendency | null, OmahaPlanTendency | null] = [
+        omahaStreetPlanTendency(opps[0], opts),
+        omahaStreetPlanTendency(opps[1], opts),
+      ];
+      hit = {
+        tendencies,
+        plan: omahaStreetPlanThreeWay(
+          omahaThreeWayPlanInputAt(player, opps, gs, amount, tendencies)
+        ),
+      };
+      omahaStreetPlanThreeWayMemo.bySize.set(amount, hit);
+    }
+    const { tendencies, plan } = hit;
+    const check = plan?.lines[0];
+    const bet = plan?.lines[1];
+    if (!plan || !check || !bet) return decision;
+    if (check.ev > bet.ev + omahaStrategyConstant('streetPlanMarginPotShare', gs) * gs.pot) {
+      if (telemetryOn(opts))
+        omahaProposeReceipt(
+          (f) => f.action === 'check',
+          () => noteFire('omaha_street_plan_three_way_checked'),
+          () => noteFire('omaha_street_plan_three_way_checked_vetoed')
+        );
+      const checked: HorseDecision = {
+        ...decision,
+        action: 'check',
+        streetPlan: omahaThreeWayPlanRecord(plan, check, bet, tendencies),
+      };
+      delete checked.amount;
+      return checked;
+    }
+    return { ...decision, streetPlan: omahaThreeWayPlanRecord(plan, bet, bet, tendencies) };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaPreflopStackPlan, the preflop layer (HorseOmahaStreetPlan.ts): a
+ * preflop call of a raise, heads-up against the raiser, that creates a
+ * stack-to-pot ratio under 3 is priced as the stack it commits and becomes a
+ * fold when that value is negative. Only a call becomes a fold. Runs first
+ * inside omahaOopReraisedPotStrongRange, before the day's 3-bet / 4-bet
+ * options. No random number. Unset or false it returns the decision.
+ */
+function omahaPreflopStackPlanRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaPreflopStackPlan !== true) return decision;
+  if (decision.action !== 'call') return decision;
+  try {
+    if (!omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts)) return decision;
+    const spot = omahaPreflopStackPlanSpot(player, gs);
+    if (!spot) return decision;
+    let band: [number, number] | null = null;
+    const raiser = (gs.players ?? []).find((p) => p.seat === spot.raiserSeat);
+    if (opts.mind !== false && raiser) {
+      try {
+        band = HorseMind.bandFor(
+          raiser.user_id,
+          gs.actionHistory,
+          gs.bigBlind || 1,
+          true,
+          null,
+          undefined,
+          HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+        );
+      } catch {
+        band = null;
+      }
+    }
+    const verdict = omahaPreflopStackPlan({ ...spot, band });
+    if (!verdict || !verdict.fold) return decision;
+    if (telemetryOn(opts))
+      omahaProposeReceipt(
+        (f) => f.action === 'fold',
+        () => noteFire('omaha_preflop_stack_plan_folded'),
+        () => noteFire('omaha_preflop_stack_plan_folded_vetoed')
+      );
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;

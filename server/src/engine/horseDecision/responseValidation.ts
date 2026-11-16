@@ -39,7 +39,12 @@ import {
   omahaRiverNutRaiseOnly,
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
-import { OMAHA_STREET_PLAN_VARIANTS, omahaStreetPlanAdmitsCheck } from '../HorseOmahaStreetPlan.js';
+import {
+  OMAHA_STREET_PLAN_VARIANTS,
+  omahaStreetPlanAdmitsCheck,
+  omahaStreetPlanFlopAdmitsCheck,
+  omahaStreetPlanThreeWayAdmitsCheck,
+} from '../HorseOmahaStreetPlan.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import {
   OMAHA_RIVER_MEDIUM_BET_VARIANTS,
@@ -1450,6 +1455,33 @@ function policyGraphIsValidInScope(
             previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
             value.streetPlan
           )));
+    // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, options omahaStreetPlanFlop
+    // and omahaStreetPlanThreeWay, default off): a heads-up flop bet, or a
+    // turn bet with exactly two live opponents, facing no wager becomes a
+    // check under the plan. Admitted only with the request, only where the
+    // plan re-run on it with the multipliers the decision records gives the
+    // check (neither layer has a facing-bet seam, so the re-run is the
+    // decision's own verdict). With no request it admits nothing.
+    const omahaStreetPlanLayerBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (omahaStreetPlanFlopAdmitsCheck(
+        context.player,
+        context.gameState,
+        previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+        value.streetPlan
+      ) ||
+        omahaStreetPlanThreeWayAdmitsCheck(
+          context.player,
+          context.gameState,
+          previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+          value.streetPlan
+        ));
     // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, options
     // omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
     // position or from early position with a hand outside the capped range
@@ -1535,6 +1567,7 @@ function policyGraphIsValidInScope(
       !omahaOopTurnToCall &&
       !omahaBareOverpairContToCall &&
       !omahaStreetPlanBetToCheck &&
+      !omahaStreetPlanLayerBetToCheck &&
       !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
