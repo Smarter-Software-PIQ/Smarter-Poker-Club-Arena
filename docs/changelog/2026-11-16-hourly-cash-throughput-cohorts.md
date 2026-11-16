@@ -18,7 +18,9 @@ No population targets, admission enablement, financial operations, rate threshol
 three-day baseline minimum or absolute silence protection changes. The original
 population curve fingerprint remains unchanged. The original service-only RPC is
 replaced atomically under its exact predecessor guard because PostgreSQL cannot
-add OUT columns with CREATE OR REPLACE.
+add OUT columns with CREATE OR REPLACE. The replacement refuses changed ownership,
+ACLs, effective browser privileges or unreviewed source and explicitly retains
+the postgres owner, stable definer metadata and service-only grant.
 
 The maintained collector regression fails against the previous consumer and passes
 with the adopted contract. The existing native hourly caps qualification also

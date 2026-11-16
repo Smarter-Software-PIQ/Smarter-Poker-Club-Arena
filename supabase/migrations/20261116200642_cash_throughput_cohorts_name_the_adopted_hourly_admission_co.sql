@@ -27,6 +27,15 @@ SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '8s';
 DO $preimage$
 BEGIN
+ IF NOT EXISTS (SELECT FROM pg_proc WHERE oid='public.fn_lightning_admission_policy()'::regprocedure
+   AND proowner='postgres'::regrole
+   AND NOT has_function_privilege('anon',oid,'EXECUTE')
+   AND NOT has_function_privilege('authenticated',oid,'EXECUTE')
+   AND has_function_privilege('service_role',oid,'EXECUTE')
+   AND ARRAY(SELECT a::text FROM unnest(proacl) a ORDER BY a::text)
+       = ARRAY['postgres=X/postgres','service_role=X/postgres']) THEN
+  RAISE EXCEPTION 'cash_admission_policy_authority_changed';
+ END IF;
  IF md5(pg_get_functiondef('public.fn_lightning_admission_policy()'::regprocedure))
     IS DISTINCT FROM '8b1d877338264be5c33af423d5fbd2ad' THEN
   RAISE EXCEPTION 'cash_admission_policy_preimage_changed';
@@ -65,6 +74,7 @@ AS $function$
   END
  FROM definitions;
 $function$;
+ALTER FUNCTION public.fn_lightning_admission_policy() OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.fn_lightning_admission_policy() FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_lightning_admission_policy() TO service_role;
 COMMIT;
