@@ -350,6 +350,7 @@ function harness(realDecision = false, onMessage?: (message: HorseDecisionWorker
   let stopFailure: Error | null = null;
   let now = 10;
   let throwDecision = false;
+  let onDecide: ((opts: HorseDecideOpts) => void) | null = null;
   const deps: HorseDecisionWorkerDependencies = {
     async startServices() {
       started++;
@@ -373,6 +374,7 @@ function harness(realDecision = false, onMessage?: (message: HorseDecisionWorker
     decide(_player, _gameState, _style, _mods, opts) {
       decisionOpts.push(opts ?? {});
       decisionsAtRng.push(rng);
+      onDecide?.(opts ?? {});
       frozenSnapshots.push(
         Object.isFrozen(_player) &&
           Object.isFrozen(_player.cards) &&
@@ -452,6 +454,9 @@ function harness(realDecision = false, onMessage?: (message: HorseDecisionWorker
     rng: () => rng,
     setRng: (value: number) => {
       rng = value;
+    },
+    setOnDecide: (fn: ((opts: HorseDecideOpts) => void) | null) => {
+      onDecide = fn;
     },
     setThrowDecision: (value: boolean) => {
       throwDecision = value;
@@ -2293,7 +2298,8 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.restored).toEqual([fast.rngBefore, 900]);
     expect(h.rng()).toBe(900);
     expect(h.decisionOpts[0]).toMatchObject({
-      telemetry: false,
+      // SECOND-LOOK RECEIPTS (2026-11-16): on, inside a capture (nothing is counted under its own name)
+      telemetry: true,
       deepEquity: 6,
       decisionTimeMs: 3_599_999,
       observeMind: false,
@@ -2302,6 +2308,51 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.latency).toEqual([{ scope: 'deep:plo4', ms: 6 }]);
     expect(h.messages.at(-1)).toMatchObject({ type: 'DEEP_RESULT', requestId: 2 });
     expect(h.appliedEffects).toEqual([]);
+  });
+
+  it('a rule that fires only in the second look is counted under second_look_, and nothing counts twice', async () => {
+    const telemetry = await import('../BrainTelemetry.js');
+    telemetry.enableBrainTelemetry();
+    onTestFinished(() => {
+      telemetry.drainFires();
+      telemetry.disarmBrainTelemetryForTest();
+    });
+    telemetry.drainFires();
+    const h = harness();
+    await h.runtime.start();
+    h.setRng(900);
+    let look = 0;
+    h.setOnDecide((opts) => {
+      look++;
+      if (opts.telemetry !== true) return;
+      // both looks pass through rule_a; only the second look reaches rule_b
+      telemetry.noteFire('probe_rule_a');
+      if (look === 2) telemetry.noteFire('probe_rule_b_seen');
+      telemetry.noteFire('style_fold_bluff_seen');
+    });
+    h.runtime.receive(fastRequest(1));
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    if (fast?.type !== 'FAST_RESULT') throw Error('fast decision missing');
+    const afterFast = telemetry.drainFires();
+    expect(afterFast.find((r) => r.feature === 'probe_rule_a')?.fires).toBe(1);
+    expect(afterFast.some((r) => r.feature.startsWith('second_look_'))).toBe(false);
+    h.runtime.receive({
+      ...snapshot,
+      type: 'DECIDE_DEEP',
+      requestId: 2,
+      rngBefore: fast.rngBefore,
+      deepEquity: 6,
+    });
+    await h.runtime.drain();
+    expect(h.messages.at(-1)).toMatchObject({ type: 'DEEP_RESULT', requestId: 2 });
+    expect(look).toBe(2);
+    const afterDeep = telemetry.drainFires().sort((x, y) => x.feature.localeCompare(y.feature));
+    // the second look counted neither rule under its own name, and the style read receipt not at all
+    expect(afterDeep).toEqual([
+      { feature: 'second_look_probe_rule_a_seen', fires: 1 },
+      { feature: 'second_look_probe_rule_b_seen', fires: 1 },
+    ]);
   });
 
   it('restores canonical RNG when deep computation throws and keeps FIFO usable', async () => {
