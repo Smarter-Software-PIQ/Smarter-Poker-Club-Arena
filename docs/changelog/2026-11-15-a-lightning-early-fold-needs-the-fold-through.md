@@ -14,7 +14,21 @@ Otherwise the frame's answer is returned and the Lightning host, as for any earl
 lets the Horse decide afresh on its own turn. No effect at the Horse's own turn, on the river, outside
 Lightning or in tournaments. Nothing in the Lightning host, Classic or tournament paths changed.
 
-**Switching it.** It is read by the brain, so it becomes switchable live through the Horse option switch
-once the every-option registry is on main and its follow-up migration lists the flag. Until then nothing
-passes it and it is off everywhere. The league cannot measure it (no early look): see
+**Switching it.** It is read by the brain and is a registered option of the Horse option switch (the
+every-option registry and its follow-up list migration name the flag), so the live switch passes it to the
+worker's decisions. With no switch row, or an `off` row, it is off everywhere. The league cannot measure it (no early look): see
 `UNMEASURABLE_MATCHUPS` `nlh_lightning_early_fold_needs_fold_through` (0 of 2,000 pairs diverged).
+
+**The frame ask is a side ask (2026-11-16, independent review).** It runs with telemetry suspended: it fires
+no brain receipt, leaves no style record on the decision (the first ask's records are kept), and a failure in
+it is reported as `HorseLogic.lightning_fold_through_frame_threw`, not as `HorseLogic.decide_threw` or
+`phase15_brain_exception`. A frame ask that fails or is answered by the safety net, and a state the frame
+cannot be built from, keep the early fold (the option-off answer). Only `lightning_fold_through_kept` and
+`lightning_fold_through_released` are counted for it.
+
+**Known limits (independent review of 2026-11-16).** All four need an option on; with the options off nothing here applies.
+
+- The durable shown-river record has no speed key. With `lightningStyleReadSeparate` and `styleLongShownMemory` both on, the long shown river merge can bring a Classic showdown into the Lightning read.
+- `HorseMind.omahaFacingBetEvReadOf` (option `omahaFacingBetEv`) still reads the pooled size map on a Lightning decision, also with `lightningStyleReadSeparate` on.
+- The fold-through frame keeps the original turn owner (`currentPlayerSeat`), so it is close to, but not exactly, the question of the real turn (a rule that reads "it is my turn" stays out on the frame as on the early look). The frame ask also draws its own strength jitter, so a hand within jitter of a bar can still fold early.
+- The `style_lightning_separate_*` receipts fire where the read is computed, so they do not fire again when a decision takes the read from its per-decision memo: with the option on they count fresh reads.

@@ -289,6 +289,27 @@ export function clearStyleOptionsApplied(): void {
 }
 
 /**
+ * Run fn, then put the per-decision style records (shadow engagements, live engagements, applied options) back
+ * exactly as they were before it, also on a throw. For a side ask whose style engagement must not be reported by
+ * the decision around it (the Lightning fold-through frame ask in HorseLogic.decide). Telemetry records only.
+ */
+export function withStyleRecordsKept<T>(fn: () => T): T {
+  const wasEngaged = [...engaged];
+  const wasLive = [...liveEngaged];
+  const wasApplied = [...applied];
+  try {
+    return fn();
+  } finally {
+    engaged.clear();
+    for (const [k, v] of wasEngaged) engaged.set(k, v);
+    liveEngaged.clear();
+    for (const [k, v] of wasLive) liveEngaged.set(k, v);
+    applied.clear();
+    for (const o of wasApplied) applied.add(o);
+  }
+}
+
+/**
  * The decision-level receipt (journal field HorseDecision.styleActionReceipt, version 1). `option` is the one
  * applied option the decision re-decided without (chosen from `applied` by the decision key, like the shadow pick);
  * `changed` is true exactly when the final action or amount differs. `without` is null when the re-decision failed

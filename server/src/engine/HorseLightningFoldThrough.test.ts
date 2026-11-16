@@ -9,7 +9,25 @@ import {
   lightningFoldThroughFrame,
   lightningFoldThroughSeats,
 } from './HorseLightningFoldThrough.js';
-import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { drainFires, enableBrainTelemetry, noteFire } from './BrainTelemetry.js';
+import {
+  clearStyleOptionsApplied,
+  clearStyleShadowEngaged,
+  noteStyleEngaged,
+  noteStyleOptionApplied,
+  takeStyleLiveEngaged,
+  takeStyleOptionsApplied,
+  takeStyleShadowEngaged,
+} from './HorseStyleShadow.js';
+
+/** Every reportError context, in order (the reporter itself is not run). */
+const reported = vi.hoisted(() => [] as string[]);
+vi.mock('../services/errorReporter.js', async (original) => ({
+  ...(await original<typeof import('../services/errorReporter.js')>()),
+  reportError: (_error: unknown, context: string) => {
+    reported.push(context);
+  },
+}));
 
 const id = (seat: number) => `00000000-0000-4000-8000-00000000000${seat}`;
 const forced = (seat: number, amount: number) => ({
@@ -225,6 +243,114 @@ describe('HorseLogic.decide with lightningEarlyFoldNeedsFoldThrough', () => {
       );
       expect(d.action).toBe(on && gs === own ? 'raise' : 'fold');
       expect(spy).toHaveBeenCalledTimes(1);
+    }
+  });
+});
+
+describe('the frame ask is a side ask (independent review of L-019, notes 2 and 3)', () => {
+  const hero = { seat: 6, user_id: id(6), cards: [], stack: 200, bet: 0 } as any;
+  const on = { lightningEarlyFoldNeedsFoldThrough: true, telemetry: true };
+  const isFrame = (gs: any) =>
+    gs.actionHistory.some((a: any) => a.action === 'fold' && a.timestamp === 0);
+  function fresh() {
+    reported.length = 0;
+    clearStyleShadowEngaged();
+    clearStyleOptionsApplied();
+    enableBrainTelemetry();
+    drainFires();
+  }
+  const firedNow = () => Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+
+  it('the frame ask fires no brain receipt and leaves no style record; only the fold-through receipt is added', () => {
+    fresh();
+    // An inner policy that fires an ungated receipt and records style engagement on EVERY ask.
+    const spy = vi
+      .spyOn(HorseLogic as any, 'decideCaptured')
+      .mockImplementation((_p: any, gs: any, _s: any, _m: any, o: any) => {
+        const frame = isFrame(gs);
+        noteFire('probe_ungated_receipt');
+        if (o.telemetry === true) noteFire('probe_gated_receipt');
+        noteStyleEngaged(frame ? 'styleFoldBluff' : 'styleRaiseRespect', 1, 'on');
+        noteStyleEngaged(frame ? 'styleValueExtraction' : 'styleBigBetHonesty', 1, 'shadow');
+        noteStyleOptionApplied(frame ? 'styleFoldBluff' : 'styleRaiseRespect');
+        return { action: frame ? 'raise' : 'fold', amount: frame ? 5 : undefined, thinkTime: 1 };
+      });
+    const d = HorseLogic.decide(hero, state({ hero: 6 }), 'balanced', {}, on);
+    expect(d.action).toBe('raise');
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect((spy.mock.calls[1]![4] as any).telemetry).toBe(false);
+    // exactly the first ask's receipts plus the fold-through's own
+    expect(firedNow()).toEqual({
+      probe_ungated_receipt: 1,
+      probe_gated_receipt: 1,
+      lightning_fold_through_released: 1,
+    });
+    // the decision reports the first ask's style records, none of the frame's
+    expect(takeStyleLiveEngaged().map((e) => e.option)).toEqual(['styleRaiseRespect']);
+    expect(takeStyleShadowEngaged().map((e) => e.option)).toEqual(['styleBigBetHonesty']);
+    expect(takeStyleOptionsApplied()).toEqual(['styleRaiseRespect']);
+    expect(reported).toEqual([]);
+    // telemetry is counting again after the frame ask
+    noteFire('probe_after');
+    expect(firedNow()).toEqual({ probe_after: 1 });
+  });
+
+  it('a frame ask that throws inside the brain keeps the early fold and is not a decide_threw', () => {
+    fresh();
+    const real = (HorseLogic as any).decideCaptured as (...a: any[]) => any;
+    const first = { action: 'fold', thinkTime: 1 };
+    const spy = vi
+      .spyOn(HorseLogic as any, 'decideCaptured')
+      .mockImplementation((...a: any[]) => (isFrame(a[1]) ? real.apply(HorseLogic, a) : first));
+    vi.spyOn(HorseLogic, 'prepareOriginalReads').mockImplementation(() => {
+      throw new Error('frame brain failure');
+    });
+    const gs = { ...state({ hero: 6 }), gameVariant: 'nlh', stateSchemaVersion: 1 } as any;
+    const d = HorseLogic.decide(hero, gs, 'balanced', {}, on);
+    expect(d).toBe(first);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(reported).toEqual(['HorseLogic.lightning_fold_through_frame_threw']);
+    expect(firedNow()).toEqual({});
+    // Control (the same failure on a committed decision IS a decide_threw, counted).
+    reported.length = 0;
+    spy.mockImplementation((...a: any[]) => real.apply(HorseLogic, a));
+    const net = HorseLogic.decide(hero, gs, 'balanced', {}, { telemetry: true });
+    expect(net.policyFallback).toBe('brain_exception');
+    expect(reported).toEqual(['HorseLogic.decide_threw']);
+    expect(firedNow().phase15_brain_exception).toBe(1);
+  });
+
+  it('a frame ask that throws outright keeps the early fold', () => {
+    fresh();
+    const first = { action: 'fold', thinkTime: 1 };
+    const spy = vi
+      .spyOn(HorseLogic as any, 'decideCaptured')
+      .mockImplementation((_p: any, gs: any) => {
+        if (isFrame(gs)) throw new Error('frame ask failure');
+        return first;
+      });
+    expect(HorseLogic.decide(hero, state({ hero: 6 }), 'balanced', {}, on)).toBe(first);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(reported).toEqual(['HorseLogic.lightning_fold_through_frame_threw']);
+    expect(firedNow()).toEqual({});
+  });
+
+  it('a malformed state keeps the early fold, as with the option off (no second ask)', () => {
+    for (const breakIt of [
+      (gs: any) => (gs.pots = [{ amount: 5 }]), // a pot with no eligible list
+      (gs: any) => (gs.players = undefined), // no players array
+    ]) {
+      fresh();
+      const first = { action: 'fold', thinkTime: 1 };
+      const spy = vi.spyOn(HorseLogic as any, 'decideCaptured').mockImplementation(() => first);
+      const gs = state({ hero: 6 }) as any;
+      breakIt(gs);
+      expect(HorseLogic.decide(hero, gs, 'balanced', {}, on)).toBe(first);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(HorseLogic.decide(hero, gs, 'balanced', {}, {})).toBe(first);
+      expect(reported).toEqual(['HorseLogic.lightning_fold_through_frame_threw']);
+      expect(firedNow()).toEqual({});
+      spy.mockRestore();
     }
   });
 });

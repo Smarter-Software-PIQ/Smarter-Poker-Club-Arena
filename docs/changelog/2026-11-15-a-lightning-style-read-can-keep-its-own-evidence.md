@@ -14,4 +14,13 @@ Ledger: flag `lightningStyleReadSeparate`, three receipts, `publicMemoryDomain` 
 
 ## Not done
 
-No migration and no live switch row (the option is not in `STYLE_SWITCH_OPTIONS`). No evaluation in a Lightning harness. Turning it on is a change under `docs/HORSE-DECISION-CHANGE-EVIDENCE.md`.
+At the time of this change: no migration and no live switch row (the option is not in `STYLE_SWITCH_OPTIONS`). Since 2026-11-16 it is a registered plain option of the Horse option switch (its follow-up list migration names it); with no row, or an `off` row, it is off. No evaluation in a Lightning harness. Turning it on is a change under `docs/HORSE-DECISION-CHANGE-EVIDENCE.md`.
+
+## Known limits
+
+Independent review of 2026-11-16. All four need an option on; with the options off nothing here applies.
+
+- The durable shown-river record has no speed key. With `lightningStyleReadSeparate` and `styleLongShownMemory` both on, the long shown river merge can bring a Classic showdown into the Lightning read.
+- `HorseMind.omahaFacingBetEvReadOf` (option `omahaFacingBetEv`) still reads the pooled size map on a Lightning decision, also with `lightningStyleReadSeparate` on.
+- The fold-through frame keeps the original turn owner (`currentPlayerSeat`), so it is close to, but not exactly, the question of the real turn (a rule that reads "it is my turn" stays out on the frame as on the early look). The frame ask also draws its own strength jitter, so a hand within jitter of a bar can still fold early.
+- The `style_lightning_separate_*` receipts fire where the read is computed, so they do not fire again when a decision takes the read from its per-decision memo: with the option on they count fresh reads.

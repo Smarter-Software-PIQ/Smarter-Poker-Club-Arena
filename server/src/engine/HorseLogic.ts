@@ -337,6 +337,7 @@ import {
   noteStyleOptionApplied,
   noteStyleShadowEngaged,
   styleShadowArm,
+  withStyleRecordsKept,
 } from './HorseStyleShadow.js';
 
 /**
@@ -5299,6 +5300,9 @@ function maniacShortStackJam(
  * single-threaded, and the consumer resets it every read.
  */
 let difficultyHint = 0;
+/** True only while HorseLogic.decide runs the Lightning fold-through frame ask (a side ask, never the committed
+ *  decision): the safety net then reports its failure under its own name, not HorseLogic.decide_threw. */
+let lightningFoldThroughFrameAsk = false;
 let v87HollywoodEligible = false;
 /** LATER LAYERS KEEP THE STYLE READ (2026-11-15): set by decidePreflopV7Glue
  *  when this preflop fold was produced by the tight opener / re-raiser respect
@@ -10355,15 +10359,38 @@ export class HorseLogic {
         deepDiveCapture
       );
       if (String(first.action) !== 'fold') return first;
-      const seats = lightningFoldThroughSeats(gameState, player.seat);
-      const frame = seats.length
-        ? lightningFoldThroughFrame(gameState, seats, opts.decisionTimeMs ?? 0)
-        : null;
-      if (!frame) return first;
-      const through = HorseLogic.decide(player, frame, style, mods, {
-        ...inner,
-        observeMind: false,
-      });
+      // A malformed state, or a frame ask that fails, keeps the early fold (the option-off answer).
+      let through: HorseDecision;
+      try {
+        const seats = lightningFoldThroughSeats(gameState, player.seat);
+        const frame = seats.length
+          ? lightningFoldThroughFrame(gameState, seats, opts.decisionTimeMs ?? 0)
+          : null;
+        if (!frame) return first;
+        // The frame ask is a side ask: no brain receipt, no decide_threw / phase15_brain_exception count, and no
+        // style record of its own (the decision keeps the first ask's records). Only the two fold-through
+        // receipts below are counted for it.
+        const wasFrameAsk = lightningFoldThroughFrameAsk;
+        lightningFoldThroughFrameAsk = true;
+        try {
+          through = withStyleRecordsKept(() =>
+            withBrainTelemetrySuspended(() =>
+              HorseLogic.decide(player, frame, style, mods, {
+                ...inner,
+                observeMind: false,
+                telemetry: false,
+              })
+            )
+          );
+        } finally {
+          lightningFoldThroughFrameAsk = wasFrameAsk;
+        }
+      } catch (err) {
+        reportError(err, 'HorseLogic.lightning_fold_through_frame_threw');
+        return first;
+      }
+      // The safety net answered the frame (already reported there; it can call on fixed limit): the fold stays.
+      if (through.policyFallback === 'brain_exception') return first;
       if (String(through.action) === 'fold') {
         if (telemetryOn(opts)) noteFire('lightning_fold_through_kept');
         return first;
@@ -10526,7 +10553,14 @@ export class HorseLogic {
       // the whole fleet would silently degrade to check/fold while every
       // dashboard stayed green. Every other automated-action path in the
       // engine reports; this one now does too.
-      reportError(err, 'HorseLogic.decide_threw');
+      // The Lightning fold-through frame ask is a side ask: its failure keeps the early fold (HorseLogic.decide)
+      // and is reported under its own name, not as a failed decision.
+      reportError(
+        err,
+        lightningFoldThroughFrameAsk
+          ? 'HorseLogic.lightning_fold_through_frame_threw'
+          : 'HorseLogic.decide_threw'
+      );
       // V13: the think-time hint is a module global, normally consumed and
       // cleared by computeThinkTime. The safety net returns WITHOUT calling
       // it, so a throw stranded the value and the NEXT horse to act — a

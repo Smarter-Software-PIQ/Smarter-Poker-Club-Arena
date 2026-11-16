@@ -676,13 +676,15 @@ describe('Lightning cheap entry through HorseLogic.decide', () => {
         expect(both.fires.get('lightning_fold_through_released')).toBe(1);
         expect(both.fires.has('lightning_fold_through_kept')).toBe(false);
         // Where the fold-through alone keeps the early fold, the completion is what releases it:
-        // the frame is the normal decide path, so it carries the cheap entry's code and receipt.
+        // the frame is the normal decide path, so its answer carries the cheap entry's code. The
+        // frame ask is a side ask with telemetry suspended (independent review of L-019, note 2):
+        // its own receipt is not counted there; the real turn counts it (asserted below).
         // (On a few hands the base policy already continues on the frame by its own jitter.)
         if (ftOnly.action === 'fold') {
           byCheapEntry++;
           expect(both.action, `${variant} hand ${i}`).toBe('call');
           expect(both.branches).toContain('lightning_cheap_entry_sb_complete');
-          expect(both.fires.get('lightning_cheap_entry_changed_seen')).toBe(1);
+          expect(both.fires.has('lightning_cheap_entry_changed_seen')).toBe(false);
         }
         expect(onTurn.action, `${variant} hand ${i}: on its turn`).toBe('call');
         expect(onTurn.fires.get('lightning_cheap_entry_changed_seen')).toBe(1);
