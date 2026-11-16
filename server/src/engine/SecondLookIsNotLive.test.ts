@@ -535,7 +535,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'asks the read for its receipt; the measured width is the same either way',
       ],
       'noteLayer: telemetryOn(opts)': [1, 'a counting callback handed to the preflop layer'],
-      'telemetry: telemetryOn(opts),': [2, 'passes the gate to a module that counts with it'],
+      'telemetry: telemetryOn(opts),': [3, 'passes the gate to a module that counts with it'],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
       tele: [1, 'the gate passed as an argument to a module that counts with it'],
       'tele15,': [1, 'the gate passed in the v31 input, read there to count'],

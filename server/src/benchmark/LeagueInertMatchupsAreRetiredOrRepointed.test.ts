@@ -40,7 +40,14 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'human_hu_opener_defends_vs_threebet_40bb',
         // 2026-11-15: the league deals no Lightning domain (HorseLightningParticipation).
         'nlh_lightning_participation_holdem',
+        // 2026-11-15: the league asks no early look (HorseLightningFoldThrough).
+        'nlh_lightning_early_fold_needs_fold_through',
         'plo4_lightning_participation_omaha',
+        // 2026-11-15 (L-016): the league deals no Lightning domain (lightningStyleReadSeparate).
+        'nlh_style_lightning_separate',
+        // 2026-11-15: the same, for the Lightning cheap entry (HorseLightningCheapEntry).
+        'nlh_lightning_cheap_entry_holdem',
+        'plo4_lightning_cheap_entry_omaha',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',
