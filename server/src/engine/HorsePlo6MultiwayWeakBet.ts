@@ -26,7 +26,9 @@
  * no qualifying draw (plo6QualifyingDraw): no nut flush draw, fewer than
  * eight straight outs, fewer than four outs to the nut straight, and no
  * combo draw (a flush draw of any rank with four or more straight outs). It
- * is not nut class (omahaNutClassNow). Then a bet becomes a check.
+ * is not nut class (omahaNutClassNow; a belt only: on the flop and turn that
+ * read is false for every one pair and two pair, so today it excludes
+ * nothing). Then a bet becomes a check.
  *
  * It never turns a check into anything, never touches a decision facing a
  * bet, a heads-up pot, the river, top pair, an overpair on a paired board,
