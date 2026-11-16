@@ -9,7 +9,7 @@ import argparse,os,json,subprocess,tempfile,hashlib,uuid
 from pathlib import Path
 R=Path(__file__).resolve().parents[2]
 MIGRATION=R/'supabase/migrations/20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql'
-p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--migration',type=Path,default=MIGRATION);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args();MIGRATION=args.migration.resolve()
+p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--migration',type=Path,default=MIGRATION);p.add_argument('--financial-root',type=Path,default=R);p.add_argument('--custody-migration',type=Path);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args();MIGRATION=args.migration.resolve()
 if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
 PG=args.pg_bin;out=args.output;out.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='peg-'));checks=[]
 inputs=[MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',Path(__file__)]
@@ -201,3 +201,8 @@ try:
 finally:
  if started:subprocess.run([PG/'pg_ctl','-D',tmp/'data','-m','fast','-w','stop'],capture_output=True)
  (out/'CHECKS.json').write_text(json.dumps(checks,indent=2)+'\n')
+
+# The same maintained CI entrypoint must execute the real public money owners.
+financial=[os.sys.executable,str(R/'scripts/ci/test-promo-tournament-earning-financial.py'),'--output',str(out/'public-financial'),'--pg-bin',str(PG),'--financial-root',str(args.financial_root.resolve()),'--migration',str(MIGRATION)]
+if args.custody_migration:financial+=['--custody-migration',str(args.custody_migration.resolve())]
+subprocess.run(financial,check=True)
