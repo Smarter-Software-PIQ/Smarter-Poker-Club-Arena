@@ -43,6 +43,7 @@ export default function SharedTableStage({
   frame,
   motion,
   heroId,
+  privateOwnerTag,
   appearance,
   holeCount,
 }: {
@@ -50,6 +51,7 @@ export default function SharedTableStage({
   frame: ReplayFrame;
   motion: FrameMotion;
   heroId: string | null;
+  privateOwnerTag: string;
   appearance: SharedTableAppearance | null;
   holeCount: number;
 }) {
@@ -237,6 +239,9 @@ export default function SharedTableStage({
                   cardBack={appearance?.cardBack}
                   playSounds={false}
                 />
+                {own && !revealed && !!cards?.length && (
+                  <span className="hr-seat__private">{privateOwnerTag}</span>
+                )}
               </div>
             );
           })}

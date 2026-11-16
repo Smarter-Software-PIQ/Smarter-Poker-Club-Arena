@@ -1141,6 +1141,7 @@ export default function HandReplay({
                 frame={frame}
                 motion={motion}
                 heroId={heroId}
+                privateOwnerTag={privateOwnerTag}
                 appearance={source.sharedTable}
                 holeCount={holdingSize(model)}
               />
