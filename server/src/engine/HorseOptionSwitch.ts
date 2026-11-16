@@ -421,6 +421,10 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
   huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 Fixed-Limit (P2 delta review, REVIEW-P2-739a9bb9 finding 1): the priced fixed-limit preflop changes
+  // first-in and blind-defence ranges, so it is under the same owner hold as its siblings until the owner lifts it
+  // by name (OPTION_SWITCH_PREFLOP_HOLD_LIFTED).
+  fixedLimitPricedPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,
@@ -557,7 +561,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   fixedLimitPricedPreflop: [
     'Fixed-Limit',
     'Fixed limit preflop, cash tables only, credited types only: flh dealt 2/5/6/8/9 unfloored and 2/3/5/6/7/8/9 floored, flo8 dealt 5/6 unfloored (others inert by code)',
-    'fixed-limit preflop priced at fixed-limit odds: first-in, facing a raise, big-blind defence (W5 P)',
+    'fixed-limit preflop priced at fixed-limit odds: first-in, facing a raise, big-blind defence (W5 P; off-only by the owner preflop range hold)',
   ],
   fixedLimitStealVsTightBlinds: [
     'Fixed-Limit',
