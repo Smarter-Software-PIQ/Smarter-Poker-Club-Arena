@@ -130,6 +130,85 @@ CREATE TRIGGER gto_v31_runtime_cells_cell_contract_immutable BEFORE UPDATE OF ce
 
 -- 3. The v3 readers, generated from the installed text before step 4 patches it,
 -- with the source ACL (service_role).
+DO $reader_absence$
+BEGIN
+  IF to_regprocedure('public.fn_gto_v31_active_cells_v3(integer,integer)') IS NOT NULL
+     OR to_regprocedure('public.fn_gto_v31_evaluation_cells_v3(uuid,integer,integer)') IS NOT NULL THEN
+    RAISE EXCEPTION 'v3 reader already exists';
+  END IF;
+END $reader_absence$;
+
+CREATE OR REPLACE FUNCTION public.fn_gto_v31_active_cells_v3(p_offset integer DEFAULT 0, p_limit integer DEFAULT 500)
+ RETURNS TABLE(dataset_id uuid, dataset_key text, dataset_checksum text, solver_version text, solver_binary_checksum text, pipeline_commit text, pipeline_bundle_checksum text, manifest_version text, manifest_checksum text, source_artifact_checksum text, source_combo_order_checksum text, range_bundle_checksum text, icm_model_checksum text, input_bundle_checksum text, cell_key_checksum text, cell_payload_checksum text, lineage_checksum text, quality_status text, dataset_state text, dataset_cells bigint, source_rows bigint, train_source_rows bigint, holdout_source_rows bigint, invalid_rows bigint, audited_at timestamp with time zone, street text, game_family text, objective text, utility_context text, table_size smallint, pot_type text, hero_position text, opponent_position text, depth_bucket integer, texture_class text, node_role text, facing_kind text, facing_size_bucket text, hand_matrix jsonb, action_specs jsonb, policy_ev_matrix jsonb, action_ev_matrix jsonb, feature_contract_version text, policy_export_schema text, policy_representation text, public_model jsonb, public_template jsonb, public_training_provenance jsonb, public_model_build_receipt jsonb, model_checksum text, template_checksum text, feature_schema_checksum text, training_provenance_checksum text, model_build_receipt_checksum text, cell_contract_version text, line_class text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT d.dataset_id, d.dataset_key, d.dataset_checksum,
+         d.solver_version, d.solver_binary_checksum, d.pipeline_commit,
+         d.pipeline_bundle_checksum,
+         d.manifest_version, d.manifest_checksum, d.source_artifact_checksum,
+         d.source_combo_order_checksum, d.range_bundle_checksum,
+         d.icm_model_checksum,d.input_bundle_checksum,
+         c.cell_key_checksum, c.cell_payload_checksum, c.lineage_checksum,
+         d.quality_status, d.state, (d.coverage->>'cells')::bigint,
+         d.source_rows, d.train_source_rows, d.holdout_source_rows,
+         d.invalid_rows, d.audited_at,
+         c.street, c.game_family, c.objective, c.utility_context, c.table_size,
+         c.pot_type, c.hero_position, c.opponent_position,
+         c.depth_bucket, c.texture_class, c.node_role, c.facing_kind,
+         c.facing_size_bucket, c.hand_matrix, c.action_specs,
+         c.policy_ev_matrix,c.action_ev_matrix,d.feature_contract_version,d.policy_export_schema,c.policy_representation,c.public_model,c.public_template,c.public_training_provenance,c.public_model_build_receipt,c.model_checksum,c.template_checksum,c.feature_schema_checksum,c.training_provenance_checksum,c.model_build_receipt_checksum,c.cell_contract_version,c.line_class
+    FROM public.gto_v31_datasets d
+    JOIN public.gto_v31_input_bundles b ON b.input_bundle_id=d.input_bundle_id
+     AND b.approval_status='approved' AND b.bundle_checksum=d.input_bundle_checksum
+     AND b.feature_contract_version IS NOT DISTINCT FROM d.feature_contract_version AND b.policy_export_schema IS NOT DISTINCT FROM d.policy_export_schema AND b.policy_representation IS NOT DISTINCT FROM d.policy_representation
+    JOIN public.gto_v31_runtime_cells c ON c.dataset_id=d.dataset_id AND c.feature_contract_version IS NOT DISTINCT FROM d.feature_contract_version AND c.policy_export_schema IS NOT DISTINCT FROM d.policy_export_schema AND c.policy_representation IS NOT DISTINCT FROM d.policy_representation
+   WHERE d.state='active' AND d.quality_status='validated' AND d.invalid_rows=0
+     AND d.dataset_checksum IS NOT NULL AND d.source_artifact_checksum IS NOT NULL
+   ORDER BY c.street, c.game_family, c.objective, c.utility_context, c.table_size,
+            c.pot_type, c.hero_position, c.opponent_position, c.depth_bucket,
+            c.texture_class, c.node_role,
+            c.facing_kind, c.facing_size_bucket, c.line_class
+   OFFSET greatest(COALESCE(p_offset,0),0)
+   LIMIT greatest(1,least(COALESCE(p_limit,500),CASE WHEN EXISTS(SELECT 1 FROM public.gto_v31_datasets WHERE state='active' AND policy_representation='public_hist215_v1') THEN 1 ELSE 500 END));
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.fn_gto_v31_evaluation_cells_v3(p_dataset_id uuid, p_offset integer DEFAULT 0, p_limit integer DEFAULT 500)
+ RETURNS TABLE(dataset_id uuid, dataset_key text, dataset_checksum text, solver_version text, solver_binary_checksum text, pipeline_commit text, pipeline_bundle_checksum text, manifest_version text, manifest_checksum text, source_artifact_checksum text, source_combo_order_checksum text, range_bundle_checksum text, icm_model_checksum text, input_bundle_checksum text, cell_key_checksum text, cell_payload_checksum text, lineage_checksum text, quality_status text, dataset_state text, dataset_cells bigint, source_rows bigint, train_source_rows bigint, holdout_source_rows bigint, invalid_rows bigint, audited_at timestamp with time zone, street text, game_family text, objective text, utility_context text, table_size smallint, pot_type text, hero_position text, opponent_position text, depth_bucket integer, texture_class text, node_role text, facing_kind text, facing_size_bucket text, hand_matrix jsonb, action_specs jsonb, policy_ev_matrix jsonb, action_ev_matrix jsonb, feature_contract_version text, policy_export_schema text, policy_representation text, public_model jsonb, public_template jsonb, public_training_provenance jsonb, public_model_build_receipt jsonb, model_checksum text, template_checksum text, feature_schema_checksum text, training_provenance_checksum text, model_build_receipt_checksum text, cell_contract_version text, line_class text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT d.dataset_id,d.dataset_key,d.dataset_checksum,d.solver_version,
+         d.solver_binary_checksum,d.pipeline_commit,d.pipeline_bundle_checksum,
+         d.manifest_version,
+         d.manifest_checksum,d.source_artifact_checksum,
+         d.source_combo_order_checksum,d.range_bundle_checksum,d.icm_model_checksum,
+         d.input_bundle_checksum,c.cell_key_checksum,c.cell_payload_checksum,
+         c.lineage_checksum,d.quality_status,d.state,(d.coverage->>'cells')::bigint,
+         d.source_rows,d.train_source_rows,d.holdout_source_rows,d.invalid_rows,
+         d.audited_at,c.street,c.game_family,c.objective,c.utility_context,
+         c.table_size,c.pot_type,c.hero_position,c.opponent_position,c.depth_bucket,
+         c.texture_class,c.node_role,c.facing_kind,c.facing_size_bucket,
+         c.hand_matrix,c.action_specs,c.policy_ev_matrix,c.action_ev_matrix,d.feature_contract_version,d.policy_export_schema,c.policy_representation,c.public_model,c.public_template,c.public_training_provenance,c.public_model_build_receipt,c.model_checksum,c.template_checksum,c.feature_schema_checksum,c.training_provenance_checksum,c.model_build_receipt_checksum,c.cell_contract_version,c.line_class
+    FROM public.gto_v31_datasets d
+    JOIN public.gto_v31_input_bundles b ON b.input_bundle_id=d.input_bundle_id
+     AND b.approval_status='approved' AND b.bundle_checksum=d.input_bundle_checksum
+     AND b.feature_contract_version IS NOT DISTINCT FROM d.feature_contract_version AND b.policy_export_schema IS NOT DISTINCT FROM d.policy_export_schema AND b.policy_representation IS NOT DISTINCT FROM d.policy_representation
+    JOIN public.gto_v31_runtime_cells c ON c.dataset_id=d.dataset_id AND c.feature_contract_version IS NOT DISTINCT FROM d.feature_contract_version AND c.policy_export_schema IS NOT DISTINCT FROM d.policy_export_schema AND c.policy_representation IS NOT DISTINCT FROM d.policy_representation
+   WHERE d.dataset_id=p_dataset_id AND d.state IN ('evaluating','candidate','active')
+     AND d.quality_status='validated' AND d.invalid_rows=0
+     AND d.dataset_checksum IS NOT NULL AND d.source_artifact_checksum IS NOT NULL
+   ORDER BY c.street,c.game_family,c.objective,c.utility_context,c.table_size,
+     c.pot_type,c.hero_position,c.opponent_position,c.depth_bucket,c.texture_class,
+     c.node_role,c.facing_kind,c.facing_size_bucket,c.line_class
+   OFFSET greatest(COALESCE(p_offset,0),0)
+   LIMIT greatest(1,least(COALESCE(p_limit,500),CASE WHEN EXISTS(SELECT 1 FROM public.gto_v31_datasets WHERE dataset_id=p_dataset_id AND policy_representation='public_hist215_v1') THEN 1 ELSE 500 END));
+$function$
+;
+
 DO $readers$
 DECLARE r record; def text; e jsonb; hits integer; acl text;
 BEGIN
@@ -147,14 +226,15 @@ BEGIN
        ["c.model_build_receipt_checksum\n    FROM", "c.model_build_receipt_checksum,c.cell_contract_version,c.line_class\n    FROM"],
        ["c.node_role,c.facing_kind,c.facing_size_bucket\n   OFFSET", "c.node_role,c.facing_kind,c.facing_size_bucket,c.line_class\n   OFFSET"]]'::jsonb)
   ) AS p(src, dst, anchors) LOOP
-    IF to_regprocedure(r.dst) IS NOT NULL THEN RAISE EXCEPTION '% already exists', r.dst; END IF;
     def := pg_get_functiondef(r.src);
     FOR e IN SELECT value FROM jsonb_array_elements(r.anchors) LOOP
       hits := (length(def) - length(replace(def, e->>0, ''))) / length(e->>0);
       IF hits <> 1 THEN RAISE EXCEPTION '% anchor found % times, expected exactly 1: %', r.src, hits, e->>0; END IF;
       def := replace(def, e->>0, e->>1);
     END LOOP;
-    EXECUTE def;
+    IF pg_get_functiondef(to_regprocedure(r.dst)) IS DISTINCT FROM def THEN
+      RAISE EXCEPTION '% differs from its reviewed source transformation', r.dst;
+    END IF;
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', r.dst);
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.dst);
     acl := (SELECT proacl::text FROM pg_proc WHERE oid = r.src);

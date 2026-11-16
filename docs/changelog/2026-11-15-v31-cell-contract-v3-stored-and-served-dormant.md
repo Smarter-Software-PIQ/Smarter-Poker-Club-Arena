@@ -84,3 +84,9 @@ Open items, not fixed, to be weighed before any v3 activation:
 ## Current Registry Follow-Up On November 16
 
 The unpushed registry draft is superseded by generated migration `20261116140705_horse_option_switch_flop5_heads_up_balance_and_v31_off_only.sql`, shared with D1's default-off heads-up option. Current protected-main options and the PLO6 off-only hold are preserved. The three runtime/build-seal/ingest migrations above remain byte-identical; serving is still off-only, with no dataset registered, promoted or bound.
+
+## Hosted Qualification Correction, November 16
+
+The trusted database-door check cannot infer dynamically generated reader declarations. Both v3 readers now use literal maintained CREATE statements from the pinned fixture, while the original source preimages, exact anchor transformation comparison, destination absence, postimage hashes and ACL equality remain enforced. The regression uses the unchanged door parser. The runtime native proof retains all ten detected mutations.
+
+Linux rejected a large native model INSERT as an oversized command argument. The shared isolated PostgreSQL helper streams large SQL through stdin with a single transaction, covering direct differential calls as well as Db.sql; all refusal assertions remain. Its socket scratch follows the configured external temporary directory. No production data or live option changes.
