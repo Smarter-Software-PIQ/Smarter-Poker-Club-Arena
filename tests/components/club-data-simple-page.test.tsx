@@ -682,7 +682,9 @@ describe('the union invoice basis', () => {
     // Explanations live behind the "?" (Dan, 2026-11-15), never on the page.
     const tip = screen.getByTestId('data-help-tip');
     expect(tip.hasAttribute('open')).toBe(false);
-    expect(tip.textContent).toMatch(/Days Run 2:00 AM To 2:00 AM Chicago Time\./);
+    expect(tip.textContent).toMatch(
+      /Days Run Midnight To Midnight Pacific Time\. Weeks Run Monday Through Sunday\./
+    );
     expect(screen.getByText(/^Union Invoice Basis\./).closest('details')).toBe(tip);
     expect(screen.getByText(/Total Winnings Equals Its Player Win\/Loss/)).toBeTruthy();
     // Tournament fees count when the tournament settles; no running MTT fee.

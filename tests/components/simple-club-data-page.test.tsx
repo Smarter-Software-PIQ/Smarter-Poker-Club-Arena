@@ -652,7 +652,11 @@ it('a union club reads the 02:00 accounting window and says what it counts', asy
     expect(await screen.findByLabelText('Window Ends At 2:00 AM (Chicago Time)')).toHaveValue(
       shiftDay(TEST_END_DATE, 1)
     );
-    expect(screen.getByText('Days Run 2:00 AM To 2:00 AM Chicago Time.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Days Run Midnight To Midnight Pacific Time. Weeks Run Monday Through Sunday.'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText(/^Union Invoice Basis\. Fee Is The Rake Credited/)).toBeInTheDocument();
     expect(
       screen.getByText(/^Provisional From Nov 9, 2026 2:00 AM Chicago Time: No Weekly Invoice/)

@@ -40,13 +40,13 @@ function latest(fnName: string): string {
 }
 const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 
-describe('the accounting day is 02:00 to 02:00 Chicago, the invoice boundary', () => {
-  it('takes the two hours off the Chicago wall clock, so daylight saving is the zone database', () => {
+describe('the accounting day is Pacific midnight, the invoice boundary', () => {
+  it('uses Pacific midnight directly, including fall-back Sunday', () => {
     expect(latest('fn_ca_accounting_day')).toContain(
-      "SELECT ((p_at AT TIME ZONE 'America/Chicago') - interval '2 hours')::date;"
+      "SELECT (p_at AT TIME ZONE 'America/Los_Angeles')::date;"
     );
     expect(latest('fn_ca_accounting_day_start')).toContain(
-      "SELECT (p_day::timestamp + interval '2 hours') AT TIME ZONE 'America/Chicago';"
+      "SELECT p_day::timestamp AT TIME ZONE 'America/Los_Angeles';"
     );
   });
 
@@ -67,7 +67,7 @@ describe('the accounting day is 02:00 to 02:00 Chicago, the invoice boundary', (
     expect(accountingDay('2026-11-09T08:00:00Z')).toBe('2026-11-09');
     // Fall back, Sunday 2026-11-01: 01:30 happens twice, both are Oct 31.
     expect(accountingDay('2026-11-01T06:30:00Z')).toBe('2026-10-31');
-    expect(accountingDay('2026-11-01T07:30:00Z')).toBe('2026-10-31');
+    expect(accountingDay('2026-11-01T07:30:00Z')).toBe('2026-11-01');
     expect(accountingDay('2026-11-01T08:00:00Z')).toBe('2026-11-01');
     // Spring forward, Sunday 2026-03-08: 02:00 does not exist; 03:00 CDT starts the day.
     expect(accountingDay('2026-03-08T07:59:59Z')).toBe('2026-03-07');
@@ -138,7 +138,9 @@ describe('the page has one source of figures', () => {
     // (ca_club_acct_fact, 20261115020010).
     const page = src('src/pages/club/ClubDataSimplePage.tsx');
     expect(page).not.toContain('ClubDataUnionWeeks');
-    expect(existsSync(resolve(__dirname, '..', 'src/pages/club/ClubDataUnionWeeks.tsx'))).toBe(false);
+    expect(existsSync(resolve(__dirname, '..', 'src/pages/club/ClubDataUnionWeeks.tsx'))).toBe(
+      false
+    );
   });
 });
 

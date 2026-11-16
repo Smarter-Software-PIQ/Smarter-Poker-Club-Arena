@@ -600,7 +600,8 @@ export default function ClubDataSimplePage() {
   const windowLabel =
     (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
     clubDataWindowLabel(startDate, endDate, answerBasis);
-  const boundaryClock = clubDataBoundaryClock(answerBasis);
+  const startClock = clubDataBoundaryClock(answerBasis, startDate);
+  const boundaryClock = clubDataBoundaryClock(answerBasis, addDays(endDate, 1));
   const feeText = isDownline
     ? formatMoney(visibleSnapshot?.member_fees?.total_fees)
     : summary
@@ -885,8 +886,8 @@ export default function ClubDataSimplePage() {
         </div>
         <DataHelpTip alert={Boolean(notices.incomplete)}>
           <p>
-            {clubDataDayRule(answerBasis)}. The Window Starts At {boundaryClock} On The Start Date
-            And Stops At {boundaryClock} On The End Date. Up To 93 Days.
+            {clubDataDayRule(answerBasis)}. The Window Starts At {startClock} On The Start Date And
+            Stops At {boundaryClock} On The End Date. Up To 93 Days.
           </p>
           {visibleSnapshot && unionBasis && <p>{UNION_BASIS_DEFINITIONS}</p>}
           {unionBasis && (

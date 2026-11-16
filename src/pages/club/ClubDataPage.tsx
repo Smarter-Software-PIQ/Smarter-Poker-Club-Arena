@@ -3048,7 +3048,7 @@ export default function ClubDataPage() {
   const windowLabel =
     (snapshot && coverageWindowLabel(snapshot.accounting_coverage)) ||
     clubDataWindowLabel(startDate, endDate, answerBasis);
-  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(answerBasis)} (${CLUB_DATA_ZONE_LABEL})`;
+  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(answerBasis, addCalendarDays(endDate, 1))} (${CLUB_DATA_ZONE_LABEL})`;
   const notices = coverageNotices(snapshot?.accounting_coverage);
   const unionBasis = answerBasis === 'accounting';
   const filtersActive = game !== 'ALL' || stakes !== 'ALL' || search.trim() !== '';
