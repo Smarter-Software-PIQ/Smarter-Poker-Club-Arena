@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+    "scripts/qualification/ci-accounting-inputs.json": "4464211eb6786f83d8f4df58ff7821dd930f273ac9cd92910b28415a1aa558fc"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -2237,6 +2237,19 @@
         "kind": "sha256",
         "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
         "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "weeklyRakebackStatusProofAccountingShard2_20261115": {
+    "reason": "Required accounting shard 2 gains one additive step that runs the throwaway PostgreSQL 17 proof of the read-only Weekly Rakeback Status reader (scripts/ci/test-weekly-rakeback-status-postgres.py, migration 20261116020505, PR #11039). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write; dependent binding pins follow that one change. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003",
+        "current": "4464211eb6786f83d8f4df58ff7821dd930f273ac9cd92910b28415a1aa558fc"
       }
     ],
     "financialRecertification": false,
