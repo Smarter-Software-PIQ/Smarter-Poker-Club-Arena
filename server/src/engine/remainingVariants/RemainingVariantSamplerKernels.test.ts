@@ -247,19 +247,27 @@ describe('drawInPlace and removePicked are the copied-deck splices', () => {
  * the controller's own). The digests were produced, on the same spots, by the
  * sampler as it was before the kernels (RemainingVariantSampler.ts at
  * 1235b47a63c439da9bdf8427148bc0818499378c).
+ *
+ * flh and flo8 re-pinned 2026-11-16: fixed limit stopped listing ALL IN where
+ * the press only calls (AFixedLimitMenuOffersWhatItExecutes), and the spot
+ * generator drives hands from that menu, so its fixed-limit spots changed.
+ * The new digests were produced the same way, by the 1235b47a sampler on the
+ * new spots; the same procedure reproduces the previous pins (flh 745 c49093f1,
+ * flo8 764 7ef5d35a) on main a0cf071e, and short_deck and pineapple are
+ * unchanged.
  */
 const ORIGINAL_SAMPLER_OUTPUT_SHA256: Record<RemainingPolicyVariant, string> = {
   short_deck: 'e1a4a457da80f08684ee5f07979fbe0ffc64c1c022d20288fa0c80942f7a6de1',
   pineapple: 'f1d713de2e2da662633b7427fb00c552b17f8f099a0f299e66e1486a21c99e4e',
-  flh: 'c49093f188cfa23789c829086b3577e7b6bba72187e11b20bbdcb3f09cb17437',
-  flo8: '7ef5d35aeca68f9e620af2fccb4924de99cdad2e2b0f30ecd1c491f4770e1ea4',
+  flh: 'f4a5a01504280fce5927e4479b33e12db2528483351646f82926dd5392461d8b',
+  flo8: 'a749225ffa9adca73e92390b471738a380db64365cf7aa283366355d7d701707',
 };
 
 const ORIGINAL_SPOTS: Record<RemainingPolicyVariant, number> = {
   short_deck: 97,
   pineapple: 155,
-  flh: 745,
-  flo8: 764,
+  flh: 489,
+  flo8: 446,
 };
 
 function samplerOutputDigest(variant: RemainingPolicyVariant): { spots: number; sha256: string } {
