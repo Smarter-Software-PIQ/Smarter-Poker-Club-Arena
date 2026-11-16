@@ -324,3 +324,32 @@ describe('every process that counts applies the same value', () => {
     expect(setters).toEqual(['engine/HorseMind.ts', 'engine/horseDecision/workerRuntime.ts']);
   });
 });
+
+// The per-decision style memo (aStyleReadIsReadOncePerDecision) keys on everything the read depends on. With F1
+// switchable live, the switch value is one of those inputs (Hand Analysis 2026-11-16T00:02:19Z note D4): a flip
+// between two reads in the same decision scope must give a fresh read, never the memo entry from the other state.
+describe('a style read is never served across an F1 switch flip', () => {
+  afterEach(() => {
+    HorseMind.setFixedLimitBetsAreNeverProbes(FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT);
+    HorseMind.setStyleReadMemo(true);
+    HorseMind.setDecisionScope(null);
+    HorseMind.reset();
+  });
+  it('re-reads after each flip in the same scope, and still uses the memo while the switch stands', () => {
+    HorseMind.reset();
+    HorseMind.setStyleReadMemo(true);
+    HorseMind.setDecisionScope('holdem:full' as never, 'flh', 'cash');
+    HorseMind.beginStyleReadMemo();
+    HorseMind.takeStyleReadMemoCounts();
+    HorseMind.styleRead(OPP);
+    HorseMind.styleRead(OPP);
+    expect(HorseMind.takeStyleReadMemoCounts()).toEqual({ hits: 1, misses: 1 });
+    HorseMind.setFixedLimitBetsAreNeverProbes(!HorseMind.fixedLimitBetsAreNeverProbesOn());
+    HorseMind.styleRead(OPP);
+    HorseMind.styleRead(OPP);
+    expect(HorseMind.takeStyleReadMemoCounts()).toEqual({ hits: 1, misses: 1 });
+    HorseMind.setFixedLimitBetsAreNeverProbes(!HorseMind.fixedLimitBetsAreNeverProbesOn());
+    HorseMind.styleRead(OPP);
+    expect(HorseMind.takeStyleReadMemoCounts()).toEqual({ hits: 0, misses: 1 });
+  });
+});

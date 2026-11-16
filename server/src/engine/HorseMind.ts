@@ -2781,6 +2781,10 @@ export class HorseMind {
       this.pooledProvenance,
       this.donorStaleness,
       this.sandboxDepth,
+      // F1 is live-switchable (fixedLimitBetsAreNeverProbes through the option switch registry): a memo entry must
+      // never serve a read computed under the other switch state. The decision's betting structure is keyed through
+      // decisionVariant above (the read derives it with bettingStructureFor).
+      this.fixedLimitBetsAreNeverProbes,
     ];
   }
   private static styleMemoValid(inputs: readonly unknown[]): boolean {
