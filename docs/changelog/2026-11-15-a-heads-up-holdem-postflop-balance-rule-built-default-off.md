@@ -62,8 +62,6 @@ default path (24 table states), and the module draws no random number there.
 
 ## SSD2 Continuation On November 16
 
-Integrated current protected main and regenerated the unpushed option-list follow-up with the maintained generator as `20261116132813_horse_option_switch_holdem_heads_up_postflop_balance.sql`. The earlier unpushed list is superseded and retained in Git history. The correction remains off by default, and the river correction remains removed. Focused server checks, migration laws and the isolated PostgreSQL option-switch proof passed on the integrated source. Solver re-scoring of the river-removal candidate continues separately; nothing is enabled for live play.
+The heads-up balance and dormant V31 v3 source ship together with one generated registry follow-up, `20261116140705_horse_option_switch_flop5_heads_up_balance_and_v31_off_only.sql`. It preserves the current protected-main options, including the PLO6 off-only hold. Earlier unpushed follow-ups are superseded in Git history. The heads-up option remains default off, the river rule remains removed, and V31 serving remains off-only. No switch row, dataset registration, promotion or binding is written.
 
-### Submission Regression Protection
-
-The reference decision-source registry now hashes the heads-up balance module in each policy digest. The existing Omaha style identity test also excludes the diagnostic `analysisMs`, alongside its existing elapsed-time exclusions: identical seeded decisions otherwise failed solely on measured CPU time. It continues comparing actions, amounts, think time, sampling budgets and complete policy receipts.
+The reference decision-source registry hashes the heads-up module in every policy digest. TypeScript and all six focused brain/V31/digest suites passed (74 tests) on the combined source. The frozen second turn/river score reports IMPROVED from the turn, no frozen regression and no demonstrated river improvement. These are exposed development-bank measurements, not live or held-out qualification. Current main's diagnostic-timing correction to the Omaha identity test is preserved unchanged.

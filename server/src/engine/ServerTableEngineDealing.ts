@@ -6426,4 +6426,5 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     }
     return { deadBlinds, bbOnlyPosts };
   }
+
 }

@@ -252,9 +252,7 @@ describe('review fixes (2026-11-15)', () => {
     await e.leaveTable(HORSE);
     e.endCompletionPresentation();
     e.releaseDepartedSeats([{ userId: HORSE, occupancyId: OCC[HORSE] }]);
-    const left = e.hub.emitEvent.mock.calls
-      .map((c: any[]) => c[1])
-      .filter((ev: any) => ev?.type === 'seat_left');
+    const left = e.hub.emitEvent.mock.calls.map((c: any[]) => c[1]).filter((ev: any) => ev?.type === 'seat_left');
     expect(left).toEqual([expect.objectContaining({ user_id: HORSE, seat: 2, mid_hand: false })]);
     expect(e.wakeClusterGame).toHaveBeenCalledWith('seat_left');
     expect(e.heldDepartures.has(OCC[HORSE])).toBe(false);
@@ -300,9 +298,7 @@ describe('a horse that banks the win waits for its own pot push (production 2026
     await e.runDeferredBankTheWinExits();
     expect(exits).toEqual([HORSE]);
     expect(e.seatedPlayers.some((p: any) => p.user_id === HORSE)).toBe(false);
-    const left = e.hub.emitEvent.mock.calls
-      .map((c: any[]) => c[1])
-      .filter((ev: any) => ev?.type === 'seat_left');
+    const left = e.hub.emitEvent.mock.calls.map((c: any[]) => c[1]).filter((ev: any) => ev?.type === 'seat_left');
     expect(left).toEqual([expect.objectContaining({ user_id: HORSE, seat: 2 })]);
     expect(e.heldDepartures.size).toBe(0);
   });
@@ -310,11 +306,7 @@ describe('a horse that banks the win waits for its own pot push (production 2026
   it('a stay-clock refusal keeps the horse seated and lifts the move block', async () => {
     const e = makeEngineInCompletionHold();
     e.lifecycleCanMutate = () => true;
-    e.cashoutVoluntaryStay = vi.fn(async () => ({
-      ok: false,
-      code: 'LEAVE_LOCKED',
-      stayRemainingMs: 1000,
-    }));
+    e.cashoutVoluntaryStay = vi.fn(async () => ({ ok: false, code: 'LEAVE_LOCKED', stayRemainingMs: 1000 }));
     e.chipContinuity.noteRefusal = vi.fn();
     const horse = e.seatedPlayers.find((p: any) => p.user_id === HORSE);
     e.deferredBankTheWin.set(HORSE, horse);

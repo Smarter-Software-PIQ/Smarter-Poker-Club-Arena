@@ -2808,6 +2808,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6TopSetNutRealization: true },
     b: {},
   },
+  // 2026-11-15 (PLO6 lane, SWEEP-PLO6 family D2) PLO6 MULTIWAY BET WITH A
+  // WEAK MADE HAND (plo6NoMultiwayBetWithWeakMadeHand,
+  // HorsePlo6MultiwayWeakBet.ts), default OFF: arm A turns a flop or turn bet
+  // facing nothing against two or more live opponents, with a pair below the
+  // top card, two pair without it or (added the same day) a pocket pair above
+  // the top card of an unpaired board and no qualifying draw, into a check; arm B
+  // is today's brain. Six seats, so the pot is multiway, and the production
+  // personas: measured 2026-11-15 (seed 20261115, 600 pairs) the arms diverged
+  // in 14 pairs with productionStyles and in 0 with the Hybrid baseline, whose
+  // one persona does not make this bet in the league (productionStyles
+  // re-measured after the pre-review fixes of the same day: 14 pairs again;
+  // the Hybrid count was measured before them; neither count was re-run
+  // after the overpair class was added, which can only add divergent pairs).
+  // The card only measures; the default is unchanged.
+  {
+    name: 'plo6_no_multiway_bet_with_weak_made_hand',
+    variant: 'plo6',
+    seats: 6,
+    pairs: 6000,
+    productionStyles: true,
+    a: { plo6NoMultiwayBetWithWeakMadeHand: true },
+    b: {},
+  },
   // 2026-11-16 (PLO6-AUDIT-013) PLO6 MANIAC PRICE REFUSAL TO THE RANGE PLAY
   // (plo6ManiacPriceRefusalToRangePlay), opt-in since 2026-11-16 because its
   // production reach row was not met by the deadline Hand Analysis set: arm A
@@ -3884,6 +3907,29 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       '0 of 300 pairs diverged (inert, as the structure says). The think-time claim itself rests on the source ' +
       'law and the property test (200 private hands on three public states give one think-time distribution). ' +
       'What would change this: a league opponent that conditions its play on the recorded think time.',
+  },
+  // 2026-11-16 (PLO6 lane): omahaStrategyInPlo6, default off and off-only.
+  // Refused, not dealt: alone the gate switches no option on, and the port
+  // it would open is not finished.
+  {
+    name: 'plo6_omaha_strategy_in_plo6',
+    variant: 'plo6',
+    seats: 6,
+    a: { omahaStrategyInPlo6: true },
+    b: {},
+    reason:
+      'Unanswerable as a one-option card: omahaStrategyInPlo6 is a game gate, not a rule. On, it lets each ' +
+      'PLO4/PLO5 strategy option of 2026-11-15 that is itself on also act in PLO6 (omahaStrategyGameInScope) ' +
+      'and registers the six-card constants for that decision; every one of those options is default off, so ' +
+      'with only the gate on no rule is in scope and the two arms play the same poker. ' +
+      'The option is DEFAULT OFF (read as === true) and OFF-ONLY in the live switch. ' +
+      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261116, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). ' +
+      'A card that also switches the strategy options on in both arms is not dealt yet on purpose: the ' +
+      'six-card port is incomplete (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so ' +
+      'it would measure rules known to be wrong or silent for six cards. ' +
+      'What would change this: the port complete and reviewed; then this refusal is replaced by a PLO6 card ' +
+      'with the ported options on in both arms and the gate on in one.',
   },
   // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
   // default off. Refused, not dealt: this league seats no VPIP-floor table.

@@ -133,10 +133,14 @@ describe('the fixed action bar cannot cover the hero plate or the HUD', () => {
     // floor, not a number somebody typed next to it. Both sides read
     // --sp-bottom-row-h, so a breakpoint that changes the bar changes the
     // reserve in the same step.
+    expect(TABLE_CSS).toContain('--sp-action-reserve: var(--sp-seated-row-reserve)');
     const reserve = TABLE_CSS.split('\n')
       .join(' ')
-      .match(/--sp-action-reserve:\s*calc\([^;]*\);/);
-    expect(reserve, '--sp-action-reserve is not declared as a calc()').not.toBeNull();
+      .match(/--sp-seated-row-reserve:\s*calc\([^;]*\);/);
+    expect(
+      reserve,
+      'the seated row reserve must include the control height and safe inset'
+    ).not.toBeNull();
     expect(reserve![0]).toContain('--sp-bottom-row-h');
     expect(reserve![0]).toContain('env(safe-area-inset-bottom');
   });

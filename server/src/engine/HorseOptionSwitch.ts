@@ -345,6 +345,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
   'gtoV31CellContractV3Serving',
+  'omahaStrategyInPlo6',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
 ]);
@@ -500,6 +501,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   gtoV31CellContractV3Serving: hold(
     V31_CELL_CONTRACT_V3_SOURCE,
     'V31 cell contract v3 serving: held until the owner lifts it by name; it also needs a sealed, promoted and bound v3 dataset'
+  ),
+  // 2026-11-16 PLO6 lane: the gate that lets the PLO4/PLO5 strategy options act in PLO6. The six-card port is
+  // unfinished (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so the gate cannot be opened.
+  omahaStrategyInPlo6: hold(
+    'PLO6 lane (the owning lane): docs/horse-option-authority.d/omahaStrategyInPlo6.md',
+    'PLO6 lane keeps it OFF until the six-card port is complete and reviewed (PLO6 checkpoint 2026-11-16)'
   ),
   // superseded
   v55OmahaRiverTripsFlat: Object.freeze({

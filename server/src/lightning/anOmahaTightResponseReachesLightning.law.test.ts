@@ -49,13 +49,7 @@ const seat = (n: number, id: string, hole: string, over: Partial<SeatPlayer> = {
   }) as SeatPlayer;
 
 type Kind =
-  | 'unknown'
-  | 'sparse'
-  | 'tight'
-  | 'loose_passive'
-  | 'maniac'
-  | 'average'
-  | 'tight_then_raising';
+  'unknown' | 'sparse' | 'tight' | 'loose_passive' | 'maniac' | 'average' | 'tight_then_raising';
 
 /** One preflop action per hand: raise on `raiseEvery`, call on `callEvery`, else fold. */
 function playHands(

@@ -4760,10 +4760,10 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       }
     } finally {
       // Whatever happened, no deferred exit leaves a seat-move block behind.
-      for (const horse of due)
-        if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
+      for (const horse of due) if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
     }
   }
+
 
   /**
    * Read move candidates while the leave sweep runs. Candidates carry no cash
