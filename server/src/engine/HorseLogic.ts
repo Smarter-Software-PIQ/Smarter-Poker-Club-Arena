@@ -3162,14 +3162,16 @@ export interface HorseDecideOpts {
    *  (presumedAggressorRead) is not applied; the opponent's own measured read
    *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
   fixedLimitOmahaNoPresumption?: boolean;
-  /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15): in fixed
-   *  limit only, first in the seat raises the stated reference share by
+  /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15): at
+   *  fixed-limit CASH tables only (inert at every tournament table: the
+   *  !isTournamentMode(gs) gate at the priced-context entry and the pack
+   *  precedence), first in the seat raises the stated reference share by
    *  players behind (the small blind folded to also completes a band; the
    *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
    *  exactly one raise becomes a call when its realized equity against the
    *  opener's reference range covers its raw pot price (the calibration's
-   *  price; 2026-11-15 fix) (HorseFixedLimitPreflop.ts). 3-bet/cap ranges and
-   *  tournament stacks of 20 big blinds or less are unchanged. With it on, the
+   *  price; 2026-11-15 fix) (HorseFixedLimitPreflop.ts). 3-bet/cap ranges are
+   *  unchanged. With it on, the
    *  phase12 pack's round-3 preflop FIRST-IN entry rules retain this reference in fixed limit.
    *  Read only as === true: default OFF. */
   fixedLimitPricedPreflop?: boolean;
