@@ -158,21 +158,101 @@ END $owners$;
 -- Effective contracts can acquire a later authorized interpretation. Apply
 -- the same frozen source funding after that interpretation as well, so an
 -- admission cannot accidentally restore promo-funded earnings.
-DO $views$
-DECLARE def text;needle text:='COALESCE(a.admitted_contract, s.contract) AS contract';
-BEGIN
- SELECT pg_get_viewdef('public.accounting_effective_cash_rake_sources'::regclass,true) INTO def;
- IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_effective_cash_contract_anchor_changed'; END IF;
- EXECUTE 'CREATE OR REPLACE VIEW public.accounting_effective_cash_rake_sources AS '||replace(def,needle,
-  'CASE WHEN s.earned_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) THEN public.fn_ca_promo_cash_payable_contract(s.rake_record_id,s.club_id,s.player_id,COALESCE(a.admitted_contract,s.contract)) ELSE COALESCE(a.admitted_contract,s.contract) END AS contract');
- SELECT pg_get_viewdef('public.accounting_effective_tournament_fee_sources'::regclass,true) INTO def;
- IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_effective_tournament_contract_anchor_changed'; END IF;
- EXECUTE 'CREATE OR REPLACE VIEW public.accounting_effective_tournament_fee_sources AS '||replace(def,needle,
-  'CASE WHEN s.charged_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) THEN public.fn_ca_promo_tournament_payable_contract(s.source_charge_ledger_id,COALESCE(a.admitted_contract,s.contract)) ELSE COALESCE(a.admitted_contract,s.contract) END AS contract');
- SELECT pg_get_viewdef('public.accounting_payable_earning_sources'::regclass,true) INTO def;
- needle:='s.rake_credit,';
- IF length(def)-length(replace(def,needle,''))<>2*length(needle) THEN RAISE EXCEPTION 'promo_payable_basis_anchor_changed'; END IF;
- EXECUTE 'CREATE OR REPLACE VIEW public.accounting_payable_earning_sources AS '||replace(def,needle,
-  'COALESCE((s.contract->>''payable_rake_credit'')::numeric,s.rake_credit) AS rake_credit,');
-END $views$;
+SET LOCAL search_path=public,pg_temp;
+DO $view_preimages$ BEGIN
+ IF md5(pg_get_viewdef('public.accounting_effective_cash_rake_sources'::regclass,true))<>'47a6e58eed8d5b3656869164d52a3b52' THEN RAISE EXCEPTION 'promo_original_view_changed: accounting_effective_cash_rake_sources'; END IF;
+ IF md5(pg_get_viewdef('public.accounting_effective_tournament_fee_sources'::regclass,true))<>'c3b33eebab8ad9c01c44a4c78166d2f0' THEN RAISE EXCEPTION 'promo_original_view_changed: accounting_effective_tournament_fee_sources'; END IF;
+ IF md5(pg_get_viewdef('public.accounting_payable_earning_sources'::regclass,true))<>'4b5df14ee82835c51a81745b0d1be413' THEN RAISE EXCEPTION 'promo_original_view_changed: accounting_payable_earning_sources'; END IF;
+END $view_preimages$;
+CREATE OR REPLACE VIEW public.accounting_effective_cash_rake_sources AS
+ SELECT s.id,
+    s.rake_record_id,
+    s.player_id,
+    s.club_id,
+    s.union_id,
+    s.coordinator_union_id,
+    s.earned_at,
+    s.rake_credit,
+    CASE WHEN s.earned_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) THEN public.fn_ca_promo_cash_payable_contract(s.rake_record_id,s.club_id,s.player_id,COALESCE(a.admitted_contract,s.contract)) ELSE COALESCE(a.admitted_contract,s.contract) END AS contract,
+    GREATEST(s.recorded_at, a.admitted_at) AS recorded_at
+   FROM ( SELECT s_1.id,
+            s_1.rake_record_id,
+            s_1.player_id,
+            s_1.club_id,
+            s_1.union_id,
+            s_1.coordinator_union_id,
+            s_1.earned_at,
+            s_1.rake_credit,
+            COALESCE(a_1.admitted_contract, s_1.contract) AS contract,
+            GREATEST(s_1.recorded_at, a_1.admitted_at) AS recorded_at
+           FROM accounting_cash_rake_sources s_1
+             LEFT JOIN accounting_cash_atomic_contract_admissions a_1 ON a_1.source_id = s_1.id
+          WHERE NOT (EXISTS ( SELECT
+                   FROM accounting_cash_funding_contract_admissions f
+                  WHERE f.source_id = s_1.id))
+        UNION ALL
+         SELECT s_1.id,
+            s_1.rake_record_id,
+            s_1.player_id,
+            f.funding_club_id AS club_id,
+            s_1.union_id,
+            s_1.coordinator_union_id,
+            s_1.earned_at,
+            s_1.rake_credit,
+            f.admitted_contract AS contract,
+            GREATEST(s_1.recorded_at, a_1.admitted_at, f.admitted_at) AS recorded_at
+           FROM accounting_cash_funding_contract_admissions f
+             JOIN accounting_cash_rake_sources s_1 ON s_1.id = f.source_id
+             LEFT JOIN accounting_cash_atomic_contract_admissions a_1 ON a_1.source_id = s_1.id) s
+     LEFT JOIN accounting_own_agent_interpretations a ON a.source_type = 'cash_rake_accrual'::text AND a.source_id = s.id;
+CREATE OR REPLACE VIEW public.accounting_effective_tournament_fee_sources AS
+ SELECT s.id,
+    s.rake_record_id,
+    s.tournament_id,
+    s.player_id,
+    s.club_id,
+    s.union_id,
+    s.coordinator_union_id,
+    s.game_type,
+    s.registration_id,
+    s.source_charge_ledger_id,
+    s.source_entitlement_id,
+    s.charged_at,
+    s.rake_credit,
+    CASE WHEN s.charged_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) THEN public.fn_ca_promo_tournament_payable_contract(s.source_charge_ledger_id,COALESCE(a.admitted_contract,s.contract)) ELSE COALESCE(a.admitted_contract,s.contract) END AS contract,
+    GREATEST(s.recorded_at, a.admitted_at) AS recorded_at
+   FROM accounting_tournament_fee_sources s
+     LEFT JOIN accounting_own_agent_interpretations a ON a.source_type = 'tournament_fee_accrual'::text AND a.source_id = s.id;
+CREATE OR REPLACE VIEW public.accounting_payable_earning_sources AS
+ SELECT 'cash_rake_accrual'::text AS source_type,
+    s.id AS source_id,
+    s.rake_record_id,
+    NULL::uuid AS tournament_id,
+    s.player_id,
+    s.club_id,
+    s.union_id,
+    s.coordinator_union_id,
+    s.earned_at,
+    COALESCE((s.contract->>'payable_rake_credit')::numeric,s.rake_credit) AS rake_credit,
+    s.contract
+   FROM accounting_effective_cash_rake_sources s
+     LEFT JOIN fn_ca_launch_accounting_club_cutoffs() bd(club_id, cutoff_at) ON bd.club_id = s.club_id
+  WHERE bd.cutoff_at IS NULL OR s.earned_at IS NOT NULL AND isfinite(s.earned_at) AND s.earned_at >= bd.cutoff_at
+UNION ALL
+ SELECT 'tournament_fee_accrual'::text AS source_type,
+    s.id AS source_id,
+    s.rake_record_id,
+    s.tournament_id,
+    s.player_id,
+    s.club_id,
+    s.union_id,
+    s.coordinator_union_id,
+    rs.recognized_at AS earned_at,
+    COALESCE((s.contract->>'payable_rake_credit')::numeric,s.rake_credit) AS rake_credit,
+    s.contract
+   FROM accounting_effective_tournament_fee_sources s
+     JOIN accounting_tournament_recognized_sources rs ON rs.source_id = s.id AND rs.tournament_id = s.tournament_id
+     JOIN accounting_tournament_fee_recognitions r ON r.tournament_id = s.tournament_id
+     LEFT JOIN fn_ca_launch_accounting_club_cutoffs() bd(club_id, cutoff_at) ON bd.club_id = s.club_id
+  WHERE (bd.cutoff_at IS NULL OR s.charged_at IS NOT NULL AND isfinite(s.charged_at) AND s.charged_at >= bd.cutoff_at) AND (bd.cutoff_at IS NULL OR rs.recognized_at IS NOT NULL AND isfinite(rs.recognized_at) AND rs.recognized_at >= bd.cutoff_at) AND rs.disposition = 'earned'::text AND r.status = 'recognized'::text AND rs.rake_credit = s.rake_credit AND rs.recognized_at = r.recognized_at AND NOT s.union_id IS DISTINCT FROM r.union_id;
 COMMIT;

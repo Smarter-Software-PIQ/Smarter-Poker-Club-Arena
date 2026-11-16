@@ -30,3 +30,8 @@ The migration can install before custody wiring while enforcement is off;
 native proof removes the custody relation during installation and exercises
 the disabled path. Programme activation still requires all debit/ticket custody
 producers and the remaining acceptance criteria to be installed and verified.
+
+The three effective/payable views are static source declarations guarded by
+their original view fingerprints. The existing union-calendar native fixture
+loads their actual eligibility helpers and cold dependencies before those same
+views, preserving its nine real money-door checks.
