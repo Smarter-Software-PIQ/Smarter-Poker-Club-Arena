@@ -1,6 +1,6 @@
 #!/bin/bash
 # Read-only verification of a serving engine release against the Horse change inventory. No release action, no capture.
-# usage: verify-release.sh [REPO]   (run on a live turn; writes nothing)
+# usage: verify-release.sh [REPO]   (run on a live turn; writes nothing on production; in REPO it runs git fetch origin main, which updates origin/main and FETCH_HEAD)
 # Environment (all optional): HVH_HEALTH_URL (default https://engine.smarter.poker/health), HVH_HEALTH_JSON (read health from this file instead,
 # for tests), HVH_RELEASE_INVENTORY (default release-inventory.tsv beside this script), HVH_ENGINE_HOST (default ca-engine; "none" skips the
 # engine-host Prometheus read). REPO defaults to the owner's canonical clone.
