@@ -22,6 +22,7 @@ on:
       - scripts/ci/fixtures/promo-ticket-play-through/**
       - tests/fixtures/promo-ticket-play-through/**
       - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
+      - tests/fixtures/promo-custody-inventory-pin.json
       - scripts/ci/test-promo-fee-basis.py
       - tests/fixtures/promo-fee-basis/**
       - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json

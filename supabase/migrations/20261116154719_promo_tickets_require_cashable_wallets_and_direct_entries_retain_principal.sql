@@ -185,7 +185,7 @@ BEGIN
  IF member_count=0 OR total_cents<=0 THEN RETURN NULL; END IF;
  -- Allocate exact cents in canonical registration order.
  -- Every previous source event consumes its face capacity even after loss/met.
- FOR r IN SELECT p.id,p.user_id,t.club_id,greatest(0,1-COALESCE((SELECT sum(f.amount) FROM public.ca_promo_free_buy_funding_slices f WHERE f.registration_id=p.id),0)) available
+ FOR r IN SELECT p.id,p.user_id,COALESCE(p.club_id,public.fn_tournament_club_for_user(p.user_id,p.tournament_id,NULL)) club_id,greatest(0,1-COALESCE((SELECT sum(f.amount) FROM public.ca_promo_free_buy_funding_slices f WHERE f.registration_id=p.id),0)) available
   FROM public.tournament_players p JOIN public.tournaments t ON t.id=p.tournament_id
   JOIN smarter_private.free_buy_ticket_redemptions d ON d.registration_id=p.id AND d.user_id=p.user_id AND d.tournament_id=p.tournament_id
   WHERE p.tournament_id=NEW.tournament_id AND d.returned_at IS NULL

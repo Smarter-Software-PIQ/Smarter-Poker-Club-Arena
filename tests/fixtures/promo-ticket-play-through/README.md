@@ -25,3 +25,8 @@ Free Buy escrow updates and guarantee-funding reads are explicit isolated
 adapters. The actual original head/cutoff functions and their promo source
 balance debit, immutable journal, replay keys and pool update run unchanged.
 This is not a full production guarantee/escrow closure claim.
+
+The native run loads the actual private inventory-pin owner captured by the
+custody dependency, preserving its owner-only ACL. Union coupon principal
+uses the original registration wallet club and survives lawful registration
+deletion as immutable funding evidence.

@@ -21,6 +21,7 @@ MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashabl
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--fee-migration',type=Path,default=ROOT/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql');args=p.parse_args()
  if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
+ inventory_capture=args.custody_migration.parents[2]/'tests/fixtures/promo-custody-inventory-pin.json'
  args.output.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='ptp-'));pg=Path(base.pg_bin());db=base.Db(str(tmp),54429,'promo_tickets');started=False;checks=[];passed=False
  def check(label,actual,expected):
   ok=actual==expected;checks.append(dict(check=label,ok=ok,actual=actual,expected=expected));print(('PASS ' if ok else 'FAIL ')+label,flush=True)
@@ -32,9 +33,9 @@ def main():
  def reset():
   db.run("TRUNCATE ca_promo_free_buy_funding_slices,ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SET fixture.skip_journal='0';")
  def held(kind='player_wallet',entity=A,who=A):return one(f"SELECT fn_ca_promo_locked_at('{C}','{who}','{kind}','{entity}')")
- def payout(event,value,category='tournament_prize',who=A,entitlement=None):
+ def payout(event,value,category='tournament_prize',who=A,entitlement=None,club=C):
   context='' if entitlement is None else f"SET LOCAL app.ca_promo_refund_entitlement='{entitlement}';"
-  return db.run(f"""BEGIN;{context}SET LOCAL app.ledger_category='{category}';SET LOCAL app.ledger_counterparty='prize_liability';SET LOCAL app.ledger_counterparty_entity='{event}';UPDATE club_members SET chip_balance=chip_balance+{value} WHERE club_id='{C}' AND user_id='{who}';COMMIT;""")
+  return db.run(f"""BEGIN;{context}SET LOCAL app.ledger_category='{category}';SET LOCAL app.ledger_counterparty='prize_liability';SET LOCAL app.ledger_counterparty_entity='{event}';UPDATE club_members SET chip_balance=chip_balance+{value} WHERE club_id='{club}' AND user_id='{who}';COMMIT;""")
  try:
   subprocess.run([pg/'initdb','-D',tmp/'data','-U','postgres','-A','trust'],check=True,capture_output=True)
   subprocess.run([pg/'pg_ctl','-D',tmp/'data','-w','-o',f"-p 54429 -k {tmp} -c listen_addresses=''",'-l',tmp/'log','start'],check=True,capture_output=True);started=True
@@ -47,6 +48,8 @@ def main():
   db.run(cash[cash.index('CREATE FUNCTION public.fn_cash_record_original_funding'):cash.index('-- This is a prospective game/roster snapshot')])
   captures=json.loads((ROOT/'tests/fixtures/ev-cashout-lifecycle/captured-authorities.json').read_text())['functions']
   db.run(next(r['definition'] for r in captures if r['signature'].split('(')[0]=='fn_ca_commit_hand_settlement'))
+  inventory=json.loads(inventory_capture.read_text())
+  db.run('CREATE SCHEMA IF NOT EXISTS smarter_private;'+inventory['definition']+';REVOKE ALL ON FUNCTION smarter_private.original_inventory_proof_sources_match() FROM PUBLIC,anon,authenticated,service_role;')
   db.run(args.custody_migration.read_text())
   owners=json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/current-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/additional-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/restricted-owner.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/batch-owner.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/promo-batch-owner.json').read_text())
   for r in owners:
@@ -184,6 +187,13 @@ def main():
   check('aggregate subsidy cent allocation conserves exact original cent',one('SELECT sum(amount)=0.01 AND count(*)=1 FROM ca_promo_free_buy_funding_slices'),'t')
   check('aggregate subsidy cent allocation uses canonical registration order',one(f"SELECT registration_id='{max(ra,rb)}'::uuid FROM ca_promo_free_buy_funding_slices"),'t')
   check('original guarantee funding leaves max G C pool',one(f"SELECT prize_pool=100 FROM tournaments WHERE id='{guaranteed}'"),'t')
+  reset();home=str(uuid.uuid4());event=str(uuid.uuid4());reg=str(uuid.uuid4())
+  db.run(f"INSERT INTO clubs VALUES('{home}','chips',NULL);INSERT INTO club_members(club_id,user_id,chip_balance,status) VALUES('{home}','{A}',0,'active');INSERT INTO tournaments(id,club_id,is_free_buy) VALUES('{event}','{C}',true);INSERT INTO tournament_players(id,tournament_id,user_id,status,club_id) VALUES('{reg}','{event}','{A}','registered','{home}');SELECT smarter_private.free_buy_ticket_redeem('{event}','{reg}');SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')")
+  check('union coupon principal uses its original registration wallet club',one(f"SELECT club_id='{home}'::uuid FROM ca_promo_play_through_grants"),'t')
+  payout(event,5,club=home)
+  check('union coupon prize locks original face only in its paying wallet',one(f"SELECT fn_ca_promo_locked_at('{home}','{A}','player_wallet','{A}')"),'1')
+  check('union coupon prize leaves profit cashable in its paying wallet',one(f"SELECT fn_ca_promo_play_through_summary('{home}','{A}')->>'cashable'"),'4')
+  check('union coupon grant never locks host-club real funds',held(),'0')
   reset();guaranteed=str(uuid.uuid4());reg=str(uuid.uuid4())
   db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,guaranteed_prize) VALUES('{guaranteed}','{C}',true,100);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{reg}','{guaranteed}','{A}','registered');SELECT smarter_private.free_buy_ticket_redeem('{guaranteed}','{reg}');SELECT fn_ca_fund_free_buy_at_cutoff_locked('{guaranteed}')")
   check('large guarantee subsidy never creates guarantee-sized player debt',one('SELECT sum(amount)=1 AND sum(fee_target)=4 FROM ca_promo_play_through_grants'),'t')
@@ -213,7 +223,7 @@ def main():
   check('concurrent agent ticket creates one escrow entitlement',one('SELECT count(*) FROM tournament_tickets'),'1')
   passed=True
  finally:
-  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
+  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),str(inventory_capture):hashlib.sha256(inventory_capture.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
   (args.output/'RESULTS.json').write_text(json.dumps(report,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(tmp)

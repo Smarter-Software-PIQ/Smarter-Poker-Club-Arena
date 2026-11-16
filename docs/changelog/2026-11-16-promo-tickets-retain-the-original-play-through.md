@@ -31,3 +31,9 @@ Exact refund return replays use the original ledger/grant receipt after closure,
 so the canonical returned amount stays stable without another money movement.
 The event principal tables and grant closure trigger declare their actual grant
 relation for the maintained daily-window dependency ordering.
+
+A union Free Buy grant uses the original registration's paying club wallet,
+so another club's real balance stays cashable. Funding evidence retains the
+original registration UUID after lawful unregister deletes that transient row.
+The native custody prerequisite loads the actual private inventory pin owner
+and preserves its private ACL rather than replacing the financial guard.

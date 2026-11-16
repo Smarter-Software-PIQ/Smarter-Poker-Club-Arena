@@ -104,3 +104,4 @@ CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_format(uuid) RETURNS tex
 
 CREATE TABLE public.hand_atomic_commits(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,committed_at timestamptz DEFAULT clock_timestamp());
 ALTER TABLE public.rake_attributions ADD COLUMN IF NOT EXISTS hand_id uuid;
+ALTER TABLE public.tournament_players ADD COLUMN IF NOT EXISTS club_id uuid;
