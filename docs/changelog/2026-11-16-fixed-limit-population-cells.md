@@ -1,0 +1,35 @@
+# Fixed limit reads an opponent against the fixed-limit Horse population (default off)
+
+Fixed-Limit lane, 2026-11-16, Phase 3. Design: agent evidence `fixed-limit-01Gw7aDr/P3-TIGHT-READ-DESIGN.md` section 4; evaluation pre-declared in `AB-0.19-PREDECLARATION.md` and recorded in `AB-EVALUATION-2.md` section 3.13. DEFAULT OFF (`HorseDecideOpts.fixedLimitPopulationCells`, read as `=== true`); nothing turns it on.
+
+## The defect
+
+The style and exploit reads judge an opponent against the Horse population cell of his game and table size (`exploitEnvelopeFor`). The 2026-10-16 fixed-limit cells were sparse (a few horses, +/- 0.20 bands) and there was no full-ring flo8 cell, so a full-ring flo8 read borrowed flo8 short-handed: a VPIP mean of 0.526 against the 0.31 Horses actually play there. An ordinary full-ring flo8 player read tight; at full-ring flh the band was centred too wide for the tight consumers to separate a tight player from an ordinary one.
+
+## Scope: fixed-limit hold'em only
+
+At the lane owner's decision on `AB-EVALUATION-2.md` section 3.13 the option acts only at flh (`FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE`, as the W5 options were scoped). flo8 was measured and is out of scope by code: at six seats against the Horse field the option lost 2.29 +/- 0.71 BB/100 (3.2 standard errors, almost all preflop) and showed no gain against the true-tight script, so a flo8 decision with the option on is exactly a decision with it off. The flo8 cells stay in the frozen table as measured; no read takes them. The option moves tight-player reads that feed preflop decisions (tight-opener and tight-reraiser respect), so it falls under the owner's preflop range hold: it ships OFF and is registered off-only under the hold (main's rule), and turning it on needs the owner to lift the hold for it by name in source, then Hand Analysis's route (its exact-head ACCEPT and the recorded evidence row).
+
+## The change
+
+`FIXED_LIMIT_POPULATION_ENVELOPE` (version `fixed-limit-population-2026-11-16`) is frozen in `HorseOpponentExploit.ts`: six cells (flh and flo8, heads-up, short-handed and full ring) measured from 107,538 Horse-only fixed-limit cash hands dealt 2026-11-09T04:00Z to 2026-11-16T04:00Z (662,790 Horse seat-hands, public actions only, no hole cards), with the same increments and decay the live learner uses. Band rule per statistic: P1-P99 of per-Horse rates when 30 or more Horses have 40 or more opportunities, else a beta-binomial method-of-moments band (pooled +/- max(2.33 sd, 0.08)) when 10 or more have 3 or more, else the sparse +/- 0.20 rule; nothing is borrowed. Generator: `server/src/scripts/fixedLimitPopulationEnvelope.ts` over `server/src/benchmark/FixedLimitPopulationEnvelope.ts`; the census of Horse counters it also writes is `server/src/engine/fixtures/fixed-limit-population-census.json`.
+
+With the option on, a fixed-limit hold'em cash decision (`bettingStructureFor(variant) === 'fixed_limit'` and the variant in scope) reads its own frozen cell `${variant}:${size}`; every other read, and every read with the option off or outside a decision, is exactly main's envelope. Cash only: the cells are cash hands, so HorseLogic adds the option to the decision's read options only at a cash table (`!isTournamentMode`, the same test W5 uses); at a tournament table every read is main's envelope (law (6)). Thresholds, margins, minimum hands and credibility are unchanged. The option travels beside the decision scope (`HorseMind.setDecisionReadOptions`) and is part of the style memo key; read frames and receipts name the envelope version they used. Receipt `fixed_limit_population_cell_read`; live switch entry owned by Fixed-Limit (migration `20261116043627_horse_option_switch_fixed_limit_population_cells.sql`, a follow-up of the option switch generator); refused league matchup `flh_population_cells` (the league deals no fixed limit; a flo8 card would be inert and has none). Law `AFixedLimitPopulationCells.law.test.ts`.
+
+## Finding: today's fixed-limit tight labels are mostly false
+
+Every Horse's own decayed counters from the same export, replayed through the style read (share of Horse identities, option off -> on; participation tight / tight-opener respect): flh heads-up 2.6% -> 1.1% / 0 -> 0; flh short-handed 8.1% -> 3.9% / 1.1% -> 0.3%; flh full ring 35.2% -> 18.2% / 14.1% -> 0.9%; flo8 heads-up 4.9% -> 2.4%; flo8 short-handed 57.2% -> 15.0%; flo8 full ring 73.8% -> 26.7% (tight-opener respect never acts in an Omaha scope). The flo8 percentages were measured at 3c2a13338a83, before the scope commit; at this head flo8 is out of scope and ON equals OFF there. With the current cells a large share of ordinary Horses reads tight; at the frozen census the option raises none of the three tight reads and lowers most (at flh heads-up tight-opener respect stays 0 -> 0 and tight-reraiser respect 3 -> 3). That is a property of the census snapshot only: at the frozen census, ON labels no more players tight than OFF for each tight read. It is not a general guarantee. In play and on early samples tight-reraiser respect engages more often with the option on, because the measured three-bet cell means are higher than today's at every flh size (full ring 0.0347 -> 0.0527), so "three-bet credibly low" is reached more easily: in AB-EVALUATION-2 3.13, flh six seats against the Horse field, 528 hero decisions with it on against 104 off. The participation label reads tight relative to half the band, not outside it, so part of the Horse distribution keeps the label with the option on; that rule is unchanged.
+
+## After the independent review (2026-11-16)
+
+- Law (2) is restated as a property of the frozen census only (above).
+- The frozen table is pinned by value: every mean, lo and hi of all six cells equals the generator output (law (7)).
+- A regression pin holds the exact census count of every consumer of the tight reads (participation tight, tight-opener and tight-reraiser respect, isValueBettor, tightPassiveFolder, tightNotAggressive), with the option on and off, in every cell; any change to a cell mean that moves one Horse fails it.
+- An early-sample case documents tight-reraiser respect on seeded full-ring flh histories, on against off, and holds the sample gates identical (with too few hands neither arm fires).
+- Cash only (above), with law (6).
+- Outside a decision is now asserted at flh; truthy values that are not `true` are pinned as off; the envelope version named by read frames and the style receipt is pinned.
+- The option moves every flh statistic of the envelope, not only the tight reads (for example the full-ring fold-to-3-bet mean 0.5609 -> 0.0032, and census Horses read loose 53 -> 74 at full ring).
+
+## Not done
+
+Turning it on is a change under `docs/HORSE-DECISION-CHANGE-EVIDENCE.md`. No store is read or written differently.

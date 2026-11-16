@@ -65,6 +65,7 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // Fixed-Limit lane (2026-11-16): F1b, the read-time probe guard, its own default-off option.
         'flh_read_ignores_probes',
         'flo8_read_ignores_probes',
+        'flh_population_cells',
         // PLO Strategy (2026-11-15): the league seats no VPIP-floor table.
         'plo4_omaha_vpip_floor_by_limp',
         'plo5_omaha_vpip_floor_by_limp',

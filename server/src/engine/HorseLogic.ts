@@ -4106,6 +4106,16 @@ export interface HorseDecideOpts {
    *  (HorseMind.fixedLimitReadIgnoresProbes, four read sites). Read only as
    *  === true: default OFF; registered in the live option switch. */
   fixedLimitReadIgnoresProbes?: boolean;
+  /** FIXED-LIMIT POPULATION CELLS (2026-11-16, Fixed-Limit lane): on a fixed-limit hold'em decision every style
+   *  and exploit read is judged against FIXED_LIMIT_POPULATION_ENVELOPE (HorseOpponentExploit.ts: the game's own
+   *  measured Horse cell at its own table size, measured 2026-11-09..16 from Horse-only fixed-limit cash hands)
+   *  instead of the 2026-10-16 cells (sparse, measured from a few horses). flh only: flo8 is out of scope by code
+   *  (FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE; AB-EVALUATION-2 3.13), and no-limit and pot-limit reads are unchanged.
+   *  CASH ONLY: at a tournament table (isTournamentMode, the W5 test) the option never engages and every read is
+   *  main's envelope; the cells were measured from cash hands only.
+   *  It moves tight-player reads that feed preflop decisions (tight-opener and tight-reraiser respect), so it is
+   *  under the owner's preflop range hold. Read only as === true: default OFF. */
+  fixedLimitPopulationCells?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -10762,6 +10772,12 @@ export class HorseLogic {
         ? { omahaManiacReRaiseMeasured: true, omahaManiacReRaiseReceipt: telemetryOn(opts) }
         : {}),
       fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
+      // FIXED-LIMIT POPULATION CELLS (2026-11-16): only an explicit true adds the key, so with it off the options (and
+      // every read they reach) are exactly what they were. CASH ONLY (the W5 test, isTournamentMode): the cells were
+      // measured from cash hands only, so at a tournament table the key is never added and every read is main's.
+      ...(opts.fixedLimitPopulationCells === true && !isTournamentMode(gameState)
+        ? { fixedLimitPopulationCells: true }
+        : {}),
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),

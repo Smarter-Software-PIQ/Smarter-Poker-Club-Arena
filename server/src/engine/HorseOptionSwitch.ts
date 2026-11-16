@@ -348,6 +348,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitManiacCapNeedsValue',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
+  'fixedLimitPopulationCells',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -427,6 +428,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   // first-in and blind-defence ranges, so it is under the same owner hold as its siblings until the owner lifts it
   // by name (OPTION_SWITCH_PREFLOP_HOLD_LIFTED).
   fixedLimitPricedPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 Fixed-Limit lane (lane owner, after the independent re-review of e437b075): the frozen fixed-limit cells
+  // move the preflop tight-opener and tight-reraiser respect at flh cash, so the option is under the same owner hold.
+  fixedLimitPopulationCells: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,
@@ -649,6 +653,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed-Limit',
     'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
     'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
+  ],
+  fixedLimitPopulationCells: [
+    'Fixed-Limit',
+    "Fixed-limit hold'em cash style and exploit reads (flh cash; flo8 and tournaments out of scope by code)",
+    "fixed-limit hold'em reads judged against the measured fixed-limit Horse cells",
   ],
 };
 

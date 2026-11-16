@@ -120,7 +120,7 @@ import {
   hasLongParticipation,
   type ExploitCountersWithLong,
   EXPLOIT_PRIOR_STRENGTH,
-  OPPONENT_EXPLOIT_ENVELOPE_VERSION,
+  exploitEnvelopeVersionFor,
   betaCdf,
   exploitEnvelopeFor,
   exploitHandIncrements,
@@ -1097,7 +1097,7 @@ function buildRead(
   const sg = parts.signals;
   const receipt: StyleReceipt = Object.freeze({
     version: OPPONENT_STYLE_VERSION,
-    envelope: OPPONENT_EXPLOIT_ENVELOPE_VERSION,
+    envelope: exploitEnvelopeVersionFor(parts.scope, parts.variant),
     scope: parts.scope,
     variant: parts.variant,
     family,
