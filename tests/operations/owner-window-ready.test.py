@@ -1,4 +1,5 @@
 """An open owner window tells its release owner once per evidence, and starts nothing."""
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -36,6 +37,12 @@ class World:
         self.admitted = True
         self.window = WINDOW
         self.paths = []
+        self.trigger = 'f' * 40
+        self.selected_client = 'b' * 40
+        self.artifacts = None
+        self.publish_completed = '2026-11-10T18:05:00Z'
+        self.publish_conclusion = 'success'
+        self.source_changes = {}
         self.__dict__.update(changes)
 
     def git(self, *args):
@@ -46,15 +53,24 @@ class World:
         if args[0] == 'show' and args[1].endswith(':' + mod.NOTICES):
             row = {'id': OWNER, 'noticeAt': self.window['playerNoticeAt'], 'notBefore': self.window['notBefore'],
                    'notAfter': self.window['notAfter']}
-            return json.dumps({'notices': [row] if self.notice_live else []})
+            sha = args[1].split(':')[0]
+            return json.dumps({'notices': [row] if self.notice_live and sha == self.selected_client else []})
         raise AssertionError(args)
 
     def api(self, path):
         self.paths.append(path)
+        if path == 'repos/o/r':
+            return {'id': 7}
+        if path == 'repos/o/r/actions/runs/5':
+            return dict({'id': 5, 'path': '.github/workflows/publish-club-arena.yml', 'event': 'push',
+                    'head_sha': self.trigger, 'head_branch': 'main', 'repository': {'id': 7},
+                    'head_repository': {'id': 7}}, **self.source_changes)
+        if path == 'repos/o/r/actions/runs/5/artifacts?per_page=100':
+            return self.artifacts if self.artifacts is not None else self.good_artifacts()
         if 'publish-club-arena.yml/runs' in path:
-            return {'workflow_runs': [{'id': 5, 'run_attempt': 1, 'head_sha': 'b' * 40}]}
+            return {'workflow_runs': [{'id': 5, 'run_attempt': 1, 'head_sha': self.trigger}]}
         if path.startswith('repos/o/r/actions/runs/5/'):
-            return {'jobs': [{'name': mod.PUBLISH_JOB, 'conclusion': 'success', 'completed_at': '2026-11-10T18:05:00Z'}]}
+            return {'jobs': [{'name': mod.PUBLISH_JOB, 'conclusion': self.publish_conclusion, 'completed_at': self.publish_completed}]}
         if 'stage-engine-release.yml/runs' in path:
             return {'total_count': len(self.selections), 'workflow_runs': self.selections}
         if 'auto-deploy-hetzner.yml/runs' in path:
@@ -64,6 +80,11 @@ class World:
         if '/comments' in path:
             return self.comments.get(int(path.split('/')[4]), [])
         raise AssertionError(path)
+
+    def good_artifacts(self):
+        return {'total_count': 1, 'artifacts': [{'id': 9, 'name': 'club-arena-dist-' + self.selected_client,
+                'expired': False, 'workflow_run': {'id': 5, 'head_sha': self.trigger, 'head_branch': 'main',
+                'repository_id': 7, 'head_repository_id': 7}}]}
 
     def fetch(self, url):
         return {'ca_sha': 'b' * 40} if url == mod.PUBLIC_BUILD_INFO else {'releaseSha': SERVING}
@@ -123,6 +144,52 @@ class OwnerWindowOnlyNotifies(unittest.TestCase):
                 decision = world.decide()
                 self.assertFalse(decision['notify'], decision)
                 self.assertIn(reason, decision['reason'])
+
+    def test_selected_publication_differs_from_trigger(self):
+        world = World()
+        self.assertNotEqual(world.trigger, world.selected_client)
+        self.assertTrue(world.decide()['notify'])
+
+    def test_invalid_publication_artifact_never_proves_notice(self):
+        original = World().good_artifacts()
+        cases = []
+        missing = copy.deepcopy(original)
+        missing.update(total_count=0, artifacts=[])
+        cases.append(missing)
+        incomplete = copy.deepcopy(original)
+        incomplete['total_count'] = 101
+        cases.append(incomplete)
+        ambiguous = copy.deepcopy(original)
+        ambiguous['artifacts'].append(copy.deepcopy(ambiguous['artifacts'][0]))
+        ambiguous['total_count'] = 2
+        cases.append(ambiguous)
+        for field, value in [('expired', True), ('name', 'club-arena-dist-' + 'e' * 40)]:
+            altered = copy.deepcopy(original)
+            altered['artifacts'][0][field] = value
+            cases.append(altered)
+        for field, value in [('id', 6), ('head_sha', 'e' * 40), ('head_branch', 'feature'),
+                             ('repository_id', 8), ('head_repository_id', 8)]:
+            altered = copy.deepcopy(original)
+            altered['artifacts'][0]['workflow_run'][field] = value
+            cases.append(altered)
+        for artifacts in cases:
+            with self.subTest(artifacts=artifacts):
+                self.assertFalse(World(artifacts=artifacts).decide()['notify'])
+
+    def test_foreign_source_or_nonpublication_job_cannot_prove_notice(self):
+        for field, value in [('path', '.github/workflows/other.yml'), ('event', 'workflow_dispatch'),
+                             ('head_branch', 'feature'), ('head_sha', 'e' * 40),
+                             ('repository', {'id': 8}), ('head_repository', {'id': 8})]:
+            with self.subTest(field=field):
+                self.assertFalse(World(source_changes={field: value}).decide()['notify'])
+        for conclusion in ['skipped', 'failure', 'cancelled']:
+            self.assertFalse(World(publish_conclusion=conclusion).decide()['notify'])
+
+    def test_real_publication_completion_must_precede_lead(self):
+        # A run created early is insufficient if its publish job finished too late.
+        self.assertFalse(World(publish_completed='2026-11-10T19:00:00Z').decide()['notify'])
+        self.assertFalse(World(publish_completed=None).decide()['notify'])
+        self.assertTrue(World(publish_completed='2026-11-10T18:50:00Z').decide()['notify'])
 
     def test_once_per_evidence_on_the_open_issue(self):
         told = World(issues=[issue(12, comments=1)], comments={12: [{'body': mod.MARKER.format(KEY)}]}).decide()
