@@ -47,10 +47,15 @@ import {
 } from './HorsePlo6StrategyCalibration.js';
 import { ploPairedBoardFoldRespectsPrice } from './HorsePloPairedBoardFold.js';
 import {
+  DELIVERED_SWITCH_CONFIGS_NONE,
+  deliveredSwitchConfigsNote,
+  deliveredSwitchConfigsPrevious,
   horseDecisionReceiptRefusal,
   horseDecisionReceiptRefusalForPlo6Gates,
   omahaStrategyInPlo6GateCandidates,
 } from './horseDecision/responseValidation.js';
+import { plo6RiverLiveFoldTest } from './HorsePlo6PricingPort.js';
+import { STYLE_SWITCH_POLL_MS } from './HorseStyleSwitch.js';
 import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { registerPlo6OmahaStrategyCalibration } from './HorsePlo6StrategyCalibration.js';
 import { plo6OmahaStrategyCalibrationHeld } from './HorseLogic.js';
@@ -432,24 +437,59 @@ describe('pre-review finding 3: no six-card rule turns into a call a hand the li
     expect(first).toBeGreaterThan(-1);
     expect(wrap).toBeGreaterThan(first);
   });
-  it('both pricing rules ask the live rule, with its own switches, share and price', () => {
+  it("both pricing rules ask the one live test (HorsePlo6PricingPort.plo6RiverLiveFoldTest) with the live rule's switches", () => {
+    // No behavioural route to "which function a private rule calls": the two
+    // call sites are pinned as text; what the test answers is behaviour, below.
     const test = bodyOf('plo6RiverLiveFoldStands');
-    expect(test).toContain("!== 'plo6' || gs.stage !== 'river') return false;");
-    expect(test).toContain(
-      'if (paired ? opts.v58Plo6RiverNuts === false : opts.v59Plo6RiverUnpaired === false)'
-    );
-    expect(test).toContain('omahaRiverBeatProbability(player.cards, board, 6)');
-    expect(test).toContain('price > PLO6_RIVER_CHEAP_PRICE');
+    expect(test).toContain('return plo6RiverLiveFoldTest(player, gs, {');
+    expect(test).toContain('paired: opts.v58Plo6RiverNuts !== false,');
+    expect(test).toContain('unpaired: opts.v59Plo6RiverUnpaired !== false,');
     expect(bodyOf('omahaRiverMediumBetStrongHandCalls')).toContain(
       'if (plo6RiverLiveFoldStands(player, gs, opts)) return decision;'
     );
     expect(bodyOf('omahaFacingBetEvRule')).toContain(
-      'const evCall = verdict.call && !plo6RiverLiveFoldStands(player, gs, opts);'
+      'const liveFoldBlocks = verdict.call && plo6RiverLiveFoldStands(player, gs, opts);'
     );
     // the look-ahead and the veto read the live rule's measure too
     expect(bodyOf('omahaStreetPlanCallVeto')).toContain(
       'omahaRiverBeatProbability(player.cards, riverBoard, 6)'
     );
+  });
+  it('the live test: PLO6 single-board river facing a wager only; the bars, the cheap price and the two switches', () => {
+    const river = (hole: string, board: string, toCall: number, pot: number, variant = 'plo6') =>
+      [
+        { cards: cards(hole), stack: 1000, bet: 0 },
+        {
+          gameVariant: variant,
+          stage: 'river',
+          communityCards: cards(board),
+          toCall,
+          pot,
+          currentBet: toCall,
+        } as unknown as HorseGameStateV2,
+      ] as const;
+    // trip kings on K-K-7-4-2: every full house beats it, far more than 15% of the time for six cards
+    const weakBoat = 'KsKd7h4c2s';
+    const [p, gs] = river('KhQdJc9h8d3c', weakBoat, 50, 100); // price 1/3
+    expect(plo6RiverLiveFoldTest(p, gs)).toBe(true);
+    expect(plo6RiverLiveFoldTest(p, gs, { paired: false })).toBe(false); // V58 off
+    expect(plo6RiverLiveFoldTest(p, gs, { unpaired: false })).toBe(true); // V59 is the other board class
+    // a call at or under 10% of the final pot is kept
+    const [pc, gc] = river('KhQdJc9h8d3c', weakBoat, 10, 100); // price 1/11
+    expect(plo6RiverLiveFoldTest(pc, gc)).toBe(false);
+    // quad kings are never beaten here
+    const [pq, gq] = river('KhKcAh9c4d3h', weakBoat, 50, 100);
+    expect(plo6RiverLiveFoldTest(pq, gq)).toBe(false);
+    // not PLO6, not the river, nothing to call, two boards: false
+    const [p5, g5] = river('KhQdJc9h8d', weakBoat, 50, 100, 'plo5');
+    expect(plo6RiverLiveFoldTest(p5, g5)).toBe(false);
+    expect(plo6RiverLiveFoldTest(p, { ...gs, stage: 'turn' } as never)).toBe(false);
+    expect(plo6RiverLiveFoldTest(p, { ...gs, toCall: 0, currentBet: 0 } as never)).toBe(false);
+    expect(plo6RiverLiveFoldTest(p, { ...gs, boardCount: 2 } as never)).toBe(false);
+    // an unpaired board reads V59's bar and switch
+    const [pu, gu] = river('4d2d9h9c8s3h', 'KsQd7h4c2s', 50, 100); // bottom two pair
+    expect(plo6RiverLiveFoldTest(pu, gu)).toBe(true);
+    expect(plo6RiverLiveFoldTest(pu, gu, { unpaired: false })).toBe(false);
   });
 });
 
@@ -495,16 +535,73 @@ describe('the validator sees the gate the worker may have run (live switch wirin
       ])
     ).toBe('decision_shape');
   });
-  it('the client reads the row from the configuration it last delivered to that worker', () => {
+  it('a conversion refused under [false] is admitted under [false, true]', () => {
+    // The 3.9 turn bet -> check: a real ported PLO6 conversion.
+    const on = play(() => node(TURN, SET_HOLE, UNPAIRED_TURN), {
+      ...GATE,
+      omahaTurnBetNeedsRiverPlan: true,
+    });
+    expect(new Set(on.actions)).toEqual(new Set(['check']));
+    on.raw.forEach((d, i) => {
+      const ctx = { player: on.states[i].hero, gameState: on.states[i].gs };
+      const c = () => structuredClone(d);
+      expect(horseDecisionReceiptRefusalForPlo6Gates(c(), 'plo6', ctx, [false])).toBe(
+        'policy_graph'
+      );
+      expect(horseDecisionReceiptRefusalForPlo6Gates(c(), 'plo6', ctx, [false, true])).toBeNull();
+      expect(horseDecisionReceiptRefusalForPlo6Gates(c(), 'plo6', ctx, [true])).toBeNull();
+    });
+  });
+  it('the configuration held before a change stays a candidate for one worker poll interval (pre-review 2 finding 1)', () => {
+    const off = cfg({ omahaStrategyInPlo6: 'off' });
+    const other = cfg({ omahaStrategyInPlo6: 'off', omahaCardImpact: 'on' });
+    let st = DELIVERED_SWITCH_CONFIGS_NONE;
+    expect(deliveredSwitchConfigsPrevious(st, 0)).toBeUndefined();
+    st = deliveredSwitchConfigsNote(st, off, 1_000);
+    expect(st.current).toBe(off);
+    // the same configuration delivered again changes nothing (the window is not pushed out)
+    expect(deliveredSwitchConfigsNote(st, structuredClone(off), 30_000)).toBe(st);
+    const changed = deliveredSwitchConfigsNote(st, other, 50_000);
+    expect(changed.current).toBe(other);
+    expect(changed.previous).toBe(off);
+    expect(changed.previousUntilMs).toBe(50_000 + STYLE_SWITCH_POLL_MS);
+    expect(deliveredSwitchConfigsPrevious(changed, 50_000 + STYLE_SWITCH_POLL_MS)).toBe(off);
+    expect(deliveredSwitchConfigsPrevious(changed, 50_001 + STYLE_SWITCH_POLL_MS)).toBeUndefined();
+    // an unreadable answer (null) after a configuration keeps that configuration as previous
+    const lost = deliveredSwitchConfigsNote(st, null, 70_000);
+    expect(lost.current).toBeNull();
+    expect(lost.previous).toBe(off);
+  });
+  it('the previous configuration adds its gate value as a candidate, after the effective ones', () => {
+    const off = cfg({ omahaStrategyInPlo6: 'off' });
+    // request on, row now absent, the row before was off: the worker may still run off
+    expect(omahaStrategyInPlo6GateCandidates({ omahaStrategyInPlo6: true }, cfg({}), off)).toEqual([
+      true,
+      false,
+    ]);
+    // no previous configuration in force: as before
+    expect(
+      omahaStrategyInPlo6GateCandidates({ omahaStrategyInPlo6: true }, cfg({}), undefined)
+    ).toEqual([true]);
+    // a previous configuration with no row for the option, or the same value, adds nothing
+    expect(omahaStrategyInPlo6GateCandidates({}, off, cfg({}))).toEqual([false]);
+    expect(omahaStrategyInPlo6GateCandidates({}, off, off)).toEqual([false]);
+    // row off now, request on, and the row before absent: off first, then the request's own
+    expect(omahaStrategyInPlo6GateCandidates({ omahaStrategyInPlo6: true }, off, cfg({}))).toEqual([
+      false,
+      true,
+    ]);
+  });
+  it('the client keeps what it delivered through those two functions and validates under them', () => {
+    // No worker in this test: the wiring in the client is pinned as text; the
+    // functions it calls are tested above.
     const client = readFileSync(
       fileURLToPath(new URL('./horseDecision/client.ts', import.meta.url)),
       'utf8'
     );
+    expect(client).toContain('this.deliveredSwitchConfigs = deliveredSwitchConfigsNote(');
     expect(client).toContain(
-      "this.deliveredSwitchConfig = message.status === 'ok' ? message.config : null;"
-    );
-    expect(client).toContain(
-      'omahaStrategyInPlo6GateCandidates(active.request.opts, this.deliveredSwitchConfig)'
+      'deliveredSwitchConfigsPrevious(this.deliveredSwitchConfigs, Date.now())'
     );
   });
 });

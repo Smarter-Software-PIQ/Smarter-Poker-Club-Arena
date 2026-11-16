@@ -267,7 +267,9 @@ export function countHoldingsWithout(m: number, n: number, bar: PairSet, skip = 
  */
 let sixCardCount = false;
 let sixCardFastCount = true;
-/** Test and benchmark seam: false makes a six-card count take the four/five-card walk. */
+/** Test and benchmark seam, process-wide, exported from this production module because the flag it sets lives
+ *  here: false makes a six-card count take the four/five-card walk. It changes the speed of a six-card count,
+ *  never a number (the two counters are equal on every tested hand), and no production code calls it. */
 export function omahaEvSixCardFastCount(on: boolean): void {
   sixCardFastCount = on === true;
 }

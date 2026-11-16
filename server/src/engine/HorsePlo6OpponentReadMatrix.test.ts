@@ -44,7 +44,7 @@
  * so; the attribution cases should not need to move. Node 13's baseline shove is driven by the VPIP floor
  * (PLO6-AUDIT-004), which is why the unfloored control is here.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   COMPLAINT_SEEDS,
@@ -538,6 +538,33 @@ describe('PLO6 six-card port at the four-bet node: the re-raised-pot options wit
       expect(on.fold).toBe((base[cls].fold ?? 0) + (base[cls].call ?? 0));
       expect(on.all_in).toBe(base[cls].all_in);
     }
+  });
+
+  it('gate off, the two PLO6-only lines take no opponent read of their own (pre-review finding 1, as behaviour)', () => {
+    // Counted on the mind's own read function through whole decisions.
+    const reads = (opts: Record<string, unknown>): number => {
+      const spy = vi.spyOn(HorseMind, 'opponentRead');
+      try {
+        at('unknown', opts);
+        return spy.mock.calls.length;
+      } finally {
+        spy.mockRestore();
+      }
+    };
+    // omahaOopReraisedPotStrongRange: the measured-maniac read is taken only
+    // with the gate on. Gate off, the option's reads are the ones it took
+    // before the port; gate on there is at least one more.
+    const rangeOff = reads({ omahaOopReraisedPotStrongRange: true });
+    const rangeOn = reads({ ...GATE, omahaOopReraisedPotStrongRange: true });
+    expect(rangeOn).toBeGreaterThan(rangeOff);
+    // omahaReraisedPotDiscipline: the PLO6 return is taken only with the gate
+    // on. Gate off the function runs on and takes its maniac reads as before;
+    // gate on it returns before them.
+    const disciplineOff = reads({ omahaReraisedPotDiscipline: true });
+    const disciplineOn = reads({ ...GATE, omahaReraisedPotDiscipline: true });
+    expect(disciplineOff).toBeGreaterThan(disciplineOn);
+    // and the gate alone moves no read
+    expect(reads(GATE)).toBe(reads({}));
   });
 
   it('SPEC-B 3.24 item 7: against a MEASURED maniac the rule stands aside; a presumed one is not enough', () => {

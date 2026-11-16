@@ -11,8 +11,10 @@
 import type { Card } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
+import { omahaRiverBeatProbability } from './HorseEval.js';
 import {
   plo6FacingBetEvFoldStands,
+  plo6RiverM1Fold,
   plo6RiverMediumBetCalls,
 } from './HorsePlo6StrategyCalibration.js';
 
@@ -63,4 +65,45 @@ export function plo6MediumBetPriced(holds: number, board: readonly Card[], price
     plo6BoardFlushPossible(board),
     price
   );
+}
+
+/**
+ * PLO6 river, facing a wager: would the live river fold rule
+ * (HorseLogic plo6RiverNutDiscipline, V58 paired / V59 unpaired) fold a call
+ * here? The same test as that rule, in one place for its three readers
+ * (HorseLogic's two pricing rules and the receipt validator): the same
+ * seeded beaten share (omahaRiverBeatProbability, a deterministic sample
+ * seeded by the cards alone, so every reader gets the same number), the same
+ * price (the call over the pot after the call, the call capped at the stack)
+ * and the same bars (the calibration's 0.15 / 0.30 / 0.10, pinned equal to
+ * HorseLogic's PLO6_RIVER_* constants by test). `tests` switches a board
+ * class off where its option is off; absent: on. Quiet: no receipt. False
+ * outside a PLO6 single-board river facing a wager, and when the share cannot
+ * be read (the live rule does not fold then either).
+ */
+export function plo6RiverLiveFoldTest(
+  player: { cards?: Card[]; stack: number; bet?: number },
+  gs: HorseGameStateV2,
+  tests: { paired?: boolean; unpaired?: boolean } = {}
+): boolean {
+  try {
+    if (String(gs.gameVariant ?? '').toLowerCase() !== 'plo6' || gs.stage !== 'river') return false;
+    const board = gs.communityCards ?? [];
+    if (board.length !== 5 || (gs.boardCount ?? 1) > 1) return false;
+    const paired = plo6BoardPaired(board);
+    if (paired ? tests.paired === false : tests.unpaired === false) return false;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+    if (toCall <= 0.005) return false;
+    const beaten = omahaRiverBeatProbability(player.cards ?? [], board, 6);
+    if (beaten === null) return false;
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const price = Math.min(toCall, stack) / Math.max(1e-9, pot + Math.min(toCall, stack));
+    if (!Number.isFinite(beaten) || !Number.isFinite(price)) return false;
+    return plo6RiverM1Fold(beaten, paired, price);
+  } catch {
+    return false;
+  }
 }

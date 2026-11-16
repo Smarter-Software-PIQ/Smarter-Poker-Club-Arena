@@ -87,7 +87,12 @@ import {
   omahaStrategyGameScopeOf,
   withOmahaStrategyGameScope,
 } from '../HorseOmahaStrategyGame.js';
-import { applyPlo6OmahaStrategyCalibration } from '../HorsePlo6StrategyCalibration.js';
+import {
+  applyPlo6OmahaStrategyCalibration,
+  plo6OmahaStrategyCalibrationHeld,
+} from '../HorsePlo6StrategyCalibration.js';
+import { plo6RiverLiveFoldTest } from '../HorsePlo6PricingPort.js';
+import { STYLE_SWITCH_POLL_MS } from '../HorseStyleSwitch.js';
 import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../HorseOptionSwitch.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
@@ -1126,8 +1131,7 @@ function policyGraphIsValid(
   // six-card value, whatever an earlier decision or validation left) and what
   // it held before is put back afterwards (pre-review finding 6).
   const plo6Gate = context?.omahaStrategyInPlo6 === true;
-  const heldBefore =
-    omahaStrategyConstant('turnRedrawNutFullHouseOnly', { gameVariant: 'plo6' }) !== 0;
+  const heldBefore = plo6OmahaStrategyCalibrationHeld();
   applyPlo6OmahaStrategyCalibration(plo6Gate);
   try {
     return withOmahaStrategyGameScope(
@@ -1337,7 +1341,11 @@ function policyGraphIsValidInScope(
       previous.action === 'fold' &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
-      mediumBetRuleProducesCall(transition.after, context);
+      mediumBetRuleProducesCall(transition.after, context) &&
+      // PLO6: the rule never calls a hand the live river fold rule folds; the
+      // same seeded test is re-run on the request (both board tests on: the
+      // request does not carry V58/V59).
+      !(variant === 'plo6' && plo6RiverLiveFoldTest(context.player, context.gameState));
     // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
     // facing no wager becomes a check on the flop out of position with a bare
     // pair, on the turn after the flop bet was called, and on a paired river
@@ -1430,7 +1438,9 @@ function policyGraphIsValidInScope(
         // PLO6 (six cards): the rule's own guard is pure, so it is re-run on
         // the request: where the river fold test stands the rule cannot have
         // called, and an uncountable six-card hand is not admitted either.
-        // (Both tests on: the request does not carry V58/V59.)
+        // (Both tests on: the request does not carry V58/V59.) The rule also
+        // never calls a hand the live river fold rule folds: that seeded
+        // test is re-run on the request too.
         if (variant === 'plo6')
           return (
             omahaPlo6FacingBetEvFoldStands(
@@ -1438,7 +1448,7 @@ function policyGraphIsValidInScope(
               context.player.cards ?? [],
               context.gameState.communityCards ?? [],
               context.player.knownDeadCards ?? []
-            ) === false
+            ) === false && !plo6RiverLiveFoldTest(context.player, context.gameState)
           );
         return true;
       })();
@@ -1602,18 +1612,76 @@ function policyGraphIsValidInScope(
  */
 export function omahaStrategyInPlo6GateCandidates(
   requestOpts: { omahaStrategyInPlo6?: unknown } | null | undefined,
-  switchConfig: unknown
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
 ): boolean[] {
   const own = requestOpts?.omahaStrategyInPlo6 === true;
-  let switched: boolean | undefined;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states).omahaStrategyInPlo6 : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  // The effective value first: the row last delivered, else the request's own.
+  add(switchedOf(switchConfig));
+  add(own);
+  // The configuration delivered before the last change, while the worker may
+  // still be deciding under it (deliveredSwitchConfigsNote / InForce).
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
+ * What a worker was handed, with the configuration it held before the last
+ * change (pre-review 2 finding 1). The worker reads its inbox at most once
+ * per STYLE_SWITCH_POLL_MS, so for one poll interval after a changed
+ * delivery it may still decide under the previous configuration; a decision
+ * made then is validated under that one as well. `previousUntilMs` is the
+ * clock time until which `previous` counts.
+ */
+export interface DeliveredSwitchConfigs {
+  current: unknown;
+  previous: unknown;
+  previousUntilMs: number;
+}
+
+export const DELIVERED_SWITCH_CONFIGS_NONE: DeliveredSwitchConfigs = Object.freeze({
+  current: null,
+  previous: undefined,
+  previousUntilMs: 0,
+});
+
+const sameSwitchConfig = (a: unknown, b: unknown): boolean => {
   try {
-    const parsed = parseOptionSwitchConfig(switchConfig);
-    if (parsed.ok) switched = optionSwitchDecisionOpts(parsed.states).omahaStrategyInPlo6;
+    return JSON.stringify(a) === JSON.stringify(b);
   } catch {
-    switched = undefined;
+    return false;
   }
-  if (switched === undefined || switched === own) return [own];
-  return [switched, own];
+};
+
+/** A delivery: an unchanged configuration keeps the state; a changed one keeps the old as previous for one poll interval. */
+export function deliveredSwitchConfigsNote(
+  state: DeliveredSwitchConfigs,
+  config: unknown,
+  nowMs: number,
+  pollMs: number = STYLE_SWITCH_POLL_MS
+): DeliveredSwitchConfigs {
+  if (sameSwitchConfig(state.current, config)) return state;
+  return { current: config, previous: state.current, previousUntilMs: nowMs + pollMs };
+}
+
+/** The previous configuration while it still counts, else undefined. */
+export function deliveredSwitchConfigsPrevious(
+  state: DeliveredSwitchConfigs,
+  nowMs: number
+): unknown {
+  return nowMs <= state.previousUntilMs ? state.previous : undefined;
 }
 
 /**

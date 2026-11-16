@@ -14,7 +14,7 @@ import {
   omahaEvHandCountsSixCardTurn,
   omahaEvSixCardFastCount,
 } from './HorseOmahaFacingBetEv.js';
-import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
+import { plo6CountHoldingsAmong, plo6FastCountCalls } from './HorsePlo6FastCount.js';
 
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
 const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'];
@@ -202,7 +202,10 @@ describe('four and five cards never take the six-card count', () => {
       const { hole, board } = deal(0x45450000 + s * 31337, s % 4 < 2 ? 4 : 5, n);
       omahaEvHandCountsResetCache();
       omahaEvSixCardFastCount(true);
+      const before = plo6FastCountCalls();
       const a = sig(omahaEvHandCounts(hole, board, [], 0.3)!);
+      // the fast counter answered nothing for a four- or five-card hand
+      expect(plo6FastCountCalls(), `spot ${s}: fast counter not used`).toBe(before);
       omahaEvHandCountsResetCache();
       omahaEvSixCardFastCount(false);
       const b = sig(omahaEvHandCounts(hole, board, [], 0.3)!);
@@ -211,7 +214,18 @@ describe('four and five cards never take the six-card count', () => {
     // the exported walk itself is not switched by a finished six-card count
     omahaEvSixCardFastCount(true);
     const six = deal(0x60620000, 5, 6);
+    omahaEvHandCountsResetCache();
+    const sixBefore = plo6FastCountCalls();
     expect(omahaEvHandCounts(six.hole, six.board, [], 0.3)).not.toBeNull();
+    // the six-card hand DID take the fast counter (so the check above can fail)
+    expect(plo6FastCountCalls()).toBeGreaterThan(sixBefore);
+    const afterSix = plo6FastCountCalls();
+    const five = deal(0x45459999, 5, 5);
+    omahaEvHandCountsResetCache();
+    expect(omahaEvHandCounts(five.hole, five.board, [], 0.3)).not.toBeNull();
+    // and a five-card hand counted right after it does not: the flag did not stay set
+    expect(plo6FastCountCalls()).toBe(afterSix);
+    const walkBefore = plo6FastCountCalls();
     const bar = new PairSet(12);
     bar.add(0, 1);
     bar.add(2, 3);
@@ -226,6 +240,16 @@ describe('four and five cards never take the six-card count', () => {
         Array.from({ length: 12 }, () => true)
       )
     );
+    expect(plo6FastCountCalls()).toBe(walkBefore);
+  });
+
+  it('a count outside the table is refused, not answered 0', () => {
+    const z = new Int32Array(64);
+    expect(() => plo6CountHoldingsAmong(-1, z, z, -1, 0)).toThrow(RangeError);
+    expect(() => plo6CountHoldingsAmong(53, z, z, -1, 0)).toThrow(RangeError);
+    expect(() => plo6CountHoldingsAmong(2.5, z, z, -1, 0)).toThrow(RangeError);
+    // 12 free cards, no barred pair: C(12, 9) = 220 (beyond the old table bound of k = 8)
+    expect(plo6CountHoldingsAmong(9, z, z, (1 << 12) - 1, 0)).toBe(220);
   });
 });
 

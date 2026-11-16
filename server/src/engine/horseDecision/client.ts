@@ -126,6 +126,10 @@ import type {
 } from './protocol.js';
 import { horseDecisionSolverStoresAreValid } from './protocol.js';
 import {
+  DELIVERED_SWITCH_CONFIGS_NONE,
+  type DeliveredSwitchConfigs,
+  deliveredSwitchConfigsNote,
+  deliveredSwitchConfigsPrevious,
   horseDecisionReceiptRefusalForPlo6Gates,
   omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
@@ -1705,13 +1709,19 @@ export class LiveHorseDecisionWorkerClient {
       this.worker.postMessage(message);
       // What this worker was last handed (null: an unreadable answer). The
       // receipt validation reads the PLO6 gate's row from it.
-      this.deliveredSwitchConfig = message.status === 'ok' ? message.config : null;
+      // The configuration it held before a change is kept for one poll
+      // interval: the worker may still be deciding under it.
+      this.deliveredSwitchConfigs = deliveredSwitchConfigsNote(
+        this.deliveredSwitchConfigs,
+        message.status === 'ok' ? message.config : null,
+        Date.now()
+      );
       return true;
     } catch {
       return false;
     }
   }
-  private deliveredSwitchConfig: unknown = null;
+  private deliveredSwitchConfigs: DeliveredSwitchConfigs = DELIVERED_SWITCH_CONFIGS_NONE;
   private v31Control?: V31ControlClient;
   requestV31Control(request: V31ControlRequest): Promise<V31ControlAck> {
     if (this.phase !== 'ready') return Promise.reject(Error('v31_control_worker_not_ready'));
@@ -2206,7 +2216,11 @@ export class LiveHorseDecisionWorkerClient {
           player: active.request.player,
           gameState: active.request.gameState,
         },
-        omahaStrategyInPlo6GateCandidates(active.request.opts, this.deliveredSwitchConfig)
+        omahaStrategyInPlo6GateCandidates(
+          active.request.opts,
+          this.deliveredSwitchConfigs.current,
+          deliveredSwitchConfigsPrevious(this.deliveredSwitchConfigs, Date.now())
+        )
       );
       if (receiptRefusal !== null) {
         this.refuseDecision(

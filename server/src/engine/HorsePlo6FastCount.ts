@@ -35,11 +35,16 @@ function popcount(v: number): number {
 const CHOOSE: number[][] = [];
 for (let n = 0; n <= 52; n++) {
   const row = [1];
-  for (let k = 1; k <= Math.min(n, 8); k++)
-    row.push((CHOOSE[n - 1]?.[k - 1] ?? 0) + (CHOOSE[n - 1]?.[k] ?? 0));
+  // Every k up to n: the largest entry, C(52,26), is under 2^53, so each is exact.
+  for (let k = 1; k <= n; k++) row.push((CHOOSE[n - 1]?.[k - 1] ?? 0) + (CHOOSE[n - 1]?.[k] ?? 0));
   CHOOSE.push(row);
 }
-const choose = (n: number, k: number): number => (k < 0 || k > n ? 0 : (CHOOSE[n][k] ?? 0));
+/** C(n, k) for 0 <= n <= 52; 0 when k is outside 0..n. A count outside the table is refused, never answered 0. */
+const choose = (n: number, k: number): number => {
+  if (!Number.isInteger(n) || !Number.isInteger(k) || n < 0 || n > 52)
+    throw new RangeError(`plo6 fast count: C(${n}, ${k}) is outside the table`);
+  return k < 0 || k > n ? 0 : CHOOSE[n][k];
+};
 
 /** a * b cut at degree cap (both cut at cap already). */
 function mul(a: Float64Array, b: Float64Array, cap: number): Float64Array {
@@ -203,6 +208,15 @@ export function plo6CountHoldingsAmong(
   allLo: number,
   allHi: number
 ): number {
+  if (!Number.isInteger(n) || n < 0 || n > 52)
+    throw new RangeError(`plo6 fast count: a holding of ${n} cards cannot be counted`);
+  fastCountCalls++;
   if (n === 0) return 1;
   return poly(barLo, barHi, allLo, allHi, n)[n];
+}
+
+let fastCountCalls = 0;
+/** How many counts this module has answered since the process started (tests read it to see which counter ran). */
+export function plo6FastCountCalls(): number {
+  return fastCountCalls;
 }
