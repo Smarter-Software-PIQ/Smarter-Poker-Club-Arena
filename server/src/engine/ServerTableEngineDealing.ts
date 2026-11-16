@@ -2208,6 +2208,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected async prepareNextHand(): Promise<SeatedPlayer[]> {
     const releaseSeatBoundary = await this.acquireSeatBoundary();
     try {
+      // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): a horse that
+      // banked the win in the hand just presented leaves now, before the roster
+      // read, through the same door settlement would have used.
+      if (!this.isTournamentTable()) await this.runDeferredBankTheWinExits();
       /* ═══ A LEAVE THE PLAYER ASKED FOR STILL HAPPENS UNDER A HALT ═════
          (Lightning 2.0 Phase 5 remediation, 2026-09-25. JUDGED, NOT MISSED.)
 

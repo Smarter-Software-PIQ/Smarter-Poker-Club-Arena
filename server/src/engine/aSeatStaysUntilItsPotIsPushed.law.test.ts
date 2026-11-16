@@ -273,6 +273,67 @@ describe('review fixes (2026-11-15)', () => {
   });
 });
 
+describe('a horse that banks the win waits for its own pot push (production 2026-11-15)', () => {
+  it('is deferred during the presentation and cashed out once at the next-hand boundary', async () => {
+    const e = makeEngineInCompletionHold();
+    e.lifecycleCanMutate = () => true;
+    e.wakeClusterGame = vi.fn();
+    e.currentHandPerPotAwards = [{ userId: HORSE, potIndex: 0, low: false, amount: 231 }];
+    e.currentHandShowdownResults = [];
+    const exits: string[] = [];
+    e.cashoutVoluntaryStay = vi.fn(async (p: any) => {
+      exits.push(p.user_id);
+      return { ok: true };
+    });
+    const horse = e.seatedPlayers.find((p: any) => p.user_id === HORSE);
+    // The settlement step's decision while the pot is still flying:
+    expect(e.holdsSeatForPresentation(HORSE)).toBe(true);
+    e.deferredBankTheWin.set(HORSE, horse);
+    e.noteHeldDeparture(HORSE, OCC[HORSE]);
+    expect(exits).toEqual([]);
+    expect(e.heldDepartures.has(OCC[HORSE])).toBe(true);
+    // The hold ends; the next-hand boundary runs the exit exactly once.
+    e.endCompletionPresentation();
+    await e.runDeferredBankTheWinExits();
+    await e.runDeferredBankTheWinExits();
+    expect(exits).toEqual([HORSE]);
+    expect(e.seatedPlayers.some((p: any) => p.user_id === HORSE)).toBe(false);
+    const left = e.hub.emitEvent.mock.calls.map((c: any[]) => c[1]).filter((ev: any) => ev?.type === 'seat_left');
+    expect(left).toEqual([expect.objectContaining({ user_id: HORSE, seat: 2 })]);
+    expect(e.heldDepartures.size).toBe(0);
+  });
+
+  it('a stay-clock refusal keeps the horse seated and lifts the move block', async () => {
+    const e = makeEngineInCompletionHold();
+    e.lifecycleCanMutate = () => true;
+    e.cashoutVoluntaryStay = vi.fn(async () => ({ ok: false, code: 'LEAVE_LOCKED', stayRemainingMs: 1000 }));
+    e.chipContinuity.noteRefusal = vi.fn();
+    const horse = e.seatedPlayers.find((p: any) => p.user_id === HORSE);
+    e.deferredBankTheWin.set(HORSE, horse);
+    e.noteHeldDeparture(HORSE, OCC[HORSE]);
+    e.endCompletionPresentation();
+    await e.runDeferredBankTheWinExits();
+    expect(e.seatedPlayers.some((p: any) => p.user_id === HORSE)).toBe(true);
+    expect(e.heldDepartures.size).toBe(0);
+  });
+
+  it('settlement defers instead of cashing out, and the boundary runs it before the roster read', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const settlement = readFileSync(join(here, 'ServerTableEngineSettlement.ts'), 'utf8');
+    const dealing = readFileSync(join(here, 'ServerTableEngineDealing.ts'), 'utf8');
+    const loop = settlement.indexOf('for (const horse of cashedOutHorses) {');
+    const defer = settlement.indexOf('this.deferredBankTheWin.set(horse.user_id, horse);', loop);
+    const exit = settlement.indexOf('await this.bankTheWinExit(horse)', loop);
+    expect(defer).toBeGreaterThan(loop);
+    expect(exit).toBeGreaterThan(defer);
+    const prep = dealing.indexOf('protected async prepareNextHand(');
+    const run = dealing.indexOf('await this.runDeferredBankTheWinExits();', prep);
+    const read = dealing.indexOf('this.readNextHandInputs()', prep);
+    expect(run).toBeGreaterThan(prep);
+    expect(read).toBeGreaterThan(run);
+  });
+});
+
 describe('a player who was not dealt into the presented hand', () => {
   it('still leaves immediately', async () => {
     const e = makeEngineInCompletionHold();
