@@ -1896,8 +1896,28 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitReadIgnoresProbes',
+    '2026-11-16 default OFF (Fixed-Limit lane W4, "F1b", its own option since 2026-11-16): at a fixed-limit decision, with the F1 process switch on (fixedLimitBetsAreNeverProbes), an opponent pooled no-limit/pot-limit probe share does not discount his fixed-limit aggression reads (HorseMind.fixedLimitReadIgnoresProbes: probeAdjusted, omahaTightReadOf, style read, streetBullyRead fallback); no-limit and pot-limit reads unchanged; measured (AB-EVALUATION-2.md 3.1, 3.10): no harm at six seats, gains against a seeded maniac (flh +17.29 +/- 6.71, flo8 +29.23 +/- 19.67) but value NOT DEMONSTRATED over three seeded ranges (tight-value and gear-changer cells inert or slightly negative), so it stays off',
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'fixedLimitHiLoLowHalfFloor',
     '2026-11-14 default OFF: on a fixed-limit hi-lo river the V40 weak-high pressure cap never goes below half of the sampled low share (HorseHiLoLowHalf.ts), heads-up and multiway; the share already carries ties, so a quartered low keeps its quarter; measured before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, pair+low and high+low river hands with a low half of 0.46 and 0.59 were capped to 0.10 and 0.13 at a price of 0.05 and folded 66 of 83; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitPricedPreflop',
+    "2026-11-15 default OFF (Fixed-Limit lane W5): fixed-limit cash tables only (inert at every tournament table, !isTournamentMode gate), first in the seat raises the stated reference share by players behind (HorseFixedLimitPreflop.ts; the small blind folded to also completes a band, the heads-up button raises flh 85% / flo8 70%), and a blind's fold facing exactly one raise (no limper, no caller) becomes a call when its realized equity against the opener's reference range covers its pot price (call / (pot + call); rake is inside the realization calibration, not deducted again: 2026-11-15 fix); 3-bet/cap ranges unchanged; the phase12 round-3 FIRST-IN entry rules retain this reference in fixed limit (the big blind defended rule is not held: it could only fold a call)",
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitStealVsTightBlinds',
+    '2026-11-15 default OFF (Fixed-Limit lane W5): fixed-limit cash tables only (inert at every tournament table, the same !isTournamentMode gate as fixedLimitPricedPreflop), first in from the cutoff, button or small blind (or the heads-up button), when every player still to act has an own adequate over-folder read (foldToBet engaged high on at least 15 decayed opportunities, not presumed, nothing preflop engaged wide) the open share widens by up to 15 points (HorseFixedLimitPreflop.fixedLimitStealWiden)',
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitRiverStrongHandLeads',
+    "2026-11-15 default OFF (Fixed-Limit lane W8): fixed limit only, river, nothing to call, the Horse first to act (no opponent has acted on the river) and the reference checks: a full house or better that at most 12 percent of the opponents' holdings beat (card-exact over the unseen cards with the engine's scorers; hold'em also refuses a board that plays and an under-full boat) bets one big bet instead (HorseFixedLimitRiverLead.ts); hi-lo with a low possible and no Horse low leads only into two or more opponents who can act; an aggressive read on the next opponent to act keeps the check; not facing a wager, not checked to, never all in, never a tournament stack under 20 big blinds; measured before (AD-STRONG-RIVER-CHECKS): first-to-act full+ checks 31-58 percent, flo8 heads-up rivers then check through 42-50 percent; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
     'FixedLimitAdaptation'
   ),
   flag(
@@ -1909,6 +1929,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixedLimitManiacCapNeedsValue',
     "2026-11-15 default OFF: in a fixed-limit game (betting structure), a V53 pressure raise that would be the preflop cap (after the Horse opens and an aggressive raiser 3-bets) fires only when the V38 equity against the raiser's read range is at least 0.5 + m, the break-even of the one-small-bet capping increment plus two standard errors of that estimate at the sample count the decision drew (m = 1/sqrt(n): n = 360, m = 0.0527 for flh and n = 176, m = 0.0754 for flo8 at full scale; HorseFixedLimitManiacCap.ts); otherwise the hand calls; measured before (AH-V38-FIXED-LIMIT.md, flh 6-max, observed maniac 3-bet, 20 seeds a hand): Q9o, J8o, 76s, 54s, 83o and 72o capped 112 of 120 times with 0.30-0.46 equity, each of which calls against an unknown 3-bettor; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
     'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitBetsAreNeverProbes',
+    '2026-11-15 source default ON since 652726c8 (FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT): the live switch of the process switch HorseMind.setFixedLimitBetsAreNeverProbes, not a decision option; the decision worker applies the registry state before every job, so the in-decision observation, the observer reads and the completed-hand learner of the thread count with one value: off counts a fixed-limit checked-to bet as a probe again (main before 2026-11-14), on or no row, unreadable or stale is the source default; no-limit and pot-limit counting identical in every state; evidence docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md',
+    'FixedLimitAdaptation',
+    'HorseMind.observe via HorseMind.applyFixedLimitBetsAreNeverProbesOption (decision worker, every job)'
   ),
   flag(
     'lightningParticipationHoldem',
@@ -6543,11 +6569,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a checked-to postflop bet in a fixed-limit hand was counted without a probe tally (neither ctBets nor ctProbes), so it stays whole in betCheckedTo',
     'FixedLimitAdaptation'
   ),
+  // No floor: fixed-limit decisions against a player with a no-limit/pot-limit probe history, with the opt-in option on.
+  receipt(
+    'fixed_limit_read_probe_discount_withheld',
+    'HorseMind.probeAdjusted (A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED, F1b: opt-in decide option fixedLimitReadIgnoresProbes, default OFF, with the process switch HorseMind.setFixedLimitBetsAreNeverProbes on)',
+    "a fixed-limit decision's opponent read was left whole although the player's pooled no-limit/pot-limit probe share would have discounted his betCheckedTo",
+    'FixedLimitAdaptation'
+  ),
   // No floor: fixed-limit calls with a player left to act, with the opt-in option on.
   receipt(
     'fixed_limit_call_priced_remaining_action_seen',
     'HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts)',
     'a fixed-limit call with a live player left to act on an uncapped street was priced above the bare call by the expected further wagers of the street',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit rivers only, with the opt-in option on.
+  receipt(
+    'fixed_limit_river_strong_hand_lead',
+    'HorseLogic reference layer (fixedLimitRiverStrongHandLeads, HorseFixedLimitRiverLead.ts)',
+    'a fixed-limit first-to-act river check with a full house or better that few holdings beat became a one-big-bet lead',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit calls only, with the opt-in option on.
@@ -6562,6 +6602,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_hilo_low_half_kept_seen',
     'HorseLogic V40 Omaha pressure cap (fixedLimitHiLoLowHalfFloor)',
     'the V40 weak-high cap on a fixed-limit hi-lo river would have clipped the hand below half of its low share and was held at that half',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit preflop only, with the opt-in options on.
+  receipt(
+    'fixed_limit_priced_first_in',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflop, HorseFixedLimitPreflop.ts)',
+    'a fixed-limit first-in decision was taken on the seat reference share (raise, small blind complete, or fold)',
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_priced_blind_defence',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflop, HorseFixedLimitPreflop.ts)',
+    "a fixed-limit blind's fold facing one raise became a call because its realized equity against the opener's reference range covered the price",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_steal_vs_tight_blinds',
+    'HorsePreflop first-in open (fixedLimitStealVsTightBlinds, HorseFixedLimitPreflop.ts)',
+    'a fixed-limit first-in open was widened because every player still to act is a read over-folder',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit Omaha decisions only, with the opt-in option on.

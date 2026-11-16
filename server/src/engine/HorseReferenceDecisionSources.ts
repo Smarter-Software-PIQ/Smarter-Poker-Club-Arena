@@ -222,10 +222,16 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off heads-up big blind price defence: each Hold'em class's equity against the heads-up open range by width, and the realisation the price is read with",
     'src/engine/HorseHuTightBigBlindSteal.ts':
       'the default-off, off-only heads-up small blind steal against a proven tight big blind (Heads Up D6, huSmallBlindStealsVsTightBigBlind): the tight-folder read from the decayed heads-up counters and the open that replaces a would-be limp or fold',
+    'src/engine/HorseFixedLimitPreflop.ts':
+      'the default-off fixed-limit priced preflop (W5, 2026-11-15): first-in reference shares by players behind, the blind defence to its price and the steal against read over-folding blinds',
+    'src/engine/HorseFixedLimitPreflopTables.ts':
+      'the generated strength order and equity table the fixed-limit priced preflop reads (scripts/generate-fixed-limit-preflop-tables.ts, fixed seed)',
     'src/engine/HorseFixedLimitCallPrice.ts':
       'the default-off fixed-limit call price (2026-11-14, Fixed-Limit lane): a fixed-limit call is never a stack commitment; its price is the chips to call plus the expected further wagers of the street while a player left to act can still raise',
     'src/engine/HorseFixedLimitManiacCap.ts':
       'the default-off fixed-limit cap bar (2026-11-15, Fixed-Limit lane): a V53 pressure raise that would be the fixed-limit preflop cap needs equity of at least 0.5 plus two standard errors of its estimate (1/sqrt(n)), else the call',
+    'src/engine/HorseFixedLimitRiverLead.ts':
+      'the default-off fixed-limit strong river lead (Fixed-Limit lane W8, 2026-11-15): a first-to-act full house or better that few holdings beat bets one big bet instead of the reference check, with the hi-lo low rule and the aggressive-next-opponent exception',
     'src/engine/HorseHiLoLowHalf.ts':
       'the floor the low half puts under the Omaha pressure cap heads-up on a pot-limit hi-lo river, so a nut low is not folded to one bet (HU-HILO-001, 2026-11-13)',
     'src/engine/HorseFixedLimitStructure.ts':
