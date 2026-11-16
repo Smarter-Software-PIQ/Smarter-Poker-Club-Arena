@@ -3195,6 +3195,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-cash-return-rule-postgres.py
 
+      - name: Hourly cash caps preserve humans and pace starts and closures
+        if: matrix.shard == 3
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-hourly-cash-caps-postgres.py
+
       - name: Original posthand escrow stays distinct from poker winnings
         id: posthand_escrow
         if: matrix.shard == 3
