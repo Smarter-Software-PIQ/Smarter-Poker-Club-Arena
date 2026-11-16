@@ -37,3 +37,9 @@ clear a board-sized reveal at the header, especially where cards overhang the
 plate. Every card, plate and fixed control remains a protected obstacle, and
 chairs and already shown cards retain their locked positions. The phone matrix uses bounded four-scene device/inset/chrome cases,
 retaining all 48 scenes and assertions without increasing any timeout.
+
+Hosted traces identified two existing raw-width observer fixtures starving during
+cold layout while separate default-mode groups ran concurrently. Their complete
+bounded family now shares one default-mode group. Every case still runs after
+a failure, every assertion and original deadline remains, and the earlier suites
+stay parallel and sharded. No runner, CI selection or timeout was changed.
