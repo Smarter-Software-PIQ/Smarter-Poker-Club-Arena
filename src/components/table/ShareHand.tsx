@@ -20,6 +20,7 @@ import './ShareHand.css';
 import { reportError } from '../../utils/errorReporter';
 import { normalizeInviteCode } from '../../lib/inviteCode';
 import { openInBrowser } from '../../lib/openExternal';
+const ShareTablePreview = React.lazy(() => import('./ShareTablePreview'));
 import ShareAsVideoPanel from './ShareAsVideoPanel';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -943,25 +944,42 @@ export function ShareHand({
   }, [activeTab]);
 
   if (!isOpen) return null;
+  const winnerSeats = new Set(hand.winners.map((award) => award.seat));
+  const winners = hand.players.filter((player) => winnerSeats.has(player.seat));
 
   return (
     <div className="share-hand-overlay" onClick={onClose}>
-      <div className="share-hand-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Share Hand"
+        className="share-hand-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="share-hand__header">
           <h2 className="share-hand__title"> Share Hand</h2>
-          <button className="share-hand__close" onClick={onClose}>
+          <button className="share-hand__close" aria-label="Close Share Hand" onClick={onClose}>
             ×
           </button>
         </div>
 
         {/* Preview Card */}
         <div className="share-hand__preview">
-          <div className="share-hand__preview-header">
-            <span className="share-hand__variant">{hand.variant}</span>
-            <span className="share-hand__stakes">{hand.stakes}</span>
+          <div className="share-hand__game">
+            {hand.tableName || hand.variant}
+            {hand.handNumber ? ` · #${hand.handNumber}` : ''}
           </div>
-
+          <div className="share-hand__result">
+            <div>
+              <small>{winners.length > 1 ? 'Winners' : 'Winner'}</small>
+              <strong>{winners.map((p) => p.name).join(' · ') || 'Unrecorded'}</strong>
+            </div>
+            <div>
+              <small>Pot</small>
+              <strong>{hand.potTotal.toLocaleString()}</strong>
+            </div>
+          </div>
           {/* Board Preview — Custom PNG Deck */}
           <div className="share-hand__board">
             {hand.flop && (
@@ -985,10 +1003,9 @@ export function ShareHand({
             )}
           </div>
 
-          <div className="share-hand__pot">
-            <span className="share-hand__pot-label">Pot</span>
-            <span className="share-hand__pot-value">{hand.potTotal.toLocaleString()}</span>
-          </div>
+          <React.Suspense fallback={null}>
+            <ShareTablePreview hand={hand} />
+          </React.Suspense>
         </div>
 
         {/* Tabs */}
@@ -1129,13 +1146,6 @@ export function ShareHand({
 
         {/* Share As Video (Phase 9.1): only for a hand with a stored row id. */}
         {handId && <ShareAsVideoPanel handId={handId} />}
-
-        {/* Footer */}
-        <div className="share-hand__footer">
-          <span className="share-hand__footer-text">
-            Click The Link To Watch A Video Replay Of This Hand
-          </span>
-        </div>
       </div>
     </div>
   );
