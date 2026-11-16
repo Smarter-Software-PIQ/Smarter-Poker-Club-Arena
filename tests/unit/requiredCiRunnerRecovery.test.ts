@@ -40,7 +40,6 @@ const hourlyCashStep = {
   name: 'Hourly cash caps preserve humans and pace starts and closures',
   if: 'matrix.shard == 1',
   'working-directory': '.',
-  env: { PG_BIN: '/usr/lib/postgresql/16/bin' },
   run: 'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py',
 };
 const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {

@@ -6,7 +6,16 @@ qualification owns that kernel's actual wallet/ledger behavior. No live writes.
 import json, os, pathlib, shutil, subprocess, tempfile
 P=pathlib.Path
 ROOT=P(__file__).resolve().parents[2]
-PG=P(os.environ.get('PG_BIN','/opt/homebrew/opt/postgresql@17/bin' if os.uname().sysname=='Darwin' else '/usr/lib/postgresql/17/bin'))
+if os.environ.get('PG_BIN'):
+ PG=P(os.environ['PG_BIN'])
+elif os.uname().sysname=='Darwin':
+ PG=P('/opt/homebrew/opt/postgresql@17/bin')
+else:
+ # ubuntu-latest changes its bundled major. Prefer production's PG17 when
+ # present, otherwise exercise the installed server, never silently skip.
+ installed=sorted(P('/usr/lib/postgresql').glob('*/bin'),key=lambda p:int(p.parent.name) if p.parent.name.isdigit() else -1,reverse=True)
+ PG=next((p for p in [P('/usr/lib/postgresql/17/bin'),*installed] if (p/'initdb').is_file()),None)
+ if PG is None:raise SystemExit('PostgreSQL server binaries unavailable; provide PG_BIN')
 parent=ROOT/'work'; parent.mkdir(exist_ok=True)
 w=P(tempfile.mkdtemp(prefix='hc-',dir=parent)); sock=w/'s';sock.mkdir()
 env={'PATH':str(PG)+':/usr/bin:/bin','LC_ALL':'C','LANG':'C'}
@@ -245,7 +254,7 @@ try:
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
  refuses(migration,'already exists')
- print(json.dumps({'passed':True,'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
+ print(json.dumps({'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
 finally:
  if (w/'d/postmaster.pid').exists():run([PG/'pg_ctl','-D',w/'d','-m','immediate','-w','stop'])
  shutil.rmtree(w)

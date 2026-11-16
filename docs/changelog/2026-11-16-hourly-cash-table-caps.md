@@ -90,8 +90,9 @@ number limits Horse-started capacity. Human-started games can expand beyond it.
    Test the actual dealer boundary and strict original receipt validation.
    Existing required engine and accounting qualification retain financial-kernel
    coverage. The new native proof is enforced in the required engine route,
-   using the runner's existing PostgreSQL 16 as an additional compatibility
-   check beside the owner precheck on native PostgreSQL 17.
+   discovering the runner's installed PostgreSQL major as additional compatibility
+   proof beside the native PostgreSQL 17 owner precheck. A missing server fails
+   the gate; it never silently skips, and the receipt names the actual major.
 9. Protected PR and merge, exact migration installation and readback, exact
    candidate engine qualification on isolated Backup, immutable staging and the
    approved certified engine cutover. Verify the serving SHA and seal, natural
