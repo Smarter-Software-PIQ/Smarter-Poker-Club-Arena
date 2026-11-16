@@ -6236,7 +6236,16 @@ function pairedBoardFold(
       icmRisk: omahaTournamentIcmRisk(player, gs),
     })
   ) {
-    if (telemetryOn(opts)) noteFire('omaha_paired_board_fold_price_respected');
+    // The receipt describes the final action: a later rule can still fold
+    // this decision (the owner-ruled turn fold, omahaOwnerRuledFinal; sweep
+    // state #3716), so it is proposed here and fires only when the final
+    // decision is not a fold; otherwise its _vetoed receipt fires.
+    if (telemetryOn(opts))
+      omahaProposeReceipt(
+        (final) => final.action !== 'fold',
+        () => noteFire('omaha_paired_board_fold_price_respected'),
+        () => noteFire('omaha_paired_board_fold_price_respected_vetoed')
+      );
     return decision;
   }
   // omahaStreetPlan (default off): the turn bet was made under a plan that
@@ -7987,7 +7996,7 @@ let omahaBareOverpairContMemo: {
 
 /**
  * omahaBareOverpairOopFlopCheck, the continuation (HorseOmahaOopChecks.ts):
- * heads-up on the flop, having checked the bare big pair out of position and
+ * one live opponent at the decision, on the flop, having checked the bare big pair out of position and
  * facing his bet: never a raise; a call when the expected value of the call
  * (the Horse's exact cards against the bettor's range, his measured read, the
  * price, an out-of-position realisation discount) clears its margin, else a

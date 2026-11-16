@@ -4303,7 +4303,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_paired_board_fold_price_respected',
     'HorseLogic.decide (HorsePloPairedBoardFold, omahaPairedBoardFoldRespectsPrice)',
-    'PLO4/PLO5 cash paired-board fold that stood aside: the call price was 0.25 or better and the Horse held a straight or flush, or the call was for the rest of a stack at least 60% in; the reference decision stood',
+    'PLO4/PLO5 cash paired-board fold that stood aside: the call price was 0.25 or better and the Horse held a straight or flush, or the call was for the rest of a stack at least 60% in; the reference decision stood. Fired when the final decision of HorseLogic.decide is not a fold',
+    'PLO paired-board fold'
+  ),
+  receipt(
+    'omaha_paired_board_fold_price_respected_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorsePloPairedBoardFold, omahaPairedBoardFoldRespectsPrice)',
+    'the paired-board fold stood aside for the price and the final decision of HorseLogic.decide was a fold all the same (a later rule folded it: the owner-ruled turn fold with no out, or another fold rule); fired in place of the proposing receipt, which fires only when the final decision is not a fold',
     'PLO paired-board fold'
   ),
   receipt(

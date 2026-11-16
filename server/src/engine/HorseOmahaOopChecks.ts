@@ -809,9 +809,12 @@ export function omahaOopTurnFacingBetVerdict(
  * option, no option of its own): the flop was checked out of position with
  * the bare big pair and the one opponent bet. Owner 11:39: no blanket rule, the
  * call or fold is "hand and player dependant and pot size to value
- * dependant"; owner 12:09: no check-raise without the nuts. So, heads-up:
- * never a raise; a call when the expected value of the call clears its
- * margin, else a fold.
+ * dependant"; owner 12:09: no check-raise without the nuts. So, with one
+ * live opponent at the decision (a pot that began heads-up, or a multiway
+ * flop on which every other player has folded by then): never a raise; a
+ * call when the expected value of the call clears its margin, else a fold.
+ * With no verdict (null or a throw) HorseLogic's fail-safe keeps a fold or
+ * a call and turns a raise into the exact-chip call.
  *
  * The exact-hand facing-bet model (HorseOmahaFacingBetEv) counts holdings on a
  * turn or river board only: it has no flop form (two cards to come, and its

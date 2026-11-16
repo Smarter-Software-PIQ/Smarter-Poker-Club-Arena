@@ -55,5 +55,5 @@ Status: MET
 - The hand is a pocket pair in the hand that is an overpair to the flop, or pocket queens or better with at most one overcard; the made hand is the engine's category, exactly one pair. A small overpair (sevens on 5-4-2) is an overpair and checks.
 - No stack-to-pot exception: a low stack-to-pot 4-bet pot is treated like any other (owner instruction; a separate measurement decides whether an exception is needed).
 - A gutshot (four outs) counts as no draw.
-- The continuation is heads-up only; multiway, the whole-stack call and a raise war on the flop keep today's decision. Its 0.75 realisation discount, its size line (a third to 70 percent of the pot) and its 0.5 any-hand share for a measured over-bettor are stated constants, not measured.
+- The continuation needs one live opponent at the decision: a pot that began heads-up, or a multiway flop where every other player has folded by then; multiway at the decision, the whole-stack call and a raise war on the flop keep today's decision. Its 0.75 realisation discount, its size line (a third to 70 percent of the pot) and its 0.5 any-hand share for a measured over-bettor are stated constants, not measured.
 - Live behaviour is unverified: the option is off.

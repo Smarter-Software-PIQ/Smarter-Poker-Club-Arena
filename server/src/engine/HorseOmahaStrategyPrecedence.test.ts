@@ -83,7 +83,23 @@ const forced = vi.hoisted(() => ({
   planCallsRiver: false,
   /** the big-draw rule prices a half-pot bet above the check */
   drawBet: false,
+  /** the paired-board fold wants every continuing decision folded */
+  pairedMustFold: false,
+  /** the paired-board fold's price test lets the reference decision stand */
+  pairedPriceOk: false,
 }));
+
+vi.mock('./HorsePloPairedBoardFold.js', async (original) => {
+  const real = await original<typeof import('./HorsePloPairedBoardFold.js')>();
+  return {
+    ...real,
+    ploPairedBoardMustFold: (...a: Parameters<typeof real.ploPairedBoardMustFold>) =>
+      forced.pairedMustFold || real.ploPairedBoardMustFold(...a),
+    ploPairedBoardFoldRespectsPrice: (
+      ...a: Parameters<typeof real.ploPairedBoardFoldRespectsPrice>
+    ) => forced.pairedPriceOk || real.ploPairedBoardFoldRespectsPrice(...a),
+  };
+});
 
 vi.mock('./HorseOmahaBigDrawAggression.js', async (original) => {
   const real = await original<typeof import('./HorseOmahaBigDrawAggression.js')>();
@@ -240,6 +256,8 @@ afterEach(() => {
     planRuns: 0,
     planCallsRiver: false,
     drawBet: false,
+    pairedMustFold: false,
+    pairedPriceOk: false,
   });
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -1057,6 +1075,39 @@ describe('a receipt describes the final action', () => {
     expect(all(called, 'call')).toBe(true);
     expect(fired(called, 'omaha_oop_turn_check_raise_flatted')).toBe(raises.length);
     expect(called.fires.flat()).not.toContain('omaha_oop_turn_check_raise_flatted_vetoed');
+  });
+
+  it('the paired-board price-respected receipt fires only when its verdict is final; folded by the owner-ruled turn fold it is recorded as vetoed', () => {
+    const RESPECTED = 'omaha_paired_board_fold_price_respected';
+    const VETOED = 'omaha_paired_board_fold_price_respected_vetoed';
+    // the paired-board fold wants this decision folded and the price lets the
+    // reference decision stand (both forced; the decision is the hand with no out)
+    const build = () => facingAfterCheck(ACES, TURN, 0.5, NO_OUT);
+    expect(omahaOopTurnFacingBetVerdict(build().hero, build().gs)).toBe('fold_no_outs');
+    const continues = play(build, {}, false).actions.filter((a) => a !== 'fold').length;
+    expect(continues).toBeGreaterThan(0);
+    forced.pairedMustFold = true;
+    forced.pairedPriceOk = true;
+
+    // alone, the price stands aside and the reference decision is final
+    const alone = play(build, { omahaPairedBoardFoldRespectsPrice: true }, false);
+    alone.fires.forEach((f, i) => {
+      if (f.includes(RESPECTED)) expect(alone.actions[i]).not.toBe('fold');
+      if (f.includes(VETOED)) expect(alone.actions[i]).toBe('fold');
+    });
+    expect(fired(alone, RESPECTED)).toBe(continues);
+    expect(alone.fires.flat()).not.toContain(VETOED);
+
+    // with the owner-ruled turn rule on, the hand with no out folds all the
+    // same: the receipt is recorded as vetoed, never as respected
+    const both = play(
+      build,
+      { omahaPairedBoardFoldRespectsPrice: true, omahaOopTurnCheckAfterFlopCall: true },
+      false
+    );
+    expect(all(both, 'fold')).toBe(true);
+    expect(fired(both, RESPECTED)).toBe(0);
+    expect(fired(both, VETOED)).toBe(continues);
   });
 
   it('every option off: nothing is proposed and no _vetoed receipt exists', () => {
