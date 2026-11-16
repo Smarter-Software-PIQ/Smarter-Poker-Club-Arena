@@ -97,6 +97,16 @@ describe('static mobile reservations', () => {
       h = 115;
     expect(six[0].top).toBeLessThanOrEqual(cy - (h * 1.03) / 2 - 8);
     expect(six[0].top + six[0].height).toBeGreaterThanOrEqual(cy + h / 2 + 14);
+    // Bottom-aligned phone hands reserve their actual plate floor, including
+    // deal/peek animation travel, even when a safe inset widens the old band.
+    const aligned = heroPrivateReservations({ ...input, bottomAligned: true, barInset: 52 });
+    for (const box of aligned.boxes) {
+      expect(box.top + box.height).toBeGreaterThanOrEqual(input.seatTop + input.seatHeight + 14);
+      const same = heroPrivateReservations({ ...input, bottomAligned: true }).boxes.find(
+        (candidate) => candidate.count === box.count && candidate.index === box.index
+      )!;
+      expect(box).toEqual(same);
+    }
     const scaled = heroPrivateReservations({ ...input, scale: 0.5 });
     boxes.forEach((b, i) => {
       expect(scaled.boxes[i].left).toBeCloseTo(100 + (b.left - 100) / 2);

@@ -5457,3 +5457,13 @@
     --sp-wrap-overlap: var(--sp-six-cap-overlap);
   }
 }
+
+/* The private hand and avatar plate share a resting bottom edge above the
+   fixed controller, regardless of card count or safe-area height. */
+@media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page .seat--hero > .seat__cards--hero {
+    top: auto;
+    bottom: 0;
+    align-items: flex-end;
+  }
+}
