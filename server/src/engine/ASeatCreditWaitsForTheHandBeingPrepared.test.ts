@@ -130,4 +130,42 @@ describe('a between-hands add-on cannot land under a roster already snapshotted'
     );
     held();
   });
+
+  it('queues a top-up after the controller clears while its hand still settles', async () => {
+    const engine = engineWith(50);
+    // HAND_COMPLETE clears the controller before the original atomic hand
+    // commit resolves. These chips have never participated in that hand.
+    engine.settlementInFlight = new Set([Promise.resolve()]);
+    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: 1, error: null } as any);
+
+    const res = await engine.addChips('hero', 20, 'op-settlement-gap');
+
+    expect(res).toEqual({ success: true, queued: true, applied: 20 });
+    expect(rpc).toHaveBeenCalledWith(
+      'atomic_table_addon',
+      expect.objectContaining({ p_amount: 20, p_apply_to_seat: false })
+    );
+    expect(engine.seatedPlayers[0].stack).toBe(50);
+    expect(engine.pendingAddOns.get('hero')).toBe(20);
+    expect(engine.directSeatCreditsInFlight ?? 0).toBe(0);
+  });
+
+  it('rechecks settlement after a top-up acquires the seat boundary', async () => {
+    const engine = engineWith(50);
+    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: 1, error: null } as any);
+    const release = await engine.acquireSeatBoundary();
+    const topUp = engine.addChips('hero', 20, 'op-boundary-settlement');
+    await flush();
+    expect(rpc).not.toHaveBeenCalled();
+    engine.settlementInFlight = new Set([Promise.resolve()]);
+    release();
+
+    expect(await topUp).toEqual({ success: true, queued: true, applied: 20 });
+    expect(rpc).toHaveBeenCalledWith(
+      'atomic_table_addon',
+      expect.objectContaining({ p_apply_to_seat: false })
+    );
+    expect(engine.seatedPlayers[0].stack).toBe(50);
+    expect(engine.pendingAddOns.get('hero')).toBe(20);
+  });
 });

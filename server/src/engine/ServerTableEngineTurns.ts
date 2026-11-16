@@ -5171,21 +5171,27 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 commitmentCapRemaining: nutsActions.commitmentCapRemaining,
               };
               const privateHero = { ...commitHero, knownDeadCards: decisionPlayer.knownDeadCards };
-              const wagerGuarded = fullPotNearPotWager(
-                riverNutsRaise(
-                  tournamentShoveDiscipline(
-                    holdemPremiumAggression(decision, privateHero, commitState, {
-                      holdemDominatedFold: false,
-                    }),
-                    privateHero,
-                    commitState
-                  ),
-                  privateHero,
-                  commitState
-                ),
-                privateHero,
-                commitState
-              );
+              // A liveness action carries no priced poker decision. Do not
+              // turn its free check into a premium value bet after the worker
+              // failed. The short-all-in call floor below still applies.
+              const wagerGuarded =
+                safeWorkerFallback || decision.policyFallback === 'brain_exception'
+                  ? decision
+                  : fullPotNearPotWager(
+                      riverNutsRaise(
+                        tournamentShoveDiscipline(
+                          holdemPremiumAggression(decision, privateHero, commitState, {
+                            holdemDominatedFold: false,
+                          }),
+                          privateHero,
+                          commitState
+                        ),
+                        privateHero,
+                        commitState
+                      ),
+                      privateHero,
+                      commitState
+                    );
               // Dan 2026-10-26: a short all in is called by a big stack in a
               // tournament. Last at the door too, on the controller's fresh
               // state, so no withdrawal above and no liveness fallback can fold
