@@ -123,3 +123,64 @@ describe('only tournaments not yet started are comparison peers', () => {
     );
   });
 });
+
+describe('the selected run takes registrations while the journey runs', () => {
+  // Runs 43771208157 and 43781951342: the starred Midnight Free Buy went
+  // 330 -> 331, 349 -> 350 and 352 -> 353 with every row in place.
+  const higher = row('higher', 355);
+  const lower = row('lower', 275);
+  const before = [higher, row('chosen', 349), lower];
+
+  it('accepts a selected run whose own entry count moved while it kept its place', () => {
+    expect(
+      sameUnchangedLobbyOrder([higher, row('chosen', 350), lower], before, 'chosen', READ_AT)
+    ).toBe(true);
+  });
+
+  it('still refuses promotion, or a one-place jump, alongside that registration', () => {
+    expect(
+      sameUnchangedLobbyOrder([row('chosen', 350), higher, lower], before, 'chosen', READ_AT)
+    ).toBe(false);
+    const near = row('near', 360);
+    expect(
+      sameUnchangedLobbyOrder(
+        [row('chosen', 350), near, lower],
+        [near, row('chosen', 349), lower],
+        'chosen',
+        READ_AT
+      )
+    ).toBe(false);
+  });
+
+  it('does not compare a same-price peer the moved count can legitimately pass', () => {
+    const tied = row('tied', 350, SCHEDULED, 'aaa');
+    expect(
+      sameUnchangedLobbyOrder(
+        [row('chosen', 351), tied, lower],
+        [tied, row('chosen', 349), lower],
+        'chosen',
+        READ_AT
+      )
+    ).toBe(true);
+  });
+
+  it('refuses a selected run whose name, price, start or pin changed', () => {
+    const chosen = row('chosen', 349);
+    const [name, price, players, start, pin] = JSON.parse(chosen.sortKey);
+    for (const changed of [
+      [`${name} (renamed)`, price, players, start, pin],
+      [name, '50', players, start, pin],
+      [name, price, players, new Date(SCHEDULED + 60_000).toISOString(), pin],
+      [name, price, players, start, true],
+    ]) {
+      expect(
+        sameUnchangedLobbyOrder(
+          [higher, { ...chosen, sortKey: JSON.stringify(changed) }, lower],
+          before,
+          'chosen',
+          READ_AT
+        )
+      ).toBe(false);
+    }
+  });
+});
