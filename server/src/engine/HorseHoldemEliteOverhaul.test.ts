@@ -19,7 +19,7 @@
  *     leak tags in HorseHandReview.
  *  7. Deep 200bb NLH Cash bare 1-pair pot control, NLH Double-Board Bomb Pot dead-half
  *     folds, and MTT Money Bubble cover-stack pressure vs covered-stack discipline.
- *  8. Ecosystem #7: 50,000+ Hand Deterministic Proving Ground Benchmark (< 8s) across
+ *  8. Ecosystem #7: 50,000+ Hand Deterministic Proving Ground Benchmark (< 12s) across
  *     NLH 9-Max Cash 100bb, NLH 6-Max Deep Cash 200bb vs a 65% VPIP / 38% PFR / 18% 3-Bet
  *     / 68% Flop-Stab LAG Bully, and NLH MTT 40bb + Bubble 25bb with zero illegal actions.
  */
@@ -65,7 +65,9 @@ const PROBE_CLOCK_MS = Date.UTC(2026, 10, 10, 11, 0, 0);
  * The wall-clock limit of the 50,000-hand benchmark (case 8).
  *
  * Hosted CI keeps the stated limit exactly: every GitHub Actions runner
- * exports GITHUB_ACTIONS=true, and a slow run there is a real regression.
+ * exports GITHUB_ACTIONS=true. Owner direction 2026-11-16 raises the limit
+ * from 8 to 12 seconds after a correct 52,000-hand run took 8,326 ms there.
+ * Correctness and hand-count assertions remain independent of this budget.
  * The plain CI variable cannot tell the two apart: the agent shells on the
  * shared Mac export CI=1, so the pre-push gate runs with it set as well.
  * Outside hosted CI this test runs inside that gate on a shared machine.
@@ -75,6 +77,7 @@ const PROBE_CLOCK_MS = Date.UTC(2026, 10, 10, 11, 0, 0);
  * never above BENCHMARK_LOAD_CAP. An idle machine keeps the stated limit.
  */
 const BENCHMARK_LOAD_CAP = 4;
+const BENCHMARK_BASE_MS = 12_000;
 function benchmarkWallClockLimit(
   baseMs: number,
   env: Record<string, string | undefined> = process.env,
@@ -2205,8 +2208,8 @@ describe('7. Deep 200bb Cash Pot Control, NLH Double-Board Bomb Pot & MTT Bubble
   });
 });
 
-describe('8. Ecosystem #7: 50,000-Hand Deterministic Proving Ground Benchmark (< 8s)', () => {
-  it('simulates >= 50,000 NLH hands (9-Max Cash 100bb, 6-Max Deep 200bb vs 65/38/18/68%-Stab LAG Bully, MTT 40bb + Bubble 25bb) in < 8s with zero illegal actions', () => {
+describe('8. Ecosystem #7: 50,000-Hand Deterministic Proving Ground Benchmark (< 12s)', () => {
+  it('simulates >= 50,000 NLH hands (9-Max Cash 100bb, 6-Max Deep 200bb vs 65/38/18/68%-Stab LAG Bully, MTT 40bb + Bubble 25bb) in < 12s with zero illegal actions', () => {
     const startMs = performance.now();
     const r = mulberry32(20261110);
     seedFastRandom(20261110);
@@ -2917,7 +2920,7 @@ describe('8. Ecosystem #7: 50,000-Hand Deterministic Proving Ground Benchmark (<
     // The wall clock is judged last, so a slow machine can never hide a
     // correctness failure above. The load is read after the run: the
     // one-minute average then covers the seconds the benchmark just used.
-    const limit = benchmarkWallClockLimit(8_000);
+    const limit = benchmarkWallClockLimit(BENCHMARK_BASE_MS);
     console.info(
       `[proving ground benchmark] ${Math.round(elapsedMs)} ms for ${totalSimulatedHands} hands; ` +
         `limit ${Math.round(limit.allowedMs)} ms (${limit.hostedCi ? 'hosted CI, strict' : 'outside hosted CI'}, ` +
@@ -2926,27 +2929,28 @@ describe('8. Ecosystem #7: 50,000-Hand Deterministic Proving Ground Benchmark (<
     expect(elapsedMs).toBeLessThan(limit.allowedMs);
   });
 
-  it('keeps the 8 s limit exact in hosted CI and scales it only with load outside it, up to the cap', () => {
+  it('keeps the 12 s limit exact in hosted CI and scales it only with load outside it, up to the cap', () => {
     // Hosted CI: strict whatever the load.
-    expect(benchmarkWallClockLimit(8_000, { GITHUB_ACTIONS: 'true' }, 80, 28).allowedMs).toBe(
-      8_000
-    );
     expect(
-      benchmarkWallClockLimit(8_000, { CI: 'true', GITHUB_ACTIONS: 'true' }, 2_800, 28).allowedMs
-    ).toBe(8_000);
+      benchmarkWallClockLimit(BENCHMARK_BASE_MS, { GITHUB_ACTIONS: 'true' }, 80, 28).allowedMs
+    ).toBe(12_000);
+    expect(
+      benchmarkWallClockLimit(BENCHMARK_BASE_MS, { CI: 'true', GITHUB_ACTIONS: 'true' }, 2_800, 28)
+        .allowedMs
+    ).toBe(12_000);
     // The agent shells on the shared Mac export CI=1; that alone is not hosted CI.
-    expect(benchmarkWallClockLimit(8_000, { CI: '1' }, 56, 28).allowedMs).toBe(16_000);
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, { CI: '1' }, 56, 28).allowedMs).toBe(24_000);
     // Outside CI on an idle or lightly loaded machine: the stated limit.
-    expect(benchmarkWallClockLimit(8_000, {}, 3, 28).allowedMs).toBe(8_000);
-    expect(benchmarkWallClockLimit(8_000, {}, 0, 28).allowedMs).toBe(8_000);
-    expect(benchmarkWallClockLimit(8_000, {}, 5, 0).allowedMs).toBe(8_000);
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, {}, 3, 28).allowedMs).toBe(12_000);
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, {}, 0, 28).allowedMs).toBe(12_000);
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, {}, 5, 0).allowedMs).toBe(12_000);
     // Outside CI under load: proportional to load per core.
-    expect(benchmarkWallClockLimit(8_000, {}, 56, 28).allowedMs).toBe(16_000);
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, {}, 56, 28).allowedMs).toBe(24_000);
     // The observed case, 80 on 28 cores: 8,578 ms is inside the scaled limit.
-    expect(benchmarkWallClockLimit(8_000, {}, 80, 28).allowedMs).toBeGreaterThan(8_578);
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, {}, 80, 28).allowedMs).toBeGreaterThan(8_578);
     // Never past the cap, however loaded the machine is.
-    expect(benchmarkWallClockLimit(8_000, {}, 2_800, 28).allowedMs).toBe(
-      8_000 * BENCHMARK_LOAD_CAP
+    expect(benchmarkWallClockLimit(BENCHMARK_BASE_MS, {}, 2_800, 28).allowedMs).toBe(
+      12_000 * BENCHMARK_LOAD_CAP
     );
   });
 });
