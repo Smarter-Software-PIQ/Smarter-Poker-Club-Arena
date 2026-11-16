@@ -477,10 +477,12 @@ describe('HorseLogic.decide with omahaStrategyInPlo6 unset or false', () => {
       for (const opts of [{}, STRATEGY_ON]) {
         clearPlo6OmahaStrategyCalibration();
         const before = play(build, opts);
-        // registered before every decision: decide takes the values back, its gate being off
+        // registered before every decision: decide takes the values back for the decision, its
+        // gate being off (shown from inside below), and puts back what it found when it returns
         const after = play(build, opts, registerPlo6OmahaStrategyCalibration);
         expect(after).toEqual(before);
-        expect(plo6Reads()).toEqual({ ...OMAHA_STRATEGY_CONSTANT_DEFAULTS });
+        expect(plo6Reads()).toEqual({ ...OMAHA_STRATEGY_CONSTANT_DEFAULTS, ...REGISTERED });
+        clearPlo6OmahaStrategyCalibration();
         // decide's own call skipped: the six-card values stay in the accessor for the whole
         // decision, and the readers' own game gates still keep the decision where it was
         forced.decideLeavesTheAccessorAlone = true;

@@ -19,26 +19,46 @@ The six-card port is written on this branch and is NOT yet reviewed by PLO Strat
 
 Written, each a PLO6-only branch reached only with this gate on (gate off, PLO4 and PLO5 are unchanged):
 
-- Re-raised pots (`HorseOmahaOopReraisedPot.ts`, `HorseOmahaReraisedPot.ts`): six cards read the calibration's premium class (`plo6ReraisedPremium`) and coordination (`plo6OopCoordinated`, three gaps: `COORDINATED_MAX_GAPS_PLO6`); the hole-count checks admit exactly six cards for PLO6; the preflop cell's scope goes through `omahaStrategyGameInScope`. The postflop stack-off cell stays PLO4/PLO5 (its options are not in the catalogue).
+- Re-raised pots (`HorseOmahaOopReraisedPot.ts`, `HorseOmahaReraisedPot.ts`): six cards read the calibration's premium class (`plo6ReraisedPremium`) and coordination (`plo6OopCoordinated`, three gaps: the calibration entry `COORDINATED_MAX_GAPS`); the hole-count checks admit exactly six cards for PLO6; the preflop cell's scope goes through `omahaStrategyGameInScope`. The postflop stack-off cell stays PLO4/PLO5 (its options are not in the catalogue).
 - Pricing (`HorseOmahaUnderpair.ts`, `HorseOmahaFacingBetEv.ts`, `HorseOmahaRiverMediumBetCalls.ts`, glue in `HorsePlo6PricingPort.ts`): the underpair rule admits six cards at the PLO5 constants (unmeasured for six cards); the facing-bet EV rule admits six cards on the river only, cash only, no bomb pot, and the measured river fold test (`plo6FacingBetEvFoldStands`) stands over an EV call; the river medium-bet call uses the six-card beaten-share bars (`plo6RiverMediumBetCalls`), cash only, no bomb pot.
 - Skipped options never act in PLO6, gate on or off: `omahaRiverNutBlockerBluffReachable`, `omahaEliteContinuesVsMeasuredWideThreeBettor`, `omahaReraisedFoldVsTight`, `omahaSmallBlindSteal`, and `omahaReraisedPotDiscipline` (not a catalogue option).
 - Adaptations hooked: the paired-board fold and the measured river fold test in the river-plan look-ahead (`omahaRiverShoveFoldVerdict`, verdict `plo6_river_m1`) and in the street-plan call veto; the paired-board price exception is arm (a) only; a strong hand for value is nut class only (`plo6StrongHandForValue`); the out-of-position re-raised strong range stands aside against a measured (not presumed) maniac raiser.
 - PLO6 tournaments stay out (SPEC-A 3.15 item 6), also with `omahaStrategyInTournaments` on: the tournament extension never holds for six cards (`omahaTournamentExtensionSpot`), so every cash-scoped rule stands aside there and no survival premium is priced. PLO4/PLO5 tournaments are unchanged.
 - The facing-bet EV guard is off where the live river fold rule is off: the paired-board test with `v58Plo6RiverNuts` false, the unpaired-board test with `v59Plo6RiverUnpaired` false, as the two plan hooks read them.
 - Validator (`horseDecision/responseValidation.ts`): PLO6 is admitted to the day's admissions only when the receipt context carries `omahaStrategyInPlo6 === true`; without it the path is the old one. A PLO6 fold-to-call by the facing-bet EV rule is admitted only when the rule's six-card guard, re-run on the request, does not stand. `HorseOmahaStrategyGame.ts` is not changed.
+- The five catalogue options with no new six-card branch are shown by test to behave as the specification says with the gate on (`HorsePlo6StrategyPortRemaining.test.ts`): 3.4 `omahaBigDrawAggression` (a 13+ out wrap continues, accessor key registered 13), 3.11 `omahaCardImpact` (distinct live draw outs, key registered 1), 3.16 `omahaBluffCatcherFoldVsValueLeader` (a six-card hand reaches the cell, only with the gate), 3.17 `omahaMadeHandDefenseVsValueLeader` (PLO4/PLO5 scope through the gate, cash only, never a bomb pot), 3.31 `omahaSmallBlindSteal` (four and five cards only).
+- No six-card rule turns into a call a hand the live river fold rule folds: the medium-bet call and the facing-bet EV rule run after that rule and price on the exact count, so both also ask the live rule's own test (`plo6RiverLiveFoldStands` in `HorseLogic.ts`: its switches, its seeded 20,000-sample share, its price) before a call stands. The river-plan look-ahead and the street-plan veto read that same sampled share on purpose: they predict what the river decision will do.
+- The six-card constants are in the accessor only inside a gate-on decision or validation: `HorseLogic.decide` and the validator put back what the accessor held before (safe for a decide entered inside another decide).
+- Validator and the live switch: the switch delivers its value inside the worker, so the client validates under the gate values the worker may have run (`omahaStrategyInPlo6GateCandidates`): the row in the configuration the client last delivered to that worker, then the request's own option when it differs (a worker whose configuration aged out runs the release default). While the option is off-only an `on` row makes the whole switched set invalid and nothing is switched.
+- Lightning: a Lightning PLO6 cash table is a PLO6 cash table for the multiway weak-bet rule and for the port (tested; no port module reads the table speed, and the Lightning participation rules are preflop and Hold'em / PLO4 / PLO5 only).
+- League card `plo6_omaha_strategy_six_card_port`: the 27 ported options on in both arms, the gate on in arm A, six seats, production personas. Not yet measured: a first run (seed 20261116, 150 pairs) had not finished after 22 minutes at machine load 22; the diverged-pair count and the bb/100 difference are owed.
 
 Still owed before the hold may be lifted:
 
 - PLO Strategy's acceptance of the lines in its modules and Hand Analysis's review.
-- Whole-decision timing for six cards with the options on. Measured on one recorded node, four seeds, not a benchmark: the river plan about 60 to 95 ms per decision (2 to 3 ms when it does not run), the street plan about 150 to 195 ms with the river fold test in the veto (about 95 ms without).
-- The validator client knows the gate from the request options only. If the gate is ever driven by a live switch row, the client must pass the switched value; that belongs to the change that lifts the hold.
+- Whole-decision timing is measured, and two paths are slow enough to need a decision before the hold is lifted. Measured 2026-11-16 on the recorded PLO6 nodes of `HorsePlo6StrategyPortHooks.test.ts` (one recorded hand dealt as PLO6), 24 seeded random six-card hands per node, each decided once per arm with the gate-on arm first (cold caches), one process, 28 cores at load average 22 to 24 (other lanes' gates running), so the figures are upper bounds for this machine state. Median / 95th percentile / maximum per decision in milliseconds; base = no option, off = the 27 ported options on with the gate off, on = the same with the gate on:
+
+  | node | base | off | on | actions changed by the gate |
+  | --- | --- | --- | --- | --- |
+  | flop, checked to | 1.5 / 2.3 / 2.3 | 1.6 / 2.8 / 3.4 | 2.1 / 2.9 / 64.8 | 0 of 24 |
+  | flop, facing a bet | 2.2 / 2.7 / 3.0 | 2.4 / 3.1 / 3.1 | 2.6 / 4.1 / 10.2 | 2 of 24 |
+  | turn, first to act, paired board | 1.9 / 2.3 / 2.6 | 2.1 / 2.6 / 2.7 | 2.3 / 3.7 / 8.6 | 24 of 24 |
+  | turn, first to act, unpaired board | 2.1 / 2.7 / 2.8 | 2.3 / 3.0 / 4.4 | 3.6 / 322.9 / 371.8 | 18 of 24 |
+  | river, checked to | 1.8 / 2.7 / 4.5 | 2.2 / 3.4 / 3.4 | 9.1 / 22.9 / 25.0 | 2 of 24 |
+  | river, facing an all-in | 1.8 / 4.2 / 4.4 | 2.6 / 5.1 / 5.3 | 71.8 / 139.4 / 146.7 | 0 of 24 |
+
+  The two slow paths: the exact six-card count facing a river wager (about 70 ms, up to about 150 ms) and the turn plan's river look-ahead when it runs (up to about 370 ms). Not measured: an idle machine, a worker under live load, the validator's replay of the same rules on the main thread.
 - The validator's replay takes the PLO6 river fold options (V58, V59) as on; a decision made with either off would replay differently (the same limit the existing fields have).
-- A league card with the ported options on in both arms, and the value, continuation and reach rows.
+- The value, continuation and reach rows: NOT MET. The league card above only measures; a full-size run and a human-table sample are owed.
 - From the independent pre-review of the port (archive `followup/review-plo6-six-card-port/PRE-REVIEW.md`, ACCEPT WITH NOTES, nothing blocking), open with the gate on only:
-  - two measures of the beaten share are in use (sampled in the plan hooks, exact in the EV guard and the medium-bet call); near a bar they can disagree, and the order of the rules then decides;
   - the validator re-runs the EV rule's six-card guard with both river fold tests on (the request does not carry V58/V59): an EV call made with one of them off, on a board whose test would stand, is refused;
   - the validator's replay cost for six cards on the main thread is not measured;
-  - the six-card constants stay in the accessor after a gate-on decision until the next decision or validation sets them (not reachable in the live client);
+
+## Measured 2026-11-16 (archive `phase1-play/plo-port-20261115/FRESH-SAMPLE-20261116.md`)
+
+- The six-card turn stays closed for the facing-bet EV rule (`PLO6_FACING_BET_EV_TURN = false`) because SPEC-A 3.12 defines the six-card rule and its fold guard for the river only, not because of cost: on this head a six-card turn count takes about 3 ms (median; p95 about 4 to 6 ms at machine load 20 or more), with the exact count of `HorsePlo6FastCount.ts`. The 0.8 to 1.1 s of `TIMING-PLO6.md` was measured before the counter was rewritten. Opening the turn needs a measured turn guard.
+- Constants carried from PLO5: of the 54 flagged unmeasured, the few that persons' own play can measure sit inside their 95% interval, except the big-draw prior fold-to-bet (0.42 kept; measured 0.376, interval 0.339 to 0.415) and the assumed bet size (0.66 pot kept; persons' median 0.95 / 0.80 / 0.75 flop / turn / river). One person is about 40% of that sample, so no value is changed on it.
+- No evidence supports pricing a presumed (not measured) maniac: 20 decisions in 8 hands against one person, result of a call not computable.
 
 ## The specifications
 

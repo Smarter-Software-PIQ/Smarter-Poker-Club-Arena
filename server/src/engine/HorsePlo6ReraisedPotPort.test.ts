@@ -11,7 +11,6 @@ import { describe, expect, it } from 'vitest';
 import type { Card, CardRank, CardSuit } from '../types.js';
 import {
   COORDINATED_MAX_GAPS,
-  COORDINATED_MAX_GAPS_PLO6,
   omahaOopCoordinated,
   omahaOopReraisedCallCell,
   omahaReraiseByPositionCell,
@@ -177,10 +176,7 @@ describe('PLO4 and PLO5: the gate changes nothing', () => {
   });
   it('the four- and five-card rows are untouched; the six-card row is the calibration entry', () => {
     expect(COORDINATED_MAX_GAPS).toEqual({ 4: 1, 5: 2 });
-    expect(COORDINATED_MAX_GAPS_PLO6).toBe(3);
-    expect(COORDINATED_MAX_GAPS_PLO6).toBe(
-      PLO6_OMAHA_STRATEGY_CONSTANTS.COORDINATED_MAX_GAPS.value
-    );
+    expect(PLO6_OMAHA_STRATEGY_CONSTANTS.COORDINATED_MAX_GAPS.value).toBe(3);
   });
 });
 

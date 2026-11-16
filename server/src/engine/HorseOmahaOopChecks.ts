@@ -542,6 +542,11 @@ export function omahaRiverShoveFoldVerdict(
   if (omahaStrategyHoleCount(gs) === 6) {
     const paired = omahaBoardShape(board).paired;
     if (paired ? env.plo6RiverNuts === false : env.plo6RiverUnpaired === false) return null;
+    // The live rule's own measure (the seeded 20,000-sample share), not the
+    // exact count SPEC-A 3.9 item 4 suggested: the look-ahead has to predict
+    // what the river decision will do, and that rule reads this function
+    // (pre-review finding 3). The exact count can sit on the other side of a
+    // bar from it.
     const beaten = omahaRiverBeatProbability(hero.cards ?? [], board, 6);
     if (beaten === null) return null;
     return plo6RiverM1Fold(beaten, paired, callPrice) ? 'plo6_river_m1' : null;

@@ -190,7 +190,11 @@ export function omahaUnderpairFlopCell(i: OmahaUnderpairFlopInput): OmahaUnderpa
   // reached with six cards only when omahaStrategyGameInScope above admitted
   // plo6 (omahaStrategyInPlo6 on); the constants are the PLO5 values, kept
   // unmeasured (3.21 item 4).
-  if (i.hole.length !== (i.variant === 'plo4' ? 4 : i.variant === 'plo6' ? 6 : 5)) return null;
+  if (
+    i.hole.length !==
+    (i.variant === 'plo4' ? 4 : String(i.variant).toLowerCase() === 'plo6' ? 6 : 5)
+  )
+    return null;
   if (i.action !== 'call' && i.action !== 'raise' && i.action !== 'all_in') return null;
   if (!(i.toCall > 0.005) || !(i.stack > 0) || !Number.isFinite(i.pot) || !(i.pot > 0)) return null;
   if (!i.betAndCall || !omahaUnderpairNoDraw(i.hole, i.board)) return null;

@@ -265,7 +265,10 @@ export function omahaRiverMediumBetSpot(
     if (others.some((p) => !p.is_all_in && p.bet + 0.011 < gs.currentBet)) return null;
 
     // Two pair or better in the engine's classes; two pair on a paired board
-    // is its one-pair class.
+    // is its one-pair class. Kept for six cards too (pre-review finding 11):
+    // the PLO6 calibration records the class bar as dropped because under its
+    // beaten-share bars the bar never binds (SPEC-A 3.13); keeping it is the
+    // stricter reading and costs nothing.
     const made = omahaMadeClass(hole, board);
     if (made.category < TWO_PAIR) return null;
     if (made.category === TWO_PAIR && (made.boardPaired || made.cls === 'board2p')) return null;

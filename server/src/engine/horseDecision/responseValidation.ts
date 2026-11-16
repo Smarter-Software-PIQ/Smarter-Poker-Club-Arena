@@ -82,11 +82,13 @@ import {
 import {
   OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
   OMAHA_STRATEGY_PLO45,
+  omahaStrategyConstant,
   omahaStrategyGameInScope,
   omahaStrategyGameScopeOf,
   withOmahaStrategyGameScope,
 } from '../HorseOmahaStrategyGame.js';
 import { applyPlo6OmahaStrategyCalibration } from '../HorsePlo6StrategyCalibration.js';
+import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../HorseOptionSwitch.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -1119,24 +1121,26 @@ function policyGraphIsValid(
 ): boolean {
   // PLO6 joins the day's admissions only for a decision whose own gate was
   // on, known from the request (context.omahaStrategyInPlo6 === true). The
-  // rules are then re-run with the six-card constants the decision read, and
-  // the accessor is emptied again afterwards (a validation is never nested in
-  // a decision; every decision sets the accessor itself at its start).
-  if (context?.omahaStrategyInPlo6 !== true)
-    return withOmahaStrategyGameScope(OMAHA_STRATEGY_GAME_SCOPE_ADMISSION, () =>
-      withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
-        policyGraphIsValidInScope(value, expectedVariant, context)
-      )
-    );
-  applyPlo6OmahaStrategyCalibration(true);
+  // rules are then re-run with the six-card constants the decision read. In
+  // both cases the accessor is set for this validation alone (gate off: no
+  // six-card value, whatever an earlier decision or validation left) and what
+  // it held before is put back afterwards (pre-review finding 6).
+  const plo6Gate = context?.omahaStrategyInPlo6 === true;
+  const heldBefore =
+    omahaStrategyConstant('turnRedrawNutFullHouseOnly', { gameVariant: 'plo6' }) !== 0;
+  applyPlo6OmahaStrategyCalibration(plo6Gate);
   try {
-    return withOmahaStrategyGameScope(omahaStrategyGameScopeOf({ omahaStrategyInPlo6: true }), () =>
-      withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
-        policyGraphIsValidInScope(value, expectedVariant, context)
-      )
+    return withOmahaStrategyGameScope(
+      plo6Gate
+        ? omahaStrategyGameScopeOf({ omahaStrategyInPlo6: true })
+        : OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+      () =>
+        withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+          policyGraphIsValidInScope(value, expectedVariant, context)
+        )
     );
   } finally {
-    applyPlo6OmahaStrategyCalibration(false);
+    applyPlo6OmahaStrategyCalibration(heldBefore);
   }
 }
 
@@ -1581,6 +1585,63 @@ function policyGraphIsValidInScope(
 }
 
 /** Finite refusal names only: no player identity, cards or raw receipt data. */
+/**
+ * The omahaStrategyInPlo6 values the worker may have run this decision with
+ * (PLO6 lane 2026-11-16). The live option switch delivers its value inside
+ * the worker, after the request was built, so the request's own option is not
+ * always the effective one. `switchConfig` is the configuration the main
+ * thread last delivered to that worker (the database answer as read; null or
+ * undefined when none was delivered or the read failed).
+ *  - No valid row for the option: the request's own value, alone.
+ *  - A row: the row's value first (on is never returned for an off-only
+ *    option: optionSwitchDecisionOpts), then the request's own value when it
+ *    differs, because a worker whose delivered configuration has aged out
+ *    runs the release default, which is the request's value.
+ * The validator admits the decision when it is valid under one of them
+ * (horseDecisionReceiptRefusalForPlo6Gates).
+ */
+export function omahaStrategyInPlo6GateCandidates(
+  requestOpts: { omahaStrategyInPlo6?: unknown } | null | undefined,
+  switchConfig: unknown
+): boolean[] {
+  const own = requestOpts?.omahaStrategyInPlo6 === true;
+  let switched: boolean | undefined;
+  try {
+    const parsed = parseOptionSwitchConfig(switchConfig);
+    if (parsed.ok) switched = optionSwitchDecisionOpts(parsed.states).omahaStrategyInPlo6;
+  } catch {
+    switched = undefined;
+  }
+  if (switched === undefined || switched === own) return [own];
+  return [switched, own];
+}
+
+/**
+ * horseDecisionReceiptRefusal under each candidate gate: null as soon as one
+ * admits the decision, else the refusal under the first (the effective one).
+ */
+export function horseDecisionReceiptRefusalForPlo6Gates(
+  value: unknown,
+  expectedVariant: string | undefined,
+  context: Omit<HorseDecisionReceiptContext, 'omahaStrategyInPlo6'>,
+  gates: readonly boolean[]
+): string | null {
+  let first: string | null = null;
+  let seen = false;
+  for (const gate of gates.length > 0 ? gates : [false]) {
+    const refusal = horseDecisionReceiptRefusal(value, expectedVariant, {
+      ...context,
+      ...(gate ? { omahaStrategyInPlo6: true } : {}),
+    });
+    if (refusal === null) return null;
+    if (!seen) {
+      first = refusal;
+      seen = true;
+    }
+  }
+  return first;
+}
+
 export function horseDecisionReceiptRefusal(
   value: unknown,
   expectedVariant?: string,

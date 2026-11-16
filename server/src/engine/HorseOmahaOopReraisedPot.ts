@@ -137,11 +137,7 @@ import {
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
 import { omahaStrategyGameInScope, omahaStrategyGameScopeNow } from './HorseOmahaStrategyGame.js';
-import {
-  PLO6_HOLE_CARDS,
-  PLO6_OMAHA_STRATEGY_CONSTANTS,
-  plo6OopCoordinated,
-} from './HorsePlo6StrategyCalibration.js';
+import { PLO6_HOLE_CARDS, plo6OopCoordinated } from './HorsePlo6StrategyCalibration.js';
 
 /** Stack-to-pot ratio after the call under which the call is a commitment. */
 export const OOP_COMMIT_MAX_SPR = 1;
@@ -153,14 +149,10 @@ export const IP_REALIZATION_MARGIN = 0.05;
 export const DOMINATED_KEY_CARD_MARGIN = 0.03;
 /** One-rank gaps allowed inside the connected group, by hole count; a double-suited hand may have one more. */
 export const COORDINATED_MAX_GAPS: Readonly<Record<number, number>> = { 4: 1, 5: 2 };
-/**
- * The six-card row (SPEC-B H29 and 3.24: the hole count minus three, all six
- * cards one group). It is the PLO6 calibration's own entry, not restated here,
- * and is read only inside a decision whose omahaStrategyInPlo6 gate is on
- * (omahaOopCoordinated hands six cards to plo6OopCoordinated, which reads it).
- */
-export const COORDINATED_MAX_GAPS_PLO6: number = PLO6_OMAHA_STRATEGY_CONSTANTS.COORDINATED_MAX_GAPS
-  .value as number;
+// The six-card row (SPEC-B H29 and 3.24: three gaps, all six cards one group)
+// is the PLO6 calibration's own entry COORDINATED_MAX_GAPS, read by
+// plo6OopCoordinated; it is not restated here (omahaOopCoordinated hands six
+// cards to that function, only inside a decision whose gate is on).
 /**
  * The hole-count gate of the three cells (SPEC-B H30): four or five cards in PLO4/PLO5 as before;
  * exactly six in PLO6, which reaches a cell only through omahaStrategyGameInScope (gate on).

@@ -56,11 +56,29 @@ import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
+import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
 /** The one safety margin: EV(call) must exceed this share of the final pot (pot + call). */
 export const OMAHA_FACING_BET_EV_MARGIN = 0.02;
+/**
+ * Whether the facing-bet EV rule answers a SIX-card hand on the TURN
+ * (omahaEvHandCounts, omahaFacingBetEvSpot). FALSE, and not because of cost.
+ *
+ * Cost is no longer the reason: the exact six-card turn count was measured on
+ * 2026-11-16 at a median of about 3 ms and a worst of 13 ms over 2,000 seeded
+ * turn hands (16 ms with the four/five-card walk), on a machine at load 20;
+ * TIMING-PLO6's "about a second" was taken before the counter was rewritten.
+ *
+ * It stays false because SPEC-A 3.12 defines the six-card rule for the river
+ * only: its guard (the measured river fold test, item 4) is a river
+ * measurement, the turn realization factors are hold'em-origin and unmeasured
+ * for six cards (H23), and the turn interaction with plo6TopSetNutRealization
+ * is left outside the first cut (item 7). Admitting the turn needs a measured
+ * turn guard first; then this constant and one test change.
+ */
+export const PLO6_FACING_BET_EV_TURN: boolean = false;
 /** A call that leaves at most this share of the final pot behind is the stack decision. */
 export const OMAHA_FACING_BET_EV_TRIVIAL_BEHIND = 0.1;
 
@@ -242,6 +260,18 @@ export function countHoldingsWithout(m: number, n: number, bar: PairSet, skip = 
   return countHoldingsAmong(m, n, bar, allLo, allHi);
 }
 
+/**
+ * True while evHandCounts answers for SIX hole cards (and the fast count is
+ * not switched off by the test seam): countHoldingsAmong then uses
+ * plo6CountHoldingsAmong. False for four and five cards, always.
+ */
+let sixCardCount = false;
+let sixCardFastCount = true;
+/** Test and benchmark seam: false makes a six-card count take the four/five-card walk. */
+export function omahaEvSixCardFastCount(on: boolean): void {
+  sixCardFastCount = on === true;
+}
+
 /** The same count over the cards of the mask (allLo, allHi) only. */
 function countHoldingsAmong(
   m: number,
@@ -251,6 +281,10 @@ function countHoldingsAmong(
   allHi: number
 ): number {
   if (n === 0) return 1;
+  // Six hole cards only (sixCardCount is set by evHandCounts for a six-card
+  // hand): the same integer by the independence polynomial of the barred
+  // pairs (HorsePlo6FastCount). Four and five cards never take this line.
+  if (sixCardCount) return plo6CountHoldingsAmong(n, bar.lo, bar.hi, allLo, allHi);
   const lo = bar.lo;
   const hi = bar.hi;
   // The cards a barred pair touches, with the barred partners each has among the cards allowed.
@@ -666,10 +700,78 @@ export function omahaEvHandCounts(
   dead: Card[],
   valueShare: number
 ): OmahaEvHandCounts | null {
+  return evHandCountsGuarded(hole, board, dead, valueShare, PLO6_FACING_BET_EV_TURN);
+}
+
+/**
+ * Test and benchmark seam: the six-card TURN count, whatever
+ * PLO6_FACING_BET_EV_TURN says. No rule calls it.
+ */
+export function omahaEvHandCountsSixCardTurn(
+  hole: Card[],
+  board: Card[],
+  dead: Card[],
+  valueShare: number
+): OmahaEvHandCounts | null {
+  return evHandCountsGuarded(hole, board, dead, valueShare, true);
+}
+
+function evHandCountsGuarded(
+  hole: Card[],
+  board: Card[],
+  dead: Card[],
+  valueShare: number,
+  sixCardTurn: boolean
+): OmahaEvHandCounts | null {
+  const six = Array.isArray(hole) && hole.length === 6;
+  if (!six) return evHandCounts(hole, board, dead, valueShare, sixCardTurn);
+  // Six cards: every count of this hand, the ones the returned object takes
+  // later included (top, counts), goes through the six-card counter.
+  const on = (): void => {
+    sixCardCount = sixCardFastCount;
+  };
+  const off = (): void => {
+    sixCardCount = false;
+  };
+  on();
+  try {
+    const out = evHandCounts(hole, board, dead, valueShare, sixCardTurn);
+    if (out === null) return null;
+    const top = out.top;
+    return {
+      ...out,
+      get counts() {
+        return out.counts;
+      },
+      top: (s: number) => {
+        on();
+        try {
+          return top(s);
+        } finally {
+          off();
+        }
+      },
+    } as OmahaEvHandCounts;
+  } finally {
+    off();
+  }
+}
+
+function evHandCounts(
+  hole: Card[],
+  board: Card[],
+  dead: Card[],
+  valueShare: number,
+  sixCardTurn: boolean
+): OmahaEvHandCounts | null {
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
-  // Six cards: the river only (SPEC-A 3.12 item 5, TIMING-PLO6: a six-card
-  // turn count costs about a second).
-  if (hole.length !== 4 && hole.length !== 5 && !(hole.length === 6 && board.length === 5))
+  // Six cards: the river; the turn only where PLO6_FACING_BET_EV_TURN admits
+  // it (SPEC-A 3.12 item 5, TIMING-PLO6).
+  if (
+    hole.length !== 4 &&
+    hole.length !== 5 &&
+    !(hole.length === 6 && (board.length === 5 || (sixCardTurn && board.length === 4)))
+  )
     return null;
   if (board.length !== 4 && board.length !== 5) return null;
   const deadCards = Array.isArray(dead) ? dead : [];
@@ -945,8 +1047,12 @@ export function omahaFacingBetEvSpot(
     if (board.length !== (street === 'turn' ? 4 : 5) || hole.length !== Number(variant.at(-1)))
       return null;
     // PLO6 (SPEC-A 3.12 items 5 and 6): the river only, cash only; the six-card
-    // turn stays with today's brain.
-    if (hole.length === 6 && (street !== 'river' || plo6PricingExcludes(gs))) return null;
+    // turn stays with today's brain while PLO6_FACING_BET_EV_TURN is false.
+    if (
+      hole.length === 6 &&
+      ((street !== 'river' && !PLO6_FACING_BET_EV_TURN) || plo6PricingExcludes(gs))
+    )
+      return null;
     // The league and offline states carry no toCall: it is the current bet less the Horse's own.
     const toCall = Number.isFinite(gs.toCall)
       ? (gs.toCall as number)

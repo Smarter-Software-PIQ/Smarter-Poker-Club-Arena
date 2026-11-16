@@ -38,7 +38,6 @@ import {
   omahaTurnBetShortBehind,
   omahaUnseenRiverCards,
 } from './HorseOmahaOopChecks.js';
-import { COORDINATED_MAX_GAPS_PLO6 } from './HorseOmahaOopReraisedPot.js';
 import { withOmahaStrategyGameScope } from './HorseOmahaStrategyGame.js';
 import { omahaStrongHandNow } from './HorseOmahaStrongHandValue.js';
 import {
@@ -47,7 +46,14 @@ import {
   plo6StrategyOptionVerdict,
 } from './HorsePlo6StrategyCalibration.js';
 import { ploPairedBoardFoldRespectsPrice } from './HorsePloPairedBoardFold.js';
-import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import {
+  horseDecisionReceiptRefusal,
+  horseDecisionReceiptRefusalForPlo6Gates,
+  omahaStrategyInPlo6GateCandidates,
+} from './horseDecision/responseValidation.js';
+import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import { registerPlo6OmahaStrategyCalibration } from './HorsePlo6StrategyCalibration.js';
+import { plo6OmahaStrategyCalibrationHeld } from './HorseLogic.js';
 import FIXTURE from './horseComplaints/plo5-straight-barrels-the-board-pairing-turn-then-folds-the-river.fixture.json';
 
 const FX = FIXTURE as unknown as ComplaintFixture;
@@ -207,9 +213,10 @@ describe('3.24 item 7: against a measured maniac the out-of-position call rule s
   });
 
   it('the six-card coordination row the cell reads is the calibration entry', () => {
-    expect(COORDINATED_MAX_GAPS_PLO6).toBe(
-      PLO6_OMAHA_STRATEGY_CONSTANTS.COORDINATED_MAX_GAPS.value
-    );
+    expect(PLO6_OMAHA_STRATEGY_CONSTANTS.COORDINATED_MAX_GAPS.value).toBe(3);
+    expect(
+      readFileSync(new URL('./HorseOmahaOopReraisedPot.ts', import.meta.url), 'utf8')
+    ).toContain('return plo6OopCoordinated(');
   });
 });
 
@@ -371,5 +378,133 @@ describe('3.10: the street plan’s facing-bet veto asks the paired-board fold a
     expect(planOf(node(TURN, SET_HOLE, UNPAIRED_TURN), {})).toBe(withFolds);
     const five = node(TURN, 'JcJh9hKh7s', UNPAIRED_TURN, 'plo5');
     expect(planOf(five, M1_OFF)).toBe(planOf(five, {}));
+  });
+});
+
+describe('pre-review finding 6: the accessor holds the six-card values only inside a gate-on decision', () => {
+  const held = () => omahaStrategyConstant('turnRedrawNutFullHouseOnly', { gameVariant: 'plo6' });
+  it('after a gate-on decision nothing is left; a gate-off decision leaves what was there', () => {
+    expect(plo6OmahaStrategyCalibrationHeld()).toBe(false);
+    const st = node(TURN, SET_HOLE, UNPAIRED_TURN);
+    seedFastRandom(7);
+    HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, { ...GATE, omahaStreetPlan: true });
+    expect(held()).toBe(0);
+    expect(plo6OmahaStrategyCalibrationHeld()).toBe(false);
+    // Something else registered it (a test, an outer decision): a gate-off
+    // decision reads no six-card value inside and hands the state back.
+    registerPlo6OmahaStrategyCalibration();
+    expect(held()).toBe(1);
+    const st2 = node(TURN, SET_HOLE, UNPAIRED_TURN);
+    seedFastRandom(7);
+    HorseLogic.decide(st2.hero, st2.gs, LIVE.style, LIVE.mods, {});
+    expect(held()).toBe(1);
+    // and the same after a gate-on decision entered with it held (re-entrance)
+    const st3 = node(TURN, SET_HOLE, UNPAIRED_TURN);
+    seedFastRandom(7);
+    HorseLogic.decide(st3.hero, st3.gs, LIVE.style, LIVE.mods, GATE);
+    expect(held()).toBe(1);
+  });
+  it('the validator sets the accessor for its own run and puts back what it found', () => {
+    const st = node(TURN, SET_HOLE, UNPAIRED_TURN);
+    seedFastRandom(7);
+    const d = structuredClone(HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {}));
+    const ctx = { player: st.hero, gameState: st.gs };
+    expect(held()).toBe(0);
+    horseDecisionReceiptRefusal(d, 'plo6', { ...ctx, omahaStrategyInPlo6: true });
+    expect(held()).toBe(0);
+    registerPlo6OmahaStrategyCalibration();
+    horseDecisionReceiptRefusal(d, 'plo6', ctx);
+    expect(held()).toBe(1);
+    horseDecisionReceiptRefusal(d, 'plo6', { ...ctx, omahaStrategyInPlo6: true });
+    expect(held()).toBe(1);
+  });
+});
+
+describe('pre-review finding 3: no six-card rule turns into a call a hand the live river fold rule folds', () => {
+  it('the live fold rule runs before the medium-bet call and the EV rule on both decision paths', () => {
+    // Inside the graph the fold rule (plo6RiverNutDiscipline) is applied to
+    // the wager first; the pricing rules wrap what it leaves.
+    const first = SRC.indexOf('const nutDisciplined = plo6RiverNutDiscipline(');
+    const wrap = SRC.indexOf(
+      'omahaFacingBetEvRule(\n            omahaRiverMediumBetStrongHandCalls(',
+      first
+    );
+    expect(first).toBeGreaterThan(-1);
+    expect(wrap).toBeGreaterThan(first);
+  });
+  it('both pricing rules ask the live rule, with its own switches, share and price', () => {
+    const test = bodyOf('plo6RiverLiveFoldStands');
+    expect(test).toContain("!== 'plo6' || gs.stage !== 'river') return false;");
+    expect(test).toContain(
+      'if (paired ? opts.v58Plo6RiverNuts === false : opts.v59Plo6RiverUnpaired === false)'
+    );
+    expect(test).toContain('omahaRiverBeatProbability(player.cards, board, 6)');
+    expect(test).toContain('price > PLO6_RIVER_CHEAP_PRICE');
+    expect(bodyOf('omahaRiverMediumBetStrongHandCalls')).toContain(
+      'if (plo6RiverLiveFoldStands(player, gs, opts)) return decision;'
+    );
+    expect(bodyOf('omahaFacingBetEvRule')).toContain(
+      'const evCall = verdict.call && !plo6RiverLiveFoldStands(player, gs, opts);'
+    );
+    // the look-ahead and the veto read the live rule's measure too
+    expect(bodyOf('omahaStreetPlanCallVeto')).toContain(
+      'omahaRiverBeatProbability(player.cards, riverBoard, 6)'
+    );
+  });
+});
+
+describe('the validator sees the gate the worker may have run (live switch wiring)', () => {
+  const cfg = (options: Record<string, string>) => ({
+    version: 2,
+    style: { version: 1, options: {} },
+    options,
+  });
+  it('no row: the request option alone', () => {
+    expect(omahaStrategyInPlo6GateCandidates({}, null)).toEqual([false]);
+    expect(omahaStrategyInPlo6GateCandidates({ omahaStrategyInPlo6: true }, null)).toEqual([true]);
+    expect(omahaStrategyInPlo6GateCandidates({ omahaStrategyInPlo6: true }, cfg({}))).toEqual([
+      true,
+    ]);
+    expect(omahaStrategyInPlo6GateCandidates(undefined, { nonsense: 1 })).toEqual([false]);
+  });
+  it('an off row: off first, then the request value when it differs (an aged-out worker runs the release default)', () => {
+    const off = cfg({ omahaStrategyInPlo6: 'off' });
+    expect(omahaStrategyInPlo6GateCandidates({}, off)).toEqual([false]);
+    expect(omahaStrategyInPlo6GateCandidates({ omahaStrategyInPlo6: true }, off)).toEqual([
+      false,
+      true,
+    ]);
+  });
+  it('an on row is refused while the option is off-only: the whole set is invalid, nothing is switched', () => {
+    const on = cfg({ omahaStrategyInPlo6: 'on' });
+    expect(omahaStrategyInPlo6GateCandidates({}, on)).toEqual([false]);
+  });
+  it('a decision valid under one candidate is admitted; refused under all, the first refusal is reported', () => {
+    const st = node(TURN, SET_HOLE, UNPAIRED_TURN);
+    seedFastRandom(7);
+    const d = structuredClone(HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {}));
+    const ctx = { player: st.hero, gameState: st.gs };
+    const offOnly = horseDecisionReceiptRefusal(d, 'plo6', ctx);
+    expect(horseDecisionReceiptRefusalForPlo6Gates(d, 'plo6', ctx, [false])).toBe(offOnly);
+    expect(horseDecisionReceiptRefusalForPlo6Gates(d, 'plo6', ctx, [true, false])).toBe(offOnly);
+    expect(horseDecisionReceiptRefusalForPlo6Gates(d, 'plo6', ctx, [])).toBe(offOnly);
+    expect(
+      horseDecisionReceiptRefusalForPlo6Gates({ action: 'dance', thinkTime: 1 }, 'plo6', ctx, [
+        true,
+        false,
+      ])
+    ).toBe('decision_shape');
+  });
+  it('the client reads the row from the configuration it last delivered to that worker', () => {
+    const client = readFileSync(
+      fileURLToPath(new URL('./horseDecision/client.ts', import.meta.url)),
+      'utf8'
+    );
+    expect(client).toContain(
+      "this.deliveredSwitchConfig = message.status === 'ok' ? message.config : null;"
+    );
+    expect(client).toContain(
+      'omahaStrategyInPlo6GateCandidates(active.request.opts, this.deliveredSwitchConfig)'
+    );
   });
 });
