@@ -5,6 +5,7 @@ import datetime
 import json
 import re
 import signal
+import subprocess
 import sys
 from collections import Counter
 sys.dont_write_bytecode=True
@@ -69,18 +70,46 @@ def qualify_installation(e,root,db):
   if code==0 or 'permission denied for function fn_pko_watermark_admission_status_v1' not in err:raise RuntimeError('private helper grants broadened')
  e.discard(case);e.report['installation']={'only_helper_definition_changed':True,'data_unchanged':True,'exact_replay':True,'private_roles_refused':3}
 
+
+def guarded_batch(root,source=None):
+ if source is None:source=(root/BATCH_MIGRATION).read_text()
+ js="import {readFileSync} from 'node:fs'; import {stalePinGuardSQL} from './scripts/ci/migration-stale-pins.mjs'; const s=readFileSync(0,'utf8'); process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
+ return subprocess.check_output(['node','--input-type=module','-e',js,BATCH_MIGRATION],input=source,text=True,cwd=root)
+
 def qualify_batch_installation(e,root,db):
  case=e.database(db);e.sql(case,file=root/MIGRATION,label='batch-foundation-watermark')
+ e.sql(case,file=root/FIX/'admission-guard-before.sql',label='actual-admission-guard')
  before=e.snapshot(case,'batch-before-data');catalog=e.catalog_snapshot(case,'batch-before-catalog')
- e.sql(case,file=root/BATCH_MIGRATION,label='batch-installation')
+ _,payload,_=e.sql(case,"SELECT split_part(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure),'$prepared$',2)::jsonb",label='admission-before-payload');before_payload=json.loads(payload)
+ # The live bounded dependency inspection found no guard-MD5 consumer. A
+ # deliberate second-level consumer must nevertheless be refused atomically.
+ nested=e.database(case);e.sql(nested,"CREATE FUNCTION public.fixture_guard_consumer() RETURNS text LANGUAGE sql AS $$ SELECT md5('guard') || '6b8fc31a66cd79f10c3b540a940324a5' $$",label='second-level-pin')
+ nested_data=e.snapshot(nested,'nested-data');nested_catalog=e.catalog_snapshot(nested,'nested-catalog')
+ code,out,err=e.sql(nested,'\\set VERBOSITY verbose\n'+guarded_batch(root),label='second-level-stale-refused',check=False)
+ if code==0 or '55000' not in err or 'migration_left_a_stale_pin' not in err or 'fixture_guard_consumer' not in err:raise RuntimeError('second-level stale guard pin accepted')
+ if e.snapshot(nested,'nested-after-data')!=nested_data or e.catalog_snapshot(nested,'nested-after-catalog')!=nested_catalog:raise RuntimeError('second-level refusal changed state')
+ e.discard(nested)
+ before_source=(root/BATCH_MIGRATION).read_text().split('-- The activation authority must follow')[0]+'COMMIT;\n'
+ failed=e.database(case);code,out,err=e.sql(failed,'\\set VERBOSITY verbose\n'+guarded_batch(root,before_source),label='actual-stale-pin-before',check=False)
+ if code==0 or '55000' not in err or 'migration_left_a_stale_pin' not in err or 'fn_ca_guard_mtt_admission_contract' not in err:raise RuntimeError('original stale admission refusal not reproduced')
+ if e.snapshot(failed,'stale-before-data')!=before or e.catalog_snapshot(failed,'stale-before-catalog')!=catalog:raise RuntimeError('stale refusal committed state')
+ e.discard(failed)
+ e.sql(case,guarded_batch(root),label='batch-installation')
  after=e.catalog_snapshot(case,'batch-after-catalog')
  old={x[1]:x for x in catalog['functions']};new={x[1]:x for x in after['functions']}
  added=set(new)-set(old);changed={k for k in old if old[k]!=new.get(k)}
  bulk='fn_pko_predecessor_accepted_scopes_v1(uuid,uuid)'
  predecessor='fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamp with time zone)'
- if added!={bulk} or changed!={predecessor}:raise RuntimeError('batch installation changed unexpected function')
- if old[predecessor][3:]!=new[predecessor][3:] or any(catalog[k]!=after[k] for k in catalog if k!='functions') or e.snapshot(case,'batch-after-data')!=before:raise RuntimeError('batch installation changed metadata/business state')
- e.sql(case,file=root/BATCH_MIGRATION,label='batch-exact-replay')
+ if added!={bulk} or changed!={predecessor,'fn_ca_guard_mtt_admission_contract()'}:raise RuntimeError('batch installation changed unexpected function')
+ if old['fn_ca_guard_mtt_admission_contract()'][3:]!=new['fn_ca_guard_mtt_admission_contract()'][3:] or old[predecessor][3:]!=new[predecessor][3:] or any(catalog[k]!=after[k] for k in catalog if k!='functions') or e.snapshot(case,'batch-after-data')!=before:raise RuntimeError('batch installation changed metadata/business state')
+ _,payload,_=e.sql(case,"SET search_path=pg_catalog,public; SELECT jsonb_build_object('payload',split_part(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure),'$prepared$',2)::jsonb,'target',md5(pg_get_functiondef('public.fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamptz)'::regprocedure)),'helper',jsonb_build_object('signature','public.fn_pko_predecessor_accepted_scopes_v1(uuid,uuid)','definition_md5',md5(pg_get_functiondef('public.fn_pko_predecessor_accepted_scopes_v1(uuid,uuid)'::regprocedure)),'owner','postgres','acl',jsonb_build_array('postgres=X/postgres')))",label='admission-after-payload');observed=json.loads(payload)
+ expected=json.loads(json.dumps(before_payload))
+ pins=[p for p in expected['functions'] if p['signature']=='public.'+predecessor]
+ if len(pins)!=1 or pins[0]['definition_md5']!='bae3424d1a86266cf693bc5bce422847':raise RuntimeError('independent predecessor preimage differs')
+ pins[0]['definition_md5']=observed['target'];expected['functions'].insert(0,observed['helper'])
+ if observed['payload']!=expected or old['fn_ca_guard_mtt_admission_contract()'][2].split('$prepared$')[::2]!=new['fn_ca_guard_mtt_admission_contract()'][2].split('$prepared$')[::2]:raise RuntimeError('guard changed unrelated pin or executable source')
+
+ e.sql(case,guarded_batch(root),label='batch-exact-replay')
  if e.snapshot(case,'batch-replay-data')!=before or e.catalog_snapshot(case,'batch-replay-catalog')!=after:raise RuntimeError('batch replay differs')
  signatures=[bulk,predecessor,'fn_pko_candidate_accepted_scope_v1(uuid,uuid)']
  for signature in signatures:
@@ -89,21 +118,44 @@ def qualify_batch_installation(e,root,db):
    sql=("DO $$ BEGIN EXECUTE replace(pg_get_functiondef('public."+signature+"'::regprocedure),'AS $function$','AS $function$'||chr(10)||'-- Native unreviewed drift'||chr(10)); END $$;") if kind=='body' else 'GRANT EXECUTE ON FUNCTION public.'+signature+' TO service_role;'
    e.sql(drift,sql,label='batch-drift-'+kind)
    data=e.snapshot(drift,'batch-drift-data');cat=e.catalog_snapshot(drift,'batch-drift-catalog')
-   code,out,err=e.sql(drift,file=root/BATCH_MIGRATION,label='batch-refusal-'+kind,check=False)
+   code,out,err=e.sql(drift,guarded_batch(root),label='batch-refusal-'+kind,check=False)
    if code==0 or 'PKO batched evidence unreviewed source or metadata' not in err:raise RuntimeError('batch migration accepted drift')
    if e.snapshot(drift,'batch-refused-data')!=data or e.catalog_snapshot(drift,'batch-refused-catalog')!=cat:raise RuntimeError('batch refusal changed state')
    e.discard(drift)
+ # The authority itself must reject a changed evidence callee while its
+ # predecessor caller remains byte-identical. Exercise the actual trigger.
+ drift=e.database(case)
+ e.sql(drift,"DO $$ BEGIN EXECUTE replace(pg_get_functiondef('public."+bulk+"'::regprocedure),'AS $function$','AS $function$'||chr(10)||'-- Unreviewed bulk-only body'||chr(10)); END $$;",label='bulk-only-drift')
+ drift_data=e.snapshot(drift,'bulk-drift-data');drift_catalog=e.catalog_snapshot(drift,'bulk-drift-catalog')
+ probe="""BEGIN; SET LOCAL session_replication_role=origin;
+CREATE TABLE public.fixture_pko_activation(singleton boolean,abi text);
+CREATE TRIGGER fixture_actual_admission BEFORE UPDATE ON public.fixture_pko_activation FOR EACH ROW EXECUTE FUNCTION public.fn_ca_guard_mtt_admission_contract();
+INSERT INTO public.fixture_pko_activation VALUES(true,'legacy-capacity-v1');
+UPDATE public.fixture_pko_activation SET abi='unlimited-mtt-v2'; ROLLBACK;"""
+ code,out,err=e.sql(drift,probe,label='bulk-only-actual-guard-refused',check=False)
+ if code==0 or 'MTT_ACTIVATION_AUTHORITY_DRIFT: public.fn_pko_predecessor_accepted_scopes_v1(uuid,uuid)' not in err:raise RuntimeError('actual admission guard did not reject bulk-only drift: '+err)
+ if e.snapshot(drift,'bulk-refused-data')!=drift_data or e.catalog_snapshot(drift,'bulk-refused-catalog')!=drift_catalog:raise RuntimeError('bulk-only guard refusal changed state')
+ if next(x for x in drift_catalog['functions'] if x[1]==predecessor)!=new[predecessor]:raise RuntimeError('bulk-only mutation changed predecessor')
+ e.discard(drift)
+ for kind in ['body','acl']:
+  drift=e.database(case)
+  mutation=("DO $$ BEGIN EXECUTE replace(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure),'AS $function$','AS $function$'||chr(10)||'-- Unreviewed admission guard'||chr(10)); END $$;") if kind=='body' else 'GRANT EXECUTE ON FUNCTION public.fn_ca_guard_mtt_admission_contract() TO service_role;'
+  e.sql(drift,mutation,label='admission-drift-'+kind);data=e.snapshot(drift,'admission-drift-data');cat=e.catalog_snapshot(drift,'admission-drift-catalog')
+  code,out,err=e.sql(drift,guarded_batch(root),label='admission-refusal-'+kind,check=False)
+  if code==0 or 'PKO admission' not in err:raise RuntimeError('admission guard drift accepted')
+  if e.snapshot(drift,'admission-refused-data')!=data or e.catalog_snapshot(drift,'admission-refused-catalog')!=cat:raise RuntimeError('admission guard refusal changed state')
+  e.discard(drift)
  for role in ['anon','authenticated','service_role']:
   code,out,err=e.sql(case,'SET ROLE '+role+'; SELECT public.fn_pko_predecessor_accepted_scopes_v1(NULL,NULL);',label='batch-private-'+role,check=False)
   if code==0 or 'permission denied' not in err:raise RuntimeError('batch private helper grants broadened')
- e.discard(case);e.report['batch_installation']={'one_changed_one_added':True,'data_unchanged':True,'exact_replay':True,'private_roles_refused':3,'body_acl_refusals':6}
+ e.discard(case);e.report['batch_installation']={'two_changed_one_added':True,'original_55000_refused':True,'stale_wrapper_passed':True,'second_level_stale_refused':True,'bulk_only_guard_refused':True,'guard_body_acl_refusals':2,'data_unchanged':True,'exact_replay':True,'private_roles_refused':3,'body_acl_refusals':6}
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,default=ROOT);p.add_argument('--evidence',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True);a=p.parse_args()
  root=a.root.resolve();out=a.evidence.resolve();out.mkdir(parents=True,exist_ok=False)
  if sha(Path(__file__))!=sha(root/FIX/'full-native.py'):raise ValueError('executed source differs')
  manifest=compose(root);(out/'foundation.sql').write_text(manifest.pop('sql'));manifest.pop('entry_sql')
- paths=[MIGRATION,BATCH_MIGRATION,*[str(FIX/f) for f in ['full-native.py','full-opening.sql','full-cases.sql','full-race.spec','watermark-commuting.sql','watermark-refusals.sql','batched-evidence.sql','batched-cost.sql']],'scripts/dev/probe-causal-pko-predecessors-pg17.sh','tests/unit/fixtureNativeCi.test.ts','scripts/qualification/cash-native-hosted.manifest.json','scripts/ci/probes/bounty-rebuy-generation-atomicity.sql','scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql','scripts/ci/test-mtt-unlimited.py','scripts/ci/mtt_isolation_results.py','scripts/ci/mtt_format_qualification.py','scripts/ci/mtt_historical_freebuy_proof.py']
+ paths=['scripts/ci/migration-stale-pins.mjs',MIGRATION,BATCH_MIGRATION,*[str(FIX/f) for f in ['full-native.py','full-opening.sql','full-cases.sql','full-race.spec','watermark-commuting.sql','watermark-refusals.sql','batched-evidence.sql','batched-cost.sql','admission-guard-before.sql']],'scripts/dev/probe-causal-pko-predecessors-pg17.sh','tests/unit/fixtureNativeCi.test.ts','scripts/qualification/cash-native-hosted.manifest.json','scripts/ci/probes/bounty-rebuy-generation-atomicity.sql','scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql','scripts/ci/test-mtt-unlimited.py','scripts/ci/mtt_isolation_results.py','scripts/ci/mtt_format_qualification.py','scripts/ci/mtt_historical_freebuy_proof.py']
  manifest['source_sha256'].update({s:sha(root/s) for s in paths})
  (out/'source-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
  seed=(root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql').read_text()
@@ -124,7 +176,8 @@ def main():
    for repaired in [False,True]:
     if repaired:
      e.sql(scene,file=root/MIGRATION,label='guarded-migration')
-     e.sql(scene,file=root/BATCH_MIGRATION,label='joined-evidence-migration')
+     e.sql(scene,file=root/FIX/'admission-guard-before.sql',label='scene-admission-guard')
+     e.sql(scene,guarded_batch(root),label='joined-evidence-migration')
     before=e.snapshot(scene,'before-data');catalog=e.catalog_snapshot(scene,'before-catalog')
     code,stdout,stderr=e.sql(scene,"SET fixture.watermark_shared='"+str(shared).lower()+"'; SET fixture.watermark_repaired='"+str(repaired).lower()+"';\n"+(root/FIX/'full-cases.sql').read_text(),label=f'public-shared-{shared}-repaired-{repaired}',seconds=120,check=False)
     if code or any(x in stderr for x in ['ERROR:','FATAL:','PANIC:','WARNING:']) or stdout.splitlines().count('PKO_WATERMARK_PUBLIC_CASES_PASS')!=1:

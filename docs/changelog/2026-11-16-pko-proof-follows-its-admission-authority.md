@@ -1,0 +1,7 @@
+# PKO evidence follows its admission authority
+
+The first protected installation of migration `20261116195435` correctly refused with SQLSTATE `55000`: the installed MTT admission guard still named the predecessor reader's former full-definition fingerprint. That transaction rolled back and the migration remained uninstalled. Local financial qualification had omitted this installed guard and the applier's stale-pin wrapper.
+
+The same never-installed migration now moves that exact predecessor pin and adds the new private bulk evidence reader to the same authority list. It verifies the reviewed guard/predecessor preimages, private metadata and exact replay, and preserves every other guard pin and executable byte. No stale-pin exception, guard bypass, player write or change to the qualified reader is introduced. Bounded live inspection found the MTT guard as the only predecessor-pin consumer and no installed consumer of the guard's own prior fingerprint.
+
+The maintained native PKO gate now loads the actual admission guard and uses the applier's existing stale-pin wrapper. It reproduces the original refusal before the pin transition and proves the corrected atomic installation/replay. It also checks that changing only the bulk helper is rejected by the actual admission trigger, while unknown guard changes and a second-level stale consumer remain refused. The complete semantic, financial, concurrency and measured-work regression coverage stays connected to the same gate.
