@@ -177,3 +177,9 @@ it('shows a second balance only for wallet principal or restricted promo profits
   );
   expect(view.container.textContent).toBe('');
 });
+
+it('requires actual wallet custody before adding a second balance to an aggregate promo meter', () => {
+  render(<PromoPlayThroughFigure summary={active} />);
+  expect(screen.getByRole('progressbar')).toBeTruthy();
+  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
+});

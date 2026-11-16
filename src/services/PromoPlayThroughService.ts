@@ -75,8 +75,8 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
     'profit_fee_remaining',
     'profit_percent',
   ] as const) {
-    // Older principal-only servers did not distinguish wallet custody.
-    const value = row[key] === undefined ? (key === 'wallet_locked' ? result.locked : 0) : row[key];
+    // Missing position-specific fields never borrow aggregate grant custody.
+    const value = row[key] === undefined ? 0 : row[key];
     if (
       (typeof value !== 'number' && typeof value !== 'string') ||
       (typeof value === 'string' && value.trim() === '') ||

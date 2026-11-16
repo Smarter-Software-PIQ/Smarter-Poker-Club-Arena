@@ -7,6 +7,7 @@ import { PromoPlayThroughFigure } from '../../src/components/wallet/PromoPlayThr
 const progress = {
   success: true,
   locked: 50,
+  wallet_locked: 50,
   open_grants: 1,
   fee_target: 200,
   fee_progress: 124,
@@ -136,4 +137,12 @@ it('hides agent balance duplication after actual P and W restrictions end while 
   expect(screen.queryByText(/Agent Wallet:/)).toBeNull();
   expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
   expect(screen.getByText('12.00 Agent Chips Held For Source Review')).toBeTruthy();
+});
+
+it('does not invent wallet principal from an aggregate table/event lock when the wallet field is missing', () => {
+  const summary = parsePromoPlayThrough({ ...progress, wallet_locked: undefined });
+  expect(summary.wallet_locked).toBe(0);
+  render(<PromoPlayThroughFigure summary={summary} />);
+  expect(screen.getByRole('progressbar')).toBeTruthy();
+  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
 });

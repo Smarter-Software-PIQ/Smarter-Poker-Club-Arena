@@ -38,7 +38,7 @@ export function activePromoPercent(summary: VisibilitySummary): number {
 
 /** Only the authoritative restrictions in this wallet justify a second balance. */
 export function hasPromoWithdrawalRestriction(summary: VisibilitySummary): boolean {
-  return (summary.wallet_locked ?? summary.locked) > 0 || (summary.wallet_profit_locked ?? 0) > 0;
+  return (summary.wallet_locked ?? 0) > 0 || (summary.wallet_profit_locked ?? 0) > 0;
 }
 
 export function hasAgentPromoWithdrawalRestriction(summary: VisibilitySummary): boolean {
