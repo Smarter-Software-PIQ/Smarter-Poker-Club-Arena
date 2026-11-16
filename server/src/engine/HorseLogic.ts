@@ -9025,6 +9025,34 @@ let omahaStreetPlanRiverMemo: {
 } | null = null;
 
 /**
+ * The per-decision memos above are keyed by the identity of the player and
+ * the state of the decision in progress, so each holds references to them.
+ * They are cleared at the start of every decision (decideInternal) and again
+ * in the finally of the decision (decideCaptured; review note N4,
+ * 2026-11-16), so no reference outlives its decision, a decision that threw
+ * included. The exact-count memory of HorseOmahaFacingBetEv (six entries,
+ * keyed by card strings) is cross-decision by design and is not touched.
+ */
+function omahaClearDecisionMemos(): void {
+  omahaFacingBetEvMemo = null;
+  omahaBareOverpairContMemo = null;
+  omahaFacingBetEvCountMemo = null;
+  omahaStreetPlanMemo = null;
+  omahaStreetPlanRiverMemo = null;
+}
+
+/** The per-decision memos that hold a value now, by name. Exported for its tests. */
+export function omahaDecisionMemosHeld(): string[] {
+  const held: string[] = [];
+  if (omahaFacingBetEvMemo !== null) held.push('omahaFacingBetEvMemo');
+  if (omahaBareOverpairContMemo !== null) held.push('omahaBareOverpairContMemo');
+  if (omahaFacingBetEvCountMemo !== null) held.push('omahaFacingBetEvCountMemo');
+  if (omahaStreetPlanMemo !== null) held.push('omahaStreetPlanMemo');
+  if (omahaStreetPlanRiverMemo !== null) held.push('omahaStreetPlanRiverMemo');
+  return held;
+}
+
+/**
  * The plan's facing-bet seam at the turn: would the Horse's big-bet call
  * folds fold this river to a bet of `bet` into `pot`, after a turn bet of
  * `turnBet` was called and the Horse checked? Quiet, no random number.
@@ -10431,6 +10459,7 @@ export class HorseLogic {
         : { action: 'fold', thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
       omahaProposedReceipts = [];
+      omahaClearDecisionMemos();
       barrelOutlookRiverPending = false;
       riverBluffDeclaredPending = false;
       v53IcmAppliedPending = false;
@@ -10456,11 +10485,7 @@ export class HorseLogic {
     rangeCapture?: HorseRangeConsumptionCapture,
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
-    omahaFacingBetEvMemo = null;
-    omahaBareOverpairContMemo = null;
-    omahaFacingBetEvCountMemo = null;
-    omahaStreetPlanMemo = null;
-    omahaStreetPlanRiverMemo = null;
+    omahaClearDecisionMemos();
     omahaProposedReceipts = [];
     // omahaVpipFloorByLimp's pending fold is per decision: a decision that
     // threw between setting and reading it must not hand it to the next one.

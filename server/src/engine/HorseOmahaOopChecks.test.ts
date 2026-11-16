@@ -34,6 +34,7 @@ import { realizationFactor } from './GtoFacingDefenseV32.js';
 import {
   HorseLogic,
   omahaBareOverpairFlopFacingBetRule,
+  omahaDecisionMemosHeld,
   type HorseDecideOpts,
 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
@@ -964,6 +965,56 @@ describe('omahaBareOverpairOopFlopCheck, the continuation: facing the flop bet a
     expect(omahaBareOverpairFlopFacingBetRule(given, st.hero, st.gs, {})).toBeNull();
     const turn = facingAfterCheck(TURN, 185);
     expect(omahaBareOverpairFlopFacingBetRule(given, turn.hero, turn.gs, on)).toBeNull();
+  });
+
+  it('no per-decision memo outlives its decision: every one is clear when decide returns, a decision that threw included', () => {
+    const decide = (st: Node, opts: HorseDecideOpts) => {
+      HorseMind.reset();
+      seedFastRandom(7);
+      return HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, opts);
+    };
+    // the rule called on its own (as a test does) leaves its memo: the probe sees it
+    const st = facing(CLASSES[0], 0.5);
+    omahaBareOverpairFlopFacingBetRule({ action: 'fold', thinkTime: 1 } as never, st.hero, st.gs, {
+      omahaBareOverpairOopFlopCheck: true,
+    });
+    expect(omahaDecisionMemosHeld()).toEqual(['omahaBareOverpairContMemo']);
+    // a decision in that spot computes the verdict (the memo is written) and leaves nothing
+    decide(facing(CLASSES[0], 0.5), FLOP_ON);
+    expect(omahaDecisionMemosHeld()).toEqual([]);
+    // the facing-bet count, the facing-bet verdict and the street plan, turn and river
+    const PRICED: HorseDecideOpts = {
+      omahaFacingBetEv: true,
+      omahaStreetPlan: true,
+      omahaTurnRiverRaiseNeedsNuts: true,
+    };
+    for (const build of [
+      () => nodeAt(TURN),
+      () => facingAfterCheck(TURN, 185),
+      () => nodeAt(RIVER),
+      () => facingAfterCheck(RIVER, 250),
+    ]) {
+      decide(build(), PRICED);
+      expect(omahaDecisionMemosHeld()).toEqual([]);
+    }
+    // a decision that throws (the safety net answers): the finally still clears
+    const stale = facing(CLASSES[0], 0.5);
+    omahaBareOverpairFlopFacingBetRule(
+      { action: 'fold', thinkTime: 1 } as never,
+      stale.hero,
+      stale.gs,
+      {
+        omahaBareOverpairOopFlopCheck: true,
+      }
+    );
+    expect(omahaDecisionMemosHeld()).toEqual(['omahaBareOverpairContMemo']);
+    const broken = facing(CLASSES[0], 0.5);
+    const d = decide(
+      { ...broken, gs: { ...broken.gs, gameVariant: 'not-a-game' } } as unknown as Node,
+      FLOP_ON
+    );
+    expect(d.policyFallback).toBe('brain_exception');
+    expect(omahaDecisionMemosHeld()).toEqual([]);
   });
 
   it('fail-safe: with no verdict (null or a throw) a raise becomes the exact-chip call, a fold or a call stands, with its receipt', () => {
