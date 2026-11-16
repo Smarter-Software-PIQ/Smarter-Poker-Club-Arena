@@ -4,7 +4,7 @@ Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET; a live read i
 
 ## What it does
 
-Out of position on the turn after the flop bet was called (heads-up, or multiway with the Horse first to act and every live opponent a caller): a bet becomes a check (nut class keeps betting); facing the bet it never raises, calls with 4+ nut outs at its price, folds with no out at 0.15 or more. Owner-ruled and final over every later rule.
+Out of position on the turn after the flop bet was called (heads-up, or multiway with the Horse first to act and every live opponent a caller): a bet becomes a check (nut class keeps betting); facing the bet it never raises, calls with 4+ nut outs at its price (PLO4/PLO5 since 2026-11-16: the graded sum, a non-nut full house counting the share of full-house holdings it beats; `omahaGradedTurnOuts`, stated, not measured), folds with no out at 0.15 or more. Owner-ruled and final over every later rule.
 
 Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaOopTurnCheckAfterFlopCall docs/horse-option-authority.d/omahaOopTurnCheckAfterFlopCall.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
 

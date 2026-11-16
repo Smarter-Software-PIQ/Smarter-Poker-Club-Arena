@@ -59,7 +59,7 @@ Receipts in `HorseDataLedger.ts`: `omaha_oop_turn_check_after_flop_call`, `omaha
 Status: MET
 
 - The 0.15 showdown credit is a stated allowance, not a measured equity; the four-out minimum and the 0.15 token price are stated, not fitted.
-- "Nut outs" counts any full house or better, not only the nut full house.
+- "Nut outs" for the 4-out call threshold are GRADED in PLO4/PLO5 (2026-11-16, review note H9): a river card counts 1 when it makes the nuts (nut flush or nut straight on an unpaired river, quads or better, a full house no bigger full house beats) and, when it makes a non-nut full house, the share of the opponent's full-house holdings it beats (1 - boatsAbove/total, floored at 0; `omahaGradedTurnOuts`). The price test and the no-out fold keep the whole-card count. The grading and its denominator are stated, not measured. Over the 3,000-hand H9 turn sample (two pair, trips or a set), the hands at or over the threshold fall from 2,393 to 686 in PLO4 (1,707 lose the forced call) and from 2,568 to 941 in PLO5 (1,627 lose it); a hand that loses it keeps today's call or fold (a fold where today's decision folds), its raise still a call. PLO6 keeps its own out class.
 - A made hand that is neither one pair nor beaten by a possible straight or flush (two pair or a set on a dry board, a straight on a paired board) with no nut out keeps today's call or fold.
 - Every non-nut-class turn bet in the spot becomes a check, a bluff included; no stack-depth exception.
 - The receipt validator re-runs both predicates on the request.
