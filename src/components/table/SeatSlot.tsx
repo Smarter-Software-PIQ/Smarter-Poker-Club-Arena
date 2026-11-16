@@ -1,3 +1,5 @@
+import { SharedSeatObserver } from '../../lib/sharedSeatPresentation';
+import { TableAnimationClock } from './tableAnimationClock';
 /**
  * ♠ CLUB ARENA — Seat Slot Component
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -32,7 +34,7 @@ import {
   useActionClockSeconds,
   type ActionClockStore,
 } from '../../hooks/actionClockStore';
-import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
+import { prefersReducedMotion } from '../../utils/animationSpeed';
 import RiveAvatar from './RiveAvatar';
 import { ActionTimerRing } from './ActionTimerRing';
 import { SeatPlayerName } from './SeatPlayerName';
@@ -250,6 +252,8 @@ export interface SeatPlayer {
 }
 
 export interface SeatSlotProps {
+  recordedGesture?: AvatarGesture;
+  recordedCardsCovered?: boolean;
   arrival?: SeatArrival;
   /**
    * `table_seats.sit_out_at` in epoch ms, and ONLY when a deadline applies.
@@ -975,6 +979,8 @@ export const SeatSlot = memo(
       showPickedCardIndexes,
       onToggleShowCard,
     } = props;
+    const getAnimationSpeed = React.useContext(TableAnimationClock);
+    const observePaint = React.useContext(SharedSeatObserver);
     const wagerFmt = (n: number) => formatSeatWager(n, showStackInBB, bigBlind);
 
     /**
@@ -1609,7 +1615,8 @@ export const SeatSlot = memo(
     }, []);
 
     const [rigActive, setRigActive] = useState(false);
-    const [avatarGesture, setAvatarGesture] = useState<AvatarGesture>(null);
+    const [liveGesture, setAvatarGesture] = useState<AvatarGesture>(null);
+    const avatarGesture = props.recordedGesture === undefined ? liveGesture : props.recordedGesture;
     const gestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const prevGestureActionRef = useRef<LastAction>(null);
     const prevGestureWinnerRef = useRef(false);
@@ -2512,6 +2519,23 @@ export const SeatSlot = memo(
     ]);
 
     // ─── EMPTY SEAT ────────────────────────────────────────────────────────
+    const squeezeDown =
+      props.recordedCardsCovered ??
+      (cardSqueezeActive &&
+        !squeezeRevealed &&
+        player?.status !== 'all_in' &&
+        !player?.showCards &&
+        !isWinner &&
+        !isMucking);
+    useLayoutEffect(() => {
+      if (observePaint)
+        observePaint({
+          ...props,
+          recordedGesture: avatarGesture,
+          recordedCardsCovered: !!squeezeDown,
+        });
+    }, [observePaint, props, avatarGesture, squeezeDown]);
+
     if (!player) {
       // This used to short-circuit on `isTournament` and return a bare div: no
       // label, no affordance, no click handler. That was survivable at an MTT,
@@ -2651,13 +2675,6 @@ export const SeatSlot = memo(
 
     // COMPETITOR-PARITY 2026-08-19 (Card Squeeze): single source of truth for
     // "the hero's cards are currently face down awaiting a squeeze".
-    const squeezeDown =
-      cardSqueezeActive &&
-      !squeezeRevealed &&
-      player.status !== 'all_in' &&
-      !player.showCards &&
-      !isWinner &&
-      !isMucking;
 
     /**
      * IS THE HERO'S HAND BEING SHOWN TO THE TABLE?
@@ -4070,6 +4087,11 @@ export const SeatSlot = memo(
     if (prev.handStrength !== next.handStrength) return false;
     if (prev.netWinAmount !== next.netWinAmount) return false;
     if (prev.bbjCreditAmount !== next.bbjCreditAmount) return false;
+    if (
+      prev.recordedGesture !== next.recordedGesture ||
+      prev.recordedCardsCovered !== next.recordedCardsCovered
+    )
+      return false;
     if (prev.lastAction !== next.lastAction) return false;
     if (prev.lastBetAmount !== next.lastBetAmount) return false;
     // UI-AUDIT P1: collect-to-pot animation is driven solely by this flag on

@@ -94,6 +94,8 @@ export interface ReplayPlayerInput {
   stack: number | null;
   playerNumber?: string | null;
   avatarUrl?: string | null;
+  frame?: string;
+  aura?: string;
 }
 
 export interface ReplayActionInput {

@@ -61,7 +61,6 @@ const ALLOWED: Record<string, Reason> = {
   'src/components/table/ConfettiCanvas.tsx': 'animation',
   'src/components/table/ParticleSystem.tsx': 'animation',
   'src/components/table/ThemeSettingsModal.tsx': 'user-requested-pick', // "randomize my look" among assets the player owns
-  'src/components/table/ThrowAnimation.tsx': 'animation',
   'src/components/table/TournamentWinnerOverlay.tsx': 'animation',
   'src/components/tournament/CoinShower.tsx': 'animation',
   'src/components/wallet/WalletCashierModal.tsx': 'identifier', // uuid v4 fallback for an idempotency key
