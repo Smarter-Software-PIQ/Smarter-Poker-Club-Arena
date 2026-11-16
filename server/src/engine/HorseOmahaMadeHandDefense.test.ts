@@ -42,6 +42,15 @@ import {
   type BluffCatcherInput,
 } from './HorseOmahaBigBetCalls.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import {
+  omahaSlowplayAdmitsCall,
+  omahaSlowplayCallScope,
+} from './HorseOmahaStrongHandSlowplayMix.js';
+import {
+  omahaRaiseNeedsNutsAdmitsCall,
+  omahaRaiseNeedsNutsKeeps,
+  omahaRaiseNeedsNutsScope,
+} from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import type { Card, CardRank, CardSuit, HorseDecision } from '../types.js';
 import SET_RAISES_TURN from './horseComplaints/plo5-set-raises-a-pot-turn-lead-on-the-straight-card.fixture.json';
 import TOP_TWO_JAMS from './horseComplaints/plo5-top-two-pair-jams-over-a-turn-bet-on-the-straight-card.fixture.json';
@@ -455,6 +464,34 @@ describe('the worker receipt', () => {
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
         player: owes300.hero,
         gameState: owes300.gs,
+      })
+    ).toBe('policy_graph');
+  });
+
+  it('the turn raise that became a call is refused against a request owing the exact 212 in the same spot when the hand is not nut class (review note N4)', () => {
+    const s = spot(FB5, 19);
+    const d = decideOne(s);
+    expect({ action: d.action, amount: d.amount }).toEqual({ action: 'call', amount: 212 });
+    // The same turn, the same seat, 212 owed: only the cards change. 4h5h with
+    // the 3h Kh on the board is a flush draw, 2-4-5 a wheel draw: an in-position
+    // combo draw, below two pair and NOT nut class.
+    const draw = spot(FB5, 19, { hole: '4h5h2d6cJs' });
+    expect(draw.gs.toCall).toBe(212);
+    expect(omahaNutClassNow(draw.hero, draw.gs)).toBe(false);
+    // The slow-play mix's spot holds (a call of 212 is in its scope); only the
+    // nut-class condition fails, so its admission says no.
+    expect(omahaSlowplayCallScope(draw.hero, draw.gs)).toMatchObject({ paid: 212 });
+    expect(omahaSlowplayAdmitsCall(draw.hero, draw.gs, 212)).toBe(false);
+    // The turn-raise rule keeps this raise (the in-position combo draw), so it
+    // does not admit the call either.
+    const rn = omahaRaiseNeedsNutsScope(draw.hero, draw.gs)!;
+    expect(rn).toMatchObject({ street: 'turn', paid: 212, allIn: false, inPosition: true });
+    expect(omahaRaiseNeedsNutsKeeps(draw.hero, draw.gs, rn)).toBe('combo_draw');
+    expect(omahaRaiseNeedsNutsAdmitsCall(draw.hero, draw.gs, 212)).toBe(false);
+    expect(
+      horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+        player: draw.hero,
+        gameState: draw.gs,
       })
     ).toBe('policy_graph');
   });
