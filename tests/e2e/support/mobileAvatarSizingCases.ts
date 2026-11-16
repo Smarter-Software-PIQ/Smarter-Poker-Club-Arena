@@ -355,10 +355,10 @@ export async function checkFixedMobileArtwork(
     expect(await cardObstructions(), 'hidden hands stay complete and clear of displays').toEqual(
       []
     );
-    // Dan 2026-11-12: every portrait, the hero's included, is the exact same
-    // size and stays centred over its frame box (no sideways shift).
+    // A single extra zoom applies to the anchored portraits and preserves
+    // their slot ratios. No portrait shifts sideways over its frame.
     const grown = before.paint.filter((p) => p[0]);
-    expect(new Set(grown.map((p) => p[0])).size, 'one size for every portrait').toBe(1);
+    expect(new Set(grown.map((p) => p[0])).size, 'one additional zoom for the ring').toBe(1);
     const tableSize = grown[0][0];
     // Dan 2026-11-13: no enlarged portrait is ever cut off. The acting
     // seat's holo sweep must not blend (a blend group clips the grown head in
@@ -618,13 +618,28 @@ export async function checkFixedMobileArtwork(
     );
     // The displayed height of every grown portrait (the table renders at its
     // layout size here, so viewport px are layout px).
-    const heights = await page.evaluate(() =>
-      Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar'))
-        .filter((a) => a.style.getPropertyValue('--sp-mobile-art-scale'))
-        .map((a) => a.querySelector('.seat__avatar-img')!.getBoundingClientRect().height)
-    );
-    const shown = Math.max(...heights);
-    expect(Math.max(...heights) - Math.min(...heights), 'one displayed size').toBeLessThan(1);
+    const { heights, heroHeight } = await page.evaluate(() => {
+      const avatars = Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar')).filter(
+        (a) => a.style.getPropertyValue('--sp-mobile-art-scale')
+      );
+      const h = (a: HTMLElement) =>
+        a.querySelector('.seat__avatar-img')!.getBoundingClientRect().height;
+      const hero = avatars.find((a) => a.closest('.seat--hero'));
+      return {
+        heights: avatars.filter((a) => a !== hero).map(h),
+        heroHeight: hero ? h(hero) : null,
+      };
+    });
+    const peerHeight = Math.max(...heights);
+    expect(peerHeight - Math.min(...heights), 'one displayed size for opponents').toBeLessThan(1);
+    if (heroHeight !== null) {
+      const ratio = settings.seats === '9' ? 4 / 3 : 1;
+      expect(
+        Math.abs(heroHeight - peerHeight * ratio),
+        'painted hero retains its base-slot ratio'
+      ).toBeLessThan(1);
+    }
+    const shown = peerHeight;
     expect(recorded.length, 'the game type size is recorded').toBe(1);
     expect(Math.abs(recorded[0] - shown), 'recorded as the displayed height').toBeLessThan(3);
     for (const p of before.paint)

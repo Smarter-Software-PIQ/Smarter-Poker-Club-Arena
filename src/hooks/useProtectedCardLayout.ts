@@ -907,9 +907,17 @@ export function useProtectedCardLayout(
               level = Math.min(level, top);
           }
           if (inwardFans && page.getAttribute('data-seats') === '9') {
-            // Both cap plates sit twelve pixels into the outer rail. Their
-            // portraits extend upward into the dedicated cap row.
-            entry.shift = (scaler.getBoundingClientRect().top - entry.plateTop) / scale + 12;
+            // The cap stations are six percent down the chassis. Centre each
+            // nameplate on that rail even when the observer footer changes height.
+            const ring = scaler.getBoundingClientRect();
+            const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
+            if (plate)
+              entry.shift =
+                (ring.top +
+                  (ring.height * parseFloat(railLine(entry.pod))) / 100 -
+                  plate.height / 2 -
+                  entry.plateTop) /
+                scale;
           } else entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
         }
         for (const { pod, shift } of placed) {
@@ -1254,9 +1262,12 @@ export function useProtectedCardLayout(
         // last resort: on the smallest phones (320px) the players, the board and
         // the pot leave almost no bare felt, and printing over the felt's own
         // lettering beats stacking two players' chips in one spot.
-        const printing = Array.from(page.querySelectorAll('.table-brand'))
+        const brandBoxes = Array.from(page.querySelectorAll('.table-brand'))
           .map(visibleBox)
           .filter((box): box is CardBox => box !== null);
+        // The nine-seat reference canvas has room beside the masthead. Its
+        // edges must participate in the exact slot search and retained slots.
+        const printing = ninePhoneFelt ? [] : brandBoxes;
         const hardObstacles = obstacles.filter(
           (box) =>
             !printing.some(
@@ -1382,6 +1393,7 @@ export function useProtectedCardLayout(
             });
         };
         const permanentKeepouts = [
+          ...(ninePhoneFelt ? brandBoxes : []),
           ...(reservedDealer ? [reservedDealer] : []),
           ...Array.from(
             page.querySelectorAll(
@@ -1470,6 +1482,8 @@ export function useProtectedCardLayout(
                 sameWager(bet, stored) &&
                 (!ninePhoneFelt || wagerOnFelt(box)) &&
                 clearsWagerBoard(box, board) &&
+                (!ninePhoneFelt ||
+                  !brandBoxes.some((brand) => retainedWagerTouches(box!, brand))) &&
                 (stored.landed ||
                   (stillOwned &&
                     Math.abs(stored.width - box.width) < 0.5 &&
