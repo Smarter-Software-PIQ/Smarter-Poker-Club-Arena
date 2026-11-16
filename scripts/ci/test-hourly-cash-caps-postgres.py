@@ -100,6 +100,16 @@ try:
  # The same maintained native fixture qualifies the catalog-only throughput producer.
  q((ROOT/'supabase/migrations/20261112105743_lightning_throughput_baseline_names_the_installed_admission_.sql').read_text())
  original_cohort=q('SELECT fingerprint FROM fn_lightning_admission_policy();')
+ # Exact read-only helper introduced by the newer194028 human-capacity policy.
+ # Keep its definition in the cohort even if the caller's own bytes stay fixed.
+ q("""CREATE TABLE cash_hourly_table_origins(table_id uuid PRIMARY KEY,human_started boolean NOT NULL);
+ CREATE FUNCTION fn_cash_hourly_table_capacity_census()
+ RETURNS TABLE(table_id uuid,occupied bigint,humans bigint,opened_at timestamptz)
+ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
+ SELECT c.* FROM public.fn_cash_hourly_table_census() c
+ LEFT JOIN public.cash_hourly_table_origins o USING(table_id)
+ WHERE NOT(coalesce(o.human_started,false) AND c.humans>0);
+ $fn$;""")
  cohort_migration=(ROOT/'supabase/migrations/20261116200642_cash_throughput_cohorts_name_the_adopted_hourly_admission_co.sql').read_text()
  def cohort_refuses(statement,reason):
   try:q(statement)
@@ -139,6 +149,7 @@ try:
  hourly_cohort=q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')
  signatures=[
   'fn_cash_hourly_table_range(timestamptz)','fn_cash_hourly_table_census()',
+  'fn_cash_hourly_table_capacity_census()',
   'fn_cash_hourly_table_excess(uuid)','fn_cash_hourly_table_enabled()',
   'fn_cash_hourly_table_delay(uuid)','fn_cash_hourly_table_drain_candidate()',
   'fn_cash_hourly_table_admit(uuid,uuid)','fn_cash_hourly_table_admissions()',
@@ -328,7 +339,7 @@ try:
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
  refuses(migration,'already exists')
  assert q('SELECT hourly_fingerprint FROM fn_lightning_admission_policy();')==hourly_cohort,'activation/rollback/live population are not policy definitions'
- print(json.dumps({'producer_authority_and_atomicity':True,'throughput_policy_inputs':11,'base_cohort_preserved':True,'missing_and_changed_inputs':True,'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
+ print(json.dumps({'producer_authority_and_atomicity':True,'throughput_policy_inputs':12,'base_cohort_preserved':True,'missing_and_changed_inputs':True,'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
 finally:
  if (w/'d/postmaster.pid').exists():run([PG/'pg_ctl','-D',w/'d','-m','immediate','-w','stop'])
  shutil.rmtree(w)

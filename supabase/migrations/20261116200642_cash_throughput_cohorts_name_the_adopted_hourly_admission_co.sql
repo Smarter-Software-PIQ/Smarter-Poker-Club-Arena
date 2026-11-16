@@ -55,6 +55,7 @@ AS $function$
   FROM (VALUES
    ('public.fn_cash_hourly_table_range(timestamp with time zone)'),
    ('public.fn_cash_hourly_table_census()'),
+   ('public.fn_cash_hourly_table_capacity_census()'),
    ('public.fn_cash_hourly_table_excess(uuid)'),
    ('public.fn_cash_hourly_table_enabled()'),
    ('public.fn_cash_hourly_table_delay(uuid)'),
@@ -69,7 +70,7 @@ AS $function$
  SELECT ('x'||left(md5(pg_get_functiondef(to_regprocedure(
    'public.fn_lightning_horse_admit_paced(uuid,uuid,timestamp with time zone)'))),13))::bit(52)::bigint,
   'cash-hourly-tables/v1'::text,
-  CASE WHEN count(definition)=11 THEN
+  CASE WHEN count(definition)=12 THEN
    ('x'||left(md5(string_agg(signature||':'||definition,'|' ORDER BY signature)),13))::bit(52)::bigint
   END
  FROM definitions;
