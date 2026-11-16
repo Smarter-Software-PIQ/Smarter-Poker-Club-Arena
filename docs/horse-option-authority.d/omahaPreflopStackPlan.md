@@ -32,7 +32,7 @@ HorseOmahaStreetPlanLayers.test.ts; HorseOmahaStrategyPrecedence.test.ts and its
 - Option unset: decisions identical to the base (decision digest, plo4/plo5 x dev/horse, 150 pairs, seed 5560001: b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1).
 - Value, continuation, reach: NOT MET. The constants are unmeasured (population priors and owner-order readings, not fitted); evaluation NOT RUN. The league cards are declared, not run.
 
-Default OFF in source (read `=== true`). Not registered in the live switch: no option-switch migration was generated with it.
+Default OFF in source (read `=== true`). Registered in the live switch OFF-ONLY (follow-up list migration 20261116085517 names it): it turns a heads-up preflop call into a fold, so it changes a preflop calling range and is under the owner preflop range hold (HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY, source 'owner preflop range hold'). It cannot be switched on until the owner lifts that hold for it by name (OPTION_SWITCH_PREFLOP_HOLD_LIFTED).
 
 ## Limits
 

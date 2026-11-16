@@ -10,7 +10,7 @@ The comparison: each live opponent holds the strongest V of all holdings (V = 1 
 
 Precedence: an owner-ruled check (`omahaOopCheckRules`, after the older owner-ruled checks, so the pricing rules' wagers are re-checked through `omahaWagerIsChecked`), kept outermost by `omahaOwnerRuledFinal` whatever pricing option is on; one receipt per decision.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaNoRiverBluffIntoValueLeader docs/horse-option-authority.d/omahaNoRiverBluffIntoValueLeader.md sha256 <digest>`). The option name is not yet in the option-switch lists: it needs registration (no migration is generated with this change). The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaNoRiverBluffIntoValueLeader docs/horse-option-authority.d/omahaNoRiverBluffIntoValueLeader.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261116085517 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on
 
