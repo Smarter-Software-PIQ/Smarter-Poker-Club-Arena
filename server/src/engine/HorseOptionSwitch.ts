@@ -417,6 +417,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     OMAHA_TIGHT_SOURCE,
     'Omaha tight response: promotion evidence rows unmet'
   ),
+  // 2026-11-15 PLO Strategy: the read-conditional 4-bet fold against a measured tight re-raiser is an
+  // Omaha tight response, so it is under the same owner hold (Hand Analysis wiring note N1).
+  omahaReraisedFoldVsTight: hold(
+    OMAHA_TIGHT_SOURCE,
+    'Omaha tight response: promotion evidence rows unmet'
+  ),
   omahaTightOpponentSteal: hold(
     OMAHA_TIGHT_SOURCE,
     'Omaha tight steal: promotion evidence rows unmet'
