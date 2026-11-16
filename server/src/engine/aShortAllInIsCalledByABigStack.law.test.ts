@@ -175,7 +175,10 @@ describe('a short all in is called by a big stack in a tournament (Dan 2026-10-2
       nodeBody.indexOf('pairedBoardFold(')
     );
     const turns = readFileSync(here + 'ServerTableEngineTurns.ts', 'utf8');
-    const door = turns.slice(turns.indexOf('const wagerGuarded = fullPotNearPotWager('));
+    const start = turns.indexOf('const wagerGuarded =');
+    expect(start).toBeGreaterThan(0);
+    const door = turns.slice(start);
+    expect(door.indexOf('fullPotNearPotWager(')).toBeGreaterThan(0);
     expect(door.indexOf('shortAllInCallFloor(')).toBeGreaterThan(0);
     expect(door.indexOf('shortAllInCallFloor(')).toBeLessThan(door.indexOf('let action = '));
   });

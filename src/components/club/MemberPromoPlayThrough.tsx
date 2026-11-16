@@ -1,6 +1,7 @@
 import '../../pages/MemberManagementPage.css';
 import { useMemberPromoPlayThrough } from '../../hooks/useMemberPromoPlayThrough';
 import { PromoPlayThroughFigure } from '../wallet/PromoPlayThroughProgress';
+import { hasActivePromoPlayThrough } from '../../utils/promoPlayThroughVisibility';
 export function MemberPromoPlayThrough({
   clubId,
   userId,
@@ -12,6 +13,7 @@ export function MemberPromoPlayThrough({
 }) {
   const { members, reload } = useMemberPromoPlayThrough(clubId, [userId], revision);
   const summary = members?.[userId];
+  if (summary && !hasActivePromoPlayThrough(summary)) return null;
   return (
     <section className="mm-card mm-stats" aria-label="Promo Play Through">
       <h2 className="mm-card__title">Promo Play Through</h2>

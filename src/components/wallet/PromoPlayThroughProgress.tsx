@@ -2,10 +2,15 @@ import { useAuthUser } from '../../hooks/useAuthUser';
 import { usePromoPlayThrough } from '../../hooks/usePromoPlayThrough';
 import { formatWalletChips } from '../../utils/format';
 import type { PromoPlayThroughSummary } from '../../services/PromoPlayThroughService';
+import {
+  activePromoPercent,
+  hasActivePromoPlayThrough,
+} from '../../utils/promoPlayThroughVisibility';
 import './PromoPlayThroughProgress.css';
 
 export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughSummary }) {
-  const percent = Math.min(100, Math.max(0, summary.percent));
+  if (!hasActivePromoPlayThrough(summary)) return null;
+  const percent = activePromoPercent(summary);
   return (
     <section className="promo-progress" aria-label="Promo Play Through">
       <div
@@ -45,6 +50,30 @@ export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughS
         )}
       </div>
     </section>
+  );
+}
+
+export function PromoPlayThroughInline({
+  summary,
+}: {
+  summary: PromoPlayThroughSummary | null | undefined;
+}) {
+  if (summary && !hasActivePromoPlayThrough(summary)) return null;
+  return (
+    <span
+      className="member-promo"
+      title={
+        summary
+          ? `${formatWalletChips(summary.locked)} Locked · ${formatWalletChips(summary.fee_remaining)} In Fees To Go`
+          : undefined
+      }
+    >
+      {summary === undefined
+        ? 'Reading Promo...'
+        : summary === null
+          ? 'Promo Unavailable'
+          : `Promo Locked ${formatWalletChips(summary.locked)} · ${activePromoPercent(summary)}%`}
+    </span>
   );
 }
 
