@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 const read = (path: string) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 describe('owner hourly cash capacity is permanent and cash only', () => {
-  it('runs native admission, pacing, hand safety and replay proof in the required accounting route', () => {
+  it('runs native admission, pacing, hand safety and replay proof in the required engine route', () => {
     expect(read('.github/workflows/ci.yml')).toContain(
       'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py'
     );

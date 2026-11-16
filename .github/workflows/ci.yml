@@ -3195,12 +3195,6 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-cash-return-rule-postgres.py
 
-      - name: Hourly cash caps preserve humans and pace starts and closures
-        if: matrix.shard == 3
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 -B scripts/ci/test-hourly-cash-caps-postgres.py
-
       - name: Original posthand escrow stays distinct from poker winnings
         id: posthand_escrow
         if: matrix.shard == 3
@@ -3954,6 +3948,15 @@ jobs:
       # qualification vitest files, which carried a pre-existing baseline.
       - name: TypeScript Check (server scripts)
         run: npx tsc -p tsconfig.scripts.json --noEmit
+
+      # Exercise the cash policy on the runner's existing PostgreSQL as well
+      # as the native PG17 owner precheck. No new runner or database service.
+      - name: Hourly cash caps preserve humans and pace starts and closures
+        if: matrix.shard == 1
+        working-directory: .
+        env:
+          PG_BIN: /usr/lib/postgresql/16/bin
+        run: python3 -B scripts/ci/test-hourly-cash-caps-postgres.py
 
       # BLOCKING. Named explicitly so it is obvious in the job log which
       # regressions are being defended, and so deleting them is a visible diff.

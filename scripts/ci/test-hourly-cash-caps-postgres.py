@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finite PG17 admission/closure proof; original financial kernel is unchanged.
+"""Finite isolated admission/closure proof; original financial kernel is unchanged.
 The injected cashout records calls and value conservation; the existing accounting
 qualification owns that kernel's actual wallet/ledger behavior. No live writes.
 """
