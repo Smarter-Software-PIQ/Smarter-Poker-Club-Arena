@@ -105,7 +105,20 @@ export default function SharedTableStage({
     return () => controller.abort();
   }, [appearance, model]);
   const scaler = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 320, h: 520, left: 0, viewport: 390 });
+  const geometry = appearance?.geometry;
+  const layout = geometry?.layout;
+  const [measured, setSize] = useState({
+    w: 320,
+    h: 520,
+    left: 0,
+    viewport: 390,
+    stageHeight: 650,
+  });
+  const size =
+    geometry && layout
+      ? { w: geometry.width, h: geometry.height, left: layout.x, viewport: layout.viewport }
+      : measured;
+  const fit = layout ? Math.min(measured.viewport / layout.w, measured.stageHeight / layout.h) : 1;
   useLayoutEffect(() => {
     const element = scaler.current;
     if (!element) return;
@@ -118,12 +131,14 @@ export default function SharedTableStage({
           h: rect.height,
           left: rect.left - stage.left,
           viewport: stage.width,
+          stageHeight: stage.height,
         });
       }
     };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(element);
+    if (element.parentElement) observer?.observe(element.parentElement);
     window.addEventListener('resize', measure);
     return () => {
       observer?.disconnect();
@@ -161,7 +176,6 @@ export default function SharedTableStage({
   const fallbackPositions = ring.map((pos, i) =>
     fitSeatToViewport(pos, markerSize, size.viewport, pods[i], size.left, ring.length)
   );
-  const geometry = appearance?.geometry;
   const hasGeometry = geometry?.seats.length === ring.length;
   const fitted = [...fallbackPositions];
   if (hasGeometry) {
@@ -205,13 +219,23 @@ export default function SharedTableStage({
               {
                 '--table-w': size.w + 'px',
                 '--table-h': size.h + 'px',
-                ...(hasGeometry
+                ...(hasGeometry && layout
                   ? {
-                      aspectRatio: geometry.width + '/' + geometry.height,
-                      height: 'auto',
-                      width: 'min(80cqw, calc(77cqh * ' + geometry.width / geometry.height + '))',
+                      position: 'absolute',
+                      left: (measured.viewport - layout.w * fit) / 2 + layout.x * fit,
+                      top: (measured.stageHeight - layout.h * fit) / 2 + layout.y * fit,
+                      width: geometry.width,
+                      height: geometry.height,
+                      transformOrigin: '0 0',
+                      transform: `scale(${(fit * layout.feltW) / geometry.width}, ${(fit * layout.feltH) / geometry.height})`,
                     }
-                  : {}),
+                  : hasGeometry
+                    ? {
+                        aspectRatio: geometry.width + '/' + geometry.height,
+                        height: 'auto',
+                        width: 'min(80cqw, calc(77cqh * ' + geometry.width / geometry.height + '))',
+                      }
+                    : {}),
               } as CSSProperties
             }
           >

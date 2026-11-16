@@ -32580,7 +32580,12 @@ function LiveTablePage({
             : []
         }
         heroId={userId || ''}
-        loadState={handHistoryState}
+        loadState={
+          handHistoryViewerRef.current === userId &&
+          loadedHandHistoryScopeRef.current === handHistoryScopeRef.current
+            ? handHistoryState
+            : 'idle'
+        }
         initialHandId={handDetailFocusId}
         onLoadOlder={loadOlderReviewHands}
         hasOlderHands={hasOlderHands}

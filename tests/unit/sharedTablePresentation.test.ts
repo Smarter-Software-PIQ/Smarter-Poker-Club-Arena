@@ -47,6 +47,9 @@ describe('the sender’s table presentation', () => {
       ],
     };
     expect(readTableGeometry(geometry)).toEqual(geometry);
+    const layout = { w: 440, h: 620, x: 31, y: 12, feltW: 378, feltH: 591, viewport: 440 };
+    expect(readTableGeometry({ ...geometry, layout })?.layout).toEqual(layout);
+    expect(readTableGeometry({ ...geometry, layout: { ...layout, w: 0 } })?.layout).toBeUndefined();
     expect(
       readTableGeometry({
         ...geometry,
