@@ -1,10 +1,11 @@
-# A club's rake day counts the hand for the seat's club (2026-11-16)
+# A club's rake day counts the hand for the club of the sitting it was dealt from (2026-11-16)
 
 Owner rule (2026-11-15): a player can play in several clubs; each club's numbers
 reflect only the hands played through that club, and nothing is excluded or
 moved because a player belongs to several clubs.
 
-Migration: `supabase/migrations/20261116021751_a_club_rake_day_counts_the_hand_for_the_seat_club.sql`.
+Migration: `supabase/migrations/20261116021751_a_club_rake_day_counts_the_hand_for_the_seat_club.sql`
+(draft, `do-not-merge`; nothing installed).
 
 ## The defect, read from rows
 
@@ -13,90 +14,154 @@ raked cash hand's COMMIT and by the rebuild doors) splits a UNION cash hand by
 player and credits each player's part to a club by:
 
 1. the hand's `rake_attributions` witness for that player;
-2. the buy-in funding receipt at or before the hand;
-3. the `table_seats` row at or before the hand;
-4. **the player's first-joined club in the union** (`club_members ... ORDER BY
-joined_at ASC`);
+2. the latest buy-in receipt at that table at or before the hand;
+3. the latest `table_seats` row at that table at or before the hand;
+4. **the player's first-joined club in the union** (`club_members ... ORDER BY joined_at ASC`);
 5. the table's club.
 
-Step 4 is a membership guess, not where the hand was played.
+Every positive contribution has a witness (0 exceptions in every window of
+2026-11-01..14), so no chip ever reaches step 2. The rows that do are players
+dealt in who put nothing in the pot - nearly all horses. A zero contribution
+moves no rake, but it adds the hand to that club's `ca_club_rake_daily.hands`
+(Club Dashboard revenue tab, Club Financials rake per hand / average pot).
 
-Every positive contribution already has a witness, so no chip ever reached
-step 4. The rows that reach it are players dealt in who put nothing in the pot
-(contribution 0, so no rake and no witness). Nearly all are horses (19,610 of
-19,621 such rows between 00:00 and 03:00 UTC on 2026-11-14). Horses sit without
-a buy-in receipt, and a seat row is removed after it is left, so once the horse
-has left the table steps 2 and 3 find nothing and the hand is counted for the
-horse's first-joined club. A zero contribution moves no rake, but it adds the
-hand to that club's `ca_club_rake_daily.hands`, which is the raked-hands count
-on the Club Dashboard revenue tab and Club Financials (rake per hand, average
-pot). In a 20-minute sample, 40 of 79 such rows named a club other than the one
-the same horse's seat was playing through at that table.
+Step 4 is a membership guess. Steps 2 and 3 are dated but **not bound to the
+sitting**: they take the newest receipt or seat row that started before the
+hand, which can belong to an earlier sitting through another club. In
+2026-11-14 06:00-06:20, 1,099 zero-contribution rows had a receipt only from
+an earlier sitting at that table (2 h 25 m to 35 days old); 152 named KINGS
+CLUB and 151 of those had a witness in their own sitting naming another club.
+
+## The first draft of this fix, and why it was replaced
+
+The first draft replaced step 4 with (a) the seat's exit record
+(`ca_seat_stack_exits`, first exit by the player from the table within 7
+days) and (b) the player's own earlier attribution at the table within a day
+with no exit logged in between. Neither is bound to the sitting:
+
+- `fn_log_seat_stack_exit` (production text) writes an exit row only when the
+  seat is left **with chips** and never on a diamond table. A bust-out, and the
+  seat move (which zeroes the stack before leaving), leave no row. 0 of 64,494
+  union exit rows since 2026-11-01 have a zero stack.
+- Seat rows are reused: re-seating paths UPDATE a left row back to live
+  (`fn_seat_stage_entitlement`, `fn_cash_seat_move_execute_*`,
+  `fn_cash_seat_swap_execute_*`, ...), so `seat_id` alone is not a sitting.
+- Horses do re-sit at the same union table through different clubs: 646 horse
+  player-tables since 2026-11-01 have exits through more than one club. On
+  2026-11-02 alone, 14 exit rows through club Y followed 48 sittings through a
+  different club X (3,221 witnessed hands) that ended with no exit row. Example
+  (table `a8cbda4f`, horse `7e2aea2c`): 62 zero-contribution hands of a sitting
+  played through `a41434bb`; lookup (a) returns `2a1132b9` (an exit 16 h later
+  from another seat row) and the installed step 2 returns `a0000000` (a
+  receipt of 2026-10-27).
+- In samples, lookup (a) came from a different seat row than the hand's in 8
+  of 266 and 53 of 89 uses. Lookup (b) has the same exposure (re-sit with no
+  exit row in between), proven in the isolated test below.
 
 ## What changes
 
-Steps 1-3 and 5 are unchanged and keep their order. Step 4 now reads the SAME
-SEAT where it survives the seat row's removal:
+The hand's own commit record names the sitting. `hand_atomic_commits.stack_result.request.stacks`
+holds, for every player dealt in, `seat_id` and `seat_joined_at` (present on
+every union hand from 2026-11-07 18:18 UTC; 143,122 union hands of 2026-11-01..07
+have no commit record). `seat_joined_at` identifies the sitting: every seating
+path stamps a new `joined_at`; only the cash seat move and swap carry an old
+`joined_at`, and they carry the seat's `club_id` in the same UPDATE. No writer
+changes `table_seats.club_id` inside a sitting except filling a NULL
+(`fn_heal_seat_provenance`), and a witness never carries NULL. So one
+(player, table, `seat_joined_at`) has one club.
 
-- **4a, the seat's exit record.** `ca_seat_stack_exits` copies the seat's
-  `club_id` when the seat is left (trigger `trg_log_seat_stack_exit`). The
-  first exit of this player from this table at or after the hand is the seat
-  that was occupied while the hand was dealt (bounded to 7 days).
-- **4b, the same sitting.** Otherwise, this player's own `rake_attributions`
-  row at this table from an earlier hand of the same sitting (within 1 day, and
-  no logged exit of this player from this table in between).
-- Only when neither exists does the hand stay with the table's club (step 5).
+For a dealt-in player with no witness on the hand:
 
-No membership lookup remains. Both lookups are inside the `coalesce` after
-steps 1-3, so rows that carry a witness pay nothing new, and both use existing
-indexes (`ca_seat_stack_exits_user_idx`, `idx_rake_attributions_player_id`).
-Language, volatility, SECURITY DEFINER, search_path, owner and grants are
-unchanged and asserted by the migration.
+| step | rule name      | reads                                                                                                                                                                                                       |
+| ---- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `witness`      | the hand's own `rake_attributions` row (unchanged)                                                                                                                                                          |
+| 2    | `receipt`      | the buy-in receipt whose `seat_joined_at` equals the hand's                                                                                                                                                 |
+| 3    | `seat`         | the `table_seats` row whose `joined_at` equals the hand's                                                                                                                                                   |
+| 4    | `same_sitting` | the player's own witness on the nearest earlier and nearest later hand at this table, each accepted only if that hand's commit shows the same `seat_joined_at`; if both exist and disagree, neither is used |
+| 5    | `table_club`   | the table's club                                                                                                                                                                                            |
 
-Why not the table's club alone: on union tables the table's club is Midway
-Union, the union house, whose own row shows 0 hands. Sending these hands there
-would also credit a club the hand was not played through (15,520 hands on
-2026-11-14). With the seat evidence, only 249 hands that day have no seat
-evidence at all and stay with the table's club.
+A hand with no commit record keeps the installed dated reads at steps 2-3
+(`receipt_unbound`, `seat_unbound`) and has no step 4. No membership lookup
+and no exit-record lookup remain.
 
-## Effect on one full day (2026-11-14, read-only, all 24 hours)
+## Per-rule counts (read-only)
 
-The same calculator was run inline against production with the old and the new
-step 4. Rake, bbj and pot are identical to the cent for every club, and equal
-to the rows written live at commit:
+The calculation moves verbatim into `fn_ca_club_rake_daily_parts(from, to, ids)`,
+which returns every part with the rule that placed it (`whole_hand` for a hand
+with no usable split, `table_drop_and_pot` for the table's bbj/pot row).
+`fn_ca_club_rake_daily_compute` is now that function summed, so the totals are
+the same rows by construction. `fn_ca_club_rake_daily_rule_counts(from, to)`
+(window at most 31 days) sums it by day, club and rule; its hands add up to
+the calculator's hands per club and day (asserted in the test). All three are
+SECURITY DEFINER, STABLE, `search_path=public`, service_role only, owned by
+postgres, and write nothing. No stored aggregate changes.
 
-| Club                      | Hands, current rule | Hands, new rule |  Change | Rake (both) |
-| ------------------------- | ------------------: | --------------: | ------: | ----------: |
-| KINGS CLUB                |              26,106 |           6,063 | -20,043 |      544.94 |
-| Deep Stack Society        |              78,422 |          78,632 |    +210 |   54,379.73 |
-| The Felt Society          |              80,837 |          81,377 |    +540 |   73,692.09 |
-| Midway Union (table club) |                   0 |             249 |    +249 |        0.00 |
+## How union accounting attributes the same hand
 
-Midway Union bbj 21,717.30 and pot 3,820,825.43 under both rules. For
-reference, the live rows written at commit that day show KINGS CLUB 9,571, Deep
-Stack Society 78,578 and The Felt Society 81,316 hands: at commit most seats
-still exist, so step 3 answers; the first-joined guess bites mainly when a day
-is recomputed after the horses have left.
+- **Invoices / fees.** The weekly accrual (`fn_accrue_cash_hand_commissions`,
+  `fn_accounting_cash_commission_plan`) and `accounting_cash_rake_sources` are
+  built only from raked hands, one row per paying player, from that player's
+  `rake_attributions` row. Its club is `fn_cash_earning_club`: on a union table,
+  the club of the `table_seats` row live at the hand's start (custody funding
+  club for a retired hand; a Lightning hand's anchor seat or receipt), and it
+  raises `cash_earning_seat_provenance_missing_or_ambiguous` rather than guess.
+- **Union Club Data basis** (`ca_club_data_screen_union_basis` over
+  `ca_club_acct_fact_ct`): the cash fee row's club is the funding contract's
+  `funding_club_id`, else the source row's club, i.e. the same witness.
+- **BBJ share** (20261115150131): the hand's `rake_attributions` club for the
+  recipient, else the buy-in receipt at that table before the payout; never
+  the table's club or a "home" club; with no member record the share parks.
+
+Agreement: step 1 is the same witness, so rake and fee by club agree to the
+cent. The hand count adds rows accounting never has - zero-contribution
+players - and every one of steps 2-4 reads the same sitting that
+`fn_cash_earning_club` would have read at the hand's start.
+
+Difference: accounting never falls back to the table's club; it refuses or
+parks. The hand count's step 5 credits the table's club, which on a union
+table is the Midway Union house. That is table location, not ownership: the
+3,189 such hands over 14 days were not shown to be played through the house.
+Showing them as "unassigned" instead would match accounting; that is a
+product decision left open (it needs a place in `ca_club_rake_daily`, which is
+keyed by club).
+
+## Effect on 14 closed days (read-only reconciliation; nothing written)
+
+Stored `ca_club_rake_daily.hands` vs this rule recomputed inline on production,
+2026-11-01..14. Rake, bbj and pot per club are unchanged by this rule (no
+positive contribution lacked a witness in any window).
+
+| Club                                   | Hands stored | Hands, this rule |   Change |
+| -------------------------------------- | -----------: | ---------------: | -------: |
+| Deep Stack Society                     |    1,124,139 |        1,125,663 |   +1,524 |
+| The Felt Society                       |    1,117,937 |        1,129,392 |  +11,455 |
+| KINGS CLUB                             |      442,439 |          174,129 | -268,310 |
+| Midway Union (table club, no evidence) |            0 |            3,189 |   +3,189 |
+
+Rules used over the 14 days (club-hands): witness 2,136,806; same_sitting
+147,140; receipt 97,448; receipt_unbound 46,569 (hands before the commit
+record existed); seat 1,166; seat_unbound 55; table_club 3,189.
 
 ## What is not done
 
-No history is rebuilt. This changes future computations only: the live
-per-hand rollup at commit and any later rebuild. Existing `ca_club_rake_daily`
-rows stay as written. `fn_ca_club_rake_daily_rebuild_range(date, date,
-boolean)` is the supported door if an operator later decides to recompute a
-closed day; it was not run. No wallet, ledger, settlement, scheduler or
-live-game state is touched.
+No history is rebuilt; existing `ca_club_rake_daily` rows stay as written.
+`fn_ca_club_rake_daily_rebuild_range` was not run. Recounting closed days is a
+separate decision. No wallet, ledger, settlement, scheduler or live-game state
+is touched.
 
 ## Proof
 
 - `scripts/ci/test-club-data-report-db-postgres.py` (native PostgreSQL 17):
-  the history scenario now includes a multi-club player (joined SHARK first,
-  playing through JAQK) dealt in with a zero contribution and no witness. The
-  funding-at-the-hand calculator counts those hands for SHARK; after this
-  migration the vacated seat and same-sitting cases count for JAQK, a hand with
-  no seat evidence (and an older SHARK sitting that ended) stays with the
-  table's club, and rake is unchanged. It also proves a rolled-back or
-  browser-role run installs nothing, the authority settings are preserved, and
-  a replay is refused by the preimage check.
-- `tests/club-data-counts-what-the-club-played.law.test.ts` pins the new order
-  and that no `club_members` / `joined_at ASC` lookup is left in the calculator.
+  the history scenario builds each case on union tables with hand commit
+  records - a later hand of the same sitting, a re-sit through another club
+  with no exit row (with and without a later witness), an exit row of a later
+  sitting, a club changed mid-sitting, a receipt of an older sitting - and
+  proves the installed calculator fails them (the first draft also failed
+  them, run locally 2026-11-16), the new
+  calculator passes, rake is unchanged, the per-rule parts are exactly the
+  expected rules, and the rule counts add up to the calculator. It also proves
+  a rolled-back or browser-role run installs nothing, the authority settings,
+  the live proof, the replay refusal, and that a browser cannot read the counts.
+- `tests/club-data-counts-what-the-club-played.law.test.ts` pins the order, the
+  sitting binding, and that no `club_members`, `joined_at ASC` or
+  `ca_seat_stack_exits` lookup is left in the calculator.

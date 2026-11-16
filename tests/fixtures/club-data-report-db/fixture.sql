@@ -7,6 +7,13 @@
 ALTER TABLE rake_records ADD COLUMN club_id uuid, ADD COLUMN bbj_contribution numeric, ADD COLUMN pot_size numeric;
 ALTER TABLE rake_attributions ADD COLUMN created_at timestamptz DEFAULT now(), ADD COLUMN rake_amount numeric,
   ADD COLUMN table_id uuid, ADD COLUMN id uuid DEFAULT gen_random_uuid();
+-- The hand's own commit record (production columns used here): for every
+-- player dealt in, stack_result.request.stacks names the seat row and that
+-- seat's sit-down time (seat_joined_at), the occupancy the hand was dealt from.
+ALTER TABLE rake_records ADD COLUMN hand_id uuid;
+ALTER TABLE rake_attributions ADD COLUMN hand_id uuid;
+CREATE TABLE hand_atomic_commits (table_id uuid, hand_number bigint, hand_id uuid UNIQUE, stack_result jsonb,
+  committed_at timestamptz DEFAULT now());
 -- The seat-exit audit trail (20260825_chips_cannot_leave_the_felt_unnoticed),
 -- production columns: the club of a table_seats row, copied when it is left.
 CREATE TABLE ca_seat_stack_exits (id bigserial PRIMARY KEY, seat_id uuid, table_id uuid NOT NULL, user_id uuid NOT NULL,
