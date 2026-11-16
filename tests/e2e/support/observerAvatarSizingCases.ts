@@ -137,7 +137,7 @@ export function registerObserverAvatarSizingCases() {
         await page.route('http://observer.fixture/', (route) =>
           route.fulfill({
             contentType: 'text/html',
-            body: `<html data-seats="9" data-follow="${width === 600}" data-tournament="true" data-spectator="true" data-avatar-mix="true" data-empty-bottom="${emptyBottom}" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+            body: `<html data-seats="9" data-follow="${width === 600 && !mobileArtwork}" data-tournament="true" data-spectator="true" data-avatar-mix="true" data-empty-bottom="${emptyBottom}" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
           })
         );
         await page.goto('http://observer.fixture/');
