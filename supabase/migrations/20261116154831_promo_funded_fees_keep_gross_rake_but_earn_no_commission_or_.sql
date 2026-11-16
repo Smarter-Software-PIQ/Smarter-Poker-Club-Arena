@@ -154,6 +154,20 @@ BEGIN
   EXECUTE replace(def,needle,E'contract:=public.fn_ca_promo_tournament_payable_contract((item->>''charge_ledger_id'')::uuid,contract);\n    '||needle);
  END LOOP;
 END $owners$;
+-- The existing immutable MTT admission guard pins this exact earning owner.
+-- Move only that signature's body fingerprint after the maintained source
+-- patch, preserving every other authority, owner, ACL and activation check.
+DO $admission_pin$
+DECLARE def text;needle text;replacement text;
+BEGIN
+ SELECT pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure) INTO def;
+ IF md5(def)<>'db325dd573702ea5cd4eaf6cf3ad8881' THEN RAISE EXCEPTION 'promo_original_admission_guard_changed'; END IF;
+ needle:='"signature":"public.fn_capture_accounting_tournament_fee(uuid,jsonb)","definition_md5":"e83638c8e5401469c336fe378505fbac"';
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_original_admission_fee_pin_changed'; END IF;
+ replacement:='"signature":"public.fn_capture_accounting_tournament_fee(uuid,jsonb)","definition_md5":"'
+  ||md5(pg_get_functiondef('public.fn_capture_accounting_tournament_fee(uuid,jsonb)'::regprocedure))||'"';
+ EXECUTE replace(def,needle,replacement);
+END $admission_pin$;
 
 -- Effective contracts can acquire a later authorized interpretation. Apply
 -- the same frozen source funding after that interpretation as well, so an

@@ -35,3 +35,10 @@ The three effective/payable views are static source declarations guarded by
 their original view fingerprints. The existing union-calendar native fixture
 loads their actual eligibility helpers and cold dependencies before those same
 views, preserving its nine real money-door checks.
+
+The first protected installation rolled back because the existing MTT admission
+guard still pinned the earning owner's former body. The same uninstalled
+migration now moves only that signature's fingerprint after its source change,
+preserving every other guard byte, owner and permission. Native proof uses the
+actual captured guard and protected applier's stale-pin wrapper: the former
+migration refuses and rolls back; the corrected transaction passes.

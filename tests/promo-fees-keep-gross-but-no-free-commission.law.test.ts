@@ -26,5 +26,8 @@ describe('Promo-funded fees preserve gross rake and exclude free earnings', () =
     expect(native).toContain('concurrent.futures.ThreadPoolExecutor');
     expect(native).toContain('original_promo_entry_funding_missing');
     expect(native).toContain('fixture_second_tier_refusal');
+    expect(native).toContain('migration-stale-pins.mjs');
+    expect(native).toContain('mtt-admission-guard.json');
+    expect(native).toContain('migration_left_a_stale_pin');
   });
 });
