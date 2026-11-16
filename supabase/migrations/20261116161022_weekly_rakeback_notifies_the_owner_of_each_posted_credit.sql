@@ -48,11 +48,16 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $f$
  -- Own commission excludes pass-through funds, top-ups and owner retention in the club bank.
  SELECT l.id,'agent',s.user_id,s.club_id,(i.breakdown->>'own_commission')::numeric
  FROM public.agent_commission_settlements s
- JOIN public.chip_ledger l ON l.club_id=s.club_id AND l.created_at>=p_end
+ JOIN public.settlement_invoices i ON i.club_id=s.club_id AND i.created_at>=p_end
+ AND i.breakdown->>'ledger_to_type'='agent_wallet'
+ JOIN public.chip_ledger l ON l.id=i.source_ledger_id AND l.club_id=s.club_id
+ AND l.idempotency_key=s.settlement_ref||':'||s.club_id||':'||
+   CASE WHEN i.breakdown->>'ledger_from_type'='club_treasury' THEN 'club'
+        ELSE i.breakdown->>'ledger_from_entity_id' END||':'||s.user_id
+ AND l.created_at>=p_end
  AND l.created_at<=statement_timestamp() AND l.metadata->>'accounting_scope_id'=p_scope::text
  AND l.metadata->>'accounting_scope_kind'=p_kind AND (l.metadata->>'period_start')::timestamptz=p_start
- AND (l.metadata->>'period_end')::timestamptz=p_end AND l.idempotency_key LIKE 'round2:v3:%'
- JOIN public.settlement_invoices i ON i.source_ledger_id=l.id
+ AND (l.metadata->>'period_end')::timestamptz=p_end
  WHERE p_round=2 AND s.period_start=p_start AND s.period_end=p_end AND s.paid_at IS NOT NULL
  AND l.to_type='agent_wallet' AND l.status='posted' AND l.category='commission'
  AND (l.to_entity_id=s.user_id OR EXISTS(SELECT FROM public.agents a WHERE a.id=l.to_entity_id AND a.club_id=s.club_id AND a.user_id=s.user_id))
