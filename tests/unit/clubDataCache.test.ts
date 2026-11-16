@@ -9,6 +9,22 @@ import {
 } from '../../src/lib/clubDataCache';
 
 describe('Club Data SWR cache', () => {
+  it('rejects earlier Chicago-contract snapshots even while their TTL is fresh', () => {
+    const query = 'report';
+    sessionStorage.setItem(
+      `${CLUB_DATA_CACHE_PREFIX}owner-1:club-1:${query}`,
+      JSON.stringify({
+        reportingVersion: 2,
+        userId: 'owner-1',
+        clubId: 'club-1',
+        queryKey: query,
+        at: 100,
+        data: { accounting_basis: 'chicago_net_money_flow', summary: { fee: 99 } },
+      })
+    );
+    expect(readClubDataCache('owner-1', 'club-1', query, 101)).toBeNull();
+  });
+
   it('rejects cached totals from the previous MTT reporting contract', () => {
     const query = 'report';
     sessionStorage.setItem(

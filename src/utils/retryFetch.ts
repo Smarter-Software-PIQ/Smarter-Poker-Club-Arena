@@ -27,6 +27,8 @@ interface RetryOptions {
   maxRetries?: number;
   baseDelayMs?: number;
   isMountedRef?: MutableRefObject<boolean>;
+  /** A caller may identify its own deterministic domain refusal. */
+  shouldRetryError?: (error: unknown) => boolean;
 }
 
 /**
@@ -69,7 +71,7 @@ export async function retryFetch<T>(
   fn: () => PromiseLike<T> | Promise<T>,
   options: RetryOptions = {}
 ): Promise<T> {
-  const { maxRetries = 2, baseDelayMs = 1000, isMountedRef } = options;
+  const { maxRetries = 2, baseDelayMs = 1000, isMountedRef, shouldRetryError } = options;
   let lastError: unknown;
   let lastResult: T | undefined;
 
@@ -94,7 +96,10 @@ export async function retryFetch<T>(
         lastError = new Error(`Supabase error: ${(result as any).error.message}`);
         // Deterministic failure: hand it back now so the caller can fall back
         // immediately instead of waiting out the backoff for the same answer.
-        if (isNonRetryable(result)) {
+        if (
+          isNonRetryable(result) ||
+          shouldRetryError?.((result as { error: unknown }).error) === false
+        ) {
           return result;
         }
         if (attempt < maxRetries) {
@@ -108,6 +113,7 @@ export async function retryFetch<T>(
 
       return result;
     } catch (err) {
+      if (shouldRetryError?.(err) === false) throw err;
       lastError = err;
       // A later attempt THREW, so the earlier attempt's { error } result is no
       // longer the truth about this call. Returning it below would report a

@@ -23,10 +23,11 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  *
  * THE DAY (stage 2 reader contract, 2026-11-15). For a Midway Union member
  * club, or the union itself, a day is the union invoice's ACCOUNTING day,
- * 02:00 to 02:00 America/Chicago, daylight saving included (owner,
- * 2026-11-14), and every figure comes from the invoice's own accounting
+ * midnight to midnight America/Los_Angeles, including daylight-saving
+ * boundaries, and every figure comes from the invoice's own accounting
  * records: Fee is the rake credited to the club, Total Winnings the players'
- * accounting result. Any other club keeps Chicago midnight days. The reader
+ * accounting result. Standalone and pre-union net-flow reports also use Pacific
+ * midnight. The reader
  * says which basis it answered on, and the page labels and counts by it.
  * The page and calendar carry the first and last day, inclusive, just as the
  * readers do. Nov 9 through Nov 15 is Monday through Sunday, seven days.
@@ -77,6 +78,10 @@ import {
   type ClubDataCoverage,
   type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
+import {
+  CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+  isClubDataPacificIncomplete,
+} from './clubDataReadOutcome';
 import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/format';
 
 type Preset = 1 | 7 | 14;
@@ -140,7 +145,11 @@ interface Snapshot {
   reporting_scope?: 'club' | 'union';
   /** The club's union, when it is in one (or is one). Decides "today". */
   union_id?: string | null;
-  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow' | 'union_invoice_accounting';
+  accounting_basis?:
+    | 'utc_net_money_flow'
+    | 'chicago_net_money_flow'
+    | 'pacific_net_money_flow'
+    | 'union_invoice_accounting';
   day_basis?: string;
   /** fn_ca_club_acct_coverage (union basis only). */
   accounting_coverage?: ClubDataCoverage | null;
@@ -173,13 +182,10 @@ export function refreshIntervalMs(preset: Preset): number {
 }
 
 /**
- * Today on the Club Data clock for a basis: the 02:00 Chicago accounting day
- * for a union club, the Chicago calendar day for any other club.
+ * Today on the Pacific Club Data clock. Explicit older responses can still
+ * state a Chicago calendar basis during a compatible rollout.
  */
-export function clubDataToday(
-  now: Date = new Date(),
-  basis: ClubDataDayBasis = 'calendar'
-): string {
+export function clubDataToday(now: Date = new Date(), basis: ClubDataDayBasis = 'pacific'): string {
   return clubDataDayOn(basis, now);
 }
 
@@ -262,10 +268,9 @@ export default function ClubDataSimplePage() {
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   // A fresh visit starts today, regardless of a previously saved preset.
   const [preset, setPreset] = useState<Preset>(1);
-  // The day this club counts, as its last answer stated it (calendar until an
-  // answer says otherwise). A union club's day starts at 02:00 Chicago.
-  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('calendar');
-  const dayBasisRef = useRef<ClubDataDayBasis>('calendar');
+  // Current reports share Pacific midnight; financial definitions remain distinct.
+  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
+  const dayBasisRef = useRef<ClubDataDayBasis>('pacific');
   dayBasisRef.current = dayBasis;
   const [currentDay, setCurrentDay] = useState(() => clubDataToday());
   const today = clubDataToday(new Date(), dayBasis);
@@ -434,7 +439,12 @@ export default function ClubDataSimplePage() {
       const { data, error: rpcError } = await Promise.race([Promise.resolve(read), timeout]);
       if (!isCurrent()) return;
       if (rpcError) {
-        if (isAuthzError(rpcError)) {
+        if (isClubDataPacificIncomplete(rpcError)) {
+          reportError(rpcError, 'ClubDataSimplePage.pacific_coverage');
+          setSnapshot(null);
+          setSnapshotScope(null);
+          setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        } else if (isAuthzError(rpcError)) {
           setSnapshot(null);
           setSnapshotScope(null);
           setDenied(true);
@@ -451,9 +461,9 @@ export default function ClubDataSimplePage() {
         return;
       }
       setSnapshot(data);
-      // "Today" follows the club (isUnionClubAnswer): once a union club is
-      // known its today is the 2:00 AM day, and nothing moves it back.
+      // Both verified Data bases use the same Pacific calendar day.
       if (isUnionClubAnswer(data)) setDayBasis('accounting');
+      else if (clubDataDayBasis(data) === 'pacific') setDayBasis('pacific');
       setPlayerSearchAccess(identityKey);
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
@@ -531,9 +541,9 @@ export default function ClubDataSimplePage() {
     };
   }, [load, preset, isToday]);
 
-  // Another club or account starts from the calendar day until it answers.
+  // Every new club or account begins on the current Pacific day.
   useEffect(() => {
-    setDayBasis('calendar');
+    setDayBasis('pacific');
   }, [identityKey]);
 
   // A club whose answer says it counts the 02:00 accounting day moves "today"
@@ -568,8 +578,10 @@ export default function ClubDataSimplePage() {
   // accounting records on the same 02:00 days (equal to the screen's fee),
   // not the viewer's own earned share on UTC days.
   const downlineAccountingFees =
-    visibleSnapshot?.member_fees?.definition === 'downline_accounting_fees' ||
-    visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS;
+    unionBasis &&
+    (visibleSnapshot?.member_fees?.definition === 'downline_accounting_fees' ||
+      visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS ||
+      visibleSnapshot?.member_fees?.day_basis === 'America/Chicago 02:00');
   const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
   const completeWindowLabel =
     (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
@@ -671,7 +683,11 @@ export default function ClubDataSimplePage() {
           end={endDate}
           today={today}
           zoneLabel={
-            answerBasis === 'accounting' ? 'Pacific Accounting Dates' : 'Chicago Calendar Dates'
+            answerBasis === 'accounting'
+              ? 'Pacific Accounting Dates'
+              : answerBasis === 'pacific'
+                ? 'Pacific Calendar Dates'
+                : 'Chicago Calendar Dates'
           }
           onClose={() => setEditingDates(false)}
           onApply={(first, last) => {
@@ -847,6 +863,11 @@ export default function ClubDataSimplePage() {
                 Downline Fees Are The Rake Credited For You And Your Downline On The Union Invoice
                 Basis, Before Agent Shares, Across All Games For This Window.
               </p>
+            ) : visibleSnapshot?.member_fees?.definition === 'pacific_earned_fees' ? (
+              <p>
+                Your Fees After Shares And Adjustments, Across All Games In This Pacific Window.
+                Game Rows Show Downline Fees Generated.
+              </p>
             ) : (
               <p>
                 Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game
@@ -857,6 +878,12 @@ export default function ClubDataSimplePage() {
           {notices.incomplete && (
             <p className={styles.inkLoss} role="alert">
               {notices.incomplete}
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'pacific_net_money_flow' && (
+            <p>
+              Net Entries And Payouts In Pacific Time. MTT Winnings Count Finished MTTs Only.
+              Unfinished MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
             </p>
           )}
           {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (

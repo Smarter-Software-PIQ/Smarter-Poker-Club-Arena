@@ -1,18 +1,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Club Data counts America/Chicago days (20261022120121): today is the Chicago date.
-const chicagoToday = (): string =>
+// Current Data reports count Pacific calendar dates for every club.
+const pacificToday = (): string =>
   new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
+    timeZone: 'America/Los_Angeles',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
 /** The instant `hhmmss` on the Chicago clock on calendar date `day` (DST aware). */
-function chicagoInstant(day: string, hhmmss: string): Date {
+function chicagoInstant(day: string, hhmmss: string, zone = 'America/Chicago'): Date {
   const guess = new Date(`${day}T${hhmmss}Z`);
-  const shown = new Date(guess.toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  const shown = new Date(guess.toLocaleString('en-US', { timeZone: zone }));
   const asUtc = new Date(guess.toLocaleString('en-US', { timeZone: 'UTC' }));
   return new Date(guess.getTime() + (asUtc.getTime() - shown.getTime()));
 }
@@ -57,7 +57,7 @@ function applyCalendarRange(first: string, last = first) {
 const snapshotEnd = () =>
   rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2').at(-1)?.[1]?.p_end;
 
-const TEST_END_DATE = chicagoToday();
+const TEST_END_DATE = pacificToday();
 const testRangeStart = new Date(`${TEST_END_DATE}T00:00:00Z`);
 testRangeStart.setUTCDate(testRangeStart.getUTCDate());
 const TEST_START_DATE = testRangeStart.toISOString().slice(0, 10);
@@ -543,9 +543,9 @@ for (const advanced of [false, true]) {
 }
 
 for (const historical of [false, true]) {
-  it(`rolls the current Chicago day at midnight while preserving ${historical ? 'historical' : 'current'} intent`, async () => {
+  it(`rolls the current Pacific day at midnight while preserving ${historical ? 'historical' : 'current'} intent`, async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(chicagoInstant(TEST_END_DATE, '23:59:50'));
+    vi.setSystemTime(chicagoInstant(TEST_END_DATE, '23:59:50', 'America/Los_Angeles'));
     try {
       render(<ClubDataPage />);
       await screen.findByText('Shark Table One');
@@ -599,13 +599,17 @@ for (const advanced of [false, true]) {
 for (const intent of ['calendar', 'previous period']) {
   it(`preserves an explicit ${intent} choice made after midnight before the next poll`, async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(chicagoInstant(TEST_END_DATE, '23:59:50'));
+    vi.setSystemTime(chicagoInstant(TEST_END_DATE, '23:59:50', 'America/Los_Angeles'));
     try {
       render(<ClubDataPage />);
       await screen.findByText('Shark Table One');
       const tomorrowDay = new Date(`${TEST_END_DATE}T00:00:00Z`);
       tomorrowDay.setUTCDate(tomorrowDay.getUTCDate() + 1);
-      const tomorrow = chicagoInstant(tomorrowDay.toISOString().slice(0, 10), '00:00:10');
+      const tomorrow = chicagoInstant(
+        tomorrowDay.toISOString().slice(0, 10),
+        '00:00:10',
+        'America/Los_Angeles'
+      );
       vi.setSystemTime(tomorrow);
       const tomorrowIso = tomorrowDay.toISOString().slice(0, 10);
       applyCalendarRange(tomorrowIso);
@@ -688,7 +692,7 @@ it('a union club reads the 02:00 accounting window and says what it counts', asy
     expect(screen.getByTestId('rake-snapshot-basis').closest('details')).not.toBeNull();
     // The rake snapshot keeps its own basis and never reads as the Fee tile.
     expect(screen.getByTestId('rake-snapshot-basis')).toHaveTextContent(
-      'Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days. Not The Union Invoice Basis.'
+      'Agent Rake Production: Seat Club And Agent Downline, Pacific Midnight Days. Not The Union Invoice Basis.'
     );
     expect(rakePanelProps.current?.headlineLabel).toBe('Agent Rake Production');
   } finally {
@@ -763,7 +767,7 @@ describe('a union club opened between midnight and 02:00 Chicago', () => {
       const asked = rpcMock.mock.calls
         .filter(([fn]) => fn === 'ca_club_data_snapshot_v2')
         .map(([, a]) => a as Record<string, string>);
-      expect(asked[0]).toMatchObject({ p_start: '2026-11-16', p_end: '2026-11-16' });
+      expect(asked[0]).toMatchObject({ p_start: OPEN_DAY, p_end: OPEN_DAY });
       expect(asked.at(-1)).toMatchObject({ p_start: OPEN_DAY, p_end: OPEN_DAY });
       expect(snapshotEnd()).toBe(OPEN_DAY);
       expect(screen.getByText('Nov 15, 2026 2:00 AM To Now')).toBeInTheDocument();
@@ -899,7 +903,7 @@ it('a union club at 01:30 CST settles in two reads when its window crosses the j
       .filter(([fn]) => fn === 'ca_club_data_snapshot_v2')
       .map(([, a]) => a as Record<string, string>);
     expect(asked.length).toBeLessThanOrEqual(2);
-    expect(asked[0]).toMatchObject({ p_start: '2026-11-16', p_end: '2026-11-16' });
+    expect(asked[0]).toMatchObject({ p_start: OPEN_DAY, p_end: OPEN_DAY });
     expect(asked.at(-1)).toMatchObject({ p_start: OPEN_DAY, p_end: OPEN_DAY });
     // The window is labelled on the basis it was answered on; today stays 2 AM.
     expect(screen.getByText('Nov 15, 2026 12:00 AM To Now')).toBeInTheDocument();
