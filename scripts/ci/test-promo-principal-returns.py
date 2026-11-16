@@ -114,6 +114,17 @@ try:
  for row in json.loads(bust_path.read_text()):
   e.sql(db,row['definition']+';',label='actual-bust-'+row['signature'].split('(')[0])
  e.sql(db,'SET check_function_bodies=on;',label='original-bust-source-closure-end')
+ current_bust_path=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/bust-money-owners.json';remember(current_bust_path)
+ for owner in json.loads(current_bust_path.read_text()):
+  e.sql(db,owner['definition']+';',label='current-bust-'+owner['proname'][:25])
+  _,actual,_=e.sql(db,"SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='"+owner['proname']+"' AND md5(pg_get_functiondef(p.oid))='"+owner['md5']+"'",label='current-bust-preimage')
+  if actual.strip()!='1':raise RuntimeError('current original bust owner capture differs: '+owner['proname'])
+
+ # Load captured original elimination/bounty/reentry owners BEFORE the
+ # maintained P hook, never overwrite the patched purchase wrapper later.
+ original_bust_path=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/bust-money-owners.json';remember(original_bust_path)
+ for owner in json.loads(original_bust_path.read_text()):
+  e.sql(db,owner['definition']+';',label='actual-bust-'+owner['proname'][:25])
  e.sql(db,cold,label='maintained-event-principal-and-exact-refund-owners')
  capture=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/current-owners.json';remember(capture)
  original_refund=next(row for row in json.loads(capture.read_text()) if row['proname']=='fn_settle_tournament_refund_exact')
@@ -127,6 +138,54 @@ try:
  """,label='provider-cron-registration-adapter')
  remember(args.return_migration)
  e.sql(db,file=args.return_migration,label='promo-original-returns')
+ # A cloned original financial closure isolates the additional real reentry
+ # case from every existing return/race opening. No provider or money adapter.
+ bust_db=e.database(db)
+ for path in [root/'supabase/migrations/20261010035502_stable_admin_engine_operator_commands.sql',root/'supabase/migrations/20261012181905_scoped_club_launch_reset_and_guarded_recovery.sql',root/'supabase/migrations/20261014231111_a_floor_park_is_a_lease_that_expires_and_pages_never_a_switc.sql',root/'supabase/migrations/20260917233447_tournament_original_funding_and_obligation_receipts.sql',root/'supabase/migrations/20260917060000_mtt_persisted_format_preparation.sql',root/'supabase/migrations/20261105223835_five_free_buy_tickets_a_day_for_every_player.sql']:remember(path)
+
+ for path in [root/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql',root/'supabase/migrations/20260909165629_satellite_settlement_has_one_atomic_authority.sql',root/'supabase/migrations/20261030161824_started_tournament_abort_uses_original_charges_and_a_drained.sql',root/'supabase/migrations/20261031161513_tournament_original_twenty_can_withdraw_unsettled_abort.sql',root/'supabase/migrations/20261105035220_midway_free_buy_rotation_formats_and_promo_funded_entries.sql',root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql',args.ticket_tree/'tests/fixtures/promo-ticket-play-through/bust-reentry.sql',args.ticket_tree/'tests/fixtures/promo-ticket-play-through/entry-entitlement-owners.json',args.ticket_tree/'tests/fixtures/promo-ticket-play-through/purchase-owner.json',args.ticket_tree/'tests/fixtures/promo-ticket-play-through/purchase-price-owner.json']:remember(path)
+ fee_source=(root/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql').read_text()
+ fee_cold=fee_source[fee_source.index('CREATE TABLE public.ca_promo_entry_fee_funding'):fee_source.index('REVOKE ALL ON FUNCTION public.fn_ca_promo_capture_entry_funding')]
+ fee_cold+=fee_source[fee_source.index('REVOKE ALL ON FUNCTION public.fn_ca_promo_capture_entry_funding'):fee_source.index(';',fee_source.index('REVOKE ALL ON FUNCTION public.fn_ca_promo_capture_entry_funding'))+1]
+ e.sql(bust_db,fee_cold,label='actual-original-entry-funding-contract')
+
+ for row in json.loads((args.ticket_tree/'tests/fixtures/promo-ticket-play-through/entry-entitlement-owners.json').read_text()):e.sql(bust_db,row['definition']+';',label='actual-entitlement-'+row['proname'][:25])
+ original_charge=(root/'supabase/migrations/20260909165629_satellite_settlement_has_one_atomic_authority.sql').read_text()
+ trigger=original_charge[original_charge.index('CREATE TRIGGER aa_ca_capture_tournament_charge_entitlement'):original_charge.index('-- The historical registration cores')]
+ e.sql(bust_db,"SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname='aa_ca_capture_tournament_charge_entitlement'",label='original-charge-entitlement-trigger')
+ abort=(root/'supabase/migrations/20261030161824_started_tournament_abort_uses_original_charges_and_a_drained.sql').read_text()
+ recovery=(root/'supabase/migrations/20261031161513_tournament_original_twenty_can_withdraw_unsettled_abort.sql').read_text()
+ abort_tables=re.search(r'CREATE TABLE smarter_private[.]tournament_abort_targets.*?;',abort,re.S).group(0)+re.search(r'CREATE TABLE smarter_private[.]tournament_abort_recoveries.*?;',recovery,re.S).group(0)
+ ingress=re.search(r'CREATE OR REPLACE FUNCTION smarter_private[.]tournament_abort_ingress.*?\$function\$.*?\$function\$',recovery,re.S).group(0)
+ e.sql(bust_db,abort_tables+ingress+';',label='exact-empty-original-abort-ingress')
+ original_operator=(root/'supabase/migrations/20261010035502_stable_admin_engine_operator_commands.sql').read_text()
+ original_scope=(root/'supabase/migrations/20261012181905_scoped_club_launch_reset_and_guarded_recovery.sql').read_text()
+ original_lease=(root/'supabase/migrations/20261014231111_a_floor_park_is_a_lease_that_expires_and_pages_never_a_switc.sql').read_text()
+ empty_control=re.search(r'CREATE TABLE public[.]ca_operator_floor_hold[^;]*;',original_operator,re.S).group(0)
+ empty_control+=re.search(r'CREATE TABLE public[.]ca_launch_operator_scopes[^;]*;',original_scope,re.S).group(0)
+ empty_control+=re.search(r'ALTER TABLE public[.]ca_operator_floor_hold[^;]*;',original_lease,re.S).group(0)
+ e.sql(bust_db,empty_control,label='exact-empty-original-operator-scope-relations')
+ funding=(root/'supabase/migrations/20260917233447_tournament_original_funding_and_obligation_receipts.sql').read_text()
+ funding=funding[funding.index('CREATE TABLE public.tournament_participant_funding_receipts'):funding.index('CREATE FUNCTION public.fn_ca_record_tournament_participant_funding')]
+ e.sql(bust_db,funding,label='original-participant-funding-owner-and-receipts')
+ admission=(root/'supabase/migrations/20260917060000_mtt_persisted_format_preparation.sql').read_text()
+ admission=admission[admission.index('CREATE TABLE public.ca_mtt_admission_contract'):admission.index('-- Narrow recorded legacy shapes')]
+ e.sql(bust_db,admission,label='original-supported-legacy-admission-contract')
+ coupon=(root/'supabase/migrations/20261105223835_five_free_buy_tickets_a_day_for_every_player.sql').read_text()
+ coupon=coupon[coupon.index('CREATE TABLE smarter_private.free_buy_ticket_redemptions'):coupon.index('CREATE FUNCTION smarter_private.free_buy_gaming_day')]
+ e.sql(bust_db,coupon,label='exact-empty-original-coupon-redemptions')
+ purchase=json.loads((args.ticket_tree/'tests/fixtures/promo-ticket-play-through/purchase-owner.json').read_text())+json.loads((args.ticket_tree/'tests/fixtures/promo-ticket-play-through/purchase-price-owner.json').read_text())
+ priority={'fn_ca_unit_floor_cents':0,'fn_ca_tournament_fee_ratio':0,'fn_ca_recovery_fee_cents':1,'fn_ca_tournament_purchase_fee_ratio':1}
+ for row in sorted(purchase,key=lambda row:priority.get(row['signature'].split('(')[0],2)):e.sql(bust_db,row['definition']+';',label='actual-price-'+row['signature'][:24])
+ e.sql(bust_db,ticket[ticket.index('DO $purchase_owner$'):ticket.index('DO $refund_owner$')],label='actual-original-purchase-context-and-pin')
+ free_format=(root/'supabase/migrations/20261105035220_midway_free_buy_rotation_formats_and_promo_funded_entries.sql').read_text()
+ free_format=free_format[free_format.index('CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_format'):free_format.index('CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_pko')]
+ e.sql(bust_db,free_format,label='actual-original-free-buy-predicate')
+ seed=(root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql').read_text().split('SET LOCAL session_replication_role=origin;')[0]
+ seed+='SET LOCAL session_replication_role=origin;\n'+(args.ticket_tree/'tests/fixtures/promo-ticket-play-through/bust-reentry.sql').read_text()
+ e.sql(bust_db,seed,label='actual-promo-bust-reentry',seconds=60)
+ e.report['native'].append({'case':'actual-promo-bust-reentry','assertions':16})
+
  e.sql(db,"""BEGIN;
 SET LOCAL session_replication_role=replica;
 INSERT INTO public.profiles(id,username,display_name) VALUES('10000000-0000-0000-0000-000000000002','promo_return_two','Promo Return Two') ON CONFLICT(id) DO NOTHING;
