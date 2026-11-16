@@ -58,9 +58,6 @@ BEGIN
 END $$;
 CREATE TRIGGER promo_ticket_fixture_agent_journal AFTER UPDATE OF promo_wallet_balance,agent_wallet_balance ON agents FOR EACH ROW EXECUTE FUNCTION promo_ticket_fixture_agent_journal();
 
-CREATE TABLE public.fixture_fee_funding(ledger_id uuid PRIMARY KEY,promo numeric);
-CREATE FUNCTION public.fn_ca_promo_capture_entry_funding(uuid,numeric) RETURNS void LANGUAGE plpgsql AS $$
-BEGIN INSERT INTO fixture_fee_funding VALUES($1,$2) ON CONFLICT(ledger_id) DO UPDATE SET promo=EXCLUDED.promo;END$$;
 CREATE TABLE public.fixture_principal_returns(grant_id uuid,reason text,amount numeric,operation_ref text,UNIQUE(grant_id,operation_ref));
 CREATE FUNCTION public.fn_ca_promo_return_principal(uuid,text,text,numeric,text DEFAULT NULL) RETURNS numeric LANGUAGE plpgsql AS $$
 DECLARE g ca_promo_play_through_grants%ROWTYPE;take numeric;

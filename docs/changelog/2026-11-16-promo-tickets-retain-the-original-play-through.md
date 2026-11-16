@@ -16,5 +16,9 @@ owner returns it in fund-before-member order. Active event or earned noncash
 principal prevents club departure until lawful maturity or unregister.
 
 The native PG17 proof runs actual captured money owners in the maintained promo
-workflow. Its journal/registration/fee/return fixture limits are documented
+workflow. Its journal/registration/return fixture limits are documented
 beside captures. No production financial writes or programme activation occur.
+
+The native proof also loads the actual immutable fee-funding and eligibility
+owners, asserting surviving original principal through direct satellite and
+earned-ticket entry. It does not substitute a numeric fee capture adapter.

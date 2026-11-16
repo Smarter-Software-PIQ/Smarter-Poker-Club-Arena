@@ -4,7 +4,8 @@
 The actual promo ticket money door refuses new purchases; the original ticket
 owner accepts explicit cashable player/agent sources. The native fixture runs
 original cancellation, debit and Free Buy owners with documented journal,
-registration, fee capture and original-source-return intent adapters.
+registration and original-source-return intent adapters. The actual fee
+migration prefix captures immutable direct and earned-entry funding.
 """
 from concurrent.futures import ThreadPoolExecutor
 import argparse,hashlib,importlib.util,json,os,subprocess,tempfile,uuid,shutil
@@ -18,7 +19,7 @@ T='71000000-0000-0000-0000-000000000001';F='71000000-0000-0000-0000-000000000002
 MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql'
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');args=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--fee-migration',type=Path,default=ROOT/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql');args=p.parse_args()
  if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
  args.output.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='ptp-'));pg=Path(base.pg_bin());db=base.Db(str(tmp),54429,'promo_tickets');started=False;checks=[];passed=False
  def check(label,actual,expected):
@@ -29,7 +30,7 @@ def main():
   output=one(prefix+f"SET test.uid='{who}';SELECT {expression};")
   return json.loads(next(line for line in output.splitlines() if line.startswith('{')))
  def reset():
-  db.run("TRUNCATE ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_fee_funding,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SET fixture.skip_journal='0';")
+  db.run("TRUNCATE ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SET fixture.skip_journal='0';")
  def held(kind='player_wallet',entity=A,who=A):return one(f"SELECT fn_ca_promo_locked_at('{C}','{who}','{kind}','{entity}')")
  def payout(event,value,category='tournament_prize',who=A,entitlement=None):
   context='' if entitlement is None else f"SET LOCAL app.ca_promo_refund_entitlement='{entitlement}';"
@@ -52,6 +53,7 @@ def main():
    db.run(r['definition'])
    sig=r['signature'] if '.' in r['signature'].split('(')[0] else 'public.'+r['signature']
    check('captured actual owner '+r['proname'],one(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure))"),r['md5'])
+  fee=args.fee_migration.read_text();db.run(fee[:fee.index('DO $owners$')]+'COMMIT;')
   db.run(MIGRATION.read_text())
   check('private ticket owner is not browser callable',one("SELECT NOT has_function_privilege('authenticated','fn_ca_issue_cashable_ticket_owned(uuid,uuid,numeric,text,text,text)','EXECUTE')"),'t')
   reset()
@@ -106,7 +108,7 @@ def main():
   check('promo can enter a tournament directly',result.get('ok'),True)
   check('direct entry moves original principal to its event',held('event',T),'20')
   check('direct entry locks no unrelated wallet money',held(),'0')
-  check('direct promo fee handoff preserves original amount',one('SELECT promo FROM fixture_fee_funding'),'20')
+  check('direct promo fee handoff preserves original amount',one('SELECT f.promo_amount FROM ca_promo_entry_fee_funding f JOIN chip_ledger l ON l.id=f.charge_ledger_id'),'20')
   original_charge=one('SELECT charge_ledger_id FROM ca_promo_event_principal_lots')
   payout(T,7);payout(T,30)
   check('partial prizes retain only original principal',held(),'20')
@@ -138,6 +140,8 @@ def main():
   db.run(f"INSERT INTO tournaments(id,club_id) VALUES('{next_event}','{C}');INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,metadata) VALUES('escrow','{earned}','prize_liability','{next_event}',30,'ticket_redeem','{C}',jsonb_build_object('user_id','{A}'))")
   check('earned satellite award can enter with its original principal',held('event',next_event),'12')
   check('earned award redemption does not create another target',one("SELECT count(*)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'1:80.0000')
+  check('actual fee owner captures earned ticket original principal',one("SELECT f.promo_amount FROM ca_promo_entry_fee_funding f JOIN chip_ledger l ON l.id=f.charge_ledger_id WHERE l.from_type='escrow'"),'12')
+  check('actual fee owner captures satellite carried original principal',one("SELECT f.promo_amount FROM ca_promo_entry_fee_funding f JOIN chip_ledger l ON l.id=f.charge_ledger_id WHERE l.from_type='prize_liability'"),'12')
   refused=db.run(f"SELECT fn_ca_promo_leave_events('{C}','{A}')",check=False)
   check('club departure cannot discard active event or earned entry principal',refused.returncode!=0 and 'promo_event_still_active' in refused.stderr,True)
   reset();registrations=[];events=[]
@@ -171,7 +175,7 @@ def main():
   check('concurrent agent ticket creates one escrow entitlement',one('SELECT count(*) FROM tournament_tickets'),'1')
   passed=True
  finally:
-  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest()}}
+  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest()}}
   (args.output/'RESULTS.json').write_text(json.dumps(report,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(tmp)
