@@ -107,8 +107,8 @@ try:
  remember(args.custody_migration)
  e.sql(db,file=args.custody_migration,label='promo-custody')
  # Exact maintained event eligibility helper, not a substitute money writer.
- remember(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql')
- ticket=(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql').read_text()
+ remember(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql')
+ ticket=(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql').read_text()
  cold=ticket[ticket.index('CREATE TABLE public.ca_promo_event_principal_lots'):ticket.index('-- Coupon allowance is not money.')]
  bust_path=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/bust-owner.json';remember(bust_path)
  e.sql(db,'SET check_function_bodies=off;',label='original-bust-source-closure-start')

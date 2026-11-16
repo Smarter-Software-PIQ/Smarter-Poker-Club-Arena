@@ -208,7 +208,7 @@ BEGIN
   IF v_promo_tickets_installed AND NOT EXISTS (
     SELECT 1 FROM supabase_migrations.schema_migrations
      WHERE version = '20261116154719'
-       AND name = 'promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal'
+       AND name = 'promo_tickets_require_cashable_wallets_and_keep_entry_source'
        AND cardinality(statements) = 1
        AND md5(statements[1]) = '45ee3d7701acb4401325a12eaeb7a3fd'
   ) THEN

@@ -16,7 +16,7 @@ def module(path,name):
 base=module(ROOT/'scripts/ci/test-promo-play-through.py','ticket_promo_base')
 C,A,B=base.CLUB,base.ALICE,base.BOB
 T='71000000-0000-0000-0000-000000000001';F='71000000-0000-0000-0000-000000000002'
-MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql'
+MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql'
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--fee-migration',type=Path,default=ROOT/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql');args=p.parse_args()

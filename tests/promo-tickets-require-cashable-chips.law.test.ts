@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(path, 'utf8');
 const sql = read(
-  'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql'
+  'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql'
 );
 const workflow = read('.github/workflows/promo-play-through.yml');
 const page = read('src/pages/CashierTradePage.tsx');

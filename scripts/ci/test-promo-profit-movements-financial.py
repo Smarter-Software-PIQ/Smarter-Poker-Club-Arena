@@ -90,7 +90,7 @@ body=r'''
  sql("ALTER TABLE public.accounting_tournament_fee_sources ADD COLUMN IF NOT EXISTS source_charge_ledger_id uuid,ADD COLUMN IF NOT EXISTS source_entitlement_id uuid;",'exact-current-fee-source-columns')
  fee=root/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql';remember(fee)
  sql(fee.read_text().split('DO $owners$')[0]+'COMMIT;','actual-eligible-fee-helpers')
- ticket_source=(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql').read_text()
+ ticket_source=(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql').read_text()
  for start,end in [('CREATE FUNCTION public.fn_ca_promo_finish_event_principal()','-- The ordinary debit already owns'),('CREATE FUNCTION public.fn_ca_promo_roll_event_principal(','-- One original money owner, explicit source')]:
   sql(ticket_source[ticket_source.index(start):ticket_source.index(end)],'actual-H-event-prerequisite')
  ticket_capture=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/additional-owners.json';remember(ticket_capture)
