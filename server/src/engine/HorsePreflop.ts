@@ -404,6 +404,10 @@ export interface PreflopCtx {
   /** RESPONSES TO TIGHT PLAYERS (2026-11-15, styleTightPlayerExploit): every limper is credibly tight and not
    *  aggressive; the no-limit hold'em isolation bar from middle or late position comes down by this much. */
   styleTightIsoWiden?: number;
+  /** STEAL FROM TIGHT BLINDS (2026-11-15, styleStealTightBlinds, off-only under the owner's blind-steal hold): first
+   *  in from late position or the small blind, every player left to act credibly tight and not aggressive; the
+   *  no-limit hold'em open bar comes down by this much (at most 0.06). */
+  styleTightStealWiden?: number;
   /**
    * HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, option
    * huSmallBlindStealsVsTightBigBlind, HorseHuTightBigBlindSteal): set only
@@ -2643,6 +2647,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         anteWiden +
         vs35.open +
         phase6Shift('open');
+    }
+    // STEAL FROM TIGHT BLINDS (styleStealTightBlinds): hold'em, first in, everyone left credibly tight.
+    if (
+      ctx.styleTightStealWiden !== undefined &&
+      noLimitHoldem &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, Math.min(0.06, ctx.styleTightStealWiden));
     }
     // OMAHA TIGHT OPPONENT STEAL: every player left to act is a proven tight folder.
     if (

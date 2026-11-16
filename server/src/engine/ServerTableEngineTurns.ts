@@ -34,6 +34,7 @@ import {
   fixedLimitStreetBounds,
   potLimitBettingPot,
   substituteOnCappedStreet,
+  failureFallbackAction,
   type BettingStructure,
 } from './BettingStructure.js';
 import { horseVariantRulesFor } from './VariantRules.js';
@@ -4531,8 +4532,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         // legal liveness action for the already-authoritative turn; it does not
         // compute poker strategy and cannot hide a dead worker. Terminal worker
         // failure is separately process-fatal at the GameServer lifecycle.
+        // 2026-11-15: on FIXED LIMIT the liveness action is price-aware - a
+        // call when the pot lays 4 to 1 or better and `call` is on the seat's
+        // menu, else fold (BettingStructure.failureFallbackAction). Every
+        // other structure folds when chips are owed, as before.
+        const fallbackAction = failureFallbackAction({
+          structure: boundedActions.structure,
+          toCall,
+          pot: state.pot,
+          legalActions: boundedActions.legalActions,
+        });
         const safeDecision: HorseDecision = {
-          action: toCall > 0 ? 'fold' : 'check',
+          action: fallbackAction,
+          ...(fallbackAction === 'call' ? { amount: toCall } : {}),
           thinkTime: 0,
         };
         safeDecision.executionWitness = createHorseExecutionWitness(

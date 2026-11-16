@@ -2121,6 +2121,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // League seats decide with mind off, so no style read engages and this card
   // is expected to be inert; the declared evaluation is the paired synthetic
   // measurement in docs/horse-default-on.d/styleTightPlayerExploit.md.
+  // 2026-11-15 STEAL FROM TIGHT BLINDS (styleStealTightBlinds, default OFF and
+  // off-only in the switch): a opens wider first in when everyone left to act
+  // is credibly tight; b is today's brain. League seats decide with mind off,
+  // so no style read engages and this card is expected to be inert.
+  {
+    name: 'nlh_style_steal_tight_blinds',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { styleStealTightBlinds: true },
+    b: {},
+  },
   {
     name: 'nlh_style_tight_player_exploit',
     variant: 'nlh',
@@ -2156,6 +2168,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     name: 'nlh_gear_shift_reach',
     pairs: 6000,
     a: { holdemGearShiftReach: true },
+    b: {},
+  },
+  // 2026-11-15 SHORT-HANDED MANIAC REACH (holdemManiacShortHandedReach, default
+  // OFF): a gives a short-handed or heads-up opponent the maniac width from
+  // postflop evidence (bet-when-checked-to high, fold-to-bet low); b is today's
+  // read. Six-handed Horse field: expected near inert; its value is against people.
+  {
+    name: 'nlh_maniac_short_handed_reach',
+    pairs: 6000,
+    a: { holdemManiacShortHandedReach: true },
     b: {},
   },
   // 2026-11-15 A REGULAR IS NOT A MANIAC (holdemManiacSampleGate, default OFF):
@@ -2910,6 +2932,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // the same in-the-money final table; a values a bust at the place it pays,
   // b at 0 as before. Chips, not payouts, are scored, so this card measures
   // what the corrected bubble factor costs or gains in chips.
+  // 2026-11-15 STACK-SCALED UTILITY MARGIN (tournamentUtilityStackScaledMargin,
+  // default OFF): the same in-the-money final table; a measures the utility's
+  // equity margin against the candidate's own sensitivity, b against the whole
+  // pool as before. Chips, not payouts, are scored: the card measures what the
+  // narrower margin costs or gains in chips, not its payout value.
+  {
+    name: 'mtt6_ft_utility_stack_scaled_margin_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { tournamentUtilityStackScaledMargin: true },
+    b: {},
+  },
   {
     name: 'mtt6_ft_icm_bust_pays_place_12bb',
     seats: 6,
@@ -2991,6 +3029,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { facingOpenFullRingZone: true },
+    b: {},
+  },
+  // 2026-11-15 HOLD'EM PERSONA POSTFLOP (holdemPersonaPostflop, default OFF):
+  // a reads the persona on three V87 postflop mixes (check-trap, turn
+  // takeaway, range continuation bet); b is today's fleet mix. Not yet run.
+  {
+    name: 'cash6_holdem_persona_postflop',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true },
     b: {},
   },
   // 2026-11-14 PERSONA RE-RAISE MIX (D3 option C), default OFF, so arm A
@@ -3840,6 +3891,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'What would change this: a league that replays accepted hands into the pooled public profiles across a ' +
       'simulated restart; until it exists, aShownRiverBettorIsRememberedAcrossARestart.law.test.ts and its worker ' +
       'test (FAST, DEEP and exact replay) are the evidence.',
+  },
+  // 2026-11-15 (Hold'em Strategy lane): the profile completeness cap. Refused, not
+  // dealt: the rows it reads do not exist in a league hand.
+  {
+    name: 'nlh_profile_completeness_cap',
+    variant: 'nlh',
+    seats: 6,
+    a: { holdemProfileCompletenessCap: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option reads one thing, the qualification of the pooled public rows ' +
+      '(initialized, public_memory_domain) that a live worker decision carries ' +
+      '(horseDecision/observerReads -> HorseMindSandbox.pooledProfileIncomplete). playHand calls HorseLogic.decide ' +
+      'directly, with no pooled public rows and no worker, so no row is ever named and both arms read the same ' +
+      'style confidence. MEASURED 2026-11-15 (runMatchup, seed 20261115): 0 of 300 pairs diverged, 0.00 bb/100, ' +
+      'stderr 0. The option is DEFAULT OFF (read as === true). ' +
+      'What would change this: a league that seats opponents from stored pooled profiles with mixed ' +
+      'qualification; until it exists, anIncompleteProfileIsCappedThroughTheWorker.test.ts (FAST, DEEP and exact ' +
+      'replay) is the evidence.',
   },
   // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
   // fixed-limit arms. Refused, not dealt: this league cannot ask the question.

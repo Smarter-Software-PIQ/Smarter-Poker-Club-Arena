@@ -25,6 +25,7 @@ import {
   type HorseWinnerReadState,
 } from '../HorseWinnerRead.js';
 import type { FlopStabCounters } from '../HorseOpponentExploit.js';
+import { profileQualification } from '../HorseOpponentStyle.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
 
 export interface HorseObserverReadReceipt {
@@ -551,7 +552,14 @@ export class HorseObserverReads {
     }
     return entry;
   }
-  run<T>(request: FastHorseDecisionRequest, fn: () => T): T {
+  run<T>(
+    request: FastHorseDecisionRequest,
+    fn: () => T,
+    // The EFFECTIVE options for what this view carries (the live option switch's value, read inside the worker).
+    // The view itself stays keyed by the ORIGINAL request object: the receipt, the history acknowledgement and
+    // every issued effect look it up by that object, so the request is never copied for the read view.
+    carriedOpts: FastHorseDecisionRequest['opts'] = request.opts
+  ): T {
     const context = horseObserverReadContextFromRequest(request);
     const anchor = anchorHorseDecisionHand(request);
     let entry =
@@ -641,7 +649,7 @@ export class HorseObserverReads {
     // holds only evidence accepted before the decision. Donor rows never carry one. With the option off nothing is
     // carried, so the state, the read frame and the decision are exactly what they were.
     const pooledShownRiver = new Map<string, ShownRiverRead>();
-    if (pooled && request.opts?.styleLongShownMemory === true)
+    if (pooled && carriedOpts?.styleLongShownMemory === true)
       for (const row of pooled.rows) {
         const read = shownRiverReadOf(row.shown_river, request.decisionTimeMs);
         if (read)
@@ -650,6 +658,18 @@ export class HorseObserverReads {
             read
           );
       }
+    // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
+    // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
+    // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
+    // carried, so the state, the read frame and the decision are exactly what they were.
+    const pooledProfileIncomplete = new Map<string, true>();
+    if (pooled && carriedOpts?.holdemProfileCompletenessCap === true)
+      for (const row of [...pooled.rows, ...pooled.donors.map((d) => d.profile)])
+        if (!profileQualification(row).complete)
+          pooledProfileIncomplete.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            true
+          );
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
     const executionState =
@@ -662,6 +682,7 @@ export class HorseObserverReads {
                   ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
                   ...(pooledProvenance.size ? { pooledProvenance } : {}),
                   ...(pooledShownRiver.size ? { pooledShownRiver } : {}),
+                  ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),
