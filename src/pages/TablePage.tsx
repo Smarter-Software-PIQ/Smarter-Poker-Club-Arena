@@ -10622,14 +10622,14 @@ function LiveTablePage({
      IMAGES AND EVERYTHING AT ONCE." Both rasters are fetched, decoded and
      retried by useTableArt; the table is revealed in one frame once they
      have (hooks/useTableArt.ts). */
-  const tableSkinUrl = resolveSkin(
-    tableState.isFinalTable
-      ? 'final_table'
-      : v8Theme.table_id || v8Theme.theme_id || userSettings.theme || ''
-  );
-  const tableBackgroundUrl = resolveBackground(
-    tableState.isFinalTable ? 'final_table_broadcast' : v8Theme.background_id || 'midnight'
-  );
+  const tableSkinId = tableState.isFinalTable
+    ? 'final_table'
+    : v8Theme.table_id || v8Theme.theme_id || userSettings.theme || '';
+  const tableBackgroundId = tableState.isFinalTable
+    ? 'final_table_broadcast'
+    : v8Theme.background_id || 'midnight';
+  const tableSkinUrl = resolveSkin(tableSkinId);
+  const tableBackgroundUrl = resolveBackground(tableBackgroundId);
   const deckReady = useDeckImages(userSettings.fourColorDeck ? '4color' : '2color');
   const tableArt = useTableArt(
     tableSkinUrl,
@@ -10658,6 +10658,18 @@ function LiveTablePage({
     () => normalizeCardBack(v8Theme.cards_id || userSettings.cardBack),
     [v8Theme.cards_id, userSettings.cardBack]
   );
+
+  const shareAppearance = {
+    faceDeck: v8Theme.faceDeckId,
+    showAvatars: v8Settings.show_avatars,
+    skin: tableSkinId,
+    background: tableBackgroundId,
+    cardBack: activeCardBack,
+    fourColor: !!userSettings.fourColorDeck,
+    maxPlayers: tableState.maxPlayers,
+  };
+  const shareAppearanceRef = useRef(shareAppearance);
+  shareAppearanceRef.current = shareAppearance;
 
   // Bible V8 §9.1.3: Frame budget monitoring (dev mode only — warns on >16ms frames)
   useFrameBudgetMonitor();
@@ -11077,8 +11089,9 @@ function LiveTablePage({
 
   // Hand history recording refs — accumulate actions during a hand
   const handActionsRef = useRef<
-    Array<{ seat: number; action: string; amount?: number; street: string }>
+    Array<{ seat: number; action: string; amount?: number; street: string; atMs?: number }>
   >([]);
+  const shareStartedAt = useRef<number | null>(null);
   const handStartStacksRef = useRef<Record<number, number>>({});
   /** Button seat captured at HAND_STARTED — the live dealerSeat has already
    *  rotated by the time the hand completes. */
@@ -19943,6 +19956,10 @@ function LiveTablePage({
           if (log.length < 400) {
             log.push({
               seat: actionSeat,
+              atMs:
+                shareStartedAt.current == null
+                  ? undefined
+                  : Math.round(performance.now() - shareStartedAt.current),
               action,
               amount: actionAmount > 0 ? actionAmount : undefined,
               street: tableStateRef.current.boardStage || 'preflop',
@@ -20351,6 +20368,7 @@ function LiveTablePage({
         // and the starting stacks BEFORE any chips move, so the shared replay
         // shows what each player sat down with rather than what they finished
         // with. (The button seat is needed for position labels on the replay.)
+        shareStartedAt.current = performance.now();
         handActionsRef.current = [];
         handStartStacksRef.current = {};
         {
@@ -20956,10 +20974,16 @@ function LiveTablePage({
             seat: number;
             action: string;
             amount?: number;
+            atMs?: number;
           }): ShareableAction | null => {
             const mapped = LIVE_SHARE_VERB[(a.action || '').toLowerCase().replace(/[\s-]/g, '_')];
             if (!mapped) return null;
-            const out: ShareableAction = { seat: a.seat, action: mapped, amount: a.amount };
+            const out: ShareableAction = {
+              seat: a.seat,
+              action: mapped,
+              amount: a.amount,
+              atMs: a.atMs,
+            };
             /* An ante is dead money: in the pot, never in front of the seat. */
             if (mapped === 'ANTE') out.dead = true;
             return out;
@@ -20986,6 +21010,7 @@ function LiveTablePage({
                 ? {
                     seat: i + 1,
                     name: p.name || `Seat ${i + 1}`,
+                    avatar: p.avatar,
                     // Stack as it was at the top of the hand, not post-payout.
                     stack: handStartStacksRef.current[i + 1] ?? p.stack ?? 0,
                     // Only cards actually visible on screen travel in the link
@@ -21026,6 +21051,7 @@ function LiveTablePage({
               stakes: st.blinds || '',
               timestamp: Date.now(),
               buttonSeat: shareButtonSeatRef.current || st.dealerSeat || 0,
+              appearance: shareAppearanceRef.current,
               players: sharePlayers,
               preflop: byStreet('preflop'),
               flop:

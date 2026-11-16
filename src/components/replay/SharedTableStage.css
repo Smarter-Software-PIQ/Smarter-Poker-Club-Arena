@@ -1,0 +1,36 @@
+.table-page.shared-table-stage {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: clamp(480px, 78dvh, 860px);
+  min-height: 0;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background-position: center;
+  background-size: cover;
+  pointer-events: none;
+}
+.shared-table-stage.table-page .shared-table-stage__surface.table-scaler {
+  position: relative;
+  inset: auto;
+  transform: none;
+  width: min(80%, 48dvh);
+  height: 77%;
+  max-height: none;
+  container-type: size;
+  --table-w: min(75vw, 48dvh);
+}
+.shared-table-stage__boards {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.shared-table-stage__boards > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
