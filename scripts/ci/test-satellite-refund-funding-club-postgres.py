@@ -156,6 +156,44 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
    assert got=='0',(name,got)
  assert digest()==before_digest
  print('PASS',len(faults),'faults refused in both readers; all fixture data unchanged after rollback')
+
+ # The two access paths must preserve the complete post-ruling receipts in both readers.
+ original_rows = {name: rows(call) for name, (_, call) in readers.items()}
+ migration = next((R/'supabase/migrations').glob('20261116183213_*.sql'))
+ shape = json.loads(run(['node','--input-type=module','-e',
+  "import {readFileSync} from 'node:fs';import {splitConcurrentPreamble} from './scripts/ci/migration-concurrent-preamble.mjs';console.log(JSON.stringify(splitConcurrentPreamble(readFileSync(process.argv[1],'utf8'))));",str(migration)]))
+ assert shape['ok'] and len(shape['indexes'])==2
+ sql("""INSERT INTO public.tournament_refund_entitlements(id,tournament_id,entitlement_kind)
+     SELECT md5('refund-id-'||g)::uuid,md5('tournament-'||(g%1300))::uuid,'wallet_charge' FROM generate_series(1,50000) g;
+     INSERT INTO public.cash_funding_application_receipts(transaction_id,refunded)
+     SELECT (10000+g)::text::xid8,1 FROM generate_series(1,20000) g;
+     INSERT INTO public.cash_funding_application_receipts(transaction_id,refunded) VALUES ('42222',3),('42222',7);
+     ANALYZE public.tournament_refund_entitlements; ANALYZE public.cash_funding_application_receipts;""")
+ window_signature=readers['window'][0]
+ window_body=sql("SELECT prosrc FROM pg_proc WHERE oid='"+window_signature+"'::regprocedure")
+ arguments=['p_union_id','p_start','p_end','p_window_start','p_window_end']
+ for parameter,value in zip(arguments,re.findall("'([^']+)'",window)):
+  window_body=re.sub(r'\b'+parameter+r'\b',"'"+value+"'::"+('uuid' if parameter=='p_union_id' else 'timestamptz'),window_body)
+ def nodes(node):
+  yield node
+  for child in node.get('Plans',[]): yield from nodes(child)
+ def receipt_plan():
+  plan=json.loads(sql('EXPLAIN (FORMAT JSON) '+window_body))[0]['Plan']
+  return list(nodes(plan))
+ application_query="SELECT array_agg(refunded ORDER BY refunded) FROM public.cash_funding_application_receipts WHERE transaction_id='42222'::xid8"
+ assert sql(application_query)=='{3,7}'
+ before_plan=receipt_plan()
+ assert any(n.get('Relation Name')=='tournament_refund_entitlements' and n['Node Type']=='Seq Scan' for n in before_plan)
+ for index in shape['indexes']:
+  run([str(PG/'psql'),'-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-h',str(sock),'-p',port,'-d','postgres'],index['statement'])
+ sql(shape['body'])
+ after_plan=receipt_plan()
+ used={n.get('Index Name') for n in after_plan}
+ assert {'weekly_pnl_refund_entitlement_key','weekly_pnl_cash_application_transaction'}<=used,used
+ assert {name: rows(call) for name,(_,call) in readers.items()}==original_rows
+ assert sql(application_query)=='{3,7}'
+ print('PASS exact full and window P&L evidence is unchanged; real bounded reader plans both original receipt indexes')
+
 finally:
  if started:subprocess.run([str(PG/'pg_ctl'),'-D',str(w/'data'),'-m','immediate','stop'],capture_output=True,env=env)
  shutil.rmtree(w)
