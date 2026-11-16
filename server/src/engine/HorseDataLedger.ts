@@ -6109,7 +6109,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'phase15_brain_exception',
     'HorseLogic.decide',
-    'a policy exception produced an explicit check/fold liveness fallback; the private error is not part of the action receipt',
+    'a policy exception produced an explicit liveness fallback (check when free; call at <= 0.2 price on fixed limit when call is on the menu, else fold); the private error is not part of the action receipt',
     'Phase15'
   ),
   receipt(
@@ -6803,6 +6803,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseMind.observeHandComplete (FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE, process switch HorseMind.setFixedLimitRiverBetsAreValueEvidence, source default FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false)',
     'a fixed-limit river bet or raise under 20 big blinds that reached showdown was counted in the V83 big-bet showdown tally (bigBetSD)',
     'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit failure fallbacks only (worker refusal/expiry or brain_exception).
+  receipt(
+    'fixed_limit_failure_fallback_call',
+    'ServerTableEngineTurns.scheduleHorseAction and HorseLogic.decide (BettingStructure.failureFallbackAction)',
+    'a failed fixed-limit decision called a price of 4 to 1 or better (toCall / (pot + toCall) <= 0.2 with call on the menu) instead of folding',
+    '2026-11-16'
   ),
   // No floor: fires only against an opponent whose checked-to bets include probes.
   receipt(
