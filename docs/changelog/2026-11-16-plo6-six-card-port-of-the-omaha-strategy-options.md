@@ -8,7 +8,7 @@ The PLO4/PLO5 strategy options of 2026-11-15 now have their six-card branches: r
 
 ## What did not change
 
-Nothing a player can see. Every new branch is reached only when `omahaStrategyInPlo6` is on for the decision, and that option is registered OFF-ONLY: no switch row can turn it on. With it off, PLO4, PLO5 and PLO6 decide exactly as before. No list, ledger or migration change.
+Nothing a player can see. Every new branch is reached only when `omahaStrategyInPlo6` is on for the decision, and that option is registered OFF-ONLY: no switch row can turn it on. With it off, PLO4, PLO5 and PLO6 decide exactly as before. No option-switch list or migration change; one ledger receipt added.
 
 ## Why
 
