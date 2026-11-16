@@ -3853,6 +3853,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         if (this.returningFromSitout.size > 0) {
           for (const p of players) {
             if (!this.returningFromSitout.has(p.user_id)) continue;
+            if (this.postingBBToEnter.has(p.user_id)) continue;
             if (p.seat_number === sbSeat || p.seat_number === bbSeat) continue;
             this.disconnectEngine.noteBlindChargedWhileAway(this.tableId, p.user_id, 'sb');
             this.disconnectEngine.noteBlindChargedWhileAway(this.tableId, p.user_id, 'bb');
@@ -3967,7 +3968,15 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         deadBlinds:
           !this.isTournamentTable() && this.returningFromSitout.size > 0
             ? players
-                .filter((p) => this.returningFromSitout.has(p.user_id))
+                // A player posting a big blind TO ENTER has never been dealt
+                // here, so they have missed nothing: the entry rule wins and
+                // they owe the live big blind only (hand #59634000 billed a
+                // new arrival both charges).
+                .filter(
+                  (p) =>
+                    this.returningFromSitout.has(p.user_id) &&
+                    !this.postingBBToEnter.has(p.user_id)
+                )
                 .map((p) => ({ seat: p.seat_number }))
             : undefined,
         // AUDIT FIX 2026-07-19: "Post BB to enter" players post a live BB only.

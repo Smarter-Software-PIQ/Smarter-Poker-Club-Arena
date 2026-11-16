@@ -1755,7 +1755,14 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       this.returnedFromSitOutAtMs.set(userId, Date.now());
       this.disconnectEngine.sitBack(this.tableId, userId);
       // Bible V8 §4.2: Mark player as returning — must post dead blind on next hand (cash tables only)
-      if (!this.isTournamentTable()) {
+      // A new arrival still waiting for, or agreed to post, their entry big
+      // blind has never been dealt here and has missed no blind. Tapping I'm
+      // Back must not add the missed-blind charge on top of the entry post.
+      const stillEntering =
+        this.waitingForBB.has(userId) ||
+        this.postBBWhenClear.has(userId) ||
+        this.postingBBToEnter.has(userId);
+      if (!this.isTournamentTable() && !stillEntering) {
         this.returningFromSitout.add(userId);
       }
     }

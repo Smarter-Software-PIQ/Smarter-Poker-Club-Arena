@@ -732,10 +732,18 @@ export class HandController {
     // AUDIT FIX 2026-07-19: "Post BB to enter" — new players post ONLY a live
     // BB (no dead SB). They act on it like a normal blind.
     if (this.config.bbOnlyPosts && this.config.bbOnlyPosts.length > 0) {
+      // ONE ENTRY CHARGE PER SEAT (2026-11-15, hand #59634000). A seat listed
+      // under BOTH deadBlinds and bbOnlyPosts was billed twice: the dead-blind
+      // block above took a dead SB plus a live BB, then this block took a
+      // second BB and OVERWROTE `bet` instead of adding to it. The player was
+      // out 2.5 BB with only 1 BB counted toward the call. A seat the
+      // dead-blind block has already charged posts nothing more here.
+      const alreadyPostedDeadBlind = new Set((this.config.deadBlinds ?? []).map((d) => d.seat));
       for (const bp of this.config.bbOnlyPosts) {
         const p = this.state.players.find((pl) => pl.seat === bp.seat);
         if (
           p &&
+          !alreadyPostedDeadBlind.has(p.seat) &&
           p.seat !== sbSeat &&
           p.seat !== bbSeat &&
           p.seat !== killerSeat &&
