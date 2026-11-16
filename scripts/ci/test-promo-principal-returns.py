@@ -4,7 +4,7 @@
 No production mutations. Actual autoledger, tally and deferred journal guards
 come from the existing bound financial foundation, never replacement functions.
 """
-import argparse,os,sys,json,hashlib
+import argparse,os,sys,json,hashlib,uuid
 from pathlib import Path
 root=Path(__file__).resolve().parents[2];sys.path.insert(0,str(root/'scripts/ci'))
 from satellite_qualifier_fixture import module,table_sql
@@ -14,6 +14,7 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--output',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True)
 p.add_argument('--ticket-tree',type=Path,default=root)
 p.add_argument('--custody-migration',type=Path,default=root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql')
+p.add_argument('--return-migration',type=Path,default=root/'supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql')
 p.add_argument('--current-financial',type=Path,default=root/'tests/fixtures/promo-principal-returns/current-financial-owners.json')
 p.add_argument('--disburse-owner',type=Path,default=root/'tests/fixtures/promo-principal-returns/disburse.sql')
 args=p.parse_args();current=json.loads(args.current_financial.read_text())
@@ -108,6 +109,11 @@ try:
  remember(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql')
  ticket=(args.ticket_tree/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql').read_text()
  cold=ticket[ticket.index('CREATE TABLE public.ca_promo_event_principal_lots'):ticket.index('-- Coupon allowance is not money.')]
+ bust_path=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/bust-owner.json';remember(bust_path)
+ e.sql(db,'SET check_function_bodies=off;',label='original-bust-source-closure-start')
+ for row in json.loads(bust_path.read_text()):
+  e.sql(db,row['definition']+';',label='actual-bust-'+row['signature'].split('(')[0])
+ e.sql(db,'SET check_function_bodies=on;',label='original-bust-source-closure-end')
  e.sql(db,cold,label='maintained-event-principal-and-exact-refund-owners')
  capture=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/current-owners.json';remember(capture)
  original_refund=next(row for row in json.loads(capture.read_text()) if row['proname']=='fn_settle_tournament_refund_exact')
@@ -119,8 +125,8 @@ try:
  CREATE TABLE cron.job(jobid bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,jobname text,schedule text,command text);
  CREATE FUNCTION cron.schedule(text,text,text) RETURNS bigint LANGUAGE sql AS $$INSERT INTO cron.job(jobname,schedule,command) VALUES($1,$2,$3) RETURNING jobid$$;
  """,label='provider-cron-registration-adapter')
- remember(root/'supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql')
- e.sql(db,file=root/'supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql',label='promo-original-returns')
+ remember(args.return_migration)
+ e.sql(db,file=args.return_migration,label='promo-original-returns')
  e.sql(db,"""BEGIN;
 SET LOCAL session_replication_role=replica;
 INSERT INTO public.profiles(id,username,display_name) VALUES('10000000-0000-0000-0000-000000000002','promo_return_two','Promo Return Two') ON CONFLICT(id) DO NOTHING;
@@ -281,6 +287,7 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  SET LOCAL session_replication_role=origin;
  SELECT public.fn_ca_promo_move_custody('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','player_wallet','10000000-0000-0000-0000-000000000001','event','97000000-0000-0000-0000-000000000001',10);
  INSERT INTO public.ca_promo_event_principal_lots(grant_id,tournament_id,charge_ledger_id,source_ref,original_amount,remaining) SELECT id,'97000000-0000-0000-0000-000000000001','97000000-0000-0000-0000-000000000002','native-original-entry',10,10 FROM public.ca_promo_play_through_grants WHERE source_ref='native-exact-refund';
+ SELECT public.fn_ca_promo_consume_entry_fee('97000000-0000-0000-0000-000000000002');
  INSERT INTO public.ca_settle_sources(source,note) VALUES('atomic_cancel_tournament','DB caller') ON CONFLICT(source) DO NOTHING;
  DO $$DECLARE result jsonb;credit uuid;paid numeric;BEGIN
  result:=public.fn_settle_tournament_refund_exact('97000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',20,18,0,2,'atomic_cancel_tournament','Native Original Refund');
@@ -295,6 +302,90 @@ COMMIT;""",label='actual-partial-return-financial-closure')
  END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;
  """,label='actual-exact-entry-refund-and-original-fund-return')
  e.report['native'].append({'case':'actual-exact-entry-refund-and-original-fund-return','assertions':6})
+ # Typed opening facts describe an already-funded entry. The fee-source
+ # trigger, original exact refund, all fund/wallet journals and deferred guards
+ # are real. Actual fee production is separately qualified by the fee lane.
+ for promo,closed,lost,cross in [(10,False,False,False),(20,False,False,False),(10,True,False,False),(10,True,True,False),(10,False,False,True)]:
+  fee_db=e.database(db);event,charge,entitlement,record,source=[str(uuid.uuid4()) for _ in range(5)]
+  label='fee-refund-'+str(promo)+('-lost' if lost else '-closed' if closed else '-active')+('-satellite-cross-club' if cross else '')
+  wallet_club='20000000-0000-0000-0000-000000000099' if cross else '20000000-0000-0000-0000-000000000001'
+  source_user='30000000-0000-0000-0000-000000000001' if cross else '10000000-0000-0000-0000-000000000001'
+  source_type='prize_liability' if cross else 'player_wallet'
+  source_meta=json.dumps({'user_id':'10000000-0000-0000-0000-000000000001','registration_id':entitlement}) if cross else '{}'
+  if cross:
+   e.sql(fee_db,f"""BEGIN;SET LOCAL session_replication_role=replica;
+ INSERT INTO public.clubs SELECT (jsonb_populate_record(NULL::public.clubs,to_jsonb(c)||jsonb_build_object('id','{wallet_club}','club_id',99999999,'name','Promo Cross Host','promo_balance',1000))).* FROM public.clubs c WHERE c.id='20000000-0000-0000-0000-000000000001';
+ INSERT INTO public.club_members SELECT (jsonb_populate_record(NULL::public.club_members,to_jsonb(m)||jsonb_build_object('id',gen_random_uuid(),'club_id','{wallet_club}','chip_balance',10))).* FROM public.club_members m WHERE m.club_id='20000000-0000-0000-0000-000000000001' AND m.user_id='10000000-0000-0000-0000-000000000001';
+ COMMIT;""",label='satellite-cross-original-refund-wallet-opening')
+
+  e.sql(fee_db,f"""BEGIN;
+ SET LOCAL session_replication_role=replica;
+ INSERT INTO public.tournaments SELECT (jsonb_populate_record(NULL::public.tournaments,to_jsonb(t)||jsonb_build_object('id','{event}','club_id','{wallet_club}','name','Native Source Fee Refund','status','REGISTERING','buy_in_amount',18,'buy_in_fee',2,'prize_pool',18,'total_rake',2,'guaranteed_prize',0,'prize_pool_finalized',false))).* FROM public.tournaments t WHERE t.id='30000000-0000-0000-0000-000000000001';
+ INSERT INTO public.tournament_escrow(tournament_id,gross_in,fee_entries_in,satellite_fee_in,bounty_in,overlay_in,satellite_in,prize_out,bounty_out,fee_out,refund_prize,refund_bounty,refund_fee,reserve_out,reserve_in,prize_balance,bounty_balance,fee_balance,opened_from,opened_at,updated_at,enforced)
+ VALUES('{event}',{18 if cross else 20},{0 if cross else 2},{2 if cross else 0},0,0,0,0,0,0,0,0,0,0,0,18,0,2,'native-already-funded-entry',now(),now(),true);
+ UPDATE public.clubs SET promo_balance=1050-{promo} WHERE id='20000000-0000-0000-0000-000000000001';
+ INSERT INTO public.chip_ledger(id,performed_by,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,tournament_id,created_at,status,metadata)
+ VALUES('{charge}','10000000-0000-0000-0000-000000000001','{source_type}','{source_user}','prize_liability','{event}',20,'tournament_buyin','{wallet_club}','{event}',clock_timestamp(),'posted','{source_meta}'::jsonb);
+ INSERT INTO public.tournament_refund_entitlements(id,tournament_id,user_id,entitlement_kind,charge_category,refund_wallet_club_id,gross,refund_prize,refund_bounty,refund_fee,source_ledger_id,escrow_bucket,evidence_kind,registration_id,source_satellite_id,source_award_place)
+ VALUES('{entitlement}','{event}','10000000-0000-0000-0000-000000000001','{('satellite_seat' if cross else 'wallet_charge')}','{('satellite_seat' if cross else 'tournament_buyin')}','{wallet_club}',20,18,0,2,'{charge}','{('satellite_gross' if cross else 'wallet_gross')}','{('atomic_satellite_seat' if cross else 'atomic_wallet_charge')}',{("'"+entitlement+"'" if cross else 'NULL')},{("'30000000-0000-0000-0000-000000000001'" if cross else 'NULL')},{('1' if cross else 'NULL')});
+ {("INSERT INTO public.tournament_players(id,tournament_id,user_id,club_id,status) VALUES('"+entitlement+"','"+event+"','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','registered');" if cross else '')}
+ INSERT INTO public.rake_records(id,tournament_id,club_id,is_tournament,rake_amount,metadata,created_at)
+ VALUES('{record}','{event}','20000000-0000-0000-0000-000000000001',true,2,'{{}}',clock_timestamp());
+ INSERT INTO public.accounting_tournament_fee_batches(rake_record_id,tournament_id,source_fingerprint,status,source_version,source_manifest,rake_amount)
+ SELECT '{record}','{event}',public.fn_accounting_tournament_fee_fingerprint(r),'captured',2,'{{}}',2 FROM public.rake_records r WHERE id='{record}';
+ SET LOCAL session_replication_role=origin;
+ SELECT public.fn_ca_promo_play_through_record_grant('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',{promo},'club_promo','{label}',NULL,'promo_wallet','20000000-0000-0000-0000-000000000001');
+ SELECT public.fn_ca_promo_move_custody('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','player_wallet','10000000-0000-0000-0000-000000000001','event','{event}',{promo});
+ INSERT INTO public.ca_promo_event_principal_lots(grant_id,tournament_id,charge_ledger_id,source_ref,original_amount,remaining) SELECT id,'{event}','{charge}','{label}',{promo},{promo} FROM public.ca_promo_play_through_grants WHERE source_ref='{label}';
+ SELECT public.fn_ca_promo_consume_entry_fee('{charge}');
+ DO $$DECLARE p numeric;BEGIN
+ SELECT principal INTO p FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id='{charge}';
+ IF p<>{promo}/10.0 OR (SELECT remaining FROM public.ca_promo_event_principal_lots WHERE charge_ledger_id='{charge}')<>{promo}-{promo}/10.0 THEN RAISE EXCEPTION 'actual fee recognition retained spent principal';END IF;
+ IF (SELECT fee_target FROM public.ca_promo_play_through_grants WHERE source_ref='{label}')<>{promo}*4 THEN RAISE EXCEPTION 'fee spend changed original target';END IF;
+ END$$;
+ SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label=label+'-source')
+  if lost:
+   candidate=str(uuid.uuid4())
+   e.sql(fee_db,f"""BEGIN;
+ INSERT INTO public.ca_promo_event_entry_loss_receipts(candidate_id,registration_id,tournament_id,club_id,user_id,table_id,hand_id,hand_number,operation_ref,principal,charge_ledger_ids) VALUES('{candidate}','{entitlement}','{event}','20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',gen_random_uuid(),gen_random_uuid(),1,'typed-authoritative-prior-entry-loss',{promo}*0.9,ARRAY['{charge}'::uuid]);
+ INSERT INTO public.ca_promo_event_entry_loss_slices SELECT '{candidate}',id,grant_id,charge_ledger_id,remaining FROM public.ca_promo_event_principal_lots WHERE charge_ledger_id='{charge}';
+ UPDATE public.ca_promo_event_principal_lots SET remaining=0 WHERE charge_ledger_id='{charge}';
+ UPDATE public.ca_promo_principal_custody SET amount=0 WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}');
+ UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='spent' WHERE source_ref='{label}';COMMIT;""",label=label+'-original-loss-receipt-opening')
+  if closed and not lost:
+   e.sql(fee_db,f"""BEGIN;UPDATE public.ca_promo_principal_custody SET amount=0 WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}');UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='met' WHERE source_ref='{label}';COMMIT;""",label=label+'-matured-opening-state')
+   e.sql(fee_db,"ALTER TABLE public.chip_ledger ADD CONSTRAINT native_fee_return_fault CHECK(NOT(category='reversal' AND amount=1)) NOT VALID;",label='actual-fee-return-ledger-fault')
+   e.sql(fee_db,f"""DO $$BEGIN
+ BEGIN
+ PERFORM public.fn_settle_tournament_refund_exact('{event}','10000000-0000-0000-0000-000000000001','{wallet_club}',20,18,0,2,'atomic_cancel_tournament','Native Fee Refund');
+ RAISE EXCEPTION 'actual fee return journal failure was swallowed';
+ EXCEPTION WHEN check_violation THEN NULL; END;
+ IF (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>10 OR EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE entitlement_id='{entitlement}') THEN RAISE EXCEPTION 'failed fee refund retained credit or tranche';END IF;
+ END$$;ALTER TABLE public.chip_ledger DROP CONSTRAINT native_fee_return_fault;""",label='actual-fee-refund-fault-rolls-back-credit-and-tranche')
+  if cross:
+   e.sql(fee_db,f"""DO $$BEGIN
+ BEGIN
+ PERFORM public.fn_settle_tournament_refund_exact('{event}','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',20,18,0,2,'atomic_cancel_tournament','Wrong Physical Refund Wallet');
+ RAISE EXCEPTION 'wrong physical recipient unexpectedly accepted';EXCEPTION WHEN SQLSTATE 'P0404' THEN NULL;END;
+ IF EXISTS(SELECT 1 FROM public.tournament_refund_tranches WHERE entitlement_id='{entitlement}') OR (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>10 THEN RAISE EXCEPTION 'wrong physical refund recipient leaked money';END IF;
+ END$$;""",label='satellite-cross-wrong-physical-wallet-refuses')
+  expected_wallet=30-(promo/10 if closed and not lost else promo);expected_fund=1050-promo+(promo/10 if closed and not lost else promo)
+  e.sql(fee_db,f"""BEGIN;DO $$DECLARE result jsonb;credit uuid;paid numeric;BEGIN
+ result:=public.fn_settle_tournament_refund_exact('{event}','10000000-0000-0000-0000-000000000001','{wallet_club}',20,18,0,2,'atomic_cancel_tournament','Native Fee Refund');
+ IF (result->>'paid')::numeric<>20 THEN RAISE EXCEPTION 'actual original fee refund refused: %',result;END IF;
+ IF (SELECT chip_balance FROM public.club_members WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001')<>{expected_wallet} OR (SELECT promo_balance FROM public.clubs WHERE id='20000000-0000-0000-0000-000000000001')<>{expected_fund} THEN RAISE EXCEPTION 'fee refund returned wrong amount or took unrelated cash';END IF;
+ IF (SELECT count(*) FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund' AND amount={promo}/10.0)<>1 THEN RAISE EXCEPTION 'original spent-fee receipt missing';END IF;
+ {("IF (SELECT chip_balance FROM public.club_members WHERE club_id='20000000-0000-0000-0000-000000000001' AND user_id='10000000-0000-0000-0000-000000000001')<>10 OR (SELECT promo_balance FROM public.clubs WHERE id='"+wallet_club+"')<>1000 OR (SELECT club_id FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id='"+charge+"')<>'20000000-0000-0000-0000-000000000001'::uuid THEN RAISE EXCEPTION 'satellite earner/source fund confused with physical refund wallet';END IF;" if cross else '')}
+
+ IF (SELECT fee_target FROM public.ca_promo_play_through_grants WHERE source_ref='{label}')<>{promo}*4 OR (SELECT close_reason FROM public.ca_promo_play_through_grants WHERE source_ref='{label}')<>'{('spent' if lost else 'met' if closed else 'returned')}' THEN RAISE EXCEPTION 'fee refund reopened or rewrote original grant';END IF;
+ END$$; INSERT INTO public.accounting_tournament_fee_sources(id,rake_record_id,tournament_id,player_id,club_id,game_type,registration_id,source_charge_ledger_id,source_entitlement_id,charged_at,rake_credit,contract)
+ VALUES('{source}','{record}','{event}','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','NLH','{entitlement}','{charge}','{entitlement}',clock_timestamp(),2,'{{"rake_credit":2}}');
+ DO $$DECLARE credit uuid;paid numeric;BEGIN
+ SELECT credit_ledger_id INTO credit FROM public.tournament_refund_tranches WHERE entitlement_id='{entitlement}';paid:=public.fn_ca_promo_return_spent_event_fee(credit);
+ IF paid<>{promo if lost else promo/10} OR (SELECT count(*) FROM public.ca_promo_principal_return_receipts WHERE grant_id=(SELECT id FROM public.ca_promo_play_through_grants WHERE source_ref='{label}') AND reason='fee_refund')<>1 THEN RAISE EXCEPTION 'spent-fee response-loss replay changed money';END IF;
+ IF EXISTS(SELECT 1 FROM public.tournament_escrow WHERE tournament_id='{event}' AND (prize_balance<>0 OR fee_balance<>0)) THEN RAISE EXCEPTION 'actual fee refund escrow did not conserve';END IF;
+ END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label=label+'-actual-refund-return-and-replay')
+  e.report['native'].append({'case':label,'assertions':10+(2 if closed else 0)+(3 if cross else 0),'opening_limit':'already-funded entry and recognized fee batch facts; all refund journals and deferred guards actual'})
  e.sql(db,"""DO $$BEGIN
  IF has_function_privilege('authenticated','public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)','EXECUTE') OR has_function_privilege('authenticated','public.fn_ca_promo_leave_principal(uuid,uuid)','EXECUTE') THEN RAISE EXCEPTION 'browser can invoke private principal return';END IF;
  IF NOT EXISTS(SELECT 1 FROM cron.job WHERE jobname='promo-principal-product-expiry' AND schedule='*/15 * * * *' AND command='SELECT public.fn_ca_promo_expire_principal(100)') THEN RAISE EXCEPTION 'product expiry schedule registration differs';END IF;
