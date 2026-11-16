@@ -211,8 +211,21 @@ interface Outcome {
   /** the receipts fired by each decision, with their counts */
   fires: Array<Record<string, number>>;
 }
+// Every field is compared except the wall-clock measurements, the same list
+// the declared-work law leaves out (HorseDeclaredWork.test-support.ts). Since
+// main's merge of 2026-11-16 the PLO6 variant policy's equity evidence
+// (omahaVariantPolicy.equity.analysisMs, a performance.now() difference) is
+// on these nodes, and it differs between two runs of the same decision.
+const MEASUREMENTS = new Set([
+  'latencyMs',
+  'analysisMs',
+  'simulationMs',
+  'policyMs',
+  'utilityLatencyMs',
+  'elapsedMs',
+]);
 const bytesOf = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+  JSON.stringify(d, (k, v) => (MEASUREMENTS.has(k) && typeof v === 'number' ? undefined : v));
 
 /** The live cash profile's decision at the node, one per seed. */
 function play(o: Over = {}, opts: HorseDecideOpts = {}): Outcome {
