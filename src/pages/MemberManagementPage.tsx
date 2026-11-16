@@ -16,7 +16,7 @@ import { lastDaysRange } from '../lib/clubDataDay';
  * a second time and nothing here talks to Supabase directly except the two writes
  * that belong to it: the nickname/remark update, and the role change.
  *
- * THE RANGE CONTROL (requirement 5). Overall, 7 Days, or a chosen span. Both date
+ * THE RANGE CONTROL (requirement 5). Today, Overall, 7 Days, or a chosen span. Both date
  * fields are native `<input type="date">` - they are localised, keyboard
  * accessible and on iOS they open the system picker, none of which a hand-rolled
  * calendar grid gets for free. Changing the range re-asks the server; the stats
@@ -799,7 +799,12 @@ export default function MemberManagementPage() {
       setRangeMode(mode);
       if (mode === 'overall') setRange(RANGE_OVERALL);
       if (mode === 'week') setRange(lastDaysRange(7));
-      if (mode === 'day') setRange(lastDaysRange(1));
+      if (mode === 'day') {
+        const today = lastDaysRange(1);
+        setRange(today);
+        setCustomFrom(today.from);
+        setCustomTo(today.to);
+      }
       // 'custom' waits for Confirm: re-fetching on every keystroke of a date field
       // would fire three times before the year is finished being typed.
     },
@@ -815,6 +820,7 @@ export default function MemberManagementPage() {
       toast.error('The Start Date Must Come Before The End Date');
       return;
     }
+    setRangeMode('custom');
     setRange({ from: customFrom, to: customTo });
   }, [customFrom, customTo, toast, setRange]);
 
@@ -1122,7 +1128,7 @@ export default function MemberManagementPage() {
               ))}
             </div>
 
-            {rangeMode === 'custom' && (
+            {(rangeMode === 'custom' || rangeMode === 'day') && (
               <div className="mm-range__custom">
                 <label className="mm-date">
                   <span>From</span>
@@ -1166,11 +1172,12 @@ export default function MemberManagementPage() {
             <p className="mm-range__caption">
               Chicago Time, DST Automatic. Both Dates Included. Custom Dates Need Confirm.
             </p>
-            {rangeMode === 'custom' && (customFrom !== range.from || customTo !== range.to) && (
-              <p className="mm-range__draft" role="status">
-                Draft Dates Not Applied. Confirm To Update The Displayed Range.
-              </p>
-            )}
+            {(rangeMode === 'custom' || rangeMode === 'day') &&
+              (customFrom !== range.from || customTo !== range.to) && (
+                <p className="mm-range__draft" role="status">
+                  Draft Dates Not Applied. Confirm To Update The Displayed Range.
+                </p>
+              )}
           </section>
         )}
 
