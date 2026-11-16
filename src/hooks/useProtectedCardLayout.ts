@@ -343,7 +343,6 @@ export function useProtectedCardLayout(
         page.getAttribute('data-seats') === '9' &&
         page.getAttribute('data-kill-enabled') === 'false' &&
         [2, 3, 4, 5, 6].includes(Number(page.getAttribute('data-hole-card-count'))) &&
-        !page.classList.contains('table-page--tournament') &&
         !artwork.ready()
       )
         return false;
@@ -1456,6 +1455,9 @@ export function useProtectedCardLayout(
                 ?.querySelector<HTMLImageElement>('.seat__avatar-img');
               const owner = ownerImage ? measurePermanentBox(ownerImage, scale) : null;
               if (!box || !owner) return [];
+              const heroWager = !!bet.closest('.seat--hero') && seatedSixPhone(scaler);
+              const aboveHero = (candidate: CardBox) =>
+                !heroWager || candidate.top + candidate.height <= owner.top - 3 * scale;
               const stored = settled.current.wagers.get(bet);
               const ownerMotion =
                 1.5 * scale + 0.008 * Math.max(owner.width, owner.height) + 0.5 * scale;
@@ -1480,6 +1482,7 @@ export function useProtectedCardLayout(
                 !trial &&
                 stored &&
                 sameWager(bet, stored) &&
+                aboveHero(box) &&
                 (!ninePhoneFelt || wagerOnFelt(box)) &&
                 clearsWagerBoard(box, board) &&
                 (!ninePhoneFelt ||
@@ -1600,13 +1603,14 @@ export function useProtectedCardLayout(
               // A marker's entire disc stays on felt. On a crowded cap lane,
               // one pixel of edge clearance fits where the chips' eight-pixel
               // decoration margin does not; never fall back off felt or to a neighbour.
-              const eligible = ninePhoneFelt
+              const onFelt = ninePhoneFelt
                 ? placed.filter(
                     (candidate) => wagerOnFelt(candidate) && clearsWagerBoard(candidate, board)
                   )
                 : hasAllInMarker
                   ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
                   : placed;
+              const eligible = heroWager ? onFelt.filter(aboveHero) : onFelt;
               const clearOfTable = eligible.filter(
                 (candidate) => !obstacles.some((obstacle) => markerTouches(candidate, obstacle))
               );
@@ -3018,6 +3022,13 @@ function dealerSettledBox(scaler: HTMLElement, dealer: HTMLElement): CardBox | n
  * otherwise it takes the nearest felt point that satisfies both. It runs
  * after the wagers are placed, and keeps clear of them too.
  */
+function seatedSixPhone(scaler: HTMLElement) {
+  return (
+    !!scaler.closest(".table-page[data-seats='6'][data-hero='true']") &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  );
+}
+
 function placeDealerButton(
   scaler: HTMLElement,
   canvas: DOMRect,
@@ -3050,6 +3061,7 @@ function placeDealerButton(
       : null;
   };
   let owner: { x: number; y: number; motion: number } | null = null;
+  let heroLeft: number | undefined;
   const others: { x: number; y: number; motion: number }[] = [];
   for (const wrapper of Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))) {
     const centre = centreOf(wrapper.querySelector('.seat:not(.seat--empty) .seat__avatar-img'));
@@ -3057,8 +3069,11 @@ function placeDealerButton(
     const mine =
       Math.abs(parseFloat(wrapper.style.left) - ownerX) < 0.01 &&
       Math.abs(parseFloat(wrapper.style.top) - ownerY) < 0.01;
-    if (mine) owner = centre;
-    else others.push(centre);
+    if (mine) {
+      owner = centre;
+      const image = wrapper.querySelector<HTMLElement>('.seat--hero .seat__avatar-img');
+      if (image && seatedSixPhone(scaler)) heroLeft = restingAvatarBox(image, scale).left;
+    } else others.push(centre);
   }
   if (!owner) return rest;
   const own = owner;
@@ -3079,6 +3094,7 @@ function placeDealerButton(
         box.top + box.height > o.top - air
     );
   const owned = (x: number, y: number) => {
+    if (heroLeft !== undefined && x + size / 2 + air > heroLeft) return false;
     const mine = Math.hypot(x - own.x, y - own.y);
     return others.every((o) => mine + 1.5 + own.motion + o.motion < Math.hypot(x - o.x, y - o.y));
   };

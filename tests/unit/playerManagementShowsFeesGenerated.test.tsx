@@ -1,9 +1,5 @@
-/**
- * Player Management always shows fees generated, never a wallet balance
- * (Dan, 2026-10-14: "IT SHOULD ALWAYS SHOW FEES GENERATED, NOT WALLET
- * BALANCES"). The Simple row's one figure is the player's fees; an agent with
- * a downline also sees the downline's fees. Wallets stay an opt-in Advanced
- * column and are off by default.
+/** Fees remain primary; the owner's November 16 request adds the player
+ * wallet above today's net in Simple mode, for players and agents alike.
  */
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
@@ -93,12 +89,26 @@ describe('Player Management shows fees generated', () => {
     expect(screen.getByLabelText('Today W/L Unavailable')).toBeInTheDocument();
   });
 
-  it('prints the fee figure and never the wallet in Simple mode', () => {
-    render(simpleRow({}));
-    expect(screen.getByText('Fees This Week')).toBeVisible();
-    expect(screen.getByText('12,345.67')).toBeVisible();
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
-    expect(screen.queryByText('274.6K')).not.toBeInTheDocument();
+  it.each(['player', 'agent', 'super_agent', 'owner'])(
+    'keeps fees and adds the player wallet above today for %s',
+    (role) => {
+      render(simpleRow({ role, agent_wallet: 999 }));
+      expect(screen.getByText('Fees This Week')).toBeVisible();
+      expect(screen.getByText('12,345.67')).toBeVisible();
+      const wallet = screen.getByLabelText('Player Wallet Balance 274,600.00');
+      expect(wallet).toHaveTextContent('274,600.00');
+      expect(wallet.nextElementSibling).toHaveAttribute('aria-label', 'Today W/L ...');
+      expect(screen.queryByText('999.00')).not.toBeInTheDocument();
+    }
+  );
+
+  it('hides the wallet without financial permission and preserves restricted values', () => {
+    const { rerender } = render(simpleRow({ can_view_financials: false }));
+    expect(screen.queryByLabelText(/Player Wallet Balance/)).not.toBeInTheDocument();
+    rerender(simpleRow({ player_wallet: null }));
+    expect(screen.getByLabelText('Player Wallet Balance Restricted')).toBeVisible();
+    rerender(simpleRow({ player_wallet: 0 }));
+    expect(screen.getByLabelText('Player Wallet Balance 0.00')).toBeVisible();
   });
 
   it('adds downline fees for an agent with a downline', () => {

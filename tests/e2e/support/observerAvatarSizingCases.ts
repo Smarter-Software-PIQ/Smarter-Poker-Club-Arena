@@ -71,6 +71,8 @@ export function registerObserverAvatarSizingCases() {
             'src/components/table/TableTabBar.css',
             'src/pages/TablePage.css',
             'src/components/table/ActionPanel.css',
+            'src/components/tournament/TournamentHUD.css',
+            'src/components/table/TournamentLateRegCallToAction.css',
             ...Object.keys(built.metafile!.inputs).filter((file) => file.endsWith('.css')),
             'src/components/table/TableChat.css',
             'src/components/table/TableVisualHotfix.css',
@@ -136,7 +138,7 @@ export function registerObserverAvatarSizingCases() {
         await page.route('http://observer.fixture/', (route) =>
           route.fulfill({
             contentType: 'text/html',
-            body: `<html data-seats="9" data-tournament="true" data-spectator="true" data-avatar-mix="true" data-empty-bottom="${emptyBottom}" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+            body: `<html data-seats="9" data-follow="${width === 600 && !mobileArtwork}" data-tournament="true" data-spectator="true" data-avatar-mix="true" data-empty-bottom="${emptyBottom}" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
           })
         );
         await page.goto('http://observer.fixture/');
@@ -193,7 +195,9 @@ export function registerObserverAvatarSizingCases() {
         await page.waitForFunction((alphas) => {
           const images = [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')];
           const heights = images.map(
-            (image) => image.getBoundingClientRect().height * alphas[image.currentSrc || image.src]
+            (image) =>
+              (image.getBoundingClientRect().height * alphas[image.currentSrc || image.src]) /
+              (innerWidth === 600 && image.closest('.seat-wrapper--hero') ? 4 / 3 : 1)
           );
           return heights.length > 0 && Math.max(...heights) - Math.min(...heights) < 0.05;
         }, alphaRows);
@@ -225,7 +229,8 @@ export function registerObserverAvatarSizingCases() {
               artwork: images.map(rect),
               heights: images.map(
                 (image) =>
-                  image.getBoundingClientRect().height * alphas[image.currentSrc || image.src]
+                  (image.getBoundingClientRect().height * alphas[image.currentSrc || image.src]) /
+                  (innerWidth === 600 && image.closest('.seat-wrapper--hero') ? 4 / 3 : 1)
               ),
               panels: [...document.querySelectorAll('.seat__info')].map(rect),
               fixed: [
@@ -239,10 +244,18 @@ export function registerObserverAvatarSizingCases() {
             []
           );
         }
+        if (width === 600)
+          await page.waitForFunction(() =>
+            [...document.querySelectorAll<HTMLElement>('.seat__avatar--bust')].every((a) =>
+              a.style.getPropertyValue('--sp-mobile-art-scale')
+            )
+          );
         const before = await measure();
         expect(Math.max(...before.heights) - Math.min(...before.heights)).toBeLessThan(0.05);
         const footer = await page.locator('.spectator-footer-bar').boundingBox();
-        for (const panel of before.panels)
+        for (const panel of before.panels.filter(
+          (p) => p[0] < footer!.x + footer!.width && p[0] + p[2] > footer!.x
+        ))
           expect(panel[1] + panel[3], 'observer panel clears the footer').toBeLessThanOrEqual(
             footer!.y - 2.99
           );
@@ -297,6 +310,68 @@ export function registerObserverAvatarSizingCases() {
         await page.screenshot({
           path: testInfo.outputPath(`observer-${width}${emptyBottom ? '-empty-bottom' : ''}.png`),
         });
+        if (width === 600) {
+          const paintZooms = await page
+            .locator('.seat__avatar--bust')
+            .evaluateAll((avatars) =>
+              avatars.map((avatar) =>
+                getComputedStyle(avatar).getPropertyValue('--sp-mobile-art-scale').trim()
+              )
+            );
+          expect(new Set(paintZooms)).toEqual(new Set(['1']));
+          const fitTransitions = await page
+            .locator('.seat__avatar--bust .seat__avatar-img')
+            .evaluateAll((images) =>
+              images.map((image) => getComputedStyle(image).transitionProperty)
+            );
+          expect(fitTransitions.every((property) => property === 'filter')).toBe(true);
+          // Late registration replaces the Spectating label with the two-bay entry button.
+          const entry = await page.locator('.spectator-footer-bar').evaluate((bar) => {
+            const button = document.createElement('button');
+            button.className = 'tournament-entry-holder';
+            bar.replaceChildren(button);
+            const { left, right } = button.getBoundingClientRect();
+            const bounds = bar.getBoundingClientRect();
+            return { left, right, start: bounds.left, end: bounds.right };
+          });
+          expect(entry.left).toBeGreaterThanOrEqual(entry.start - 1);
+          expect(entry.right).toBeLessThanOrEqual(entry.end + 1);
+          // Cold-mount the seated reference with the same players and artwork.
+          // Compare the actual screen rectangles, including the tournament dock
+          // and any transparent margins, instead of percentages of each felt.
+          await page.reload();
+          await page.evaluate(() => {
+            document.documentElement.dataset.tournament = 'false';
+            document.documentElement.dataset.spectator = 'false';
+            document.documentElement.dataset.emptyBottom = 'false';
+          });
+          await page.addScriptTag({
+            content: built.outputFiles.find((file) => file.path.endsWith('.js'))!.text,
+          });
+          await expect(page.locator('.seat--hero')).toHaveCount(1);
+          await expect
+            .poll(
+              async () => {
+                const seated = await measure();
+                if (seated.artwork.length !== 9) return Infinity;
+                const reference = emptyBottom ? seated.artwork.slice(1) : seated.artwork;
+                const plates = emptyBottom ? seated.panels.slice(1) : seated.panels;
+                return Math.max(
+                  ...before.artwork.flatMap((r, i) =>
+                    r.map((v, j) => Math.abs(v - reference[i][j]))
+                  ),
+                  ...before.panels.flatMap((r, i) => r.map((v, j) => Math.abs(v - plates[i][j]))),
+                  ...before.fixed[0].map((v, j) => Math.abs(v - seated.fixed[0][j]))
+                );
+              },
+              {
+                timeout: 10000,
+                message:
+                  'every occupied portrait, nameplate and the rail match the seated view within one layout pixel',
+              }
+            )
+            .toBeLessThanOrEqual(1);
+        }
       }
     );
 }

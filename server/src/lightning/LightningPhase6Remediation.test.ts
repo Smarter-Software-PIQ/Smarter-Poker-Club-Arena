@@ -360,6 +360,55 @@ describe('3. an abandon never wakes the worker, and repeated abandons back the C
   });
 });
 
+describe('the fleet census includes occupied Lightning fronts', () => {
+  it('counts a forming pool once, and excludes held, empty, unleased and stopped pools', async () => {
+    let connected = 6;
+    let leased = true;
+    const cluster = uid(1);
+    const front = uid(9000);
+    const sup = new LightningSupervisor({
+      presenceSource: () => [
+        {
+          tableId: front,
+          clusterId: cluster,
+          players: Array.from({ length: connected }, (_, i) => ({
+            userId: uid(100 + i),
+            presence: 'connected' as const,
+            inputDevice: true,
+          })),
+        },
+      ],
+      hosting: { leaseFor: () => (leased ? { instance: 'i', generation: 'g' } : null) } as any,
+      frontTable: async () => front,
+      logger: quiet,
+    });
+    const worker = (sup as any).createWorker(cluster, { workerMode: 'form', passIntervalMs: 1000 });
+    // The real worker and front-table reader, without starting background timers.
+    (worker as any).running = true;
+    (sup as any).workers.set(cluster, worker);
+    await (worker as any).deps.holdsFrontTableLease();
+    expect(sup.expectedDealingTableIds()).toEqual([front]);
+    const gameServer = readFileSync(new URL('../GameServer.ts', import.meta.url), 'utf8');
+    const census = gameServer.slice(
+      gameServer.indexOf('private dealRateVerifier ='),
+      gameServer.indexOf('private rakebackSettler =')
+    );
+    expect(census).toContain('...this.lightningSupervisor.expectedDealingTableIds()');
+
+    worker.setHold('paused');
+    expect(sup.expectedDealingTableIds()).toEqual([]);
+    worker.setHold(null);
+    connected = 1;
+    expect(sup.expectedDealingTableIds()).toEqual([]);
+    connected = 6;
+    leased = false;
+    expect(sup.expectedDealingTableIds()).toEqual([]);
+    leased = true;
+    (worker as any).running = false;
+    expect(sup.expectedDealingTableIds()).toEqual([]);
+  });
+});
+
 // ─── 4. THE FOLDER'S ROOM GETS THE IDLE SHAPE ────────────────────────────────
 
 describe('4. a room this hand stops publishing to is told the felt is empty', () => {

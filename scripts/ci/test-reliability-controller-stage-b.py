@@ -120,7 +120,7 @@ def main():
     os.environ.setdefault('LANG', 'C')
     scratch = Path(tempfile.mkdtemp(prefix='reliability-', dir=os.environ.get('RUNNER_TEMP') or os.environ.get('TMPDIR')))
     data = scratch / 'data'
-    sock = Path(tempfile.mkdtemp(prefix='pgs', dir='/tmp'))
+    sock = Path(tempfile.mkdtemp(prefix='pgs', dir=os.environ.get('RELIABILITY_SOCKET_ROOT') or '/tmp'))
     subprocess.run([pg_bin('initdb'), '-D', str(data), '-U', 'postgres', '-A', 'trust', '--no-locale', '-E', 'UTF8'], check=True, capture_output=True)
     port = str(55000 + os.getpid() % 5000)
     subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-o', f"-k {sock} -p {port} -c listen_addresses=''",
@@ -1228,6 +1228,92 @@ def main():
         assert sql("SELECT (smarter_private.reliability_classify('some-source', 'engine_release_stall_check_other', 'warning', false)).is_incident") == 't'
         ok('a hand close keeps the closure basis it names; the git maintenance guard is a development notification whose open incident is closed with that basis, '
            'the two hand-written rows match only their exact names and open nothing, and any other name still does')
+        # The engine writer appends a distinct resolved row for one episode.
+        engine_name = 'ClubArenaFleetFloorLost'
+        engine_episode = '032e0bdc-5059-4030-af9f-1eeec22532b0'
+        engine_start = now("- interval '10 minutes'")
+        def engine_row(row_id, episode, status, component='club-arena-engine', starts=engine_start):
+            severity = 'info' if status == 'resolved' else 'critical'
+            original = {'id': row_id, 'alertname': engine_name, 'component': component,
+                        'status': status, 'severity': severity, 'starts_at': starts,
+                        'ends_at': now() if status == 'resolved' else None,
+                        'fingerprint': engine_name + ':' + component,
+                        'labels': {'alertname': engine_name, 'component': component,
+                                   'severity': severity, 'engine_alert_episode_id': episode}}
+            return record('engine-alerts-backfill', str(row_id), engine_name, status, severity,
+                          {'original_event': original, 'snapshot_kind': 'insert'})
+        retained_fire = engine_row(9101, engine_episode, 'firing')
+        retained_resolve = engine_row(9102, engine_episode, 'resolved')
+        assert incident(engine_name, "status || ' ' || resolution_state") == 'escalated uncertain'
+        assert sql(f"SELECT disposition FROM smarter_private.reliability_observations WHERE inbox_event_id = {retained_resolve}") == 'resolved_not_of_this_episode'
+        retained_count = incident(engine_name, 'occurrence_count')
+        retained_observations = num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({retained_fire},{retained_resolve})")
+        episode_fix = ROOT / 'supabase/migrations/20261116153859_engine_alert_episodes_resolve_through_their_original_identit.sql'
+        original_definition = sql("SELECT md5(pg_get_functiondef('smarter_private.reliability_ingest_alert(bigint,text,text,text,text,text,jsonb,timestamptz,timestamptz,bigint,text,text)'::regprocedure))")
+        locker = subprocess.Popen([pg_bin('psql'), '-h', str(sock), '-p', port, '-U', 'postgres', '-d', 'postgres',
+                                   '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1'],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            locker.stdin.write("BEGIN; LOCK TABLE public.operational_alert_events IN ROW EXCLUSIVE MODE; SELECT 'locked';\n")
+            locker.stdin.flush()
+            assert locker.stdout.readline().strip() == 'locked'
+            blocked = psql(['-f', str(episode_fix)])
+            assert blocked.returncode != 0 and 'lock timeout' in blocked.stderr, blocked.stderr
+            assert sql("SELECT to_regprocedure('smarter_private.reliability_engine_episode_identity(text,jsonb)') IS NULL") == 't'
+            assert sql("SELECT md5(pg_get_functiondef('smarter_private.reliability_ingest_alert(bigint,text,text,text,text,text,jsonb,timestamptz,timestamptz,bigint,text,text)'::regprocedure))") == original_definition
+            assert incident(engine_name, "status || ' ' || resolution_state") == 'escalated uncertain'
+        finally:
+            locker.stdin.write("ROLLBACK;\n\\q\n")
+            locker.stdin.flush()
+            locker.communicate(timeout=10)
+        ok('a concurrent original inbox writer refuses the one short migration lock, with no partial function or member upgrade')
+        result = psql(['-f', str(episode_fix)])
+        assert result.returncode == 0, result.stderr
+        assert incident(engine_name) == 'verifying', 'the matching retained engine resolve must resume its original incident'
+        assert incident(engine_name, 'occurrence_count') == retained_count
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({retained_fire},{retained_resolve})") == retained_observations
+        result = psql(['-f', str(episode_fix)])
+        assert result.returncode == 0, result.stderr
+        assert incident(engine_name, 'occurrence_count') == retained_count
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({retained_fire},{retained_resolve})") == retained_observations
+        tick(now("+ interval '31 minutes'"))
+        assert incident(engine_name) == 'recovered'
+        ok('an appended engine resolution matches its firing episode, retains original observations and counts, survives repeated installation, and recovers only after the normal quiet window')
+
+        next_episode = '132e0bdc-5059-4030-af9f-1eeec22532b0'
+        next_fire = engine_row(9201, next_episode, 'firing')
+        assert incident(engine_name) == 'escalated'
+        engine_row(9206, next_episode, 'firing')
+        assert num("SELECT count(*) FROM smarter_private.reliability_alert_members WHERE member_key = 'engine-alerts:ClubArenaFleetFloorLost:club-arena-engine:episode:' || $e$%s$e$" % next_episode) == 1
+        next_count = incident(engine_name, 'occurrence_count')
+        engine_row(9202, engine_episode, 'resolved')
+        assert incident(engine_name) == 'escalated', 'a previous episode cannot close the current episode'
+        other_fire = engine_row(9203, next_episode, 'firing', component='other-engine')
+        assert incident(engine_name, 'occurrence_count') == str(int(next_count)+1)
+        next_resolve = engine_row(9204, next_episode, 'resolved')
+        assert incident(engine_name) == 'escalated', 'one component cannot resolve another component with the same UUID'
+        engine_row(9205, next_episode, 'resolved', component='other-engine')
+        assert incident(engine_name, "status || ' ' || resolution_state") == 'verifying none'
+        count_after_resolve = incident(engine_name, 'occurrence_count')
+        again = sql("SELECT coalesce(smarter_private.reliability_ingest_alert(o.id,o.source,o.event_key,o.alertname,o.status,o.severity,o.payload,"
+                    "o.received_at,o.last_received_at,o.delivery_count,o.investigation_status,'INSERT')::text,'ignored') "
+                    f"FROM public.operational_alert_events o WHERE o.id={next_resolve}")
+        assert again == 'ignored'
+        assert incident(engine_name, 'occurrence_count') == count_after_resolve
+        tick(now("+ interval '31 minutes'"))
+        assert incident(engine_name) == 'recovered'
+        ok('new engine episodes remain distinct, old resolves cannot close a recurrence, components cannot close one another, and a duplicate delivery counts once')
+
+        engine_row(9301, 'not-a-uuid', 'firing')
+        engine_row(9302, 'not-a-uuid', 'resolved')
+        assert incident(engine_name, "status || ' ' || resolution_state") == 'escalated uncertain'
+        for role in ('anon','authenticated'):
+            refused(f"SET ROLE {role}; SELECT smarter_private.reliability_engine_episode_identity('x','{{}}'::jsonb)", 'permission denied')
+        for bad in (None, 'not-a-uuid', '00000000-0000-0000-0000-000000000000'):
+            payload = {'original_event': {'alertname': engine_name, 'component': 'club-arena-engine',
+                       'labels': {'engine_alert_episode_id': bad}}}
+            assert sql("SELECT smarter_private.reliability_engine_episode_identity($n$%s$n$,$p$%s$p$::jsonb) IS NULL" % (engine_name,json.dumps(payload))) == 't'
+        ok('unknown and malformed engine identities remain unresolved and neither browser role can execute the private identity helper')
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

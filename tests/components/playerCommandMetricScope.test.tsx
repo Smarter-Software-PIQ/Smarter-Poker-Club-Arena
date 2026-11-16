@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -281,7 +281,7 @@ it('hides private metric definitions together with financial activity after auth
   expect(screen.queryByLabelText('Activity Metric Definitions')).not.toBeInTheDocument();
   expect(screen.queryByText('Total Winnings')).not.toBeInTheDocument();
   expect(screen.queryByRole('region', { name: 'Transaction History' })).not.toBeInTheDocument();
-  expect(state.rpc).not.toHaveBeenCalledWith('fn_cashier_history_feed', expect.anything());
+  expect(state.rpc).not.toHaveBeenCalledWith('fn_member_transaction_history', expect.anything());
 });
 
 it('keeps definitions available for an authorized empty range without showing fabricated metrics', async () => {
@@ -468,6 +468,11 @@ it('opens each ledger visit on today in Chicago, ignoring saved dates and confir
   }
   let view = render(<MemberManagementPage />);
   await screen.findByRole('status', { name: 'Displayed Activity Scope' });
+  expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Select', exact: true }));
   expect(screen.getByLabelText('From')).toHaveValue('2026-11-11');
   expect(screen.getByLabelText('To')).toHaveValue('2026-11-11');
   expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-11', to: '2026-11-11' });
@@ -486,6 +491,11 @@ it('opens each ledger visit on today in Chicago, ignoring saved dates and confir
   state.getMemberDetail.mockClear();
   view = render(<MemberManagementPage />);
   await screen.findByRole('status', { name: 'Displayed Activity Scope' });
+  expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Select', exact: true }));
   expect(screen.getByLabelText('From')).toHaveValue('2026-11-12');
   expect(screen.getByLabelText('To')).toHaveValue('2026-11-12');
   expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-12', to: '2026-11-12' });
@@ -503,7 +513,7 @@ it.each(['player', 'agent'])(
     let received = false;
     state.rpc.mockImplementation(async (name: string) => ({
       data:
-        name === 'fn_cashier_history_feed' && received
+        name === 'fn_member_transaction_history' && received
           ? [
               {
                 id: 'posted',
@@ -521,7 +531,7 @@ it.each(['player', 'agent'])(
     render(<MemberManagementPage />);
     await screen.findByText('No Chip Transactions Found.');
     expect(state.rpc).toHaveBeenCalledWith(
-      'fn_cashier_history_feed',
+      'fn_member_transaction_history',
       expect.objectContaining({
         p_person: state.params.userId,
         p_club_id: memberDetail.identity.home_club_id,
@@ -533,3 +543,49 @@ it.each(['player', 'agent'])(
     await screen.findByText('Sent To River');
   }
 );
+
+it('shows agent, full downline and combined activity separately and refreshes all three together', async () => {
+  let extra = 0;
+  state.getMemberDetail.mockImplementation(async (_club, _member, range) => ({
+    ...memberDetail,
+    identity: { ...memberDetail.identity, role: 'agent' },
+    range: { ...range, is_overall: false },
+    activity_breakdown: {
+      downline: {
+        ...memberDetail.stats,
+        hands: 400 + extra,
+        total_fee: 35.25,
+        total_fee_text: '35.25',
+      },
+      combined: {
+        ...memberDetail.stats,
+        hands: 600 + extra,
+        total_fee: 53.25,
+        total_fee_text: '53.25',
+      },
+    },
+  }));
+  render(<MemberManagementPage />);
+  const own = await screen.findByRole('region', { name: 'Agent Only' });
+  const downline = screen.getByRole('region', { name: 'Downline Only' });
+  const combined = screen.getByRole('region', { name: 'Agent + Downline' });
+  expect(within(own).getByText('200')).toBeVisible();
+  expect(within(downline).getByText('400')).toBeVisible();
+  expect(within(combined).getByText('600')).toBeVisible();
+  expect(within(combined).getByText('53.25')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  extra = 5;
+  act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
+  await within(combined).findByText('605');
+  expect(within(downline).getByText('405')).toBeVisible();
+});
+
+it('keeps a player-only account on individual activity', async () => {
+  render(<MemberManagementPage />);
+  await screen.findByRole('heading', { name: 'Activity', exact: true });
+  expect(screen.queryByRole('region', { name: 'Agent + Downline' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Downline Only' })).toBeNull();
+});

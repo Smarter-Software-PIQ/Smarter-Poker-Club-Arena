@@ -2036,6 +2036,10 @@ groups:
 
       # Three missed one-minute collector cycles are unknown, not a new
       # capacity. This reports availability, never a made-up fingerprint.
+      # The cohort binds both the installed SQL arrival function and the
+      # serving engine's complete daily body/seat/variant policy (2026-11-16).
+      # Actual seats/hands never enter this identity: a real capacity loss must
+      # still compare against the same planned population.
       - record: sp:lightning_admission_policy:readable
         expr: |
           (

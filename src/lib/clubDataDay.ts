@@ -1,20 +1,10 @@
 /**
- * CLUB DATA COUNTS CHICAGO DAYS (Dan, 2026-10-22), AND A UNION CLUB COUNTS
- * THE 02:00 ACCOUNTING DAY (owner, 2026-11-14; stage 2 reader contract).
- * A Midway Union member club, or the union itself, counts the invoice's
- * 02:00 to 02:00 Chicago day; every other club counts Chicago midnight days
- * as below. See ClubDataDayBasis.
- *
- * Club Data and Union Data count the America/Chicago calendar day, daylight
- * saving included, because the server buckets every figure that way
- * (migrations 20261022103651 and 20261022120121). A day on these pages starts
- * at Chicago midnight, so the page's own "today", the period presets and every
- * time it prints are Chicago too. A bare UTC date here would put the evening's
- * play on tomorrow again, which is exactly what this change removed.
- *
- * Dates are carried as YYYY-MM-DD calendar strings. Calendar arithmetic on
- * those strings does not depend on any zone; only "what is today" and "what
- * time was it" do, and those are answered here.
+ * Club Data accounting uses Pacific calendar dates (owner 2026-11-16).
+ * The union invoice week is Monday midnight through the next Monday midnight
+ * in America/Los_Angeles. Chicago clocks may still be printed explicitly, but
+ * subtracting two Chicago wall-clock hours is not a Pacific calendar date on
+ * fall-back Sunday. Standalone and pre-union reports use the same Pacific
+ * calendar boundaries, while preserving their own net-money-flow definition.
  */
 export const CLUB_DATA_TIME_ZONE = 'America/Chicago';
 /** The short badge printed beside a range or a time. */
@@ -53,48 +43,30 @@ export function addCalendarDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * THE ACCOUNTING DAY (20261114235606): 02:00 to 02:00 America/Chicago, the
- * boundary the union weekly invoice uses. Mirrors public.fn_ca_accounting_day,
- * daylight saving included: the two hours come off the Chicago wall clock,
- * not off the instant, so the spring-forward day starts at 03:00 CDT (02:00
- * does not exist) and the fall-back day runs 25 hours.
- */
+/** Pacific calendar day, shared by every viewer of the accounting reports. */
+const accountingDayFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** Pacific midnight is the invoice boundary, including clock-change Sundays. */
 export function accountingDay(at: Date | string | number = new Date()): string {
   const d = at instanceof Date ? at : new Date(at);
   if (Number.isNaN(d.getTime())) return '';
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: CLUB_DATA_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      hourCycle: 'h23',
-    })
-      .formatToParts(d)
-      .map((part) => [part.type, part.value])
-  );
-  const day = `${p.year}-${p.month}-${p.day}`;
-  return Number(p.hour) < 2 ? addCalendarDays(day, -1) : day;
+  const p = Object.fromEntries(accountingDayFormat.formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
 }
 
-/**
- * The instant an accounting day starts: 02:00 America/Chicago of that date
- * (03:00 CDT on the spring-forward Sunday, when 02:00 does not exist).
- * Mirrors public.fn_ca_accounting_day_start. Found by asking which of the two
- * possible UTC hours the zone database maps onto that date's accounting day,
- * never by adding a fixed offset.
- */
+/** The start of a Pacific date. Ask the zone database rather than assuming an offset. */
 export function accountingDayStart(day: string): Date | null {
   if (!isCalendarDate(day)) return null;
   const [y, m, d] = day.split('-').map(Number);
   const before = addCalendarDays(day, -1);
   for (const hour of [7, 8]) {
     const at = new Date(Date.UTC(y, m - 1, d, hour));
-    if (accountingDay(at) === day && accountingDay(new Date(at.getTime() - 1)) === before) {
-      return at;
-    }
+    if (accountingDay(at) === day && accountingDay(at.getTime() - 1) === before) return at;
   }
   return null;
 }
@@ -134,27 +106,28 @@ export function chicagoDayStart(day: string): Date | null {
 }
 
 /**
- * WHICH DAY A CLUB DATA ANSWER COUNTS (stage 2 reader contract, 2026-11-15).
- *
- * Every Club Data reader dispatches on its club: a club in a union, or a
- * union itself, reads the union invoice's accounting records on the 02:00 to
- * 02:00 Chicago ACCOUNTING day ('accounting'); any other club keeps Chicago
- * midnight days ('calendar'). Both take the same parameters: the first and
- * the last day of the window, inclusive. The reader states which basis it
- * answered on (accounting_basis / day_basis), and the screens take the basis
- * from that answer. Until one arrives they assume 'calendar', the basis every
- * reader had before stage 2.
+ * WHICH DAY A CLUB DATA ANSWER COUNTS.
+ * Union invoices and standalone/pre-union net-flow reports both count Pacific
+ * calendar dates. Their financial definitions stay distinct. Older deployed
+ * answers may still state Chicago calendar days, so retain that explicit
+ * compatibility basis until an upgraded answer arrives.
  */
-export type ClubDataDayBasis = 'accounting' | 'calendar';
+export type ClubDataDayBasis = 'accounting' | 'pacific' | 'calendar';
+export const PACIFIC_NET_FLOW_BASIS = 'pacific_net_money_flow';
 /** accounting_basis of an answer on the union invoice basis. */
 export const UNION_INVOICE_BASIS = 'union_invoice_accounting';
 /** day_basis of an answer on the union invoice basis. */
-export const ACCOUNTING_DAY_BASIS = 'America/Chicago 02:00';
+export const ACCOUNTING_DAY_BASIS = 'America/Los_Angeles 00:00';
 
 export function clubDataDayBasis(answer: unknown): ClubDataDayBasis {
   if (answer && typeof answer === 'object') {
     const a = answer as { accounting_basis?: unknown; day_basis?: unknown };
-    if (a.accounting_basis === UNION_INVOICE_BASIS || a.day_basis === ACCOUNTING_DAY_BASIS) {
+    if (a.accounting_basis === PACIFIC_NET_FLOW_BASIS) return 'pacific';
+    if (
+      a.accounting_basis === UNION_INVOICE_BASIS ||
+      a.day_basis === ACCOUNTING_DAY_BASIS ||
+      a.day_basis === 'America/Chicago 02:00'
+    ) {
       return 'accounting';
     }
   }
@@ -162,15 +135,9 @@ export function clubDataDayBasis(answer: unknown): ClubDataDayBasis {
 }
 
 /**
- * THE DAY "TODAY" IS COUNTED ON FOLLOWS THE CLUB, NOT THE ANSWER (review,
- * 2026-11-15). Labels, windows and definitions follow each answer, but a
- * union club's window that starts before it joined its union is answered on
- * its pre-union Chicago basis, so letting "today" follow answers can flip it
- * between the two days for ever (a 14-day window starting on the join day
- * under midnight days starts one day earlier under the 2:00 AM day). A club
- * the readers place in a union (a club-level union_id, which both screens'
- * readers return), or any answer on the union basis, makes today the 2:00 AM
- * day; nothing moves it back for that club and account.
+ * Whether an answer belongs to a union. Financial definitions must never be
+ * inferred from its Pacific time zone alone: standalone reports share that
+ * zone but do not use union invoice accounting.
  */
 export function isUnionClubAnswer(answer: unknown): boolean {
   if (!answer || typeof answer !== 'object') return false;
@@ -182,12 +149,12 @@ export function isUnionClubAnswer(answer: unknown): boolean {
 
 /** Today (or the day of `at`) on a basis. */
 export function clubDataDayOn(basis: ClubDataDayBasis, at: Date | string | number = new Date()) {
-  return basis === 'accounting' ? accountingDay(at) : chicagoDay(at);
+  return basis === 'calendar' ? chicagoDay(at) : accountingDay(at);
 }
 
-/** The instant a day starts on a basis: 02:00 Chicago, or Chicago midnight. */
+/** Pacific midnight for current reports; Chicago midnight for older answers. */
 export function clubDataDayStart(day: string, basis: ClubDataDayBasis): Date | null {
-  return basis === 'accounting' ? accountingDayStart(day) : chicagoDayStart(day);
+  return basis === 'calendar' ? chicagoDayStart(day) : accountingDayStart(day);
 }
 
 /**
@@ -227,14 +194,23 @@ export function accountingWindowLabel(firstDay: string, lastDay: string): string
 }
 
 /** The clock time a day starts at on a basis, as the date pickers say it. */
-export function clubDataBoundaryClock(basis: ClubDataDayBasis): string {
-  return basis === 'accounting' ? '2:00 AM' : '12:00 AM';
+export function clubDataBoundaryClock(basis: ClubDataDayBasis, day = accountingDay()): string {
+  if (basis === 'calendar') return '12:00 AM';
+  const start = accountingDayStart(day);
+  if (!start) return '';
+  return start.toLocaleTimeString('en-US', {
+    timeZone: CLUB_DATA_TIME_ZONE,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 /** The short statement of the day the screens count. */
-export const CLUB_DATA_DAY_RULE = 'Days Run 2:00 AM To 2:00 AM Chicago Time';
+export const CLUB_DATA_DAY_RULE =
+  'Days Run Midnight To Midnight Pacific Time. Weeks Run Monday Through Sunday';
 export function clubDataDayRule(basis: ClubDataDayBasis): string {
-  return basis === 'accounting' ? CLUB_DATA_DAY_RULE : 'Days Run Midnight To Midnight Chicago Time';
+  return basis === 'calendar' ? 'Days Run Midnight To Midnight Chicago Time' : CLUB_DATA_DAY_RULE;
 }
 
 /**

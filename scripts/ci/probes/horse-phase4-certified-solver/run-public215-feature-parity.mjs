@@ -1,6 +1,6 @@
 // Exact candidate TS181+28 versus independentSQL, pure public fixtures only.
 import assert from 'node:assert/strict';import {execFileSync}from'node:child_process';import{registerHooks}from'node:module';import{readFileSync}from'node:fs';
-registerHooks({resolve(s,c,next){if(s.startsWith('./Gto')&&s.endsWith('.js')&&c.parentURL?.includes('/server/src/engine/Gto'))return next(s.slice(0,-3)+'.ts',c);return next(s,c);}});
+registerHooks({resolve(s,c,next){if((s.startsWith('./Gto')&&s.endsWith('.js')&&c.parentURL?.includes('/server/src/engine/Gto'))||(s==='./multiway/DealtSeatCensus.js'&&c.parentURL?.endsWith('/server/src/engine/GtoDecisionContext.ts')))return next(s.slice(0,-3)+'.ts',c);return next(s,c);}});
 const {compilePublic215Template,encodePublic215Base181,encodePublic215State28}=await import('../../../../server/src/engine/GtoPublicHist215Features.ts');
 const {public215Digest}=await import('../../../../server/src/engine/GtoPublicHist215Model.ts');const {PUBLIC_HIST215_PRIOR:prior}=await import('../../../../server/src/engine/GtoPublicHist215FeatureSchema.ts');
 const fixtureRoot=process.env.V31_FEATURE_PRIVATE_FIXTURE_ROOT;const hosted=process.env.RUNNER_TEMP&&fixtureRoot?.startsWith(process.env.RUNNER_TEMP+'/')&&process.env.PGHOST===fixtureRoot+'/socket';

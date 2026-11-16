@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLUB_GAMES_UNAVAILABLE_COPY,
+  CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+  isClubDataPacificIncomplete,
   clubDataListState,
   clubDataReadFailure,
 } from '../../src/pages/club/clubDataReadOutcome';
@@ -77,5 +79,22 @@ describe('a Club Data read that could not complete is never shown as empty', () 
     for (const word of CLUB_GAMES_UNAVAILABLE_COPY.replace(/\.$/, '').split(' ')) {
       expect(word[0]).toBe(word[0].toUpperCase());
     }
+  });
+});
+
+describe('Pacific historical coverage refusal', () => {
+  it('recognizes only the explicit source coverage refusal', () => {
+    expect(
+      isClubDataPacificIncomplete({ code: 'P0001', message: 'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE' })
+    ).toBe(true);
+    expect(isClubDataPacificIncomplete({ code: 'P0001', message: 'Another Failure' })).toBe(false);
+    expect(isClubDataPacificIncomplete(null)).toBe(false);
+    expect(
+      clubDataListState({
+        loading: false,
+        error: CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+        rowCount: null,
+      })
+    ).toBe('unavailable');
   });
 });

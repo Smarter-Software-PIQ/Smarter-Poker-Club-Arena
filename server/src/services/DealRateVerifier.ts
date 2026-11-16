@@ -669,6 +669,35 @@ export class DealRateVerifier {
     );
   }
 
+  private async observeSmallFleetHands(
+    tableIds: string[],
+    generation: number | null
+  ): Promise<void> {
+    // The three-table denominator controls a fleet-silence verdict, not the
+    // existence of committed hands. Backup's rehearsal and soak consume this
+    // observation even when its isolated population has only one or two tables.
+    // This call is bounded by the below-floor branch to at most two ids.
+    if (!tableIds.length || this.lifecycleEnded(generation)) return;
+    try {
+      if (tableIds.length >= FLEET_FLOOR_TABLES) {
+        throw new Error('Small-fleet observation exceeded its bounded table set');
+      }
+      const { count, error } = await supabase
+        .from('hand_history')
+        .select('id', { count: 'exact', head: true })
+        .in('table_id', tableIds.slice(0, FLEET_FLOOR_TABLES - 1))
+        .gt('created_at', new Date(Date.now() - LOOKBACK_MS).toISOString());
+      if (this.lifecycleEnded(generation)) return;
+      if (error) throw new Error(error.message);
+      this.handsInWindow =
+        typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
+    } catch (error) {
+      if (this.lifecycleEnded(generation)) return;
+      this.handsInWindow = null;
+      reportError(error, 'DealRateVerifier.small_fleet_hand_count_failed');
+    }
+  }
+
   async check(): Promise<void> {
     if (!this.acceptingChecks) return;
     const releaseLifecycle = this.openLifecycleScope();
@@ -710,87 +739,93 @@ export class DealRateVerifier {
       // empties the fleet would switch this detector off exactly when it matters.
       // So the floor is watched separately, and losing it is its own alarm.
       if (tableIds.length < FLEET_FLOOR_TABLES) {
-        /**
-         * ── A RESTART LOOP NEVER OUTLIVES THE STARTUP GRACE (2026-08-30) ─────
-         *
-         * The grace is right: a cold start genuinely has no dealable tables for
-         * minutes, and crying wolf during a slow boot is worse than not alarming
-         * at all. But `startedAt` is THIS PROCESS's clock, and it resets on every
-         * restart - so the grace silences the alarm completely in the one
-         * scenario it exists for.
-         *
-         * Observed on 2026-08-30: Supabase went into RESIZING, the engine could
-         * not win its leadership claim, and it restarted roughly every two
-         * minutes for over forty minutes. Every one of those processes died well
-         * inside the five-minute grace, so `belowFloorChecks` was never even
-         * INCREMENTED, let alone reached three. The entire fleet was dark, the
-         * detector written for exactly that was structurally unable to fire, and
-         * nobody was told. It was found by a person looking at a lobby.
-         *
-         * So the grace now has to justify itself against something that survives
-         * a restart. The database remembers when the fleet last dealt a hand; a
-         * booting engine and a dead one look identical from inside the process
-         * and completely different from there.
-         */
-        if (Date.now() - this.startedAt < STARTUP_GRACE_MS) {
-          const darkAcrossRestarts = await this.fleetDarkAcrossRestarts();
-          if (this.lifecycleEnded(generation)) return;
-          if (!darkAcrossRestarts) {
-            // Genuinely still booting - hands are being dealt somewhere, or the
-            // database could not be asked, and neither is evidence of collapse.
+        try {
+          /**
+           * ── A RESTART LOOP NEVER OUTLIVES THE STARTUP GRACE (2026-08-30) ─────
+           *
+           * The grace is right: a cold start genuinely has no dealable tables for
+           * minutes, and crying wolf during a slow boot is worse than not alarming
+           * at all. But `startedAt` is THIS PROCESS's clock, and it resets on every
+           * restart - so the grace silences the alarm completely in the one
+           * scenario it exists for.
+           *
+           * Observed on 2026-08-30: Supabase went into RESIZING, the engine could
+           * not win its leadership claim, and it restarted roughly every two
+           * minutes for over forty minutes. Every one of those processes died well
+           * inside the five-minute grace, so `belowFloorChecks` was never even
+           * INCREMENTED, let alone reached three. The entire fleet was dark, the
+           * detector written for exactly that was structurally unable to fire, and
+           * nobody was told. It was found by a person looking at a lobby.
+           *
+           * So the grace now has to justify itself against something that survives
+           * a restart. The database remembers when the fleet last dealt a hand; a
+           * booting engine and a dead one look identical from inside the process
+           * and completely different from there.
+           */
+          if (Date.now() - this.startedAt < STARTUP_GRACE_MS) {
+            const darkAcrossRestarts = await this.fleetDarkAcrossRestarts();
+            if (this.lifecycleEnded(generation)) return;
+            if (!darkAcrossRestarts) {
+              // Genuinely still booting - hands are being dealt somewhere, or the
+              // database could not be asked, and neither is evidence of collapse.
+              this.silentChecks = 0;
+              this.handsInWindow = null;
+              this.lastCheckedAt = Date.now();
+              return;
+            }
+            // Not booting: nothing has dealt anywhere for the whole grace window.
+            // Fall through and judge the floor on this process's first check.
+          }
+          /**
+           * AN OWNER FLOOR PARK IS NOT A LOST FLOOR (2026-10-15). On 2026-10-15
+           * the owner parked seven clubs that hold every cash table for a horse
+           * wallet reset, and this alarm paged at 17:33 for a stop he had
+           * scheduled. While a fresh read says a park holds at least half the
+           * floor, the floor being below FLEET_FLOOR_TABLES is the park's doing:
+           * stand down exactly as for the break, counters reset so a streak
+           * gathered under the park cannot fire one tick after it ends. A park
+           * that nobody keeps is paged by the floor-hold watchdog instead, and a
+           * read that fails says 0 here, so this never hides a real loss for
+           * longer than a lease. See FloorParkWatch.ts.
+           */
+          if (fleetIsParkedByOwner()) {
+            this.belowFloorChecks = 0;
             this.silentChecks = 0;
             this.handsInWindow = null;
             this.lastCheckedAt = Date.now();
             return;
           }
-          // Not booting: nothing has dealt anywhere for the whole grace window.
-          // Fall through and judge the floor on this process's first check.
-        }
-        /**
-         * AN OWNER FLOOR PARK IS NOT A LOST FLOOR (2026-10-15). On 2026-10-15
-         * the owner parked seven clubs that hold every cash table for a horse
-         * wallet reset, and this alarm paged at 17:33 for a stop he had
-         * scheduled. While a fresh read says a park holds at least half the
-         * floor, the floor being below FLEET_FLOOR_TABLES is the park's doing:
-         * stand down exactly as for the break, counters reset so a streak
-         * gathered under the park cannot fire one tick after it ends. A park
-         * that nobody keeps is paged by the floor-hold watchdog instead, and a
-         * read that fails says 0 here, so this never hides a real loss for
-         * longer than a lease. See FloorParkWatch.ts.
-         */
-        if (fleetIsParkedByOwner()) {
-          this.belowFloorChecks = 0;
+          this.belowFloorChecks++;
           this.silentChecks = 0;
           this.handsInWindow = null;
           this.lastCheckedAt = Date.now();
+          if (this.belowFloorChecks >= CONSECUTIVE_BELOW_FLOOR) {
+            this.launchAlert(
+              raiseEngineAlert({
+                alertname: 'ClubArenaFleetFloorLost',
+                severity: 'critical',
+                component: COMPONENT,
+                // Preserve urgent incident priority in the Codex investigation task.
+                page: true,
+                summary:
+                  'Only ' +
+                  tableIds.length +
+                  ' table(s) should be dealing - the fleet has collapsed',
+                description:
+                  'The horse fleet normally keeps dozens of tables dealing around the clock. ' +
+                  'Below ' +
+                  FLEET_FLOOR_TABLES +
+                  ' the deal-rate check cannot judge anything, so ' +
+                  'this is the alarm that covers it. Check HorseFleetManager and table discovery.',
+                labels: { tables: String(tableIds.length) },
+              }),
+              'DealRateVerifier.fleet_floor_alert_failed'
+            );
+          }
           return;
+        } finally {
+          await this.observeSmallFleetHands(tableIds, generation);
         }
-        this.belowFloorChecks++;
-        this.silentChecks = 0;
-        this.handsInWindow = null;
-        this.lastCheckedAt = Date.now();
-        if (this.belowFloorChecks >= CONSECUTIVE_BELOW_FLOOR) {
-          this.launchAlert(
-            raiseEngineAlert({
-              alertname: 'ClubArenaFleetFloorLost',
-              severity: 'critical',
-              component: COMPONENT,
-              // Preserve urgent incident priority in the Codex investigation task.
-              page: true,
-              summary:
-                'Only ' + tableIds.length + ' table(s) should be dealing - the fleet has collapsed',
-              description:
-                'The horse fleet normally keeps dozens of tables dealing around the clock. ' +
-                'Below ' +
-                FLEET_FLOOR_TABLES +
-                ' the deal-rate check cannot judge anything, so ' +
-                'this is the alarm that covers it. Check HorseFleetManager and table discovery.',
-              labels: { tables: String(tableIds.length) },
-            }),
-            'DealRateVerifier.fleet_floor_alert_failed'
-          );
-        }
-        return;
       }
       this.belowFloorChecks = 0;
       this.launchAlert(

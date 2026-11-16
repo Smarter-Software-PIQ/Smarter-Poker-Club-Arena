@@ -127,6 +127,12 @@ export function Review() {
           <img className="mtp-lobby-btn__img" src={lobbyArt} alt="" draggable={false} />
         </button>
       </div>
+      {spectator && document.documentElement.dataset.follow === 'true' && (
+        <div className="mtp-player-follow" role="status">
+          <span>Following KingFish</span>
+          <button>Stop Following</button>
+        </div>
+      )}
       <div
         className="multi-table-page__container"
         style={{

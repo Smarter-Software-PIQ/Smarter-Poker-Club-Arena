@@ -268,3 +268,65 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The schedule prints on the existing lobby glass, without another frame. */
+.blinds-tab__terms {
+  margin: 0;
+  font-size: 12px;
+}
+.blinds-tab__terms > div {
+  padding: 8px 0;
+}
+.blinds-tab__terms dt {
+  color: #6fdcff;
+  font-weight: 700;
+}
+.blinds-tab__terms dd {
+  margin: 4px 0 0;
+  color: #e8eaf0;
+  overflow-wrap: anywhere;
+}
+.blinds-tab__schedule {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: #e8eaf0;
+  font-variant-numeric: tabular-nums;
+}
+.blinds-tab__schedule th,
+.blinds-tab__schedule td {
+  padding: 10px 4px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.blinds-tab__schedule th:first-child {
+  width: 26%;
+  text-align: left;
+}
+.blinds-tab__schedule th:nth-child(2) {
+  width: 34%;
+}
+.blinds-tab__schedule thead {
+  color: #8892a4;
+  font-size: 11px;
+}
+.blinds-tab__schedule-state,
+.blinds-tab__schedule-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+}
+.blinds-tab__schedule-note {
+  color: #8892a4;
+  font-weight: 400;
+}
+.blinds-tab__schedule tr[data-level-state='current'] {
+  color: #6fdcff;
+  background-color: rgba(24, 119, 242, 0.18);
+}
+.blinds-tab__schedule tr[data-level-state='next'] {
+  color: #6fdcff;
+  background-color: rgba(111, 220, 255, 0.06);
+}

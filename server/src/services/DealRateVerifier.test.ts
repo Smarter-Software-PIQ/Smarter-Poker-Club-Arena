@@ -89,11 +89,10 @@ describe('DealRateVerifier - when it must stay quiet', () => {
     answers({ count: 0, error: null });
     for (let i = 0; i < 10; i++) await v.check();
     expect(v.snapshot().dbConfirmedDead).toBe(false);
-    // It never judged the DEAL RATE: two tables between hands is not evidence.
-    // `.in('table_id', ...)` is unique to that query — the floor check added on
-    // 2026-08-30 asks a different, unfiltered question (has the platform dealt
-    // ANYTHING), so "did it ask at all" is no longer the right assertion.
-    expect(builder.in).not.toHaveBeenCalled();
+    // Observe the count, but never classify a small silent sample as dead.
+    expect(v.snapshot().handsInWindow).toBe(0);
+    expect(v.snapshot().silentChecks).toBe(0);
+    expect(builder.in).toHaveBeenCalledWith('table_id', tables(2));
   });
 
   it('stands down entirely when no table should be dealing', async () => {

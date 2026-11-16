@@ -24,6 +24,12 @@ const fixed = (scale: number, px = 0): MobileAvatarProfile => ({ scale, px, py: 
  * amount tags, plates, badges, dealer button, pot, board, controls, neighbours)
  * stays a hard obstacle, so a seat gets the largest zoom those leave room for. */
 export const MOBILE_AVATAR_MAX_SCALE = 2.5;
+// Nine-chair tournaments use the same seated artwork fit and saved size as cash.
+function mobileProfileKey(page: HTMLElement) {
+  if (page.dataset.seats === '9') return 'cash|9|seated';
+  return `${page.classList.contains('table-page--tournament') ? 'tournament' : 'cash'}|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
+}
+
 const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
   'cash|6|seated': Object.fromEntries(
     Array.from({ length: 6 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
@@ -32,9 +38,6 @@ const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
     Array.from({ length: 6 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
   ),
   'cash|9|seated': Object.fromEntries(
-    Array.from({ length: 9 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
-  ),
-  'cash|9|spectator': Object.fromEntries(
     Array.from({ length: 9 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
   ),
 };
@@ -342,7 +345,7 @@ export function retainMobilePaint(scaler: HTMLElement) {
 export function mobileAvatarPaintSupported(scaler: HTMLElement, page: HTMLElement) {
   if (!matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches)
     return false;
-  const key = `${page.classList.contains('table-page--tournament') ? 'tournament' : 'cash'}|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
+  const key = mobileProfileKey(page);
   return (
     Boolean(MOBILE_PROFILES[key]) &&
     page.dataset.killEnabled === 'false' &&
@@ -354,7 +357,7 @@ export function mobileAvatarPaintSupported(scaler: HTMLElement, page: HTMLElemen
 function profileFor(image: HTMLImageElement, scaler: HTMLElement, page: HTMLElement) {
   if (!matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)').matches)
     return;
-  const key = `${page.classList.contains('table-page--tournament') ? 'tournament' : 'cash'}|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
+  const key = mobileProfileKey(page);
   const ring = Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper')).sort((a, b) => {
     const angle = (e: HTMLElement) =>
       (Math.atan2(50 - parseFloat(e.style.left), parseFloat(e.style.top) - 50) + 2 * Math.PI) %
@@ -418,7 +421,7 @@ export function mobileFrameCardReservation(
   state?: MobilePaintState
 ): PaintBox {
   if (
-    page.classList.contains('table-page--tournament') ||
+    (page.dataset.seats !== '9' && page.classList.contains('table-page--tournament')) ||
     !['6', '9'].includes(page.dataset.seats ?? '') ||
     page.dataset.killEnabled !== 'false' ||
     ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount)) ||
@@ -481,7 +484,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     ) + 12;
   const badgeHeight = fontSize * 1.3 + 4;
   for (const element of page.querySelectorAll<HTMLElement>(
-    '.seat__info,.community-area,.pot-area,.pot-display,.pot-display__pile,.table-hud button,.table-hud__corner > *,.chat-collapsed,.action-panel-wrapper,.table-tab-bar,.bbj-container,.seat:not(.seat--empty) .seat__avatar:not(.seat__avatar--bust),.seat__empty-img'
+    '.seat__bounty,.seat__info,.community-area,.pot-area,.pot-display,.pot-display__pile,.table-hud button,.table-hud__corner > *,.chat-collapsed,.action-panel-wrapper,.table-tab-bar,.bbj-container,.seat:not(.seat--empty) .seat__avatar:not(.seat__avatar--bust),.seat__empty-img'
   )) {
     const box = element.getBoundingClientRect();
     if (box.width && box.height) boxes.push({ box, owner: element.closest('.seat'), layer: false });
@@ -788,7 +791,7 @@ export function enlargeMobileAvatars(
       (2 * Math.PI);
     return angle(a) - angle(b);
   });
-  const profileKey = `${page.classList.contains('table-page--tournament') ? 'tournament' : 'cash'}|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
+  const profileKey = mobileProfileKey(page);
   const profiles = MOBILE_PROFILES[profileKey];
   if (
     !profiles ||
@@ -1104,12 +1107,17 @@ export function enlargeMobileAvatars(
       })
     );
     const shared = sharedSizes.get(sizeType);
+    // The nine-chair phone rail already sets a common enlarged character size
+    // after decoding every portrait. A second, discretionary zoom here made
+    // the identical opponent change size with a vacant chair or a private fan.
+    const densePhone = page.dataset.seats === '9' && innerWidth <= 640;
+    const maxScale = densePhone ? 1 : MOBILE_AVATAR_MAX_SCALE;
     const rungs = [
       2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
       1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02, 1,
     ].filter(
       (scale) =>
-        scale <= MOBILE_AVATAR_MAX_SCALE &&
+        scale <= maxScale &&
         (shared === undefined || !restingHeight || scale * restingHeight <= shared + 0.5)
     );
     let best: PaintChoice[] | null = rungs.length ? fitsAll(rungs[rungs.length - 1]) : null;
