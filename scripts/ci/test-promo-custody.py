@@ -30,6 +30,8 @@ def main():
   if not ok:raise AssertionError((label,actual,expected))
  def one(q):return db.one(q)
  def reset():
+  global H
+  H=str(uuid.uuid4())
   db.run('TRUNCATE public.ca_promo_principal_custody,public.ca_promo_play_through_grants,public.ca_promo_cash_hand_funding,public.ca_promo_funding_custody_receipts,public.ca_promo_pending_custody_receipts,public.chip_ledger,public.rake_attributions,public.accounting_tournament_fee_sources,public.rake_records,public.tournament_unregistration_receipts,public.tournament_cancellation_receipts;'
          f"UPDATE public.club_members SET chip_balance=50; UPDATE public.agents SET agent_wallet_balance=100; UPDATE public.ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';")
  def ledger(fr,to,amount,category,who=A,dest=None):
@@ -38,11 +40,15 @@ def main():
   db.run(ledger('promo_wallet',kind,amount,'promo_send',who))
  def held(kind='player_wallet',who=A,entity=None):
   return one(f"SELECT public.fn_ca_promo_locked_at('{C}','{who}','{kind}','{entity or who}')")
- def hand(before,after,contribution=50,returned=0,h=H,table=T):
-  return f"SELECT public.fn_ca_promo_accept_cash_hand('{h}','{table}','"+json.dumps([dict(user_id=A,stack_before=before,stack=after)])+"'::jsonb,'"+json.dumps(dict(contributions={A:contribution},returned_uncalled={A:returned}))+"'::jsonb);"
+ def accepted(h,table=T,at='clock_timestamp()'):
+  return f"INSERT INTO hand_atomic_commits(hand_id,table_id,hand_number,committed_at) VALUES('{h}','{table}',{1000000+uuid.UUID(h).int%1000000000},{at}) ON CONFLICT(hand_id) DO NOTHING;"
+ def hand(before,after,contribution=50,returned=0,h=None,table=T):
+  h=h or H
+  return accepted(h,table)+f"SELECT public.fn_ca_promo_accept_cash_hand('{h}','{table}','"+json.dumps([dict(user_id=A,stack_before=before,stack=after)])+"'::jsonb,'"+json.dumps(dict(contributions={A:contribution},returned_uncalled={A:returned}))+"'::jsonb);"
  def metric(key):return db.json(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')")[key]
  def fee(amount,tour=None):
-  if tour is None:db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount,created_at) VALUES('{A}','{C}',{amount},clock_timestamp())")
+  if tour is None:
+   h=str(uuid.uuid4());db.run(accepted(h)+f"SELECT fn_ca_promo_capture_cash_hand_clock('{h}','{T}');INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at) VALUES('{h}','{A}','{C}',{amount},clock_timestamp())")
   else:db.run(f"""DO $$DECLARE rid uuid;BEGIN
    INSERT INTO rake_records(tournament_id,is_tournament,rake_amount,metadata,created_at,source)
     VALUES('{tour}',true,{amount},'{{"user_id":"{A}"}}',clock_timestamp(),'registration') RETURNING id INTO rid;
@@ -86,6 +92,8 @@ def main():
   for f in base.MIGRATIONS:db.run(Path(f).read_text())
   db.run("""ALTER TABLE accounting_tournament_fee_sources ADD COLUMN rake_record_id uuid;
    ALTER TABLE rake_records ADD COLUMN source text;
+   ALTER TABLE rake_attributions ADD COLUMN hand_id uuid;
+   CREATE TABLE hand_atomic_commits(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,committed_at timestamptz DEFAULT clock_timestamp());
    CREATE TABLE tournament_unregistration_receipts(registration_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tournament_id uuid,user_id uuid,fees_reversed numeric,fee_reversal_ids uuid[],fee_source_rake_record_ids uuid[]);
    CREATE TABLE tournament_cancellation_receipts(tournament_id uuid PRIMARY KEY,total_rake_before numeric,total_rake_after numeric,fees_reversed numeric,fee_reversal_ids uuid[]);
   """)
@@ -150,7 +158,7 @@ def main():
   for role in ['anon','authenticated','service_role']:
    bad=db.run(f"SET ROLE {role}; SELECT fn_ca_promo_move_custody('{C}','{A}','player_wallet','{A}',NULL,NULL,50,'spent');",check=False)
    check(role+' cannot forge a custody movement',bad.returncode!=0,True)
-  db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount) VALUES('{A}','{C}',200)")
+  fee(200)
   check('full fee target releases every place',held(),'0')
   db.run(f"SELECT fn_ca_promo_play_through_settle('{C}','{A}')")
   check('settlement removes principal custody',one('SELECT sum(amount) FROM ca_promo_principal_custody'),'0')
@@ -159,19 +167,19 @@ def main():
   stacks=json.dumps([dict(user_id=A,stack_before=50,stack=30)])
   facts=json.dumps(dict(contributions={A:40},returned_uncalled={A:10}))
   places=json.dumps({A:T})
-  db.run(f"SELECT fn_ca_promo_accept_cash_hand('{H}','{alternate}','{stacks}','{facts}','{places}')")
+  db.run(accepted(H,alternate)+f"SELECT fn_ca_promo_accept_cash_hand('{H}','{alternate}','{stacks}','{facts}','{places}')")
   check('Lightning retires principal at its original physical seat',held('table_stack',entity=T),'30')
   check('uncalled chips do not inflate promo fee exposure',one('SELECT contribution FROM ca_promo_cash_hand_funding'),'30')
   reset();grant();db.run(fund(50))
-  db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount) VALUES('{A}','{C}',200)")
+  fee(200)
   db.run(hand(50,0))
   check('already earned unlock never becomes promo-funded play',one('SELECT count(*) FROM ca_promo_cash_hand_funding'),'0')
   reset();grant(30);grant(20)
   db.run(fund(40))
   check('several original grants split without duplication',one('SELECT count(*)||\':\'||sum(fee_target) FROM ca_promo_play_through_grants'),'2:200.0000')
-  db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount) VALUES('{A}','{C}',119)")
+  fee(119)
   check('partial fees release no part of the oldest original grant',held('table_stack',entity=T),'40')
-  db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount) VALUES('{A}','{C}',1)")
+  fee(1)
   check('oldest whole original grant unlocks across every place',held('table_stack',entity=T),'10')
   check('newer grant wallet principal stays locked',held(),'10')
   reset();grant();db.run(f"UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{A}';"+ledger('player_wallet','club_treasury',80,'club_bank_claim'))
@@ -338,6 +346,42 @@ def main():
     control.stdin.write('SELECT pg_advisory_unlock_all();\n');control.stdin.flush()
    control.communicate(timeout=10)
 
+  # A pre-bust hand may arrive through the outbox after another gift. Its
+  # original accepted clock survives history pruning and cannot pay that gift.
+  reset();grant();db.run(fund(50));old_hand=str(uuid.uuid4());db.run(hand(50,0,h=old_hand))
+  grant();db.run(f"INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at) VALUES('{old_hand}','{A}','{C}',100,clock_timestamp())")
+  check('delayed pre-bust cash fee cannot qualify a new grant',metric('fee_progress'),0)
+  fee(25);check('new grant receives only fees earned after its original clock',metric('fee_progress'),25)
+  db.run(f"DELETE FROM hand_atomic_commits WHERE hand_id='{old_hand}'")
+  check('retention pruning cannot move old earned fees into a later grant',metric('fee_progress'),25)
+  check('canonical clock survives original atomic commit pruning',one(f"SELECT count(*) FROM ca_promo_cash_hand_clocks WHERE hand_id='{old_hand}'"),'1')
+  bad=db.run(f"UPDATE ca_promo_cash_hand_clocks SET accepted_at=clock_timestamp() WHERE hand_id='{old_hand}'",check=False)
+  check('original accepted fee clock is immutable',bad.returncode!=0 and 'original_promo_cash_hand_clock_is_immutable' in bad.stderr,True)
+  missing=str(uuid.uuid4());db.run(f"INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at) VALUES('{missing}','{A}','{C}',10,clock_timestamp())")
+  bad=db.run(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')",check=False)
+  check('post-live missing original cash clock refuses unfinished progress',bad.returncode!=0 and 'promo_cash_fee_original_hand_clock_missing' in bad.stderr,True)
+  reset();grant();db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount,created_at) VALUES('{A}','{C}',10,timestamptz '2020-01-01')")
+  check('pre-live historical cash fees need no retrospective accepted receipt',metric('fee_progress'),0)
+  check('historical fee window preserves its original pre-live credit',one(f"SELECT fn_ca_promo_play_through_fees_between('{C}','{A}',timestamptz '2019-01-01',timestamptz '2021-01-01')"),'10')
+  reset();no_p_hand=str(uuid.uuid4());db.run(hand(100,90,h=no_p_hand));grant()
+  db.run(f"INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at) VALUES('{no_p_hand}','{A}','{C}',25,clock_timestamp())")
+  check('pre-grant hand clock is captured even without promo on the table',metric('fee_progress'),0)
+  reset();pre_enable=str(uuid.uuid4());db.run('UPDATE ca_promo_play_through_settings SET enforced_from=NULL;'+hand(100,90,h=pre_enable))
+  db.run('UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp();');grant()
+  db.run(f"INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at) VALUES('{pre_enable}','{A}','{C}',100,clock_timestamp())")
+  check('pre-enable accepted hand posted after enable uses its original live commit clock',metric('fee_progress'),0)
+  check('reading a pre-enable hand clock does not invent a retrospective cold receipt',one(f"SELECT count(*) FROM ca_promo_cash_hand_clocks WHERE hand_id='{pre_enable}'"),'0')
+  fee(25);check('activation boundary preserves original producer and new earned fees',metric('fee_progress'),25)
+  reset();grant();db.run(fund(50));fee(25,base.TOUR_A)
+  db.run("UPDATE ca_promo_play_through_grants SET expires_at=clock_timestamp() WHERE closed_at IS NULL")
+  db.run(f"UPDATE club_members SET chip_balance=50 WHERE club_id='{C}' AND user_id='{A}'");grant();fee(50)
+  check('expired on-felt principal does not lend unearned target debt to new gift',metric('fee_progress'),50)
+  check('only the surviving new gift target remains payable',metric('fee_remaining'),150)
+  check('expired principal remains locked on felt pending original return',held('table_stack',entity=T),'50')
+  check('expired grant remains a returnable custody row',one("SELECT count(*) FROM fn_ca_promo_play_through_state('"+C+"','"+A+"') WHERE state='expired_pending'"),'1')
+  refund(25,base.TOUR_A)
+  check('refund of an expired consumed fee does not create new gift debt',metric('fee_progress'),50)
+
   reset();grant();db.run(fund(50))
   db.run("SELECT pg_stat_reset_single_function_counters('public.fn_ca_promo_play_through_state(uuid,uuid)'::regprocedure)")
   db.run("SET track_functions='all';"+hand(50,40,contribution=10,h=str(uuid.uuid4())))
@@ -345,7 +389,12 @@ def main():
   reset();grant(1000000);db.run(fund(1000000,before=1000000))
   # The same player/time index is already installed in production. This is
   # an isolated workload measurement, not a new index or a timing gate.
-  db.run(f"CREATE INDEX IF NOT EXISTS idx_rake_attributions_player_id ON rake_attributions(player_id,created_at DESC);INSERT INTO rake_attributions(player_id,club_id,rake_amount,created_at) SELECT '{A}','{C}',0.01,clock_timestamp() FROM generate_series(1,30000);ANALYZE rake_attributions;")
+  db.run(f"""CREATE INDEX IF NOT EXISTS idx_rake_attributions_player_id ON rake_attributions(player_id,created_at DESC);
+   WITH h AS (INSERT INTO hand_atomic_commits(hand_id,table_id,hand_number,committed_at)
+    SELECT gen_random_uuid(),'{T}',9000000000+g,clock_timestamp() FROM generate_series(1,30000) g RETURNING *),
+   clocks AS (INSERT INTO ca_promo_cash_hand_clocks SELECT hand_id,table_id,hand_number,committed_at FROM h RETURNING *)
+   INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount,created_at)
+    SELECT hand_id,'{A}','{C}',0.01,clock_timestamp() FROM clocks;ANALYZE rake_attributions;""")
   db.run("SELECT pg_stat_reset_single_function_counters('public.fn_ca_promo_play_through_state(uuid,uuid)'::regprocedure)")
   db.run("SET track_functions='all';"+hand(1000000,999999,contribution=1,h=str(uuid.uuid4())))
   timing=db.json("SELECT jsonb_build_object('calls',calls,'total_ms',total_time,'self_ms',self_time,'fee_source_rows',30000,'index','(player_id, created_at DESC)') FROM pg_stat_user_functions WHERE funcid='public.fn_ca_promo_play_through_state(uuid,uuid)'::regprocedure")

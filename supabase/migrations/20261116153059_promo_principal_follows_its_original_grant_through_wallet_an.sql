@@ -1,5 +1,5 @@
 -- @install-window: daily-maintenance
--- @locks: public.chip_ledger
+-- @locks: public.chip_ledger, public.ca_promo_play_through_grants
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.chip_ledger'::regclass AND tgname='zzz_ca_promo_custody' AND tgenabled='O')
 -- One original grant, one fee target, several places holding its principal.
 -- Gameplay spends unrestricted chips first. Withdrawals spend cashable chips.
@@ -54,6 +54,44 @@ ALTER TABLE public.ca_promo_principal_custody ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_promo_cash_hand_funding ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ca_promo_principal_custody,public.ca_promo_cash_hand_funding FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT ON public.ca_promo_principal_custody,public.ca_promo_cash_hand_funding TO service_role;
+-- Cash fees can post later than the accepted hand, and the original atomic
+-- commit is pruned after eight days. Preserve only its canonical money clock
+-- prospectively; no history-retention or bank/source timestamp is rewritten.
+CREATE TABLE public.ca_promo_cash_hand_clocks (
+ hand_id uuid PRIMARY KEY,table_id uuid NOT NULL,hand_number bigint NOT NULL,
+ accepted_at timestamptz NOT NULL CHECK(isfinite(accepted_at))
+);
+ALTER TABLE public.ca_promo_cash_hand_clocks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_cash_hand_clocks FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_cash_hand_clocks TO service_role;
+CREATE FUNCTION public.fn_ca_promo_cash_clock_is_immutable() RETURNS trigger
+LANGUAGE plpgsql SET search_path='public','pg_temp' AS $$
+BEGIN RAISE EXCEPTION 'original_promo_cash_hand_clock_is_immutable' USING ERRCODE='23514';END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_cash_clock_is_immutable() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER ca_promo_cash_clock_immutable BEFORE UPDATE OR DELETE ON public.ca_promo_cash_hand_clocks
+ FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_cash_clock_is_immutable();
+CREATE TRIGGER ca_promo_cash_clock_no_truncate BEFORE TRUNCATE ON public.ca_promo_cash_hand_clocks
+ FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_cash_clock_is_immutable();
+CREATE FUNCTION public.fn_ca_promo_capture_cash_hand_clock(p_hand uuid,p_table uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+DECLARE h public.hand_atomic_commits%ROWTYPE;prior public.ca_promo_cash_hand_clocks%ROWTYPE;
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN RETURN; END IF;
+ IF EXISTS(SELECT 1 FROM public.tables WHERE id=p_table AND tournament_id IS NOT NULL) THEN RETURN; END IF;
+ SELECT * INTO h FROM public.hand_atomic_commits WHERE hand_id=p_hand AND table_id=p_table;
+ IF NOT FOUND OR h.committed_at IS NULL OR NOT isfinite(h.committed_at) THEN
+  RAISE EXCEPTION 'promo_cash_original_accepted_hand_missing' USING ERRCODE='23514'; END IF;
+ INSERT INTO public.ca_promo_cash_hand_clocks VALUES(h.hand_id,h.table_id,h.hand_number,h.committed_at)
+  ON CONFLICT(hand_id) DO NOTHING;
+ SELECT * INTO STRICT prior FROM public.ca_promo_cash_hand_clocks WHERE hand_id=p_hand;
+ IF ROW(prior.table_id,prior.hand_number,prior.accepted_at) IS DISTINCT FROM ROW(h.table_id,h.hand_number,h.committed_at) THEN
+  RAISE EXCEPTION 'original_promo_cash_hand_clock_conflict' USING ERRCODE='23514'; END IF;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_capture_cash_hand_clock(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.fn_ca_promo_cash_fee_clock_missing(p_hand uuid) RETURNS numeric
+LANGUAGE plpgsql STABLE SET search_path='public','pg_temp' AS $$
+BEGIN RAISE EXCEPTION 'promo_cash_fee_original_hand_clock_missing: %',p_hand USING ERRCODE='23514';END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_cash_fee_clock_missing(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION public.fn_ca_promo_seed_custody() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
@@ -80,7 +118,15 @@ CREATE TRIGGER ca_promo_seed_custody AFTER INSERT OR UPDATE OF closed_at
 CREATE FUNCTION public.fn_ca_promo_fee_events(p_club uuid,p_user uuid,p_from timestamptz,p_to timestamptz)
 RETURNS TABLE(earned_at timestamptz,fee_credit numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
- WITH sources AS MATERIALIZED (
+ WITH cash AS MATERIALIZED (
+  SELECT COALESCE(h.accepted_at,CASE WHEN isfinite(original.committed_at) THEN original.committed_at END,a.created_at) AS earned_at,
+   CASE WHEN h.hand_id IS NULL AND (original.committed_at IS NULL OR NOT isfinite(original.committed_at))
+    AND a.rake_amount<>0 AND a.created_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id)
+    THEN public.fn_ca_promo_cash_fee_clock_missing(a.hand_id) ELSE a.rake_amount END AS fee_credit
+  FROM public.rake_attributions a LEFT JOIN public.ca_promo_cash_hand_clocks h ON h.hand_id=a.hand_id
+   LEFT JOIN public.hand_atomic_commits original ON h.hand_id IS NULL AND original.hand_id=a.hand_id
+  WHERE a.player_id=p_user AND a.club_id=p_club AND (a.created_at<p_to OR h.accepted_at<p_to OR original.committed_at<p_to)
+ ), sources AS MATERIALIZED (
   SELECT s.id,s.rake_record_id,s.tournament_id,s.charged_at,s.rake_credit
    FROM public.accounting_tournament_fee_sources s
    WHERE s.club_id=p_club AND s.player_id=p_user AND s.charged_at>=p_from AND s.charged_at<p_to
@@ -103,8 +149,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
     AND r.source IN('atomic_cancel_tournament','operator_abort_tournament')
     AND r.metadata->>'user_id'=p_user::text
  )
- SELECT a.created_at,a.rake_amount FROM public.rake_attributions a
-  WHERE a.player_id=p_user AND a.club_id=p_club AND a.created_at>=p_from AND a.created_at<p_to
+ SELECT c.earned_at,c.fee_credit FROM cash c WHERE c.earned_at>=p_from AND c.earned_at<p_to
  UNION ALL
  SELECT s.charged_at,s.rake_credit FROM sources s
   WHERE NOT EXISTS(SELECT 1 FROM unregistered u WHERE u.tournament_id=s.tournament_id
@@ -120,6 +165,8 @@ CREATE OR REPLACE FUNCTION public.fn_ca_promo_play_through_fees_between(p_club_i
 RETURNS numeric LANGUAGE sql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
  SELECT COALESCE(sum(e.fee_credit),0) FROM public.fn_ca_promo_fee_events(p_club_id,p_user_id,p_from,p_to) e;
 $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_play_through_fees_between(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_promo_play_through_fees_between(uuid,uuid,timestamptz,timestamptz) TO service_role;
 
 -- A closed grant retains the fees it actually consumed before closing. Its
 -- unused target disappears, but its already-used fees cannot pay a newer grant
@@ -164,6 +211,14 @@ BEGIN
    v_prefix:=v_prefix+v_consumed;
    IF r.close_reason<>'met' THEN v_forfeited:=v_forfeited+v_consumed; CONTINUE; END IF;
    v_status:='met';
+  ELSIF r.expires_at IS NOT NULL AND r.expires_at<=v_now
+    AND COALESCE((v_observed->>('e:'||r.id))::numeric,0)<v_prefix+r.fee_target THEN
+   -- Expiry ends the unearned target even while principal is still on felt.
+   -- Preserve only fees actually consumed before expiry, refund-safe, and
+   -- retain this row so its surviving principal still returns to its fund.
+   v_consumed:=LEAST(r.fee_target,GREATEST(COALESCE((v_observed->>('e:'||r.id))::numeric,0)-v_prefix,0));
+   v_prefix:=v_prefix+v_consumed;v_forfeited:=v_forfeited+v_consumed;
+   v_status:='expired_pending';
   ELSE
    v_prefix:=v_prefix+r.fee_target;
    v_status:=CASE WHEN v_fees>=v_prefix AND (r.expires_at IS NULL OR r.expires_at>v_now
@@ -178,6 +233,9 @@ BEGIN
   FROM jsonb_to_recordset(v_rows) AS j(grant_id uuid,amount numeric,remaining numeric,fee_target numeric,
    cum_target numeric,granted_at timestamptz,expires_at timestamptz,state text) ORDER BY j.granted_at,j.grant_id;
 END $$;
+
+REVOKE ALL ON FUNCTION public.fn_ca_promo_play_through_state(uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_promo_play_through_state(uuid,uuid) TO service_role;
 
 -- Owner-only helper. NULL destination consumes or returns actual principal;
 -- actual chip movement remains owned by the original ledger-backed door.
@@ -483,6 +541,7 @@ CREATE FUNCTION public.fn_ca_promo_accept_cash_hand(p_hand uuid,p_table uuid,p_s
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 DECLARE s jsonb;r record;before_promo numeric;investment numeric;loss numeric;unused numeric;place uuid;ids uuid[];promo_investment numeric;
 BEGIN
+ PERFORM public.fn_ca_promo_capture_cash_hand_clock(p_hand,p_table);
  IF NOT EXISTS(SELECT 1 FROM public.ca_promo_principal_custody c WHERE c.kind='table_stack' AND c.amount>0
   AND (c.entity_id=p_table OR c.entity_id IN(SELECT value::uuid FROM jsonb_each_text(p_places)))) THEN RETURN; END IF;
  IF EXISTS(SELECT 1 FROM public.tables WHERE id=p_table AND tournament_id IS NOT NULL) THEN RETURN; END IF;
