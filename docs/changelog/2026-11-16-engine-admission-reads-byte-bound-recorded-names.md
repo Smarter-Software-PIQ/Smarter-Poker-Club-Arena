@@ -1,0 +1,9 @@
+# Engine admission reads byte-bound recorded migration names
+
+The original owner selection in Stage run 43943069301 kept production serving because `required_by` inferred migration `20261116044125`'s installed name from its deliberately shortened filename. Protected recording PR #11063 already bound the actual installed name, exact path and 9a0873e9cb36e6800c9436bd7dd76c6f file MD5. Production and the certified Backup held the same schema; no missing SQL justified a replay or history rename.
+
+The installed-migration helper now reads recording claims from the exact candidate Git tree, validates version, path, name and MD5, and uses the recorded installed name only for matching file bytes. Malformed claims, duplicate JSON fields/versions/paths, changed bytes and candidate version collisions refuse. Ordinary unrecorded migrations retain filename names and all existing copy/production, required-function, missing-migration and historical name-truncation checks remain.
+
+The recording manifest now participates in existing release-authority and physical Backup projections and triggers the maintained Backup and prequalification workflows. The read-only `candidate-ready` command checks all ordinary candidate requirements before dispatch; the publication, release and owner-window runbooks document it. No new publisher, schedule or migration is introduced.
+
+Regression coverage uses real Git fixtures, the original protected 44 candidate and the existing native installed-migration and qualification suites. This source change does not itself certify or activate an engine; fresh exact qualification, protected selection and live release proof remain required.

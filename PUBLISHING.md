@@ -245,6 +245,10 @@ Required engine unit tests and isolated PostgreSQL accounting qualification run 
 
 CI classification and deployment selection are separate. A client financial change may correctly require database/server tests without requiring an engine restart. Do not rename files or weaken checks to evade that qualification. A docs-only or client-only merge can invoke the lightweight engine detector; a verified unchanged engine tree must produce no engine deployment request. Provider runner queues and the static publisher's own serialization are not hourly maintenance gates.
 
+### Prove every ordinary candidate migration before selecting an engine
+
+Before dispatch, run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-ready --repo . --serving SERVING_SHA --sha TARGET_SHA` through the configured read-only `DATABASE_URL`, or add `--production FRESH_SCHEMA_EVIDENCE_JSON` for a freshly captured installed listing. This checks every added or changed ordinary candidate migration by version and installed name, including byte-exact recordings whose filename is shortened. Recorded names come only from the exact target manifest with matching version, path and file MD5; malformed or ambiguous claims refuse. This read-only preflight does not install SQL or replace the separate production-versus-certified-copy equality and function checks. A changed recording manifest changes release and Backup qualification inputs and requires fresh evidence.
+
 ## Before submission
 
 Run the applicable local prechecks on the final candidate before push, as required by `docs/agent-policy/OWNER-POLICY.md`. Include source contracts reading changed Markdown/workflows/scripts and qualification manifests, not only imported-code tests. Resolve missing or stale owned dependencies and actual failures before submission; never defer an available local check to the first hosted run. Record exact input and results in the task checkpoint. Hosted CI, protected merge, publisher admission and applicable live proof remain mandatory.
