@@ -241,7 +241,7 @@ export type OmahaReraisedVerdict =
  */
 function plo6PreflopInScope(i: OmahaReraisedInput): boolean {
   return (
-    i.variant === 'plo6' &&
+    String(i.variant).toLowerCase() === 'plo6' &&
     i.street === 'preflop' &&
     omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })
   );

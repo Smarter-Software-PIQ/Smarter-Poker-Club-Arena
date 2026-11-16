@@ -146,11 +146,17 @@ describe('the options the PLO6 port skips never act in PLO6, gate on or not', ()
   });
 
   it('3.27 and omahaReraisedPotDiscipline: PLO6 returns before the shared preflop cell is asked', () => {
-    for (const fn of ['omahaReraisedFoldVsTight', 'omahaReraisedPotFold']) {
+    // omahaReraisedPotFold returns only with the gate on: with it off the cell
+    // already refuses PLO6 and the function takes the same opponent reads as before.
+    const anchors: Record<string, string> = {
+      omahaReraisedFoldVsTight:
+        "if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6') return decision;",
+      omahaReraisedPotFold:
+        "String(gs.gameVariant ?? '').toLowerCase() === 'plo6' &&\n    omahaStrategyGameScopeOf(opts).plo6 === true\n  )\n    return decision;",
+    };
+    for (const fn of Object.keys(anchors)) {
       const body = bodyOf(fn);
-      const out = body.indexOf(
-        "if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6') return decision;"
-      );
+      const out = body.indexOf(anchors[fn]);
       expect(out, fn).toBeGreaterThan(-1);
       expect(out, fn).toBeLessThan(body.indexOf('omahaReraisedPreflopCell('));
     }
@@ -184,11 +190,12 @@ describe('the options the PLO6 port skips never act in PLO6, gate on or not', ()
 describe('3.24 item 7: against a measured maniac the out-of-position call rule stands aside in PLO6 only', () => {
   it('the exemption is inside the PLO6 branch and reads the measured read, as 3.26 does', () => {
     const body = bodyOf('omahaOopReraisedPotStrongRange');
+    // PLO6 and the gate: with the gate off the extra opponent read is not taken.
     const at = body.indexOf(
-      "if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6' && opts.mind !== false) {"
+      "String(gs.gameVariant ?? '').toLowerCase() === 'plo6' &&\n      omahaStrategyGameScopeOf(opts).plo6 === true &&\n      opts.mind !== false\n    ) {"
     );
     expect(at).toBeGreaterThan(-1);
-    const branch = body.slice(at, at + 330);
+    const branch = body.slice(at, at + 420);
     expect(branch).toContain(
       'raiserRead.presumed !== true && maniacRaiseWidth(raiserRead) !== null'
     );

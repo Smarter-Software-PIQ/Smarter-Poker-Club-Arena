@@ -3562,24 +3562,9 @@ export interface HorseDecideOpts {
    * and reads no six-card constant, exactly as before.
    *
    * Default OFF and OFF-ONLY in the live switch until the six-card port is
-   * complete and reviewed. Known gaps (2026-11-16), each of which would make a
-   * rule wrong or silent for six cards:
-   *  - COORDINATED_MAX_GAPS (HorseOmahaOopReraisedPot.ts) has no six-card row;
-   *  - omahaReraisedPremium is too wide for six cards (plo6ReraisedPremium is
-   *    not hooked);
-   *  - literal 4/5 hole-count checks: HorseOmahaUnderpair.ts :189,
-   *    HorseOmahaReraisedPot.ts :229, HorseOmahaOopReraisedPot.ts :258, :353,
-   *    :415, HorseOmahaFacingBetEv.ts :669, HorseOmahaRiverMediumBetCalls.ts
-   *    :99 (lines as of this commit);
-   *  - the HorseOmahaReraisedPot.ts inScope is not routed through
-   *    omahaStrategyGameInScope;
-   *  - the four options the PLO6 port skips (omahaRiverNutBlockerBluffReachable,
-   *    omahaReraisedFoldVsTight, omahaEliteContinuesVsMeasuredWideThreeBettor,
-   *    omahaSmallBlindSteal) are not yet excluded from PLO6 under this gate;
-   *  - the PLO6 adaptations (the "adapt" verdicts of
-   *    plo6StrategyOptionVerdict) are not hooked;
-   *  - the receipt validator does not admit PLO6
-   *    (OMAHA_STRATEGY_GAME_SCOPE_ADMISSION.plo6 is false).
+   * complete and reviewed. The six-card branches are written (2026-11-16);
+   * what is still owed before the hold may be lifted is listed in
+   * docs/horse-option-authority.d/omahaStrategyInPlo6.md.
    * Authority and evidence rows:
    * docs/horse-option-authority.d/omahaStrategyInPlo6.md. League: the refused
    * matchup plo6_omaha_strategy_in_plo6. */
@@ -7137,10 +7122,16 @@ function omahaReraisedPotFold(
 ): HorseDecision {
   const reraisedOn = opts.omahaReraisedPotDiscipline === true;
   if (!reraisedOn) return decision;
-  // PLO6 never, omahaStrategyInPlo6 on or not: this option is not one of the
-  // options the PLO6 lane ported (SPEC-B section 6); the preflop cell admits
-  // PLO6 with that gate for omahaNoCallColdFourBetWithoutPremium (3.26) only.
-  if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6') return decision;
+  // PLO6 never: this option is not one of the options the PLO6 lane ported
+  // (SPEC-B section 6); the preflop cell admits PLO6 with omahaStrategyInPlo6
+  // for omahaNoCallColdFourBetWithoutPremium (3.26) only. The return is taken
+  // only with that gate on: with it off the cells already refuse PLO6, and
+  // the function runs exactly as before (the same opponent reads are taken).
+  if (
+    String(gs.gameVariant ?? '').toLowerCase() === 'plo6' &&
+    omahaStrategyGameScopeOf(opts).plo6 === true
+  )
+    return decision;
   if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
     return decision;
   try {
@@ -7330,12 +7321,17 @@ function omahaOopReraisedPotStrongRange(
       break;
     }
     if (!raiser || raiser.is_folded || raiser.is_all_in) return decision;
-    // PLO6 only (reached with omahaStrategyInPlo6 on; PLO6 lane SPEC-B 3.24
+    // PLO6 only, and only with omahaStrategyInPlo6 on (PLO6 lane SPEC-B 3.24
     // item 7): against a measured maniac raiser (his own read; presumption
     // never counts) the rule stands aside, the exemption
     // omahaNoCallColdFourBetWithoutPremium has. In six-card games a refused
     // maniac price goes to the range play, and its call is not folded here.
-    if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6' && opts.mind !== false) {
+    // With the gate off this read is not taken (no extra opponent read).
+    if (
+      String(gs.gameVariant ?? '').toLowerCase() === 'plo6' &&
+      omahaStrategyGameScopeOf(opts).plo6 === true &&
+      opts.mind !== false
+    ) {
       const raiserRead = HorseMind.opponentRead(raiser.user_id);
       if (raiserRead && raiserRead.presumed !== true && maniacRaiseWidth(raiserRead) !== null)
         return decision;

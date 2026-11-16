@@ -33,6 +33,13 @@ Still owed before the hold may be lifted:
 - The validator client knows the gate from the request options only. If the gate is ever driven by a live switch row, the client must pass the switched value; that belongs to the change that lifts the hold.
 - The validator's replay takes the PLO6 river fold options (V58, V59) as on; a decision made with either off would replay differently (the same limit the existing fields have).
 - A league card with the ported options on in both arms, and the value, continuation and reach rows.
+- From the independent pre-review of the port (archive `followup/review-plo6-six-card-port/PRE-REVIEW.md`, ACCEPT WITH NOTES, nothing blocking), open with the gate on only:
+  - the facing-bet EV guard applies the river fold test even when `v58Plo6RiverNuts` or `v59Plo6RiverUnpaired` is off (the fold direction, but not consistent with the two plan hooks, which honour them);
+  - two measures of the beaten share are in use (sampled in the plan hooks, exact in the EV guard and the medium-bet call); near a bar they can disagree, and the order of the rules then decides;
+  - the validator admits a PLO6 fold-to-call by the EV rule on the spot alone, without re-running the six-card guard;
+  - the validator's replay cost for six cards on the main thread is not measured;
+  - the six-card constants stay in the accessor after a gate-on decision until the next decision or validation sets them (not reachable in the live client);
+  - with `omahaStrategyInTournaments` also on, the six-card branches other than the EV rule, the medium-bet call and the strong-hand class act in PLO6 tournaments; SPEC-A 3.15 keeps PLO6 tournaments out.
 
 ## The specifications
 
