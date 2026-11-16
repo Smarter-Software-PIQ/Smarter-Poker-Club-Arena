@@ -11,3 +11,5 @@ The actual public PKO and mystery payers additionally pass the maintained real31
 The maintained generation CI entrypoint now also runs the retained actual public PKO/mystery financial regression on the existing original returns closure. Both source metadata and real new payout/reentry journals must pass; missing financial dependencies refuse instead of allowing metadata-only success.
 
 The retained public financial case now composes full H161707, full W190221 and generation200638 in installation order. One original public PKO payout proves a 2.5 wallet credit returns P1 and holds W1.5 once, under the real financial closure. The pre-existing investment is an explicit typed opening; no original financial guard or money writer is substituted.
+
+Retained the terminal-loss cash-refund boundary in the same real financial fixture: actual fee2/terminal-loss18 close the original20 grant, then the canonical postterminal refund safely refuses without changing money or reopening the grant. All terminal immutability guards remain enabled. No postterminal payment exception is introduced or claimed.
