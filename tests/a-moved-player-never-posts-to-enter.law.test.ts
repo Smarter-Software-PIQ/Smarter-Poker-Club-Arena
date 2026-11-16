@@ -16,7 +16,7 @@ const BASE = readFileSync('server/src/engine/ServerTableEngineBase.ts', 'utf8');
 describe('a moved player never posts to enter a new table', () => {
   it('every executor seats every move reason as moved, never as an entrant who agreed to post', () => {
     expect(MIG).toContain("v_hold := ''moved'';");
-    expect(MIG).toContain("v_agreed := false;");
+    expect(MIG).toContain('v_agreed := false;');
     expect(MIG).toContain("'entry_hold = ''moved'', entry_post_agreed = false, left_at = NULL'");
     // the old seat-change entry is the anchor that is removed, and must be gone afterwards
     expect(MIG).toContain(

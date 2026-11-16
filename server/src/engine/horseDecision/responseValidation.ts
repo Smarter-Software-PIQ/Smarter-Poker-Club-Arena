@@ -39,8 +39,30 @@ import {
   omahaRiverNutRaiseOnly,
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
+import { OMAHA_STREET_PLAN_VARIANTS, omahaStreetPlanAdmitsCheck } from '../HorseOmahaStreetPlan.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
+import {
+  OMAHA_RIVER_MEDIUM_BET_VARIANTS,
+  omahaRiverMediumBetCall,
+} from '../HorseOmahaRiverMediumBetCalls.js';
+import {
+  OMAHA_OOP_CHECK_VARIANTS,
+  omahaBareOverpairContAdmitsCall,
+  omahaOopCheckSpot,
+  omahaOopTurnFacingBetVerdict,
+} from '../HorseOmahaOopChecks.js';
+import {
+  OMAHA_CARD_IMPACT_VARIANTS,
+  omahaCardImpactCheckAdmissible,
+} from '../HorseOmahaCardImpact.js';
+import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
+import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
+  omahaRaiseNeedsNutsAdmitsCall,
+} from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
 
@@ -978,6 +1000,29 @@ function boatRuleProducesCall(
   return result.action === 'call' && result.amount === after.amount;
 }
 
+// PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls, option
+// omahaRiverMediumBetStrongHandCalls): a PLO4/PLO5 cash river fold of two pair
+// or better facing a 40 to 70 percent pot opening bet becomes the call when
+// the price-based requirement is met. Re-run the pure rule on the original
+// worker request; the value-leader read only withholds the call (keeps chips
+// out), so the rule is re-run without it.
+function mediumBetRuleProducesCall(
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const result = omahaRiverMediumBetCall(
+    { action: 'fold', thinkTime: 0 },
+    context.player,
+    context.gameState,
+    true
+  );
+  return (
+    result.changed === 'called' &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
 // Dan 2026-11-14 (HorseOmahaRiverNutRaise): a PLO4/PLO5/PLO6 high river raise
 // or jam over a wager without the nuts becomes a call of that wager.
 // Recompute the rule's exact output from the original worker request.
@@ -1195,17 +1240,194 @@ function policyGraphIsValid(
         ? transition.after.action === 'check'
         : String(context.gameState.gameVariant).toLowerCase() === variant &&
           onePairRuleProduces(previous, transition.after, context));
+    // PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls): fold ->
+    // call, admitted only with the request, where the rule re-run on it makes
+    // the same call. Its whole-stack form is an all-in, a wager action.
+    const omahaRiverMediumBetCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_MEDIUM_BET_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      mediumBetRuleProducesCall(transition.after, context);
+    // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
+    // facing no wager becomes a check on the flop out of position with a bare
+    // pair, on the turn after the flop bet was called, and on a paired river
+    // into a caller. A check puts no chip in; when the request is known, only
+    // where one of the public spots, re-run on it, holds (the receipt
+    // context carries neither the options nor the opponent read).
+    const omahaOopBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaOopCheckSpot(
+            context.player,
+            context.gameState,
+            previous.action === 'bet' ? (previous.amount ?? undefined) : undefined
+          )));
+    // Owner 2026-11-15 12:09 (omahaOopTurnCheckAfterFlopCall, default off): out
+    // of position on the turn, having checked and facing a bet, a raise or a
+    // fold becomes a call. Admitted only with the request, where the rule's
+    // own verdict, re-run on it, allows that call: a fold becomes a call only
+    // on the nut-draw verdict, a raise on either non-fold verdict. (Its fold
+    // is admitted by the paired-board fold's form above.)
+    const oopTurnVerdict =
+      transition.node === 'wager_rules' &&
+      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant
+        ? omahaOopTurnFacingBetVerdict(context.player, context.gameState)
+        : null;
+    const omahaOopTurnToCall =
+      oopTurnVerdict === 'call_nut_draw' ||
+      (oopTurnVerdict === 'no_raise' && previous !== null && previous.action !== 'fold');
+    // omahaBareOverpairOopFlopCheck, the continuation (2026-11-15, default
+    // off): heads-up on the flop, having checked the bare pair out of
+    // position and facing a bet, a fold or a raise becomes a call when the
+    // expected value of the call clears its margin. The verdict reads the
+    // opponent memory, which the request does not carry, so the call is
+    // admitted only with the request, only in the spot the rule covers and
+    // only for the exact chips of the call (the whole-stack call is outside
+    // the rule). Its fold is the paired-board fold's form above.
+    const omahaBareOverpairContToCall =
+      transition.node === 'wager_rules' &&
+      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBareOverpairContAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 11:41 (HorseOmahaCardImpact, default-off option): a
+    // heads-up turn or river bet facing no wager becomes a check when the
+    // check is worth more against the opponent's range. A check puts no chip
+    // in; when the request is known, only inside the option's public scope
+    // and with a hand that is not nut class (the receipt context carries
+    // neither the options nor the opponent read).
+    const omahaCardImpactBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_CARD_IMPACT_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaCardImpactCheckAdmissible(context.player, context.gameState)));
+    // Owner 2026-11-15 (HorseOmahaFacingBetEv, option omahaFacingBetEv): in
+    // PLO4/PLO5 cash on the turn and the river a fold facing a bet becomes the
+    // call when the expected value of the call clears its margin (the reverse,
+    // call to fold, is the fold admission above). The verdict reads the
+    // opponent memory, which the request does not carry, so the fold -> call
+    // is admitted only with the request, only in the spot the rule covers and
+    // only for the exact chips the call puts in. Its whole-stack form is an
+    // all-in, a wager action.
+    const omahaFacingBetEvCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_FACING_BET_EV_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (() => {
+        const spot = omahaFacingBetEvSpot(context.player, context.gameState);
+        return spot !== null && !spot.allIn && spot.paid === transition.after.amount;
+      })();
+    // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
+    // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
+    // river a raise facing a wager with a hand that is not nut class becomes
+    // a call or a fold (the fold is the paired-board fold's form above). The
+    // call is priced on the opponent memory, which the request does not
+    // carry, so raise -> call is admitted only with the request, only where
+    // the rule, re-run on it, would not keep the raise, and only for the
+    // exact chips the call puts in (the whole-stack call is an all-in).
+    const omahaRaiseNeedsNutsCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RAISE_NEEDS_NUTS_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      // the node entered as a fold when an owner inside it raised from a fold
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
+    // heads-up turn bet facing no wager becomes a check when the plan prices
+    // the check line higher. A check puts no chip in; when the request is
+    // known, only where the plan, re-run on it with the tendency multipliers
+    // the decision records and the facing-bet veto at its strongest, prices
+    // the check above the bet (the receipt context carries neither the
+    // option nor the opponent read).
+    const omahaStreetPlanBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_STREET_PLAN_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaStreetPlanAdmitsCheck(
+            context.player,
+            context.gameState,
+            previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+            value.streetPlan
+          )));
+    // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, options
+    // omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
+    // position or from early position with a hand outside the capped range
+    // becomes a call. Admitted only with the request, where the rule re-run
+    // on it turns the raise into a call of the same amount.
+    const omahaReraiseToCall =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
+    // draw out of position, or in position with a bare flush draw, becomes a
+    // call. Admitted only with the request, where the bar re-run on it agrees.
+    const omahaDrawRaiseToCall =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaDrawRaiseBarOf(context.player, context.gameState) !== null;
     if (
       transition.node === 'wager_rules' &&
       changed &&
+      !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
+      !omahaRiverMediumBetCalled &&
+      !omahaCardImpactBetToCheck &&
+      !omahaFacingBetEvCalled &&
+      !omahaRaiseNeedsNutsCalled &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
+      !omahaOopBetToCheck &&
+      !omahaOopTurnToCall &&
+      !omahaBareOverpairContToCall &&
+      !omahaStreetPlanBetToCheck &&
       !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
       !omahaRiverNutRaiseToCall &&
+      !omahaReraiseToCall &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&
