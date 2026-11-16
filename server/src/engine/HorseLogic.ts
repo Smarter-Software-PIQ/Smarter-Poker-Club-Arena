@@ -407,6 +407,7 @@ import {
   v85OpenTargetShare,
 } from './HorseGtoOpeningRanges.js';
 import { lightningParticipationCtx } from './HorseLightningParticipation.js';
+import { lightningCheapEntryCtx } from './HorseLightningCheapEntry.js';
 import {
   omahaDecisionRaises,
   omahaRaiseNeedsNutsCall,
@@ -3777,6 +3778,17 @@ export interface HorseDecideOpts {
    *  and the host lets the Horse decide afresh on its turn
    *  (HorseLightningFoldThrough.ts). No effect at the Horse's own turn. */
   lightningEarlyFoldNeedsFoldThrough?: boolean;
+  /** LIGHTNING CHEAP ENTRY, hold'em (2026-11-15, default OFF; true enables
+   *  it). Lightning cash no-limit hold'em only, the participation predicate
+   *  (HorseLightningParticipation): where the unopened branch folds, the
+   *  small blind folded to completes, and the small blind or the button
+   *  behind limpers over-limps, when the price covers the hand's equity after
+   *  realisation, raise risk behind and drop (HorseLightningCheapEntry).
+   *  Never a raise; no own-participation input. */
+  lightningCheapEntryHoldem?: boolean;
+  /** LIGHTNING CHEAP ENTRY, Omaha (2026-11-15, default OFF; true enables
+   *  it). Lightning cash PLO4 / PLO5 only, same predicate and rule. */
+  lightningCheapEntryOmaha?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -14523,6 +14535,23 @@ export class HorseLogic {
               {
                 holdem: opts.lightningParticipationHoldem === true,
                 omaha: opts.lightningParticipationOmaha === true,
+              },
+              gs,
+              {
+                heroUserId: player.user_id,
+                dealt: dealtHorseTableSize(gs, player.seat),
+                behind: preflopPlayersBehind(player.seat, gs, opts.v13 !== false),
+                mind: opts.mind !== false,
+                telemetry: telemetryOn(opts),
+              }
+            )
+          : undefined,
+      lightningCheapEntry:
+        opts.lightningCheapEntryHoldem === true || opts.lightningCheapEntryOmaha === true
+          ? lightningCheapEntryCtx(
+              {
+                holdem: opts.lightningCheapEntryHoldem === true,
+                omaha: opts.lightningCheapEntryOmaha === true,
               },
               gs,
               {

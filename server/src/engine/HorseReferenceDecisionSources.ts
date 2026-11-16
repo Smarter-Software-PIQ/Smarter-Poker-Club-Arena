@@ -146,6 +146,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the Items 21 and 23 multi-street plan contender and stack-exposure fingerprint and its continuation verdict, consulted by the reference barrel plan (activated 2026-11-05)',
     'src/engine/HorseOmahaTournamentFirstIn.ts':
       'the Omaha high tournament short-handed first-in and heads-up big blind reply read on the true Omaha percentile, replacing the preflop engine fold only (Dan 2026-11-12)',
+    'src/engine/HorseLightningCheapEntry.ts':
+      'the default-off Lightning cheap entry (small-blind completion and over-limp by price, never a raise) the reference preflop decision reads with lightningCheapEntryHoldem or lightningCheapEntryOmaha on; no own-participation input',
     'src/engine/HorseLightningParticipation.ts':
       'the default-off Lightning participation range cells (seat, depth and price) the reference preflop decision reads with lightningParticipationHoldem or lightningParticipationOmaha on; no own-participation input',
     'src/engine/HorseLightningFoldThrough.ts':

@@ -45,6 +45,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo4_lightning_participation_omaha',
         // 2026-11-15 (L-016): the league deals no Lightning domain (lightningStyleReadSeparate).
         'nlh_style_lightning_separate',
+        // 2026-11-15: the same, for the Lightning cheap entry (HorseLightningCheapEntry).
+        'nlh_lightning_cheap_entry_holdem',
+        'plo4_lightning_cheap_entry_omaha',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',

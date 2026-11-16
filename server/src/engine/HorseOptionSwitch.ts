@@ -302,6 +302,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaTightOpponentSteal',
   'lightningParticipationHoldem',
   'lightningParticipationOmaha',
+  'lightningCheapEntryHoldem',
+  'lightningCheapEntryOmaha',
   'v16Hu',
   'v16Ratio',
   'v17RiverProbe',
@@ -569,6 +571,8 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   ],
   lightningStyleReadSeparate: ['Lightning', 'Lightning style read (NLH/PLO4/PLO5)'],
   lightningEarlyFoldNeedsFoldThrough: ['Lightning', 'Lightning early folds before the river'],
+  lightningCheapEntryHoldem: ['Lightning', 'Lightning NLH small blind complete / over-limp'],
+  lightningCheapEntryOmaha: ['Lightning', 'Lightning PLO4/PLO5 small blind complete / over-limp'],
 };
 
 const STYLE_DESCRIPTION: Readonly<Record<StyleSwitchOption, readonly [string, string]>> = {
