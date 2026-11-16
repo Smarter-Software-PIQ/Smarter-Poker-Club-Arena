@@ -163,7 +163,7 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  migration = next((R/'supabase/migrations').glob('20261116183213_*.sql'))
  shape = json.loads(run(['node','--input-type=module','-e',
   "import {readFileSync} from 'node:fs';import {splitConcurrentPreamble} from './scripts/ci/migration-concurrent-preamble.mjs';console.log(JSON.stringify(splitConcurrentPreamble(readFileSync(process.argv[1],'utf8'))));",str(migration)]))
- assert shape['ok'] and len(shape['indexes'])==2
+ assert shape['ok'] and len(shape['indexes'])==1
  sql("""INSERT INTO public.tournament_refund_entitlements(id,tournament_id,entitlement_kind)
      SELECT md5('refund-id-'||g)::uuid,md5('tournament-'||(g%1300))::uuid,'wallet_charge' FROM generate_series(1,8000) g;
      INSERT INTO public.cash_funding_application_receipts(transaction_id,refunded)
@@ -188,6 +188,34 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  for index in shape['indexes']:
   run([str(PG/'psql'),'-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-h',str(sock),'-p',port,'-d','postgres'],index['statement'])
  sql(shape['body'])
+ assert sql("SELECT count(*)=1 FROM pg_stats WHERE tablename='weekly_pnl_refund_entitlement_key'")=='t'
+ cash_migration=next((R/'supabase/migrations').glob('*_weekly_pnl_cash_receipt_index_recovers_its_interrupted_build.sql')).read_text()
+ cash_index='public.weekly_pnl_cash_application_transaction'
+ client=[str(PG/'psql'),'-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-h',str(sock),'-p',port,'-d','postgres']
+ # Prove the original concurrent build's VALID=false, READY=true terminal state.
+ # Keep this reader's old snapshot open during repair, like the production job.
+ holder=subprocess.Popen(client,stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True,env=env)
+ try:
+  holder.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM public.cash_funding_application_receipts;\n")
+  holder.stdin.flush()
+  assert holder.stdout.readline().strip()=='4002'
+  failed=subprocess.run(client+['-c','CREATE INDEX CONCURRENTLY weekly_pnl_cash_application_transaction ON public.cash_funding_application_receipts(transaction_id)'],
+    text=True,capture_output=True,timeout=5,env={**env,'PGOPTIONS':'-c statement_timeout=750ms'})
+  assert failed.returncode!=0 and 'statement timeout' in failed.stderr,failed
+  state="SELECT indisvalid,indisready,indislive FROM pg_index WHERE indexrelid='"+cash_index+"'::regclass"
+  assert sql(state)=='f|t|t'
+  sql(cash_migration)
+  assert sql(state)=='t|t|t'
+ finally:
+  holder.communicate('ROLLBACK;\n',timeout=5)
+ # A valid existing index must be reused without a rebuild; a fresh database
+ # must reach the same physical definition without a prior concurrent attempt.
+ file_node=lambda:sql("SELECT pg_relation_filenode('"+cash_index+"'::regclass)")
+ old_node=file_node();sql(cash_migration);assert file_node()==old_node
+ sql("DROP INDEX "+cash_index)
+ sql(cash_migration)
+ assert sql(state)=='t|t|t'
+ print('PASS independent expression stats, cancelled concurrent build, bounded index repair with old snapshot, valid replay and fresh install')
  after_plan=receipt_plan()
  used={n.get('Index Name') for n in after_plan}
  assert {'weekly_pnl_refund_entitlement_key','weekly_pnl_cash_application_transaction'}<=used,used
