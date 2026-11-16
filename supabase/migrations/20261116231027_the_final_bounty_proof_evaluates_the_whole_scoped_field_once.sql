@@ -62,4 +62,6 @@ $function$;$definition$;
   RAISE EXCEPTION 'scoped_bounty_proof_metadata_changed';
  END IF;
 END $scoped_proof$;
+REVOKE ALL ON FUNCTION public.fn_tournament_has_unsettled_bounties(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_tournament_has_unsettled_bounties(uuid) TO service_role;
 COMMIT;
