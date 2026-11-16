@@ -60,6 +60,12 @@ import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
 import {
+  OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
+  omahaMultiwayRiverCallSpot,
+  omahaMultiwayWeakHandSpot,
+  omahaRiverBluffIntoValueLeaderSpot,
+} from '../HorseOmahaMultiwayDiscipline.js';
+import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
 } from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
@@ -1470,9 +1476,51 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaDrawRaiseBarOf(context.player, context.gameState) !== null;
+    // 2026-11-16 (HorseOmahaMultiwayDiscipline, options
+    // omahaNoRiverBluffIntoValueLeader and omahaMultiwayWeakHandNoBet, default
+    // off): a turn or river bet facing no wager becomes a check. A check puts
+    // no chip in; when the request is known, only where one of the two public
+    // spots, re-run on it, holds (the receipt context carries neither the
+    // options nor the opponent read).
+    const omahaDisciplineBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_MULTIWAY_DISCIPLINE_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          (omahaRiverBluffIntoValueLeaderSpot(context.player, context.gameState) !== null ||
+            omahaMultiwayWeakHandSpot(context.player, context.gameState) !== null)));
+    // 2026-11-16 (omahaMultiwayRiverCallNeedsStrength, default off): on the
+    // PLO4/PLO5 cash river facing a bet with another opponent live beside the
+    // bettor, a raise without a nut-class hand becomes the call the multiway
+    // verdict allows (its fold is the paired-board fold's form above). The
+    // verdict reads the opponent memory, which the request does not carry, so
+    // raise -> call is admitted only with the request, only in the public
+    // spot, re-run on it, and only for the exact chips of the call.
+    const omahaMultiwayRiverRaiseToCall =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_MULTIWAY_DISCIPLINE_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (() => {
+        const mw = omahaMultiwayRiverCallSpot(context.player, context.gameState);
+        return (
+          mw !== null &&
+          !mw.spot.allIn &&
+          typeof transition.after.amount === 'number' &&
+          Math.abs(mw.spot.paid - transition.after.amount) < 0.006
+        );
+      })();
     if (
       transition.node === 'wager_rules' &&
       changed &&
+      !omahaDisciplineBetToCheck &&
+      !omahaMultiwayRiverRaiseToCall &&
       !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
       !omahaRiverMediumBetCalled &&

@@ -1029,6 +1029,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayRiverCallNeedsStrength',
+    '2026-11-16 (full sweep 2026-11-15 family R: 19 multiway river calls without the nuts, -1,987 bb): PLO4/PLO5 cash, one board, high only, the river, facing a bet with at least one other opponent live beside the bettor (a caller in front, an earlier all-in or a player still to act), a hand that is not nut class: a call or a raise becomes the multiway exact-hand verdict, the HorseOmahaFacingBetEv EV against the bettor (measured read, else the population prior) times the chance of beating every other continuing range (caller 0.35, behind 0.25, all-in 0.5 of all holdings, a caller or player behind moved by his measured river-call rate against 0.39; ranges independent): a call when EV clears the facing-bet margin (2% of the final pot), else a fold; never a raise; a fold stays a fold (HorseOmahaMultiwayDiscipline.ts). In the owner-ruled chain (omahaOwnerRuledFinal). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaNoRiverBluffIntoValueLeader',
+    '2026-11-16 (pricingfix 2026-11-15: in-position river bets into a measured value leader, states 65, 487, 591): PLO4/PLO5 cash, the river, nothing to call, a bet with a hand below the showdown-value line (wins or ties against under 0.5 of all holdings, exact count; stated, not measured), not nut class, no nut blocker (the v86 nut-blocker bluff keeps its spots), with a live opponent who is a measured postflop value leader (omahaReadConditionalOf) and bet, raised or called an earlier postflop street: the bet becomes a check unless the fold-equity EV comparison (his measured river-call rate, else the population prior 0.60; a shown range of 0.5 of holdings times the line factors, stated) says the bet beats the check by 2% of the pot. In and out of position, heads-up and multiway (HorseOmahaMultiwayDiscipline.ts). Owner-ruled check (omahaOopCheckRules, kept outermost by omahaOwnerRuledFinal). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayWeakHandNoBet',
+    '2026-11-16 (full sweep 2026-11-15 families D2 and B1b): PLO4/PLO5 cash, the turn and the river, nothing to call, two or more live opponents, a bet with one pair or less (omahaOnePairOrLess), not nut class, on the turn no nut-class draw (four or more nut-class outs, omahaNutClassOuts) and no combo draw (omahaComboDrawForRaise): the bet becomes a check unless the EV comparison against every live opponent range (exact counts; measured fold rate, else the priors 0.60 river and 0.31 turn; ranges independent) says the bet beats the check by 2% of the pot (HorseOmahaMultiwayDiscipline.ts). Owner-ruled check (omahaOopCheckRules, kept outermost by omahaOwnerRuledFinal). The PLO4/PLO5 counterpart of plo6NoMultiwayBetWithWeakMadeHand; PLO6 untouched. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaVpipFloorByLimp',
     "Owner 2026-11-15 11:35 (hand 59518335, PLO5 cash, a 50% VPIP floor table; a limp and a fold is VPIP, the Horses are not to put in a lot of chips and raise just to meet the floor): the table's VPIP floor multiplies the style tightness and with it every preflop bar, so hands that fold on an unfloored table open-raised, 3-bet and shoved. With this on (PLO4/PLO5 cash, the floor unmet) the decision is also taken without the floor: a raise only the floor makes becomes the limp (or the small blind's completion) unopened, and facing a raise the unfloored call, a call at the call-down's cheap price, or the fold; having limped, the hand folds to a raise unless it clears the ordinary calling bar. A raise the unfloored brain makes is unchanged. The Horse aims three hands of the judged window above the stated floor (60% on a 50% table judged over thirty hands) instead of the standard-error target (70.6%), and under that aim the cheap call or limp is certain. Default off (opt-in) until its declared evaluation passes.",
     'V94'
@@ -4446,6 +4461,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_oop_turn_check_fold_no_outs_vetoed',
     'HorseLogic.decide, settled at the final decision (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
     'the owner-ruled turn verdict folded a hand with no out and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_call_folded',
+    'HorseLogic wager_rules, owner-ruled chain (HorseOmahaMultiwayDiscipline, omahaMultiwayRiverCallNeedsStrength)',
+    'PLO4/PLO5 cash river facing a bet with another opponent live beside the bettor, not nut class: the multiway exact-hand EV of the call did not clear the facing-bet margin, so a call or a raise was folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_call_folded_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaMultiwayRiverCallNeedsStrength)',
+    'the multiway river verdict folded a call or a raise and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_raise_flatted',
+    'HorseLogic wager_rules, owner-ruled chain (HorseOmahaMultiwayDiscipline, omahaMultiwayRiverCallNeedsStrength)',
+    'PLO4/PLO5 cash river facing a bet with another opponent live beside the bettor, not nut class: the multiway EV clears the margin for a call, so a raise was turned into that call (never a raise)',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_raise_flatted_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaMultiwayRiverCallNeedsStrength)',
+    'the multiway river verdict turned a raise into a call and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_river_bluff_into_value_leader_checked',
+    'HorseLogic wager_rules, owner-ruled check (HorseOmahaMultiwayDiscipline, omahaNoRiverBluffIntoValueLeader)',
+    'PLO4/PLO5 cash river bet facing no wager with a hand below the showdown-value line and no nut blocker, a measured postflop value leader live who showed strength this hand: the fold-equity EV did not favour the bet, so it was checked',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_river_bluff_into_value_leader_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaNoRiverBluffIntoValueLeader)',
+    'the river bluff into a measured value leader was checked and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_weak_hand_bet_checked',
+    'HorseLogic wager_rules, owner-ruled check (HorseOmahaMultiwayDiscipline, omahaMultiwayWeakHandNoBet)',
+    'PLO4/PLO5 cash turn or river bet facing no wager with two or more live opponents, one pair or less, no nut-class or combo draw: the EV against the opponent ranges did not favour the bet, so it was checked',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_weak_hand_bet_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaMultiwayWeakHandNoBet)',
+    'the multiway weak-hand bet was checked and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
     'V94'
   ),
   receipt(

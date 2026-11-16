@@ -2564,6 +2564,35 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTurnRiverRaiseNeedsNuts: true },
     b: {},
   })),
+  // 2026-11-16 OMAHA MULTIWAY AND BLUFF DISCIPLINE (HorseOmahaMultiwayDiscipline,
+  // three options, each default OFF, one card per game each): the multiway
+  // river call priced against every continuing range, no river bluff into a
+  // measured value leader who showed strength, and no multiway turn or river
+  // bet with one pair or less and no nut-class draw. Six-max (the spots are
+  // multiway), the live cash Hybrid persona (hybridBaseline) and the
+  // deal-seeded mood clock; a switches the option on, b is today's brain.
+  // The mirror's memory learning is on (the league default), so the value
+  // leader read and the measured fold rates can engage. The cards only
+  // measure; no evaluation has been run.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    [
+      {
+        slug: 'multiway_river_call_needs_strength',
+        a: { omahaMultiwayRiverCallNeedsStrength: true },
+      },
+      { slug: 'no_river_bluff_into_value_leader', a: { omahaNoRiverBluffIntoValueLeader: true } },
+      { slug: 'multiway_weak_hand_no_bet', a: { omahaMultiwayWeakHandNoBet: true } },
+    ].map(({ slug, a }) => ({
+      name: `${variant}_omaha_${slug}`,
+      variant,
+      seats: 6,
+      pairs: 6000,
+      hybridBaseline: true,
+      moodClock: 'deal_seed' as const,
+      a,
+      b: {},
+    }))
+  ),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with
   // the river planned, and the river following the plan. a switches it on,
