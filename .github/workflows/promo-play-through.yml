@@ -14,6 +14,13 @@ on:
     paths:
       - supabase/migrations/*_promo_play_through_*.sql
       - scripts/ci/test-promo-play-through.py
+      - supabase/migrations/*_promo_tickets_*.sql
+      - supabase/migrations/*_promo_principal_*.sql
+      - supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql
+      - scripts/ci/test-promo-ticket-play-through.py
+      - scripts/ci/fixtures/promo-ticket-play-through/**
+      - tests/fixtures/promo-ticket-play-through/**
+      - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -36,11 +43,17 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Promo tickets preserve their original grant through the money owners
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/promo-play-through/RESULTS.json
+          path: |
+            artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-ticket-play-through/RESULTS.json
           retention-days: 7
           if-no-files-found: warn
