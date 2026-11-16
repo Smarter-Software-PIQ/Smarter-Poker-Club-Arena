@@ -32,6 +32,7 @@ export interface RakeExportMetadata {
   union_id: string | null;
   agent_user_id: string | null;
   day_basis?: string;
+  accounting_basis?: RakeSnapshot['accounting_basis'];
   date_from: string;
   date_to: string;
   search: string | null;
@@ -244,6 +245,7 @@ function metadataIdentity(metadata: RakeExportMetadata): string {
     metadata.union_id,
     metadata.agent_user_id,
     metadata.day_basis ?? null,
+    metadata.accounting_basis ?? null,
     metadata.date_from,
     metadata.date_to,
     metadata.search,
@@ -423,6 +425,7 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
       'union_id',
       'agent_user_id',
       'day_basis',
+      'accounting_basis',
       'date_from',
       'date_to',
       'search',
@@ -445,6 +448,7 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
       result.metadata.union_id,
       result.metadata.agent_user_id,
       result.metadata.day_basis ?? 'America/Chicago 00:00',
+      result.metadata.accounting_basis ?? '',
       result.metadata.date_from,
       result.metadata.date_to,
       result.metadata.search,
