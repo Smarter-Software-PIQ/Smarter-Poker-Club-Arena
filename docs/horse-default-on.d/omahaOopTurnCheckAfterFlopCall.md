@@ -1,6 +1,6 @@
 # omahaOopTurnCheckAfterFlopCall (owner ruling 2026-11-15 12:09 America/Chicago, hands 59517323, 59521326, 59526261; branch agent/plo-pairedriver-01BbZPDi/fix/omaha-paired-river-no-thin-lead-vs-value-leader, pull request not yet opened)
 
-Off by default (read `=== true`). This file records the evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md) as they stand; the option stays off until its declared evaluation passes.
+Off by default in source (read `=== true`); ON live since 2026-11-16T02:55Z by option-switch row. This file records the evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md) as they stand; the option stays off until its declared evaluation passes.
 
 ## Mechanism
 
@@ -63,4 +63,8 @@ Status: MET
 - A made hand that is neither one pair nor beaten by a possible straight or flush (two pair or a set on a dry board, a straight on a paired board) with no nut out keeps today's call or fold.
 - Every non-nut-class turn bet in the spot becomes a check, a bluff included; no stack-depth exception.
 - The receipt validator re-runs both predicates on the request.
-- Live behaviour is unverified: the option is off.
+- Live behaviour is unverified: the option is ON live since 2026-11-16T02:55Z and has not been read live yet; this head changes it (see "Live change on this head" below).
+
+## Live change on this head (review B2, 2026-11-16)
+
+This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: the "four or more nut outs" forced call facing the turn bet (out of position, after the flop bet was called, PLO4/PLO5 cash) now counts GRADED nut outs (`omahaGradedTurnOuts`): a river card counts 1 only when it makes the nuts, and a card that makes a non-nut full house counts only the share of the opponent's full-house holdings it beats. Live today every card that improved the hand to a full house or better counted whole. Over the 3,000-hand H9 turn sample (two pair, trips or a set) the hands at or over the threshold fall from 2,393 to 686 in PLO4 (1,707, about 57% of the sample, lose the forced call) and from 2,568 to 941 in PLO5 (1,627, about 54%, lose it). A hand that loses the forced call keeps today's call or fold (it folds where today's decision folds), and a raise there still becomes a call. The turn bet that becomes a check, the price test and the no-out fold (whole-card count) are unchanged. PLO6 keeps its own out class.
