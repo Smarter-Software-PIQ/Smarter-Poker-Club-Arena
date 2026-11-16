@@ -226,14 +226,6 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  # SQL functions reuse generic plans. Their refund proof must remain correlated
  # to this original ledger key before evaluating financial ownership.
  env['PGOPTIONS']='-c jit=off -c track_functions=all'
- sql("""UPDATE tournament_refund_entitlements SET entitlement_kind='satellite_seat',gross=200,refund_prize=200,refund_bounty=0,refund_fee=0,
-     registration_id=md5('noise-registration-'||id)::uuid,user_id='"""+e['user_id']+"""',refund_wallet_club_id='"""+FELT+"""',charge_category='satellite_seat',evidence_kind='atomic_satellite_seat'
-     WHERE id IN (SELECT md5('refund-id-'||g)::uuid FROM generate_series(1,8000) g);
-     INSERT INTO union_pnl_original_flows SELECT (jsonb_populate_record(NULL::union_pnl_original_flows,to_jsonb(f)||jsonb_build_object('ledger_id',md5('old-flow-'||g)::uuid,'recognized_at','2025-01-01T00:00:00Z'))).* FROM union_pnl_original_flows f CROSS JOIN generate_series(1,50000) g WHERE f.ledger_id='"""+qid+"""';
-     CREATE INDEX original_flow_scope_window_fixture ON union_pnl_original_flows((game_scope->>'game_union_id'),recognized_at);
-     CREATE INDEX refund_original_ledger_fixture ON tournament_refund_entitlements(source_ledger_id);
-     CREATE INDEX refund_original_ticket_fixture ON tournament_refund_entitlements(source_ticket_id);
-     ANALYZE tournament_refund_entitlements; ANALYZE union_pnl_original_flows;""")
  generic_body=sql("SELECT prosrc FROM pg_proc WHERE oid='"+window_signature+"'::regprocedure")
  values=re.findall("'([^']+)'",window)
  for i,parameter in enumerate(arguments,1):
@@ -246,12 +238,7 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
   calls=int(sql("SELECT coalesce((SELECT calls FROM pg_stat_user_functions WHERE funcid='"+owner+"'::regprocedure),0)"))
   scans=[n for n in nodes(plan) if n.get('Relation Name')=='tournament_refund_entitlements']
   return plan,calls,scans
- custom_plan,custom_calls,custom_scans=executed_plan('force_custom_plan')
- generic_plan,generic_calls,generic_scans=executed_plan('force_generic_plan')
- print('GENERIC REFUND WORK',json.dumps({'custom_ownership_calls':custom_calls,'generic_ownership_calls':generic_calls,'custom_refund_rows':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in custom_scans),'generic_refund_rows':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in generic_scans)}),flush=True)
- assert any(n['Node Type']=='Seq Scan' and n.get('Alias') not in ('duplicate','duplicate_1') for n in generic_scans)
- assert generic_calls>custom_calls+8000,'baseline must actually prove unrelated entitlement owners'
- baseline_generic_calls=generic_calls
+ original_generic_body=generic_body
  # The complete source guard is the maintained production preimage, not a
  # substitute that grants missing owners permission in this smaller fixture.
  pin=json.loads((R/'tests/fixtures/promo-custody-inventory-pin.json').read_text())
@@ -291,6 +278,25 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  assert after_guard==before_guard.replace('aa5e609c6fa07876d93db86d7aa3a342',new_hash),'retain every other complete guard binding'
  assert metadata()==original_metadata
  assert sql("SELECT has_function_privilege('anon','"+window_signature+"','EXECUTE') OR has_function_privilege('authenticated','"+window_signature+"','EXECUTE') OR has_function_privilege('service_role','"+window_signature+"','EXECUTE')")=='f'
+ # Prove financial refusals before unrelated performance noise is introduced.
+ for name,mutation in faults.items():
+  for _,call in readers.values():
+   assert sql('BEGIN;'+mutation+';SELECT count(*) FROM '+call+f" WHERE ledger_id='{qid}' AND valid;ROLLBACK;")=='0',name
+ sql("""UPDATE tournament_refund_entitlements SET entitlement_kind='satellite_seat',gross=200,refund_prize=200,refund_bounty=0,refund_fee=0,
+     registration_id=md5('noise-registration-'||id)::uuid,user_id='"""+e['user_id']+"""',refund_wallet_club_id='"""+FELT+"""',charge_category='satellite_seat',evidence_kind='atomic_satellite_seat'
+     WHERE id IN (SELECT md5('refund-id-'||g)::uuid FROM generate_series(1,8000) g);
+     INSERT INTO union_pnl_original_flows SELECT (jsonb_populate_record(NULL::union_pnl_original_flows,to_jsonb(f)||jsonb_build_object('ledger_id',md5('old-flow-'||g)::uuid,'recognized_at','2025-01-01T00:00:00Z'))).* FROM union_pnl_original_flows f CROSS JOIN generate_series(1,50000) g WHERE f.ledger_id='"""+qid+"""';
+     CREATE INDEX original_flow_scope_window_fixture ON union_pnl_original_flows((game_scope->>'game_union_id'),recognized_at);
+     CREATE INDEX refund_original_ledger_fixture ON tournament_refund_entitlements(source_ledger_id);
+     CREATE INDEX refund_original_ticket_fixture ON tournament_refund_entitlements(source_ticket_id);
+     ANALYZE tournament_refund_entitlements; ANALYZE union_pnl_original_flows;""")
+ generic_body=original_generic_body
+ custom_plan,custom_calls,custom_scans=executed_plan('force_custom_plan')
+ generic_plan,generic_calls,generic_scans=executed_plan('force_generic_plan')
+ print('GENERIC REFUND WORK',json.dumps({'custom_ownership_calls':custom_calls,'generic_ownership_calls':generic_calls,'custom_refund_rows':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in custom_scans),'generic_refund_rows':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in generic_scans)}),flush=True)
+ assert any(n['Node Type']=='Seq Scan' and n.get('Alias') not in ('duplicate','duplicate_1') for n in generic_scans)
+ assert generic_calls>custom_calls+8000,'baseline must actually prove unrelated entitlement owners'
+ baseline_generic_calls=generic_calls
  generic_body=sql("SELECT prosrc FROM pg_proc WHERE oid='"+window_signature+"'::regprocedure")
  for i,parameter in enumerate(arguments,1):
   generic_body=re.sub(r'\b'+parameter+r'\b','$'+str(i)+'::'+('uuid' if i==1 else 'timestamptz'),generic_body)
@@ -304,9 +310,6 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  assert fixed_generic_calls==fixed_custom_calls==custom_calls
  assert fixed_generic_calls<baseline_generic_calls
  assert {name: rows(call) for name,(_,call) in readers.items()}==original_rows
- for name,mutation in faults.items():
-  for _,call in readers.values():
-   assert sql('BEGIN;'+mutation+';SELECT count(*) FROM '+call+f" WHERE ledger_id='{qid}' AND valid;ROLLBACK;")=='0',name
  print('PASS custom and generic actual execution',json.dumps({'ownership_calls_before':baseline_generic_calls,'ownership_calls_after':fixed_generic_calls,'generic_refund_rows_before':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in generic_scans),'generic_refund_rows_after':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in fixed_generic_scans),'financial_rows_unchanged':True,'financial_faults':len(faults),'private_metadata_preserved':True,'complete_guard_pins_preserved':True,'installer_stale_pin_guard':True,'atomic_rollback':True}))
 
 finally:
