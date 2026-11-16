@@ -7813,12 +7813,9 @@ export function omahaBigDrawAggression(
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
     if (verdict.wager === null) {
-      if (tele)
-        noteFire(
-          verdict.withheld === 'final_check'
-            ? 'omaha_big_draw_aggression_final_check_unpriced'
-            : 'omaha_big_draw_aggression_withheld'
-        );
+      if (tele && verdict.withheld === 'final_check')
+        noteFire('omaha_big_draw_aggression_final_check_unpriced');
+      else if (tele) noteFire('omaha_big_draw_aggression_withheld');
       return decision;
     }
     const raised = decision.action === 'call';
