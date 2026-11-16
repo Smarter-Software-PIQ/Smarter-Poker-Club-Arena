@@ -92,15 +92,45 @@ CREATE TABLE public.ca_promo_integrity_source_grants (
  principal_before numeric NOT NULL,amount numeric NOT NULL CHECK(amount>0 AND amount<=principal_before),
  PRIMARY KEY(hand_id,grant_id)
 );
-DO $privacy$ DECLARE t text;BEGIN
- FOREACH t IN ARRAY ARRAY['ca_promo_integrity_cases','ca_promo_integrity_releases','ca_promo_integrity_custody',
-  'ca_promo_integrity_funding','ca_promo_integrity_hand_funding','ca_promo_integrity_hand_receipts',
-  'ca_promo_integrity_event_lots','ca_promo_integrity_event_receipts','ca_promo_integrity_source_grants','ca_promo_integrity_fee_spends','ca_promo_integrity_fee_slices','ca_promo_integrity_fee_refunds','ca_promo_integrity_event_loss_slices'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-  EXECUTE format('GRANT SELECT ON public.%I TO service_role',t);
- END LOOP;
-END $privacy$;
+ALTER TABLE public.ca_promo_integrity_cases ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_cases FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_cases TO service_role;
+ALTER TABLE public.ca_promo_integrity_releases ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_releases FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_releases TO service_role;
+ALTER TABLE public.ca_promo_integrity_custody ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_custody FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_custody TO service_role;
+ALTER TABLE public.ca_promo_integrity_funding ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_funding FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_funding TO service_role;
+ALTER TABLE public.ca_promo_integrity_hand_funding ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_hand_funding FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_hand_funding TO service_role;
+ALTER TABLE public.ca_promo_integrity_hand_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_hand_receipts FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_hand_receipts TO service_role;
+ALTER TABLE public.ca_promo_integrity_event_lots ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_event_lots FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_event_lots TO service_role;
+ALTER TABLE public.ca_promo_integrity_event_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_event_receipts FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_event_receipts TO service_role;
+ALTER TABLE public.ca_promo_integrity_fee_spends ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_fee_spends FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_fee_spends TO service_role;
+ALTER TABLE public.ca_promo_integrity_fee_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_fee_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_fee_slices TO service_role;
+ALTER TABLE public.ca_promo_integrity_fee_refunds ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_fee_refunds FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_fee_refunds TO service_role;
+ALTER TABLE public.ca_promo_integrity_event_loss_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_event_loss_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_event_loss_slices TO service_role;
+ALTER TABLE public.ca_promo_integrity_source_grants ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_integrity_source_grants FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_integrity_source_grants TO service_role;
 CREATE FUNCTION public.fn_ca_promo_integrity_immutable() RETURNS trigger
 LANGUAGE plpgsql SET search_path='public','pg_temp' AS $$
 BEGIN RAISE EXCEPTION 'original_integrity_evidence_is_immutable' USING ERRCODE='23514';END $$;
