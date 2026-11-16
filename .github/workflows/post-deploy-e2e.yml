@@ -2657,6 +2657,9 @@ jobs:
           EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/live-table-realtime.json
         run: |
+          # A page crash loses renderer evidence from the Playwright trace.
+          # Keep kernel evidence scoped to this browser invocation on a failed run.
+          date +%s > "$RUNNER_TEMP/live-table-webkit-start"
           if [ '${{ needs.publication-gate.outputs.tournament_only }}' = true ]; then
             npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
               --grep 'an already-running (MTT|SPIN|SNG) table stays realtime and recovers one owner$' \
@@ -2668,6 +2671,13 @@ jobs:
               --project=webkit-live-table-realtime --reporter=line,json --workers=1 --retries=0 \
               --output=test-results/live-table-realtime
           fi
+
+      - name: Record WebKit process failures from the runner kernel
+        if: failure() && steps.continuity.outcome == 'failure'
+        run: |
+          started=$(cat "$RUNNER_TEMP/live-table-webkit-start")
+          sudo journalctl --kernel --since="@$started" --no-pager \
+            --grep='Out of memory|oom-kill|Killed process|WebKit.*segfault|MiniBrowser.*segfault'
 
       # The move notice is presentation-only. Exercise the actual served
       # consumer in this lane's reserved spectator browser, without moving
