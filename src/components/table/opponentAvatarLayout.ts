@@ -406,7 +406,7 @@ const centreOfParts = (parts: Box[]): ChairPoint | null => {
 /** Jointly place only opponent pods. A finite search avoids freezing a first
  * neighbour where it prevents the remaining rail from fitting. */
 export function jointOpponentShifts(
-  items: Array<{ parts: Box[]; side: number; outwardOnly: boolean }>,
+  items: Array<{ parts: Box[]; side: number; outwardOnly: boolean; fixedRow?: boolean }>,
   fixed: Box[],
   bounds: Box,
   gap = 3,
@@ -461,6 +461,7 @@ export function jointOpponentShifts(
   });
   const withinAuxiliaryLane = (index: number, x: number, y: number) => {
     const item = items[index];
+    if (item.fixedRow && y !== 0) return false;
     if (topLaneBottom === undefined || !item.parts.length) return true;
     const { low, high, clamp } = extents[index];
     return (
@@ -695,6 +696,10 @@ export function jointOpponentShifts(
         ...uniqueSeeds,
       ].sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1]);
     });
+  }
+  for (const [i, item] of items.entries()) {
+    if (item.fixedRow) options[i] = options[i].filter(([, y]) => y === 0);
+    if (!options[i].length) return null;
   }
   const shapes = items.map((item, i) =>
     options[i].map((shift) => item.parts.map((part) => moved(part, ...shift)))
@@ -1189,6 +1194,18 @@ export function createOpponentAvatarLayout(
   const fixedPhoneRail = () =>
     page.dataset.seats === '9' &&
     matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
+  // The two lower opponents share a rail row. Reserve their vertical position
+  // before allocating space for wagers and captions around them.
+  const fixedLowerRow = (seat: HTMLElement) => {
+    if (
+      page.dataset.seats !== '6' ||
+      page.dataset.hero !== 'true' ||
+      !matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+    )
+      return false;
+    const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
+    return !!wrapper && parseFloat(wrapper.style.top) > 50 && parseFloat(wrapper.style.left) !== 50;
+  };
   const movableSeats = (includeEmpty = false) => {
     const anchor = anchorSeat();
     return Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
@@ -1727,8 +1744,8 @@ export function createOpponentAvatarLayout(
     }));
     // A wager may make room locally, never move a chair to another row or
     // leap over the board. The same bound applies to each contacted peer.
-    const maximumMotion = pods.map(({ parts }) =>
-      parts.length
+    const maximumMotion = pods.map(({ parts }, index) =>
+      !fixedLowerRow(seats[index]) && parts.length
         ? (Math.max(...parts.map((p) => p.top + p.height)) - Math.min(...parts.map((p) => p.top))) /
           2
         : 0
@@ -2123,6 +2140,7 @@ export function createOpponentAvatarLayout(
     if (!ordered.length) return false;
     const describe = () =>
       ordered.map(({ seat }) => ({
+        fixedRow: fixedLowerRow(seat),
         parts: parts(seat),
         side:
           page.getAttribute('data-seats') === '6' &&

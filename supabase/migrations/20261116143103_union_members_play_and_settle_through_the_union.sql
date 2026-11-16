@@ -88,6 +88,9 @@ BEGIN
 END
 $body$;
 REVOKE ALL ON FUNCTION smarter_private.guard_member_club_standalone_game() FROM PUBLIC,anon,authenticated,service_role;
+-- The cash cluster writes a table before updating its parent cash game.
+-- Acquire both DDL locks in that same order before creating any trigger.
+LOCK TABLE public.tables,public.cash_games IN SHARE ROW EXCLUSIVE MODE;
 CREATE TRIGGER member_club_standalone_game_guard BEFORE INSERT OR UPDATE OF club_id,union_id,joined_at ON public.union_clubs
   FOR EACH ROW EXECUTE FUNCTION smarter_private.guard_member_club_standalone_game();
 CREATE TRIGGER member_club_must_finish_standalone_games AFTER INSERT OR UPDATE OF club_id,union_id ON public.union_clubs

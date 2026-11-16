@@ -56,6 +56,7 @@ import {
   omahaTurnRedrawShareOf,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
+import { holdemHeadsUpPostflopBalance } from './HorseHeadsUpPostflopBalance.js';
 import {
   omahaBigDrawVerdict,
   omahaDrawRaiseBarOf,
@@ -513,6 +514,7 @@ import {
 // actually executed. Gated on opts.telemetry — league/benchmark/tests never
 // count. See engine/BrainTelemetry.ts.
 import {
+  inSecondLookCapture,
   noteDecisionMs,
   noteFire,
   noteHorseActionClamped,
@@ -558,7 +560,7 @@ import {
   gtoV31PotType,
   gtoV31UtilityContext,
   type GtoV31FacingKind,
-  type GtoV31NodeRole,
+  type GtoV31NodeRoleV3,
   type GtoV31Position,
   type GtoV31PotType,
   type GtoV31SizeBucket,
@@ -1835,6 +1837,35 @@ function isTournamentMode(gs: HorseGameStateV2): boolean {
 }
 
 /**
+ * F2 SCOPE (2026-11-16, Fixed-Limit lane owner's ruling): the opt-in
+ * fixedLimitCallIsNotACommitment acts only on a fixed-limit HOLD'EM decision
+ * (fixed-limit betting structure, two hole cards, a full deck, not Omaha:
+ * in production exactly flh) at a CASH table (isTournamentMode, the test the
+ * W5 options use). Fixed-limit Omaha hi-lo showed no value on two seed
+ * ranges (flo8 six seats against the maniac: -7.09 +/- 4.28 and
+ * +1.07 +/- 3.46 big bets per 100, AB-EVALUATION-2.md 3.7 and 3.15), and no
+ * fixed-limit tournament case was evaluated for it, so at a flo8 table and
+ * at every tournament table both of its read sites (the call price and the
+ * commitment test in decidePostflop) decide exactly as with the option off.
+ * Keyed on the structure and the card rules, not on a variant name
+ * (AFixedLimitFixKeysOnTheBettingStructure.law.test.ts).
+ */
+function fixedLimitCallIsNotACommitmentInScope(
+  opts: HorseDecideOpts,
+  vi: VariantInfo,
+  gs: HorseGameStateV2
+): boolean {
+  return (
+    opts.fixedLimitCallIsNotACommitment === true &&
+    vi.isFixedLimit === true &&
+    !vi.isOmaha &&
+    !vi.isShortDeck &&
+    vi.holeCount === 2 &&
+    !isTournamentMode(gs)
+  );
+}
+
+/**
  * Phase 6 keeps partial tournament snapshots on the decision payload so the
  * engine can emit an honest `TOURNAMENT_CONTEXT_INCOMPLETE` receipt.  Those
  * observable facts are not strategy inputs until the complete-context
@@ -2429,9 +2460,13 @@ export interface GtoV31DecisionStateReceipt {
   stackBb: number;
   depthBucket: number;
   textureClass: string;
-  nodeRole: GtoV31NodeRole;
+  /** 'donk' only for a cell contract v3 decision (FLOP-5 D6, dormant). */
+  nodeRole: GtoV31NodeRoleV3;
   facingKind: GtoV31FacingKind;
   facingSizeBucket: GtoV31SizeBucket;
+  /** Set only for a cell contract v3 decision (FLOP-5 D6, dormant): its cell contract and public line. */
+  cellContract?: 'v3';
+  lineClass?: string;
   hand: string;
   handKey: string;
   cell: string;
@@ -2447,7 +2482,7 @@ export interface GtoV31DecisionReceipt {
   datasetId: string;
   datasetChecksum: string;
   decisionState: GtoV31DecisionStateReceipt;
-  nodeRole: GtoV31NodeRole;
+  nodeRole: GtoV31NodeRoleV3;
   cell: string;
   handKey: string;
   actionId: string;
@@ -2791,6 +2826,10 @@ export interface HorseDecideOpts {
    *  bucketed answer. Spots beyond the ceiling still fire
    *  gto_served_beyond_depth_ceiling. Set true to measure it again. */
   v33DepthCeiling?: boolean;
+  /** V31 cell contract v3 serving (FLOP-5 D6, 2026-11-15): passed only by the live option switch (registered,
+   *  off-only under the owner R7/R8 hold). true: the certified consult of a store that declares cell contract v3
+   *  is keyed by the v3 cell (GtoV31CellContractV3Serving.ts). Unset or false: the v2 consult, exactly as before. */
+  gtoV31CellContractV3Serving?: boolean;
   /** V37 (2026-09-02): satellite play — flat prizes are survival, not a
    *  ladder. A locked seat folds everything, a stack below the line jams
    *  wider, a table captain open-jams into stacks that cannot call. Disable
@@ -2998,6 +3037,17 @@ export interface HorseDecideOpts {
    * FAILED (2026-11-15): Horse-only PLO4 -0.77 bb/100 (z -2.30); the
    * development human field leaned positive (+0.79, z +1.89). */
   omahaOnePairDiscipline?: boolean;
+  /** HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised
+   * pot, hero in position: the flop c-bet after a check is one 0.75-pot size
+   * at a frequency by hand tier, a flop fold to a check-raise with a middle
+   * pair or better or a strong draw becomes a call, and a turn checked to
+   * hero bets 0.70 of the pot at a frequency by tier
+   * (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4
+   * C1). The river is not covered: its full-pot part was removed after the
+   * FLOP-5 D1 solver score. Default OFF (opt-in): only an explicit true
+   * switches it on; off, it draws no random number. League card
+   * nlh_hu_postflop_balance. */
+  holdemHeadsUpPostflopBalance?: boolean;
   /** Owner 2026-11-15 01:03 (play a maniac and a tight player differently;
    * fix the problem, not particular folds): the preflop 4-bet fold of
    * omahaReraisedPotDiscipline (omahaReraisedPreflopCell, unchanged) applies
@@ -4045,7 +4095,10 @@ export interface HorseDecideOpts {
    *  stack-to-pot or invested-share term, no V20 multiway commit bar); it is
    *  priced on the chips to call plus the expected further wagers of the
    *  street while a player left to act can still raise
-   *  (HorseFixedLimitCallPrice.ts). Read only as === true: default OFF. */
+   *  (HorseFixedLimitCallPrice.ts). Scope (2026-11-16): fixed-limit
+   *  hold'em CASH only (fixedLimitCallIsNotACommitmentInScope); at a flo8
+   *  table and at every tournament table it changes nothing. Read only as
+   *  === true: default OFF. */
   fixedLimitCallIsNotACommitment?: boolean;
   /** FIXED-LIMIT HI-LO LOW HALF (2026-11-14, Fixed-Limit lane): on a
    *  fixed-limit hi-lo river the V40 weak-high cap never goes below half of
@@ -11149,6 +11202,11 @@ export class HorseLogic {
 
     const v7 = opts.v7 !== false;
     const tele = telemetryOn(opts);
+    // "Live" where telemetry also stands for the live FAST decision (the Phase 8
+    // sentinel, the evidence-mode clocks and budgets): a DEEP second look counts its
+    // receipts with telemetry on inside a capture and is NOT live in that sense. At
+    // those places it behaves exactly as it did when it ran with telemetry off.
+    const teleLive = tele && !inSecondLookCapture();
     if (tele) {
       noteFire('decide');
       noteFire(`decide_${vi.isOmaha ? 'omaha' : vi.isShortDeck ? 'short_deck' : 'nlh'}`);
@@ -11330,7 +11388,7 @@ export class HorseLogic {
               decision,
               phase10EquityEvidence,
               opts.phase10Plo4 ?? 'shadow',
-              opts.phase10EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase10EvidenceMode && !teleLive ? () => 0 : undefined,
               (d) => this.legalize(d, player, gs, vi),
               readStation
             )
@@ -11356,7 +11414,7 @@ export class HorseLogic {
               decision,
               null,
               opts.phase11Omaha ?? 'shadow',
-              opts.phase11EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase11EvidenceMode && !teleLive ? () => 0 : undefined,
               phase11DecisionEquityCeiling ?? 1,
               true,
               (d) => this.legalize(d, player, gs, vi),
@@ -11385,7 +11443,7 @@ export class HorseLogic {
               decision,
               null,
               opts.phase12Remaining ?? 'shadow',
-              opts.phase12EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase12EvidenceMode && !teleLive ? () => 0 : undefined,
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
@@ -11420,7 +11478,7 @@ export class HorseLogic {
     // Its immutable population may be reused below; marginal board draws never
     // enter this path. The existing offline clock control remains offline only.
     let phase7JointAcquisition: JointSampleAcquisition | undefined;
-    const jointNow = opts.phase13EvidenceMode && !tele ? () => 0 : () => performance.now();
+    const jointNow = opts.phase13EvidenceMode && !teleLive ? () => 0 : () => performance.now();
     const multiBoard =
       (gs.communityCards2?.length ?? 0) > 0 ||
       (gs.communityCards3?.length ?? 0) > 0 ||
@@ -11521,7 +11579,7 @@ export class HorseLogic {
                     (opts.phase10EvidenceMode ||
                       opts.phase11EvidenceMode ||
                       opts.phase12EvidenceMode) &&
-                    !tele
+                    !teleLive
                       ? () => true
                       : () => performance.now() - shadowStart < 4,
                 });
@@ -11672,7 +11730,11 @@ export class HorseLogic {
         isTournamentMode(gs) &&
         gs.stage !== 'preflop'
       ) {
-        const disabledReason = tele ? liveHorsePhase8Safety.disabledReason : null;
+        // "Live" for the Phase 8 sentinel is the FAST look only: a DEEP second look
+        // counts its receipts (telemetry on inside a capture) and neither obeys nor
+        // feeds the process-wide sentinel, exactly as when it ran with telemetry off.
+        const phase8Live = teleLive;
+        const disabledReason = phase8Live ? liveHorsePhase8Safety.disabledReason : null;
         const phase8 = evaluateTournamentPostflop(
           player,
           gs,
@@ -11695,7 +11757,7 @@ export class HorseLogic {
         } else decision = phase8.decision;
         decision = { ...decision, tournamentPostflop: phase8.ledger };
         if (tele) {
-          liveHorsePhase8Safety.observe(phase8.ledger);
+          if (phase8Live) liveHorsePhase8Safety.observe(phase8.ledger);
           noteFire('phase8_seen');
           noteDecisionMs('phase8', phase8.ledger.latencyMs);
           noteFire(`phase8_format_${gs.format ?? 'unknown'}`);
@@ -11861,7 +11923,7 @@ export class HorseLogic {
               gs,
               decision,
               opts.phase13Joint ?? 'shadow',
-              opts.phase13EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase13EvidenceMode && !teleLive ? () => 0 : undefined,
               phase7JointAcquisition,
               // P13.1: every candidate is priced, ranked and recorded in the
               // exact form this legalizer executes.
@@ -11921,7 +11983,7 @@ export class HorseLogic {
                 splitLow: horseVariantRulesFor(gs.gameVariant).splitLow8OrBetter,
               };
               input.withinBudget =
-                opts.phase13EvidenceMode && !tele
+                opts.phase13EvidenceMode && !teleLive
                   ? () => true
                   : () => performance.now() - utilityStarted < 4;
               const evaluated = evaluateTournamentUtilityDetailed(input);
@@ -12085,7 +12147,22 @@ export class HorseLogic {
     if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
     if (preflopReadReceipt) decision.preflopReadReceipt = preflopReadReceipt;
     decision = graph.run('wager_rules', decision, () => {
-      const shoveDisciplined = tournamentShoveDiscipline(decision, player, gs);
+      // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
+      // in-position hold'em postflop balance runs first, so every owner rule
+      // below still judges the action it leaves.
+      const huBalanced = holdemHeadsUpPostflopBalance(
+        decision,
+        player,
+        gs,
+        opts.holdemHeadsUpPostflopBalance === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (tele && huBalanced.changed === 'flop_cbet') noteFire('hu_postflop_balance_flop_cbet');
+      if (tele && huBalanced.changed === 'check_raise_defend')
+        noteFire('hu_postflop_balance_check_raise_defend');
+      if (tele && huBalanced.changed === 'later_street')
+        noteFire('hu_postflop_balance_later_street');
+      const shoveDisciplined = tournamentShoveDiscipline(huBalanced.decision, player, gs);
       const blockTrap87 =
         v87RiverBlockTrapPending &&
         opts.v87HoldemOverhaul !== false &&
@@ -15480,7 +15557,15 @@ export class HorseLogic {
     if (ploIcm53 && telemetryOn(opts)) {
       const rng53 = saveFastRandom();
       try {
-        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
+        // Inside a second look the rewound call must not write deep-dive rule
+        // receipts into the second look's own capture (before, a second look did
+        // not run it at all): the collector is detached there. The FAST look is
+        // unchanged.
+        const icmOff53 = () =>
+          decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
+        v53IcmOff = inSecondLookCapture()
+          ? withHorseDeepDiveCapture(undefined, false, icmOff53)
+          : icmOff53();
       } catch {
         v53IcmOff = null;
       } finally {
@@ -16793,7 +16878,12 @@ export class HorseLogic {
             captureContinuation:
               (opts.phase8Postflop ?? 'shadow') !== 'off' &&
               gs.gameVariant === 'nlh' &&
-              !(telemetryOn(opts) && liveHorsePhase8Safety.disabledReason),
+              // the sentinel is obeyed by the FAST look only (a second look ignored it before)
+              !(
+                telemetryOn(opts) &&
+                !inSecondLookCapture() &&
+                liveHorsePhase8Safety.disabledReason
+              ),
             samples: [],
           }
         : undefined;
@@ -20908,8 +20998,9 @@ export class HorseLogic {
     // capped). The excess over the bare raked price is a shade on the equity
     // the V38 verdicts are handed, as V61/V65/V66 shades are. A closing call
     // (nobody behind, street capped, caller all in) carries no shade.
+    // Fixed-limit hold'em cash only (fixedLimitCallIsNotACommitmentInScope).
     const flCallPrice =
-      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit && toCall > 0
+      fixedLimitCallIsNotACommitmentInScope(opts, vi, gs) && toCall > 0
         ? fixedLimitCallRequiredEquity({
             ...fixedLimitRemainingAction({
               players: gs.players,
@@ -21608,9 +21699,10 @@ export class HorseLogic {
     // folds). With the option on, a fixed-limit call is never committed: no
     // stack-to-pot or invested-share term. It goes to the V38 verdicts, which
     // price it with the remaining action of the street (flCallPrice above,
-    // HorseFixedLimitCallPrice.ts).
-    const fixedLimitCallNotCommitted =
-      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit;
+    // HorseFixedLimitCallPrice.ts). Fixed-limit hold'em cash only (2026-11-16,
+    // fixedLimitCallIsNotACommitmentInScope): a flo8 or tournament call keeps
+    // the commitment test.
+    const fixedLimitCallNotCommitted = fixedLimitCallIsNotACommitmentInScope(opts, vi, gs);
     const committedByStack =
       spr < 1.2 ||
       toCall >= stack ||

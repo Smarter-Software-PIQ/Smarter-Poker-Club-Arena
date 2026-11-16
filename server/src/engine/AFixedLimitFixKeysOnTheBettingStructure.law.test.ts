@@ -11,11 +11,15 @@
  * name is fixed limit by itself (bettingStructureFor('plo4') is pot_limit), so
  * a fix that keyed on 'flh' or 'flo8' would stay off here.
  *
- * Law: F2 (fixedLimitCallIsNotACommitment) engages on the four-card
- * fixed-limit state shown as plo4, and F3 (fixedLimitHiLoLowHalfFloor) on
- * the hi-lo one shown as plo8, exactly as at flo8; a real pot-limit plo4
- * table with F2 on never engages it. F1 and the read-time guard (F1b) are
- * pinned on the same plo4 fixed-limit state in
+ * Law: F3 (fixedLimitHiLoLowHalfFloor) engages on the hi-lo state shown as
+ * plo8, exactly as at flo8. F2 (fixedLimitCallIsNotACommitment) is scoped
+ * to fixed-limit HOLD'EM cash since 2026-11-16 (the lane owner's ruling,
+ * HorseLogic fixedLimitCallIsNotACommitmentInScope), keyed on the structure
+ * and the card rules, not a name: it engages on a two-card fixed-limit
+ * state shown as nlh card rules, and the four-card fixed-limit state shown
+ * as plo4 is outside its scope (every decision equals the option off, no
+ * receipt); a real pot-limit plo4 table with F2 on never engages it. F1 and
+ * the read-time guard (F1b) are pinned on the same plo4 fixed-limit state in
  * AFixedLimitReadIsNeverProbeDiscounted.law.test.ts.
  *
  * Production note: the decision worker refuses a state whose bettingStructure
@@ -32,7 +36,6 @@ import type { Table } from './HuVariantSpot.test-support.js';
 
 const F2 = { fixedLimitCallIsNotACommitment: true } as const;
 const F3 = { fixedLimitHiLoLowHalfFloor: true } as const;
-const continues = (a: string) => a !== 'fold';
 
 /** The same dealt table, shown to the brain under another variant's card rules. */
 const shownAs = (t: Table, variant: string): Table => ({ ...t, variant });
@@ -88,33 +91,50 @@ describe('the fixed-limit fixes key on the betting structure', () => {
     }
   });
 
-  it('F2: a fixed-limit call is not a commitment on plo4 card rules with fixed-limit betting', () => {
+  it('F2: keyed on the structure, it engages on two-card card rules shown as nlh with fixed-limit betting', () => {
     enableBrainTelemetry();
     let fired = 0;
-    const rows: Array<{ seed: number; short: string; deep: string }> = [];
     for (let seed = 1; seed <= 12; seed++) {
-      const short = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack: 40, seed });
-      const deep = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack: 1000, seed });
-      if (!short || !deep) continue;
+      const t = fixedLimitRiverFacingOneBet({ variant: 'flh', seats: 6, stack: 40, seed });
+      if (!t) continue;
       const on = withDecisionFireScope(() =>
-        decideSpot(shownAs(short, 'plo4'), 500 + seed, { ...F2, telemetry: true })
+        decideSpot(shownAs(t, 'nlh'), 500 + seed, { ...F2, telemetry: true })
       );
+      expect(on.value.gs.gameVariant).toBe('nlh');
+      expect(on.value.gs.bettingStructure).toBe('fixed_limit');
       if (on.fired.has('fixed_limit_call_not_a_commitment_seen')) fired++;
-      const d = decideSpot(shownAs(deep, 'plo4'), 500 + seed, F2);
-      rows.push({ seed, short: on.value.d.action, deep: d.d.action });
-      const t2 = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack: 40, seed })!;
+      const t2 = fixedLimitRiverFacingOneBet({ variant: 'flh', seats: 6, stack: 40, seed })!;
       const off = withDecisionFireScope(() =>
-        decideSpot(shownAs(t2, 'plo4'), 500 + seed, { telemetry: true })
+        decideSpot(shownAs(t2, 'nlh'), 500 + seed, { telemetry: true })
       );
       expect(off.fired.has('fixed_limit_call_not_a_commitment_seen')).toBe(false);
     }
-    expect(rows.length).toBeGreaterThanOrEqual(8);
     expect(fired).toBeGreaterThan(0);
-    // With F2 on the short stack continues exactly where the deep stack does.
-    for (const r of rows)
-      expect(continues(r.short), `seed ${r.seed}: short ${r.short}, deep ${r.deep}`).toBe(
-        continues(r.deep)
-      );
+  }, 240_000);
+
+  it("F2: the four-card fixed-limit state shown as plo4 is outside its hold'em-only scope", () => {
+    enableBrainTelemetry();
+    let decided = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      for (const stack of [40, 1000]) {
+        const a = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack, seed });
+        const b = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack, seed });
+        if (!a || !b) continue;
+        const on = withDecisionFireScope(() =>
+          decideSpot(shownAs(a, 'plo4'), 500 + seed, { ...F2, telemetry: true })
+        );
+        const off = withDecisionFireScope(() =>
+          decideSpot(shownAs(b, 'plo4'), 500 + seed, { telemetry: true })
+        );
+        expect(on.value.gs.bettingStructure).toBe('fixed_limit');
+        expect(on.value.d.action, `seed ${seed} stack ${stack}`).toBe(off.value.d.action);
+        expect(on.value.d.amount, `seed ${seed} stack ${stack}`).toBe(off.value.d.amount);
+        expect(on.fired.has('fixed_limit_call_not_a_commitment_seen')).toBe(false);
+        expect(on.fired.has('fixed_limit_call_priced_remaining_action_seen')).toBe(false);
+        decided++;
+      }
+    }
+    expect(decided).toBeGreaterThanOrEqual(16);
   }, 240_000);
 
   it('F2 stays off at a real pot-limit plo4 table', () => {

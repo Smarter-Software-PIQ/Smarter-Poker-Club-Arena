@@ -5,7 +5,9 @@ it('keeps the member ledger visit local and initializes its query and both dates
   const page = readFileSync('src/pages/MemberManagementPage.tsx', 'utf8');
   expect(page).not.toContain('usePlayerPreference');
   expect(page).toContain('useState(() => lastDaysRange(1))');
-  expect(page).toContain("useState<RangeMode>('custom')");
+  expect(page).toContain("useState<RangeMode>('day')");
+  expect(page).toContain("day: 'Today'");
+  expect(page).toContain("if (mode === 'day')");
   expect(page).toContain('useState(initialRange.from)');
   expect(page).toContain('useState(initialRange.to)');
   expect(page).toContain('useState<MemberRange>(initialRange)');
