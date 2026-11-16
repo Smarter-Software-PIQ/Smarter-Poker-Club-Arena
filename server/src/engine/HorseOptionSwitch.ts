@@ -344,6 +344,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitReadIgnoresProbes',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
+  'omahaStrategyInPlo6',
   'fixedLimitManiacCapNeedsValue',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
@@ -485,6 +486,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   plo6TopSetNutRealization: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   omahaCommitZoneThreeBetPriceRelief: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   lightningParticipationOmaha: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
+  // 2026-11-16 PLO6 lane: the gate that lets the PLO4/PLO5 strategy options act in PLO6. The six-card port is
+  // unfinished (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so the gate cannot be opened.
+  omahaStrategyInPlo6: hold(
+    'PLO6 lane (the owning lane): docs/horse-option-authority.d/omahaStrategyInPlo6.md',
+    'PLO6 lane keeps it OFF until the six-card port is complete and reviewed (PLO6 checkpoint 2026-11-16)'
+  ),
   // superseded
   v55OmahaRiverTripsFlat: Object.freeze({
     status: 'superseded' as const,

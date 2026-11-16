@@ -1119,6 +1119,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V93'
   ),
   flag(
+    'plo6NoMultiwayBetWithWeakMadeHand',
+    'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, two pair without the top card, the board pair with such a pair, or an overpair: a pocket pair above the top card of an unpaired board) that holds no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 90 such bets in 85 hands, hand net -2,715.1 bb (of them the overpair 28 bets, -1,008.2 bb), in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaStrategyInPlo6',
+    'opt-in, default off (PLO6 lane 2026-11-16; owner 2026-11-15 13:16, the PLO strategy work shared with PLO6): the game gate of the 2026-11-15 Omaha strategy options. On, each PLO4/PLO5 strategy option that is itself on also acts in PLO6 (omahaStrategyGameInScope, HorseOmahaStrategyGame.ts), with the six-card constants of HorsePlo6StrategyCalibration.ts registered for that decision only (turnRedrawNutFullHouseOnly 1, cardImpactDistinctDrawOuts 1, bigDrawContinueStraightOuts 13). It switches no option on. Unset or false, PLO6 is outside every one of those scopes and reads no six-card constant, as before. Default OFF (read === true) and OFF-ONLY in the live switch: the six-card port is not complete (no six-card coordination row, the re-raised premium too wide, literal four/five hole-count checks, PLO6 adaptations not hooked, four skipped options not excluded, no receipt admission; docs/horse-option-authority.d/omahaStrategyInPlo6.md)',
+    'V94'
+  ),
+  flag(
     'fixedLimitRiverFullBetRead',
     "opt-in arm, default off (2026-11-14): fixed limit, river, facing a wager: the wagerer is read as having made a full bet (a raise as a raise) instead of a small no-limit bet, in the range samplers only (HorseFixedLimitWagerRead.ts; SPEC-FL-01). Hold'em contact sampler at its ceiling; Omaha high and hi-lo on a no-low board step the aggressor tier and draw the made-hand stratum exactly; hi-lo heads-up keeps the low half under the weak-high cap. Fixtures and a mechanism only, so production never sets it",
     'V94'
@@ -3205,6 +3215,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a PLO6 cash top set that is the current nuts was priced at full realization in the flop/turn call menu',
     'V93'
   ),
+  // PLO6 lane 2026-11-15 (plo6NoMultiwayBetWithWeakMadeHand). An occurrence
+  // counter for a default-off option production does not set: silence is its
+  // ordinary state. One receipt: the rule reads no opponent, so it has no
+  // withheld state.
+  receipt(
+    'plo6_multiway_weak_made_hand_bet_checked',
+    'HorseLogic wager_rules (HorsePlo6MultiwayWeakBet, plo6NoMultiwayBetWithWeakMadeHand)',
+    'PLO6 flop or turn bet facing nothing against two or more live opponents with a weak made hand (one pair below the top card, two pair without the top card, the board pair with such a pair, or a pocket pair above the top card of an unpaired board), no nut flush draw, under eight straight outs, under four nut-straight outs, no flush draw with four or more straight outs, not nut class: turned into a check',
+    'V94'
+  ),
   // Fixed-Limit lane SPEC-FL-01..03 (2026-11-14). Occurrence counters for
   // opt-in arms production never sets: silence is their ordinary state.
   receipt(
@@ -4614,7 +4634,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_owner_ruled_check_kept',
     'HorseLogic wager_rules (omahaOwnBetRules and omahaOwnerRuledFinal, precedence 2026-11-15)',
-    'a pricing rule (omahaCardImpact, omahaStrongHandValue), the big-draw wager (omahaBigDrawAggression) or the checked-to pricing bet proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules), the made-hand defence (omahaBeatenMadeHandDefense, omahaMadeHandDefenseVsValueLeader) or the street plan checks: the bet was not made',
+    'a pricing rule (omahaCardImpact, omahaStrongHandValue), the big-draw wager (omahaBigDrawAggression) or the checked-to pricing bet proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules), the made-hand defence (omahaBeatenMadeHandDefense, omahaMadeHandDefenseVsValueLeader) or the street plan checks, or a rule that ran after omahaOwnBetRules proposed a wager in the spot the PLO6 multiway weak made-hand rule checks (plo6NoMultiwayBetWithWeakMadeHand, HorsePlo6MultiwayWeakBet.ts, with that option on): the bet was not made',
     'V94'
   ),
   receipt(

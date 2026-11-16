@@ -153,6 +153,8 @@ import {
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
 import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
+import { plo6NoMultiwayBetWithWeakMadeHand } from './HorsePlo6MultiwayWeakBet.js';
+import { applyPlo6OmahaStrategyCalibration } from './HorsePlo6StrategyCalibration.js';
 import {
   FIXED_LIMIT_ONE_BET_RAISE_BREAK_EVEN,
   fixedLimitFullBetRead,
@@ -3526,6 +3528,59 @@ export interface HorseDecideOpts {
    * in two days, Horse-only; activation needs its own evaluation and a
    * docs/horse-default-on.d evidence file. Read as `=== true`. */
   plo6TopSetNutRealization?: boolean;
+  /** PLO6 lane 2026-11-15 (SWEEP-PLO6 family D2: 45 multiway bets with an
+   * underpair or bottom two pair, hand net -1,005.5 bb, the largest PLO6 cash
+   * family): six-card Omaha high, one board, no bomb pot, not all-in-or-fold,
+   * cash and tournaments; flop or turn, nothing to call, two or more live
+   * opponents, a weak made hand (one pair below the board's top card, two
+   * pair without the top card, the board's pair with such a pair, or, added
+   * the same day on its own measurement of 28 bets, hand net -1,008.2 bb, an
+   * overpair: a pocket pair above the top card of an unpaired board) with no
+   * nut flush draw, under eight straight outs, under four nut-straight outs
+   * and no flush draw with four or more straight outs, not nut
+   * class: a bet becomes a check (HorsePlo6MultiwayWeakBet.ts). The overpair
+   * class is not omahaBareOverpairOopFlopCheck, which is PLO4/PLO5, the flop,
+   * the last preflop aggressor out of position: this one is PLO6, flop and
+   * turn, two or more opponents, any position. No opponent
+   * read. Default OFF (opt-in, read `=== true`); development evidence on five
+   * days and mostly one opponent, unevaluated
+   * (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md);
+   * league card plo6_no_multiway_bet_with_weak_made_hand. */
+  plo6NoMultiwayBetWithWeakMadeHand?: boolean;
+  /** PLO6 lane 2026-11-16: the game gate of the 2026-11-15 Omaha strategy
+   * options (owner 2026-11-15 13:16, "shared with PLO6"). On, each PLO4/PLO5
+   * strategy option that is itself ON also acts in PLO6: every game-scope gate
+   * of those options asks omahaStrategyGameInScope, which admits 'plo6' only
+   * here (HorseOmahaStrategyGame.ts reads this field `=== true`), and the
+   * six-card constants of HorsePlo6StrategyCalibration.ts are registered with
+   * omahaStrategyConstant for that decision only
+   * (applyPlo6OmahaStrategyCalibration). Alone it changes nothing: it switches
+   * no option on. Unset or false, PLO6 is outside every one of those scopes
+   * and reads no six-card constant, exactly as before.
+   *
+   * Default OFF and OFF-ONLY in the live switch until the six-card port is
+   * complete and reviewed. Known gaps (2026-11-16), each of which would make a
+   * rule wrong or silent for six cards:
+   *  - COORDINATED_MAX_GAPS (HorseOmahaOopReraisedPot.ts) has no six-card row;
+   *  - omahaReraisedPremium is too wide for six cards (plo6ReraisedPremium is
+   *    not hooked);
+   *  - literal 4/5 hole-count checks: HorseOmahaUnderpair.ts :189,
+   *    HorseOmahaReraisedPot.ts :229, HorseOmahaOopReraisedPot.ts :258, :353,
+   *    :415, HorseOmahaFacingBetEv.ts :669, HorseOmahaRiverMediumBetCalls.ts
+   *    :99 (lines as of this commit);
+   *  - the HorseOmahaReraisedPot.ts inScope is not routed through
+   *    omahaStrategyGameInScope;
+   *  - the four options the PLO6 port skips (omahaRiverNutBlockerBluffReachable,
+   *    omahaReraisedFoldVsTight, omahaEliteContinuesVsMeasuredWideThreeBettor,
+   *    omahaSmallBlindSteal) are not yet excluded from PLO6 under this gate;
+   *  - the PLO6 adaptations (the "adapt" verdicts of
+   *    plo6StrategyOptionVerdict) are not hooked;
+   *  - the receipt validator does not admit PLO6
+   *    (OMAHA_STRATEGY_GAME_SCOPE_ADMISSION.plo6 is false).
+   * Authority and evidence rows:
+   * docs/horse-option-authority.d/omahaStrategyInPlo6.md. League: the refused
+   * matchup plo6_omaha_strategy_in_plo6. */
+  omahaStrategyInPlo6?: boolean;
   /** Fixed limit, river, facing a wager (SPEC-FL-01): the wagerer's read is
    * marked a FULL bet (a raise as a raise) so the range samplers stop
    * pricing a fixed bet as a small no-limit bet (HorseFixedLimitWagerRead.ts).
@@ -8616,6 +8671,18 @@ function omahaOwnerRuledFinal(
   if (faced !== null) return faced;
   const flopFaced = omahaBareOverpairFlopFacingBetRule(decision, player, gs, opts);
   if (flopFaced !== null) return flopFaced;
+  // plo6NoMultiwayBetWithWeakMadeHand: a wager that reached here in its spot
+  // was proposed by a rule after omahaOwnBetRules; the check stands. The
+  // option's own receipt is not fired a second time.
+  if (
+    opts.plo6NoMultiwayBetWithWeakMadeHand === true &&
+    plo6MultiwayWeakBetRule(decision, player, gs, { ...opts, telemetry: false }) !== decision
+  ) {
+    if (telemetryOn(opts)) noteFire('omaha_owner_ruled_check_kept');
+    const c: HorseDecision = { ...decision, action: 'check' };
+    delete c.amount;
+    return c;
+  }
   if (!omahaPricingOptionOn(opts) || !omahaIsWager(decision)) return decision;
   try {
     if (omahaWagerIsChecked(decision, player, gs, opts)) {
@@ -8628,6 +8695,27 @@ function omahaOwnerRuledFinal(
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
   }
   return decision;
+}
+
+/** PLO6 lane 2026-11-15 (SWEEP-PLO6 family D2), HorsePlo6MultiwayWeakBet.ts:
+ * default-off; a PLO6 multiway flop or turn bet with a weak made hand and no
+ * qualifying draw becomes a check. Never touches a decision facing a bet;
+ * draws no random number. Unset or false it returns the decision it was
+ * given. Runs first in omahaOwnBetRules, with the owner-ruled checks (final
+ * there), and is kept outermost by omahaOwnerRuledFinal. */
+function plo6MultiwayWeakBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.plo6NoMultiwayBetWithWeakMadeHand !== true) return decision;
+  const ruled = plo6NoMultiwayBetWithWeakMadeHand(decision, player, gs);
+  // The key is HorsePlo6MultiwayWeakBet.PLO6_MULTIWAY_WEAK_BET_RECEIPT, written
+  // out so the ledger's fired-receipt scan reads it.
+  if (ruled.changed === 'bet_checked' && telemetryOn(opts))
+    noteFire('plo6_multiway_weak_made_hand_bet_checked');
+  return ruled.decision;
 }
 
 /**
@@ -8653,7 +8741,12 @@ function omahaOwnBetRules(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  const ruled = omahaOopCheckRules(decision, player, gs, opts);
+  const ruled = omahaOopCheckRules(
+    plo6MultiwayWeakBetRule(decision, player, gs, opts),
+    player,
+    gs,
+    opts
+  );
   if (ruled !== decision) return ruled;
   if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true) return ruled;
   const planned = omahaStreetPlanRules(ruled, player, gs, opts);
@@ -10675,6 +10768,10 @@ export class HorseLogic {
         // omahaStrategyGameInScope: PLO6 joins the day's PLO4/PLO5 scopes only
         // with the PLO6 lane's own option (omahaStrategyInPlo6 === true).
         const gameScope = omahaStrategyGameScopeOf(opts);
+        // The six-card constants are in the accessor only for a decision whose
+        // gate is on (the same read as gameScope.plo6); unset or false, every
+        // PLO6 read is the default, as before.
+        applyPlo6OmahaStrategyCalibration(opts.omahaStrategyInPlo6 === true);
         if (opts.omahaStrategyInTournaments !== true || !isTournamentMode(gameState))
           return withOmahaStrategyGameScope(gameScope, () =>
             withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_OFF, decideIt)

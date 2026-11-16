@@ -1494,9 +1494,18 @@ export function createOpponentAvatarLayout(
     // Side portraits share the regular seat diameter. Using the enlarged
     // hero as their target makes the side-clearance limit shrink the whole
     // ring, cancelling the hero's gain on the actual painted character.
+    // An empty bottom chair still has the seated table's full-size slot.
+    // A side chair supplies the decoded artwork, never its compact diameter.
+    const observerReference =
+      !anchor && fixedPhoneRail() && page.classList.contains('table-page--tournament');
+    const referenceGain = observerReference
+      ? Math.min(124, Math.max(50, scaler.clientWidth * 0.158)) /
+        parseFloat(getComputedStyle(hero.closest('.seat__avatar')!).height)
+      : 1;
     const heroPremium = nineSeatHeroArtRatio(page, hero);
-    const target = subject(hero, heroAlpha, false).height / heroPremium;
-    const baseTarget = subject(hero, heroAlpha, false, undefined, false).height / heroPremium;
+    const target = (subject(hero, heroAlpha, false).height * referenceGain) / heroPremium;
+    const baseTarget =
+      (subject(hero, heroAlpha, false, undefined, false).height * referenceGain) / heroPremium;
     /* THE HERO'S CIRCLE IS THE CEILING (Dan 2026-11-09).
        Dan, with a PLO4 Lightning screenshot: "the 'hero' avatar is smaller then
        all the other avatars at the table, it should always be the same size."
@@ -1534,12 +1543,12 @@ export function createOpponentAvatarLayout(
         ? parseFloat(declared)
         : avatar.offsetHeight;
     };
-    const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!);
+    const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!) * referenceGain;
     const scales: string[] = [];
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
       const seat = image.closest<HTMLElement>('.seat')!;
-      if (image === hero) {
+      if (image === hero && !observerReference) {
         avatar.style.removeProperty('--sp-opponent-art-scale');
         continue;
       }
@@ -1969,7 +1978,11 @@ export function createOpponentAvatarLayout(
       const panel = referenceSeat.querySelector(':scope > .seat__info');
       if (panel) {
         const panelBox = box(panel);
-        const intrusion = panelBox.top + panelBox.height + 3 - box(footer).top;
+        const footerBox = box(footer);
+        const overlapsFooter =
+          panelBox.left < footerBox.left + footerBox.width &&
+          panelBox.left + panelBox.width > footerBox.left;
+        const intrusion = overlapsFooter ? panelBox.top + panelBox.height + 3 - footerBox.top : 0;
         if (intrusion > 0) {
           const current = parseFloat(referenceSeat.style.getPropertyValue('--sp-opponent-y')) || 0;
           referenceSeat.style.setProperty('--sp-opponent-y', `${current - intrusion / ratio}px`);

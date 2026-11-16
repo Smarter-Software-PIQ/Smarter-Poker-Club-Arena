@@ -78,6 +78,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // PLO Strategy (2026-11-15): the public-only action time changes no action or amount,
         // and the league has no clock.
         'nlh_horse_action_time_is_public_only',
+        // PLO6 lane (2026-11-16): the gate alone switches no rule on, and the six-card port
+        // it would open is unfinished (off-only).
+        'plo6_omaha_strategy_in_plo6',
         // Fixed-Limit lane W5 (2026-11-15): priced preflop and the steal.
         'flh_priced_preflop',
         'flo8_priced_preflop',

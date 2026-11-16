@@ -343,7 +343,6 @@ export function useProtectedCardLayout(
         page.getAttribute('data-seats') === '9' &&
         page.getAttribute('data-kill-enabled') === 'false' &&
         [2, 3, 4, 5, 6].includes(Number(page.getAttribute('data-hole-card-count'))) &&
-        !page.classList.contains('table-page--tournament') &&
         !artwork.ready()
       )
         return false;

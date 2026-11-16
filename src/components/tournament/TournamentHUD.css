@@ -84,6 +84,23 @@
   min-height: 0;
 }
 
+/* The nine-chair observer uses the seated rail. Keep the spectator line
+   and both rows of tournament information below its bottom nameplate. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page--tournament[data-seats='9'][data-hero='false'] {
+    /* An inset already supplies the clearance. On a square-edge phone
+       take only the missing pixels from the header, keeping the data row. */
+    --sp-tdock-line-h: min(
+      36px,
+      calc(28px + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)))
+    );
+  }
+  .table-page--tournament[data-seats='9'][data-hero='false'] .spectator-footer-bar {
+    width: calc(50% - 80px);
+    align-self: flex-end;
+  }
+}
+
 /* ─── THE DOCK ──────────────────────────────────────────────────────────── */
 
 .tournament-dock {
