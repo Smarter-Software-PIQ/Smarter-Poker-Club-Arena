@@ -5172,43 +5172,40 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 commitmentCapRemaining: nutsActions.commitmentCapRemaining,
               };
               const privateHero = { ...commitHero, knownDeadCards: decisionPlayer.knownDeadCards };
-              // A liveness fallback (worker failure or caught brain exception)
-              // is not a poker decision: holdemPremiumAggression, riverNutsRaise,
-              // tournamentShoveDiscipline and fullPotNearPotWager must not read
-              // private cards on the main thread to turn a fallback check/call
-              // into a bet or raise, or fire holdem_premium_* telemetry on a
-              // failed decision. Only shortAllInCallFloor still guards a
-              // fallback fold at the door.
-              const livenessFallback =
-                safeWorkerFallback || decision.policyFallback === 'brain_exception';
-              const wagerGuarded = fullPotNearPotWager(
-                riverNutsRaise(
-                  tournamentShoveDiscipline(
-                    holdemPremiumAggression(decision, privateHero, commitState, {
-                      holdemDominatedFold: false,
-                      ...(livenessFallback ? { holdemPremiumAggression: false } : {}),
-                    }),
-                    privateHero,
-                    commitState
-                  ),
-                  privateHero,
-                  commitState
-                ),
-                privateHero,
-                commitState
-              );
-              const doorBase = livenessFallback ? decision : wagerGuarded;
+              // A liveness action carries no priced poker decision. Do not
+              // turn its free check/call into a premium or nut wager or fire
+              // holdem_premium_* telemetry after the worker failed or the brain
+              // threw. The short-all-in call floor below still applies.
+              const wagerGuarded =
+                safeWorkerFallback || decision.policyFallback === 'brain_exception'
+                  ? decision
+                  : fullPotNearPotWager(
+                      riverNutsRaise(
+                        tournamentShoveDiscipline(
+                          holdemPremiumAggression(decision, privateHero, commitState, {
+                            holdemDominatedFold: false,
+                          }),
+                          privateHero,
+                          commitState
+                        ),
+                        privateHero,
+                        commitState
+                      ),
+                      privateHero,
+                      commitState
+                    );
               // Dan 2026-10-26: a short all in is called by a big stack in a
               // tournament. Last at the door too, on the controller's fresh
               // state, so no withdrawal above and no liveness fallback can fold
               // that spot. No equity is measured here, so it calls.
               const guarded = brainChoseFold
-                ? doorBase
-                : shortAllInCallFloor(doorBase, privateHero, commitState, null);
-              if (guarded !== doorBase) noteFire('short_all_in_call_floor_commit');
+                ? wagerGuarded
+                : shortAllInCallFloor(wagerGuarded, privateHero, commitState, null);
+              if (guarded !== wagerGuarded) noteFire('short_all_in_call_floor_commit');
               if (guarded !== decision) {
                 decision = { ...decision, ...guarded };
-                if (guarded !== doorBase && guarded.amount === undefined) delete decision.amount;
+                if (guarded !== wagerGuarded && guarded.amount === undefined)
+                  delete decision.amount;
                 noteFire('wager_rules_commit_correction');
                 reconcileHorsePhaseReceipts(
                   [
