@@ -17,7 +17,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ClipRow } from '@/lib/clipMode';
-import { encodeHand } from '@/components/table/ShareHand';
+import { resolveSkin } from '@/lib/tableTheme';
+import { encodeHand, decodeHandFromUrl } from '@/components/table/ShareHand';
 import { shareableFromModel } from '@/lib/shareHandModel';
 import { buildReplay, replayInputFromRow } from '@/utils/handReplay';
 
@@ -29,7 +30,10 @@ vi.mock('@/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: null }) }));
 const getHand = vi.fn();
 vi.mock('@/services/HandHistoryService', () => ({ handHistoryService: { getHand } }));
 
-const pageCss = readFileSync(resolve(__dirname, '../../src/pages/share/SharedHandReplayPage.css'), 'utf8');
+const pageCss = readFileSync(
+  resolve(__dirname, '../../src/pages/share/SharedHandReplayPage.css'),
+  'utf8'
+);
 
 const HERO = 'hero-uuid';
 const VILLAIN = 'villain-uuid';
@@ -87,9 +91,7 @@ describe('/replay?clip=1 with the injected payload', () => {
     expect(pageCss).toMatch(
       /\.shared-replay--clip\s*\{[^}]*min-height:\s*100dvh;[^}]*padding-block:\s*16px;[^}]*display:\s*grid;[^}]*align-items:\s*center;/s
     );
-    expect(pageCss).toMatch(
-      /\.shared-replay--clip\s*>\s*\.hand-replay\s*\{[^}]*min-height:\s*0;/s
-    );
+    expect(pageCss).toMatch(/\.shared-replay--clip\s*>\s*\.hand-replay\s*\{[^}]*min-height:\s*0;/s);
     expect(pageCss).not.toMatch(/\.hand-replay--clip/);
   });
 
@@ -162,6 +164,11 @@ describe('without the payload, the page is what it is today', () => {
     await openPage(`?h=${encodeHand(hand)}`);
     await screen.findByText('Hand #77');
     expect(document.querySelector('.shared-replay > .hand-replay')).not.toBeNull();
+    expect(document.querySelectorAll('.shared-table-stage .seat-wrapper').length).toBe(
+      hand.players.length
+    );
+    expect(document.querySelector('.shared-table-stage .table-art')).not.toBeNull();
+    expect(document.querySelector('.hr-felt__oval')).toBeNull();
     expect(document.querySelector('.shared-replay--clip')).toBeNull();
     expect(document.querySelector('.shared-replay__footer')?.textContent).toBe(
       "Shared From kingfish's Hand History · Smarter Poker"
@@ -169,6 +176,36 @@ describe('without the payload, the page is what it is today', () => {
     expect(document.querySelector('.hand-replay')?.hasAttribute('data-clip-state')).toBe(false);
     expect((window as unknown as { __spClip?: unknown }).__spClip).toBeUndefined();
     expect(getHand).not.toHaveBeenCalled();
+  });
+
+  it('round-trips the recorded table skin and character through the public link', async () => {
+    const hand = shareableFromModel(buildReplay(replayInputFromRow(ROW)), {
+      id: ROW.id,
+      tableName: 'Kingfish Club',
+      heroUserId: HERO,
+    });
+    hand.players[0].avatar = '/avatars/free/sample.webp';
+    hand.appearance = {
+      skin: 'ocean_blue',
+      background: 'royal_indigo',
+      cardBack: 'classic_blue',
+      maxPlayers: 9,
+      fourColor: true,
+      faceDeck: 'house-classic',
+      showAvatars: true,
+    };
+    hand.preflop[0].atMs = 725;
+    const encoded = encodeHand(hand);
+    expect(decodeHandFromUrl(encoded)?.preflop[0]).toEqual(hand.preflop[0]);
+    await openPage(`?h=${encoded}`);
+    await screen.findByText('Hand #77');
+    expect(document.querySelector('.shared-table-stage')?.getAttribute('data-seats')).toBe('9');
+    expect(document.querySelector('.shared-table-stage .table-art')?.getAttribute('src')).toBe(
+      resolveSkin('ocean_blue')
+    );
+    expect(
+      document.querySelector('.shared-table-stage .seat__avatar-img')?.getAttribute('src')
+    ).toContain('/avatars/table/free_sample');
   });
 
   it('clip=1 alone still needs h=', async () => {

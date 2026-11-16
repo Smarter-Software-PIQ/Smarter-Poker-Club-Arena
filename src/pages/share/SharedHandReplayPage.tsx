@@ -82,6 +82,7 @@ function sourceFrom(hand: ShareableHand): ReplaySource | null {
     }
     return {
       model,
+      sharedTable: hand.appearance ?? null,
       tableName: hand.tableName || null,
       handNumber: hand.handNumber ?? null,
       gameType: hand.variant,
