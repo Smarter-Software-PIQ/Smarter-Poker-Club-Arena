@@ -334,4 +334,71 @@ $function$;
 ALTER FUNCTION public.fn_pko_predecessor_accepted_scopes_v1(uuid,uuid) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.fn_pko_predecessor_accepted_scopes_v1(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+-- The activation authority must follow this exact changed proof and its new
+-- private evidence dependency. Preserve all other guard source and metadata.
+DO $pko_admission_pin$
+DECLARE
+ target constant text:='public.fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamp with time zone)';
+ helper constant text:='public.fn_pko_predecessor_accepted_scopes_v1(uuid,uuid)';
+ guard constant text:='public.fn_ca_guard_mtt_admission_contract()';
+ old_hash constant text:='bae3424d1a86266cf693bc5bce422847';
+ old_guard_hash constant text:='6b8fc31a66cd79f10c3b540a940324a5';
+ previous_path text:=current_setting('search_path');
+ new_hash text;original text;patched text;reconstructed text;
+ before_meta jsonb;after_meta jsonb;prepared jsonb;after_prepared jsonb;
+ old_pin jsonb;new_pin jsonb;helper_pin jsonb;pin_count integer;pin_index integer;helper_count integer;
+BEGIN
+ PERFORM set_config('search_path','pg_catalog, public',true);
+ new_hash:=md5(pg_get_functiondef(target::regprocedure));
+ helper_pin:=jsonb_build_object('signature',helper,'definition_md5',md5(pg_get_functiondef(helper::regprocedure)),
+   'owner','postgres','acl',jsonb_build_array('postgres=X/postgres'));
+ original:=pg_get_functiondef(guard::regprocedure);
+ SELECT to_jsonb(p)-'prosrc' INTO before_meta FROM pg_proc p WHERE oid=guard::regprocedure;
+ IF before_meta->>'prosecdef' IS DISTINCT FROM 'true'
+   OR before_meta->>'provolatile' IS DISTINCT FROM 'v'
+   OR pg_get_userbyid((before_meta->>'proowner')::oid) IS DISTINCT FROM 'postgres'
+   OR before_meta->'proacl' IS DISTINCT FROM '["postgres=X/postgres"]'::jsonb
+   OR before_meta->'proconfig' IS DISTINCT FROM '["search_path=pg_catalog, public"]'::jsonb THEN
+  RAISE EXCEPTION 'PKO admission guard metadata changed';
+ END IF;
+ prepared:=split_part(original,'$prepared$',2)::jsonb;
+ SELECT count(*),min(ordinality::integer-1) INTO pin_count,pin_index
+  FROM jsonb_array_elements(prepared->'functions') WITH ORDINALITY x(value,ordinality)
+  WHERE value->>'signature'=target;
+ SELECT count(*) INTO helper_count FROM jsonb_array_elements(prepared->'functions') x
+  WHERE x->>'signature'=helper;
+ old_pin:=jsonb_build_object('signature',target,'definition_md5',old_hash,'owner','postgres','acl',jsonb_build_array('postgres=X/postgres'));
+ new_pin:=jsonb_set(old_pin,'{definition_md5}',to_jsonb(new_hash),false);
+ IF pin_count IS DISTINCT FROM 1 OR new_hash=old_hash THEN
+  RAISE EXCEPTION 'PKO admission predecessor pin missing, duplicated or unchanged';
+ END IF;
+ IF prepared->'functions'->pin_index IS NOT DISTINCT FROM new_pin AND helper_count=1
+   AND prepared->'functions'->0 IS NOT DISTINCT FROM helper_pin THEN
+  -- Exact replay: reversing only the two approved edits must recover the
+  -- reviewed old guard, including every executable byte and unrelated pin.
+  reconstructed:=replace(replace(original,helper_pin::text||',',''),new_hash,old_hash);
+  IF md5(reconstructed) IS DISTINCT FROM old_guard_hash THEN
+   RAISE EXCEPTION 'PKO admission postimage differs';
+  END IF;
+  PERFORM set_config('search_path',previous_path,true);
+  RETURN;
+ END IF;
+ IF md5(original) IS DISTINCT FROM old_guard_hash OR helper_count<>0
+   OR prepared->'functions'->pin_index IS DISTINCT FROM old_pin
+   OR (length(original)-length(replace(original,old_hash,'')))/length(old_hash)<>1
+   OR (SELECT count(*) FROM regexp_matches(original,'"functions"[[:space:]]*:[[:space:]]*\[','g'))<>1 THEN
+  RAISE EXCEPTION 'PKO admission guard preimage changed';
+ END IF;
+ patched:=replace(original,old_hash,new_hash);
+ patched:=regexp_replace(patched,'("functions"[[:space:]]*:[[:space:]]*\[)','\1'||helper_pin::text||',');
+ EXECUTE patched;
+ SELECT to_jsonb(p)-'prosrc' INTO after_meta FROM pg_proc p WHERE oid=guard::regprocedure;
+ after_prepared:=split_part(pg_get_functiondef(guard::regprocedure),'$prepared$',2)::jsonb;
+ IF before_meta IS DISTINCT FROM after_meta OR pg_get_functiondef(guard::regprocedure) IS DISTINCT FROM patched
+   OR after_prepared IS DISTINCT FROM jsonb_set(prepared,'{functions}',
+      jsonb_build_array(helper_pin)||jsonb_set(prepared->'functions',ARRAY[pin_index::text,'definition_md5'],to_jsonb(new_hash),false),false) THEN
+  RAISE EXCEPTION 'PKO admission pin transition changed unrelated authority';
+ END IF;
+ PERFORM set_config('search_path',previous_path,true);
+END $pko_admission_pin$;
 COMMIT;

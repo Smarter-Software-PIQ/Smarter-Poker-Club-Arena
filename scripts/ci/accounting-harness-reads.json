@@ -406,6 +406,7 @@
     "scripts/ci/maintenance-thaw-repair.mjs",
     "scripts/ci/migration-concurrent-preamble.mjs",
     "scripts/ci/migration-live-proofs.json",
+    "scripts/ci/migration-stale-pins.mjs",
     "scripts/ci/mtt_break_authoring_native.py",
     "scripts/ci/mtt_format_qualification.py",
     "scripts/ci/mtt_historical_freebuy_proof.py",
