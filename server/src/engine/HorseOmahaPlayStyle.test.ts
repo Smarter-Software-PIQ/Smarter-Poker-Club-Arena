@@ -31,6 +31,7 @@ import {
   type ComplaintPublicNode,
 } from './HorseComplaintReplay.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { runMatchup } from '../benchmark/HorseLeague.js';
 import { HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID } from '../benchmark/HorseLeagueHumanField.js';
 import {
@@ -297,9 +298,7 @@ function play(
         gameState: st.gs,
       })
     ).toBeNull();
-    out.bytes.push(
-      JSON.stringify(d, (k, x) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : x))
-    );
+    out.bytes.push(JSON.stringify(withoutMeasurements(d)));
     out.actions.push(d.action);
     out.fires.push(
       drainFires()
