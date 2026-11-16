@@ -26,8 +26,9 @@ import { HorseMind } from './HorseMind.js';
 import { enableBrainTelemetry, withDecisionFireScope } from './BrainTelemetry.js';
 import { decideSpot, fixedLimitRiverFacingOneBet } from './FixedLimitRiverCallSpot.test-support.js';
 import {
-  FIXED_LIMIT_RAISE_BEHIND_RATE,
+  FIXED_LIMIT_RAISE_BEHIND_RATES,
   fixedLimitCallRequiredEquity,
+  fixedLimitRaiseBehindRate,
   fixedLimitRemainingAction,
 } from './HorseFixedLimitCallPrice.js';
 import { menuOf } from './HuVariantSpot.test-support.js';
@@ -60,7 +61,14 @@ function sweep(variant: 'flh' | 'flo8', seats: number, opts: object, seeds = 40)
 
 describe('a fixed-limit call is not a commitment', () => {
   it('prices a closing call at the bare call plus rake, and a call with action behind above it', () => {
-    const base = { pot: 44, toCall: 4, unit: 4, stackAfterCall: 30, deduction: 0.05 };
+    const base = {
+      pot: 44,
+      toCall: 4,
+      unit: 4,
+      stackAfterCall: 30,
+      deduction: 0.05,
+      raiseBehindRate: fixedLimitRaiseBehindRate({ hiLo: false, stage: 'river' }),
+    };
     const bare = 4 / (48 * 0.95);
     // Closing: nobody behind, or the street capped, or nothing left behind the call.
     for (const closing of [
@@ -88,7 +96,7 @@ describe('a fixed-limit call is not a commitment', () => {
     expect(three.required).toBeGreaterThan(threeOneLeft.required);
     expect(threeOneLeft.required).toBeGreaterThan(bare);
     // The formula, stated: e = unit x (p + p^2 + p^3), p = 1 - (1 - rate)^players.
-    const p = 1 - Math.pow(1 - FIXED_LIMIT_RAISE_BEHIND_RATE, 3);
+    const p = 1 - Math.pow(1 - base.raiseBehindRate, 3);
     const e = 4 * (p + p * p + p * p * p);
     expect(three.expectedExtra).toBeCloseTo(e, 12);
     expect(three.required).toBeCloseTo((4 + e) / ((48 + 2 * e) * 0.95), 12);
@@ -101,6 +109,45 @@ describe('a fixed-limit call is not a commitment', () => {
         wagersLeft: 3,
       }).required
     ).toBeCloseTo(three.required, 12);
+  });
+
+  it('prices the raise behind at the MEASURED rate (census D, 95% upper bounds), not the old 0.12 assumption', () => {
+    // Source: agent evidence fixed-limit-01Gw7aDr/AF-raise-behind-census-D.json (Horse-only flh/flo8
+    // cash, 64,660 hands, 2026-11-13T08:13Z to 2026-11-14T21:27Z): each street's Clopper-Pearson
+    // two-sided 95% upper bound of the raised share after a call, rounded up.
+    expect(FIXED_LIMIT_RAISE_BEHIND_RATES).toEqual({
+      holdem: { flop: 0.014, turn: 0.033, river: 0.042, other: 0.021 },
+      hiLo: { flop: 0.008, turn: 0.019, river: 0.027, other: 0.014 },
+    });
+    for (const hiLo of [false, true]) {
+      const row = hiLo
+        ? FIXED_LIMIT_RAISE_BEHIND_RATES.hiLo
+        : FIXED_LIMIT_RAISE_BEHIND_RATES.holdem;
+      expect(fixedLimitRaiseBehindRate({ hiLo, stage: 'flop' })).toBe(row.flop);
+      expect(fixedLimitRaiseBehindRate({ hiLo, stage: 'turn' })).toBe(row.turn);
+      expect(fixedLimitRaiseBehindRate({ hiLo, stage: 'river' })).toBe(row.river);
+      expect(fixedLimitRaiseBehindRate({ hiLo, stage: 'preflop' })).toBe(row.other);
+      // Every measured bound is far under the old assumption.
+      for (const v of Object.values(row)) expect(v).toBeLessThan(0.05);
+    }
+    // The shade is small now: three players behind, three wagers left, a 44-chip pot, a 4-chip call.
+    const priced = (rate: number) =>
+      fixedLimitCallRequiredEquity({
+        pot: 44,
+        toCall: 4,
+        unit: 4,
+        stackAfterCall: 30,
+        deduction: 0.05,
+        playersBehind: 3,
+        wagersLeft: 3,
+        raiseBehindRate: rate,
+      });
+    const measured = priced(fixedLimitRaiseBehindRate({ hiLo: false, stage: 'river' }));
+    const assumed = priced(0.12);
+    expect(measured.required - measured.bare).toBeLessThan((assumed.required - assumed.bare) / 2.5);
+    expect(measured.required).toBeGreaterThan(measured.bare);
+    // A rate of 0 is the bare price (no shade), whatever the players behind.
+    expect(priced(0).required).toBeCloseTo(priced(0).bare, 12);
   });
 
   it('reads the players left to act and the wagers left from the real table', () => {

@@ -1043,6 +1043,7 @@ export class LightningHosting {
       },
       onPublicState: (h, state) => this.deps.observers?.state(h, state),
       onPublicEvent: (h, event) => this.deps.observers?.event(h, event),
+      observedHands: (h, number) => this.deps.observers?.completedReceipts(h, number) ?? [],
       // LIGHTNING PHASE 12: hand_to_first_render starts at the first frame.
       onFirstFrame: (playerId, roomId, handId, atMs) =>
         registry.noteFirstFrame(roomId, playerId, handId, atMs),

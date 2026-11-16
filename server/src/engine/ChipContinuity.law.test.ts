@@ -290,7 +290,10 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     expect(fresh).toBeLessThan(release.indexOf('this.handCountStack(userId, seated.stack)'));
     // #10740: a queued Lightning leave that still owes hands goes back to the pool.
     expect(release).toContain('await this.returnOwedLightningLeaveToPool(userId, seated);');
-    expect(sliceMethod(SEATING, 'public sitOut(')).toContain('this.withdrawBlindOff(userId)');
+    expect(sliceMethod(SEATING, 'public sitOut(')).toContain(
+      'return this.applySitOut(userId, sitOut, proof)'
+    );
+    expect(sliceMethod(SEATING, 'private applySitOut(')).toContain('this.withdrawBlindOff(userId)');
     expect(sliceMethod(SEATING, 'protected withdrawBlindOff(')).toContain(
       'this.leaveHeldByClock.delete(userId)'
     );
@@ -347,15 +350,20 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
       body.indexOf("runStep('horse_cashouts'"),
       body.indexOf("runStep('deferred_sitouts'")
     );
-    expect(horse).toContain('await this.cashoutVoluntaryStay(horse)');
-    expect(horse).toContain('if (!exit) continue');
+    // 2026-11-15: the exit moved into bankTheWinExit so it can also run after
+    // the presentation hold; the door it uses is pinned there, stricter.
+    expect(horse).toContain('await this.bankTheWinExit(horse)');
+    const door = sliceMethod(SETTLEMENT, 'protected async bankTheWinExit(');
+    expect(door).toContain('await this.cashoutVoluntaryStay(horse)');
+    expect(door).toContain('if (!exit) return;');
+    expect(door).toContain("exit.code === 'LEAVE_LOCKED'");
+    expect(blankNonCode(door)).not.toContain('markSeatAsLeft');
     const stay = sliceMethod(BASE, 'protected async cashoutVoluntaryStay(');
     expect(stay).toContain(
       'await atomicCashoutVoluntary(user_id, this.tableId, seat_number, occupancy_id)'
     );
     expect(stay).toContain('return mayReflect() ? result : null');
     expect(blankNonCode(horse)).not.toContain('markSeatAsLeft');
-    expect(horse).toContain("exit.code === 'LEAVE_LOCKED'");
   });
 
   it('a leave_pending seat is cashed out through the guarded door and a refusal keeps the seat', () => {
@@ -367,7 +375,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   });
 
   it('sit-out and sit-in report to the clock; presence is swept from the heartbeat tick', () => {
-    const sitOut = sliceMethod(SEATING, 'public sitOut(');
+    const sitOut = sliceMethod(SEATING, 'private applySitOut(');
     expect(sitOut).toContain('this.chipContinuity');
     const hb = sliceMethod(BASE, 'protected scheduleHeartbeatCheck()');
     expect(hb).toContain('sweepPresence(');

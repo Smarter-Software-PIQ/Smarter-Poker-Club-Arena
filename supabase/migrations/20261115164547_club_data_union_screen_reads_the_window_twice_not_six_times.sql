@@ -516,7 +516,7 @@ BEGIN
   IF position('fn_ca_club_acct_fact_window' IN d) > 0 OR position('v_clubs := public.fn_ca_club_data_clubs(p_club_id)' IN d) = 0 THEN
     RAISE EXCEPTION 'club data union screen was not replaced as written';
   END IF;
-  IF (SELECT p.provolatile || CASE WHEN p.prosecdef THEN 's' ELSE 'i' END FROM pg_proc p
+  IF (SELECT p.provolatile::text || CASE WHEN p.prosecdef THEN 's' ELSE 'i' END FROM pg_proc p
        WHERE p.oid = 'public.ca_club_data_screen_union_basis(uuid,date,date,text,text,text,integer)'::regprocedure) <> 'ss' THEN
     RAISE EXCEPTION 'club data union screen lost STABLE SECURITY DEFINER';
   END IF;

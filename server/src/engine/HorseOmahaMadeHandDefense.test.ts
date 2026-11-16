@@ -427,14 +427,18 @@ describe('the worker receipt', () => {
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', { player: s.hero, gameState: s.gs })
     ).toBeNull();
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'plo5')).toBe('policy_graph');
-    // Against a request in which the Horse holds the nut straight it is refused.
+    // Against a request in which the Horse holds the nut straight it is
+    // admitted since omahaStrongHandSlowplayMix (owner 2026-11-15 14:13): a
+    // nut-class raise facing a bet becomes the call at a mixed frequency, and
+    // the request carries neither the option nor the draw, so the validator
+    // admits that call for its exact chips (omahaSlowplayAdmitsCall).
     const nuts = spot(FB5, 19, { hole: 'QsJc6d7c2d' });
     expect(
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
         player: nuts.hero,
         gameState: nuts.gs,
       })
-    ).toBe('policy_graph');
+    ).toBeNull();
   });
 
   it('the bet that became a check is admitted with the request that produces it', () => {

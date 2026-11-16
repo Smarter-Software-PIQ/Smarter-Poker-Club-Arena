@@ -679,9 +679,11 @@ describe('the union invoice basis', () => {
     });
     expect(screen.getByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM')).toBeTruthy();
     expect(screen.getAllByText('Chicago Time').length).toBeGreaterThan(0);
-    expect(
-      screen.getByText(/^Days Run 2:00 AM To 2:00 AM Chicago Time\. Union Invoice Basis\./)
-    ).toBeTruthy();
+    // Explanations live behind the "?" (Dan, 2026-11-15), never on the page.
+    const tip = screen.getByTestId('data-help-tip');
+    expect(tip.hasAttribute('open')).toBe(false);
+    expect(tip.textContent).toMatch(/Days Run 2:00 AM To 2:00 AM Chicago Time\./);
+    expect(screen.getByText(/^Union Invoice Basis\./).closest('details')).toBe(tip);
     expect(screen.getByText(/Total Winnings Equals Its Player Win\/Loss/)).toBeTruthy();
     // Tournament fees count when the tournament settles; no running MTT fee.
     expect(
@@ -704,7 +706,7 @@ describe('the union invoice basis', () => {
       'Incomplete: Not Yet Loaded: Nov 3, 2026. Week Boundary Not Invoice-Exact: Nov 2, 2026. These Totals Can Differ From The Union Invoice Until Those Days Are Whole.'
     );
     // Shown, never added: the felt sits beside Total Winnings.
-    expect(screen.getByText('On The Felt Now (Not In Total Winnings)')).toBeTruthy();
+    expect(screen.getByText('On The Felt Now')).toBeTruthy();
     expect(screen.getByText('5,400.00')).toBeTruthy();
     expect(screen.queryByText(/Net Entries And Payouts In Chicago Time/)).toBeNull();
   });
@@ -792,10 +794,13 @@ describe('the union invoice basis', () => {
       error: null,
     });
     render(<ClubDataSimplePage />);
+    expect(await screen.findByText('Unfinished MTT Entries')).toBeTruthy();
     expect(
-      await screen.findByText(
-        'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
-      )
+      screen
+        .getByText(
+          /Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total/
+        )
+        .closest('details')
     ).toBeTruthy();
     expect(screen.getByText('-3,570.00')).toBeTruthy();
   });
@@ -832,9 +837,10 @@ describe('the union invoice basis', () => {
       });
     }
     const asked = rpcMock.mock.calls.map(([, a]) => a as Record<string, string>);
-    expect(asked.length, JSON.stringify(asked.map((x) => [x.p_start, x.p_end]))).toBeLessThanOrEqual(
-      2
-    );
+    expect(
+      asked.length,
+      JSON.stringify(asked.map((x) => [x.p_start, x.p_end]))
+    ).toBeLessThanOrEqual(2);
     expect(asked[0]).toMatchObject({ p_start: '2026-11-16', p_end: '2026-11-16' });
     expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
     expect(screen.getByText('Nov 15, 2026 12:00 AM To Nov 16, 2026 12:00 AM')).toBeTruthy();

@@ -44,6 +44,12 @@ export class LightningObserverProjection {
     }
   }
 
+  completedReceipts(host: PublicHost, handNumber: number) {
+    return this.anchors(host.clusterId).flatMap((table) =>
+      this.selected.get(table) === host ? this.hub.completedObserverReceipts(table, handNumber) : []
+    );
+  }
+
   finished(host: PublicHost): void {
     this.active.delete(host);
     this.states.delete(host);

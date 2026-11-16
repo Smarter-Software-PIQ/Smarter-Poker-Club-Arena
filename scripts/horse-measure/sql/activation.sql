@@ -107,6 +107,7 @@ FROM (VALUES
   ('v60_cash_pressure_facing_open', 'V60 cash pressure (#8694)'),
   ('v60_cash_pressure_facing_open_superseded', 'V60 cash pressure (#8694)'),
   ('v60_cash_pressure_opener_vs_three_bet', 'V60 cash pressure (#8694)'),
+  ('aof_closing_seat_nash_call_seen', 'All-In-Or-Fold closing seat Nash call (aofClosingSeatNashCall, default off): the caller table answered a closing seat (expected 0 until switched on)'),
   ('lightning_participation_eligible', 'Lightning participation (lightningParticipationHoldem / lightningParticipationOmaha, default off): opportunities inside the predicate (expected 0 until switched on; then never 0 in Lightning)'),
   ('lightning_participation_changed', 'Lightning participation (lightningParticipationHoldem / lightningParticipationOmaha, default off): a range cell changed the action (expected 0 until switched on)'),
   ('lightning_participation_refused_not_lightning_seen', 'Lightning participation (lightningParticipationHoldem / lightningParticipationOmaha, default off): refused, not a Lightning hand (expected 0 until switched on)'),

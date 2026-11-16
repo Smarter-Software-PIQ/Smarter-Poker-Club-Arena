@@ -13,6 +13,7 @@ import React, {
   useRef,
   useEffect,
   useMemo,
+  useLayoutEffect,
 } from 'react';
 import { formatPopupText } from '../../utils/popupStyle';
 import {
@@ -239,10 +240,48 @@ function ToastContainer({
   toasts: Toast[];
   removeToast: (id: string) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const messenger = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.table-page[data-lightning-hud="true"] .chat-collapsed'
+      )
+    ).find((node) => node.getClientRects().length > 0);
+    if (!messenger) return;
+    const place = () => {
+      const anchor = messenger.getBoundingClientRect();
+      const below = anchor.bottom + 8;
+      const height = Math.min(container.scrollHeight, window.innerHeight * 0.3);
+      // A short viewport can put Messenger at the bottom edge. Keep the
+      // notification visible above it when its contents cannot fit below.
+      const top =
+        window.innerHeight - below - 16 >= height ? below : Math.max(16, anchor.top - 8 - height);
+      container.style.top = `${top}px`;
+      container.style.maxHeight = `min(30dvh, max(0px, calc(100dvh - ${top + 16}px)))`;
+    };
+    place();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(messenger);
+    window.addEventListener('resize', place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', place);
+      container.style.removeProperty('top');
+      container.style.removeProperty('max-height');
+    };
+  }, [toasts.length]);
   if (toasts.length === 0) return null;
 
   return (
-    <div className="toast-container" role="region" aria-live="polite" aria-label="Notifications">
+    <div
+      ref={containerRef}
+      className="toast-container"
+      role="region"
+      aria-live="polite"
+      aria-label="Notifications"
+    >
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onRemove={() => removeToast(toast.id)} />
       ))}

@@ -94,7 +94,11 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 44 since 2026-11-13: HorseMind reads the opponent style read (HorseOpponentStyle).
     // 45 since 2026-11-13: the style options ask for their shadow arm (HorseStyleShadow).
     // 46 since 2026-11-14: HorseMind reads the Omaha tight read (HorseOmahaTightOpponent).
-    expect(closure).toHaveLength(46);
+    // 47 since 2026-11-15: HorseMind reads the durable shown river record (HorseLongShownMemory).
+    // 48 since 2026-11-15: HorseLogic takes the think time from horsePublicActionTime.
+    // 50 since 2026-11-16: HorseMind reads the heads-up tight-folder read (HorseHuTightBigBlindSteal),
+    // which brings the heads-up open bands (HorseNlhOpenSize) into the closure.
+    expect(closure).toHaveLength(50);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
