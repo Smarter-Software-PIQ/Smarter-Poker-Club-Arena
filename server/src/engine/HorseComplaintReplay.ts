@@ -275,15 +275,22 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
         totalInvested: total,
         deadInvested: dead,
         individualAnteInvested: individualAnte,
-        cards: seat === heroSeat ? hole : [],
+        // HIDDEN-INFORMATION FIREWALL, as the live engine builds the request
+        // (ServerTableEngineTurns publicPlayers): every seat in the shared
+        // state is public only. The horse's own cards exist exactly once, on
+        // the deciding player (`hero` below), never on gs.players.
+        cards: [],
         is_folded: (status & 1) !== 0,
         is_all_in: (status & 2) !== 0,
         is_sitting_out: (status & 4) !== 0,
         is_horse: isHorseSeat(hand, seat),
       }) as SeatPlayer
   );
-  const hero = players.find((p) => p.seat === heroSeat);
-  if (!hero) throw new Error(`seat ${heroSeat} is not in the snapshot`);
+  const heroRow = players.find((p) => p.seat === heroSeat);
+  if (!heroRow) throw new Error(`seat ${heroSeat} is not in the snapshot`);
+  // The deciding player is its own object (the live decisionPlayer), so the
+  // hole cards on it never reach the public seat list.
+  const hero: SeatPlayer = { ...heroRow, cards: [...hole] };
   const ts = pn.tournamentStage ?? undefined;
   const humans = hand.players.filter((p) => !p.isHorse).map((p) => `p${p.seat}`);
   const gs = {

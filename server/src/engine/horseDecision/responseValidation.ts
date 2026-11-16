@@ -51,6 +51,7 @@ import {
   omahaOopCheckSpot,
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
+import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
 import {
   OMAHA_CARD_IMPACT_VARIANTS,
   omahaCardImpactCheckAdmissible,
@@ -66,7 +67,7 @@ import {
 import {
   OMAHA_SLOWPLAY_VARIANTS,
   omahaSlowplayAdmitsCall,
-  omahaSlowplayAdmitsCheck,
+  omahaSlowplayAdmitsCheckWithRequest,
 } from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1213,6 +1214,21 @@ function policyGraphIsValidInScope(
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
       plo6RiverCallIsPriced(transition.after, context);
+    // PLO6 lane 2026-11-15 (HorsePlo6MultiwayWeakBet, default-off option
+    // plo6NoMultiwayBetWithWeakMadeHand): a PLO6 flop or turn bet facing no
+    // wager against two or more live opponents with a weak made hand and no
+    // qualifying draw becomes a check. A check puts no chip in; when the
+    // request is known, only where the public spot, re-run on it, holds (the
+    // spot reads neither the option nor an opponent).
+    const plo6MultiwayWeakBetToCheck =
+      transition.node === 'wager_rules' &&
+      variant === 'plo6' &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          plo6MultiwayWeakBetSpot(context.player, context.gameState) !== null));
     // Dan 2026-11-06 (HorsePloPairedBoardFold.ploPairedBoardRiverMustCheck):
     // a PLO4/5/6 river bet or raise without a full house, on a board paired
     // by the turn after the horse's own turn bet was called, becomes a check.
@@ -1410,18 +1426,19 @@ function policyGraphIsValidInScope(
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaSlowplayAdmitsCall(context.player, context.gameState, transition.after.amount);
     // The same option, the flop: a bet with a set on a very dry flop becomes
-    // a check at a mixed frequency. A check puts no chip in; when the request
-    // is known, only in the mix's spot (the flop, nothing to call, one or two
+    // a check at a mixed frequency. Admitted only with the request, only in
+    // the mix's spot re-run on it (the flop, nothing to call, one or two
     // opponents, a set, three suits and three ranks at least five apart).
+    // With no request this admission admits nothing (review note N2,
+    // 2026-11-16); the older bet -> check admissions above keep their own
+    // no-request form (a check puts no chip in), unchanged here.
     const omahaSlowplayBetToCheck =
       transition.node === 'wager_rules' &&
       omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       previous.action === 'bet' &&
-      (context === undefined ||
-        (String(context.gameState.gameVariant).toLowerCase() === variant &&
-          omahaSlowplayAdmitsCheck(context.player, context.gameState)));
+      omahaSlowplayAdmitsCheckWithRequest(variant, context);
     // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
     // heads-up turn bet facing no wager becomes a check when the plan prices
     // the check line higher. A check puts no chip in; when the request is
@@ -1490,6 +1507,7 @@ function policyGraphIsValidInScope(
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
+      !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
       !(

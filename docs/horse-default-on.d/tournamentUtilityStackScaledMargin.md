@@ -28,7 +28,7 @@ Tournament decisions that run the Phase 7 utility. Cash games never run it.
 
 ## Visibility
 
-Ledger flag `tournamentUtilityStackScaledMargin`. The decision's existing `tournamentUtility` ledger shows the selected action and whether the baseline was retained for uncertainty.
+Ledger flag `tournamentUtilityStackScaledMargin`. Receipt `tournament_utility_stack_scaled_margin_seen` counts each tournament decision selected by the utility comparison with the margin in force. The decision's existing `tournamentUtility` ledger shows the selected action and whether the baseline was retained for uncertainty.
 
 ## Limits
 

@@ -61,6 +61,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the committed-call bar on a token price (PLO6-AUDIT-010, 2026-11-12): Omaha high cash premiums shrink with a price under 0.15 and a made hand calls under 0.01',
     'src/engine/HorsePlo6TopSetNut.ts':
       'the default-off PLO6 top-set current-nuts test (PLO6-AUDIT P6-4, 2026-11-14) that sets full realization in the V38 flop/turn call menu',
+    'src/engine/HorsePlo6MultiwayWeakBet.ts':
+      'the default-off PLO6 multiway weak made-hand bet-to-check (PLO6 lane 2026-11-15, plo6NoMultiwayBetWithWeakMadeHand): a flop or turn bet facing nothing against two or more live opponents with a pair below the top card, two pair without the top card, the board pair with such a pair or a pocket pair above the top card of an unpaired board, no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs, not nut class, becomes a check; runs with the owner-ruled own-bet checks in the wager rules',
+    'src/engine/HorsePlo6StrategyCalibration.ts':
+      'the PLO6 calibration of the Omaha strategy constants (PLO6 lane 2026-11-16, omahaStrategyInPlo6, default off and off-only): HorseLogic.decide registers its six-card values with omahaStrategyConstant only for a decision whose gate is on, and takes them back otherwise',
     'src/engine/HorseOmahaRiverNutRaise.ts':
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaReraisedPot.ts':
@@ -93,6 +97,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the game scope of the 2026-11-15 Omaha strategy options (one gate, omahaStrategyGameInScope: PLO4/PLO5 as before, PLO6 only with the PLO6 lane's omahaStrategyInPlo6) and their hand-size dependent constants (omahaStrategyConstant: PLO4/PLO5 the modules' own values, PLO6 from the PLO6 lane's registered calibration)",
     'src/engine/HorseOmahaTournamentScope.ts':
       'the default-off Omaha tournament scope (owner 2026-11-15 13:16, omahaStrategyInTournaments): where the cash-scoped PLO4/PLO5 rules of 2026-11-15 also run in a tournament hand (high only, one board, not All-In-Or-Fold, not Lightning, deeper than the 14 big blind push/fold line), and the tournament survival premium (icmRisk x sqrt(stack share)) a chip-adding conversion adds to its price',
+    'src/engine/HorsePlayStyle.ts':
+      "the default-off Horse playing styles (owner 2026-11-15 16:40 / 16:42, horsePlayStyles), shared by every game: which of tight, current and pressure a Horse plays for life (a hash of its id, or the authored persona.playStyle) and the table rule that sends a style to current (tournaments, Lightning, 50 bb or less, unmapped games, a VPIP floor above the tight style's expected VPIP)",
+    'src/engine/HorseOmahaPlayStyle.ts':
+      'the default-off Omaha mapping of the Horse playing styles (owner 2026-11-15 16:40 / 16:42, horsePlayStyles): the bounded scales (0.75 to 1.25) on the preflop bars, the bluff volume and the aggression, and the existing archetype band the persona gears are read from, for the tight style and for the pressure style in position in PLO4/PLO5 cash',
     'src/engine/HorseOmahaBigDrawAggression.ts':
       'the default-off Omaha big-draw aggression (owner 2026-11-15 11:55): on a PLO4/PLO5 cash flop or turn a check or call with a declared big draw becomes a pot-sized bet or raise only when its expected value (measured fold equity, equity against the continuing range) is above the passive line; the outermost wager rule',
     'src/engine/HorseOmahaMadeHandDefense.ts':
@@ -222,8 +230,14 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off heads-up big blind price defence: each Hold'em class's equity against the heads-up open range by width, and the realisation the price is read with",
     'src/engine/HorseHuTightBigBlindSteal.ts':
       'the default-off, off-only heads-up small blind steal against a proven tight big blind (Heads Up D6, huSmallBlindStealsVsTightBigBlind): the tight-folder read from the decayed heads-up counters and the open that replaces a would-be limp or fold',
+    'src/engine/HorseFixedLimitPreflop.ts':
+      'the default-off fixed-limit priced preflop (W5, 2026-11-15): first-in reference shares by players behind, the blind defence to its price and the steal against read over-folding blinds',
+    'src/engine/HorseFixedLimitPreflopTables.ts':
+      'the generated strength order and equity table the fixed-limit priced preflop reads (scripts/generate-fixed-limit-preflop-tables.ts, fixed seed)',
     'src/engine/HorseFixedLimitCallPrice.ts':
       'the default-off fixed-limit call price (2026-11-14, Fixed-Limit lane): a fixed-limit call is never a stack commitment; its price is the chips to call plus the expected further wagers of the street while a player left to act can still raise',
+    'src/engine/HorseFixedLimitRiverLead.ts':
+      'the default-off fixed-limit strong river lead (Fixed-Limit lane W8, 2026-11-15): a first-to-act full house or better that few holdings beat bets one big bet instead of the reference check, with the hi-lo low rule and the aggressive-next-opponent exception',
     'src/engine/HorseHiLoLowHalf.ts':
       'the floor the low half puts under the Omaha pressure cap heads-up on a pot-limit hi-lo river, so a nut low is not folded to one bet (HU-HILO-001, 2026-11-13)',
     'src/engine/HorseFixedLimitStructure.ts':

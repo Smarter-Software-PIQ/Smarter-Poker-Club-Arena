@@ -29,6 +29,8 @@ import {
   OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET,
   omahaBigDraw,
   omahaBigDrawVerdict,
+  omahaComboDrawForRaise,
+  omahaComboStraightOuts,
   omahaDrawRaiseBar,
   omahaDrawRaiseBarOf,
   omahaHeroInPosition,
@@ -231,6 +233,45 @@ describe('omahaBigDrawVerdict: the wager only when its expected value is the hig
   });
 });
 
+// ─── the one combo-draw definition (owner 12:30 and 12:52, made precise 2026-11-16)
+
+describe('omahaComboDrawForRaise: a flush draw with a straight draw of eight or more outs', () => {
+  const combo = (hole: string, board: string) => omahaComboDrawForRaise(cards(hole), cards(board));
+  it('a flush draw with an open-ender (its flush-suit straight cards counted) or a wrap is a combo draw', () => {
+    // nut flush draw and an eight-out open-ender, two of the eight cards spades
+    expect(omahaComboStraightOuts(cards('As3sJhTc'), cards('Qs9s4d'))).toBe(8);
+    expect(combo('As3sJhTc', 'Qs9s4d')).toBe(true);
+    // nut flush draw and a 13-out wrap
+    expect(omahaComboStraightOuts(cards('AsKsJhTc'), cards('Qs9s4d'))).toBe(13);
+    expect(combo('AsKsJhTc', 'Qs9s4d')).toBe(true);
+    // a flush draw below the nuts with a wrap
+    expect(combo('KsJsTc8c', 'Qs9s4d')).toBe(true);
+    // the turn: twelve straight outs and the nut flush draw
+    expect(combo('As3sJhTc', 'Qs9s4d2h')).toBe(true);
+  });
+  it('a pair adds nothing: pair plus nut flush draw, pair plus nut flush draw plus gutshot, pair plus wrap are not', () => {
+    expect(combo('As3sQh2c', 'Qs9s4d')).toBe(false);
+    expect(omahaComboStraightOuts(cards('As4hJh8c'), cards('Qs9s4d'))).toBe(4);
+    expect(combo('As4hJh8c', 'Qs9s4d')).toBe(false);
+    expect(combo('QhJhTc8c', 'Qs9s4d')).toBe(false);
+    expect(combo('AhKd7h3c', 'Kh8h2c')).toBe(false);
+  });
+  it('a bare flush draw, a bare wrap and a made two pair are not', () => {
+    expect(combo('As3s7h2c', 'Qs9s4d')).toBe(false);
+    expect(combo('KhJhTc8c', 'Qs9s4d')).toBe(false);
+    expect(combo('AsQh9h2c', 'Qs9s4d')).toBe(false);
+  });
+  it('PLO5 the same: top pair, the nut flush draw and a gutshot is not a combo draw', () => {
+    expect(combo('As3sQhJc8c', 'Qs9s4d')).toBe(false);
+    expect(combo('As3sJhTc2d', 'Qs9s4d')).toBe(true);
+  });
+  it('the big-draw rule raises in position only that combo draw: top pair with the nut flush draw is withheld', () => {
+    const nfdPair = { hole: cards('AhKd7h3c'), board: cards('Kh8h2c') };
+    expect(omahaBigDraw(nfdPair.hole, nfdPair.board)?.cls).toBe('nfd_pair');
+    expect(omahaBigDrawVerdict(facing(nfdPair))!.withheld).toBe('not_combo');
+  });
+});
+
 // ─── the bar on a draw raise (owner 2026-11-15 12:30) ───────────────────────
 
 describe('omahaDrawRaiseBar: no draw raise out of position, no bare flush draw raise in position', () => {
@@ -260,7 +301,8 @@ describe('omahaDrawRaiseBar: no draw raise out of position, no bare flush draw r
   });
   it('in position only a combo draw may raise; a bare flush draw and a bare wrap may not', () => {
     expect(bar('AhJh9s7c', 'Th8h2c', true)).toBeNull();
-    expect(bar('AhKd7h3c', 'Kh8h2c', true)).toBeNull();
+    // 2026-11-16: top pair with the nut flush draw is not a combo draw
+    expect(bar('AhKd7h3c', 'Kh8h2c', true)).toBe('bare_flush_draw');
     // the audit's literal reading of the 12:30 ruling: a bare wrap is not a combo draw
     expect(bar('QsJdTc2h', '9h8d3s', true)).toBe('bare_straight_draw');
     expect(bar('Ah6h4c2d', 'Kh9h3s', true)).toBe('bare_flush_draw');
@@ -506,6 +548,27 @@ describe('draw raises by class and position (both options on, many seeds)', () =
       )
     ).toBe(0);
   });
+
+  // horsePlayStyles (owner 2026-11-15 16:40 / 16:42): the style dials act
+  // before the ruling, so no style raises a draw out of position.
+  it.each(
+    FACING.flatMap((f) =>
+      (['tight', 'current', 'pressure'] as const).map((s) => [s, ...f] as const)
+    )
+  )(
+    "the Horse's playing style %s, out of position facing a bet never raises: %s",
+    (s, _n, fx, ord) => {
+      const styled = { horsePlayStyles: true, horsePlayStyleForce: s };
+      for (const opts of [
+        { ...BOTH, ...styled },
+        { omahaNoDrawRaiseOutOfPosition: true, ...styled },
+      ]) {
+        const on = play(fx, ord, opts, undefined, undefined, 'oop', MANY);
+        expect(raises(on)).toBe(0);
+        expect(on.refusals.every((r) => r === null)).toBe(true);
+      }
+    }
+  );
 
   it("out of position the brain's existing draw raise is converted, with its receipt", () => {
     const off = play(NUT_WRAP, 12, {}, undefined, undefined, 'oop', MANY);

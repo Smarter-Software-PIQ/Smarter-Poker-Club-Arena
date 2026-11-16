@@ -1738,13 +1738,31 @@ jobs:
           run_suite customization-realtime.json tests/e2e/production-customization-realtime.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
           customization_realtime_rc=$?; [ $customization_realtime_rc -ne 0 ] && rc=$customization_realtime_rc
 
-          run_suite gameplay-customization-runtime.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
+          # ONE JOURNEY, BY ITS OWN DESCRIBE (2026-11-15). The spec file gained a
+          # second case on 2026-11-11 (the published hero showdown celebration,
+          # #10466). Run whole, the file reported two specs, and the Phase 1
+          # coverage contract, which accepts exactly one, answered NON-VERDICT
+          # whatever the two cases did: in run 43643304336 both passed; in
+          # 43635213490 and 43652573106 the celebration case failed because
+          # ca-static's build-info was already ahead of this job's LIVE_SHA.
+          # The grep is the contracted journey's describe; dots stand for its
+          # spaces because run_suite word-splits its flags. The celebration case
+          # still runs on every publication, right after the bracket below, into
+          # its own report. tests/unit/phase1CustomizationCertificateCoverage.test.ts
+          # pins both selections.
+          run_suite gameplay-customization-runtime.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=production.routed.gameplay.customization.mobile.table.art --reporter=line,json --workers=1 --retries=0
           gameplay_customization_runtime_rc=$?; [ $gameplay_customization_runtime_rc -ne 0 ] && rc=$gameplay_customization_runtime_rc
 
           run_suite customization-commerce.json tests/e2e/production-customization-commerce.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
           customization_commerce_rc=$?; [ $customization_commerce_rc -ne 0 ] && rc=$customization_commerce_rc
 
           read_release release-bracket/phase1-after.json
+
+          # The other case of that file, outside the Phase 1 bracket: it is not
+          # one of the three contracted journeys, and it stays red and visible
+          # here when it fails.
+          run_suite gameplay-hero-celebration.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=published.hero.showdown.celebrations.only.an.awarded.hero --reporter=line,json --workers=1 --retries=0
+          gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc
 
           # Certify Stats first among the broader route checks. Cashier has its
           # own preceding release gate so this suite cannot hide its verdict.
@@ -1970,6 +1988,7 @@ jobs:
           e2e-report/table-management.json
           e2e-report/customization-realtime.json
           e2e-report/gameplay-customization-runtime.json
+          e2e-report/gameplay-hero-celebration.json
           e2e-report/customization-commerce.json
           e2e-report/daily-missions.json
           e2e-report/daily-missions-accessibility.json
@@ -1991,6 +2010,7 @@ jobs:
           e2e-report/table-management.json
           e2e-report/customization-realtime.json
           e2e-report/gameplay-customization-runtime.json
+          e2e-report/gameplay-hero-celebration.json
           e2e-report/customization-commerce.json
           e2e-report/daily-missions.json
           e2e-report/daily-missions-accessibility.json
@@ -2002,6 +2022,14 @@ jobs:
       # customization journey pass exactly once, without a skip or retry?
       # Report that answer independently so a Club Data or Financial Admin
       # defect cannot either impersonate or erase the Phase 1 evidence.
+      # A skipped case exits 0, and the shared check above counts by spec file,
+      # so the gameplay journey's execution would cover for a skipped
+      # celebration case. This report is therefore checked alone; a report
+      # that executed nothing fails the job (2026-11-15, review of #10905).
+      - name: Did the hero celebration case actually execute?
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json
+
       - name: Did every Phase 1 customization journey pass exactly?
         id: phase1_coverage
         if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'

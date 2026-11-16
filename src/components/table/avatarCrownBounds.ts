@@ -296,6 +296,17 @@ export function permanentAvatarFocusScale(_image: HTMLElement): number {
   return 1;
 }
 
+/** Ratio between the hero's restored portrait slot and a regular nine-chair
+ * phone slot. Opponent normalization and persisted paint heights use the same
+ * reference, so neither can cancel that ratio on a later layout. */
+export function nineSeatHeroArtRatio(page: HTMLElement, image: HTMLImageElement): number {
+  return page.dataset.seats === '9' &&
+    image.closest('.seat--hero .seat__avatar--bust') &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+    ? 4 / 3
+    : 1;
+}
+
 /** Permanent image rectangle for wager ownership, excluding compositor gestures. */
 export function restingAvatarBox(image: HTMLElement, scale: number): DOMRect {
   const seat = image.closest<HTMLElement>('.seat');

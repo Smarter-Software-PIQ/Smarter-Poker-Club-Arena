@@ -16,6 +16,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { scoreOmahaHiPartial, seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
@@ -54,8 +55,7 @@ interface Outcome {
   actions: string[];
   fires: string[][];
 }
-const decisionBytes = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+const decisionBytes = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 
 function play(
   r: RecordedRiverFold,

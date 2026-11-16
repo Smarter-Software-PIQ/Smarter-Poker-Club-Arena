@@ -163,6 +163,7 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'v68AirShadeScaleOverride',
         'styleShadow',
         'styleCarryOverWeight',
+        'horsePlayStyleForce',
       ] satisfies ReadonlyArray<keyof HorseDecideOpts>
     ).map((name) => [name, PARAMETER])
   ),
@@ -245,7 +246,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v88CommitmentHonored',
   'omahaTournamentFirstIn',
   'tokenCallPrice',
-  'plo6ManiacPriceRefusalToRangePlay',
   'v64RiverRaiseNeedsTwoPair',
   'v63LargeRiverBetShade',
   'v74OmahaSemiBluffNeedsDraw',
@@ -297,6 +297,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
   'omahaNutClassValueSize',
+  // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
+  'fixedLimitBetsAreNeverProbes',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTightOpponentSteal',
@@ -311,6 +313,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'v55OmahaRiverTripsFlat',
   'omahaHiLoTournamentFirstIn',
   'plo6TopSetNutRealization',
+  'plo6ManiacPriceRefusalToRangePlay',
   'v62RiverBettorPolarity',
   'readPostflopFoldRate',
   'readShrinkResponse',
@@ -334,11 +337,16 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaReraisedPotStackOffRealistic',
   'omahaOnePairDiscipline',
   'fixedLimitRiverFullBetRead',
+  'fixedLimitRiverStrongHandLeads',
   'fixedLimitHiLoNutLowRiverBet',
   'fixedLimitRiverOneBetValueRaise',
   'fixedLimitCallIsNotACommitment',
+  'fixedLimitReadIgnoresProbes',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
+  'omahaStrategyInPlo6',
+  'fixedLimitPricedPreflop',
+  'fixedLimitStealVsTightBlinds',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -477,6 +485,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   plo6TopSetNutRealization: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   omahaCommitZoneThreeBetPriceRelief: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   lightningParticipationOmaha: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
+  // 2026-11-16 PLO6 lane: the gate that lets the PLO4/PLO5 strategy options act in PLO6. The six-card port is
+  // unfinished (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so the gate cannot be opened.
+  omahaStrategyInPlo6: hold(
+    'PLO6 lane (the owning lane): docs/horse-option-authority.d/omahaStrategyInPlo6.md',
+    'PLO6 lane keeps it OFF until the six-card port is complete and reviewed (PLO6 checkpoint 2026-11-16)'
+  ),
   // superseded
   v55OmahaRiverTripsFlat: Object.freeze({
     status: 'superseded' as const,
@@ -484,6 +498,40 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     source: 'PLO Strategy: made-hand defense repair',
   }),
 });
+/** A named lift of the owner preflop range hold: which option, and the owner text that lifts it. */
+export interface OptionSwitchPreflopHoldLift {
+  readonly source: string;
+  readonly file: string;
+  /** Full sha256 of the owner-text file when it was read; the file is append-only, so its digest moves later. */
+  readonly sha256: string;
+  readonly readAt: string;
+}
+/**
+ * LIFTS OF THE OWNER PREFLOP RANGE HOLD (PREFLOP_HOLD_SOURCE), BY NAME. An option that changes a preflop range is
+ * held off-only (OPTION_SWITCH_OFF_ONLY) until the owner lifts the hold for it by name; a lift is recorded HERE, in
+ * source, never in a note. A name in this map is registered on/off (it must not be in OPTION_SWITCH_OFF_ONLY), and
+ * the lift covers that name alone: every other PREFLOP_HOLD_SOURCE entry stays off-only.
+ * horsePlayStyles (the three Horse playing styles, default OFF): its tight and pressure styles move preflop entry
+ * and 3-bet/4-bet bars. Lifted by the owner's 2026-11-15 16:42 Chicago text, ruled sufficient for this option alone
+ * by Hand Analysis (inbox 2026-11-16T03:06:28Z, B1).
+ */
+export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
+  Record<string, OptionSwitchPreflopHoldLift>
+> = Object.freeze({
+  horsePlayStyles: Object.freeze({
+    source:
+      'owner 2026-11-15 16:42 Chicago, "I WANT YOU TO TAKE CONTROL OF THIS AND MAKE ALL 3 PERSONA\'S AND RANDOMLY ASSIGN EACH HORSE A PLAYING TYPE ... PUT TOGETHER A PLAN AND EXECUTE ON THIS IDEA"',
+    file: 'OWNER-TEXT-20261115-1000-PLO-CHAT-VERBATIM.md',
+    sha256: '7921dea5df9daf5992faacb5a585f2fa67e2ae1c878936f040a3e7b0eea58b39',
+    readAt: '2026-11-16T03:22:11Z (15,830 bytes; append-only, the digest moves as the file grows)',
+  }),
+});
+/** The names whose off-only entry is the owner preflop range hold (used by the lift law test). */
+export const OPTION_SWITCH_PREFLOP_HELD_NAMES: readonly string[] = Object.freeze(
+  Object.keys(OPTION_SWITCH_OFF_ONLY).filter(
+    (name) => OPTION_SWITCH_OFF_ONLY[name]!.source === PREFLOP_HOLD_SOURCE
+  )
+);
 /**
  * Off-only names that are not ledger options YET: covered by exact name so they are off-only the moment they land.
  * The law allows an OPTION_SWITCH_OFF_ONLY name outside the ledger only when it is listed here.
@@ -513,6 +561,16 @@ export function optionSwitchOffOnly(name: string): OptionSwitchOffOnly | null {
 /** Owner, scope and description where the activation inventory records them; else 'Programme' and the ledger. */
 type Override = readonly [owner: OptionSwitchOwner, scope: string, description?: string];
 const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Override>>> = {
+  fixedLimitPricedPreflop: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) preflop, cash tables only (tournament inert by code)',
+    'fixed-limit preflop priced at fixed-limit odds: first-in, facing a raise, big-blind defence (W5 P)',
+  ],
+  fixedLimitStealVsTightBlinds: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) cash preflop first-in, every player behind an own-evidence over-folder',
+    'fixed-limit first-in steal from over-folding blinds (W5 S; off-only by the steal hold)',
+  ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],
@@ -523,6 +581,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'PLO Strategy',
     'Omaha river',
     'river Omaha weak sets/trips keep call pricing without re-shoving',
+  ],
+  fixedLimitRiverStrongHandLeads: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) river, first to act, nothing to call',
+    'a first-to-act fixed-limit river full house or better that few holdings beat leads one big bet (W8)',
   ],
   commitUnderPot: [
     'Heads Up',
@@ -550,6 +613,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'All, opponent read bucket',
     'a thin read answers from its own game scope, shrunk',
   ],
+  fixedLimitReadIgnoresProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent aggression reads, with the F1 switch on',
+    'a fixed-limit read is never discounted by the player no-limit/pot-limit probe share (F1b)',
+  ],
   omahaNeutralUnknown: [
     'PLO Strategy',
     'Omaha (all), unknown opponent read',
@@ -566,6 +634,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   huSmallBlindStealsVsTightBigBlind: [
     'Heads Up',
     'NLH heads-up, small blind first in vs a tight big blind',
+  ],
+  fixedLimitBetsAreNeverProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
+    'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
   ],
 };
 

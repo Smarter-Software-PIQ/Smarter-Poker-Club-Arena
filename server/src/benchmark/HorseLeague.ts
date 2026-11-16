@@ -2624,6 +2624,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNoDrawRaiseOutOfPosition: true },
     b: {},
   })),
+  // 2026-11-15 HORSE PLAYING STYLES (HorsePlayStyle, HorseOmahaPlayStyle;
+  // owner 16:40 / 16:42; default OFF): each non-current style against a field
+  // of the current style. League seat ids are league-N, so the a seats are
+  // given their style by the league lever horsePlayStyleForce; b is today's
+  // brain (the current style is byte-identical to it). Every seat plays the
+  // live Hybrid profile (hybridBaseline, 2026-11-16), as the recent cards do.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    (['tight', 'pressure'] as const).map((style) => ({
+      name: `${variant}_horse_play_style_${style}`,
+      variant,
+      pairs: 6000,
+      hybridBaseline: true,
+      a: { horsePlayStyles: true, horsePlayStyleForce: style },
+      b: {},
+    }))
+  ),
   // 2026-11-15 OMAHA STRONG HAND VALUE (HorseOmahaStrongHandValue, default
   // OFF): the PLO4/PLO5 cash river check with a full house or better (or a
   // nut-class hand) priced against every value bet, and the river call facing
@@ -2776,6 +2792,46 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { plo6TopSetNutRealization: true },
+    b: {},
+  },
+  // 2026-11-15 (PLO6 lane, SWEEP-PLO6 family D2) PLO6 MULTIWAY BET WITH A
+  // WEAK MADE HAND (plo6NoMultiwayBetWithWeakMadeHand,
+  // HorsePlo6MultiwayWeakBet.ts), default OFF: arm A turns a flop or turn bet
+  // facing nothing against two or more live opponents, with a pair below the
+  // top card, two pair without it or (added the same day) a pocket pair above
+  // the top card of an unpaired board and no qualifying draw, into a check; arm B
+  // is today's brain. Six seats, so the pot is multiway, and the production
+  // personas: measured 2026-11-15 (seed 20261115, 600 pairs) the arms diverged
+  // in 14 pairs with productionStyles and in 0 with the Hybrid baseline, whose
+  // one persona does not make this bet in the league (productionStyles
+  // re-measured after the pre-review fixes of the same day: 14 pairs again;
+  // the Hybrid count was measured before them; neither count was re-run
+  // after the overpair class was added, which can only add divergent pairs).
+  // The card only measures; the default is unchanged.
+  {
+    name: 'plo6_no_multiway_bet_with_weak_made_hand',
+    variant: 'plo6',
+    seats: 6,
+    pairs: 6000,
+    productionStyles: true,
+    a: { plo6NoMultiwayBetWithWeakMadeHand: true },
+    b: {},
+  },
+  // 2026-11-16 (PLO6-AUDIT-013) PLO6 MANIAC PRICE REFUSAL TO THE RANGE PLAY
+  // (plo6ManiacPriceRefusalToRangePlay), opt-in since 2026-11-16 because its
+  // production reach row was not met by the deadline Hand Analysis set: arm A
+  // hands a price refused against an observed maniac to the range play, arm
+  // B is today's brain (the fold). The arm needs an observed-maniac read on
+  // the raiser faced, so whether self-play reaches it is not measured here;
+  // the card exists so the nightly league can report it before anyone
+  // proposes the default again. The default is unchanged by this card.
+  {
+    name: 'plo6_maniac_price_refusal_to_range_play',
+    variant: 'plo6',
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { plo6ManiacPriceRefusalToRangePlay: true },
     b: {},
   },
   // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
@@ -3838,6 +3894,29 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'law and the property test (200 private hands on three public states give one think-time distribution). ' +
       'What would change this: a league opponent that conditions its play on the recorded think time.',
   },
+  // 2026-11-16 (PLO6 lane): omahaStrategyInPlo6, default off and off-only.
+  // Refused, not dealt: alone the gate switches no option on, and the port
+  // it would open is not finished.
+  {
+    name: 'plo6_omaha_strategy_in_plo6',
+    variant: 'plo6',
+    seats: 6,
+    a: { omahaStrategyInPlo6: true },
+    b: {},
+    reason:
+      'Unanswerable as a one-option card: omahaStrategyInPlo6 is a game gate, not a rule. On, it lets each ' +
+      'PLO4/PLO5 strategy option of 2026-11-15 that is itself on also act in PLO6 (omahaStrategyGameInScope) ' +
+      'and registers the six-card constants for that decision; every one of those options is default off, so ' +
+      'with only the gate on no rule is in scope and the two arms play the same poker. ' +
+      'The option is DEFAULT OFF (read as === true) and OFF-ONLY in the live switch. ' +
+      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261116, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). ' +
+      'A card that also switches the strategy options on in both arms is not dealt yet on purpose: the ' +
+      'six-card port is incomplete (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so ' +
+      'it would measure rules known to be wrong or silent for six cards. ' +
+      'What would change this: the port complete and reviewed; then this refusal is replaced by a PLO6 card ' +
+      'with the ported options on in both arms and the gate on in one.',
+  },
   // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
   // default off. Refused, not dealt: this league seats no VPIP-floor table.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
@@ -3991,6 +4070,115 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'and maniac fields); until it is built, the fixtures in ' +
       'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
   },
+  // 2026-11-15 (Fixed-Limit lane W8, a strong river hand leads): a
+  // default-off fixed-limit arm. Refused, not dealt: this league cannot ask
+  // the question.
+  ...(
+    [
+      ['flh_river_strong_hand_leads', 'flh', 6, { fixedLimitRiverStrongHandLeads: true }, 0],
+      ['flo8_river_strong_hand_leads', 'flo8', 6, { fixedLimitRiverStrongHandLeads: true }, 0],
+    ] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. What would change this: a fixed-limit duplicate ' +
+      'league (real HandController, flh and flo8, heads-up and six seats, Horse, tight-value and ' +
+      'maniac fields); until it is built, the fixtures in AFixedLimitStrongRiverHandLeads.law.test.ts ' +
+      'are the only evidence.',
+  })),
+  // 2026-11-15 (Fixed-Limit lane W5, priced preflop and the steal against
+  // over-folding blinds): default-off fixed-limit arms. Refused, not dealt:
+  // this league cannot ask the question.
+  ...(
+    [
+      [
+        'flh_priced_preflop',
+        'flh',
+        6,
+        { fixedLimitPricedPreflop: true },
+        103,
+        'AFixedLimitPreflopIsPriced',
+      ],
+      [
+        'flo8_priced_preflop',
+        'flo8',
+        6,
+        { fixedLimitPricedPreflop: true },
+        128,
+        'AFixedLimitPreflopIsPriced',
+      ],
+      [
+        'flh_steal_vs_tight_blinds',
+        'flh',
+        6,
+        { fixedLimitStealVsTightBlinds: true },
+        0,
+        'AFixedLimitStealsFromOverFoldingBlinds',
+      ],
+      [
+        'flo8_steal_vs_tight_blinds',
+        'flo8',
+        6,
+        { fixedLimitStealVsTightBlinds: true },
+        0,
+        'AFixedLimitStealsFromOverFoldingBlinds',
+      ],
+    ] as const
+  ).map(([name, variant, seats, a, d, law]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing (the steal also needs over-folder reads the ' +
+      'self-play field does not build). What would change this: a fixed-limit duplicate league ' +
+      '(real HandController, flh and flo8, heads-up and six seats, tight-passive and over-folding ' +
+      `fields); until it is built, the fixtures in ${law}.law.test.ts are the only evidence.`,
+  })),
+  // 2026-11-16 (Fixed-Limit lane W4, "F1b", the read-time probe guard, its own option): a
+  // default-off fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  ...(
+    [
+      ['flh_read_ignores_probes', 'flh', 6, { fixedLimitReadIgnoresProbes: true }, 0],
+      ['flo8_read_ignores_probes', 'flo8', 6, { fixedLimitReadIgnoresProbes: true }, 0],
+    ] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and the option acts only on a ' +
+      "fixed-limit decision (HorseMind.fixedLimitReadIgnoresProbes: decisionBettingStructure() === 'fixed_limit', " +
+      'with the F1 process switch on) and only against a player whose pooled no-limit/pot-limit ' +
+      'probe share is non-zero. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseMind reads the variant name as fixed limit, so that divergence is not a fixed-limit ' +
+      'measurement and decides nothing. What would change this: a fixed-limit duplicate league ' +
+      '(real HandController, flh and flo8, six seats) with opponents carrying a no-limit probe ' +
+      'history; until it is built, the fixtures in AFixedLimitReadIsNeverProbeDiscounted.law.test.ts ' +
+      'and the Fixed-Limit lane diagnostic-harness measurements (AB-EVALUATION-2.md 3.1, 3.10) are the only evidence.',
+  })),
   {
     name: 'plo4_lightning_participation_omaha',
     variant: 'plo4',
