@@ -29,6 +29,7 @@ const WORKFLOW = '.github/workflows/owner-window-ready.yml';
 const PATH = [
   WORKFLOW,
   'scripts/ci/owner-window-ready.py',
+  'scripts/ci/production-e2e-provenance.mjs',
   'scripts/ci/select-daily-engine.py',
   'scripts/ci/read-engine-prequalification.py',
 ];
