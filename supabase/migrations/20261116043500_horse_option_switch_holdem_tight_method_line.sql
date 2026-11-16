@@ -89,7 +89,9 @@ BEGIN
     'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
     'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
-    'fixedLimitHiLoLowHalfFloor', 'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'fixedLimitBetsAreNeverProbes', 'lightningParticipationHoldem',
     'lightningParticipationOmaha', 'facingClosedAllIn', 'limpReraiseIsoRead', 'commitUnderPot',
     'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
     'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
@@ -114,8 +116,8 @@ BEGIN
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
-    'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
+    'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     ) THEN
       RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
@@ -190,7 +192,9 @@ ALTER TABLE public.ca_horse_style_switch
     'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
     'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
-    'fixedLimitHiLoLowHalfFloor', 'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'fixedLimitBetsAreNeverProbes', 'lightningParticipationHoldem',
     'lightningParticipationOmaha', 'facingClosedAllIn', 'limpReraiseIsoRead', 'commitUnderPot',
     'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
     'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
@@ -234,8 +238,8 @@ ALTER TABLE public.ca_horse_style_switch
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
-    'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
+    'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     ))
     OR option IN (
@@ -271,8 +275,8 @@ AS $function$
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
-    'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
+    'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     )
       THEN ARRAY['off']
@@ -332,7 +336,9 @@ AS $function$
     'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
     'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
-    'fixedLimitHiLoLowHalfFloor', 'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'fixedLimitBetsAreNeverProbes', 'lightningParticipationHoldem',
     'lightningParticipationOmaha', 'facingClosedAllIn', 'limpReraiseIsoRead', 'commitUnderPot',
     'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
     'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
@@ -374,8 +380,8 @@ BEGIN
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
-    'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
+    'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
        ]::text[]) AS n
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off'])
@@ -436,7 +442,9 @@ BEGIN
     'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
     'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
-    'fixedLimitHiLoLowHalfFloor', 'fixedLimitOmahaNoPresumption', 'lightningParticipationHoldem',
+    'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
+    'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
+    'fixedLimitOmahaNoPresumption', 'fixedLimitBetsAreNeverProbes', 'lightningParticipationHoldem',
     'lightningParticipationOmaha', 'facingClosedAllIn', 'limpReraiseIsoRead', 'commitUnderPot',
     'v77SeatAwareJams', 'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage',
     'v53Pressure', 'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality',
