@@ -75,7 +75,9 @@ function collect(answer: unknown, extra: Record<string, string> = {}): string {
       ENGINE_ENV_FILE: envFile,
       DRY_RUN: '1',
       RELIABILITY_ANSWER: JSON.stringify(answer),
-      CASH_POPULATION_ANSWER: JSON.stringify({ horseWorkSchedule: { policyFingerprint: 1 } }),
+      CASH_POPULATION_ANSWER: JSON.stringify({
+        horseWorkSchedule: { cashAdmissionContract: 'cash-population/v1', policyFingerprint: 1 },
+      }),
       ...extra,
     },
     encoding: 'utf8',
@@ -190,7 +192,7 @@ describe('installed cash admission cohort', () => {
     writeFileSync(
       healthFile,
       JSON.stringify({
-        horseWorkSchedule: { policyFingerprint: 1 },
+        horseWorkSchedule: { cashAdmissionContract: 'cash-population/v1', policyFingerprint: 1 },
         unrelatedDiagnostics: 'x'.repeat(3 * 1024 * 1024),
       })
     );
@@ -227,7 +229,7 @@ describe('installed cash admission cohort', () => {
     { releaseSha: '3529e86663daa427b380a8ab9bd09347270c670e' },
     {
       releaseSha: '3529e86663daa427b380a8ab9bd09347270c670e',
-      horseWorkSchedule: { policyFingerprint: null },
+      horseWorkSchedule: { cashAdmissionContract: 'cash-population/v1', policyFingerprint: null },
     },
   ])('does not substitute a legacy identity for unknown or corrupt policy: %j', (body) => {
     const out = collect([HEALTHY], {
@@ -312,7 +314,10 @@ describe('installed cash admission cohort', () => {
           releaseSha,
           version: releaseSha.slice(0, 8),
           uptime: 1,
-          horseWorkSchedule: { policyFingerprint: legacyPolicy.fingerprint },
+          horseWorkSchedule: {
+            cashAdmissionContract: 'cash-population/v1',
+            policyFingerprint: legacyPolicy.fingerprint,
+          },
           unrelatedStrategyVersion: releaseSha,
         }),
       });
@@ -330,7 +335,10 @@ describe('installed cash admission cohort', () => {
             releaseSha,
             version: releaseSha.slice(0, 8),
             uptime: 1 + i * 10000,
-            horseWorkSchedule: { policyFingerprint: fingerprint },
+            horseWorkSchedule: {
+              cashAdmissionContract: 'cash-population/v1',
+              policyFingerprint: fingerprint,
+            },
             unrelatedStrategyVersion: i,
           }),
         })
@@ -342,7 +350,10 @@ describe('installed cash admission cohort', () => {
 
   it('still separates real SQL and population policy changes from the compatible cohort', () => {
     const body = JSON.stringify({
-      horseWorkSchedule: { policyFingerprint: legacyPolicy.fingerprint },
+      horseWorkSchedule: {
+        cashAdmissionContract: 'cash-population/v1',
+        policyFingerprint: legacyPolicy.fingerprint,
+      },
     });
     const original = collect([HEALTHY], {
       CASH_POPULATION_ANSWER: body,
@@ -354,7 +365,10 @@ describe('installed cash admission cohort', () => {
     });
     const changedPopulation = collect([HEALTHY], {
       CASH_POPULATION_ANSWER: JSON.stringify({
-        horseWorkSchedule: { policyFingerprint: legacyPolicy.fingerprint + 1 },
+        horseWorkSchedule: {
+          cashAdmissionContract: 'cash-population/v1',
+          policyFingerprint: legacyPolicy.fingerprint + 1,
+        },
       }),
       CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
     });
@@ -368,14 +382,20 @@ describe('installed cash admission cohort', () => {
     const first = collect([HEALTHY], extra);
     const next = collect([HEALTHY], {
       ...extra,
-      CASH_POPULATION_ANSWER: JSON.stringify({ horseWorkSchedule: { policyFingerprint: 2 } }),
+      CASH_POPULATION_ANSWER: JSON.stringify({
+        horseWorkSchedule: { cashAdmissionContract: 'cash-population/v1', policyFingerprint: 2 },
+      }),
     });
     const cohort = (out: string) =>
       out.match(/^poker_lightning_admission_policy_fingerprint (\d+)$/m)?.[1];
     expect(cohort(first)).toBeDefined();
     expect(cohort(next)).not.toEqual(cohort(first));
   });
-  it.each([{}, { horseWorkSchedule: {} }, { horseWorkSchedule: { policyFingerprint: '2' } }])(
+  it.each([
+    {},
+    { horseWorkSchedule: {} },
+    { horseWorkSchedule: { cashAdmissionContract: 'cash-population/v1', policyFingerprint: '2' } },
+  ])(
     'an older or unreadable engine policy never reuses historical SQL-only cohorts: %j',
     (body) => {
       const out = collect([HEALTHY], {
@@ -434,4 +454,55 @@ it('cash admission identity is catalog-only, bounded and service-only', () => {
   );
   const body = sql.split('AS $function$')[1].split('$function$;')[0];
   expect(body).not.toMatch(/\b(insert|update|delete|alter|create|drop|call)\b/i);
+});
+
+describe('hourly cash admission adoption is a separate throughput cohort', () => {
+  const legacyPolicy = JSON.parse(
+    readFileSync(join(ROOT, 'tests/fixtures/cash-policy/legacy-v1.json'), 'utf8')
+  );
+  const sql = { fingerprint: 10, hourly_contract: 'cash-hourly-tables/v1', hourly_fingerprint: 20 };
+  const health = (contract: unknown = 'cash-hourly-tables/v1') => ({
+    releaseSha: 'a'.repeat(40),
+    horseWorkSchedule: {
+      policyFingerprint: legacyPolicy.fingerprint,
+      cashAdmissionContract: contract,
+    },
+  });
+  const read = (body: unknown, policy: unknown = sql) =>
+    collect([HEALTHY], {
+      CASH_POPULATION_ANSWER: JSON.stringify(body),
+      CASH_POLICY_ANSWER: JSON.stringify([policy]),
+    });
+  const cohort = (out: string) =>
+    out.match(/^poker_lightning_admission_policy_fingerprint (\d+)$/m)?.[1];
+  it('distinguishes engine adoption even before the first close enables SQL caps, and restores rollback', () => {
+    const oldHealth = { releaseSha: legacyPolicy.sourceRevision, horseWorkSchedule: {} };
+    const before = cohort(read(oldHealth, { fingerprint: 10 }));
+    expect(before).toBeDefined();
+    expect(cohort(read(oldHealth))).toBe(before); // migration-first, predecessor still serving
+    const adopted = cohort(read(health()));
+    expect(adopted).toBeDefined();
+    expect(adopted).not.toBe(before); // same population curve and arrival definition
+    expect(cohort(read(oldHealth))).toBe(before); // rollback still has new SQL installed
+    expect(cohort(read({ ...health(), instanceId: 'different', uptime: 0 }))).toBe(adopted);
+    expect(cohort(read(health(), { ...sql, hourly_fingerprint: 21 }))).not.toBe(adopted);
+  });
+  it.each([
+    { fingerprint: 10 },
+    { ...sql, hourly_fingerprint: null },
+    { ...sql, hourly_fingerprint: '20' },
+    { ...sql, hourly_fingerprint: true },
+    { ...sql, hourly_fingerprint: -1 },
+    { ...sql, hourly_contract: 'unknown' },
+  ])('partial or unknown SQL adoption never uses the legacy key: %j', (policy) => {
+    expect(cohort(read(health(), policy))).toBeUndefined();
+  });
+  it.each([undefined, null, '', 'cash-hourly-tables/v2'])(
+    'missing/unknown engine contract is not legacy: %j',
+    (contract) => {
+      const body = health(null);
+      body.horseWorkSchedule.cashAdmissionContract = contract;
+      expect(cohort(read(body))).toBeUndefined();
+    }
+  );
 });

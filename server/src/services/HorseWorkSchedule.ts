@@ -1,3 +1,4 @@
+import { cashHourlyPolicy } from './CashHourlyPolicy.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  A HORSE KEEPS ITS WORK SCHEDULE AND ITS DAYS OFF (owner 2026-11-12)
@@ -166,6 +167,7 @@ export function recordScheduleCycle(
 export function horseWorkScheduleEvidence() {
   return Object.freeze({
     policyFingerprint: horseCashPopulationPolicyFingerprint(),
+    cashAdmissionContract: cashHourlyPolicy.contract,
     offDutyLeaves: Object.freeze({ ...leaves }),
     offDutyLeavesDeferred: leavesDeferred,
     seatCallsDeclined,
