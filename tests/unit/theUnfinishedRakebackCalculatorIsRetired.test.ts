@@ -41,7 +41,9 @@ describe('the unfinished rakeback calculator is retired', () => {
   });
 
   it('does not come back under a later migration', () => {
-    const later = readdirSync(migrations).filter((name) => name > (file as string) && name.endsWith('.sql'));
+    const later = readdirSync(migrations).filter(
+      (name) => name > (file as string) && name.endsWith('.sql')
+    );
     for (const name of later) {
       const sql = readFileSync(join(migrations, name), 'utf8');
       expect(sql, `${name} recreates fn_calculate_rakeback`).not.toMatch(

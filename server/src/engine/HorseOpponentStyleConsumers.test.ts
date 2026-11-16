@@ -738,7 +738,7 @@ describe('#4 raise respect stands on in-format raise-frequency counts', () => {
       { userId: HERO, action: 'call', amount: 20, stage: 'flop' },
       { userId: HERO, action: 'check', amount: 0, stage: 'turn' },
       { userId: VILLAIN, action: 'bet', amount: 40, stage: 'turn' },
-      { userId: HERO, action: 'fold', amount: 0, stage: 'turn' },
+      { userId: HERO, action: 'fold', amount: 0, stage: 'turn', origin: 'player' },
     ]);
     expect(inc.get(VILLAIN)!.flop).toEqual({ aggr: 1, passive: 0, raiseOpps: 1, raises: 1 });
     expect(inc.get(VILLAIN)!.turn).toEqual({ aggr: 1, passive: 0, raiseOpps: 0, raises: 0 });

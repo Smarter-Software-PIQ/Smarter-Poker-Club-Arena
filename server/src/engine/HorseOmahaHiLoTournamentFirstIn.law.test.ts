@@ -185,6 +185,9 @@ describe('omahaHiLoTournamentFirstIn (HU-HILO-002, default OFF)', { timeout: 240
       bigBlindMaxPrice: OMAHA_TOURNAMENT_FIRST_IN.bigBlindMaxPrice,
       bigBlindClosingShare: 0,
       payJumpBlindVsBlindShare: 0,
+      // 2026-11-15: the full-table small blind steal (omahaSmallBlindSteal) has no hi-lo branch.
+      fullTableSbStealShare: 0,
+      fullTableSbStealMaxStackBB: 0,
     });
     expect(Object.isFrozen(OMAHA_HILO_TOURNAMENT_FIRST_IN)).toBe(true);
   });

@@ -136,6 +136,11 @@ export interface TournamentUtilityInput {
   withinBudget?: () => boolean;
   /** Asymmetric cover-ICM response elasticity & preflop realization confidence (default true). */
   v86AsymmetricIcmAndPreflop?: boolean;
+  /** OPTION tournamentUtilityStackScaledMargin (HorseDecideOpts, 2026-11-15, default OFF; only an explicit true
+   *  engages): the equity-uncertainty margin of a candidate is the equity standard error times the candidate's own
+   *  utility sensitivity to hero's showdown share (never more than the whole-pool margin it replaces), not the
+   *  standard error times the whole payout pool. Absent, every margin is what it was. */
+  stackScaledMargin?: boolean;
   /** Explicit Phase 8 counterfactual. Absent preserves Phase 7 exactly. */
   continuation?: {
     dealerSeat: number;
@@ -824,11 +829,25 @@ function currencyToPoolPct(input: TournamentUtilityInput, amountCents: number): 
   return 0;
 }
 
-function payoutPoolWeight(input: TournamentUtilityInput): number {
-  const prize = Math.max(0, input.context.prizePoolCents);
-  const bounty = Math.max(0, input.context.bountyPoolCents);
+/**
+ * The share of what the event awards that is paid by finishing place:
+ * prize / (prize + bounty), or 1 - bountyFactor when neither pool is known.
+ * Exported so the short-stack push/fold tables (HorseLogic payJumpBubbleFactor)
+ * weight a bubble factor by the same number this arbiter weights payouts by.
+ */
+export function payoutWeightOfPools(pools: {
+  prizePoolCents?: number | null;
+  bountyPoolCents?: number | null;
+  bountyFactor?: number | null;
+}): number {
+  const prize = Math.max(0, Number(pools.prizePoolCents) || 0);
+  const bounty = Math.max(0, Number(pools.bountyPoolCents) || 0);
   if (prize + bounty > 0) return prize / (prize + bounty);
-  return 1 - clamp(input.context.bountyFactor, 0, 1);
+  return 1 - clamp(Number(pools.bountyFactor) || 0, 0, 1);
+}
+
+function payoutPoolWeight(input: TournamentUtilityInput): number {
+  return payoutWeightOfPools(input.context);
 }
 
 function targetBountyCents(input: TournamentUtilityInput, userId: string): number {
@@ -1536,6 +1555,10 @@ function evaluateCandidate(args: {
   let futureForcedPaid = 0;
   const methods = new Set<IcmMethod>();
   const vectors = new Set<string>();
+  // tournamentUtilityStackScaledMargin: weighted moments of (hero's showdown share, utility) over the calibrated
+  // samples, the sensitivity of this candidate's utility to hero's equity. Accumulated only with the option on.
+  const stackScaled = args.input.stackScaledMargin === true;
+  const tilt = { w: 0, s: 0, u: 0, su: 0, ss: 0, low: Infinity, high: -Infinity };
   // The blind-level bounds are fixed for the whole action. A rollout is
   // identified by its sample, its level's (smallBlind, bigBlind, ante,
   // anteType) and its settled local stacks; equal level fields share one
@@ -1724,6 +1747,16 @@ function evaluateCandidate(args: {
     addMoment(bountyMoment, bounty, weight);
     addMoment(optionMoment, option.value, weight);
     addMoment(utilityMoment, utility, weight);
+    if (stackScaled) {
+      const share = heroShareInSample(args.input, args.input.showdownSamples[index]!);
+      tilt.w += weight;
+      tilt.s += weight * share;
+      tilt.u += weight * utility;
+      tilt.su += weight * share * utility;
+      tilt.ss += weight * share * share;
+      tilt.low = Math.min(tilt.low, utility);
+      tilt.high = Math.max(tilt.high, utility);
+    }
     bust += weight * (branch.heroBusted ? 1 : 0);
     heroWin += weight * (branch.heroWon ? 1 : 0);
     bountyWin += weight * (branch.wonBounty ? 1 : 0);
@@ -1741,10 +1774,22 @@ function evaluateCandidate(args: {
 
   const variance = Math.max(0, utilityMoment.square - utilityMoment.sum ** 2);
   const standardError = Math.sqrt(variance / Math.max(1, args.effectiveSamples));
-  const equityUncertainty =
-    args.candidate.kind === 'fold'
-      ? 0
-      : Math.max(0, args.input.equityStandardError) * 100 * args.payoutWeight;
+  const wholePoolUncertainty =
+    Math.max(0, args.input.equityStandardError) * 100 * args.payoutWeight;
+  let equityUncertainty = args.candidate.kind === 'fold' ? 0 : wholePoolUncertainty;
+  if (stackScaled && args.candidate.kind !== 'fold' && tilt.w > 0 && tilt.high >= tilt.low) {
+    // What a point of hero's equity moves in THIS candidate's utility: the regression slope of utility on hero's
+    // showdown share, bounded by the utility span, and never wider than the whole-pool margin it replaces.
+    const span = tilt.high - tilt.low;
+    const meanShare = tilt.s / tilt.w;
+    const varShare = tilt.ss / tilt.w - meanShare * meanShare;
+    const covariance = tilt.su / tilt.w - meanShare * (tilt.u / tilt.w);
+    const slope = varShare > 1e-9 ? Math.min(span, Math.abs(covariance) / varShare) : span;
+    equityUncertainty = Math.min(
+      wholePoolUncertainty,
+      Math.max(0, args.input.equityStandardError) * slope
+    );
+  }
   const isTerminal = terminalForHero(args.input, args.candidate);
   const preflopNonTerminalSlack =
     args.input.v86AsymmetricIcmAndPreflop !== false &&

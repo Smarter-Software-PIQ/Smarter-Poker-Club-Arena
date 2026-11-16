@@ -410,7 +410,7 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
       root.setAttribute('data-tdock', 'expanded');
       root.insertAdjacentHTML(
         'beforeend',
-        `<div class="table-hud"><div class="table-hud__upper"></div><div class="table-hud__lower"><div class="table-hud__corner"><div class="hud-bl-row" style="display:flex"><div class="prev-hand-card"></div><div class="tbc-widget"></div></div></div></div></div><div class="tournament-dock"><div class="tournament-dock__line">Tournament Info</div><div class="tournament-dock__row">Level 1 · 10/20 · Prize 500</div></div>`
+        `<div class="table-hud"><div class="table-hud__upper"></div><div class="table-hud__lower"><div class="table-hud__corner"><div class="hud-bl-row" style="display:flex"><div class="prev-hand-card"></div><div class="tbc-widget"></div></div></div></div></div><div class="tournament-dock"><div class="tournament-dock__art"></div><div class="tournament-dock__line">Tournament Info</div><div class="tournament-dock__row">Level 1 · 10/20 · Prize 500</div></div>`
       );
       const scaler = document.querySelector('.table-scaler') as HTMLElement;
       scaler.style.setProperty('--table-w', `${scaler.getBoundingClientRect().width}px`);
@@ -455,7 +455,8 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
             return {
               plate: rect('.seat--hero .seat__info'),
               hud: rect('.hud-bl-row'),
-              dock: rect('.tournament-dock'),
+              dock: rect('.tournament-dock__art'),
+              button: rect('.action-btn'),
               cards: Array.from(document.querySelectorAll('.seat--hero .seat__card-pick')).map(
                 (e) => {
                   const r = e.getBoundingClientRect();
@@ -472,6 +473,7 @@ for (const width of [320, 375, 393, 430, 768, 1440]) {
             expect(overlaps(card, m.plate)).toBe(false);
           }
           expect(overlaps(m.hud, m.plate), 'utility controls cover the player plate').toBe(false);
+          expect(m.dock.top - m.button.bottom).toBeGreaterThanOrEqual(8);
           expect(m.dock.bottom).toBeCloseTo(width === 320 ? 667 : 852, 0);
           expect(m.scroll).toBeLessThanOrEqual(m.client);
         }

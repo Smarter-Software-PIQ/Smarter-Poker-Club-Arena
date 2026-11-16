@@ -1,0 +1,10 @@
+-- Prior forced-only share per human (HA-TM-5): share of prior hands in which every action of that player has origin 'forced'. Read-only.
+-- {{PAIRS}} = ('uuid'::uuid, asof_ms::bigint),... asof = start of that human's first witness hand in the window (prior data only).
+-- Tested 2026-11-14T00:3xZ: 2 pairs, 2,146 hands, 6.0 s (about 3 s a pair). At most 5 pairs a call, statement_timeout 25 s; a timeout leaves forced_share null and the tight witness absent-like/UNVERIFIED.
+set statement_timeout='25s';
+with q(user_id, asof_ms) as (values {{PAIRS}}),
+x as (select q.user_id, q.asof_ms, f.hand_id, (f.tournament_id is not null) trn, case when f.game_variant ilike '%8%' then 'hilo' when f.game_variant ilike 'plo%' then 'omaha' when f.game_variant ilike 'flh%' then 'limit' else 'holdem' end fam
+ from q join public.ca_hand_facts f on f.user_id=q.user_id and f.played_at < to_timestamp(q.asof_ms/1000.0) and f.played_at >= to_timestamp(q.asof_ms/1000.0) - interval '14 days')
+select jsonb_agg(r) from (select x.user_id, x.asof_ms, x.fam, x.trn, count(*) n,
+ round(avg((not exists (select 1 from jsonb_array_elements(h.actions) a where a->>'userId'=x.user_id::text and coalesce(a->>'origin','player') <> 'forced'))::int),4)::float forced_share
+from x join public.hand_history h on h.id=x.hand_id group by 1,2,3,4) r;

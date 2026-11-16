@@ -43,6 +43,7 @@ import {
   HUMAN_FIELD_NAME_PREFIX,
   HUMAN_FIELD_VARIANTS,
   LEAGUE_MATCHUPS,
+  UNMEASURABLE_MATCHUPS,
   leagueResultConfig,
   playHand,
   runLeague,
@@ -92,8 +93,24 @@ const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
   // 2026-11-13 (HU-EVAL-014): the min-raiser again, with memory learning off.
   ['human_hu_bb_defends_vs_minraise_40bb_reads_off', 'hu_minraise_every_button_v1'],
   // 2026-11-14 (HU-NLH-010, HU-NLH-011): the two default-off defence options.
-  ['human_hu_opener_defends_vs_threebet_40bb', 'hu_three_bet_every_hand_v1'],
+  // 2026-11-15: the opener card faces the wide persona; against the every-hand
+  // 3-bettor it was inert and is retired (UNMEASURABLE_MATCHUPS).
+  ['human_hu_opener_defends_vs_wide_40bb', 'hu_wide_sb_aggressor_v1'],
   ['human_hu_limp_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  // 2026-11-15 (HU-NLH-001d): the unread big blind option, memory learning off.
+  ['human_hu_bb_defends_unread_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  // 2026-11-15 (D6): the default-off steal against a heads-up nit big blind.
+  ['human_hu_sb_steals_vs_nit_40bb', 'hu_nit_big_blind_v1'],
+];
+
+/** Persona cards whose arms must be seen to diverge here (2026-11-15). The
+ *  opener defence card ran inert on the nightly of 2026-11-15 (0 of 12,000
+ *  pairs) because no test dealt a persona card and looked. */
+const PERSONA_CARDS_THAT_MUST_DIVERGE = [
+  'human_hu_opener_defends_vs_wide_40bb',
+  'human_hu_limp_defends_vs_minraise_40bb',
+  'human_hu_bb_defends_unread_vs_minraise_40bb',
+  'human_hu_sb_steals_vs_nit_40bb',
 ];
 
 afterEach(() => {
@@ -296,6 +313,39 @@ describe(
       for (const m of LEAGUE_MATCHUPS) {
         expect(m.name.startsWith(HUMAN_FIELD_NAME_PREFIX)).toBe(m.opponentPopulation === HUMAN);
       }
+    });
+
+    it.each(PERSONA_CARDS_THAT_MUST_DIVERGE)(
+      '%s: the option acts against its persona (the card is not inert)',
+      async (name) => {
+        const card = LEAGUE_MATCHUPS.find((m) => m.name === name)!;
+        expect(card, `${name} left the card`).toBeDefined();
+        // Measured 2026-11-15 at this seed and size (deterministic for a
+        // strategy build; raw outputs in the heads-up evidence folder
+        // round2/cards/probes): the opener card diverged in 40 of 1,500 pairs,
+        // the limp card in 209, the unread big blind card in 330 and the D6
+        // steal card in 106. A floor of
+        // 10 keeps a wide margin and still fails a card that has gone nearly
+        // inert (the retired every-hand card diverged 1 of 4,000 with reads on).
+        const r = await runMatchup(card, 1500, 4242);
+        expect(r.hands).toBe(3000);
+        expect(r.divergentPairs).toBeGreaterThanOrEqual(10);
+        expect(r.inert).toBe(false);
+        expect(r.stderr).toBeGreaterThan(0);
+        expect(r.illegalActions).toBe(0);
+        expect(r.truncatedStreets).toBe(0);
+      }
+    );
+
+    it('the every-hand 3-bettor opener card is retired with its reason, not dealt', () => {
+      const name = 'human_hu_opener_defends_vs_threebet_40bb';
+      expect(LEAGUE_MATCHUPS.some((m) => m.name === name)).toBe(false);
+      const refused = UNMEASURABLE_MATCHUPS.find((m) => m.name === name);
+      expect(refused, `${name} must be refused, not deleted`).toBeDefined();
+      expect(refused!.a).toEqual({ huOpenerDefendsToPrice: true });
+      expect(refused!.b).toEqual({});
+      expect(refused!.reason).toContain('hu_three_bet_every_hand_v1');
+      expect(refused!.reason).toContain('0 of 12,000 pairs');
     });
 
     it.each(EXPECTED_HUMAN_CARDS.map(([n]) => n))(

@@ -473,3 +473,33 @@ it('publishes the 2026-11-15-owner-offcycle-engine-1806z engine window promise w
   expect(bookedMaintenanceNotice(Date.parse('2026-11-15T20:59:59.999Z'))?.id).toBe(own?.id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-15T21:00:00Z'))).toBeNull();
 });
+
+it('publishes the 2026-11-15-owner-offcycle-engine-2245z engine window promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-15-owner-offcycle-engine-2245z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-15T22:25:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-15T22:45:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-16T02:30:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-15T22:24:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-15T22:25:00Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-16T02:29:59.999Z'))?.id).toBe(own?.id);
+  // The 0106z window's notice overlaps this one from 00:45Z; once this window's
+  // fixed expiry passes, the later booking is the notice players see.
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-16T02:30:00Z'))?.id).toBe(
+    '2026-11-16-owner-offcycle-engine-0106z'
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-16T05:00:00Z'))).toBeNull();
+});
+
+it('publishes the 2026-11-16-owner-offcycle-engine-0106z engine window promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-16-owner-offcycle-engine-0106z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-16T00:45:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-16T01:06:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-16T05:00:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === own?.id)).toBe(true);
+});
