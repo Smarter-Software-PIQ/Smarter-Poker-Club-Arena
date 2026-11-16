@@ -42,12 +42,14 @@ describe('PKO joined evidence preserves the accepted proof and its native gate',
       runner.indexOf('python3 -B "$FIX/full-native.py"')
     );
     expect(native).toContain('qualify_batch_installation(e,root,db)');
-    expect(native).toContain(
-      "e.sql(scene,file=root/BATCH_MIGRATION,label='joined-evidence-migration')"
-    );
+    expect(native).toContain("e.sql(scene,guarded_batch(root),label='joined-evidence-migration')");
     expect(native).toContain('if shared:qualify_races(e,root,native,scene)');
     expect(native).toContain("'body_acl_refusals':6");
-    expect(native).toContain('paths=[MIGRATION,BATCH_MIGRATION,');
+    expect(native).toContain("'original_55000_refused':True");
+    expect(native).toContain("'bulk_only_guard_refused':True");
+    expect(runner).toContain('stalePinGuardSQL(file,source,source)');
+    expect(sql).not.toContain('@stale-pin-ok');
+    expect(native).toContain('MIGRATION,BATCH_MIGRATION,');
     expect(read('scripts/dev/fixtures/causal-pko-predecessors/batched-evidence.sql')).toContain(
       'old_result IS NOT DISTINCT FROM new_result'
     );

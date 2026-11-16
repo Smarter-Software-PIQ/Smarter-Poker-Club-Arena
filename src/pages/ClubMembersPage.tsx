@@ -2314,7 +2314,7 @@ export const MemberRow = memo(function MemberRow({
                 title="Balance"
                 aria-label={`Balance ${walletFigure(member.player_wallet)}`}
               >
-                Balance {walletFigure(member.player_wallet)}
+                Wallet Balance {walletFigure(member.player_wallet)}
               </span>
               {promo && hasPromoWithdrawalRestriction(promo) && (
                 <span>Withdrawable Balance {walletFigure(promo.cashable)}</span>

@@ -515,5 +515,21 @@ it('publishes the 2026-11-16-owner-offcycle-engine-1906z engine window promise w
   expect(bookedMaintenanceNotice(Date.parse('2026-11-16T18:39:59.999Z'))).toBeNull();
   expect(bookedMaintenanceNotice(Date.parse('2026-11-16T18:40:00Z'))?.id).toBe(own?.id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-16T22:59:59.999Z'))?.id).toBe(own?.id);
-  expect(bookedMaintenanceNotice(Date.parse('2026-11-16T23:00:00Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-16T23:00:00Z'))?.id).toBe(
+    '2026-11-16-owner-offcycle-engine-2320z'
+  );
+});
+
+it('publishes the 2026-11-16-owner-offcycle-engine-2320z engine window promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-16-owner-offcycle-engine-2320z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-16T23:00:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-16T23:20:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-17T02:00:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === own?.id)).toBe(true);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-16T23:19:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T01:59:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T02:00:00Z'))).toBeNull();
 });
