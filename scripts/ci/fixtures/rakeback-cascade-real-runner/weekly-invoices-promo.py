@@ -24,9 +24,15 @@ q("""
  INSERT INTO public.settlement_invoices(club_id,invoice_type,from_entity_type,from_entity_id,to_entity_type,to_entity_id,gross_amount,net_amount,deductions,breakdown,status,chips_transferred,source_credit_invoice_id)
  VALUES(rr.u('T'),'transaction_receipt','club',rr.u('T')::text,'agent',rr.u('SUB')::text,60,60,0,'{"kind":"credit_invoice"}','generated',false,rr.u('credit-bill'));
 """)
+reduce_bill = """SELECT public.fn_reduce_unsent_weekly_credit_bill((SELECT id FROM public.settlement_invoices WHERE source_credit_invoice_id=rr.u('credit-bill')),60,48,'Approved weekly reduction',rr.u('reduce-bill'));"""
+assert json.loads(one(reduce_bill))['duplicate'] is False
+assert json.loads(one(reduce_bill))['duplicate'] is True
+assert one("SELECT debt_owed=48 AND amount_remaining=48 AND amount_paid=0 FROM public.credit_invoices WHERE id=rr.u('credit-bill')")=='t'
 assert one(gate)=='invoices_delivered'
+later=q(reduce_bill.replace("60,48","48,47").replace("rr.u('reduce-bill')","rr.u('too-late')"),check=False)
+assert later.returncode and 'only_an_unpaid_undelivered' in later.stderr
 assert one(gate)=='ready'
-assert one("SELECT count(*)=1 AND bool_and(d.recipient_id=rr.u('SUB')) FROM public.accounting_invoice_deliveries d JOIN public.social_messages m ON m.id=d.message_id JOIN public.settlement_invoices i ON i.id=d.invoice_id WHERE i.source_credit_invoice_id=rr.u('credit-bill')")=='t'
+assert one("SELECT count(*)=1 AND bool_and(d.recipient_id=rr.u('SUB') AND position('48.00' in m.content)>0 AND position('Approved weekly reduction' in m.content)>0) FROM public.accounting_invoice_deliveries d JOIN public.social_messages m ON m.id=d.message_id JOIN public.settlement_invoices i ON i.id=d.invoice_id WHERE i.source_credit_invoice_id=rr.u('credit-bill')")=='t'
 
 # Exercise the real promo owner directly on a subsequent disposable week. No
 # horse has played in Midway; both have active club memberships.

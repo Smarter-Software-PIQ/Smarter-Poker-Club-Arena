@@ -3,6 +3,75 @@ BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='5s';
 
+-- Preserve the original calculation and the chain of authorized reductions.
+-- Only a still-unpaid weekly bill that has never reached Messenger is editable.
+CREATE TABLE smarter_private.weekly_credit_bill_reductions (
+  operation_id uuid PRIMARY KEY,
+  invoice_id uuid NOT NULL REFERENCES public.credit_invoices(id),
+  document_id uuid NOT NULL REFERENCES public.settlement_invoices(id),
+  prior_due numeric NOT NULL, revised_due numeric NOT NULL,
+  prior_document jsonb NOT NULL, reason text NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  recorded_xid bigint NOT NULL DEFAULT txid_current(),
+  CHECK (prior_due>revised_due AND revised_due>0 AND revised_due=round(revised_due,2))
+);
+CREATE INDEX weekly_credit_bill_reductions_invoice ON smarter_private.weekly_credit_bill_reductions(invoice_id);
+REVOKE ALL ON smarter_private.weekly_credit_bill_reductions FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE FUNCTION public.fn_reduce_unsent_weekly_credit_bill(p_document uuid,p_expected numeric,p_revised numeric,p_reason text,p_operation uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $f$
+DECLARE
+  doc public.settlement_invoices%ROWTYPE; bill public.credit_invoices%ROWTYPE;
+  prev smarter_private.weekly_credit_bill_reductions%ROWTYPE;
+BEGIN
+  IF NOT public.fn_caller_is_engine() THEN RAISE EXCEPTION 'service_role_required' USING ERRCODE='42501'; END IF;
+  IF p_operation IS NULL OR p_document IS NULL OR p_expected IS NULL OR p_revised IS NULL
+    OR p_revised::text IN ('NaN','Infinity','-Infinity') OR p_expected::text IN ('NaN','Infinity','-Infinity')
+    OR p_expected<=p_revised OR p_revised<=0 OR p_revised<>round(p_revised,2) OR p_expected<>round(p_expected,2)
+    OR nullif(btrim(p_reason),'') IS NULL THEN RAISE EXCEPTION 'invalid_weekly_credit_bill_reduction'; END IF;
+  SELECT * INTO STRICT bill FROM public.credit_invoices WHERE id=(SELECT source_credit_invoice_id FROM public.settlement_invoices WHERE id=p_document) FOR UPDATE;
+  SELECT * INTO STRICT doc FROM public.settlement_invoices WHERE id=p_document FOR UPDATE;
+  SELECT * INTO prev FROM smarter_private.weekly_credit_bill_reductions WHERE operation_id=p_operation;
+  IF FOUND THEN
+    IF (prev.document_id,prev.prior_due,prev.revised_due,prev.reason) IS DISTINCT FROM (p_document,p_expected,p_revised,p_reason)
+      THEN RAISE EXCEPTION 'weekly_credit_bill_operation_reused'; END IF;
+    RETURN jsonb_build_object('document',p_document,'invoice',doc.invoice_number,'due',prev.revised_due,'duplicate',true);
+  END IF;
+  IF doc.breakdown->>'kind' IS DISTINCT FROM 'credit_invoice' OR doc.source_credit_invoice_id IS DISTINCT FROM bill.id
+    OR doc.invoice_type<>'transaction_receipt' OR doc.chips_transferred OR doc.from_entity_type<>'club' OR doc.to_entity_type<>'agent'
+    OR bill.status NOT IN ('pending','overdue','disputed') OR bill.amount_paid<>0 OR bill.amount_remaining<>p_expected
+    OR bill.debt_owed<>p_expected OR doc.net_amount<>p_expected
+    OR EXISTS(SELECT FROM public.accounting_invoice_deliveries d WHERE d.invoice_id=doc.id)
+    OR NOT EXISTS(SELECT FROM public.agent_credit_weekly_basis b JOIN public.agents a ON a.id=b.agent_id
+      WHERE b.club_id=doc.club_id AND a.user_id::text=doc.to_entity_id AND b.agent_id=bill.agent_id
+        AND b.period_start=bill.period_start AND b.period_end=bill.period_end AND b.credit_line>0 AND b.amount_owed=doc.gross_amount)
+    THEN RAISE EXCEPTION 'only_an_unpaid_undelivered_weekly_credit_bill_can_be_reduced'; END IF;
+  INSERT INTO smarter_private.weekly_credit_bill_reductions(operation_id,invoice_id,document_id,prior_due,revised_due,prior_document,reason)
+    VALUES(p_operation,bill.id,doc.id,p_expected,p_revised,to_jsonb(doc),p_reason);
+  UPDATE public.credit_invoices SET debt_owed=p_revised,amount_remaining=p_revised WHERE id=bill.id;
+  UPDATE public.settlement_invoices SET deductions=gross_amount-p_revised,net_amount=p_revised,
+    notes=coalesce(notes,'')||E'\nWeekly bill adjustment: '||p_reason WHERE id=doc.id;
+  RETURN jsonb_build_object('document',p_document,'invoice',doc.invoice_number,'prior_due',p_expected,'due',p_revised,'duplicate',false);
+END $f$;
+REVOKE ALL ON FUNCTION public.fn_reduce_unsent_weekly_credit_bill(uuid,numeric,numeric,text,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_reduce_unsent_weekly_credit_bill(uuid,numeric,numeric,text,uuid) TO service_role;
+DO $guard$
+DECLARE s text:=pg_get_functiondef('public.fn_accounting_document_immutable()'::regprocedure);
+BEGIN
+  IF md5(s)<>'8ec25e2d39e02451020b5ce8e9ec5a1b' THEN RAISE EXCEPTION 'invoice_immutability_preimage_changed'; END IF;
+  EXECUTE replace(s,'   issued:=COALESCE(OLD.message_sent,false)', $body$
+   IF TG_OP='UPDATE' AND OLD.source_credit_invoice_id IS NOT NULL AND OLD.net_amount>NEW.net_amount
+      AND to_jsonb(OLD)-ARRAY['net_amount','deductions','notes']=to_jsonb(NEW)-ARRAY['net_amount','deductions','notes']
+      AND NEW.deductions=NEW.gross_amount-NEW.net_amount
+      AND EXISTS(SELECT FROM smarter_private.weekly_credit_bill_reductions r
+        JOIN public.credit_invoices ci ON ci.id=r.invoice_id WHERE r.document_id=OLD.id AND r.recorded_xid=txid_current()
+        AND r.invoice_id=OLD.source_credit_invoice_id AND r.prior_document=to_jsonb(OLD)
+        AND r.prior_due=OLD.net_amount AND r.revised_due=NEW.net_amount AND ci.amount_remaining=NEW.net_amount
+        AND NEW.notes=coalesce(OLD.notes,'')||E'\nWeekly bill adjustment: '||r.reason)
+      AND NOT EXISTS(SELECT FROM public.accounting_invoice_deliveries d WHERE d.invoice_id=OLD.id) THEN RETURN NEW; END IF;
+   issued:=COALESCE(OLD.message_sent,false)$body$);
+END $guard$;
+
 -- Only the due owner calls this function. Club statements come from the original
 -- close. A credit-line bill comes from its existing debt document, never a
 -- commission receipt. Deliveries are private to the invoice recipient.
@@ -33,14 +102,15 @@ BEGIN
     END IF;
   END LOOP;
   prior:=current_setting('app.deliver_weekly_credit_invoice',true);
-  FOR bill IN SELECT b.agent_id,b.amount_owed,a.user_id,i.id invoice_id,i.net_amount,ci.debt_owed
+  FOR bill IN SELECT b.agent_id,b.amount_owed,a.user_id,i.id invoice_id,i.net_amount,ci.debt_owed,
+    b.amount_owed-coalesce((SELECT sum(r.prior_due-r.revised_due) FROM smarter_private.weekly_credit_bill_reductions r WHERE r.invoice_id=ci.id),0) approved_due
     FROM public.agent_credit_weekly_basis b
     JOIN public.agents a ON a.id=b.agent_id
     LEFT JOIN public.credit_invoices ci ON ci.agent_id=b.agent_id AND ci.period_start=b.period_start AND ci.period_end=b.period_end
     LEFT JOIN public.settlement_invoices i ON i.source_credit_invoice_id=ci.id
     WHERE b.period_start=p_from AND b.period_end=p_to AND b.amount_owed>0 AND b.credit_line>0
     ORDER BY b.club_id,b.agent_id LOOP
-    IF bill.invoice_id IS NULL OR bill.debt_owed IS DISTINCT FROM bill.amount_owed OR bill.net_amount IS DISTINCT FROM bill.amount_owed THEN
+    IF bill.invoice_id IS NULL OR bill.debt_owed IS DISTINCT FROM bill.approved_due OR bill.net_amount IS DISTINCT FROM bill.approved_due THEN
       RETURN 'awaiting_agent_credit_document';
     END IF;
     IF NOT EXISTS (SELECT FROM public.accounting_invoice_deliveries d JOIN public.social_messages m ON m.id=d.message_id
