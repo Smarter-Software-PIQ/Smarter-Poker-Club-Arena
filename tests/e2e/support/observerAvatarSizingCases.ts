@@ -311,6 +311,14 @@ export function registerObserverAvatarSizingCases() {
           path: testInfo.outputPath(`observer-${width}${emptyBottom ? '-empty-bottom' : ''}.png`),
         });
         if (width === 600) {
+          const paintZooms = await page
+            .locator('.seat__avatar--bust')
+            .evaluateAll((avatars) =>
+              avatars.map((avatar) =>
+                getComputedStyle(avatar).getPropertyValue('--sp-mobile-art-scale').trim()
+              )
+            );
+          expect(new Set(paintZooms)).toEqual(new Set(['1']));
           const fitTransitions = await page
             .locator('.seat__avatar--bust .seat__avatar-img')
             .evaluateAll((images) =>
