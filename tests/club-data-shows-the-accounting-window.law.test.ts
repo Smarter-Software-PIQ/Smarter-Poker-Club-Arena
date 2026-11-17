@@ -96,10 +96,10 @@ describe('the invoice week is exactly [Nov 2 02:00, Nov 9 02:00) Chicago', () =>
     expect(clubDataWindowError('2026-11-02', '2026-02-30', '2026-11-15')).toBe(
       'Choose A Start And End Date.'
     );
-    // 93 days is the reader ceiling: 2026-08-12 .. 2026-11-12 holds 93 days.
-    expect(clubDataWindowError('2026-08-12', '2026-11-13', '2026-11-15')).toBeNull();
-    expect(clubDataWindowError('2026-08-11', '2026-11-13', '2026-11-15')).toBe(
-      'Choose Up To 93 Days.'
+    // Owner Nov17: only the past 90 calendar dates may be selected.
+    expect(clubDataWindowError('2026-08-18', '2026-11-16', '2026-11-15')).toBeNull();
+    expect(clubDataWindowError('2026-08-17', '2026-11-16', '2026-11-15')).toBe(
+      'Choose Dates Within The Past 90 Days.'
     );
   });
 });

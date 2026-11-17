@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { addCalendarDays, isCalendarDate } from '../../lib/clubDataDay';
-import { clubDataRangeError } from '../../lib/clubDataRange';
+import { clubDataRangeError, CLUB_DATA_MAX_DAYS, clubDataOldestDay } from '../../lib/clubDataRange';
 import styles from './ClubDataRangeCalendar.module.css';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -33,7 +33,7 @@ export default function ClubDataRangeCalendar({
   end,
   today,
   zoneLabel,
-  maxDays = 93,
+  maxDays = CLUB_DATA_MAX_DAYS,
   onApply,
   onClose,
 }: {
@@ -45,6 +45,7 @@ export default function ClubDataRangeCalendar({
   onApply: (first: string, last: string) => void;
   onClose: () => void;
 }) {
+  const oldest = maxDays === CLUB_DATA_MAX_DAYS ? clubDataOldestDay(today) : null;
   const id = useId();
   const trap = useFocusTrap<HTMLDivElement>(true, '[data-calendar-focus="true"]');
   const grid = useRef<HTMLDivElement>(null);
@@ -93,7 +94,7 @@ export default function ClubDataRangeCalendar({
   };
 
   const moveFocus = (day: string) => {
-    if (!isCalendarDate(day) || day > today) return;
+    if (!isCalendarDate(day) || day > today || (oldest !== null && day < oldest)) return;
     setMonth(monthOf(day));
     setFocusDay(day);
     requestAnimationFrame(() =>
@@ -151,6 +152,7 @@ export default function ClubDataRangeCalendar({
               type="button"
               className={styles.word}
               aria-label="Previous Month"
+              disabled={oldest !== null && month <= monthOf(oldest)}
               onClick={() => {
                 const next = shiftMonth(month, -1);
                 setMonth(next);
@@ -199,7 +201,7 @@ export default function ClubDataRangeCalendar({
                           aria-label={dateName(day)}
                           aria-pressed={selected}
                           aria-current={day === today ? 'date' : undefined}
-                          disabled={day > today}
+                          disabled={day > today || (oldest !== null && day < oldest)}
                           tabIndex={day === focusDay ? 0 : -1}
                           onClick={() => choose(day)}
                           onKeyDown={(event) => {

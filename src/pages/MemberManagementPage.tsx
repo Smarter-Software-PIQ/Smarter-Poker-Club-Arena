@@ -1,3 +1,4 @@
+import ClubDataReturnLink from '../components/club/ClubDataReturnLink';
 import { lastDaysRange } from '../lib/clubDataDay';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -923,6 +924,7 @@ export default function MemberManagementPage() {
   return (
     <div className="member-mgmt-page">
       <PageHeader onBack={() => navigate(-1)} />
+      <ClubDataReturnLink />
 
       {refreshFailed && (
         <div className="mm-stale" role="alert">
@@ -1434,7 +1436,7 @@ export default function MemberManagementPage() {
               className="mm-nav__row"
               onClick={() =>
                 navigate(
-                  `/clubs/${clubId}/members/${identity!.user_id}/statistics?${memberRangeSearch(rangeMode, range)}`
+                  `/clubs/${clubId}/members/${identity!.user_id}/statistics?${new URLSearchParams({ ...Object.fromEntries(searchParams), ...Object.fromEntries(new URLSearchParams(memberRangeSearch(rangeMode, range))) })}`
                 )
               }
             >

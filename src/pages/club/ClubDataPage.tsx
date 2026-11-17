@@ -1,3 +1,9 @@
+import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
+import ClubDataSourceDetails, {
+  type ClubDataSourceRow,
+} from '../../components/club/ClubDataSourceDetails';
+import ClubDataReportGuide from '../../components/club/ClubDataReportGuide';
+import { useClubDataFilters } from '../../hooks/useClubDataFilters';
 import { parseWeeklyPlayerResults } from '../../utils/unionStatementBoard';
 import { unionEcoRows, unionEcoComponents } from '../../utils/unionEco';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
@@ -918,7 +924,33 @@ function isVerifiedCachedPlayerLedger(
 interface ExportWindow {
   start: string;
   end: string;
+  club: string;
+  first: string;
+  last: string;
+  game: string;
+  stakes: string;
+  search: string;
+  timeZone: string;
 }
+const reportCsvHeaders = [
+  'source_id',
+  'report_club_id',
+  'report_start_date_inclusive',
+  'report_end_date_inclusive',
+  'game_filter',
+  'stakes_filter',
+  'search_filter',
+  'report_time_zone',
+];
+const reportCsvValues = (window: ExportWindow) => [
+  window.club,
+  window.first,
+  window.last,
+  window.game,
+  window.stakes,
+  window.search,
+  window.timeZone,
+];
 
 function rowsToCsv(rows: SnapshotRow[], window: ExportWindow): string {
   const esc = csvEscape;
@@ -933,6 +965,7 @@ function rowsToCsv(rows: SnapshotRow[], window: ExportWindow): string {
     'players',
     'fee',
     'winnings',
+    ...reportCsvHeaders,
     'window_start',
     'window_end',
   ];
@@ -948,6 +981,8 @@ function rowsToCsv(rows: SnapshotRow[], window: ExportWindow): string {
       r.players,
       r.fee_exact ?? r.fee,
       r.winnings,
+      r.id,
+      ...reportCsvValues(window),
       window.start,
       window.end,
     ]
@@ -967,6 +1002,7 @@ function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
     'net',
     'cash_net',
     'tournament_net',
+    ...reportCsvHeaders,
     'window_start',
     'window_end',
   ];
@@ -979,6 +1015,8 @@ function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
       r.net,
       r.cash_net,
       r.tournament_net,
+      r.user_id,
+      ...reportCsvValues(window),
       window.start,
       window.end,
     ]
@@ -1018,6 +1056,7 @@ export default function ClubDataPage() {
   );
   const customStartRef = useRef(customStart);
   customStartRef.current = customStart;
+  const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
   const routeDatesKey = searchParams.toString();
   const handledRouteDates = useRef(routeDatesKey);
@@ -1063,15 +1102,15 @@ export default function ClubDataPage() {
     async () => false
   );
   const loadPlayersRef = useRef<(preserveOnError?: boolean) => Promise<boolean>>(async () => false);
-  const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
-  const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
+  const { game, setGame, stakes, setStakes, searchInput, setSearchInput, clearFilters } =
+    useClubDataFilters('club/ClubDataPage');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
     'club/ClubDataPage:gameSort',
     'recent'
   );
-  const [searchInput, setSearchInput] = usePlayerPreference('club/ClubDataPage:searchInput', '');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchInput.trim());
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [sourceRow, setSourceRow] = useState<{ key: string; row: ClubDataSourceRow } | null>(null);
   const [, setGameCursor] = useState<PageCursor | null>(null);
   const [gamesHasMore, setGamesHasMore] = useState(false);
   const [gamesLoadingMore, setGamesLoadingMore] = useState(false);
@@ -1100,7 +1139,33 @@ export default function ClubDataPage() {
     params.set('view', next ? 'advanced' : 'simple');
     setSearchParams(params, { replace: true });
   };
-  const [tab, setTab] = usePlayerPreference<'games' | 'players'>('club/ClubDataPage:tab', 'games');
+  const [savedTab, saveTab] = usePlayerPreference<'games' | 'players'>(
+    'club/ClubDataPage:tab',
+    'games'
+  );
+  const tab =
+    searchParams.get('dataTab') === 'games'
+      ? 'games'
+      : searchParams.get('dataTab') === 'players'
+        ? 'players'
+        : savedTab;
+  const setTab = (next: 'games' | 'players') => {
+    saveTab(next);
+    const params = new URLSearchParams(searchParams);
+    params.set('dataTab', next);
+    setSearchParams(params, { replace: true });
+  };
+  const openReportBreakdown = (next: 'games' | 'players') => {
+    saveTab(next);
+    saveAdvanced(true);
+    const params = new URLSearchParams(searchParams);
+    params.set('dataTab', next);
+    params.set('view', 'advanced');
+    setSearchParams(params, { replace: true });
+    requestAnimationFrame(() =>
+      document.getElementById('club-data-tab-games')?.scrollIntoView({ block: 'start' })
+    );
+  };
   /** Read by the poll/visibility handlers, which must not re-register per tab. */
   const tabRef = useRef<'games' | 'players'>('games');
   useEffect(() => {
@@ -1340,7 +1405,7 @@ export default function ClubDataPage() {
     () => clubDataQueryKey({ kind: 'players', startDate, endDate, playerSort }),
     [startDate, endDate, playerSort]
   );
-  const gameScopeKey = [userId, clubUuid, gameCacheKey].join(':');
+  const gameScopeKey = [userId, clubUuid, gameCacheKey, reportRangeError].join(':');
   const gameSummaryScope = JSON.stringify([
     userId,
     clubUuid,
@@ -1350,7 +1415,7 @@ export default function ClubDataPage() {
     stakes,
     search,
   ]);
-  const playerScopeKey = [userId, clubUuid, playerCacheKey].join(':');
+  const playerScopeKey = [userId, clubUuid, playerCacheKey, reportRangeError].join(':');
   const invoiceCacheKey = 'kind=invoices';
   const exportViewKey = [
     userId,
@@ -1517,7 +1582,13 @@ export default function ClubDataPage() {
       preserveOnError = false,
       allowSortSummary = false
     ): Promise<boolean> => {
-      if (!clubUuid || isHydrating || !userId || restoredGameKeyRef.current !== gameScopeKey)
+      if (
+        !clubUuid ||
+        isHydrating ||
+        !userId ||
+        reportRangeError ||
+        restoredGameKeyRef.current !== gameScopeKey
+      )
         return false;
       // Pagination owns its cursor while it is in flight. A heartbeat is a
       // recovery mechanism, not a reason to supersede that operator action.
@@ -1882,11 +1953,17 @@ export default function ClubDataPage() {
       userId,
       gameCacheKey,
       gameScopeKey,
+      reportRangeError,
     ]
   );
 
   useLayoutEffect(() => {
     if (!clubUuid || isHydrating || !userId) return;
+    if (reportRangeError) {
+      setSnapshot(null);
+      setLoading(false);
+      return;
+    }
     const restoreKey = gameScopeKey;
     if (restoredGameKeyRef.current === restoreKey) return;
     restoredGameKeyRef.current = restoreKey;
@@ -1931,7 +2008,15 @@ export default function ClubDataPage() {
     setLedgerSource('cached');
     const generatedAt = Date.parse(cached.snapshot.generated_at);
     setLastVerifiedAt(Number.isFinite(generatedAt) ? generatedAt : Date.now());
-  }, [clubUuid, expectedGameSnapshot, gameCacheKey, gameScopeKey, isHydrating, userId]);
+  }, [
+    clubUuid,
+    expectedGameSnapshot,
+    gameCacheKey,
+    gameScopeKey,
+    isHydrating,
+    userId,
+    reportRangeError,
+  ]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -1950,7 +2035,13 @@ export default function ClubDataPage() {
   // the same window and there is no reason to pay for it on every visit.
   const loadPlayers = useCallback(
     async (preserveOnError = false): Promise<boolean> => {
-      if (!clubUuid || isHydrating || !userId || restoredPlayerKeyRef.current !== playerScopeKey)
+      if (
+        !clubUuid ||
+        isHydrating ||
+        !userId ||
+        reportRangeError ||
+        restoredPlayerKeyRef.current !== playerScopeKey
+      )
         return false;
       // Pagination owns the cursor while it is in flight. A heartbeat is a
       // recovery mechanism, not a reason to invalidate that user action.
@@ -2165,11 +2256,17 @@ export default function ClubDataPage() {
       userId,
       playerCacheKey,
       playerScopeKey,
+      reportRangeError,
     ]
   );
 
   useLayoutEffect(() => {
     if (tab !== 'players') return;
+    if (reportRangeError) {
+      setPlayers(null);
+      setPlayersLoading(false);
+      return;
+    }
     if (!clubUuid || isHydrating || !userId) return;
     const restoreKey = playerScopeKey;
     let preserveExistingRows = true;
@@ -2979,6 +3076,14 @@ export default function ClubDataPage() {
     setExportNote(null);
     setExportProgress({ stage: 'preparing', loaded: 0, total: null });
     const csvWindow: ExportWindow = {
+      timeZone:
+        clubDataDayBasis(snapshot) === 'calendar' ? 'America/Chicago' : 'America/Los_Angeles',
+      club: clubUuid,
+      first: startDate,
+      last: endDate,
+      game: tab === 'players' ? 'ALL' : game,
+      stakes: tab === 'players' ? 'ALL' : stakes,
+      search: tab === 'players' ? '' : search,
       start: instant(coverage?.window_start) ?? computed?.start.toISOString() ?? '',
       end: instant(coverage?.window_end) ?? computed?.end.toISOString() ?? '',
     };
@@ -3368,6 +3473,15 @@ export default function ClubDataPage() {
       data-page="club-data"
       data-club-data-mode={advanced ? 'advanced' : 'simple'}
     >
+      {sourceRow?.key === gameScopeKey && clubUuid && (
+        <ClubDataSourceDetails
+          row={sourceRow.row}
+          clubId={clubUuid}
+          start={startDate}
+          end={endDate}
+          onClose={() => setSourceRow(null)}
+        />
+      )}
       <header className={styles.simpleHeader}>
         <button
           type="button"
@@ -3384,8 +3498,12 @@ export default function ClubDataPage() {
             className={styles.word}
             aria-pressed={!advanced}
             onClick={() => {
-              setAdvanced(false);
-              setTab('games');
+              saveAdvanced(false);
+              saveTab('games');
+              const next = new URLSearchParams(searchParams);
+              next.set('view', 'simple');
+              next.set('dataTab', 'games');
+              setSearchParams(next, { replace: true });
             }}
           >
             Simple
@@ -3529,11 +3647,12 @@ export default function ClubDataPage() {
         {clubUuid && (
           <RakeSnapshotPanel
             reportBasis="pacific"
+            reportRange={{ start: startDate, end: endDate }}
             unframed
             clubId={clubUuid}
             userId={userId}
             scopes={rakeScopes}
-            active={advanced}
+            active={advanced && !reportRangeError}
             refreshToken={rakeRefreshKey}
           />
         )}
@@ -3636,6 +3755,10 @@ export default function ClubDataPage() {
               className={`${styles.word} ${styles.arrow} sc-ink--white`}
               onClick={() => shiftRange(-1)}
               aria-label="Previous Period"
+              disabled={
+                addCalendarDays(startDate, -clubDataRangeDays(startDate, endDate)) <
+                clubDataOldestDay(clubDataDayOn('pacific'))
+              }
             >
               Prev
             </button>
@@ -3661,6 +3784,18 @@ export default function ClubDataPage() {
               Next
             </button>
           </div>
+
+          {reportRangeError && (
+            <p role="alert" className={styles.note}>
+              {reportRangeError}
+            </p>
+          )}
+          <ClubDataReportGuide
+            start={startDate}
+            end={endDate}
+            basis={answerBasis}
+            union={unionBasis}
+          />
 
           {editingDates && (
             <ClubDataRangeCalendar
@@ -3794,6 +3929,23 @@ export default function ClubDataPage() {
             coverage={snapshot.accounting_coverage}
             range={snapshot.range}
             reconciliation={summary?.reconciliation}
+            generatedAt={snapshot.generated_at}
+            onGames={() => openReportBreakdown('games')}
+            onPlayers={() => openReportBreakdown('players')}
+            onHistory={
+              latestInvoice
+                ? () => {
+                    setAdvanced(true);
+                    setShowInvoiceDetail(true);
+                    setShowInvoiceHistory(true);
+                    requestAnimationFrame(() =>
+                      document
+                        .getElementById('club-data-statement-title')
+                        ?.scrollIntoView({ block: 'start' })
+                    );
+                  }
+                : undefined
+            }
           />
         )}
         {summary && filtersActive && (
@@ -4175,9 +4327,7 @@ export default function ClubDataPage() {
                   type="button"
                   className={`${styles.word} sc-ink--white`}
                   onClick={() => {
-                    setGame('ALL');
-                    setStakes('ALL');
-                    setSearchInput('');
+                    clearFilters();
                     setSearch('');
                   }}
                 >
@@ -4285,9 +4435,14 @@ export default function ClubDataPage() {
                       </div>
 
                       <div className={styles.rowMain}>
-                        <span className={`sc-ink--silver ${styles.rowName}`} title={gameName}>
+                        <button
+                          type="button"
+                          className={`${styles.word} ${styles.rowName}`}
+                          onClick={() => setSourceRow({ key: gameScopeKey, row })}
+                          title="View Game Source"
+                        >
                           {gameName}
-                        </span>
+                        </button>
                         <span className={styles.rowTags}>
                           {row.rake_percent !== null && (
                             <span className={`sc-label sc-ink--blue ${styles.tag}`}>

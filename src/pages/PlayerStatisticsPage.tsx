@@ -1,3 +1,4 @@
+import ClubDataReturnLink from '../components/club/ClubDataReturnLink';
 import {
   chicagoDay as isoDate,
   lastDaysRange,
@@ -437,6 +438,7 @@ export default function PlayerStatisticsPage() {
         steps={PERFORMANCE_TOUR}
         className="ps-page-bar"
       >
+        <ClubDataReturnLink />
         <button type="button" className="ps-back" onClick={() => navigate(-1)} aria-label="Go Back">
           ‹
         </button>

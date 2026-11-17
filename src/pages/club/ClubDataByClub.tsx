@@ -55,11 +55,17 @@ export function isClubRows(value: unknown): value is ClubDataClubRow[] {
 export function clubDataWindowLink(
   club: Pick<ClubDataClubRow, 'club_id' | 'slug'>,
   end: string,
-  start: string | null
+  start: string | null,
+  filters?: { game: string; stakes: string; search: string }
 ): { pathname: string; search: string } {
   const params = new URLSearchParams();
   if (start !== null) params.set('dataStart', start);
   params.set('dataUntil', addCalendarDays(end, 1));
+  if (filters) {
+    params.set('dataGame', filters.game);
+    params.set('dataStakes', filters.stakes);
+    params.set('dataSearch', filters.search);
+  }
   const key = club.slug || club.club_id;
   return { pathname: `/clubs/${encodeURIComponent(key)}/data`, search: `?${params.toString()}` };
 }
@@ -76,9 +82,10 @@ interface Props {
   end: string;
   /** The window's chosen start, or null when it is a preset. */
   start: string | null;
+  filters?: { game: string; stakes: string; search: string };
 }
 
-export default function ClubDataByClub({ clubs, end, start }: Props) {
+export default function ClubDataByClub({ clubs, end, start, filters }: Props) {
   if (clubs.length === 0) return null;
   return (
     <section className={styles.byClub} aria-label="By Club">
@@ -117,7 +124,7 @@ export default function ClubDataByClub({ clubs, end, start }: Props) {
               ) : (
                 <Link
                   className={`${styles.byClubRow} ${styles.byClubLink}`}
-                  to={clubDataWindowLink(c, end, start)}
+                  to={clubDataWindowLink(c, end, start, filters)}
                   aria-label={`${label}: Total Winnings ${formatWalletChips(c.total_winnings)}, Fee ${formatWalletChips(c.fee)}. View Club Data`}
                 >
                   {figures}

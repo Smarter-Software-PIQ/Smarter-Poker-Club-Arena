@@ -59,7 +59,7 @@ def run(argv, text=None, expect_fail=None):
             raise AssertionError(f"expected failure containing {expect_fail!r}\n{p.stdout}\n{p.stderr[-3000:]}")
         return p
     if p.returncode:
-        raise RuntimeError(p.stdout[-3000:] + p.stderr[-3000:])
+        raise RuntimeError(p.stdout[-1500:] + p.stderr[:1500] + p.stderr[-1500:])
     return p
 
 
@@ -819,6 +819,17 @@ try:
     require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_bbj_gap_days(uuid,date,date)','EXECUTE')") == 't',
             'the sparse original-source qualification helper remains private')
     print('BBJ sparse candidate plan: ' + json.dumps(plan), flush=True)
+    # The performance repair preserves exact ordered rows and helper ACLs.
+    run(psql('live'), "ALTER TABLE public.tables ADD COLUMN IF NOT EXISTS rake_percent numeric; ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url text; ALTER TABLE public.rake_records ADD COLUMN IF NOT EXISTS created_at timestamptz, ADD COLUMN IF NOT EXISTS tournament_id uuid, ADD COLUMN IF NOT EXISTS is_tournament boolean, ADD COLUMN IF NOT EXISTS rake_amount numeric; UPDATE public.tournaments SET start_time='2026-11-10 12:00Z' WHERE start_time IS NULL;")
+    run(psql('live'), (FIX / 'recent-game-source.sql').read_text())
+    queries = [f"SELECT fn_ca_club_game_recent_rows_union_basis('{club}','2026-11-02','2026-11-15',{limit})"
+               for club in ('fade0000-0000-0000-0000-000000000001','a41434bb-8d0c-400a-8f0d-e8b3d65afed4') for limit in (1,5,100)]
+    before_rows = [q('live', query) for query in queries]
+    require(any(value and value != '[]' for value in before_rows), 'optimized reader fixture exercises real visible game rows, not only fallback')
+    before_acl = q('live', "SELECT coalesce(proacl::text,'') FROM pg_proc WHERE oid='public.fn_ca_club_game_recent_rows_union_basis(uuid,date,date,integer)'::regprocedure")
+    run(psql('live'), (M / '20261117190502_club_data_recent_games_read_visible_facts_once.sql').read_text())
+    require([q('live', query) for query in queries] == before_rows, 'visible-fact aggregation preserves every ordered row, exact fee, player count and fallback')
+    require(q('live', "SELECT coalesce(proacl::text,'') FROM pg_proc WHERE oid='public.fn_ca_club_game_recent_rows_union_basis(uuid,date,date,integer)'::regprocedure") == before_acl, 'optimized source keeps the private helper ACL unchanged')
     print('{"native_fixture": "passed", "production_installation": false}')
 finally:
     if started:
