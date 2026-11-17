@@ -1089,13 +1089,51 @@
 }
 
 /* Keep the controls anchored while giving the hand record most of the glass. */
+/* Keep only the master's crest and outer rail above the text. The cropped
+   cap ends at master row 160, before the old number frame begins. */
 .hdm-console .sc__head {
-  height: clamp(84px, 14dvh, 110px);
+  height: calc(16cqw + 54px);
+  padding-top: 16cqw;
+  box-sizing: border-box;
   aspect-ratio: auto;
-  background-size: 100% 100%;
+  background: url('/assets/club-buttons/console/spade-console-v1/mid.png') top center / 100% auto
+    repeat-y;
+  background-clip: content-box;
+}
+.hdm-console .sc__head::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 16cqw;
+  background: url('/assets/club-buttons/console/spade-console-v1/top.png') top center / 100% auto
+    no-repeat;
+  pointer-events: none;
 }
 .hdm-console .sc__head .sc__title {
+  top: 16cqw !important;
+  left: 10% !important;
+  width: 70% !important;
+  height: 26px !important;
   font-size: clamp(16px, 4.2cqw, 24px);
+  line-height: 1.1;
+}
+.hdm-console .sc__head .sc__subtitle,
+.hdm-console .sc__head .sc__pill {
+  top: calc(16cqw + 28px) !important;
+  height: 22px !important;
+  font-size: clamp(11px, 3cqw, 17px);
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+}
+.hdm-console .sc__head .sc__subtitle {
+  left: 10% !important;
+  width: 52% !important;
+  color: #45adff;
+}
+.hdm-console .sc__head .sc__pill {
+  left: 64% !important;
+  width: 26% !important;
+  justify-items: end;
 }
 .hdm-console .sc__body {
   gap: 4px;
