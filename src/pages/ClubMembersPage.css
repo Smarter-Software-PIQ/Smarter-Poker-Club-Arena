@@ -462,6 +462,7 @@
 }
 
 .member-row__open {
+  position: relative;
   display: grid;
   width: 100%;
   height: 100%;
@@ -476,6 +477,18 @@
   background: transparent;
   font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+
+/* The row and its Watch At Table action are sibling native buttons. */
+.member-row__record {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  padding: 0;
+  outline: 0;
+  background: transparent;
   cursor: pointer;
 }
 
@@ -514,7 +527,7 @@
   background: linear-gradient(90deg, transparent, rgba(184, 195, 205, 0.48), transparent);
 }
 
-.member-row:has(.member-row__open:focus-visible) {
+.member-row:has(.member-row__record:focus-visible) {
   border-color: var(--members-cyan);
   background:
     linear-gradient(90deg, rgba(0, 212, 255, 0.055), transparent 34%), var(--members-panel);
@@ -522,7 +535,7 @@
     inset 0 0 0 1px rgba(0, 212, 255, 0.16),
     0 0 0 2px rgba(0, 212, 255, 0.09);
 }
-.member-row:has(.member-row__open:focus-visible)::before,
+.member-row:has(.member-row__record:focus-visible)::before,
 .member-row--online::before {
   background: var(--members-cyan);
   box-shadow: 0 0 10px rgba(0, 212, 255, 0.66);
@@ -730,7 +743,7 @@
   line-height: 1;
   text-align: center;
 }
-.member-row:has(.member-row__open:focus-visible) .member-chevron {
+.member-row:has(.member-row__record:focus-visible) .member-chevron {
   color: var(--members-cyan);
 }
 
@@ -1470,6 +1483,9 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
    sibling sheet). The seated chip on a row carries the same table so a
    seated row says where, not only that; a tap opens the observer view. */
 .member-seated--table {
+  position: relative;
+  z-index: 2;
+  font: inherit;
   padding: 1px 7px;
   border: 1px solid rgba(65, 105, 225, 0.6);
   border-radius: 10px;

@@ -54,4 +54,7 @@ export async function expectPublishedControllerSettings(settings: Locator) {
       ).toHaveValue(String(values[index]));
     }
   }
+  // The caller next checks the saved palette. Its buttons are inaccessible
+  // while the mutually exclusive amounts tab is selected.
+  await controller.getByRole('tab', { name: 'Action Controller', exact: true }).click();
 }

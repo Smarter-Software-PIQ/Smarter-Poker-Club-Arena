@@ -2210,12 +2210,13 @@ export const MemberRow = memo(function MemberRow({
           <input type="checkbox" checked={selected} onChange={() => onSelect(member.user_id)} />
         </label>
       )}
-      <button
-        type="button"
-        className="member-row__open"
-        onClick={() => onOpen(member.user_id)}
-        aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
-      >
+      <div className="member-row__open">
+        <button
+          type="button"
+          className="member-row__record"
+          onClick={() => onOpen(member.user_id)}
+          aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
+        />
         <span className="member-avatar">
           {member.avatar_url ? (
             <img
@@ -2271,29 +2272,20 @@ export const MemberRow = memo(function MemberRow({
             )}
             {seated ? (
               table ? (
-                /* The row itself is a button (open the record), so the table
-                   chip is a nested control, not a nested <button>: a tap on
-                   it opens the observer view and does not open the record. */
-                <span
-                  role="button"
-                  tabIndex={0}
+                /* Separate native controls preserve both keyboard actions.
+                   The record hit area is a sibling, never an ancestor. */
+                <button
+                  type="button"
                   className="member-seated member-seated--table"
                   onClick={(event) => {
                     event.stopPropagation();
                     onWatch(table, { userId: member.user_id, name: member.alias });
                   }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onWatch(table, { userId: member.user_id, name: member.alias });
-                    }
-                  }}
                   aria-label={`Watch At Table, ${titleCase(table.name)}`}
                   title="Watch At Table"
                 >
                   {withStakes(titleCase(table.name), titleCase(table.stakes))}
-                </span>
+                </button>
               ) : (
                 <span className="member-seated">At A Table</span>
               )
@@ -2400,7 +2392,7 @@ export const MemberRow = memo(function MemberRow({
         <span className="member-chevron" aria-hidden="true">
           &rsaquo;
         </span>
-      </button>
+      </div>
     </div>
   );
 });

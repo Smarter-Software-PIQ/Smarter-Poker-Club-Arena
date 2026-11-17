@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { redactedConsoleFailure } from './support/redactedConsoleFailure';
 import {
   HISTORY_ADMISSION_MS,
   HISTORY_JOIN_ACK_MS,
@@ -25,6 +26,7 @@ type MembersProbe = {
   pageErrorCount: number;
   consoleErrorCount: number;
   criticalConsoleErrorCount: number;
+  criticalConsoleFailures: string[];
   timeline: Array<{
     atMs: number;
     requestId: number;
@@ -57,6 +59,7 @@ function observeMembersPath(page: Page): MembersProbe {
     pageErrorCount: 0,
     consoleErrorCount: 0,
     criticalConsoleErrorCount: 0,
+    criticalConsoleFailures: [],
     timeline: [],
   };
   let nextRequestId = 0;
@@ -152,6 +155,8 @@ function observeMembersPath(page: Page): MembersProbe {
       )
     ) {
       probe.criticalConsoleErrorCount += 1;
+      if (probe.criticalConsoleFailures.length < 5)
+        probe.criticalConsoleFailures.push(redactedConsoleFailure(message.text()));
     }
   });
   return probe;
@@ -591,7 +596,11 @@ test.describe('Production Kings Club Players', () => {
     await expect(history.getByRole('alert')).toHaveCount(0);
     await history.locator('summary').click();
 
-    await directory.getByRole('listitem').first().getByRole('button').click();
+    await directory
+      .getByRole('listitem')
+      .first()
+      .getByRole('button', { name: /^Open / })
+      .click();
     await expect(page).toHaveURL(/\/clubs\/kings-club\/members\/[0-9a-f-]{36}(?:[/?#]|$)/i);
     expect(probe.responseFailures).toEqual([]);
     expect(probe.requestFailureCount).toBe(0);
@@ -695,7 +704,11 @@ test.describe('Production Kings Club Players', () => {
     await expect(directory.getByRole('listitem').first().locator('.member-alias')).toContainText(
       alias
     );
-    await directory.getByRole('listitem').first().getByRole('button').click();
+    await directory
+      .getByRole('listitem')
+      .first()
+      .getByRole('button', { name: /^Open / })
+      .click();
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await expect(page.locator('#mm-player-name')).toContainText(alias);
     await page.locator('.mm-back').click();
@@ -757,6 +770,7 @@ test.describe('Production Kings Club Players', () => {
       const consoleFrame = await page.locator('.members-console').boundingBox();
       expect(consoleFrame).not.toBeNull();
       for (const control of await page
+        .locator('.members-console')
         .locator(
           '.members-search input, .members-view-filter select, .members-sort select, .members-columns, .members-export, .members-select-loaded'
         )
@@ -867,7 +881,11 @@ test.describe('Production Kings Club Players', () => {
     await clubHistory.locator('summary').click();
 
     const directory = page.getByRole('list', { name: 'Club Member Directory' });
-    await directory.getByRole('listitem').first().getByRole('button').click();
+    await directory
+      .getByRole('listitem')
+      .first()
+      .getByRole('button', { name: /^Open / })
+      .click();
     await expect(page).toHaveURL(/\/clubs\/kings-club\/members\/[0-9a-f-]{36}(?:[/?#]|$)/i);
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible({
       timeout: 45_000,
