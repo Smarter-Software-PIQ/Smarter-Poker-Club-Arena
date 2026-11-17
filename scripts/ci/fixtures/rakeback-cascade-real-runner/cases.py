@@ -237,3 +237,4 @@ case('rerun: round 2 called again after finalize returns its recorded result as 
 case('a second pass of ticks after finalize (three more minutes, 11:30Z and 16:00Z; shards, readiness, runner) answers NULL and moves nothing: balances, journal, receipts, payouts, round and run rows unchanged')
 
 exec((F/'released-scheduler.py').read_text())
+exec((F/'backlogged-weeks.py').read_text())
