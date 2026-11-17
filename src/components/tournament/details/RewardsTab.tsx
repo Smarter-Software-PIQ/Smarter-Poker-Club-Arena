@@ -311,6 +311,7 @@ export default function RewardsTab({
   entries,
   tables,
   currentUserId,
+  onWatchPlayer,
   satelliteAwards: providedAwards,
 }: TournamentTabProps) {
   const t = (tournament || {}) as unknown as RewardColumns;
@@ -939,7 +940,13 @@ export default function RewardsTab({
       )}
 
       {/* ── YOUR PLAYERS: for an agent, under their own result ──────────── */}
-      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+      {myPlayers.ready && (
+        <MyPlayersCard
+          summary={myPlayers.summary}
+          tournamentId={tournament.id}
+          onWatchPlayer={onWatchPlayer}
+        />
+      )}
 
       {/* ── HEADLINE: the pool, the guarantee, the bubble ─────────────────── */}
       <section className="tl-panel rw-head">

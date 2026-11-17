@@ -191,6 +191,7 @@ export default function DetailOverviewTab({
   tables,
   blindLevels,
   currentUserId,
+  onWatchPlayer,
   isRegistered,
   mysteryBounty,
   onOpenTab,
@@ -1146,7 +1147,13 @@ export default function DetailOverviewTab({
 
       {/* Your players, right under the event summary (Dan 2026-11-08). Drawn
           only for a viewer who carries a downline, in every state. */}
-      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+      {myPlayers.ready && (
+        <MyPlayersCard
+          summary={myPlayers.summary}
+          tournamentId={tournament.id}
+          onWatchPlayer={onWatchPlayer}
+        />
+      )}
 
       {/* Multi-day schedule, bag, leaders and Day 2 seat. Renders null unless
           the multi-day capability is available and this event has a plan. */}
