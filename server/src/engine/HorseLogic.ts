@@ -14026,8 +14026,8 @@ export class HorseLogic {
             })();
           if (
             v53ThreeBet &&
-            !omahaPressureFourBetNeedsCoordinatedPremium &&
             gap38 >= 0.06 &&
+            !omahaPressureFourBetNeedsCoordinatedPremium &&
             gs.legalActions?.includes('raise') &&
             gs.minRaiseTo != null &&
             gs.maxRaiseTo != null &&
