@@ -179,6 +179,30 @@ it('cached shell is only used after a bounded failed network read', async () => 
   await vi.advanceTimersByTimeAsync(8000);
   expect(await (await response).text()).toBe('cached');
 });
+it('falls back when the table HTML returns headers but its body outlasts the network deadline', async () => {
+  vi.useFakeTimers();
+  const cached = fresh();
+  let finish!: () => void;
+  const slow = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('<html>'));
+        finish = () => controller.close();
+      },
+    })
+  );
+  const f = fixture({
+    cache: { match: vi.fn(async () => cached) },
+    fetch: vi.fn(async () => slow),
+  });
+  const { response } = f.request(shell);
+  try {
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await response).toBe(cached);
+  } finally {
+    finish();
+  }
+});
 it('shell cache write rejection cannot hide a genuine fresh shell', async () => {
   const f = fixture({
     cache: {

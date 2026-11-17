@@ -58,6 +58,7 @@ assert again.returncode!=0 and 'weekly_prep_shard_units_preimage_changed' in aga
 assert changed()==sorted(MIGRATED+['smarter_private.weekly_prep_shard']),changed()
 case('P1 fix: migration 20261110053814 installs whole on the production preimage, replaces only weekly_prep_shard (postimage md5 bb29caec, owner and ACL unchanged, its live proof true) and refuses a second install')
 pre=[first,all_jobs(8,1),all_jobs(9,29)]
+exec((F/'prep-fresh-calculator.py').read_text())
 ready=tick('weekly-payout-readiness-0330',minute(9,30))
 pre.append(all_jobs(9,59))
 
@@ -236,3 +237,4 @@ case('rerun: round 2 called again after finalize returns its recorded result as 
 case('a second pass of ticks after finalize (three more minutes, 11:30Z and 16:00Z; shards, readiness, runner) answers NULL and moves nothing: balances, journal, receipts, payouts, round and run rows unchanged')
 
 exec((F/'released-scheduler.py').read_text())
+exec((F/'backlogged-weeks.py').read_text())
