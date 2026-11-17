@@ -241,6 +241,13 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  check(json.loads(seed('2026-11-16',True))['complete'],True,'canonical immutable cash owner qualifies despite wrong UNIQUE UTC club')
  check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND stat_date='2026-11-16'"),'0','wrong original club has no phantom game after rebuild')
  check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND stat_date='2026-11-16'"),'0.50000000000000000000:2:1','canonical owner keeps raw fractional fees and participant hands')
+ # A Pacific day spans two UTC source dates. After UTC midnight the retained
+ # history includes the right piece; prove its absence refuses before seeding
+ # its actual (empty here) source. Never depend on this fixture running before
+ # midnight or manufacture a coverage receipt.
+ if q("SELECT history_through>='2026-11-17'::date FROM ca_club_data_pacific_state")=='t':
+  q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+  check(json.loads(seed('2026-11-17',True))['complete'],True,'Pacific report qualifies both retained UTC source dates')
  check(json.loads(q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16')"))['summary']['games'],0,'actual screen omits wrong-club game after signed source correction')
  check(q("SELECT basis_version FROM ca_club_data_pacific_seed_log WHERE utc_day='2026-11-16'"),'1','new source-qualified history receipt records basis version1')
  check(json.loads(seed('2026-11-16'))['already_loaded'],True,'same source basis receipt remains idempotent')
