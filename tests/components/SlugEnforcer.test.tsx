@@ -203,6 +203,33 @@ describe('SlugEnforcer', () => {
     expect(navigateMock).toHaveBeenCalledWith('/unions/midway-union/settlement', { replace: true });
   });
 
+  it.each([
+    ['clubs', 'midway-union'],
+    ['club', 'midway-union'],
+    ['clubs', null],
+  ])(
+    'keeps a union house club Report on its registered club route (%s, %s)',
+    async (prefix, slug) => {
+      const id = 'fade0000-0000-0000-0000-000000000001';
+      (useLocation as any).mockReturnValue({
+        pathname: `/${prefix}/${id}/data/advanced`,
+        search: '?dataStart=2026-11-09&dataEnd=2026-11-15',
+        hash: '#reconciliation',
+      });
+      setupMockQuery({ slug, union_id: id, is_union: true }, { id, slug: 'midway-union' });
+
+      render(<SlugEnforcer />);
+      await act(async () => {});
+
+      if (prefix === 'clubs' && !slug) expect(navigateMock).not.toHaveBeenCalled();
+      else
+        expect(navigateMock).toHaveBeenCalledExactlyOnceWith(
+          `/clubs/${slug || id}/data/advanced?dataStart=2026-11-09&dataEnd=2026-11-15#reconciliation`,
+          { replace: true }
+        );
+    }
+  );
+
   it('rewrites UUID to /unions/ fallback if club lookup fails but union lookup succeeds', async () => {
     (useLocation as any).mockReturnValue({
       pathname: '/clubs/12345678-1234-1234-1234-123456789012',
