@@ -17,6 +17,8 @@ on:
       - supabase/migrations/20261115015341_the_exact_opponent_profile_keeps_a_long_participation_window.sql
       - supabase/migrations/20261115144258_the_exact_opponent_profile_remembers_shown_river_strength.sql
       - scripts/ci/fixtures/horse-shown-river-vectors.json
+      - supabase/migrations/20261117175407_the_exact_opponent_profile_keeps_a_postflop_read_by_street_a.sql
+      - scripts/ci/fixtures/horse-street-read-vectors.json
 concurrency:
   group: horse-public-memory-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

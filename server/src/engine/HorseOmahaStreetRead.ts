@@ -14,9 +14,13 @@
  * out. Public actions only (the same learnable-action rule as the pooled counters); no hole card is read.
  * A cell without enough opportunities answers null, and the caller keeps today's pooled read.
  *
- * NOT WIRED: nothing in the decision path imports this file yet. The durable column, the database learner
- * and the worker read frame that would carry these counters are not built (see the wiring note in the
- * archive, readsplit-01BNteGZ/WIRING-SPEC-20261117.md). It changes no decision.
+ * DURABLE AND CARRIED, READ BY NO DECISION (2026-11-17). The accepted-hand database learner keeps these
+ * counters beside the exact opponent profile (horse_exact_profiles.street_counters; public.
+ * fn_horse_street_read_increments and fn_horse_street_read_add are the SQL twins of
+ * streetReadHandIncrements and addStreetReadEvidence, forward only, no back-fill). A pooled public row
+ * carries its counters into an Omaha decision's own detached state (HorseMindSandbox.pooledStreetRead)
+ * and read frame (horse-decision-reads-v18), and HorseMind.omahaStreetReadOf answers them with every
+ * unknown cell null. No decision calls that accessor yet: this change is measurement only.
  */
 import type { Card } from '../types.js';
 import { learnablePublicAction, type ExploitHandAction } from './HorseOpponentExploit.js';
@@ -175,22 +179,124 @@ export function streetReadDecayAndAdd(row: StreetReadCounters, inc: StreetReadCo
   }
 }
 
-/** A stored row is usable only when every cell is finite, non-negative and hit <= opp. */
+const STREET_READ_STATS = ['bet', 'foldToBet', 'foldToRaise', 'cbet', 'flopBet'] as const;
+const plainObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+const exactKeys = (v: unknown, keys: readonly string[]): v is Record<string, unknown> =>
+  plainObject(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k));
+/**
+ * A stored row is usable only when it has exactly the five statistics, each exactly its streets or its
+ * textures, each cell exactly {hit, opp}, every number finite and non-negative and hit <= opp. This is the
+ * validation every reader of horse_exact_profiles.street_counters applies; a row that fails is read as absent.
+ */
 export function validStreetRead(r: unknown): r is StreetReadCounters {
-  if (!r || typeof r !== 'object') return false;
-  const x = r as StreetReadCounters;
-  try {
-    return (
-      POSTFLOP_STREETS.every((s) => x.bet?.[s] && x.foldToBet?.[s] && x.foldToRaise?.[s]) &&
-      FLOP_TEXTURES.every((t) => x.cbet?.[t] && x.flopBet?.[t]) &&
-      streetReadCells(x).every(
-        (c) =>
-          Number.isFinite(c.hit) && Number.isFinite(c.opp) && c.hit >= 0 && c.hit <= c.opp + 1e-9
+  if (!exactKeys(r, STREET_READ_STATS)) return false;
+  for (const stat of STREET_READ_STATS) {
+    const keys = stat === 'cbet' || stat === 'flopBet' ? FLOP_TEXTURES : POSTFLOP_STREETS;
+    const group = r[stat];
+    if (!exactKeys(group, keys)) return false;
+    for (const k of keys) {
+      const c = group[k];
+      if (!exactKeys(c, ['hit', 'opp'])) return false;
+      const { hit, opp } = c as unknown as StreetReadCell;
+      if (
+        typeof hit !== 'number' ||
+        typeof opp !== 'number' ||
+        !Number.isFinite(hit) ||
+        !Number.isFinite(opp) ||
+        hit < 0 ||
+        hit > opp + 1e-9
       )
-    );
-  } catch {
-    return false;
+        return false;
+    }
   }
+  return true;
+}
+
+/** A detached copy of a valid row. */
+export function copyStreetRead(r: StreetReadCounters): StreetReadCounters {
+  const out = emptyStreetRead();
+  const from = streetReadCells(r);
+  streetReadCells(out).forEach((c, i) => {
+    c.hit = from[i].hit;
+    c.opp = from[i].opp;
+  });
+  return out;
+}
+
+/**
+ * The TypeScript twin of public.fn_horse_street_read_add(base, delta): one hand's increments added to a
+ * stored row. A hand that gave the player no opportunity in any cell (or no increments at all) returns the
+ * base itself, so a row that has learned nothing stays null. Otherwise a fresh row: each cell the hand gave
+ * an opportunity ages by STREET_READ_DECAY and takes the hand's hit and opportunity; every other cell is
+ * unchanged. Neither argument is mutated.
+ */
+export function addStreetReadEvidence(
+  base: StreetReadCounters | null | undefined,
+  inc: StreetReadCounters | null | undefined
+): StreetReadCounters | null {
+  if (!inc || !streetReadCells(inc).some((c) => c.opp > 0)) return base ?? null;
+  const out = base ? copyStreetRead(base) : emptyStreetRead();
+  streetReadDecayAndAdd(out, inc);
+  return out;
+}
+
+/**
+ * The games whose decisions carry the record: the Omaha family, the games HorseMind scopes as `omaha:` (the scope
+ * HorseMind.omahaStreetReadOf answers in). The database learner keeps the record for every game; a Hold'em
+ * decision carries none, so its state and read frame are untouched.
+ */
+export function streetReadCarriedFor(variant: string | null | undefined): boolean {
+  const v = (variant ?? '').toLowerCase();
+  return v.startsWith('plo') || v === 'flo8' || v.includes('omaha');
+}
+
+/** One row on the read-frame wire: [hit, opp] for each of the 17 cells, in streetReadCells order. */
+export const STREET_READ_ROW_LENGTH = 34;
+export function streetReadRow(r: StreetReadCounters): number[] {
+  return streetReadCells(r).flatMap((c) => [c.hit, c.opp]);
+}
+/** The row a wire list carries, or null when the list is not a valid row. */
+export function streetReadFromRow(row: readonly number[]): StreetReadCounters | null {
+  if (!Array.isArray(row) || row.length !== STREET_READ_ROW_LENGTH) return null;
+  const out = emptyStreetRead();
+  streetReadCells(out).forEach((c, i) => {
+    c.hit = row[2 * i];
+    c.opp = row[2 * i + 1];
+  });
+  return validStreetRead(out) ? out : null;
+}
+
+const HISTORY_CARD = /^([2-9TJQKA])(spades|hearts|diamonds|clubs)$/;
+/**
+ * The one flop every seat saw, from a hand's public history (hand_history.community_cards, and
+ * community_cards2 when the hand ran a second board), or null when it cannot be named: fewer than three
+ * cards, a card that is not written as the history writes it (rank then suit name, e.g. "Qspades"), or a
+ * second board whose flop differs from the first (a double-board hand has two flops and no single texture).
+ * public.fn_horse_flop_texture applies the same rule. Board cards only: public to every seat.
+ */
+export function publicFlopOfHistory(
+  communityCards: unknown,
+  communityCards2?: unknown
+): Card[] | null {
+  if (!Array.isArray(communityCards) || communityCards.length < 3) return null;
+  if (
+    Array.isArray(communityCards2) &&
+    communityCards2.length > 0 &&
+    !(
+      communityCards2[0] === communityCards[0] &&
+      communityCards2[1] === communityCards[1] &&
+      communityCards2[2] === communityCards[2]
+    )
+  )
+    return null;
+  const flop: Card[] = [];
+  for (const c of communityCards.slice(0, 3)) {
+    const m = typeof c === 'string' ? HISTORY_CARD.exec(c) : null;
+    if (!m) return null;
+    flop.push({ rank: m[1], suit: m[2] } as unknown as Card);
+  }
+  return flop;
 }
 
 /** Decayed opportunities a cell needs before it answers; below it the caller keeps the pooled read. */

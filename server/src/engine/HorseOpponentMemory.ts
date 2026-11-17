@@ -11,6 +11,11 @@ import {
   type ExploitLongCounters,
 } from './HorseOpponentExploit.js';
 import { validShownRiverRecord, type ShownRiverRecord } from './HorseLongShownMemory.js';
+import {
+  copyStreetRead,
+  validStreetRead,
+  type StreetReadCounters,
+} from './HorseOmahaStreetRead.js';
 
 export const MEMORY_VARIANTS = [
   'nlh',
@@ -55,6 +60,27 @@ export interface DurableOpponentProfile {
    * only behind styleLongShownMemory.
    */
   shown_river?: ShownRiverRecord | null;
+  /**
+   * 2026-11-17 the postflop read of this exact row kept by street and by flop texture
+   * (horse_exact_profiles.street_counters: bet when no bet yet, fold to a bet and fold to a raise by street; the
+   * continuation bet and the flop bet by flop texture; each cell its own hit and opportunity count, aged by its own
+   * opportunities with a half-life of 30, written by the accepted-hand learner from the hand after its column was
+   * installed; HorseOmahaStreetRead). Public actions and board cards only. Null or absent: none on file. Never part
+   * of the row's validity: a stored copy keeps it only when it is well formed (copyStreetCounters). No decision
+   * reads it yet.
+   */
+  street_counters?: StreetReadCounters | null;
+}
+
+/** A copy of a profile's street read for a stored copy of the profile: absent stays absent, null stays null, and a
+ *  malformed record is dropped (absent) rather than failing the row, so the row's counters keep their reader. */
+export function copyStreetCounters(p: {
+  street_counters?: unknown;
+}): Pick<DurableOpponentProfile, 'street_counters'> {
+  if (p.street_counters === undefined) return {};
+  if (p.street_counters === null) return { street_counters: null };
+  if (!validStreetRead(p.street_counters)) return {};
+  return { street_counters: copyStreetRead(p.street_counters) };
 }
 
 /** A copy of a profile's shown river record for a stored copy of the profile: absent stays absent, null stays null,
