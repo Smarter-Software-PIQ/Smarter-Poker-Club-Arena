@@ -677,3 +677,14 @@ it('gives the final one-file promo generation attempt its own later primary noti
     '20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql',
   ]);
 });
+
+it('books the 2026-11-17-owner-no-notice-engine-2330z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-17-owner-no-notice-engine-2330z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-17T23:30:00Z', '2026-11-18T05:20:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});
