@@ -1651,6 +1651,26 @@
       "migrations": [
         "20261112151009_rebuy_and_addon_stack_invariants_survive_registered_updates.sql"
       ]
+    },
+    {
+      "id": "2026-11-17-promo-play-through-db",
+      "ownerOrder": "Dan directly in Codex chat01a1e4d3-758c-7a40-b396-d867efdffbfc answered \"Authorize protected off-cycle installation\" to the specific question authorizing protected off-cycle database maintenance for these ten Promo Play Through migrations, followed by terms publication, activation and live verification, without waiting until4:00AMChicago. This single-use database-only operation installs exactly the ten qualified protected-main files below. Root selects the finite times; the owner did not separately choose these timestamps. Preserve unchanged sealed engine SHA/image/instance, no active release/pending/finalization owner, source and engine mutation locks, rolling-hour spacing, actual twenty-minute primary public notice,120-second last-hand lead, hand-boundary drain, durable freeze, full285-second admission reserve,150-second installer opening and100-second commit reserve,1-second lock/5-second statement/8-second transaction budgets, one attempt per file and verified originalv3thaw. Use the maintained queue order; stop an UNKNOWN outcome and never replay installed SQL. No engine replacement, financial replay, tournament-start hold, watcher, automatic retry, renewal or extension. Existing old windows and all receipts remain immutable. This root retains the ten-migration operation and scoped activation/live-verification ownership.",
+      "contains": "c69e9eded03165bf9049053f77554c12f03346f0",
+      "playerNoticeAt": "2026-11-17T05:00:00Z",
+      "notBefore": "2026-11-17T05:20:00Z",
+      "notAfter": "2026-11-17T09:00:00Z",
+      "migrations": [
+        "20261116151020_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql",
+        "20261116195541_club_arena_terms_acceptance_records_the_exact_reviewed_revis.sql",
+        "20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql",
+        "20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
+        "20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+        "20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
+        "20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
+        "20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
+        "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
+        "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
+      ]
     }
   ]
 }
