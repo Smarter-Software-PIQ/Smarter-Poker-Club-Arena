@@ -13,3 +13,5 @@ The existing first-run JSON report is uploaded immediately after its account cle
 Already-consented isolated interactive profiles now declare the reviewed revision and a valid fixture acknowledgement timestamp. The central mock backend and five custom table profiles retain their original authentication, replay and timing behavior; intentional legacy, missing, stale and unknown consent negatives are unchanged.
 
 Publication prerequisite: the revision column and service-only acceptance RPC must be installed, and the World Hub exact-revision writer must be live before this client merges. This draft does not activate Promo Play Through or promote historical acceptance.
+
+The schema manifest fragment declares the revision column from migration `20261116195541`, so the existing phantom-column guard validates the profile reader against the same storage contract. The guard rejected the missing declaration before this correction and passes with it; its checks and the read-only base snapshot remain unchanged.
