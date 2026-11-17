@@ -34,10 +34,16 @@
  *     re-pushed and re-checked;
  *   - notBefore is not before playerNoticeAt;
  *   - notAfter is after notBefore.
+ *
+ * Owner 2026-11-17 (scripts/ci/owner-notice-waiver.mjs): an engine window that
+ * carries the exact owner notice waiver has no playerNoticeAt to judge; its
+ * notBefore and notAfter are still held to the rules above. A record that
+ * names a waiver it may not use is refused.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ownerNoticeWaived, ownerNoticeWaiverProblem } from './owner-notice-waiver.mjs';
 
 export const FILE = 'server/release/owner-maintenance-windows.json';
 /** How far in the past a judged timestamp may sit at validation time. */
@@ -92,9 +98,17 @@ export function bookingRecordViolations(baseDoc, headDoc, now) {
     }
     if ('certifiedRecoveryProfile' in w) continue;
     const name = `${w.id} (${collection})`;
+    const waiverProblem = ownerNoticeWaiverProblem(w, collection);
+    if (waiverProblem) {
+      out.push(`${name}: ${waiverProblem}`);
+      continue;
+    }
+    const waived = ownerNoticeWaived(w, collection);
     const times = {};
     let broken = false;
-    for (const field of ['playerNoticeAt', 'notBefore', 'notAfter']) {
+    for (const field of waived
+      ? ['notBefore', 'notAfter']
+      : ['playerNoticeAt', 'notBefore', 'notAfter']) {
       const t = typeof w[field] === 'string' ? Date.parse(w[field]) : NaN;
       if (!Number.isFinite(t)) {
         out.push(`${name}: ${field} is required and must be an ISO timestamp`);
@@ -103,7 +117,7 @@ export function bookingRecordViolations(baseDoc, headDoc, now) {
       times[field] = t;
     }
     if (broken) continue;
-    for (const field of ['playerNoticeAt', 'notBefore']) {
+    for (const field of waived ? ['notBefore'] : ['playerNoticeAt', 'notBefore']) {
       if (times[field] < floor) {
         out.push(
           `${name}: ${field} ${w[field]} is in the past at validation time ` +
@@ -111,14 +125,18 @@ export function bookingRecordViolations(baseDoc, headDoc, now) {
         );
       }
     }
-    if (times.playerNoticeAt >= floor && times.playerNoticeAt < now + NOTICE_HEADROOM_MS) {
+    if (
+      !waived &&
+      times.playerNoticeAt >= floor &&
+      times.playerNoticeAt < now + NOTICE_HEADROOM_MS
+    ) {
       out.push(
         `${name}: playerNoticeAt ${w.playerNoticeAt} is less than 30 minutes ahead of ` +
           `validation time ${iso(now)}; an ordinary merge delay would carry it into the ` +
           `past, so book a later notice and notBefore`
       );
     }
-    if (times.notBefore < times.playerNoticeAt) {
+    if (!waived && times.notBefore < times.playerNoticeAt) {
       out.push(`${name}: notBefore ${w.notBefore} is before playerNoticeAt ${w.playerNoticeAt}`);
     }
     if (times.notAfter <= times.notBefore) {
