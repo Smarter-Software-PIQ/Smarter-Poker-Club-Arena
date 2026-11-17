@@ -21,8 +21,9 @@ omahaOopReraisedPotStrongRange, the cold 4-bet rule) becomes one priced decision
   with the stack-to-pot ratio after the call, far more out of position, 0.35 lower for each other player in the pot,
   a small bounded hand-shape term; 1 when the call is all in.
 - Rake: the table's configuration (percentage, cap, player-count cap; none on timed rake).
-- No hand class, position or bet size decides on its own. The out-of-position 4-bet call cell of
-  HorseOmahaOopReraisedPot (paired non-aces hand, ratio after the call 2.5 or less, not all in) is left to that rule.
+- No hand class, position or bet size decides on its own. The out-of-position 4-bet call cell that
+  HorseOmahaOopReraisedPot folds outright (paired non-aces hand, ratio after the call 2.5 or less, not all in, no term
+  for the 4-bettor's width) is priced here like every other spot.
 
 ## The owner's orders it rests on (verbatim)
 
@@ -89,4 +90,9 @@ every changed answer were worth its 6 bb); the Horse-only tables show no harm.
 
 Counterfactual replay of 7,768 real decisions (preflop-01BNteGZ/replay/REPLAY.md): unset and false byte-identical in
 15,536 of 15,536; no receipt refusal; against Step 1's independent yardstick 1,409 decisions fixed and 177 newly wrong.
+The out-of-position 4-bet cell (taken over after the league run, see the limits) was replayed on its own: 160 real
+decisions, 94 folds become calls, unset and false identical, no receipt refusal; real calls of the changed spots +13.94
+bb each (SE 21.24, n 48), not significant (preflop-01BNteGZ/replay/REPLAY.md addendum). The league evaluation above
+ran on 6cbdaf5725b, where that cell was still left to HorseOmahaOopReraisedPot; it was not repeated.
+
 The option stays OFF.

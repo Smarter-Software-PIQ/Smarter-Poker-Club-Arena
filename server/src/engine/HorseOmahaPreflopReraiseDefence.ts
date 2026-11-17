@@ -51,10 +51,11 @@
  *    interface); when he continues, his range is the top (1 - f) of it and
  *    the pot and the ratio are those of the re-raised pot.
  *
- * One cell is left to its owner: a non-all-in 4-bet or more faced out of
- * position at a ratio after the call of 2.5 or less with a paired hand that
- * is not aces (HorseOmahaOopReraisedPot's own fold, being rewritten by the
- * priced-rules work). There this module does not answer.
+ * The out-of-position 4-bet call cell that HorseOmahaOopReraisedPot folds
+ * outright (a non-all-in 4-bet or more faced out of position, ratio after the
+ * call 2.5 or less, a paired hand that is not aces, whatever the 4-bettor's
+ * width) is priced here like every other spot: the 4-bettor's measured width
+ * sets the equity, the position, ratio and hand shape set the realization.
  *
  * Pure: no state, no telemetry, no draw from the brain's random stream.
  */
@@ -321,23 +322,6 @@ export function omahaPreflopDefenceEquity(
     lo <= 1e-9 ? () => true : (h) => omahaPreflopPercentile([...h], false) >= lo,
     PREFLOP_DEFENCE_EQUITY_SAMPLES
   );
-}
-
-/**
- * The cell left to HorseOmahaOopReraisedPot (see the module comment): a
- * non-all-in 4-bet or more faced out of position, the ratio after the call
- * 2.5 or less, a paired hand without a pair of aces.
- */
-export function omahaPreflopDefenceLeftToOopFourBetCell(
-  spot: OmahaPreflopDefenceSpot,
-  hole: readonly Card[]
-): boolean {
-  if (spot.preflopRaises < 3 || spot.inPosition) return false;
-  if (spot.stack <= spot.call + 0.005) return false;
-  const aces = hole.filter((c) => c.rank === 'A').length;
-  const paired = new Set(hole.map((c) => c.rank)).size < hole.length;
-  const sprAfter = (spot.stack - spot.call) / (spot.pot + spot.call);
-  return aces < 2 && paired && sprAfter <= 2.5;
 }
 
 /**

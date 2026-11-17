@@ -8,8 +8,7 @@
  * re-raise rules on both decision paths, before the re-raise range rules and
  * the out-of-position strong-range rule. Where it answers, those rules do not
  * run for that decision; where it does not (another street, another game, a
- * tournament, a single raise, the out-of-position 4-bet cell left to its
- * owner, a hand that cannot be sampled, any failure) it returns null and the
+ * tournament, a single raise, a hand that cannot be sampled, any failure) it returns null and the
  * rules decide exactly as with the option off.
  *
  * WHAT IT CHANGES. Facing a 3-bet or more preflop in PLO4/PLO5 cash the
@@ -39,7 +38,6 @@ import { preflopRaiseCount } from './HorseOmahaReraisedPot.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 import {
   OMAHA_PREFLOP_DEFENCE_VARIANTS,
-  omahaPreflopDefenceLeftToOopFourBetCell,
   omahaPreflopDefenceRake,
   omahaPreflopDefenceVerdict,
   type OmahaPreflopDefenceSpot,
@@ -215,7 +213,6 @@ export function omahaPreflopReraiseDefenceAnswer(
   const found = omahaPreflopReraiseDefenceSpot(player, gs);
   if (!found) return null;
   const hole = player.cards ?? [];
-  if (omahaPreflopDefenceLeftToOopFourBetCell(found.spot, hole)) return null;
   const read = omahaPreflopReraiserReadOf(
     found.raiserUserId,
     found.spot.variant,
@@ -305,7 +302,6 @@ export function omahaPreflopReraiseDefenceAdmitsCall(
     if (!found) return false;
     const { spot } = found;
     if (spot.stack <= spot.call + 0.005) return false;
-    if (omahaPreflopDefenceLeftToOopFourBetCell(spot, hero.cards ?? [])) return false;
     return typeof amount === 'number' && Math.abs(cents(spot.call) - amount) <= 0.005;
   } catch {
     return false;

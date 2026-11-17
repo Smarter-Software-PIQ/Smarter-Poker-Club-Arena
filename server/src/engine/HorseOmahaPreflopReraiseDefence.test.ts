@@ -15,7 +15,8 @@
  *    when the price and the read say so); it never answers outside PLO4/PLO5,
  *    for a single raise or with nothing to call; equity is deterministic and
  *    never draws from the brain's random stream;
- *  - the out-of-position 4-bet cell is left to its owner;
+ *  - the out-of-position 4-bet cell with a paired non-aces hand at a low ratio
+ *    is priced, not folded outright: the 4-bettor's width moves the answer;
  *  - the one read interface: the population mean with no row or the mind
  *    off, the pooled read when he is known;
  *  - the receipt admission: only the exact chips of the call, only in the spot.
@@ -28,7 +29,6 @@ import { freshExploitCounters, type ExploitCounters } from './HorseOpponentExplo
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import {
   omahaPreflopDefenceEquity,
-  omahaPreflopDefenceLeftToOopFourBetCell,
   omahaPreflopDefenceRake,
   omahaPreflopDefenceRangeWidth,
   omahaPreflopDefenceRealization,
@@ -219,19 +219,24 @@ describe('the verdict', () => {
     ).not.toBeNull();
   });
 
-  it('leaves the out-of-position 4-bet cell (paired non-aces, ratio 2.5 or less, not all in) to its owner', () => {
-    const s = spot({ preflopRaises: 3, inPosition: false, call: 40, pot: 100, stack: 200 });
-    expect(omahaPreflopDefenceLeftToOopFourBetCell(s, cards('KsKh9c8c7d'))).toBe(true);
-    expect(omahaPreflopDefenceLeftToOopFourBetCell(s, cards('AsAh9c8c7d'))).toBe(false);
-    expect(
-      omahaPreflopDefenceLeftToOopFourBetCell({ ...s, inPosition: true }, cards('KsKh9c8c7d'))
-    ).toBe(false);
-    expect(omahaPreflopDefenceLeftToOopFourBetCell({ ...s, stack: 40 }, cards('KsKh9c8c7d'))).toBe(
-      false
-    );
-    expect(
-      omahaPreflopDefenceLeftToOopFourBetCell({ ...s, stack: 1000 }, cards('KsKh9c8c7d'))
-    ).toBe(false);
+  it('prices the out-of-position 4-bet cell (paired non-aces, ratio 2.5 or less): the 4-bettor width decides', () => {
+    // 4-bet to 60 faced out of position with KK: 40 more into 100, 160 behind (ratio after the call 1.1)
+    const s = spot({
+      preflopRaises: 3,
+      inPosition: false,
+      call: 40,
+      pot: 100,
+      stack: 200,
+      raiserBehind: 160,
+    });
+    const kk = cards('KsKh9c8c7d');
+    const wide = omahaPreflopDefenceVerdict(s, kk, [], read(0.5), null)!;
+    const tight = omahaPreflopDefenceVerdict(s, kk, [], read(0.01), null)!;
+    expect(wide).not.toBeNull();
+    expect(wide.sprAfter).toBeLessThanOrEqual(2.5);
+    expect(wide.width).toBeGreaterThan(tight.width);
+    expect(wide.equity).toBeGreaterThan(tight.equity);
+    for (const v of [wide, tight]) expect(v.action).toBe(v.evCall > 0 ? 'call' : 'fold');
   });
 });
 

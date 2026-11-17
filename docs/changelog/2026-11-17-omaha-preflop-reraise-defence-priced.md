@@ -17,7 +17,7 @@ confirmed out of position at a stack-to-pot ratio of 5 or more or with players s
 preflop decision facing a 3-bet or more is the largest of folding, calling and the re-raise the earlier rules proposed,
 each valued from the exact hand's equity against the re-raiser's measured width (population mean when unknown),
 a realization measured on recorded calls (position, ratio after the call, players in, hand shape), the price and the
-rake. The out-of-position 4-bet call cell of `HorseOmahaOopReraisedPot` is left to that rule. Receipts
+rake. The out-of-position 4-bet call cell that `HorseOmahaOopReraisedPot` folds outright (paired non-aces hand, ratio after the call 2.5 or less) is priced the same way, against the 4-bettor's measured width. Receipts
 `omaha_preflop_reraise_defence_fold`, `_call`, `_raise`, `_changed`. Ledger flag, reference-decision sources, league
 cards plo4/plo5_omaha_preflop_reraise_defence_priced, follow-up switch migration
 20261117191521_horse_option_switch_omaha_preflop_reraise_defence_priced, authority file
