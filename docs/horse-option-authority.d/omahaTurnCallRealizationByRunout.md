@@ -1,6 +1,6 @@
 # omahaTurnCallRealizationByRunout: authority for the live switch
 
-Built 2026-11-17 on the owner's instruction of 2026-11-17 10:56 America/Chicago. Evidence NOT MET: no evaluation has been run. This file does not authorize switching the option on; it records what the option is and what must pass first.
+Built 2026-11-17 on the owner's instruction of 2026-11-17 10:56 America/Chicago. Evidence NOT MET: the paired evaluation of 2026-11-17 was INCONCLUSIVE (below). This file does not authorize switching the option on; it records what the option is and what must pass first.
 
 ## What it does
 
@@ -35,8 +35,25 @@ The verdict carries `runoutRealization` when the factor was read from the runout
 
 HorseOmahaRunoutRealization.test.ts (12 tests).
 
+## Evaluation (run 2026-11-17, bar written before the run)
+
+Protocol, rows and results: archive `plo-handoff-review-01a1cbbd/phase2-texture-01BNteGZ/eval/` (PROTOCOL.md with amendments E1 and E2, RESULTS.md, pooled.txt). Option on versus off, both arms carrying the 32-option live package; 4,000 duplicate pairs per seed, five seeds per card; paired bb/100, pooled as the mean of seed means with SE = sqrt(sum SE^2) / 5. The Omaha human field v1 with fixed seat identity and the league decision state are not on main, so the run used a throwaway tree: this change's brain with the benchmark side of `b83e730c7ba`.
+
+| Card              | Pooled A - B bb/100 | SE   | z     | Divergent pairs |
+| ----------------- | ------------------- | ---- | ----- | --------------- |
+| PLO4, human field | -1.68               | 2.08 | -0.81 | 36 / 20,000     |
+| PLO5, human field | -7.67               | 8.81 | -0.87 | 60 / 20,000     |
+| PLO4, Horse-only  | +1.19               | 0.53 | +2.23 | 993 / 20,000    |
+| PLO5, Horse-only  | +0.79               | 0.46 | +1.70 | 792 / 20,000    |
+
+Every run: illegal actions 0, truncated streets 0, brain fallbacks 0.
+
+Verdict under the declared rule: not FAIL (no card below -2 SE), not WIN (no human-field card above +2 SE). The rule had no line for a Horse-only card above +2 SE without a human-field win; none was added afterwards. Recorded as INCONCLUSIVE. Against the human field the option is close to inert. The constants were not tuned and the seeds were not changed.
+
+Constants against the live audit CSVs (`phase2-texture-01BNteGZ/CONSTANTS-GROUNDING-20261117.md`): one player's river check rate after a called turn bet, Horse in position, is 11 of 21 (stated constant 0.60 for his non-value holdings: not contradicted); the other four constants are not grounded by that source.
+
 ## Evidence rows
 
 - Mechanism, scope, tests: MET.
 - Option unset or false: the verdict is identical key for key (HorseOmahaRunoutRealization.test.ts, "off: the verdict is the one it was").
-- Value, continuation, reach: NOT MET. The constants (0.5, 0.2, 0.6 / 0.45, 0.35 to 0.6) are stated, not measured. Evaluation NOT RUN: league cards `plo4_omaha_turn_call_realization_by_runout` and `plo5_omaha_turn_call_realization_by_runout` (a: the facing-bet rule with the option; b: the facing-bet rule as it serves). The bar is the lane's fixed rule: the option ships on only if a is above b by two standard errors against the human-calibrated field and not below b at Horse-only tables.
+- Value, continuation, reach: NOT MET. Evaluation run 2026-11-17: INCONCLUSIVE (above). The bar for switching on is a human-field card above +2 SE with no card below -2 SE; it was not reached. The option stays off. A live read cannot substitute for it while the option is off.

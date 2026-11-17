@@ -20,7 +20,7 @@ New `server/src/engine/HorseOmahaRunoutRealization.ts` (pure). The exact turn co
 
 The earlier caps still apply after it as upper bounds. No term is the size of the bet. Six-card hands, the river and a final call are untouched. With the option unset or false the verdict is identical key for key.
 
-The constants are stated, not measured. The option stays off until league cards `plo4_omaha_turn_call_realization_by_runout` and `plo5_omaha_turn_call_realization_by_runout` pass; authority file `docs/horse-option-authority.d/omahaTurnCallRealizationByRunout.md`.
+The constants are stated, not measured. A paired evaluation on 2026-11-17 (on versus off over the live package, five seeds of 4,000 pairs per card) was INCONCLUSIVE: PLO4 -1.68 +- 2.08 and PLO5 -7.67 +- 8.81 bb/100 against the human-like field, where the option changed 36 and 60 of 20,000 pairs; +1.19 +- 0.53 and +0.79 +- 0.46 at Horse-only tables. The bar for switching on was not met. The option stays off until league cards `plo4_omaha_turn_call_realization_by_runout` and `plo5_omaha_turn_call_realization_by_runout` pass; authority file `docs/horse-option-authority.d/omahaTurnCallRealizationByRunout.md`.
 
 ## Files
 
