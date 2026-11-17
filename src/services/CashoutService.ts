@@ -1,3 +1,4 @@
+import { formatWalletChips } from '../utils/format';
 import { validateCashoutAmount } from '../utils/cashoutAmount';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -172,6 +173,21 @@ function definitiveCashoutRefusal(
   const text = [error.message, error.details, error.hint]
     .filter((part): part is string => typeof part === 'string')
     .join(' ');
+  // These exact hints belong to the synchronous ledger exit guards. Their
+  // RAISE aborts the whole hold transaction, including its event and escrow.
+  // Never treat other P0001 errors or receipt-integrity failures as refusals.
+  if (
+    code === 'P0001' &&
+    (error.hint === 'promo_play_through_locked' ||
+      error.hint === 'promo_winnings_play_through_locked')
+  ) {
+    return new CashoutRefusedError(
+      'Promo Play Through Is Still Required. Promo Chips Unlock After Four Times Their Original Amount In Fees. Promo Winnings Unlock After Two Times. Your Own Cash And Rakeback Stay Withdrawable.',
+      code,
+      error.hint,
+      context
+    );
+  }
   const token = /\bcashier_[a-z0-9_]+\b/.exec(text)?.[0] ?? null;
   const words =
     code === '23514'
@@ -569,7 +585,31 @@ async function mutateCashout(
     // A RAISE rolled the whole transaction back: 22023/23514/42501 are refusals
     // the player can act on, never an outcome that needs a receipt lookup.
     const refused = definitiveCashoutRefusal(error, context);
-    if (refused) throw refused;
+    if (refused) {
+      if (kind === 'hold' && refused.code === 'P0001') {
+        // Informational read after a rolled-back refusal, never a client-side
+        // cashout gate. A later change cannot approve or resubmit this intent.
+        try {
+          const { readMyPromoPlayThrough } = await import('./PromoPlayThroughService');
+          assertCashoutCurrent(context);
+          const summary = await readMyPromoPlayThrough(context.clubId);
+          assertCashoutCurrent(context);
+          refused.message =
+            `This Cashout Was Blocked By Promo Play Through. Current Withdrawable Balance: ${formatWalletChips(summary.cashable)} Chips. ` +
+            `Promo Chips: ${formatWalletChips(summary.fee_remaining)} More Chips In Fees To Reach Four Times. ` +
+            `Promo Winnings: ${formatWalletChips(summary.profit_fee_remaining ?? 0)} More Chips In Fees To Reach Two Times. ` +
+            'The Same Fees Count Toward Both Requirements. Your Own Cash And Rakeback Stay Withdrawable.';
+        } catch (readError) {
+          assertCashoutCurrent(context);
+          reportError(readError, 'CashoutService.PromoRefusalDetails');
+          // The hold is still definitively rolled back when details cannot load.
+          // Do not invent amounts or turn it into an uncertain money outcome.
+          refused.message +=
+            ' Current Figures Are Unavailable. Refresh Your Promo Progress Before Trying Again.';
+        }
+      }
+      throw refused;
+    }
     // The maintenance break (2026-10-16): name it, but keep the operation, so
     // a repeat after the break replays rather than files a second request.
     if (isPlatformFrozenError(error))

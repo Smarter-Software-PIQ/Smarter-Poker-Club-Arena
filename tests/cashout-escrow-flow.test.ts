@@ -165,9 +165,20 @@ describe('a player cannot ask for an amount the server is bound to refuse', () =
   it('the sheet refuses the same three before it touches the service', () => {
     expect(MODAL).toContain('validateCashoutAmount(amount)');
     expect(MODAL).toContain('setError(validation.error)');
-    expect(MODAL.replace(/\s+/g, ' ')).toContain(
-      "if (cashoutAmount > currentBalance) throw new Error('That Is More Than Your Available Balance')"
+    const submit = MODAL.slice(MODAL.indexOf('const handleSubmit = async () => {'));
+    expect(submit.indexOf('validateCashoutAmount(amount)')).toBeLessThan(
+      submit.indexOf('await recoverCashoutOperation(')
     );
+    expect(submit.indexOf('setError(validation.error)')).toBeLessThan(
+      submit.indexOf('await runCashoutOperation(')
+    );
+    // Cached display figures cannot refuse an eligible cashout. The retained
+    // operation reaches the server's locked balance and promo restriction checks.
+    expect(submit).not.toMatch(/if\s*\([^)]*(?:currentBalance|balanceAvailable)/);
+    expect(submit).toContain(
+      'recovery.found ? recovery.result : await runCashoutOperation(accepted)'
+    );
+    expect(SERVICE).toContain("? 'fn_cashout_request_v2'");
     // Dan 2026-10-23: the player types the amount; no suggested amounts.
     expect(MODAL).not.toContain('cashoutPercentage');
     expect(MODAL).not.toContain('Quick Amounts');

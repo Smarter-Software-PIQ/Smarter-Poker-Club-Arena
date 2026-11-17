@@ -61,3 +61,16 @@
 .tip:not([open]) .panel {
   display: none;
 }
+
+.panelPortal {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  right: auto;
+}
+
+.panelPortal[hidden] {
+  display: none;
+}
