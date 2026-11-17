@@ -614,6 +614,29 @@ DO $obligation_credit_owner$ DECLARE def text;needle text;BEGIN
  EXECUTE def;
 END $obligation_credit_owner$;
 
+
+-- The original credit owner changed above; advance its one exact admission pin
+-- in this same transaction, preserving every other contract byte and right.
+DO $obligation_admission_pin$
+DECLARE p record;guard text;pin text:='"signature":"public.fn_settle_tournament_obligation_before_atomic_batch_gate(uuid,text,integer,uuid,numeric,text,text,uuid)","definition_md5":"df387bd37001630d94ab2e380144ccab"';
+BEGIN
+ IF md5(pg_get_functiondef('public.fn_settle_tournament_obligation_before_atomic_batch_gate(uuid,text,integer,uuid,numeric,text,text,uuid)'::regprocedure))<>'94cadb1836d8d0b67246cd4df4c47b3c' THEN
+  RAISE EXCEPTION 'original_earning_credit_postimage_changed';END IF;
+ SELECT * INTO STRICT p FROM pg_proc WHERE oid='public.fn_ca_guard_mtt_admission_contract()'::regprocedure;
+ IF p.proowner<>'postgres'::regrole OR NOT p.prosecdef
+ OR p.proacl::text IS DISTINCT FROM '{postgres=X/postgres}'
+ OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, public']::text[] THEN
+  RAISE EXCEPTION 'original_earning_credit_admission_contract_metadata_changed';END IF;
+ guard:=pg_get_functiondef(p.oid);
+ IF length(guard)-length(replace(guard,pin,''))<>length(pin) THEN
+  RAISE EXCEPTION 'original_earning_credit_admission_pin_changed';END IF;
+ EXECUTE replace(guard,pin,replace(pin,'df387bd37001630d94ab2e380144ccab','94cadb1836d8d0b67246cd4df4c47b3c'));
+ IF pg_get_functiondef(p.oid) IS DISTINCT FROM replace(guard,pin,replace(pin,'df387bd37001630d94ab2e380144ccab','94cadb1836d8d0b67246cd4df4c47b3c'))
+ OR (SELECT proacl FROM pg_proc WHERE oid=p.oid) IS DISTINCT FROM p.proacl
+ OR (SELECT proconfig FROM pg_proc WHERE oid=p.oid) IS DISTINCT FROM p.proconfig THEN
+  RAISE EXCEPTION 'original_earning_credit_admission_postimage_changed';END IF;
+END $obligation_admission_pin$;
+
 DO $mystery_earning_owner$ DECLARE def text;needle text;BEGIN
  SELECT pg_get_functiondef('public.fn_mystery_bounty_pay(uuid)'::regprocedure) INTO def;
  IF md5(def)<>'d666baf91b06f9305191fcbc0b9c7aee' THEN RAISE EXCEPTION 'original_mystery_earning_owner_changed';END IF;

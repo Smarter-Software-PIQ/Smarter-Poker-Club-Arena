@@ -12,7 +12,7 @@ MIGRATION=R/'supabase/migrations/20261116200638_tournament_winnings_retain_origi
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--migration',type=Path,default=MIGRATION);p.add_argument('--financial-root',type=Path,default=R);p.add_argument('--profit-root',type=Path,default=R);p.add_argument('--custody-migration',type=Path);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args();MIGRATION=args.migration.resolve()
 if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
 PG=args.pg_bin;out=args.output;out.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='peg-'));checks=[]
-inputs=[MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',Path(__file__)]
+inputs=[R/'scripts/ci/migration-stale-pins.mjs',MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',Path(__file__)]
 (out/'INPUTS.json').write_text(json.dumps({str(x.relative_to(R)):{'sha256':hashlib.sha256(x.read_bytes()).hexdigest()} for x in inputs},indent=2)+'\n')
 
 def run(sql,ok=True):
@@ -57,13 +57,22 @@ try:
   run('SET check_function_bodies=off;'+original['definition']+';')
   check('exact original source '+original['proname'],one("SELECT md5(pg_get_functiondef('public."+original['signature']+"'::regprocedure))"),original['md5'])
  guard=json.loads((R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json').read_text())
- run('SET check_function_bodies=off;'+guard['definition']+';')
+ run('SET check_function_bodies=off;'+guard['definition']+';REVOKE ALL ON FUNCTION public.fn_ca_guard_mtt_admission_contract() FROM PUBLIC,anon,authenticated,service_role;')
+ check('actual installed admission contract preimage',one("SELECT md5(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure))"),guard['md5'])
  # The P prerequisite adds this exact source hook; its body remains untouched.
  proc=next(x['definition'] for x in json.loads((R/'tests/fixtures/promo-ticket-play-through/generation-owners.json').read_text()) if x['proname']=='process_tournament_rebuy')
  needle='    v_response:=public.fn_ca_process_tournament_chip_purchase_money_v1(\n      p_tournament_id,p_user_id,v_type,p_cost,p_chips,v_t.current_level,\n      v_effective_token);'
  proc=proc.replace(needle,'    IF public.fn_ca_tournament_unit_cents(p_tournament_id)=1 THEN PERFORM public.fn_ca_promo_retire_busted_entry(p_tournament_id,p_user_id,v_candidate.id,v_effective_token); END IF;\n'+needle)
  run('SET check_function_bodies=off;'+proc+';')
- run('INSERT INTO ca_promo_play_through_settings VALUES(true,NULL);SET check_function_bodies=off;'+MIGRATION.read_text())
+ run('INSERT INTO ca_promo_play_through_settings VALUES(true,NULL);')
+ def guarded(sql):
+  script="import{stalePinGuardSQL}from'./scripts/ci/migration-stale-pins.mjs';let s='';for await(const b of process.stdin)s+=b;process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
+  return subprocess.run(['node','--input-type=module','-e',script,str(MIGRATION)],input=sql,text=True,capture_output=True,check=True,cwd=R).stdout
+ candidate=MIGRATION.read_text();start=candidate.index('DO $obligation_admission_pin$');end=candidate.index('END $obligation_admission_pin$;',start)+len('END $obligation_admission_pin$;')
+ before=run('SET check_function_bodies=off;'+guarded(candidate[:start]+candidate[end:]),False)
+ check('real protected stale-pin guard refuses the former missing credit pin',before.returncode!=0 and 'migration_left_a_stale_pin' in before.stderr and 'df387bd37001630d94ab2e380144ccab' in before.stderr,True)
+ check('stale-pin refusal rolls back every generation table and original credit patch',one("SELECT to_regclass('public.ca_promo_profit_event_generations') IS NULL AND md5(pg_get_functiondef('public.fn_settle_tournament_obligation_before_atomic_batch_gate(uuid,text,integer,uuid,numeric,text,text,uuid)'::regprocedure))='df387bd37001630d94ab2e380144ccab' AND md5(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure))='"+guard['md5']+"'"),'t')
+ run('SET check_function_bodies=off;'+guarded(candidate))
  patched=one("SELECT pg_get_functiondef('public.process_tournament_rebuy(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure)")
  check('validated original reentry gains source context at one non-addon boundary',patched.count('fn_ca_promo_profit_admission_context('),1)
  check('original P definitive bust hook is preserved',patched.count('fn_ca_promo_retire_busted_entry('),1)
@@ -74,7 +83,11 @@ try:
  expected=re.sub(r'("signature":"public.process_tournament_rebuy\(uuid,uuid,text,numeric,numeric,integer,text\)","definition_md5":")[0-9a-f]{32}',lambda m:m[1]+new_hash,guard['definition'])
  collect_hash=one("SELECT md5(pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure))")
  expected=re.sub(r'("signature":"public.fn_collect_bounty\(uuid,uuid,uuid,jsonb\)","definition_md5":")[0-9a-f]{32}',lambda m:m[1]+collect_hash,expected)
+ credit_hash=one("SELECT md5(pg_get_functiondef('public.fn_settle_tournament_obligation_before_atomic_batch_gate(uuid,text,integer,uuid,numeric,text,text,uuid)'::regprocedure))")
+ check('original credit metadata patch has independently derived exact postimage',credit_hash,'94cadb1836d8d0b67246cd4df4c47b3c')
+ expected=expected.replace('"signature":"public.fn_settle_tournament_obligation_before_atomic_batch_gate(uuid,text,integer,uuid,numeric,text,text,uuid)","definition_md5":"df387bd37001630d94ab2e380144ccab"','"signature":"public.fn_settle_tournament_obligation_before_atomic_batch_gate(uuid,text,integer,uuid,numeric,text,text,uuid)","definition_md5":"'+credit_hash+'"')
  check('original admission contract changes only exact changed original-owner pins',newguard.strip(),expected.strip())
+ check('actual admission contract private owner ACL and configuration survive',one("SELECT pg_get_userbyid(proowner)||':'||proacl::text||':'||proconfig::text FROM pg_proc WHERE oid='public.fn_ca_guard_mtt_admission_contract()'::regprocedure"),'postgres:{postgres=X/postgres}:{\"search_path=pg_catalog, public\"}')
  check('actual public PKO owner receives earned-head callback',one("SELECT position('fn_ca_promo_profit_add_earned_head' in pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure))>0"),'t')
  check('actual public PKO owner receives exact head-retirement callback',one("SELECT position('fn_ca_promo_profit_retire_knocked_out_head' in pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure))>0"),'t')
  check('actual public mystery owner scopes original bounty context',one("SELECT position('v_promo_bounty_prior' in pg_get_functiondef('public.fn_mystery_bounty_pay(uuid)'::regprocedure))>0"),'t')
