@@ -5,6 +5,7 @@ import importlib.util
 import json
 import re
 import tempfile
+import subprocess
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 def module(name, file):
@@ -20,6 +21,12 @@ CHECKS = []
 def check(value, message):
     CHECKS.append({'check': message, 'ok': bool(value)})
     ot.require(value, message)
+
+def guarded(sql):
+    # Exact production applier enforcement, never a fixture pin-check adapter.
+    wrapper = "import{stalePinGuardSQL}from'./scripts/ci/migration-stale-pins.mjs';let s='';for await(const b of process.stdin)s+=b;process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
+    return subprocess.run(['node', '--input-type=module', '-e', wrapper, MIG.name],
+                          input=sql, text=True, capture_output=True, check=True, cwd=ROOT).stdout
 
 def main():
     parser = argparse.ArgumentParser()
@@ -49,6 +56,16 @@ CREATE TABLE public.ca_promo_play_through_grants(id uuid PRIMARY KEY DEFAULT gen
                     ('fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)', '0fa9318d609b741f7c2142b05b325c7b')]:
                     check(c.val("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.%s'::regprocedure" % sig) == pin,
                           'actual installed preimage ' + sig)
+                certified_source = '20261104232431_certify_scoped_eed_recovery_before_the_original_thaw.sql'
+                c.psql(ot.base.function_source(certified_source, 'fn_engine_certified_recovery_contract'))
+                original = (ROOT / 'supabase/migrations' / certified_source).read_text()
+                acl_start = original.index('REVOKE ALL ON FUNCTION public.fn_engine_certified_recovery_contract()')
+                c.psql(original[acl_start:original.index('DO $post$', acl_start)])
+                contract_sig = 'public.fn_engine_certified_recovery_contract()'
+                contract_before = c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig)
+                contract_acl = c.val("SELECT proowner::text||':'||proacl::text FROM pg_proc WHERE oid='%s'::regprocedure" % contract_sig)
+                check(c.val("SELECT md5(pg_get_functiondef('%s'::regprocedure))" % contract_sig) == '4db9fbdd98099ef2ba71be9614c0092d',
+                      'fixture loads exact current certified recovery contract')
                 ot.reset(c, 270)
                 c.psql("INSERT INTO public.ca_promo_play_through_grants(club_id,expires_at) SELECT 'c1000000-0000-4000-8000-000000000001',freeze_start+interval '60 seconds' FROM public.test_parameters")
                 c.psql("INSERT INTO public.engine_maintenance_thaws(freeze_started_at,frozen_seconds,shifted,contract_version) SELECT freeze_start,300,'{}',3 FROM public.test_parameters; SELECT public.fn_snapshot_maintenance_thaw_targets(freeze_start,300) FROM public.test_parameters;")
@@ -56,7 +73,50 @@ CREATE TABLE public.ca_promo_play_through_grants(id uuid PRIMARY KEY DEFAULT gen
                       'before source reproduces missing promo deadline target')
                 c.psql(MIG.read_text(), error='PROMO_THAW_REQUIRES_QUIESCENT_CUTOVER')
                 c.psql('TRUNCATE public.engine_maintenance_break, public.engine_maintenance_thaws,public.engine_maintenance_thaw_targets,public.test_parameters,public.ca_promo_play_through_grants')
-                c.psql(MIG.read_text())
+                source = MIG.read_text()
+                old_source, count = re.subn(r'DO \$certified_thaw_pin\$.*?END \$certified_thaw_pin\$;', '', source, flags=re.S)
+                check(count == 1, 'one atomic certified-contract pin update exists')
+                c.psql(guarded(old_source), error='migration_left_a_stale_pin')
+                check(c.val("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)'::regprocedure") == '0fa9318d609b741f7c2142b05b325c7b',
+                      'real stale-pin refusal rolls back original thaw source')
+                check(c.val("SELECT count(*) FROM pg_proc WHERE proname IN ('fn_snapshot_maintenance_thaw_targets','fn_credit_maintenance_thaw_targets','fn_thaw_platform') AND position('promo_expires_at' in prosrc)>0") == '0',
+                      'real stale-pin refusal rolls back all three promo changes')
+                check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig) == contract_before,
+                      'refused transaction preserves original certified contract')
+                contract_drifted = contract_before.replace('BEGIN\n', 'BEGIN\n -- Controlled fixture contract drift.\n', 1)
+                check(contract_drifted != contract_before, 'negative fixture changes actual contract source')
+                c.psql(contract_drifted)
+                c.psql(guarded(source), error='PROMO_THAW_CERTIFIED_CONTRACT_PREIMAGE_DRIFT')
+                check(c.val("SELECT count(*) FROM pg_proc WHERE proname IN ('fn_snapshot_maintenance_thaw_targets','fn_credit_maintenance_thaw_targets','fn_thaw_platform') AND position('promo_expires_at' in prosrc)>0") == '0',
+                      'drifted certified contract rolls back all three thaw changes')
+                check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig) == contract_drifted,
+                      'drift refusal never overwrites the installed contract')
+                c.psql(contract_before)
+                thaw_sig = 'public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)'
+                thaw_before = c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % thaw_sig)
+                c.psql("ALTER FUNCTION " + thaw_sig + " SET statement_timeout='33s'")
+                thaw_drifted = c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % thaw_sig)
+                c.psql(guarded(source), error='PROMO_THAW_POSTIMAGE_DRIFT')
+                check(c.val("SELECT count(*) FROM pg_proc WHERE proname IN ('fn_snapshot_maintenance_thaw_targets','fn_credit_maintenance_thaw_targets','fn_thaw_platform') AND position('promo_expires_at' in prosrc)>0") == '0',
+                      'unqualified function configuration rolls back all three thaw changes')
+                check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % thaw_sig) == thaw_drifted,
+                      'postimage refusal preserves the independently changed configuration')
+                check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig) == contract_before,
+                      'postimage refusal cannot bless an unqualified recovery source')
+                c.psql(thaw_before)
+                c.psql(guarded(source))
+                old_pin = "('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)','e2530d18c33dd11f10d5e40bed4bd2e1')"
+                new_hash = c.val("SELECT md5(pg_get_functiondef('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)'::regprocedure))")
+                print("Qualified promo thaw definition MD5: " + new_hash, flush=True)
+                consumer = (ROOT / 'server/scripts/engine-release-database-proof.py').read_text()
+                consumer_hash = re.search(r"^PROMO_THAW_MD5 = '([0-9a-f]{32})'$", consumer, re.M)
+                check(consumer_hash is not None and consumer_hash.group(1) == new_hash,
+                      'ordinary release consumer pins the actual installed promo thaw source')
+                new_pin = "('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)','%s')" % new_hash
+                check(contract_before.count(old_pin) == 1 and c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig) == contract_before.replace(old_pin, new_pin),
+                      'installed contract changes only the exact original thaw pin')
+                check(c.val("SELECT proowner::text||':'||proacl::text FROM pg_proc WHERE oid='%s'::regprocedure" % contract_sig) == contract_acl,
+                      'original certified contract owner and service-only ACL preserved')
                 c.psql(MIG.read_text(), error='PROMO_THAW_PREIMAGE_DRIFT')
                 check(c.val("SELECT NOT has_function_privilege('authenticated','public.fn_credit_maintenance_thaw_targets(timestamptz,numeric)','EXECUTE')") == 't', 'private worker ACL preserved')
                 ot.reset(c, 270)
