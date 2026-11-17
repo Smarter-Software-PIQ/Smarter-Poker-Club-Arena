@@ -57,6 +57,7 @@ import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
+import { OMAHA_RUNOUT_ROW, omahaRunoutRealization } from './HorseOmahaRunoutRealization.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -687,6 +688,8 @@ export interface OmahaEvHandCounts {
   valueShare: number;
   /** against the strongest share of holdings, by share: used for the field */
   top: (share: number) => OmahaEvShares & { share: number };
+  /** turn only: OMAHA_RUNOUT_ROW numbers per river card (HorseOmahaRunoutRealization) */
+  runout?: Float64Array;
 }
 
 /**
@@ -887,6 +890,7 @@ function evHandCounts(
   let valN = 0;
   let othN = 0;
   const perRiver = choose(m - 1, n);
+  const runout = new Float64Array(m * OMAHA_RUNOUT_ROW);
   // The holdings with no value pair, over every card: one count. Without
   // the river card k it is that less the holdings that contain k, which are
   // k with a smaller holding of the cards no value pair joins to k.
@@ -949,6 +953,10 @@ function evHandCounts(
     valN += perRiver - noV;
     valWin += noBT - noBTV;
     valTie += noB - noBT - (noBV - noBTV);
+    runout[k * OMAHA_RUNOUT_ROW] = noBT - noBTV + 0.5 * (noB - noBT - (noBV - noBTV));
+    runout[k * OMAHA_RUNOUT_ROW + 1] = perRiver - noV;
+    runout[k * OMAHA_RUNOUT_ROW + 2] = noBTV + 0.5 * (noBV - noBTV);
+    runout[k * OMAHA_RUNOUT_ROW + 3] = noV;
   }
   // The field on the turn is read on the turn board as it stands (not per river card).
   const heroNow = scoreOmahaHiPartial(hole, board);
@@ -970,6 +978,7 @@ function evHandCounts(
     value: valN > 0 ? { win: valWin / valN, tie: valTie / valN } : { win: 0, tie: 0 },
     other: othN > 0 ? { win: othWin / othN, tie: othTie / othN } : { win: 0, tie: 0 },
     valueShare: v.above / total,
+    runout,
     top: (s: number) => {
       const kk = Math.round(s * 1000);
       let r = topMemo.get(kk);
@@ -1286,6 +1295,8 @@ export interface OmahaFacingBetEvVerdict {
   field: number;
   /** the realization factor applied (1 when final) */
   realization: number;
+  /** omahaTurnCallRealizationByRunout: the runout factor, when it was the one read */
+  runoutRealization?: number;
   /** pot odds of the call, for the record */
   price: number;
   /** work done */
@@ -1313,6 +1324,12 @@ export interface OmahaFacingBetEvContext {
   plo6RiverUnpaired?: boolean;
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
+  /**
+   * omahaTurnCallRealizationByRunout: present only with the option on. The
+   * non-final turn call's factor is then read from the hand's per-river
+   * counts (HorseOmahaRunoutRealization) instead of `realization`.
+   */
+  runoutRealization?: { inPosition: boolean };
 }
 
 /**
@@ -1384,6 +1401,11 @@ export function omahaFacingBetEvVerdict(
   let realization = spot.final
     ? 1
     : Math.max(0.5, Math.min(1, Number.isFinite(ctx.realization) ? ctx.realization! : 0.85));
+  let runoutRealization: number | undefined;
+  if (!spot.final && ctx.runoutRealization && hole.length !== 6) {
+    const r = omahaRunoutRealization(counted.runout, q, ctx.runoutRealization.inPosition === true);
+    if (r) realization = runoutRealization = r.realization;
+  }
   if (!spot.final && spot.behind > 0) realization = Math.min(realization, 0.85);
   // Hand #59725321: on an already-paired turn facing a >= 40%-pot wager with
   // river barrel stacks still behind, a non-boat hand with zero full-house/quad
@@ -1473,6 +1495,7 @@ export function omahaFacingBetEvVerdict(
     vsOther: counted.other.win,
     field,
     realization,
+    ...(runoutRealization !== undefined ? { runoutRealization } : {}),
     price: spot.paid / (spot.winnable + spot.paid),
     pairsScored: counted.pairsScored,
     counts: counted.counts,

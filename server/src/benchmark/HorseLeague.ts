@@ -2582,6 +2582,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-17 OMAHA TURN CALL REALIZATION BY RUNOUT
+  // (HorseOmahaRunoutRealization, default OFF): inside the facing-bet EV rule,
+  // a non-final turn call's realization factor is read from the hand's own
+  // per-river counts against the bettor's value region and his other holdings
+  // instead of the flat 0.85 / 0.92. Both arms run the facing-bet EV rule (it
+  // is ON live); a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_call_realization_by_runout`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaTurnCallRealizationByRunout: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);

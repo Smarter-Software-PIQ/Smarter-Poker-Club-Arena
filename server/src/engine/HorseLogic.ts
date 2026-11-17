@@ -3394,6 +3394,13 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_facing_bet_ev. */
   omahaFacingBetEv?: boolean;
+  /** PLO Strategy lane 2026-11-17 (owner: Phase 2 texture-based equity realization;
+   *  the bet's size must not decide): opt-in (`=== true`), inside omahaFacingBetEv
+   *  only, PLO4/PLO5. A non-final TURN call's realization factor is read from the
+   *  hand's own per-river counts against the bettor's value region and his other
+   *  holdings (HorseOmahaRunoutRealization.ts) instead of the flat 0.85 / 0.92.
+   *  Default OFF until its declared evaluation passes. */
+  omahaTurnCallRealizationByRunout?: boolean;
   /** Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair with no
    * redraw raised a pot bet on the turn into the nut straight; "NEVER A
    * RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand,
@@ -9387,6 +9394,7 @@ let omahaFacingBetEvCountMemo: {
   /** The PLO6 guard's switches (V58, V59): the verdict depends on them. */
   plo6RiverNuts: boolean;
   plo6RiverUnpaired: boolean;
+  runoutRealization: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -9405,6 +9413,7 @@ function omahaFacingBetEvCount(
   const mind = opts.mind !== false;
   const plo6RiverNuts = opts.v58Plo6RiverNuts !== false;
   const plo6RiverUnpaired = opts.v59Plo6RiverUnpaired !== false;
+  const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -9412,7 +9421,8 @@ function omahaFacingBetEvCount(
     memo.gs === gs &&
     memo.mind === mind &&
     memo.plo6RiverNuts === plo6RiverNuts &&
-    memo.plo6RiverUnpaired === plo6RiverUnpaired
+    memo.plo6RiverUnpaired === plo6RiverUnpaired &&
+    memo.runoutRealization === runoutRealization
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -9452,11 +9462,26 @@ function omahaFacingBetEvCount(
         // PLO6 six-card guard: off where the live river fold rule is off.
         plo6RiverNuts,
         plo6RiverUnpaired,
+        ...(runoutRealization
+          ? {
+              runoutRealization: {
+                inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+              },
+            }
+          : {}),
       }
     );
     if (verdict) answer = { spot, verdict };
   }
-  omahaFacingBetEvCountMemo = { player, gs, mind, plo6RiverNuts, plo6RiverUnpaired, answer };
+  omahaFacingBetEvCountMemo = {
+    player,
+    gs,
+    mind,
+    plo6RiverNuts,
+    plo6RiverUnpaired,
+    runoutRealization,
+    answer,
+  };
   return answer;
 }
 
