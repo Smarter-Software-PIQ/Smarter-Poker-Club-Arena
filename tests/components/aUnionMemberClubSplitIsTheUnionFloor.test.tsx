@@ -31,13 +31,12 @@ describe('a union member club card splits the union floor', () => {
         activeEvents={243}
         clubId={25450}
         splitFloorLabel="MIDWAY UNION"
-        displayAddition={{ members: 1500, active: 233, label: 'Bonus' }}
       />
     );
     const floor = document.querySelector('.club-card-stat-split-floor');
     expect(floor?.textContent).toBe('MIDWAY UNION');
-    const parts = Array.from(document.querySelectorAll('.club-card-stat-split-part')).map(
-      (el) => el.textContent?.trim()
+    const parts = Array.from(document.querySelectorAll('.club-card-stat-split-part')).map((el) =>
+      el.textContent?.trim()
     );
     expect(parts).toEqual(['222 CASH', '243 EVENTS']);
   });
