@@ -6,4 +6,4 @@ Use the existing independent observation-queue pattern for a repository dispatch
 
 The maintained concurrency test evaluates the actual workflow expression and models the pending-slot displacement: it fails before the change, then proves ordinary publications replace only ordinary pending work while the admitted engine proof survives. No release, retry loop, publisher or schedule is added. A finite verification of the same sealed engine follows protected publication of this configuration; no engine replacement is needed.
 
-The required native Data fixture now qualifies both retained UTC source dates for its fixed Pacific day. It reproduces refusal while the right source piece is missing, then seeds that original empty piece normally. This removes the UTC-midnight fixture failure without changing production coverage rules or waiving a check.
+Protected main independently corrected the required native Data fixture to qualify both retained UTC source dates for its fixed Pacific day. This delivery preserves that correction and its refusal assertions; production coverage rules are unchanged.

@@ -241,13 +241,12 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  check(json.loads(seed('2026-11-16',True))['complete'],True,'canonical immutable cash owner qualifies despite wrong UNIQUE UTC club')
  check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND stat_date='2026-11-16'"),'0','wrong original club has no phantom game after rebuild')
  check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND stat_date='2026-11-16'"),'0.50000000000000000000:2:1','canonical owner keeps raw fractional fees and participant hands')
- # A Pacific day spans two UTC source dates. After UTC midnight the retained
- # history includes the right piece; prove its absence refuses before seeding
- # its actual (empty here) source. Never depend on this fixture running before
- # midnight or manufacture a coverage receipt.
- if q("SELECT history_through>='2026-11-17'::date FROM ca_club_data_pacific_state")=='t':
-  q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
-  check(json.loads(seed('2026-11-17',True))['complete'],True,'Pacific report qualifies both retained UTC source dates')
+ # This fixed Pacific day also touches UTC November 17. After real UTC
+ # midnight that edge is historical, so qualify it through the original
+ # finite loader; before midnight it is future and must not be seeded.
+ if q("SELECT history_through>=date '2026-11-17' FROM ca_club_data_pacific_state")=='t':
+  q(f"SELECT fn_ca_club_data_pacific_require('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+  check(json.loads(seed('2026-11-17'))['complete'],True,'fixed Pacific fixture qualifies its second historical UTC source edge after midnight')
  check(json.loads(q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16')"))['summary']['games'],0,'actual screen omits wrong-club game after signed source correction')
  check(q("SELECT basis_version FROM ca_club_data_pacific_seed_log WHERE utc_day='2026-11-16'"),'1','new source-qualified history receipt records basis version1')
  check(json.loads(seed('2026-11-16'))['already_loaded'],True,'same source basis receipt remains idempotent')
@@ -448,6 +447,38 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  check((boundary['previous_coverage']['basis_mismatch'],boundary['delta']['winnings_abs']),(True,None),'a qualified pre-union cashflow window is not compared with invoice PNL')
  same_basis=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-11','2026-11-11')"))
  check((same_basis['previous_coverage']['complete'],same_basis['previous']['fee']),(True,20.32),'previous invoice window resolves independently and retains exact fees')
+
+ # Historical Spin refunds point to the ORIGINAL positive recognition. Their
+ # immutable original player/club fee shares also match negative UTC controls.
+ # The refund's timestamp, never the original charge date, owns recognition.
+ q("ALTER TABLE rake_records ADD COLUMN source text,ADD COLUMN club_id uuid; ALTER TABLE rake_records DISABLE TRIGGER native_cash_rake;")
+ SC='70000000-0000-0000-0000-0000000000d1';SC2='70000000-0000-0000-0000-0000000000d2';SC3='70000000-0000-0000-0000-0000000000d3'
+ q(f"""INSERT INTO clubs VALUES('{SC}','Refund one',NULL),('{SC2}','Refund two',NULL),('{SC3}','Refund three',NULL);
+ CREATE TABLE native_spin_refunds AS SELECT n,md5('refund-game-'||n)::uuid game,md5('refund-original-'||n)::uuid original_id,md5('refund-negative-'||n)::uuid refund_id FROM generate_series(1,64)n;
+ INSERT INTO tournaments(id,club_id,name,tournament_type,status) SELECT game,'{SC}','Refunded Spin','SPIN','CANCELLED' FROM native_spin_refunds;
+ INSERT INTO rake_records(id,tournament_id,is_tournament,rake_amount,created_at,source,club_id,metadata)
+ SELECT original_id,game,true,24,'2026-11-02T21:00Z'::timestamptz,'fn_spin_book_entry','{SC}'::uuid,jsonb_build_object('kind','spin_rake') FROM native_spin_refunds
+ UNION ALL SELECT refund_id,game,true,-24,'2026-11-03T11:44Z'::timestamptz,'atomic_cancel_tournament','{SC}'::uuid,jsonb_build_object('kind','spin_rake_refund','original_rake_record_id',original_id::text) FROM native_spin_refunds;
+ INSERT INTO accounting_tournament_fee_sources(rake_record_id,club_id,player_id,rake_credit,charged_at)
+ SELECT original_id,club::uuid,player::uuid,8,'2026-11-02T21:00Z' FROM native_spin_refunds CROSS JOIN(VALUES('{SC}','{U}'),('{SC2}','{V}'),('{SC3}','{A}'))s(club,player);
+ INSERT INTO ca_club_data_fact SELECT club_id,'2026-11-03','TOURNAMENT',r.game,f.player_id,-f.rake_credit,0,0,0,'2026-11-03T11:44Z' FROM native_spin_refunds r JOIN accounting_tournament_fee_sources f ON f.rake_record_id=r.original_id;
+ """)
+ check(json.loads(seed('2026-11-03'))['complete'],False,'original Pacific seed refuses 64 fully linked Spin refunds despite exact UTC controls')
+ q((ROOT/'supabase/migrations/20261116230303_pacific_data_recognises_linked_spin_fee_refunds.sql').read_text())
+ check(json.loads(seed('2026-11-03',True))['complete'],True,'linked original Spin receipts qualify all 64 refunds without changing money')
+ check(q("SELECT count(*)||':'||sum(fee) FROM ca_club_data_pacific_fact WHERE utc_day='2026-11-03' AND src=1"),'192:-1536','refund history retains every original player and club at the negative recognition instant')
+ check(q("SELECT count(*) FROM ca_club_data_pacific_fact WHERE stat_date='2026-11-02' AND game_id IN(SELECT game FROM native_spin_refunds)"),'0','original charge date never receives the later refund recognition')
+ for mutation,label in [
+  ("UPDATE rake_records SET metadata=jsonb_set(metadata,'{original_rake_record_id}','\"not-a-uuid\"') WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'malformed original refund link'),
+  ("UPDATE rake_records SET tournament_id=(SELECT game FROM native_spin_refunds WHERE n=2) WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'refund linked to a different tournament'),
+  ("UPDATE rake_records SET rake_amount=-23 WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'partial refund cannot masquerade as full reversal'),
+  ("INSERT INTO rake_records(id,tournament_id,is_tournament,rake_amount,created_at,source,club_id,metadata) SELECT md5('duplicate-refund')::uuid,tournament_id,is_tournament,rake_amount,created_at,source,club_id,metadata FROM rake_records WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'duplicate original refund links'),
+  ("UPDATE accounting_tournament_fee_sources SET rake_credit=7 WHERE rake_record_id=(SELECT original_id FROM native_spin_refunds WHERE n=1)",'original player fees do not conserve recognition'),
+ ]:
+  receipt=json.loads(q('BEGIN ISOLATION LEVEL REPEATABLE READ; '+mutation+"; SELECT fn_ca_club_data_pacific_seed('2026-11-03',true); ROLLBACK;"))
+  check(receipt['complete'],False,label+' remains explicitly unqualified')
+ check(q("SELECT has_function_privilege('authenticated','fn_ca_club_data_pacific_spin_refund_parts(uuid)','EXECUTE') OR has_function_privilege('service_role','fn_ca_club_data_pacific_spin_refund_parts(uuid)','EXECUTE')"),'f','linked refund helper remains private to the qualified report owner')
+ check(json.loads(seed('2026-11-03'))['already_loaded'],True,'qualified linked refund load retains the original idempotent seed receipt')
 
  print('PASS: legacy Pacific native PostgreSQL qualification')
 finally:
