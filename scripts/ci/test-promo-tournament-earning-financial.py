@@ -49,7 +49,8 @@ body='''
   guarded=subprocess.run(['node','--input-type=module','-e',wrapper,migration.name],input=migration.read_text(),text=True,capture_output=True,check=True,cwd=profit_root).stdout
   e.sql(db,guarded,label='actual-full-source-'+version,seconds=120)
  generation=proof_migration;remember(generation)
- e.sql(db,file=generation,label='original-generation-source-producer')
+ guarded=subprocess.run(['node','--input-type=module','-e',wrapper,generation.name],input=generation.read_text(),text=True,capture_output=True,check=True,cwd=profit_root).stdout
+ e.sql(db,guarded,label='original-generation-source-producer')
  seed=(root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql').read_text().split('SET LOCAL session_replication_role=origin;')[0]
  seed+=(args.ticket_tree/'tests/fixtures/promo-ticket-play-through/generation-public-financial.sql').read_text()
  e.sql(db,seed,label='actual-public-pko-entry-and-source',seconds=60)

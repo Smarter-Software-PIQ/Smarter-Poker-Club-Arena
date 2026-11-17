@@ -1,0 +1,5 @@
+# Final generation-only database booking
+
+New single-use generic database-only booking names only generation200638: new own primary notice13:45UTC, admission14:05 through fixed15:00UTC November17. Require actual publication and twenty minutes of its own primary notice after the old13:00 notices expire. The existing generic route binds the exact protected source SHA; no batch controller, seal, diagnostic profile or prior source hash changes.
+
+Original44086991125 committed six files, leaving nine of ten installed, and refused generation200638 at the original strict obligation-helper stale pin. Preserve its partial history and unproven/installerFAILED/thawedTRUE receipt. Root verified full original v3 thaw with unchanged engine; corrected G must retain its financial authority and pass the genuine stale-pin/native proof before dispatch. Never replay the nine installed files. Existing custody, rolling-hour, drain/freeze, budget, unknown-outcome and one-attempt/thaw requirements remain unchanged. Root records this technical correction as its interpretation of the continuing complete-assignment and explicit off-cycle authority, not separately chosen owner timestamps.
