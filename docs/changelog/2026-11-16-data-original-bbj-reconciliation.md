@@ -74,3 +74,15 @@ selected the GiST index and read two candidate rows in three shared-hit blocks
 (0.059 ms warm private execution). This is index-shape evidence, not a production
 latency guarantee. The existing four focused files passed 30 tests and the
 maintained concurrent-preamble tests passed 21.
+
+The first production concurrent index build reached its existing 600-second
+budget before the migration transaction was sent. The qualified retry uses a
+new index name and a timestamp-first CASE, so completed obligations before
+November 9 do not detoast their historical JSON. Earlier accepted obligations
+remain candidates if completion is later or pending. The reader uses the same
+predicate and retains the exact original accepted-day/bank-receipt-day and
+union checks. BBJ before November 9 stays unavailable even with a version-one
+seed receipt; fee/winnings headlines retain their existing availability.
+The original failed INVALID index is retained explicitly, without DROP or a
+changed installer timeout. Native qualification retains that artifact beside
+the new valid index and tests the floor, late bank receipts and pending spans.

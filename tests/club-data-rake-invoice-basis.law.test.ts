@@ -35,7 +35,12 @@ describe('Data Rake agrees with the invoice-backed Data question', () => {
     expect(split.ok).toBe(true);
     if (!split.ok) throw new Error(split.reason);
     expect(split.indexes).toHaveLength(1);
-    expect(split.indexes[0].name).toBe('ca_club_bbj_only_commit_span');
+    expect(split.indexes[0].name).toBe('ca_club_bbj_only_commit_span_nov9');
+    expect(split.indexes[0].statement).toContain(
+      "CASE WHEN committed_at >= '2026-11-09 08:00:00+00'"
+    );
+    expect(recon).toContain("IF v_day < date '2026-11-09'");
+    expect(recon).toContain("SET LOCAL TimeZone='UTC'");
     expect(split.body.indexOf('CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')).toBeLessThan(
       split.body.indexOf('ALTER TABLE public.ca_club_acct_fact')
     );

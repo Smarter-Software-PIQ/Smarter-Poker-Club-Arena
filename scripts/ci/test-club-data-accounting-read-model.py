@@ -736,16 +736,17 @@ try:
     require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'failed concurrent build leaves its original INVALID catalog receipt visible')
     run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')
     require(q('live', "SELECT to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NULL AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='ca_club_acct_fact' AND column_name='bbj_gross')") == 't', 'an absent or INVALID sparse index refuses before installing fields or readers')
-    run(psql('live'), 'DROP INDEX ca_club_bbj_only_commit_span;')
+    # Retain the failed old index exactly as the production recovery does.
     for index in split['indexes']:
         run(psql('live'), index['statement'])
+    require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'qualified replacement preserves the failed original index artifact')
     old_recon = background()
     old_recon.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_xact_id(); SELECT count(*) FROM clubs;\n\\echo RECON_SNAPSHOT\n")
     old_recon.stdin.flush()
     while old_recon.stdout.readline().strip() != 'RECON_SNAPSHOT':
         if old_recon.poll() is not None:
             raise AssertionError('pre-attachment BBJ snapshot did not open')
-    run(psql('live'), split['body'])
+    run(psql('live'), "SET TIME ZONE 'America/Chicago';" + split['body'])
     run(psql('live'), parts('2026-11-10', True), expect_fail='CLUB_DATA_BBJ_PREATTACHMENT_TRANSACTION_STILL_OPEN')
     finish(old_recon, 'COMMIT;')
     require(True, 'BBJ history waits for every pre-attachment original-source snapshot')
@@ -787,7 +788,7 @@ try:
     predicate = split['indexes'][0]['statement'].split(' WHERE ', 1)[1].rstrip(';')
     plan = json.loads(q('live', "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) SELECT hand_id FROM hand_atomic_commits WHERE " + predicate +
         " AND tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange('2026-11-10 08:00Z','2026-11-11 08:00Z','[)')"))
-    require('ca_club_bbj_only_commit_span' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
+    require('ca_club_bbj_only_commit_span_nov9' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
     require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_bbj_gap_days(uuid,date,date)','EXECUTE')") == 't',
             'the sparse original-source qualification helper remains private')
     print('BBJ sparse candidate plan: ' + json.dumps(plan), flush=True)
