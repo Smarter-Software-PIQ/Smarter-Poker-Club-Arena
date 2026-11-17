@@ -30,9 +30,17 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MIGRATIONS = sorted(
-    glob.glob(os.path.join(ROOT, "supabase", "migrations", "*_promo_play_through_*.sql"))
+# This foundational fixture is also imported by custody, notices and integrity
+# proofs. Activation has its own history-aware proof and must not be installed
+# into this preactivation schema merely because its filename shares a phrase.
+BASE_MIGRATION_FILES = (
+    "20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql",
+    "20261115225224_promo_play_through_records_a_grant_at_the_promo_ledger_row.sql",
+    "20261115235049_promo_play_through_refuses_locked_chips_at_the_exits.sql",
+    "20261116013806_promo_play_through_never_locks_real_chips.sql",
+    "20261116145205_promo_play_through_scopes_real_credits_to_their_transaction_.sql",
 )
+MIGRATIONS = [os.path.join(ROOT, "supabase", "migrations", name) for name in BASE_MIGRATION_FILES]
 
 CLUB = "c0000000-0000-0000-0000-000000000001"
 OTHER_CLUB = "c0000000-0000-0000-0000-000000000002"
@@ -122,8 +130,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output")
     args = parser.parse_args()
-    if len(MIGRATIONS) < 2:
-        raise SystemExit(f"expected the promo play-through migrations, found {MIGRATIONS}")
+    if not all(os.path.isfile(migration) for migration in MIGRATIONS):
+        raise SystemExit(f"missing an original promo play-through migration: {MIGRATIONS}")
 
     tmp = None
     socket = os.environ.get("PROMO_PT_SOCKET")
