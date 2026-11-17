@@ -507,7 +507,13 @@ it('retains an unknown empty observation and refuses duplicate or unbounded inte
   expect(spec).toMatch(
     /finally \{\s*await stopBoardInterval\(\);[\s\S]*?const boardEvidence = naturalBoardRevealIntervalsEvidence/
   );
-  expect(spec).toMatch(/await stopBoardInterval\(\);\s*await page\.reload/);
+  expect(spec).toMatch(
+    /await stopBoardInterval\(\);\s*await reloadWithWorkerTiming\(page, testInfo\)/
+  );
+  const timedReload = readFileSync('tests/e2e/support/shellReloadTrace.ts', 'utf8');
+  expect(timedReload).toContain(
+    "await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 })"
+  );
 });
 
 it('retains a delayed first sample gap without qualifying a finished first frame', () => {
