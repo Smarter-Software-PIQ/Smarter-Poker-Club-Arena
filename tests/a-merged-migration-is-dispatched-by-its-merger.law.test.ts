@@ -229,18 +229,24 @@ describe('the merge dispatches the migrations it added', () => {
   });
 
   it('stays clear of the daily 04:00 Chicago break and its release', () => {
-    // 04:00 CDT is 09:00 UTC; 04:00 CST is 10:00 UTC.
+    // 04:00 CDT is 09:00 UTC; 04:00 CST is 10:00 UTC. Since 2026-11-17 the
+    // nightly release schema freeze holds ordinary installs until 04:15.
     expect(admissibleAt(at('2026-10-25T09:05:00Z'), 1, false)).toBe(false);
-    expect(admissibleAt(at('2026-10-25T09:10:00Z'), 1, false)).toBe(true);
+    expect(admissibleAt(at('2026-10-25T09:10:00Z'), 1, false)).toBe(false);
+    expect(admissibleAt(at('2026-10-25T09:15:00Z'), 1, false)).toBe(true);
     expect(admissibleAt(at('2026-12-01T10:06:00Z'), 1, false)).toBe(false);
-    expect(admissibleAt(at('2026-12-01T09:06:00Z'), 1, false)).toBe(true);
+    expect(admissibleAt(at('2026-12-01T10:16:00Z'), 1, false)).toBe(true);
   });
 
   it('every ordinary merge fits the bounded wait, whatever the minute', () => {
+    // Outside the nightly release schema freeze (2026-11-17) the hourly bound
+    // holds; a freeze hold has its own bound and every minute fits one of them.
     let worst = 0;
     for (let t = at('2026-10-25T00:00:00Z'); t < at('2026-10-27T00:00:00Z'); t += 60_000) {
       const go = earliestDispatch(t, 1, false)!;
-      worst = Math.max(worst, go - t);
+      const plan = planDispatch(['supabase/migrations/20261024220000_a.sql'], () => ORDINARY, t);
+      expect(plan.withinBudget, new Date(t).toISOString()).toBe(true);
+      if (!plan.heldForDailyRelease) worst = Math.max(worst, go - t);
     }
     expect(worst / 60_000).toBeLessThanOrEqual(WAIT_BUDGET_MINUTES);
     expect(WAIT_BUDGET_MINUTES * 60 + 5 * 60).toBeLessThanOrEqual(

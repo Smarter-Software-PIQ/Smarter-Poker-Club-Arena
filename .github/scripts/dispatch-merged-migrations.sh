@@ -132,7 +132,7 @@ fi
 SUMMARY="$REPORT"
 LIST=$(printf '`%s` ' "${DISPATCH[@]}")
 if [ "$(jq -r '.withinBudget' <<<"$PLAN")" != "true" ]; then
-  say "- **NOT DISPATCHED (break window)**: the applier would not admit ${LIST}within this run's bounded wait (next admitted: $(jq -r '.dispatchAt // "none in two hours"' <<<"$PLAN")). Nothing was sent."
+  say "- **NOT DISPATCHED (break window)**: the applier would not admit ${LIST}within this run's bounded wait (next admitted: $(jq -r '.dispatchAt // "none in six hours"' <<<"$PLAN")). Nothing was sent."
   say "- Dispatch each, in this order, after :03 UTC: ${LIST}"
   echo "::error::Merged migrations not dispatched (break window): ${DISPATCH[*]}"
   gh pr comment "$PR" --repo "$REPO" --body "This PR merged inside the migration break window, and the dispatcher could not reach an admitted moment within its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
@@ -159,8 +159,15 @@ if [ "$(jq -sc '[.[].migration]' "$INTENT_STATE")" != "$(printf '%s\n' "${DISPAT
 fi
 
 WAIT=$(jq -r '.waitSeconds' <<<"$PLAN")
+if [ "$(jq -r '.heldForDailyRelease' <<<"$PLAN")" = true ]; then
+  # THE NIGHTLY RELEASE SCHEMA FREEZE (owner instruction 2026-11-17): the
+  # 00:07 Backup copy must still equal production at the 03:30 selection.
+  HELD="This PR merged during the nightly release schema freeze (23:45-04:15 America/Chicago). Its ordinary migration(s) ${LIST}are held by this dispatcher run and install at $(jq -r '.dispatchAt' <<<"$PLAN") (once, no retry), so the nightly Backup certificate still matches production when the 04:00 engine cutover is selected at 03:30. For a production outage that cannot wait, dispatch \`apply-merged-migration\` by hand now; that install makes tonight's certificate stale and the 04:00 cutover then keeps serving."
+  say "- **HELD FOR THE DAILY ENGINE RELEASE**: ${HELD}"
+  [ "$PHASE" != send ] || gh pr comment "$PR" --repo "$REPO" --body "$HELD" || true
+fi
 if [ "$WAIT" -gt 0 ]; then
-  say "- break window: waiting ${WAIT}s, once, until $(jq -r '.dispatchAt' <<<"$PLAN") before sending anything."
+  say "- waiting ${WAIT}s, once, until $(jq -r '.dispatchAt' <<<"$PLAN") before sending anything."
   sleep "$WAIT"
 fi
 # The clock moved while waiting; ask once more rather than trust the plan.
