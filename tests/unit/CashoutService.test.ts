@@ -1027,6 +1027,24 @@ describe('promo cashout refusals preserve atomic outcomes and current figures', 
     expect(error.message).toContain('Current Figures Are Unavailable');
     expect(error.message).not.toContain('Withdrawable Balance:');
   });
+  it('does not read promo details after the original view retires during lazy loading', async () => {
+    let live = true;
+    rpc.mockReturnValueOnce({
+      then(resolve: (value: unknown) => void) {
+        resolve({ data: null, error: { code: 'P0001', hint: 'promo_play_through_locked' } });
+        // The hold response is observed while current. Retire the view before
+        // the dynamically loaded details reader resumes in its next microtask.
+        queueMicrotask(() => {
+          live = false;
+        });
+      },
+    } as never);
+    const error = await request(250, () => live).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CashoutOutcomeUnknownError);
+    expect(readMyPromoPlayThrough).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(masterBus.emit).not.toHaveBeenCalled();
+  });
   it('retires delayed refusal details when the original view changes', async () => {
     const pending = deferred<any>();
     let live = true;

@@ -1,4 +1,3 @@
-import { readMyPromoPlayThrough } from './PromoPlayThroughService';
 import { formatWalletChips } from '../utils/format';
 import { validateCashoutAmount } from '../utils/cashoutAmount';
 /**
@@ -591,6 +590,8 @@ async function mutateCashout(
         // Informational read after a rolled-back refusal, never a client-side
         // cashout gate. A later change cannot approve or resubmit this intent.
         try {
+          const { readMyPromoPlayThrough } = await import('./PromoPlayThroughService');
+          assertCashoutCurrent(context);
           const summary = await readMyPromoPlayThrough(context.clubId);
           assertCashoutCurrent(context);
           refused.message =

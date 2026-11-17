@@ -300,7 +300,7 @@
     "tests/unit/CreditRequestLegacyCaller.test.ts": "ef6f8458a54ce3b5e646d831c176f279456e8f59598616e20dbb3a9dbc7f2e7b",
     "tests/unit/CreditRequestService.test.ts": "47bc48d13b54901999a6a58b36a93edb79e4f2d057427a4a6d622ff009d7c0c3",
     "tests/components/agent-cashout-scope.test.tsx": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
-    "tests/unit/CashoutService.test.ts": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
+    "tests/unit/CashoutService.test.ts": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
     "tests/config/roleScopedCashier.test.ts": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
     "tests/cashout-escrow-flow.test.ts": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
     "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": "edef6d6318f142277069de1fead9cbfe8ea732cc5d774987d8f4894bdc06807f",
@@ -8704,6 +8704,13 @@
         "previous": "4ddeaa1c7d3d67e33a1ccc8d68c9f853f79581a040ce494a057c74136e11f880",
         "current": "a1d8612dafd857ec2b2db5caca7c1bcf75ce2972d773571c085877574febc991",
         "why": "Reviewed complete closed-modal regression diff: instruments optional Toast context reads and asserts a closed CashoutRequestModal mounts no dialog, reads no popup context and loads no pending cashout queue. Covers the connected useScopeKey closed guard source fix while retaining every existing cashout assertion. Current source identity only; related test execution is owned and recorded by the root/cashout lane."
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "kind": "sha256",
+        "previous": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
+        "current": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
+        "why": "Reviewed complete 18-line regression diff for the scoped lazy promo-summary dependency fix: retires the original view between observing the definitive guard response and resuming the lazy detail reader, asserting no stale summary read, no bus emission, one original RPC and retained unknown outcome. Existing exact hint and money receipt assertions are unchanged. Cashout lane reports 188 focused tests passed; current source identity only."
       }
     ]
   }
