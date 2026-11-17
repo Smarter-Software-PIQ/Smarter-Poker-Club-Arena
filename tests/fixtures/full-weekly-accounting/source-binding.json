@@ -302,7 +302,7 @@
     "tests/components/agent-cashout-scope.test.tsx": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
     "tests/unit/CashoutService.test.ts": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
     "tests/config/roleScopedCashier.test.ts": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
-    "tests/cashout-escrow-flow.test.ts": "08c3b2ed491fad0fb4673779f5ff863452e2a9bd6cf617955a3d4d36f2c534c6",
+    "tests/cashout-escrow-flow.test.ts": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
     "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": "edef6d6318f142277069de1fead9cbfe8ea732cc5d774987d8f4894bdc06807f",
     "tests/fixtures/cashier-document-authority/captured-preimages.sql": "1219fa1b0c4ab26bf155f3c58d3f4c7f5fd108940c1780c5047f61d88727412a",
     "tests/unit/leaveClubReleasesEscrow.test.ts": "4faed6fab4a8eac765219b794e555edf9186064bc19b7ba02c8bc9f0572c1fca",
@@ -8690,6 +8690,13 @@
         "previous": "528149522222b33c55598df5b1ece548928b27f364241c5912ff3b1b05c01449",
         "current": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
         "why": "Adds exact promo rollback hints, fresh authoritative withdrawal figures, unavailable detail read fallback, lookalike/unknown hint refusal preservation and stale view protection; no financial fixture data or RPC/receipt safety assertion is weakened."
+      },
+      {
+        "path": "tests/cashout-escrow-flow.test.ts",
+        "kind": "sha256",
+        "previous": "08c3b2ed491fad0fb4673779f5ff863452e2a9bd6cf617955a3d4d36f2c534c6",
+        "current": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+        "why": "Reviewed the complete finalized diff: replaces obsolete cached balance refusal expectation with validation-before-recovery/submission ordering, no cached display balance admission gate, retained runCashoutOperation identity and exact fn_cashout_request_v2 authority. Reflects owner requirement for current server balance and promo restrictions. All 47 focused escrow contract tests passed; no financial fixture data or historical outcome changed."
       }
     ]
   }
