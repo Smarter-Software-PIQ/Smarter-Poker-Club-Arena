@@ -1,4 +1,4 @@
-import DataHelpTip from '../club/DataHelpTip';
+import PromoPlayThroughHelp from './PromoPlayThroughHelp';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { usePromoPlayThrough } from '../../hooks/usePromoPlayThrough';
 import { formatWalletChips } from '../../utils/format';
@@ -46,9 +46,9 @@ export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughS
           <strong>{percent}%</strong>
         </div>
       )}
-      <DataHelpTip portal label="Promo Play Through Details">
+      <PromoPlayThroughHelp>
         <PromoPlayThroughDetails summary={summary} />
-      </DataHelpTip>
+      </PromoPlayThroughHelp>
     </section>
   );
 }
@@ -151,9 +151,9 @@ export function PromoPlayThroughInline({
           {activePromoPercent(summary)}%
         </span>
       )}
-      <DataHelpTip portal label="Promo Play Through Details">
+      <PromoPlayThroughHelp>
         <PromoPlayThroughDetails summary={summary} />
-      </DataHelpTip>
+      </PromoPlayThroughHelp>
     </span>
   );
 }
