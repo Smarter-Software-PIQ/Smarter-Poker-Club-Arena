@@ -14,6 +14,7 @@ live commits counts each hand once.
 Run as an unprivileged user (initdb refuses root).
 """
 import os
+import json
 import shutil
 import socket
 import subprocess
@@ -297,13 +298,13 @@ try:
 
     # (3) The 32-lock budget: one hand with 40 players takes 32 row locks; the
     # rest of its rows go to the journal, and the figures are whole.
-    parts = ",".join('{"earning_club_id": "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3", '
+    participant_rows = ",".join('{"earning_club_id": "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3", '
                      f'"user_id": "22222222-0000-0000-0000-{i:012d}", "observed_stack_delta": 0.01}}' for i in range(40))
     run(psql("live"), "INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) "
         "VALUES ('c0000000-0000-0000-0000-000000000002', 40, gen_random_uuid(), '2026-11-05 12:00+00', 'c40', "
         "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
         "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000002', 40, '2026-11-05 12:00+00', "
-        f"'fade0000-0000-0000-0000-000000000001', false, '1', '[{parts}]');")
+        f"'fade0000-0000-0000-0000-000000000001', false, '1', '[{participant_rows}]');")
     require(q("live", "SELECT (SELECT count(*) FROM ca_club_acct_fact WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT count(*) FROM ca_club_acct_hands_journal WHERE acct_day = '2026-11-05') || '/' || "
@@ -717,6 +718,79 @@ try:
     require(q("live", "SELECT (fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-02','2026-11-08')->>'day_zone') "
                       "|| '/' || (fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-02','2026-11-08')->>'day_boundary')")
             == "America/Los_Angeles/00:00", "coverage states the real Pacific boundary")
+    # Original-source BBJ reporting extends this same aggregate/journal and
+    # finite history route. Exact production preimages, no financial replay.
+    recon = ROOT / 'tests/fixtures/club-data-reconciliation'
+    defs = json.loads((recon / 'preimages.json').read_text())
+    run(psql('live'), '\n'.join(line for line in (ROOT / 'tests/fixtures/club-data-report-db/rake-v2-fixture.sql').read_text().splitlines()
+                               if line.startswith(('CREATE TABLE ca_club_data_exports', 'CREATE TABLE ca_club_data_export_rows'))))
+    run(psql('live'), 'SET check_function_bodies=false;' + '\n'.join(x['definition'] + ';' for x in defs))
+    run(psql('live'), (recon / 'before.sql').read_text())
+    upgrade = (M / '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql').read_text()
+    split = json.loads(run([shutil.which('node'), '--input-type=module', '-e',
+        "import {readFileSync} from 'node:fs';import {splitConcurrentPreamble} from './scripts/ci/migration-concurrent-preamble.mjs';console.log(JSON.stringify(splitConcurrentPreamble(readFileSync(process.argv[1],'utf8'))));",
+        str(M / '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql')]).stdout)
+    require(split['ok'] and len(split['indexes']) == 1, 'the maintained concurrent preamble selects exactly one sparse report index')
+    run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')
+    run(psql('live'), "CREATE INDEX CONCURRENTLY ca_club_bbj_only_commit_span ON hand_atomic_commits ((1/(hand_number-hand_number)));", expect_fail='division by zero')
+    require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'failed concurrent build leaves its original INVALID catalog receipt visible')
+    run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')
+    require(q('live', "SELECT to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NULL AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='ca_club_acct_fact' AND column_name='bbj_gross')") == 't', 'an absent or INVALID sparse index refuses before installing fields or readers')
+    run(psql('live'), 'DROP INDEX ca_club_bbj_only_commit_span;')
+    for index in split['indexes']:
+        run(psql('live'), index['statement'])
+    old_recon = background()
+    old_recon.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_xact_id(); SELECT count(*) FROM clubs;\n\\echo RECON_SNAPSHOT\n")
+    old_recon.stdin.flush()
+    while old_recon.stdout.readline().strip() != 'RECON_SNAPSHOT':
+        if old_recon.poll() is not None:
+            raise AssertionError('pre-attachment BBJ snapshot did not open')
+    run(psql('live'), split['body'])
+    run(psql('live'), parts('2026-11-10', True), expect_fail='CLUB_DATA_BBJ_PREATTACHMENT_TRANSACTION_STILL_OPEN')
+    finish(old_recon, 'COMMIT;')
+    require(True, 'BBJ history waits for every pre-attachment original-source snapshot')
+    run(psql('live'), (recon / 'after.sql').read_text())
+    require(q('live', "SELECT fn_ca_club_acct_reconciliation('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-10','2026-11-10','{}')->>'complete'") == 'false',
+            'old BBJ projection defaults never certify zero contributions')
+    bbj_delta = "SELECT fn_ca_club_acct_put(jsonb_build_array(jsonb_build_object('club_id','a41434bb-8d0c-400a-8f0d-e8b3d65afed4','acct_day','2026-11-10','kind','CASH','game_id','c0000000-0000-0000-0000-000000000001','user_id','11111111-0000-0000-0000-000000000001','bbj_gross',%s,'at','2026-11-10 12:00Z')),0::smallint);"
+    holder = background()
+    holder.stdin.write('BEGIN;' + bbj_delta % '.25' + '\n\\echo BBJ_LOCKED\n')
+    holder.stdin.flush()
+    while holder.stdout.readline().strip() != 'BBJ_LOCKED':
+        if holder.poll() is not None:
+            raise AssertionError('BBJ projection owner did not open')
+    run(psql('live'), "SET lock_timeout='50ms';" + bbj_delta % '.75')
+    require(q('live', "SELECT EXISTS(SELECT 1 FROM ca_club_acct_fact_journal WHERE acct_day='2026-11-10' AND bbj_gross=.75)") == 't',
+            'BBJ aggregate contention journals immediately rather than waiting on another writer')
+    finish(holder, 'COMMIT;')
+    during_rebuild = """DO $test$ BEGIN
+      IF fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-10','2026-11-10')->>'complete' <> 'false'
+       OR NOT (fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-10','2026-11-10')->'missing_days' @> '["2026-11-10"]') THEN
+       RAISE EXCEPTION 'owning accounting coverage certified a partial rebuild';END IF;
+      BEGIN PERFORM fn_ca_club_acct_reconciliation('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-10','2026-11-10','{}');
+       RAISE EXCEPTION 'partial accounting rebuild answered a headline';
+      EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE:%' THEN RAISE; END IF; END;
+    END $test$;"""
+    run(psql('live'), parts('2026-11-10', True, between=during_rebuild))
+    run(psql('live'), (recon / 'check.sql').read_text())
+    require(q('live', "SELECT bbj_version FROM ca_club_acct_seed_log WHERE acct_day='2026-11-10'") == '1',
+            'the existing finite snapshot loader qualifies the new BBJ basis')
+    before_recon = q('live', "SELECT md5(string_agg(f::text,',' ORDER BY club_id,acct_day,game_id,user_id,src)) FROM ca_club_acct_fact f WHERE acct_day='2026-11-10'")
+    run(psql('live'), parts('2026-11-10', True))
+    require(q('live', "SELECT md5(string_agg(f::text,',' ORDER BY club_id,acct_day,game_id,user_id,src)) FROM ca_club_acct_fact f WHERE acct_day='2026-11-10'") == before_recon,
+            'versioned BBJ rebuild subtracts live and journal once and is idempotent')
+    run(psql('live'), (recon / 'check.sql').read_text())
+    require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])','EXECUTE') AND NOT has_function_privilege('service_role','fn_ca_club_acct_bbj_source_missing(uuid,uuid)','EXECUTE')") == 't',
+            'no browser or service role bypasses reconciliation reader scope')
+    run(psql('live'), (recon / 'bbj-only.sql').read_text())
+    require(True, 'BBJ-only source gaps mask only reconciliation on original accepted/bank dates, keeping posted headlines unchanged')
+    predicate = split['indexes'][0]['statement'].split(' WHERE ', 1)[1].rstrip(';')
+    plan = json.loads(q('live', "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) SELECT hand_id FROM hand_atomic_commits WHERE " + predicate +
+        " AND tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange('2026-11-10 08:00Z','2026-11-11 08:00Z','[)')"))
+    require('ca_club_bbj_only_commit_span' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
+    require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_bbj_gap_days(uuid,date,date)','EXECUTE')") == 't',
+            'the sparse original-source qualification helper remains private')
+    print('BBJ sparse candidate plan: ' + json.dumps(plan), flush=True)
     print('{"native_fixture": "passed", "production_installation": false}')
 finally:
     if started:

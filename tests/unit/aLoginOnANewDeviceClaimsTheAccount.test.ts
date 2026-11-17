@@ -7,13 +7,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const rpcMock = vi.hoisted(() => vi.fn());
+const queryMock = vi.hoisted(() => vi.fn());
+const channelCallbacks = vi.hoisted(
+  () => [] as Array<(p: { new: Record<string, unknown> }) => void>
+);
+const subscribeCallbacks = vi.hoisted(() => [] as Array<(status: string) => void>);
 const rejectionMock = vi.hoisted(() => vi.fn());
 const authListeners = vi.hoisted(() => [] as Array<(e: string, s: unknown) => void>);
 const channelFactory = vi.hoisted(() => () => ({
-  on() {
+  on(_event: unknown, _filter: unknown, cb: (p: { new: Record<string, unknown> }) => void) {
+    channelCallbacks.push(cb);
     return this;
   },
-  subscribe() {
+  subscribe(cb?: (status: string) => void) {
+    if (cb) subscribeCallbacks.push(cb);
     return this;
   },
 }));
@@ -21,9 +28,15 @@ const channelFactory = vi.hoisted(() => () => ({
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     rpc: (...args: unknown[]) => rpcMock(...args),
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }),
-    }),
+    from: () => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        gte: () => queryMock(),
+        maybeSingle: () => queryMock(),
+      };
+      return query;
+    },
     channel: () => channelFactory(),
     removeChannel: () => Promise.resolve(),
     auth: {
@@ -91,6 +104,9 @@ function clickButton(text: string): boolean {
 
 beforeEach(() => {
   rpcMock.mockReset();
+  queryMock.mockReset().mockResolvedValue({ data: null, error: null });
+  channelCallbacks.length = 0;
+  subscribeCallbacks.length = 0;
   rejectionMock.mockReset();
   authListeners.length = 0;
   localStorage.clear();
@@ -99,6 +115,7 @@ beforeEach(() => {
   __resetDeviceSightingForTests();
 });
 afterEach(() => {
+  __resetActiveLoginForTests();
   document.body.innerHTML = '';
 });
 
@@ -214,6 +231,132 @@ describe('enrollDevice', () => {
     await settle();
     expect(rejectionMock).not.toHaveBeenCalled();
     expect(localStorage.getItem(ENROLLED_DEVICE_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe('approval after iPhone Home Screen resume', () => {
+  const pending = (id = 'pending-request') => ({
+    id,
+    user_id: 'u1',
+    target_device_id: DEV,
+    label: 'Safari On iPhone',
+    status: 'pending',
+    created_at: new Date().toISOString(),
+  });
+  async function bound() {
+    rpcMock.mockResolvedValue({ data: { ok: true, bound: true, device_id: DEV }, error: null });
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+  }
+  it('loads a request inserted before the approving browser opens', async () => {
+    queryMock.mockResolvedValue({ data: [pending()], error: null });
+    await bound();
+    expect(document.body.textContent).toContain('Add A New Browser?');
+    expect(clickButton('Approve')).toBe(true);
+    await settle();
+    expect(rpcMock).toHaveBeenCalledWith(
+      'ca_resolve_pairing',
+      expect.objectContaining({
+        p_request_id: 'pending-request',
+        p_approve: true,
+      })
+    );
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+  it('reads missed requests on foreground and reconnect, deduplicating the live event', async () => {
+    await bound();
+    const row = pending();
+    queryMock.mockResolvedValue({ data: [row], error: null });
+    window.dispatchEvent(new Event('pageshow'));
+    await settle();
+    channelCallbacks[0]({ new: row });
+    subscribeCallbacks[0]('SUBSCRIBED');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(document.querySelectorAll('[role="alertdialog"]')).toHaveLength(1);
+    expect(clickButton('Deny')).toBe(true);
+    await settle();
+    expect(rpcMock).toHaveBeenCalledWith(
+      'ca_resolve_pairing',
+      expect.objectContaining({ p_approve: false })
+    );
+  });
+  it('discards a late pending read and closes prompts when the account signs out', async () => {
+    startSingleActiveLogin();
+    let reply!: (value: unknown) => void;
+    queryMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          reply = resolve;
+        })
+    );
+    await bound();
+    authListeners[0]('SIGNED_OUT', null);
+    reply({ data: [pending()], error: null });
+    await settle();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    queryMock.mockResolvedValue({ data: [pending()], error: null });
+    await enrollDevice(tokenWith(SID_B));
+    await settle();
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+    authListeners[0]('SIGNED_OUT', null);
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    const reads = queryMock.mock.calls.length;
+    window.dispatchEvent(new Event('pageshow'));
+    await settle();
+    expect(queryMock.mock.calls).toHaveLength(reads);
+  });
+  it('ignores old, resolved and other-device requests', async () => {
+    queryMock.mockResolvedValue({
+      data: [
+        { ...pending('old'), created_at: new Date(Date.now() - 181_000).toISOString() },
+        { ...pending('other'), target_device_id: 'another-device' },
+        { ...pending('resolved'), status: 'approved' },
+      ],
+      error: null,
+    });
+    await bound();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+  it('keeps a failed decision visible and permits one retry after a double tap', async () => {
+    queryMock.mockResolvedValue({ data: [pending()], error: null });
+    await bound();
+    let reply!: (value: unknown) => void;
+    rpcMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          reply = resolve;
+        })
+    );
+    clickButton('Approve');
+    clickButton('Approve');
+    expect(rpcMock.mock.calls.filter((c) => c[0] === 'ca_resolve_pairing')).toHaveLength(1);
+    reply({ data: null, error: { message: 'offline' } });
+    await settle();
+    expect(document.body.textContent).toContain('Unable To Save Your Choice');
+    rpcMock.mockResolvedValue({ data: { ok: true }, error: null });
+    clickButton('Approve');
+    await settle();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+  it('requesting browser reads an approval immediately, without waiting for a realtime event', async () => {
+    rpcMock.mockImplementation(async (name: string) => ({
+      data:
+        name === 'ca_request_pairing'
+          ? { ok: true, request_id: 'req-immediate' }
+          : name === 'ca_claim_active_login' &&
+              rpcMock.mock.calls.filter((c) => c[0] === name).length === 1
+            ? { ok: true, needs_choice: true, devices: [{ id: DEV, label: 'Safari On iPhone' }] }
+            : { ok: true, bound: true, device_id: DEV },
+      error: null,
+    }));
+    queryMock.mockResolvedValue({ data: { status: 'approved' }, error: null });
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+    clickButton('Same As');
+    await settle();
+    expect(localStorage.getItem(ENROLLED_DEVICE_STORAGE_KEY)).toBe(DEV);
+    expect(document.body.textContent).not.toContain('Waiting For Approval');
   });
 });
 
