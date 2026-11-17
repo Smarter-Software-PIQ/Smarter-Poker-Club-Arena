@@ -1,0 +1,13 @@
+# Original alert reviews and resolutions
+
+Explicit informational findings now count as reviewed in the existing digest through its original-source proof reader. They do not count as verified recovery and do not close a controller incident. An automatic duplicate classification remains unreviewed. A later delivery invalidates a prior review.
+
+Owner financial notifications retain their original drift UUID and event clock. A verified, evidence-backed resolution now reaches that exact owner mirror synchronously through the existing original source transition. A late mirror starts resolved only when that same source and episode already resolved. Age-out, malformed identities, other types and other episodes cannot borrow a resolution. The migration projects the existing original-source proof into stale owner mirrors once; no financial row, predicate, quiet period or schedule changes.
+
+The maintained native Stage B controller fixture reproduces both failures before installation and exercises the actual digest, original source trigger, intake and quiet-window recovery after installation. It checks invalid and late review evidence, duplicates, wrong source identities, timestamps, authority preservation and refusal of a stale installation. PR #11197 separately owns stuck-tournament digest/pager source transitions; an investigation label never substitutes for its physical predicate.
+
+The existing window-migration law exceeded its unchanged30-second test deadline while sequentially opening the entire migration corpus (40.8seconds alone on the shared external volume). It now selects declarations with a complete native text scan, refuses missing/failed selection, and applies the same validator to every matching migration. No migration, product deadline, assertion or window safeguard is relaxed. The full36-case law passed after the correction.
+
+The mirror trigger amendment preserves any existing additional source and its handler. Native proof installs such a source before the migration and verifies it still reaches its original handler afterward. The existing engine-law subprocess now uses that file's established60-second hang guard instead of a remaining10-second bound; the full72-case law passed, with production/window deadlines and assertions preserved.
+
+The real superseded-file case now runs the original installer against the exact two current migration files in its existing isolated fixture. Its redundant full-tree queue scan took52seconds during the normal push; all-main declaration validation remains separate and unchanged. The superseded case now also asserts zero queued files and a successful exit. Full36cases passed again.
