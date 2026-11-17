@@ -1226,7 +1226,32 @@ export async function runSelfTune(
     const eligibleHorses = [...stats]
       .filter(([, s]) => s.hands >= MIN_HANDS_TO_TUNE)
       .map(([id]) => id);
-    if (stats.size === 0) return { studied: 0, tuned: 0 };
+    if (stats.size === 0) {
+      // An empty study is allowed. Doing it silently is not.
+      //
+      // This early return writes no roster, no receipt, no completion and no
+      // log row, which is byte-for-byte what a study that never ran looks
+      // like. On 2026-09-26, 09-27 and 09-28 the job claimed itself in
+      // horse_job_runs every morning and produced exactly nothing on all
+      // three days. Nothing fired, because returning early is not an error.
+      // It was found by hand, four days late, by noticing that
+      // horse_self_tune_log simply stopped after 2026-09-25; 682 horses and
+      // 2.3M hands went unstudied.
+      //
+      // The cause then (offset paging over a study window whose volume had
+      // quadrupled, against a table with stale statistics) is fixed, and the
+      // tuner has run 50 days out of 50 since. This guard is not for that
+      // cause. It is for the next one: the only reason three dark days cost
+      // four days to notice is that this branch had no voice.
+      //
+      // The tuner is allowed to find no eligible horses. It is not allowed to
+      // be indistinguishable from a tuner that is broken.
+      reportError(new Error(`Self-tuner studied no horses for ${date}`), 'HorseSelfTuner.noStats', {
+        date,
+        eligibleHorses: eligibleHorses.length,
+      });
+      return { studied: 0, tuned: 0 };
+    }
     const cohort = await prepareHorseTunerStudy(date, stats.size, eligibleHorses);
     if (!shouldContinue()) return { studied: stats.size, tuned: 0 };
     if (cohort.status !== 'prepared') throw new Error('Tuner study roster is unconfirmed');
