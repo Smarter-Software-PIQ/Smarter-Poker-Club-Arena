@@ -325,7 +325,7 @@ SELECT pg_temp.patch_payout_source('smarter_private.weekly_prep_shard(int,int)':
  END LOOP;
  -- Stage order: own-agent markers, earned plan, calculator parts, round windows.$after$);
 
-SELECT pg_temp.patch_payout_source('smarter_private.weekly_prep_shard(int,int)'::regprocedure,$before$ UPDATE smarter_private.weekly_prep_shard_runs SET finished_at=clock_timestamp()$before$,$after$ -- Close the calculator once from its committed pieces. Each publisher, including the
+SELECT pg_temp.patch_payout_source('smarter_private.weekly_prep_shard(int,int)'::regprocedure,$before$ UPDATE smarter_private.weekly_prep_shard_runs SET finished_at=clock_timestamp() WHERE smarter_private.weekly_prep_shard_runs.id=run_id;$before$,$after$ -- Close the calculator once from its committed pieces. Each publisher, including the
  -- earned-fee combiner, has a separate transaction from a club or another stage.
  FOR item IN SELECT value FROM jsonb_array_elements(plan) LOOP
   k:=item->>'kind'; id:=(item->>'id')::uuid; ps:=(item->>'period_start')::timestamptz; pe:=(item->>'period_end')::timestamptz;
@@ -349,7 +349,7 @@ SELECT pg_temp.patch_payout_source('smarter_private.weekly_prep_shard(int,int)':
    COMMIT;
   END IF;
  END LOOP;
- UPDATE smarter_private.weekly_prep_shard_runs SET finished_at=clock_timestamp()$after$);
+ UPDATE smarter_private.weekly_prep_shard_runs SET finished_at=clock_timestamp() WHERE smarter_private.weekly_prep_shard_runs.id=run_id;$after$);
 
 SELECT pg_temp.patch_payout_source('smarter_private.weekly_prep_shard(int,int)'::regprocedure,$before$   IF step='earned' AND k<>'union' THEN CONTINUE; END IF;$before$,$after$   IF step='earned' AND k<>'union' THEN CONTINUE; END IF;
    IF smarter_private.weekly_payout_has_posted(k,id,ps,pe) THEN CONTINUE; END IF;
