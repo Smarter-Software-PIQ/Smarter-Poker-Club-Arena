@@ -535,16 +535,26 @@ describe('the break scorecard grades only what the break controls', () => {
 
   it('never shows a bare question mark where a measurement is missing', () => {
     // "Recovery ?s" reads as a broken template. Say what is missing.
-    const all = readdirSync(MIGRATIONS_DIR)
-      .filter((f) => f.endsWith('.sql'))
-      .sort()
-      .filter((f) =>
-        readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
-          'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push'
-        )
-      );
+    const selected = spawnSync(
+      'rg',
+      [
+        '--files-with-matches',
+        '--no-ignore',
+        '--follow',
+        '--text',
+        '--glob',
+        '*.sql',
+        '--fixed-strings',
+        'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push',
+        MIGRATIONS_DIR,
+      ],
+      { encoding: 'utf8', timeout: 25_000 }
+    );
+    expect(selected.error).toBeUndefined();
+    expect(selected.status).toBe(0);
+    const all = selected.stdout.trim().split('\n').sort();
     expect(all.length).toBeGreaterThan(0);
-    const push = readFileSync(resolve(MIGRATIONS_DIR, all[all.length - 1]), 'utf8');
+    const push = readFileSync(all[all.length - 1], 'utf8');
     expect(
       /COALESCE\([^)]*,\s*'\?'\s*\)/.test(push),
       "the push renders a missing measurement as '?', which reads as a bug rather than as " +
