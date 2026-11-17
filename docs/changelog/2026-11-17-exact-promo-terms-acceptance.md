@@ -6,4 +6,6 @@ The two existing asynchronous acceptance paths load the revision authority on de
 
 The existing isolated browser journey verifies the actual acceptance response against a fresh canonical profile read and retains only a sanitized revision/timestamp receipt. Unit regressions cover legacy acknowledgements, wrong revisions, invalid timestamps and the exact successful request/response.
 
+The existing dedicated first-run iPhone case now uses that same acceptance proof and requires a new acknowledgement from its own fresh account. Its profile taps, welcome/reload checks and immediate account cleanup stay in the existing journey.
+
 Publication prerequisite: the revision column and service-only acceptance RPC must be installed, and the World Hub exact-revision writer must be live before this client merges. This draft does not activate Promo Play Through or promote historical acceptance.
