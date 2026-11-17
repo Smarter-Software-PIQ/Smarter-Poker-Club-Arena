@@ -1,3 +1,4 @@
+import DataHelpTip from '../club/DataHelpTip';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { usePromoPlayThrough } from '../../hooks/usePromoPlayThrough';
 import { formatWalletChips } from '../../utils/format';
@@ -10,7 +11,6 @@ import {
   hasAgentPromoWithdrawalRestriction,
   hasActivePromoPlayThrough,
   hasPromoRestrictionDetails,
-  sourceReviewHeld,
 } from '../../utils/promoPlayThroughVisibility';
 import './PromoPlayThroughProgress.css';
 
@@ -46,66 +46,82 @@ export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughS
           <strong>{percent}%</strong>
         </div>
       )}
-      <div className="promo-progress__copy">
-        {active && (
-          <>
-            <span className="sc-label sc-ink--blue">Promo Play Through</span>
-            <span>
-              {formatWalletChips(summary.fee_progress)} Of {formatWalletChips(summary.fee_target)}{' '}
-              In Fees
-            </span>
-            <span>
-              {formatWalletChips(summary.fee_remaining)} To Go · {formatWalletChips(summary.locked)}{' '}
-              Locked
-            </span>
-          </>
-        )}
-        {hasActivePromoProfit(summary) && (
-          <span>
-            Promo Profit Fee Progress: {activePromoProfitPercent(summary)}% ·{' '}
-            {formatWalletChips(summary.profit_fee_progress ?? 0)} Of{' '}
-            {formatWalletChips(summary.profit_fee_target ?? 0)} In Fees ·{' '}
-            {formatWalletChips(summary.profit_fee_remaining ?? 0)} To Go
-          </span>
-        )}
-        {hasPromoWithdrawalRestriction(summary) && (
-          <span>Withdrawable Balance: {formatWalletChips(summary.cashable)}</span>
-        )}
-        {hasAgentPromoWithdrawalRestriction(summary) &&
-          summary.agent_wallet != null &&
-          summary.agent_cashable != null && (
-            <div aria-label="Agent Wallet Restrictions">
-              <span>Agent Wallet: {formatWalletChips(summary.agent_wallet)}</span>
-              <br />
-              <span>Withdrawable Balance: {formatWalletChips(summary.agent_cashable)}</span>
-            </div>
-          )}
-        {(summary.integrity_held ?? 0) > 0 && (
-          <span>{formatWalletChips(summary.integrity_held ?? 0)} Held For Source Review</span>
-        )}
-        {(summary.agent_integrity_held ?? 0) > 0 && (
-          <span>
-            {formatWalletChips(summary.agent_integrity_held ?? 0)} Agent Chips Held For Source
-            Review
-          </span>
-        )}
-        {(summary.integrity_total_held ?? 0) >
-          (summary.integrity_held ?? 0) + (summary.agent_integrity_held ?? 0) && (
-          <span>
-            {formatWalletChips(summary.integrity_total_held ?? 0)} Total Held For Source Review
-          </span>
-        )}
-        {(summary.expired_locked ?? 0) > 0 && (
-          <span>
-            {formatWalletChips(summary.expired_locked ?? 0)} Expired Promo Awaiting Return To Its
-            Original Fund
-          </span>
-        )}
-        {active && summary.next_expiry_at && (
-          <span>Next Expiry: {new Date(summary.next_expiry_at).toLocaleDateString()}</span>
-        )}
-      </div>
+      <DataHelpTip portal label="Promo Play Through Details">
+        <PromoPlayThroughDetails summary={summary} />
+      </DataHelpTip>
     </section>
+  );
+}
+
+function PromoPlayThroughDetails({ summary }: { summary: PromoPlayThroughSummary }) {
+  const active = hasActivePromoPlayThrough(summary);
+  return (
+    <div className="promo-progress__copy">
+      <p>
+        Promo Principal Unlocks After 4× Its Original Amount In Fees. Promo Profits Unlock After 2×.
+        The Same Fees Count Toward Both Requirements.
+      </p>
+      <p>
+        Your Own Funds And Rakeback Remain Withdrawable. A Fully Lost Promo Balance Ends Its Play
+        Through; Later Credits Do Not Restart It.
+      </p>
+      {active && (
+        <>
+          <span className="sc-label sc-ink--blue">Promo Play Through</span>
+          <span>
+            {formatWalletChips(summary.fee_progress)} Of {formatWalletChips(summary.fee_target)} In
+            Fees
+          </span>
+          <span>
+            {formatWalletChips(summary.fee_remaining)} To Go · {formatWalletChips(summary.locked)}{' '}
+            Locked
+          </span>
+        </>
+      )}
+      {hasActivePromoProfit(summary) && (
+        <span>
+          Promo Profit Fee Progress: {activePromoProfitPercent(summary)}% ·{' '}
+          {formatWalletChips(summary.profit_fee_progress ?? 0)} Of{' '}
+          {formatWalletChips(summary.profit_fee_target ?? 0)} In Fees ·{' '}
+          {formatWalletChips(summary.profit_fee_remaining ?? 0)} To Go
+        </span>
+      )}
+      {hasPromoWithdrawalRestriction(summary) && (
+        <span>Withdrawable Balance: {formatWalletChips(summary.cashable)}</span>
+      )}
+      {hasAgentPromoWithdrawalRestriction(summary) &&
+        summary.agent_wallet != null &&
+        summary.agent_cashable != null && (
+          <div aria-label="Agent Wallet Restrictions">
+            <span>Agent Wallet: {formatWalletChips(summary.agent_wallet)}</span>
+            <br />
+            <span>Withdrawable Balance: {formatWalletChips(summary.agent_cashable)}</span>
+          </div>
+        )}
+      {(summary.integrity_held ?? 0) > 0 && (
+        <span>{formatWalletChips(summary.integrity_held ?? 0)} Held For Source Review</span>
+      )}
+      {(summary.agent_integrity_held ?? 0) > 0 && (
+        <span>
+          {formatWalletChips(summary.agent_integrity_held ?? 0)} Agent Chips Held For Source Review
+        </span>
+      )}
+      {(summary.integrity_total_held ?? 0) >
+        (summary.integrity_held ?? 0) + (summary.agent_integrity_held ?? 0) && (
+        <span>
+          {formatWalletChips(summary.integrity_total_held ?? 0)} Total Held For Source Review
+        </span>
+      )}
+      {(summary.expired_locked ?? 0) > 0 && (
+        <span>
+          {formatWalletChips(summary.expired_locked ?? 0)} Expired Promo Awaiting Return To Its
+          Original Fund
+        </span>
+      )}
+      {active && summary.next_expiry_at && (
+        <span>Next Expiry: {new Date(summary.next_expiry_at).toLocaleDateString()}</span>
+      )}
+    </div>
   );
 }
 
@@ -123,32 +139,22 @@ export function PromoPlayThroughInline({
     );
   if (!hasPromoRestrictionDetails(summary)) return null;
   return (
-    <>
+    <span className="promo-progress__inline">
       {hasActivePromoPlayThrough(summary) && (
         <span
-          className="member-promo"
-          title={`${formatWalletChips(summary.locked)} Locked · ${formatWalletChips(summary.fee_remaining)} In Fees To Go`}
+          role="progressbar"
+          aria-label="Promo Fee Progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={activePromoPercent(summary)}
         >
-          Promo Locked {formatWalletChips(summary.locked)} · {activePromoPercent(summary)}%
+          {activePromoPercent(summary)}%
         </span>
       )}
-      {hasActivePromoProfit(summary) && (
-        <span className="member-promo">
-          Promo Profit Fee Progress: {activePromoProfitPercent(summary)}%
-        </span>
-      )}
-      {(summary.expired_locked ?? 0) > 0 && (
-        <span className="member-promo">
-          {formatWalletChips(summary.expired_locked ?? 0)} Expired Promo Awaiting Return To Its
-          Original Fund
-        </span>
-      )}
-      {sourceReviewHeld(summary) > 0 && (
-        <span className="member-promo">
-          {formatWalletChips(sourceReviewHeld(summary))} Held For Source Review
-        </span>
-      )}
-    </>
+      <DataHelpTip portal label="Promo Play Through Details">
+        <PromoPlayThroughDetails summary={summary} />
+      </DataHelpTip>
+    </span>
   );
 }
 

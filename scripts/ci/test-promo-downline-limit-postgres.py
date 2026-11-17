@@ -109,6 +109,19 @@ try:
         installed_hash = hashlib.md5(qualified.replace(anchor, added).encode()).hexdigest()
         check('live browser contract pins the qualified cap body plus its one recorded successor patch', f"'hash', '{installed_hash}'" in contract and "version = '20261114174204'" in contract)
         check('the superseded body alone is no longer pinned', "'hash', '7087a67e16f6d7990c28fbb549464bef'" not in contract)
+        # Exercise the installed successor, not just a derived hash. Its real
+        # allowance helper reads the configured daily ceiling; no money owner is
+        # replaced with a test implementation.
+        for proof in re.findall(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M):
+            check('original migration exact postimage', query('SELECT '+proof+';') == 't')
+        query("CREATE TABLE sp_digest_settings(key text PRIMARY KEY,value numeric,note text); INSERT INTO sp_digest_settings VALUES('agent_promo_daily_chips',250,'fixture'); CREATE FUNCTION fn_sp_setting(text,numeric) RETURNS numeric LANGUAGE sql STABLE AS $$ SELECT coalesce((SELECT value FROM sp_digest_settings WHERE key=$1),$2) $$;")
+        daily_helper = re.search(r'CREATE OR REPLACE FUNCTION public\.fn_ca_agent_promo_daily_allowance\(.*?\$function\$.*?\$function\$', sibling['sql'], re.S)
+        assert daily_helper, 'exact recorded daily allowance helper'
+        query(daily_helper.group(0) + ';')
+        current = query("SELECT pg_get_functiondef('fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure);")
+        assert current.count(anchor) == 1, 'exact successor patch anchor'
+        query(current.replace(anchor, added))
+        check('native cap proof executes the exact installed successor', query("SELECT md5(prosrc) FROM pg_proc WHERE oid='fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure;") == installed_hash)
     first_op = str(uuid.uuid4())
     check('first split send', send(30, op=first_op)['success'])
     result = refused(20.01)
@@ -193,8 +206,6 @@ try:
             check('batch returns same limit refusal', batch['results'][0]['error_code'] == 'promo_downline_seven_day_limit')
     check('batch cannot split around cap', query(f"SELECT sum(amount)=50 FROM chip_transactions WHERE to_user_id='{uid(6)}';") == 't')
     if not args.baseline:
-        for proof in re.findall(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M):
-            check('exact installed postimage', query('SELECT '+proof+';') == 't')
         try:
             query(MIGRATION.read_text())
         except RuntimeError as error:

@@ -60,6 +60,7 @@ vi.mock('../../src/components/common/confirmDialog', () => ({
 }));
 vi.mock('../../src/components/common/Toast', () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+  useOptionalToast: () => ({ warning: vi.fn() }),
 }));
 vi.mock('../../src/services/WalletService', () => ({ WalletService: {} }));
 vi.mock('../../src/services/CreditService', () => ({ CreditService: {} }));

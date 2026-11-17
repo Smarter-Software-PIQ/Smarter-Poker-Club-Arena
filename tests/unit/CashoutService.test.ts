@@ -56,6 +56,10 @@ vi.mock('../../src/utils/clubIdResolver', () => ({
 vi.mock('../../src/services/PushNotificationService', () => ({
   pushNotificationService: { sendToUser: vi.fn() },
 }));
+vi.mock('../../src/services/PromoPlayThroughService', () => ({
+  readMyPromoPlayThrough: vi.fn(),
+}));
+import { readMyPromoPlayThrough } from '../../src/services/PromoPlayThroughService';
 import {
   cashoutService,
   captureCashoutAccountGuard,
@@ -976,4 +980,66 @@ describe('request read scope and unavailable data', () => {
   });
   // 2026-10-09 (S-11): the throw-only expireStale stub was deleted; see the
   // 'no longer exposes a money wrapper' case above.
+});
+
+describe('promo cashout refusals preserve atomic outcomes and current figures', () => {
+  it.each(['promo_play_through_locked', 'promo_winnings_play_through_locked'])(
+    'explains the exact rollback hint %s with fresh authoritative figures',
+    async (hint) => {
+      rpc.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'P0001', message: 'Guard Refused', hint },
+      } as never);
+      vi.mocked(readMyPromoPlayThrough).mockResolvedValueOnce({
+        cashable: 18.5,
+        fee_remaining: 175,
+        profit_fee_remaining: 75,
+      } as never);
+      const error = await request().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(CashoutRefusedError);
+      expect(error).toMatchObject({ definitive: true, operationId: ID.operation, token: hint });
+      expect(error.message).toContain('Withdrawable Balance: 18.50 Chips');
+      expect(error.message).toContain('175.00 More Chips In Fees To Reach Four Times');
+      expect(error.message).toContain('75.00 More Chips In Fees To Reach Two Times');
+      expect(readMyPromoPlayThrough).toHaveBeenLastCalledWith(ID.club);
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(masterBus.emit).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps unrecognized P0001 and hint lookalikes unknown', async () => {
+    for (const hint of ['other_failure', 'promo_play_through_locked_extra', null]) {
+      rpc.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'P0001', message: 'promo_play_through_locked', hint },
+      } as never);
+      await expect(request()).rejects.toBeInstanceOf(CashoutOutcomeUnknownError);
+    }
+    expect(readMyPromoPlayThrough).not.toHaveBeenCalled();
+  });
+  it('retains the definitive rollback when the details read fails without inventing balances', async () => {
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', hint: 'promo_play_through_locked' },
+    } as never);
+    vi.mocked(readMyPromoPlayThrough).mockRejectedValueOnce(new Error('Offline'));
+    const error = await request().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CashoutRefusedError);
+    expect(error.message).toContain('Current Figures Are Unavailable');
+    expect(error.message).not.toContain('Withdrawable Balance:');
+  });
+  it('retires delayed refusal details when the original view changes', async () => {
+    const pending = deferred<any>();
+    let live = true;
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', hint: 'promo_play_through_locked' },
+    } as never);
+    vi.mocked(readMyPromoPlayThrough).mockReturnValueOnce(pending.promise);
+    const result = request(250, () => live).catch((caught: unknown) => caught);
+    await vi.waitFor(() => expect(readMyPromoPlayThrough).toHaveBeenCalled());
+    live = false;
+    pending.resolve({ cashable: 50, fee_remaining: 10, profit_fee_remaining: 0 });
+    expect((await result).message).not.toContain('Withdrawable Balance:');
+    expect(masterBus.emit).not.toHaveBeenCalled();
+  });
 });
