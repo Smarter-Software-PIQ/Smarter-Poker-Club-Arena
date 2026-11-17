@@ -2624,8 +2624,52 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
               });
           }
         }
-        if (phoneWidth === 393)
+        if (journal) {
           expect(measuredClick, 'measured a real lobby spectator action').toBe(true);
+          const tableId = new URL(page.url()).pathname.split('/').filter(Boolean).at(-1)!;
+          const banner = page.getByTestId('table-connection-banner');
+          await page.context().setOffline(true);
+          try {
+            await expect(banner).toBeVisible({ timeout: CONNECT_DEADLINE_MS });
+          } finally {
+            await page.context().setOffline(false);
+          }
+          await expect(banner).toBeHidden({ timeout: CONNECT_DEADLINE_MS });
+          const previousSockets = journal.transportIdsOpenAt(Date.now());
+          const reload = traceTableNavigation(page, tableId, 'reload');
+          try {
+            const oldDocument = await page.evaluate(() => performance.timeOrigin);
+            const response = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+            expect(response?.ok()).toBe(true);
+            expect(await page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(oldDocument);
+            expect(new URL(page.url()).pathname).toMatch(new RegExp('/table/' + tableId + '/?$'));
+            await expect
+              .poll(
+                () =>
+                  journal
+                    .matchingFrames({
+                      direction: 'received',
+                      tableId,
+                      type: 'SNAPSHOT',
+                      since: reload.start,
+                    })
+                    .some((frame) => !previousSockets.includes(frame.socketId)),
+                { timeout: CONNECT_DEADLINE_MS, message: 'Missing new-document table snapshot' }
+              )
+              .toBe(true);
+            const table = page.locator('.table-page:visible').first();
+            await expect(table.locator('.table-surface')).toBeVisible({ timeout: 30_000 });
+            await expect(table.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+            await expect(banner).toBeHidden();
+            reload.mark('connected-after-reload');
+          } finally {
+            reload.stop();
+            await testInfo.attach('393px-reload', {
+              contentType: 'application/json',
+              body: JSON.stringify({ tableId, events: reload.events }),
+            });
+          }
+        }
         expect(mutations, 'Layout observation must never participate in a live game').toEqual([]);
         expect(
           [...capacities].sort(),

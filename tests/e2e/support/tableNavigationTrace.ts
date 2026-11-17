@@ -38,7 +38,11 @@ function linuxRenderers() {
   return { uptime, worker: process.pid, processes };
 }
 
-export function traceTableNavigation(page: Page, tableId: string, entry: 'document' | 'click') {
+export function traceTableNavigation(
+  page: Page,
+  tableId: string,
+  entry: 'document' | 'click' | 'reload'
+) {
   const start = Date.now();
   const events: { phase: string; elapsedMs: number; linux?: ReturnType<typeof linuxRenderers> }[] =
     [];
@@ -80,7 +84,11 @@ export function traceTableNavigation(page: Page, tableId: string, entry: 'docume
   page.on('console', click);
   page.on('crash', crash);
   page.on('close', close);
-  mark(entry === 'document' ? 'start-document-navigation' : 'start-lobby-action');
+  mark(
+    { document: 'start-document-navigation', click: 'start-lobby-action', reload: 'start-reload' }[
+      entry
+    ]
+  );
   return {
     start,
     mark,
