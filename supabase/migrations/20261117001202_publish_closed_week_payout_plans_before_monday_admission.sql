@@ -23,7 +23,7 @@ BEGIN
  -- preparation snapshot. The dirty witness survives staged publication or rollback.
  IF NOT pg_try_advisory_xact_lock(hashtextextended(CASE WHEN p_kind='union' THEN 'union-accounting:' ELSE 'club-accounting:' END
     ||p_id::text||':'||extract(epoch FROM ps)::text||':'||extract(epoch FROM pe)::text,0)) THEN
-    RAISE EXCEPTION 'closed_week_source_waits_for_owned_payout' USING ERRCODE='40001'; END IF;
+    RAISE EXCEPTION 'closed_week_source_waits_for_owned_payout' USING ERRCODE='55P03'; END IF;
  INSERT INTO smarter_private.weekly_payout_source_changes VALUES(p_kind,p_id,ps,date_bin(interval '2 hours',p_earned,ps),clock_timestamp(),coalesce(p_calculator_club,p_id),p_calculator_club IS NOT NULL)
  ON CONFLICT(scope_kind,scope_id,period_start,window_start,calculator_club) DO UPDATE SET changed_at=EXCLUDED.changed_at,
  affects_calculation=EXCLUDED.affects_calculation OR smarter_private.weekly_payout_source_changes.affects_calculation;

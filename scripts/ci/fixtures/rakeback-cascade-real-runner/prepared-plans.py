@@ -66,8 +66,8 @@ try:
         holder.stdin.write("BEGIN; SELECT pg_advisory_xact_lock("+lock+"); SELECT 'held';\n");holder.stdin.flush()
         while holder.stdout.readline().strip()!='held':
             assert holder.poll() is None
-        refused=q(source,check=False)
-        assert refused.returncode and 'closed_week_source_waits_for_owned_payout' in refused.stderr,refused.stderr
+        refused=q('\\set VERBOSITY verbose\n'+source,check=False)
+        assert refused.returncode and '55P03' in refused.stderr and 'closed_week_source_waits_for_owned_payout' in refused.stderr,refused.stderr
         assert one(finance)==opening
     finally:
         holder.communicate('ROLLBACK;\n',timeout=5)
