@@ -244,15 +244,10 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  # Qualify that actual empty source day rather than fabricating coverage.
  adjacent_utc_day=q("SELECT least('2026-11-17'::date,history_through)::text FROM ca_club_data_pacific_state")
  if adjacent_utc_day>'2026-11-16':
+  q(f"SELECT fn_ca_club_data_pacific_require('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
   check(json.loads(seed(adjacent_utc_day))['complete'],True,'actual adjacent UTC source day qualifies the Pacific screen window')
  check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND stat_date='2026-11-16'"),'0','wrong original club has no phantom game after rebuild')
  check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND stat_date='2026-11-16'"),'0.50000000000000000000:2:1','canonical owner keeps raw fractional fees and participant hands')
- # This fixed Pacific day also touches UTC November 17. After real UTC
- # midnight that edge is historical, so qualify it through the original
- # finite loader; before midnight it is future and must not be seeded.
- if q("SELECT history_through>=date '2026-11-17' FROM ca_club_data_pacific_state")=='t':
-  q(f"SELECT fn_ca_club_data_pacific_require('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
-  check(json.loads(seed('2026-11-17'))['complete'],True,'fixed Pacific fixture qualifies its second historical UTC source edge after midnight')
  check(json.loads(q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16')"))['summary']['games'],0,'actual screen omits wrong-club game after signed source correction')
  check(q("SELECT basis_version FROM ca_club_data_pacific_seed_log WHERE utc_day='2026-11-16'"),'1','new source-qualified history receipt records basis version1')
  check(json.loads(seed('2026-11-16'))['already_loaded'],True,'same source basis receipt remains idempotent')
