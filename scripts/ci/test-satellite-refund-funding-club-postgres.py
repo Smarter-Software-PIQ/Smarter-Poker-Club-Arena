@@ -312,6 +312,41 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  assert {name: rows(call) for name,(_,call) in readers.items()}==original_rows
  print('PASS custom and generic actual execution',json.dumps({'ownership_calls_before':baseline_generic_calls,'ownership_calls_after':fixed_generic_calls,'generic_refund_rows_before':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in generic_scans),'generic_refund_rows_after':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in fixed_generic_scans),'financial_rows_unchanged':True,'financial_faults':len(faults),'private_metadata_preserved':True,'complete_guard_pins_preserved':True,'installer_stale_pin_guard':True,'atomic_rollback':True}))
 
+ # The same player can have several independent pending rebuys refunded by
+ # one original transaction. Model all four immutable surfaces for two at 400.
+ advance=next(v for k,v in json.loads((R/'scripts/ci/fixtures/rakeback-cascade-real-runner/union-close.json').read_text())['functions'].items() if k.startswith('public.fn_accounting_union_earned_plan_advance('))
+ sql(advance['def'])
+ scope="fade0000-0000-0000-0000-000000000001"
+ refund_at="2026-11-07 21:00:00Z"
+ for n in range(2):
+  ids={label:sql("SELECT md5('batch-"+label+str(n)+"')::uuid") for label in ('leg','debit','pending','receipt','occupancy','credit')}
+  table,user=[sql("SELECT md5('batched-refund-"+label+"')::uuid") for label in ('table','player')]
+  l=dict(id=ids['leg'],status='posted',category='player_funding',from_type='table_stack',from_entity_id=table,to_type='player_wallet',to_entity_id=user,created_at=refund_at,table_id=table,club_id=KINGS,amount=400)
+  sql(insert('chip_ledger',l)+insert('union_pnl_original_flows',dict(ledger_id=ids['leg'],transaction_id='911023',recognized_at=refund_at,game_scope=dict(game_union_id=scope,asset='chips',unit_scale=2),ledger_snapshot=l))
+     +insert('chip_ledger',dict(id=ids['debit'],status='posted',category='rebuy',amount=400,from_type='player_wallet',from_entity_id=user,to_type='table_stack',to_entity_id=table,table_id=table,club_id=KINGS))
+     +insert('cash_participant_funding_receipts',dict(id=ids['receipt'],source_ledger_id=ids['debit'],asset='chips',unit_scale=2,funding_union_id=scope,funding_club_id=KINGS,table_id=table,user_id=user,account_type='player_wallet',account_entity_id=user,amount=400,balance_after=1200,balance_before=1600,occupancy_id=ids['occupancy'],pending_addon_id=ids['pending']))
+     +insert('cash_funding_application_receipts',dict(transaction_id='911023',refunded=400,applied=0,funding_receipt_id=ids['receipt'],pending_addon_id=ids['pending'],original_occupancy_id=ids['occupancy']))
+     +insert('chip_transactions',dict(id=ids['credit'],transaction_type='addon_refund',created_at=refund_at,club_id=KINGS,table_id=table,to_user_id=user,amount=400,is_reversed=False,clawed_back=False)))
+ def return_count(call,fault=''):
+  return sql('BEGIN;'+fault+";SELECT count(*)||':'||count(*) FILTER(WHERE valid AND kind='cash_return' AND club_id='"+KINGS+"' AND cashouts=400 AND user_id='"+user+"') FROM "+call+" WHERE ledger_id IN (md5('batch-leg0')::uuid,md5('batch-leg1')::uuid);ROLLBACK;")
+ for _,call in readers.values(): assert return_count(call)=='2:0'
+ batch_file=R/'supabase/migrations/20261117014412_prove_batched_original_cash_refunds_at_their_actual_multiplicity.sql'
+ sql(batch_file.read_text())
+ for _,call in readers.values():
+  assert return_count(call)=='2:2'
+  for fault in ["DELETE FROM cash_funding_application_receipts WHERE pending_addon_id=md5('batch-pending1')::uuid",
+                "INSERT INTO cash_funding_application_receipts SELECT * FROM cash_funding_application_receipts WHERE pending_addon_id=md5('batch-pending1')::uuid",
+                "UPDATE cash_participant_funding_receipts SET source_ledger_id=md5('batch-debit0')::uuid WHERE id=md5('batch-receipt1')::uuid",
+                "UPDATE chip_ledger SET amount=399 WHERE id=md5('batch-debit1')::uuid",
+                "UPDATE chip_transactions SET is_reversed=true WHERE id=md5('batch-credit1')::uuid",
+                "UPDATE cash_funding_application_receipts SET original_occupancy_id=md5('wrong-seat')::uuid WHERE pending_addon_id=md5('batch-pending1')::uuid",
+                "UPDATE cash_participant_funding_receipts SET funding_club_id=md5('wrong-club')::uuid WHERE id=md5('batch-receipt1')::uuid",
+                "UPDATE union_pnl_original_flows SET ledger_snapshot=jsonb_set(ledger_snapshot,'{status}',to_jsonb('void'::text)) WHERE ledger_id=md5('batch-leg0')::uuid"]:
+   assert return_count(call,fault)=='2:0',fault
+  assert return_count(call,"DELETE FROM union_pnl_original_flows WHERE ledger_id=md5('batch-leg1')::uuid")=='1:0'
+ print('PASS original batched returns: both readers retain both 400 returns and reject missing, extra, misattributed, reversed, reused or unfunded originals')
+
+
 finally:
  if started:subprocess.run([str(PG/'pg_ctl'),'-D',str(w/'data'),'-m','immediate','stop'],capture_output=True,env=env)
  shutil.rmtree(w)
