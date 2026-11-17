@@ -441,7 +441,9 @@ export function omahaReraiseByPositionCell(
     return i.reraiseCommits === true
       ? { reraise: true, reason: 'aces_commitment' }
       : { reraise: false, reason: 'bare_aces' };
-  return omahaReraisedPremium(i.hole)
+  const premiumOk =
+    omahaReraisedPremium(i.hole) && (i.preflopRaises < 2 || omahaOopCoordinated(i.hole) !== null);
+  return premiumOk
     ? { reraise: true, reason: 'premium_structure' }
     : { reraise: false, reason: 'not_premium' };
 }

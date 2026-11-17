@@ -30,7 +30,11 @@ import {
   omahaFacingBetEvVerdict,
   type OmahaFacingBetEvRead,
 } from './HorseOmahaFacingBetEv.js';
-import { omahaOopReraisedCallCell } from './HorseOmahaOopReraisedPot.js';
+import {
+  omahaOopReraisedCallCell,
+  omahaReraiseByPositionCell,
+} from './HorseOmahaOopReraisedPot.js';
+import { omahaBareBigPairOnFlop } from './HorseOmahaOopChecks.js';
 import {
   evaluateTournamentUtilityDetailed,
   type TournamentUtilityContext,
@@ -1037,5 +1041,508 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       }
     }
     expect(sawBet).toBe(true);
+  });
+
+  it('BUG-5B (#59751306, #59772951, #59776625) & BUG-8 (#59747538): withholds non-premium pressure 4-bets when valueLeader flips false, blocks ragged KK OOP 4-bets, and checks bare AA OOP on paired flops', () => {
+    const villainId = '99999999-0000-4000-8000-000000000009';
+    const fakeManiacNonLeader = {
+      hands: 60,
+      presumed: false,
+      stats: {
+        vpip: { n: 60, mean: 0.85 },
+        pfr: { n: 60, mean: 0.58 },
+        rfi: { n: 30, mean: 0.8 },
+        threeBet: { n: 15, mean: 0.35 },
+        foldTo3Bet: { n: 8, mean: 0.05 },
+        betCheckedTo: { n: 45, mean: 0.4 },
+        foldToBet: { n: 22, mean: 0.42 },
+        riverCall: { n: 8, mean: 0.26 },
+      },
+    };
+    vi.spyOn(HorseMind, 'opponentRead').mockImplementation((uid) =>
+      uid === villainId ? (fakeManiacNonLeader as never) : null
+    );
+    // Simulate Table 2 read state where fast-window c-bets flipped valueLeader -> false & postflopAggressor -> true
+    vi.spyOn(HorseMind, 'omahaReadConditionalOf').mockImplementation((uid) =>
+      uid === villainId
+        ? ({
+            measured: true,
+            valueLeader: false,
+            wideReRaiser: true,
+            postflopAggressor: true,
+          } as never)
+        : null
+    );
+    vi.spyOn(HorseMind, 'bandsForOpponents').mockImplementation(() => [[0.3, 1]]);
+
+    // #59751306 AKQT7 (Qh Kd Ac Th 7c) & #59772951 AJ943 (9d 4h As Jh 3s): no 4-bet even when valueLeader === false
+    for (const spec of ['Qh Kd Ac Th 7c', '9d 4h As Jh 3s']) {
+      const hero: SeatPlayer = {
+        seat: 5,
+        user_id: '55555555-0000-4000-8000-000000000005',
+        username: 'pokerlou',
+        stack: 514.4,
+        bet: 10,
+        totalInvested: 10,
+        cards: cards(spec),
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+        is_horse: true,
+      };
+      const villain: SeatPlayer = {
+        seat: 1,
+        user_id: villainId,
+        username: 'V1',
+        stack: 3200,
+        bet: 46,
+        totalInvested: 46,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      };
+      const gs = {
+        stateSchemaVersion: 1,
+        gameVariant: 'plo5',
+        gameMode: 'cash',
+        bettingStructure: 'pot_limit',
+        stage: 'preflop',
+        pot: 72,
+        bigBlind: 2,
+        smallBlind: 1,
+        currentBet: 46,
+        toCall: 36,
+        minRaiseTo: 82,
+        maxRaiseTo: 154,
+        legalActions: ['fold', 'call', 'raise'],
+        dealerSeat: 6,
+        communityCards: [],
+        players: [villain, { ...hero, cards: [] }],
+        actionHistory: [
+          {
+            stage: 'preflop',
+            seat: 5,
+            userId: hero.user_id,
+            action: 'raise',
+            amount: 10,
+            isFullRaise: true,
+            timestamp: 1,
+          },
+          {
+            stage: 'preflop',
+            seat: 1,
+            userId: villainId,
+            action: 'raise',
+            amount: 46,
+            isFullRaise: true,
+            timestamp: 2,
+          },
+        ] as ActionRecord[],
+      } as unknown as HorseGameStateV2;
+
+      seedFastRandom(59751306);
+      const d = structuredClone(
+        HorseLogic.decide(hero, gs, 'balanced', {}, {
+          observeMind: false,
+          omahaPressureNeedsPostflopAggression: true,
+        } as never)
+      );
+      expect(d.action).not.toBe('raise');
+      expect(d.action).not.toBe('all_in');
+      expect(horseDecisionReceiptRefusal(d, 'plo5', { player: hero, gameState: gs })).toBeNull();
+    }
+
+    // #59776625: ragged KKds (Ks 5s Kd 8d 7d) facing a 3-bet OOP (preflopRaises = 2) is rejected as a 4-bet
+    const raggedKk4Bet = omahaReraiseByPositionCell({
+      variant: 'plo5',
+      hole: cards('Ks 5s Kd 8d 7d'),
+      preflopRaises: 2,
+      outOfPosition: true,
+      earlyPosition: false,
+      blindVersusBlind: false,
+      hiLo: false,
+      multiBoard: false,
+      bombPot: false,
+      tournament: false,
+      allInOrFold: false,
+    });
+    expect(raggedKk4Bet).toEqual({ reraise: false, reason: 'not_premium' });
+
+    // #59747538: bare AA (Kh Ah As Js 6s) OOP on paired flop 7s 7h 3d is recognized as a bare big pair (board2p) and checks
+    expect(omahaBareBigPairOnFlop(cards('Kh Ah As Js 6s'), cards('7s 7h 3d'))).toBe(true);
+    const flopHero: SeatPlayer = {
+      seat: 5,
+      user_id: '55555555-0000-4000-8000-000000000005',
+      username: 'pokerlou',
+      stack: 678.4,
+      bet: 0,
+      totalInvested: 124,
+      cards: cards('Kh Ah As Js 6s'),
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+      is_horse: true,
+    };
+    const flopVillain: SeatPlayer = {
+      seat: 1,
+      user_id: villainId,
+      username: 'V1',
+      stack: 3037,
+      bet: 0,
+      totalInvested: 124,
+      cards: [],
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    };
+    const flopGs = {
+      stateSchemaVersion: 1,
+      gameVariant: 'plo5',
+      gameMode: 'cash',
+      bettingStructure: 'pot_limit',
+      stage: 'flop',
+      pot: 261,
+      bigBlind: 2,
+      smallBlind: 1,
+      currentBet: 0,
+      toCall: 0,
+      minRaise: 2,
+      minRaiseTo: 2,
+      maxRaiseTo: 261,
+      legalActions: ['check', 'bet'],
+      dealerSeat: 2,
+      communityCards: cards('7s 7h 3d'),
+      players: [flopVillain, { ...flopHero, cards: [] }],
+      actionHistory: [
+        {
+          stage: 'preflop',
+          seat: 5,
+          userId: flopHero.user_id,
+          action: 'raise',
+          amount: 8,
+          isFullRaise: true,
+          timestamp: 1,
+        },
+        {
+          stage: 'preflop',
+          seat: 1,
+          userId: villainId,
+          action: 'raise',
+          amount: 37,
+          isFullRaise: true,
+          timestamp: 2,
+        },
+        {
+          stage: 'preflop',
+          seat: 5,
+          userId: flopHero.user_id,
+          action: 'raise',
+          amount: 124,
+          isFullRaise: true,
+          timestamp: 3,
+        },
+        {
+          stage: 'preflop',
+          seat: 1,
+          userId: villainId,
+          action: 'call',
+          amount: 87,
+          timestamp: 4,
+        },
+      ] as ActionRecord[],
+    } as unknown as HorseGameStateV2;
+
+    seedFastRandom(59747538);
+    const dFlop = structuredClone(
+      HorseLogic.decide(
+        flopHero,
+        flopGs,
+        'balanced',
+        {},
+        {
+          mind: false,
+          telemetry: false,
+          omahaBareOverpairOopFlopCheck: true,
+        }
+      )
+    );
+    expect(dFlop.action).toBe('check');
+    expect(
+      horseDecisionReceiptRefusal(dFlop, 'plo5', { player: flopHero, gameState: flopGs })
+    ).toBeNull();
+  });
+
+  it('BUG-9 (#59770288, #59740955, #59755179, #59768596): folds non-nut sets/2p facing unpaired multi-street all-in shoves and dominated flushes facing flop-XR + turn-pot + river-pot barrels', () => {
+    const aggRead: OmahaFacingBetEvRead = {
+      measured: true,
+      betCheckedToRatio: 1.48,
+      postflopManiac: false,
+      valueLeader: false,
+      sizeShown: null,
+    };
+    const vlRead: OmahaFacingBetEvRead = {
+      measured: true,
+      betCheckedToRatio: 0.9,
+      postflopManiac: false,
+      valueLeader: true,
+      sizeShown: null,
+    };
+
+    const buildHand = (cfg: {
+      stage: 'turn' | 'river';
+      hole: string;
+      board: string;
+      heroStack: number;
+      oppBet: number;
+      pot: number;
+      history: ActionRecord[];
+    }) => {
+      const hero: SeatPlayer = {
+        seat: 3,
+        user_id: '33333333-0000-4000-8000-000000000003',
+        username: 'H3',
+        stack: cfg.heroStack,
+        bet: 0,
+        totalInvested: 500,
+        cards: cards(cfg.hole),
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+        is_horse: true,
+      };
+      const villain: SeatPlayer = {
+        seat: 1,
+        user_id: '11111111-0000-4000-8000-000000000001',
+        username: 'V1',
+        stack: 4000,
+        bet: cfg.oppBet,
+        totalInvested: 500 + cfg.oppBet,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      };
+      const allInCall = cfg.heroStack <= cfg.oppBet + 0.005;
+      const gs = {
+        stateSchemaVersion: 1,
+        gameVariant: 'plo5',
+        gameMode: 'cash',
+        bettingStructure: 'pot_limit',
+        stage: cfg.stage,
+        pot: cfg.pot,
+        bigBlind: 2,
+        smallBlind: 1,
+        currentBet: cfg.oppBet,
+        toCall: cfg.oppBet,
+        minRaiseTo: allInCall ? null : cfg.oppBet * 2,
+        maxRaiseTo: allInCall ? null : cfg.heroStack,
+        legalActions: allInCall ? ['fold', 'all_in'] : ['fold', 'call', 'all_in'],
+        dealerSeat: 6,
+        communityCards: cards(cfg.board),
+        players: [villain, { ...hero, cards: [] }],
+        actionHistory: cfg.history,
+      } as unknown as HorseGameStateV2;
+      return { hero, gs };
+    };
+
+    // 1) #59770288: AAA set facing $776 ($413.65 all-in) river shove on 4-straight Ah 5h 4c 6s Td
+    const h1 = buildHand({
+      stage: 'river',
+      hole: 'As 9d Ad 9s Tc',
+      board: 'Ah 5h 4c 6s Td',
+      heroStack: 413.65,
+      oppBet: 776,
+      pot: 2327,
+      history: [
+        { stage: 'flop', seat: 1, userId: 'v', action: 'check', amount: 0, timestamp: 1 },
+        {
+          stage: 'flop',
+          seat: 3,
+          userId: 'h',
+          action: 'bet',
+          amount: 203,
+          isFullRaise: true,
+          timestamp: 2,
+        },
+        { stage: 'flop', seat: 1, userId: 'v', action: 'call', amount: 203, timestamp: 3 },
+        {
+          stage: 'turn',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 388,
+          isFullRaise: true,
+          timestamp: 4,
+        },
+        { stage: 'turn', seat: 3, userId: 'h', action: 'call', amount: 388, timestamp: 5 },
+        {
+          stage: 'river',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 776,
+          isFullRaise: true,
+          timestamp: 6,
+        },
+      ] as ActionRecord[],
+    });
+
+    // 2) #59740955: 999 set facing $489 ($376.70 all-in) river shove on 9h 7c 5s Ks 4d
+    const h2 = buildHand({
+      stage: 'river',
+      hole: '9c Kh Qs 9d Th',
+      board: '9h 7c 5s Ks 4d',
+      heroStack: 376.7,
+      oppBet: 489,
+      pot: 1467,
+      history: [
+        { stage: 'flop', seat: 3, userId: 'h', action: 'check', amount: 0, timestamp: 1 },
+        {
+          stage: 'flop',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 42,
+          isFullRaise: true,
+          timestamp: 2,
+        },
+        {
+          stage: 'flop',
+          seat: 3,
+          userId: 'h',
+          action: 'raise',
+          amount: 135,
+          isFullRaise: true,
+          timestamp: 3,
+        },
+        { stage: 'flop', seat: 1, userId: 'v', action: 'call', amount: 93, timestamp: 4 },
+        { stage: 'turn', seat: 3, userId: 'h', action: 'check', amount: 0, timestamp: 5 },
+        {
+          stage: 'turn',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 326,
+          isFullRaise: true,
+          timestamp: 6,
+        },
+        { stage: 'turn', seat: 3, userId: 'h', action: 'call', amount: 326, timestamp: 7 },
+        { stage: 'river', seat: 3, userId: 'h', action: 'check', amount: 0, timestamp: 8 },
+        {
+          stage: 'river',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 489,
+          isFullRaise: true,
+          timestamp: 9,
+        },
+      ] as ActionRecord[],
+    });
+
+    // 3) #59755179: Tc3c 3rd-nut flush facing $522 pot river bet after flop XR + turn pot on Ac Ts 6h Jc 9c
+    const h3 = buildHand({
+      stage: 'river',
+      hole: 'Kd Tc Td 8h 3c',
+      board: 'Ac Ts 6h Jc 9c',
+      heroStack: 951.52,
+      oppBet: 522,
+      pot: 1044,
+      history: [
+        { stage: 'flop', seat: 1, userId: 'v', action: 'check', amount: 0, timestamp: 1 },
+        {
+          stage: 'flop',
+          seat: 3,
+          userId: 'h',
+          action: 'bet',
+          amount: 12,
+          isFullRaise: true,
+          timestamp: 2,
+        },
+        {
+          stage: 'flop',
+          seat: 1,
+          userId: 'v',
+          action: 'raise',
+          amount: 70,
+          isFullRaise: true,
+          timestamp: 3,
+        },
+        { stage: 'flop', seat: 3, userId: 'h', action: 'call', amount: 58, timestamp: 4 },
+        {
+          stage: 'turn',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 174,
+          isFullRaise: true,
+          timestamp: 5,
+        },
+        { stage: 'turn', seat: 3, userId: 'h', action: 'call', amount: 174, timestamp: 6 },
+        {
+          stage: 'river',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 522,
+          isFullRaise: true,
+          timestamp: 7,
+        },
+      ] as ActionRecord[],
+    });
+
+    // 4) #59768596: 9966 two-pair facing $501 ($296.75 all-in) turn shove on 6c 9h 8h 4d
+    const h4 = buildHand({
+      stage: 'turn',
+      hole: 'As Ad 6d 2s 9s',
+      board: '6c 9h 8h 4d',
+      heroStack: 296.75,
+      oppBet: 501,
+      pot: 1168,
+      history: [
+        { stage: 'flop', seat: 3, userId: 'h', action: 'check', amount: 0, timestamp: 1 },
+        {
+          stage: 'flop',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 167,
+          isFullRaise: true,
+          timestamp: 2,
+        },
+        { stage: 'flop', seat: 3, userId: 'h', action: 'call', amount: 167, timestamp: 3 },
+        { stage: 'turn', seat: 3, userId: 'h', action: 'check', amount: 0, timestamp: 4 },
+        {
+          stage: 'turn',
+          seat: 1,
+          userId: 'v',
+          action: 'bet',
+          amount: 501,
+          isFullRaise: true,
+          timestamp: 5,
+        },
+      ] as ActionRecord[],
+    });
+
+    for (const { hero, gs } of [h1, h2, h3, h4]) {
+      const spot = omahaFacingBetEvSpot(hero, gs)!;
+      expect(spot).not.toBeNull();
+      for (const rd of [null, vlRead, aggRead]) {
+        const verdict = omahaFacingBetEvVerdict(spot, hero.cards, gs.communityCards, [], rd)!;
+        expect(verdict.call).toBe(false);
+      }
+      vi.spyOn(HorseMind, 'omahaFacingBetEvReadOf').mockImplementation(() => aggRead);
+      seedFastRandom(59770288);
+      const d = structuredClone(
+        HorseLogic.decide(hero, gs, 'balanced', {}, {
+          observeMind: false,
+          omahaFacingBetEv: true,
+        } as never)
+      );
+      expect(d.action).toBe('fold');
+      expect(horseDecisionReceiptRefusal(d, 'plo5', { player: hero, gameState: gs })).toBeNull();
+      vi.restoreAllMocks();
+    }
   });
 });

@@ -1001,10 +1001,11 @@ export function omahaFacingBetEvSpot(
     const lineOn = (
       st: string,
       seat: number
-    ): { wagers: number; aggr: boolean; called: boolean } => {
+    ): { wagers: number; aggr: boolean; raised: boolean; called: boolean } => {
       let level = 0;
       let wagers = 0;
       let aggr = false;
+      let raised = false;
       let called = false;
       const totals = new Map<number, number>();
       for (const a of gs.actionHistory ?? []) {
@@ -1020,19 +1021,25 @@ export function omahaFacingBetEvSpot(
           if (now > level + 0.005) {
             level = now;
             wagers++;
-            if (a.seat === seat) aggr = true;
+            if (a.seat === seat) {
+              aggr = true;
+              if (wagers >= 2) raised = true;
+            }
           } else if (a.seat === seat && now > prev) called = true;
         }
       }
-      return { wagers, aggr, called };
+      return { wagers, aggr, raised, called };
     };
     const isRaise = lineOn(street, faced.bettorSeat).wagers >= 2;
     let aggressorStreets = 0;
     let callerStreets = 0;
+    let earlierRaised = false;
     for (const st of street === 'river' ? ['flop', 'turn'] : ['flop']) {
       const l = lineOn(st, faced.bettorSeat);
-      if (l.aggr) aggressorStreets++;
-      else if (l.called) callerStreets++;
+      if (l.aggr) {
+        aggressorStreets++;
+        if (l.raised) earlierRaised = true;
+      } else if (l.called) callerStreets++;
     }
 
     // The field.
@@ -1080,14 +1087,40 @@ export function omahaFacingBetEvSpot(
       aggressorStreets === 0 &&
       callerStreets >= 1 &&
       lineOn('turn', player.seat).aggr;
-    const valueShare = pairedRiverDonkIntoAggressor
+    // Hands #59770288, #59740955, #59768596: when an opponent who already bet or
+    // raised an earlier postflop street puts hero's capped remaining stack all-in
+    // on an unpaired board, effectiveWager is truncated by hero's remaining stack
+    // rather than chosen as a thin <40%/mid block bet.
+    const unpairedMultiStreetAllIn =
+      !isRaise &&
+      !boardPaired &&
+      allIn &&
+      aggressorStreets >= 1 &&
+      (bucket === 'under40' || bucket === 'mid');
+    // Hand #59755179: raising an earlier postflop street and barreling every
+    // street into a >= 70%-pot river bet represents a raise-narrowed nutted range.
+    const earlierRaisedBigRiverBarrel =
+      street === 'river' && !isRaise && earlierRaised && aggressorStreets >= 2 && potFrac >= 0.7;
+    let valueShare = pairedRiverDonkIntoAggressor
       ? OMAHA_EV_VALUE_SHARE.river.raise * OMAHA_EV_LINE_AGGRESSOR ** callerStreets
-      : OMAHA_EV_VALUE_SHARE[street][isRaise ? 'raise' : bucket] *
+      : OMAHA_EV_VALUE_SHARE[street][
+          isRaise ? 'raise' : unpairedMultiStreetAllIn ? 'big' : bucket
+        ] *
         OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets *
         OMAHA_EV_LINE_CALLER ** callerStreets;
-    const priorBluff = pairedRiverDonkIntoAggressor
+    let priorBluff = pairedRiverDonkIntoAggressor
       ? OMAHA_EV_PRIOR_BLUFF.river.raise
-      : omahaEvPriorBluffShare(street, potFrac, isRaise);
+      : unpairedMultiStreetAllIn
+        ? Math.min(
+            omahaEvPriorBluffShare(street, potFrac, false),
+            OMAHA_EV_PRIOR_BLUFF[street].big
+          ) *
+          OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets
+        : omahaEvPriorBluffShare(street, potFrac, isRaise);
+    if (earlierRaisedBigRiverBarrel) {
+      valueShare *= 0.7;
+      priorBluff = Math.min(priorBluff, OMAHA_EV_PRIOR_BLUFF.river.raise);
+    }
     return {
       street,
       bettorSeat: faced.bettorSeat,

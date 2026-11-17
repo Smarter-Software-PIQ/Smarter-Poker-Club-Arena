@@ -13844,10 +13844,11 @@ export class HorseLogic {
           if (maniacPrice38 && maniacRaiserWidth !== null)
             maniacPriceReceiptPending = maniacPriceReadReceipt(maniacRaiserWidth, eq38, required38);
           const gap38 = eq38 - required38;
-          // Against a measured postflop valueLeader (non-postflopManiac) in Omaha
-          // cash, do not 4-bet bloat the pot via v53_pressure_four_bet without AA or
-          // a coordinated premium 4-bet structure (Hands #59709936 JJ2KQ, #59719920
-          // ragged KK63T); those hands take the priced flat call instead.
+          // Against any non-postflopManiac opponent in Omaha cash, do not 4-bet
+          // bloat the pot via v53_pressure_four_bet without AA or a coordinated
+          // premium 4-bet structure (Hands #59709936 JJ2KQ, #59719920 ragged KK63T,
+          // #59751306 AKQT7, #59772951 AJ943 when valueLeader flipped false);
+          // those hands take the priced flat call instead.
           const omahaPressureFourBetNeedsCoordinatedPremium =
             opts.omahaPressureNeedsPostflopAggression === true &&
             vi.isOmaha &&
@@ -13859,8 +13860,6 @@ export class HorseLogic {
                 const read53 = HorseMind.opponentRead(raiser38.user_id);
                 if (read53 !== null && read53.presumed !== true && isPostflopManiac(read53))
                   return false;
-                const rc53 = HorseMind.omahaReadConditionalOf(raiser38.user_id);
-                if (rc53?.measured !== true || rc53.valueLeader !== true) return false;
                 const aces53 = player.cards.filter((c) => c.rank === 'A').length >= 2;
                 if (aces53) return false;
                 return (
