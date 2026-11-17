@@ -20,6 +20,8 @@ on:
       - supabase/migrations/20260902220500_the_undeclared_legs_name_their_counterparty.sql
       - supabase/migrations/20260908155252_hand_projection_takes_post_commit_lock_first.sql
       - supabase/migrations/20261002082303_satellite_board_stands_down_for_a_scheduled_series_and_orpha.sql
+      - supabase/migrations/20261117225600_commit_hand_obligations_before_stats_projection.sql
+      - supabase/migrations/20261019151125_tournament_table_writers_wait_for_their_shared_lane.sql
       - scripts/ci/test-deadlock-lock-orders-r5.py
       - .github/workflows/deadlock-lock-orders-r5.yml
 

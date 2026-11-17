@@ -270,6 +270,77 @@ def proj_round(db, n):
     return deadlocks() - before, r1, r2
 
 
+
+def prove_projection_transaction_boundary(db):
+    """A blocked statistics writer must not roll back or hold a rake credit."""
+    sig = LIVE['proj'][2]
+    lane_migration = next(MIGRATIONS.glob('20261019151125_*.sql')).read_text()
+    patch = lane_migration.split("('public.fn_project_hand_side_effects(uuid)',", 1)[1]
+    old = patch.split('$old$')[1]
+    new = patch.split('$new$')[1]
+    original = run(db, f"SELECT pg_get_functiondef('{sig}'::regprocedure)") + '\n'
+    run(db, """
+CREATE SCHEMA smarter_private;
+CREATE FUNCTION smarter_private.f06_wait_table_lane(uuid) RETURNS void
+LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;
+CREATE TABLE union_wallets (rake integer);
+INSERT INTO union_wallets VALUES (0);
+CREATE TABLE post_commit_receipts (hand_id uuid PRIMARY KEY);
+CREATE TABLE projection_gate (id integer PRIMARY KEY);
+INSERT INTO projection_gate VALUES (1);
+
+CREATE OR REPLACE FUNCTION public.fn_ca_process_hand_post_commit_obligations(p_hand_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO post_commit_receipts VALUES (p_hand_id) ON CONFLICT DO NOTHING;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', true, 'already_completed', true);
+  END IF;
+  UPDATE union_wallets SET rake = rake + 1;
+  RETURN jsonb_build_object('ok', true, 'already_completed', false);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.fn_project_hand_side_effects_after_post_commit_20260908(p_hand_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM projection_gate WHERE id = 1 FOR UPDATE NOWAIT;
+  DELETE FROM hand_projection_outbox WHERE hand_id = p_hand_id;
+  RETURN jsonb_build_object('ok', true);
+END $$;
+""")
+    run(db, original.replace(old, new))
+    check('cash boundary: exact installed projection preimage',
+          md5(db, sig) == 'e1402cc728a46730f2c478ef2e397317')
+    hand, _ = proj_hands(db, 3)
+    call = f"SELECT public.fn_project_hand_side_effects('{hand}')"
+    state = ("SELECT rake, (SELECT count(*) FROM post_commit_receipts), "
+             f"(SELECT count(*) FROM hand_projection_outbox WHERE hand_id = '{hand}') FROM union_wallets")
+    gate = spawn(db, "BEGIN; SELECT id FROM projection_gate FOR UPDATE;\n")
+    try:
+        check('cash boundary: statistics row is held', gate.stdout.readline().strip() == '1')
+        before = spawn(db, call + ';\n')
+        status, _, error = finish(before)
+        check('cash boundary: old projection failure rolls back the rake credit',
+              status != 0 and 'could not obtain lock' in error and run(db, state) == '0|0|1')
+        run(db, (MIGRATIONS / '20261117225600_commit_hand_obligations_before_stats_projection.sql').read_text())
+        result = json.loads(run(db, call))
+        check('cash boundary: financial receipt commits with statistics still blocked',
+              result.get('ok') is False and result.get('reason') == 'predecessor_pending'
+              and result.get('hand_id') == hand and run(db, state) == '1|1|1', result)
+        check('cash boundary: another table can take the wallet before statistics finish',
+              run(db, 'SELECT rake FROM union_wallets FOR UPDATE NOWAIT') == '1')
+        blocked = spawn(db, call + ';\n')
+        status, _, error = finish(blocked)
+        check('cash boundary: a separate statistics rollback leaves the credit intact',
+              status != 0 and 'could not obtain lock' in error and run(db, state) == '1|1|1')
+    finally:
+        send(gate, 'ROLLBACK;\n')
+        finish(gate)
+    check('cash boundary: continuation projects once and never recredits',
+          json.loads(run(db, call)).get('ok') is True and run(db, state) == '1|1|0'
+          and json.loads(run(db, call)).get('reason') == 'not_pending')
+
+
 SAT_SCHEMA = f"""
 CREATE TABLE public.tournaments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text, game_type text,
   variant text, buy_in_amount numeric(15,2), buy_in_fee numeric(15,2), guaranteed_prize numeric(15,2),
@@ -394,6 +465,8 @@ try:
     stats = run('proj', "SELECT string_agg(user_id || ':' || hands_dealt || ':' || total_losses, ',' ORDER BY user_id) "
                         "FROM player_stats")
     check('proj: both hands wrote every pass exactly once', stats == f'{A}:2:1,{B}:2:1', stats)
+
+    prove_projection_transaction_boundary('proj')
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')
