@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/invite-count-scope-labels",
+  "_comment": "Club invite figures name their scope; display additions retired (20261117195710).",
+  "functions": ["fn_club_share_figures"],
+  "removedFunctions": ["fn_club_card_figures"]
+}

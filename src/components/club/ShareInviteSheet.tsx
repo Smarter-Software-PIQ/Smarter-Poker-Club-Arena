@@ -163,7 +163,7 @@ export function ShareInviteSheet({
 
   if (!isOpen) return null;
 
-  const shareText = inviteShareText(inviterAlias, clubName, clubNumber);
+  const shareText = inviteShareText(inviterAlias, clubName, clubNumber, link?.figures ?? null);
 
   const handleCopy = async () => {
     if (!link) return;
