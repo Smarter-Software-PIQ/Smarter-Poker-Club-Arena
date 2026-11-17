@@ -107,13 +107,16 @@ const state = vi.hoisted(() => ({
   rpcCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   tableCalls: [] as TableCall[],
 }));
-const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({ useMasterBusChannel: vi.fn() }));
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: USER_ID }, isHydrating: false }),
 }));
-vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toastMocks }));
+vi.mock('../../src/components/common/Toast', () => ({
+  useToast: () => toastMocks,
+  useOptionalToast: () => toastMocks,
+}));
 vi.mock('../../src/components/wallet/WalletCashierModal', () => ({ default: () => null }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 /**

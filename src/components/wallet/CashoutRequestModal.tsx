@@ -137,6 +137,7 @@ interface CashoutRequestModalProps {
 
 export default function CashoutRequestModal(props: CashoutRequestModalProps) {
   const key = useCashoutScopeKey(props.playerId, JSON.stringify([props.clubId, props.isOpen]));
+  if (!props.isOpen) return null;
   return <CashoutRequestContent key={key} {...props} />;
 }
 

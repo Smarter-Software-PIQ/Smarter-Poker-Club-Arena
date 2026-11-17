@@ -7,8 +7,10 @@ import {
   cashoutV2Receipt,
   cashoutLookupEnvelope,
 } from '../helpers/cashoutV2Receipt';
-const popup = vi.hoisted(() => ({ warning: vi.fn() }));
-vi.mock('../../src/components/common/Toast', () => ({ useOptionalToast: () => popup }));
+const popup = vi.hoisted(() => ({ warning: vi.fn(), read: vi.fn() }));
+vi.mock('../../src/components/common/Toast', () => ({
+  useOptionalToast: () => { popup.read(); return popup; },
+}));
 vi.mock('../../src/services/PromoPlayThroughService', () => ({ readMyPromoPlayThrough: vi.fn(async () => ({ cashable: 1.25, fee_remaining: 175, profit_fee_remaining: 75 })) }));
 const identity = vi.hoisted(() => ({
   userId: '',
@@ -91,6 +93,7 @@ beforeEach(() => {
   for (const handler of identity.auth)
     handler({ payload: { userId: ID.player, isAuthenticated: true } });
   popup.warning.mockClear();
+  popup.read.mockClear();
   localStorage.clear();
   sessionStorage.clear();
   vi.stubGlobal('crypto', webcrypto);
@@ -544,4 +547,11 @@ it('shows promo refusal in the shared popup and permits an eligible retry withou
   await waitFor(() => expect(complete).toHaveBeenCalledOnce());
   expect(rpc).toHaveBeenCalledTimes(2);
   expect(rpc.mock.calls[1][1].p_op_id).not.toBe(refusedId);
+});
+
+it('does not mount closed cashout content or read its popup context and pending queue', () => {
+  render(<CashoutRequestModal isOpen={false} onClose={vi.fn()} playerId={ID.player} clubId={ID.club} currentBalance={500} />);
+  expect(popup.read).not.toHaveBeenCalled();
+  expect(cashoutService.getPlayerCashouts).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog')).toBeNull();
 });
