@@ -1,6 +1,6 @@
 -- Terminal settlements share the existing bounded maintenance reservation.
 -- Ordinary hands retain only global lane 1; independent terminal scopes remain concurrent.
--- @live-proof: EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid='public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure AND md5(pg_get_functiondef(p.oid))='fc2dd75d5e2c2c7bb9ebbda2dc9d7794' AND p.proowner='postgres'::regrole AND p.prosecdef AND p.proacl::text='{postgres=X/postgres,service_role=X/postgres}' AND p.proconfig=ARRAY['search_path=public, pg_temp','lock_timeout=8s','statement_timeout=45s']::text[])
+-- @live-proof: EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid='public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure AND md5(pg_get_functiondef(p.oid))='9159271d76bf740fe60cd238f8629bba' AND p.proowner='postgres'::regrole AND p.prosecdef AND p.proacl::text='{postgres=X/postgres,service_role=X/postgres}' AND p.proconfig=ARRAY['search_path=public, pg_temp','lock_timeout=8s','statement_timeout=45s']::text[])
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='5s';
@@ -16,10 +16,10 @@ BEGIN
  body:=pg_get_functiondef(p.oid);
  IF (length(body)-length(replace(body,needle,'')))/length(needle)<>1 THEN
   RAISE EXCEPTION 'TERMINAL_RESERVATION_ORIGINAL_BOUNDARY_CHANGED'; END IF;
- body:=replace(body,needle,E'  -- The existing maintenance writer reserves lane 2 exclusively before lane 1.\n  -- Decline behind that reservation; never queue ordinary hand continuations.\n  IF NOT pg_catalog.pg_try_advisory_xact_lock_shared(530090,2) THEN\n    RAISE EXCEPTION ''TERMINAL_MAINTENANCE_RESERVATION_BUSY'' USING ERRCODE=''55P03'';\n  END IF;\n'||needle);
+ body:=replace(body,needle,E'  -- The existing maintenance writer reserves lane 2 exclusively before lane 1.\n  -- Decline behind that reservation; never queue ordinary hand continuations.\n  IF NOT pg_catalog.pg_try_advisory_xact_lock_shared(530090,2) THEN\n    RAISE EXCEPTION ''TERMINAL_MAINTENANCE_RESERVATION_BUSY'' USING ERRCODE=''55P03'';\n  END IF;\n  -- The announced last-hand terminal window closes with the existing 30-second reserve.\n  IF EXISTS(SELECT 1 FROM public.engine_maintenance_break b\n    WHERE b.enforce_freeze AND b.phase=''last_hand''\n      AND b.break_started_at IS NULL AND b.break_ends_at IS NULL\n      AND b.announced_at + INTERVAL ''90 seconds'' <= clock_timestamp()) THEN\n    RAISE EXCEPTION ''PLATFORM_FROZEN: terminal settlement reserve has started'' USING ERRCODE=''55006'';\n  END IF;\n'||needle);
  EXECUTE body;
  SELECT * INTO STRICT p FROM pg_proc WHERE oid='public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure;
- IF md5(pg_get_functiondef(p.oid))<>'fc2dd75d5e2c2c7bb9ebbda2dc9d7794'
+ IF md5(pg_get_functiondef(p.oid))<>'9159271d76bf740fe60cd238f8629bba'
  OR p.proowner<>'postgres'::regrole OR NOT p.prosecdef
  OR p.proacl::text IS DISTINCT FROM '{postgres=X/postgres,service_role=X/postgres}'
  OR p.proconfig IS DISTINCT FROM ARRAY['search_path=public, pg_temp','lock_timeout=8s','statement_timeout=45s']::text[] THEN

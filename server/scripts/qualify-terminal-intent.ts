@@ -321,6 +321,93 @@ try {
       ).rows[0].n,
       1
     );
+    if (scenario === 'reservation-after') {
+      const early = (
+        await observer.query("SELECT clock_timestamp()-interval '20 seconds' AS announced")
+      ).rows[0].announced;
+      await b.query(
+        "SELECT public.fn_save_engine_maintenance_break('last_hand',$1,NULL,NULL,'native','native',$2)",
+        [early, token]
+      );
+      assert(
+        !(await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen
+      );
+      await actor(incoming);
+      assert.deepEqual(
+        await execute(incoming),
+        paid,
+        'early last-hand terminal replay remains allowed'
+      );
+      await incoming.query('COMMIT');
+      const late = (
+        await observer.query("SELECT clock_timestamp()-interval '95 seconds' AS announced")
+      ).rows[0].announced;
+      await b.query(
+        "SELECT public.fn_save_engine_maintenance_break('last_hand',$1,NULL,NULL,'native','native',$2)",
+        [late, token]
+      );
+      assert(
+        !(await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen,
+        '95 seconds is before the original 120-second full freeze'
+      );
+      const beforeLate = await snapshot();
+      const correct = (
+        await observer.query(
+          "SELECT pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure) AS definition"
+        )
+      ).rows[0].definition;
+      // Exact prior candidate counterfactual, confined to this isolated catalog.
+      const cutoffStart = correct.indexOf('  -- The announced last-hand terminal window');
+      const cutoffEnd = correct.indexOf(
+        '  PERFORM pg_catalog.pg_advisory_xact_lock_shared(530090,1);',
+        cutoffStart
+      );
+      assert(cutoffStart > 0 && cutoffEnd > cutoffStart);
+      await observer.query(correct.slice(0, cutoffStart) + correct.slice(cutoffEnd));
+      assert.equal(
+        (
+          await observer.query(
+            "SELECT md5(pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure)) AS digest"
+          )
+        ).rows[0].digest,
+        'fc2dd75d5e2c2c7bb9ebbda2dc9d7794'
+      );
+      await actor(incoming);
+      assert.deepEqual(
+        await execute(incoming),
+        paid,
+        'prior candidate wrongly admits a direct late last-hand replay'
+      );
+      await incoming.query('COMMIT');
+      await observer.query(correct);
+      await actor(incoming);
+      const lateRefusal = await execute(incoming).then(
+        () => null,
+        (e) => e
+      );
+      assert.equal(lateRefusal?.code, '55006');
+      assert.match(lateRefusal.message, /terminal settlement reserve has started/);
+      await incoming.query('ROLLBACK');
+      assert.deepEqual(
+        await snapshot(),
+        beforeLate,
+        'late direct RPC refusal preserves every financial receipt and balance'
+      );
+      await observer.query('BEGIN');
+      assert(
+        (await observer.query('SELECT pg_try_advisory_xact_lock_shared(530090,1) AS hand')).rows[0]
+          .hand,
+        'hand continuation remains admitted during the terminal reserve'
+      );
+      await observer.query('COMMIT');
+      await b.query(
+        "SELECT public.fn_clear_engine_maintenance_break('last_hand',$1,NULL,NULL,'native',$2)",
+        [late, token]
+      );
+      await actor(incoming);
+      assert.deepEqual(await execute(incoming), paid);
+      await incoming.query('COMMIT');
+    }
   } else if (scenario.startsWith('maintenance-')) {
     const aPid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
     const token = '92090000-0000-4000-8000-000000000099';
