@@ -110,5 +110,19 @@ assert all(r['rc']==0 and r['out']=='' and not r['changed'] for r in done),done
 assert books('2026-11-16 22:00:20+00')['out']=='' and one("SELECT count(*) FROM public.chip_ledger WHERE category='rakeback'")==RAKEBACK_ROWS
 case(f'union books tick, fixed, once the union\'s close for the week is complete: every tick (to the end of the twelve-hour window and after it) returns NULL and writes nothing; across all {len(old)+len(later)+len(done)+5} ticks the chip ledger keeps its {RAKEBACK_ROWS} rakeback rows and no payout, receipt or period changes')
 record.append({'union_books':[{k:r[k] for k in ('at','rc','stage','out','err')} for r in old+[t1]+later+done]})
+# Job 272 and the minute payout owner used to prepare the same unpaid scope.
+# Restore an unpaid obligation inside a rollback and exercise job 272's entry.
+q(next((R/'supabase/migrations').glob('20261117001203_*.sql')).read_text())
+clock('2026-11-16 10:05:10+00')
+bounds = "SET LOCAL statement_timeout='240s'; SET LOCAL app.weekly_accounting_chunked='on';"
+q("BEGIN;" + bounds +
+  ok("smarter_private.weekly_payout_prepare_due() IS NULL", "released week passes to books") +
+  "INSERT INTO public.unions(id,name,owner_id,slug) VALUES(rr.u('X'),'Union X',rr.u('X.boss'),'union-x');" +
+  ok("smarter_private.weekly_payout_due()->>'stage'='weekly_payout_owned_by_round_runner'",
+     "due scope handed to minute owner before any legacy calculator") +
+  ok("(SELECT count(*)=1 AND bool_and(phase='released') FROM public.weekly_accounting_payout_pauses)",
+     "legacy tick never booked or paid the owed scope") + "ROLLBACK;")
+case('the five-minute scheduler yields an owed payout to the minute runner after maintenance and releases a fully paid week to books')
+
 exec((F/'union-member-week.py').read_text())
 DB='postgres'; q("DROP DATABASE books;")
