@@ -184,10 +184,12 @@ BEGIN
   keys:=CASE WHEN stat IN ('cbet','flopBet') THEN ARRAY['paired','rainbow','twoTone','monotone'] ELSE ARRAY['flop','turn','river'] END;
   out_stat:='{}';
   FOREACH cell_key IN ARRAY keys LOOP
-   bh:=coalesce((p_base#>>ARRAY[stat,cell_key,'hit'])::double precision,0);
-   bo:=coalesce((p_base#>>ARRAY[stat,cell_key,'opp'])::double precision,0);
-   dh:=coalesce((p_delta#>>ARRAY[stat,cell_key,'hit'])::double precision,0);
-   d_opp:=coalesce((p_delta#>>ARRAY[stat,cell_key,'opp'])::double precision,0);
+   -- Only a JSON number is read; anything else in a stored or supplied cell counts as 0, so a damaged record
+   -- can never raise inside the accepted-hand transaction.
+   bh:=CASE WHEN jsonb_typeof(p_base#>ARRAY[stat,cell_key,'hit'])='number' THEN (p_base#>>ARRAY[stat,cell_key,'hit'])::double precision ELSE 0 END;
+   bo:=CASE WHEN jsonb_typeof(p_base#>ARRAY[stat,cell_key,'opp'])='number' THEN (p_base#>>ARRAY[stat,cell_key,'opp'])::double precision ELSE 0 END;
+   dh:=CASE WHEN jsonb_typeof(p_delta#>ARRAY[stat,cell_key,'hit'])='number' THEN (p_delta#>>ARRAY[stat,cell_key,'hit'])::double precision ELSE 0 END;
+   d_opp:=CASE WHEN jsonb_typeof(p_delta#>ARRAY[stat,cell_key,'opp'])='number' THEN (p_delta#>>ARRAY[stat,cell_key,'opp'])::double precision ELSE 0 END;
    -- A cell ages only on a hand that gave it an opportunity.
    IF d_opp>0 THEN learned:=true; bh:=bh*decay+dh; bo:=bo*decay+d_opp; END IF;
    out_stat:=out_stat||jsonb_build_object(cell_key,jsonb_build_object('hit',bh,'opp',bo));

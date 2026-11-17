@@ -413,6 +413,11 @@ try:
    if got is not None: assert all(abs(x-y)<1e-12 for x,y in zip(street_row(got),want)) and len(want)==34,(k,got,want)
  assert checkpoints[1] is None and checkpoints[120] is not None and max(checkpoints[120])>5
  assert run('street-add-null-delta',"SELECT fn_horse_street_read_add(NULL,NULL) IS NULL AND fn_horse_street_read_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb;")=='t'
+ # A damaged stored record never raises inside the accepted hand: a cell that is not a number counts as 0.
+ damaged=json.loads(run('street-add-damaged',"SELECT fn_horse_street_read_add('{\"bet\":{\"flop\":{\"hit\":\"x\",\"opp\":[1]},\"turn\":7},\"cbet\":\"y\"}'::jsonb,"+jsonb_literal(street_record('11'+'0'*32))+")::text;"))
+ assert street_row(damaged)==[1,1]+[0]*32,damaged
+ assert json.loads(run('street-add-scalar-base',"SELECT fn_horse_street_read_add('7'::jsonb,"+jsonb_literal(street_record('01'+'0'*32))+")::text;"))['bet']['flop']=={'hit':0,'opp':1}
+ assert run('street-increments-not-array',"SELECT fn_horse_street_read_increments('{}'::jsonb,NULL,NULL)::text||fn_horse_street_read_increments(NULL,NULL,NULL)::text||fn_horse_street_read_increments('[1,null,\"x\",[],{}]'::jsonb,ARRAY[NULL,NULL,NULL]::text[],ARRAY[NULL]::text[])::text;")=='{}{}{}'
  # Learning through the protected accepted receipt (postgres database, the forward install order).
  raiser='00000000-0000-4000-8000-000000000008'; defender='00000000-0000-4000-8000-000000000009'
  street_of=lambda uid,mode='cash': "SELECT coalesce(street_counters::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND mode='"+mode+"';"
