@@ -552,3 +552,25 @@ it('gives the drained promo database attempt its own primary notice and fixed ex
       Date.parse('2026-11-17T09:00:00Z')
     );
 });
+
+it('keeps the reserved promo attempt inside the continuous drained promise', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-17-promo-play-through-db-reserved'
+  );
+  const earlier = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-17-promo-play-through-db-drained'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-17T12:30:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-17T12:50:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-17T13:00:00Z'));
+  expect(earlier?.notAfterMs).toBe(own?.notAfterMs);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T12:30:00Z'))?.id).toBe(earlier?.id);
+  const admittedAt = Date.parse('2026-11-17T12:50:00Z');
+  expect(bookedMaintenanceNotice(admittedAt)?.id).toBe(earlier?.id);
+  expect(own).toBeDefined();
+  expect(earlier).toBeDefined();
+  expect(bookedMaintenanceNoticeText(own!, admittedAt)).toBe(
+    bookedMaintenanceNoticeText(earlier!, admittedAt)
+  );
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T13:00:00Z'))).toBeNull();
+});
