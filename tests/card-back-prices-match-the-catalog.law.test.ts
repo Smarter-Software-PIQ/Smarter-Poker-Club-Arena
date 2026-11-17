@@ -35,6 +35,8 @@ function replayCardBackPrices(): Map<string, number> {
   return live;
 }
 
+// Full migration replay measured over 40s on the shared external SSD.
+// This is harness headroom, not a product deadline or a reduced source scan.
 it('sells exactly the paid card-back catalogue, at its prices', () => {
   const paid = new Map(
     CARD_BACK_CATALOG.filter((design) => design.price > 0).map((design) => [
@@ -45,7 +47,7 @@ it('sells exactly the paid card-back catalogue, at its prices', () => {
   const priced = replayCardBackPrices();
   expect(paid.size).toBeGreaterThan(0);
   expect(Object.fromEntries([...priced].sort())).toEqual(Object.fromEntries([...paid].sort()));
-});
+}, 90_000);
 
 it('keeps the production storefront census on the catalogue count', () => {
   const spec = readFileSync('tests/e2e/production-customization-commerce.spec.ts', 'utf8');

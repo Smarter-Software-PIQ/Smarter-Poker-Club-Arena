@@ -296,6 +296,8 @@ const LABEL_TO_KEYS: Record<string, string[]> = {
 };
 
 describe('the SQL scanner is reading the real definition', () => {
+  // Full migration scan measured over 40s on the shared external SSD.
+  // Preserve every input and assertion with finite harness headroom.
   it('finds the totals aggregates and the overall payload, and splits them the known way', () => {
     const { file, body } = latestStatsFullSql();
     const pops = overallPopulations(body);
@@ -306,7 +308,7 @@ describe('the SQL scanner is reading the real definition', () => {
     expect(pops.get('total_profit')).toBe('Cash');
     expect(pops.get('vpip')).toBe('All Games');
     expect(pops.get('tourney_hands')).toBe('Tournament');
-  });
+  }, 90_000);
 });
 
 describe('scope tags match the SQL (defect 4: one grid, two populations)', () => {

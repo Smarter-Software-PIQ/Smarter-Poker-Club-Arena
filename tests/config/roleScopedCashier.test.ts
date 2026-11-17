@@ -414,7 +414,8 @@ describe('the client asks the right server', () => {
       'fn_cashout_request_v2',
       'fn_cashout_approve_v2',
       'fn_cashout_release_v2',
-      'fn_cashout_queue',
+      'fn_cashout_queue_v2',
+      'fn_cashout_escalate_v2',
     ]) {
       expect(SERVICE).toContain(`'${rpc}'`);
     }

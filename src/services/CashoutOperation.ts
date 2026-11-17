@@ -1,3 +1,4 @@
+import { cashoutNote } from '../utils/cashoutNote';
 import {
   assertChipAmount,
   prepareAgentCashoutOperation,
@@ -134,7 +135,7 @@ export async function prepareCashoutOperation<K extends CashoutKind>(
   ) {
     throw new Error('The Cashout Intent Could Not Be Verified');
   }
-  const note = (captured.note ?? '').trim();
+  const note = cashoutNote(captured.note);
   if (
     (captured.kind === 'cashout_request' && (userId !== playerId || targetId !== playerId)) ||
     (captured.kind === 'cashout_cancel' && (userId !== playerId || note !== '')) ||

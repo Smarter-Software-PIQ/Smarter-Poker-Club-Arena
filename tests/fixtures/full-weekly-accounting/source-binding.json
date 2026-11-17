@@ -1,4 +1,42 @@
 {
+  "noticeCashoutClientAudit20261117": {
+    "reason": "Reviewed cashout fixture changes for 2000-character notes, authoritative queue capabilities, Notice Board escalation, club-bank receipts and concurrent second-request invalidation. Existing private receipt and financial safeguards remain asserted. Current source identities only; no historical certificate restamp.",
+    "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final service, scope and own-event group 192 passed, including UPDATE revocation and strict escalation envelope refusals. Application compiler and Vite passed; final provenance required integration of concurrent main and a subsequent exact build.",
+    "changes": [
+      {
+        "path": "tests/cashout-escrow-flow.test.ts",
+        "previousSHA256": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+        "currentSHA256": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf"
+      },
+      {
+        "path": "tests/components/agent-cashout-scope.test.tsx",
+        "previousSHA256": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
+        "currentSHA256": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a"
+      },
+      {
+        "path": "tests/components/cashier-cashout-generations.test.tsx",
+        "previousSHA256": "76b23adae9c6c1d392b3a67e6ac3b217c4a76b2a9c23f5af7eb4d4a672d28cc2",
+        "currentSHA256": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc"
+      },
+      {
+        "path": "tests/components/cashout-own-event-acknowledgment.test.tsx",
+        "previousSHA256": "33a8d5ca4991d9412e3d14945ef5baad45a9f12bde77cdf66c3cd7c70a44a123",
+        "currentSHA256": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a"
+      },
+      {
+        "path": "tests/config/roleScopedCashier.test.ts",
+        "previousSHA256": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
+        "currentSHA256": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074"
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "previousSHA256": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
+        "currentSHA256": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "deterministicBootstrapClubIds20261107": {
     "reason": "Reviewed fixture-only repair after required accounting shard 6 collided on random club ID 62538: the four union-weekly bootstrap clubs now supply deterministic distinct five-digit IDs 99101, 99102, 99104, 99203. UUIDs, captured financial schema/defaults, source authority bodies, money values and assertions are unchanged. Refresh only these current composed input identities.",
     "verification": "Unchanged scripts/dev/test-union-weekly-basis.py passed on a fresh private PostgreSQL 17.11 cluster: exit 0 and 94 PASS labels; cluster shutdown verified. No additional composed native suite was rerun.",
@@ -299,10 +337,10 @@
     "tests/unit/CreditRequestAuthority.test.ts": "0dce14c178ef4f5bd8f8a2aa794cfc8f76fec4fe3207e0882add16e162abb821",
     "tests/unit/CreditRequestLegacyCaller.test.ts": "ef6f8458a54ce3b5e646d831c176f279456e8f59598616e20dbb3a9dbc7f2e7b",
     "tests/unit/CreditRequestService.test.ts": "47bc48d13b54901999a6a58b36a93edb79e4f2d057427a4a6d622ff009d7c0c3",
-    "tests/components/agent-cashout-scope.test.tsx": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
-    "tests/unit/CashoutService.test.ts": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
-    "tests/config/roleScopedCashier.test.ts": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
-    "tests/cashout-escrow-flow.test.ts": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+    "tests/components/agent-cashout-scope.test.tsx": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a",
+    "tests/unit/CashoutService.test.ts": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232",
+    "tests/config/roleScopedCashier.test.ts": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074",
+    "tests/cashout-escrow-flow.test.ts": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf",
     "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": "edef6d6318f142277069de1fead9cbfe8ea732cc5d774987d8f4894bdc06807f",
     "tests/fixtures/cashier-document-authority/captured-preimages.sql": "1219fa1b0c4ab26bf155f3c58d3f4c7f5fd108940c1780c5047f61d88727412a",
     "tests/unit/leaveClubReleasesEscrow.test.ts": "4faed6fab4a8eac765219b794e555edf9186064bc19b7ba02c8bc9f0572c1fca",
@@ -342,8 +380,8 @@
     "tests/components/WeeklyAccountingWorkspace.test.tsx": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23",
     "tests/helpers/accountingObservation.ts": "9dba06d97c2f9cce2356fa8c6800ff9a07e4618ea2028370a278b4820b6199f6",
     "tests/components/FinancialAlertsExport.test.tsx": "8863dfb7e552fdf23d4e8e00eefce37b16f3cfbf1eb1858f9db9274b1f987d80",
-    "tests/components/cashier-cashout-generations.test.tsx": "76b23adae9c6c1d392b3a67e6ac3b217c4a76b2a9c23f5af7eb4d4a672d28cc2",
-    "tests/components/cashout-own-event-acknowledgment.test.tsx": "33a8d5ca4991d9412e3d14945ef5baad45a9f12bde77cdf66c3cd7c70a44a123",
+    "tests/components/cashier-cashout-generations.test.tsx": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc",
+    "tests/components/cashout-own-event-acknowledgment.test.tsx": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a",
     "tests/unit/FinancialAlertServiceRead.test.ts": "2e9f47a08edbc96afb48d026dbec4fdf55b12a07bcb1f8cbc924af3b13ff4934",
     "tests/unit/discardedErrorReadRatchet.test.ts": "79deae1f4f7751b8544ba0fa28e0e72e851a6759f90d423a367620fc3beae912",
     "tests/fixtures/correction-writer-authority/README.md": "9ac3f0c9954e25e93d357df32611e4cc08dd40d6b7a81df68537481a27c1a4b2",
