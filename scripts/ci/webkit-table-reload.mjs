@@ -36,7 +36,7 @@ self.addEventListener('message', event => {
 
 const browser = await webkit.launch();
 try {
-  for (const hold of ['headers', 'body']) {
+  for (const hold of ['headers', 'first-byte', 'body']) {
     let delayed = false,
       requests = 0,
       disconnected = false;
@@ -57,6 +57,7 @@ try {
           disconnected = true;
           closeTransfer();
         });
+        if (hold === 'first-byte') res.flushHeaders();
         if (hold === 'body') res.write('<!doctype html><head>');
         return;
       }
@@ -103,6 +104,11 @@ try {
       await context.setOffline(false);
       if (!archived) assert.equal((await timing('ARM_SHELL_TRACE')).armed, true);
       delayed = true;
+      let outerResponse = false;
+      page.on('response', (response) => {
+        if (response.url() === origin + table && response.request().isNavigationRequest())
+          outerResponse = true;
+      });
       let committed = false,
         crashed = false,
         timedOut = false;
@@ -139,6 +145,7 @@ try {
           hold,
           requests,
           elapsedMs,
+          outerResponse,
           committed,
           timedOut,
           crashed,
@@ -148,16 +155,16 @@ try {
       );
       assert.equal(requests, 1);
       assert.equal(crashed, false);
-      assert.equal(timedOut, archived && hold === 'body');
+      assert.equal(timedOut, archived && stages.includes('inner-headers'));
       assert.ok(stages.includes('inner-fetch'));
-      assert.equal(stages.includes('inner-headers'), hold === 'body');
+      if (hold !== 'first-byte') assert.equal(stages.includes('inner-headers'), hold === 'body');
       if (!timedOut) assert.equal(await page.title(), 'complete shell');
       if (!archived) {
         const { events } = await timing('READ_SHELL_TRACE');
         console.log(JSON.stringify({ hold, workerTiming: events }));
         const phases = events.map((e) => e.phase);
         assert.ok(phases.includes('network-start'));
-        assert.equal(phases.includes('network-headers'), hold === 'body');
+        assert.equal(phases.includes('network-headers'), stages.includes('inner-headers'));
         assert.ok(phases.includes('network-deadline'));
         assert.ok(phases.includes('serve-cached-shell'));
         assert.ok(stages.includes('inner-abort'));
