@@ -31,6 +31,25 @@ Range calibration. Every turn and river bet a person made into a Horse in PLO4/P
 
 One measured constant replaces an unsourced one: the share of a bettor's range that raises again when his turn or river bet is raised is 0.26 (14 of 54 heads-up raises, PLO4/PLO5 cash, 2026-11-10 to 2026-11-15), not the card-impact model's stated 0.10.
 
-Evaluation, counterfactual replay and range calibration: see each option's file under `docs/horse-option-authority.d/`. No option is switched on by this change and no evidence row for value is claimed.
+Evaluation (protocol written before each run; archive plo-handoff-review-01a1cbbd/priced-01BNteGZ, PASS-BAR-v2.md and PASS-BAR-v3-all.md; paired league, A minus B in bb/100 with the standard error across sessions; human-like field 80 x 500 duplicate pairs per cell, Horse-only 16 x 500):
+
+| Option                                             | Human-like field (pooled PLO4/PLO5)  | Horse-only (pooled)                  | Verdict                                |
+| -------------------------------------------------- | ------------------------------------ | ------------------------------------ | -------------------------------------- |
+| `omahaTurnRiverRaiseIsPriced`                      | +3.28 +/- 1.28                       | -0.19 +/- 0.58                       | WIN                                    |
+| `omahaDrawRaiseIsPriced`                           | -1.04 +/- 0.65                       | -0.75 +/- 0.66                       | EQUAL                                  |
+| `omahaOopTurnBarrelIsPriced`                       | -1.45 +/- 0.87                       | +1.41 +/- 0.59                       | INCONCLUSIVE                           |
+| `omahaPairedBoardBetIsPriced`                      | -1.56 +/- 0.73 (PLO5 -2.18 +/- 1.02) | -0.47 +/- 0.68                       | FAIL: off-only                         |
+| `omahaBluffShareFromBetRate`                       | +0.20 +/- 0.69                       | +0.15 +/- 0.61                       | EQUAL                                  |
+| `omahaFacingBetRangeIsContinuous`                  | -0.49 +/- 1.09                       | -0.74 +/- 0.53                       | INCONCLUSIVE                           |
+| `omahaPressureIsPriced`                            | +1.05 +/- 0.74                       | +0.09 +/- 0.45                       | EQUAL                                  |
+| `omahaBigBetCallsArePriced`                        | +0.00 +/- 0.04                       | -0.02 +/- 0.01                       | INCONCLUSIVE (two of four cells inert) |
+| `omahaUnderpairMultiwayIsPriced`                   | 0                                    | 0                                    | INERT (no divergent pair)              |
+| `omahaPricedMix` (all nine on in both arms)        | -0.87 +/- 1.14                       | -1.44 +/- 0.81 (PLO5 -1.95 +/- 0.94) | FAIL: off-only                         |
+| all nine on, v2                                    | -9.64 +/- 2.13                       | -7.81 +/- 1.19                       | FAIL                                   |
+| all nine on, v3 (after the bluff double-count fix) | -4.00 +/- 2.06                       | -7.79 +/- 0.86                       | FAIL: unresolved                       |
+
+All nine on together lost. A diagnostic on the v2 seeds (PLO5 field, 80 sessions) found the bluff share counted twice when `omahaBluffShareFromBetRate` and `omahaFacingBetRangeIsContinuous` both act (dropping either gained 6.8 +/- 1.9 and 6.5 +/- 1.7); that is fixed (`omahaPricedBluffReferenceRatio`) and closed most of the human-like loss, but the all-on configuration still FAILS, at Horse-only tables above all. Its remaining cause is not found. No option is switched on by this change, and none should be switched on together with the others until it is.
+
+Counterfactual replay, range calibration and each option's figures: its file under `docs/horse-option-authority.d/`. No option is switched on by this change and no evidence row for value is claimed.
 
 Not replaced here (listed as `open` in `HorseOmahaRuleSites.ts`): the flop paired-board fold and the flop 20 big blind mark (the flop facing-bet EV build), the bare-overpair flop check (the flop street plan build), the made-hand defence's bet half, the re-raised-pot flop continue, the one-pair cells, the turn set size and the equity line of the river nut-blocker bluff. The out-of-position 4-bet call fold is preflop and goes to the priced preflop re-raise defence build. The joint policy's under-25-percent bet filter does not act at single-board PLO4/PLO5 cash tables since #11135 (the variant brain keeps those decisions).
