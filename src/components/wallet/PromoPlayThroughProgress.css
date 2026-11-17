@@ -54,3 +54,12 @@
   outline: 1px solid #45adff;
   outline-offset: 3px;
 }
+
+.promo-progress__inline {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+}

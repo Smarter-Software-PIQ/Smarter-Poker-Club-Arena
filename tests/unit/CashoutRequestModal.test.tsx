@@ -7,6 +7,11 @@ import {
   cashoutV2Receipt,
   cashoutLookupEnvelope,
 } from '../helpers/cashoutV2Receipt';
+const popup = vi.hoisted(() => ({ warning: vi.fn(), read: vi.fn() }));
+vi.mock('../../src/components/common/Toast', () => ({
+  useOptionalToast: () => { popup.read(); return popup; },
+}));
+vi.mock('../../src/services/PromoPlayThroughService', () => ({ readMyPromoPlayThrough: vi.fn(async () => ({ cashable: 1.25, fee_remaining: 175, profit_fee_remaining: 75 })) }));
 const identity = vi.hoisted(() => ({
   userId: '',
   auth: new Set<(event: { payload: { userId: string; isAuthenticated: boolean } }) => void>(),
@@ -87,6 +92,8 @@ beforeEach(() => {
   identity.userId = ID.player;
   for (const handler of identity.auth)
     handler({ payload: { userId: ID.player, isAuthenticated: true } });
+  popup.warning.mockClear();
+  popup.read.mockClear();
   localStorage.clear();
   sessionStorage.clear();
   vi.stubGlobal('crypto', webcrypto);
@@ -221,21 +228,14 @@ it('same mounted intent retries with the same operation id and amount after unkn
   await waitFor(() => expect(complete).toHaveBeenCalledOnce());
   expect(first.p_op_id).toBeTruthy();
 });
-it('refuses insufficient balance but permits a funded request during settlement', async () => {
+it('uses the authoritative RPC when the displayed balance is stale and lower', async () => {
   const input = await mount(1.25);
   fireEvent.change(input, { target: { value: '1.26' } });
   await submit();
-  await screen.findByText('That Is More Than Your Available Balance');
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Check Or Request Cashout' })).not.toBeDisabled()
-  );
-  expect(lookup).toHaveBeenCalledOnce();
-  expect(rpc).not.toHaveBeenCalled();
-  vi.mocked(checkSettlementLock).mockResolvedValue({ locked: true } as never);
-  fireEvent.change(input, { target: { value: '1.25' } });
-  await submit();
   await waitFor(() => expect(complete).toHaveBeenCalledOnce());
+  expect(lookup).toHaveBeenCalledOnce();
   expect(rpc).toHaveBeenCalledOnce();
+  expect(rpc.mock.calls[0][1].p_amount).toBe('1.26');
   expect(checkSettlementLock).not.toHaveBeenCalled();
 });
 it('two clicks while receipt recovery is pending retain the synchronous submit lock', async () => {
@@ -330,19 +330,15 @@ it('never completes an old account request after an account change during dispat
   expect(screen.queryByText(/Chips Are Held For Review/)).toBeNull();
 });
 
-it('checks an unavailable balance intent but refuses new payment after exact absence', async () => {
+it('uses the authoritative RPC when the displayed balance is unavailable', async () => {
   const input = await mount(null);
   expect(await screen.findByText('Unavailable')).toBeTruthy();
   fireEvent.change(input, { target: { value: '1.25' } });
   await submit();
-  await screen.findByText('Your Club Balance Is Unavailable. Refresh Before Requesting A Cashout.');
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Check Or Request Cashout' })).not.toBeDisabled()
-  );
+  await waitFor(() => expect(complete).toHaveBeenCalledOnce());
   expect(lookup).toHaveBeenCalledOnce();
+  expect(rpc).toHaveBeenCalledOnce();
   expect(checkSettlementLock).not.toHaveBeenCalled();
-  expect(rpc).not.toHaveBeenCalled();
-  expect(complete).not.toHaveBeenCalled();
 });
 
 it('close and reopen removes old rows and fences an old completion from a new in-flight request', async () => {
@@ -534,4 +530,28 @@ it('never starts a background status refresh subscription', async () => {
   await mount();
   await waitFor(() => expect(cashoutService.getPlayerCashouts).toHaveBeenCalledOnce());
   expect(realtime.subs).toHaveLength(0);
+});
+
+it('shows promo refusal in the shared popup and permits an eligible retry without duplicate holds', async () => {
+  rpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', hint: 'promo_play_through_locked' } });
+  const input = await mount(500);
+  fireEvent.change(input, { target: { value: '50' } });
+  await submit();
+  await waitFor(() => expect(popup.warning).toHaveBeenCalledOnce());
+  expect(popup.warning.mock.calls[0][0]).toContain('Withdrawable Balance: 1.25 Chips');
+  expect(popup.warning.mock.calls[0][0]).toContain('175.00 More Chips In Fees');
+  expect(complete).not.toHaveBeenCalled();
+  expect(rpc).toHaveBeenCalledOnce();
+  const refusedId = rpc.mock.calls[0][1].p_op_id;
+  await submit();
+  await waitFor(() => expect(complete).toHaveBeenCalledOnce());
+  expect(rpc).toHaveBeenCalledTimes(2);
+  expect(rpc.mock.calls[1][1].p_op_id).not.toBe(refusedId);
+});
+
+it('does not mount closed cashout content or read its popup context and pending queue', () => {
+  render(<CashoutRequestModal isOpen={false} onClose={vi.fn()} playerId={ID.player} clubId={ID.club} currentBalance={500} />);
+  expect(popup.read).not.toHaveBeenCalled();
+  expect(cashoutService.getPlayerCashouts).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog')).toBeNull();
 });

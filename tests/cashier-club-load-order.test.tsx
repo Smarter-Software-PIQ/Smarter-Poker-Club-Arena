@@ -13,7 +13,7 @@ import {
 const CLUB_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const PLAYER_ID = '33333333-3333-4333-8333-333333333333';
-const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 const recoveryHydrations = vi.hoisted(() => new Set<Promise<unknown>>());
 
 // These cases own cashier reads, recovery and their realtime callbacks. The
@@ -123,6 +123,7 @@ vi.mock('../src/hooks/useAuthUser', () => ({
 
 vi.mock('../src/components/common/Toast', () => ({
   useToast: () => toastMocks,
+  useOptionalToast: () => toastMocks,
 }));
 
 function deferred<T>() {

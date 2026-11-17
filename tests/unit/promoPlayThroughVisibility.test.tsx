@@ -103,8 +103,8 @@ it('hides completed progress and the empty promo card in wallet, cashout, member
     </>
   );
   const view = render(content());
-  expect(screen.getAllByRole('progressbar')).toHaveLength(3);
-  expect(screen.getByText(/Promo Locked/)).toBeTruthy();
+  expect(screen.getAllByRole('progressbar')).toHaveLength(4);
+  expect(screen.getAllByLabelText('Promo Play Through Details')).toHaveLength(4);
   state.summary = {
     ...active,
     locked: 0,
@@ -118,8 +118,8 @@ it('hides completed progress and the empty promo card in wallet, cashout, member
   expect(screen.queryByLabelText('Promo Play Through')).toBeNull();
   state.summary = { ...active, locked: 25 };
   view.rerender(content());
-  expect(screen.getAllByRole('progressbar')).toHaveLength(3);
-  expect(screen.getByText(/Promo Locked 25.00/)).toBeTruthy();
+  expect(screen.getAllByRole('progressbar')).toHaveLength(4);
+  expect(screen.getAllByText('100.00 To Go · 25.00 Locked')).toHaveLength(4);
 });
 it('a refunded unfinished fee still shows the real remaining requirement', () => {
   render(

@@ -22,6 +22,7 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: state.userId } }),
 }));
 vi.mock('../../src/services/CashoutService', () => ({
+  CashoutRefusedError: class CashoutRefusedError extends Error {},
   captureCashoutAccountGuard: (actor: string) => {
     const epoch = state.epoch;
     return () => state.userId === actor && state.epoch === epoch;
