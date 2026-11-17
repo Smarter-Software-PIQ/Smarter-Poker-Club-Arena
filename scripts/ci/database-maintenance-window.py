@@ -193,7 +193,7 @@ PROMO_DATABASE_MIGRATIONS = (
     ("20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
      "884236f69bcc2827f62482643f6fb3187b9d2d87a2285dd9d323ba8bf4c17d05"),
     ("20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
-     "fa31efa7da752aaf850719b14f40f76fb98960a14827982a0810c1dfa4f31a72"),
+     "7eb088c749cb10a76efa29cdc9438809a5cbd4d20b22b581f63c3c23df067a93"),
     ("20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
      "f709af8675743421af4f7a5b6668456d65d068d77b2dfb95285ce686da0c660e"),
     ("20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql",
