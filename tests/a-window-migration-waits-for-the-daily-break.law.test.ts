@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 /**
  * LAW: A MIGRATION THAT NEEDS THE LIVE TABLES WAITS FOR THE DAILY BREAK
  * (2026-10-22).
@@ -431,20 +432,10 @@ describe('the route runs on the daily schedule that already exists', () => {
     // declared files. Sequential JS opens took40.8s on the shared external
     // volume and exceeded this unchanged30s test deadline even in isolation.
     // Unknown/failed selection is a failure, never an empty passing corpus.
-    const selection = spawnSync(
-      'rg',
-      [
-        '--files-with-matches',
-        '--no-ignore',
-        '--follow',
-        '--text',
-        '--glob',
-        '*.sql',
-        '@install-window',
-        'supabase/migrations',
-      ],
-      { cwd: root, encoding: 'utf8', timeout: 25_000 }
-    );
+    const selection = nativeMigrationSelection('@install-window', 'supabase/migrations', {
+      cwd: root,
+      timeout: 25_000,
+    });
     expect(selection.error).toBeUndefined();
     expect([0, 1]).toContain(selection.status);
     expect(selection.stderr).toBe('');
