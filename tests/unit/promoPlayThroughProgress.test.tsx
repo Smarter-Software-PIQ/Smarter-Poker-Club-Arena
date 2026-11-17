@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { afterEach } from 'vitest';
 vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
 import { parsePromoPlayThrough } from '../../src/services/PromoPlayThroughService';
@@ -167,4 +167,32 @@ it('requires an actual pending review boolean rather than inferring one from sch
     parsePromoPlayThrough({ ...row, integrity_review_available: true }).integrity_review_available
   ).toBe(true);
   expect(() => parsePromoPlayThrough({ ...row, integrity_review_available: 1 })).toThrow();
+});
+
+it('keeps all explanations behind the tappable question mark and retains only the percentage beside it', () => {
+  const view = render(<PromoPlayThroughFigure summary={parsePromoPlayThrough(progress)} />);
+  const help = screen.getByLabelText('Promo Play Through Details');
+  const details = help.closest('details')!;
+  expect(help.textContent).toBe('?');
+  expect(details.open).toBe(false);
+  expect(
+    document
+      .getElementById(help.getAttribute('aria-controls')!)
+      ?.contains(screen.getByText('124.00 Of 200.00 In Fees'))
+  ).toBe(true);
+  expect(
+    document
+      .getElementById(help.getAttribute('aria-controls')!)
+      ?.contains(screen.getByText(/Promo Principal Unlocks After 4×/))
+  ).toBe(true);
+  expect(
+    Array.from(view.container.querySelector('section')!.children)
+      .filter((el) => el.tagName !== 'DETAILS')
+      .map((el) => el.textContent)
+      .join('')
+  ).toBe('62%');
+  fireEvent.click(help);
+  expect(details.open).toBe(true);
+  fireEvent.click(help);
+  expect(details.open).toBe(false);
 });
