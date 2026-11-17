@@ -74,6 +74,7 @@
     "fn_ca_club_data_pacific_cash_observe",
     "fn_ca_club_data_pacific_cash_hand_delta",
     "fn_ca_rake_invoice_windows_v3",
-    "fn_ca_rake_invoice_series_v2"
+    "fn_ca_rake_invoice_series_v2",
+    "fn_ca_club_data_pacific_spin_refund_parts"
   ]
 }

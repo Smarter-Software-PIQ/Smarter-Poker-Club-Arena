@@ -442,6 +442,7 @@ describe('complete immutable Rake exports', () => {
     expect(csv.split('\n')[0]).toContain('generated_at');
     expect(csv.split('\n')[1]).toContain('Shark Club');
     expect(csv.split('\n')[1].split(',').slice(-5)).toEqual(['1', '1234', '200', 'true', 'true']);
+    expect(csv).toContain('reconciliation_available\nfalse');
     expect(csv).toContain('agent_user_id,name,avatar_url,role');
     expect(csv).toContain('agent-1,Agent 1,,agent');
     expect(csv.toLowerCase()).not.toContain('horse');
@@ -515,6 +516,66 @@ describe('complete immutable Rake exports', () => {
 });
 
 describe('Pacific Data report exports keep their source date basis', () => {
+  it('freezes qualified reconciliation into CSV and refuses changed financial page metadata', async () => {
+    const reconciliation = {
+      complete: true,
+      missing_days: [],
+      bbj_gross: 166462.81,
+      bbj_awards: 25611.6,
+      bbj_net: 140851.21,
+      cash_fee: 817368.93,
+      cash_winnings: -958220.14,
+      tournament_fee: 98047.08,
+      tournament_winnings: -102954.39,
+      cash_residual: 0,
+      tournament_flow_difference: 4907.31,
+    };
+    const meta = metadata('club', {
+      day_basis: 'America/Los_Angeles 00:00',
+      accounting_basis: 'union_invoice_accounting',
+      reconciliation,
+      accounting_coverage: {
+        complete: true,
+        provisional: true,
+        awaiting_boundary_days: ['2026-09-13'],
+      },
+    });
+    let changed = false;
+    const rpc = vi.fn((name: string) => {
+      if (name === 'ca_rake_export_start_pacific_v2') return result(receipt('club', 1, meta));
+      if (name === 'ca_club_data_export_page')
+        return result(
+          page(
+            'club',
+            [agentRow(1)],
+            1,
+            0,
+            changed ? { ...meta, reconciliation: { ...reconciliation, bbj_gross: 999 } } : meta
+          )
+        );
+      return result(true);
+    }) as ClubDataExportRpc;
+    const options = {
+      rpc,
+      reportBasis: 'pacific' as const,
+      scope: 'club' as const,
+      scopeId: CLUB_ID,
+      start: '2026-09-01',
+      end: '2026-09-13',
+      viewerUserId: VIEWER_ID,
+      requestId: 'reconciliation-export',
+      signal: new AbortController().signal,
+    };
+    const exported = await fetchRakeSnapshotExport(options);
+    const csv = rakeSnapshotExportToCsv(exported);
+    expect(csv).toContain(
+      'reconciliation_bbj_gross,reconciliation_bbj_awards,reconciliation_bbj_net'
+    );
+    expect(csv).toContain('166462.81,25611.6,140851.21');
+    expect(csv).toContain('accounting_complete,accounting_provisional,awaiting_boundary_days');
+    changed = true;
+    await expect(fetchRakeSnapshotExport(options)).rejects.toThrow();
+  });
   it('uses the Pacific start door and retains its basis in the immutable CSV metadata', async () => {
     const meta = metadata('club', {
       day_basis: 'America/Los_Angeles 00:00',

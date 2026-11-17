@@ -355,6 +355,45 @@ beforeEach(() => {
 });
 
 describe('ClubDataPage', () => {
+  it('renders invoice reconciliation on the existing performance console', async () => {
+    const report = {
+      ...snapshot,
+      accounting_basis: 'union_invoice_accounting',
+      accounting_coverage: {
+        complete: true,
+        provisional: true,
+        awaiting_boundary_days: [TEST_END_DATE],
+      },
+      summary: {
+        ...snapshot.summary,
+        reconciliation: {
+          complete: true,
+          missing_days: [],
+          bbj_gross: 42.25,
+          bbj_awards: 10,
+          bbj_net: 32.25,
+          cash_fee: 250,
+          cash_winnings: 1950,
+          tournament_fee: 71.5,
+          tournament_winnings: 500,
+          cash_residual: -2232.25,
+          tournament_flow_difference: -571.5,
+        },
+      },
+    };
+    const prior = rpcMock.getMockImplementation()!;
+    rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) =>
+      fn === 'ca_club_data_snapshot_v2'
+        ? Promise.resolve({ data: report, error: null })
+        : prior(fn, args)
+    );
+    render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
+    expect(screen.getByText('42.25')).toBeInTheDocument();
+    expect(screen.getByText('Posted Totals Verified')).toBeInTheDocument();
+    expect(screen.getByText('Final Billing Pending')).toBeInTheDocument();
+  });
   it('uses the club host instead of an individual creator or identifier', async () => {
     const unnamedCreator = {
       ...snapshot.rows[0],
