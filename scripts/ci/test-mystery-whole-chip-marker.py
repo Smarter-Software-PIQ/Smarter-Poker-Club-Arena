@@ -45,15 +45,15 @@ with tempfile.TemporaryDirectory(prefix='mystery-marker-', dir=parent) as folder
             raise RuntimeError(result.stdout + result.stderr)
         return result
     assert re.search(r'\b17\.', run('postgres', '--version').stdout), 'PostgreSQL 17 required'
-    run('initdb', '-D', str(scratch / 'data'), '-A', 'trust', '--no-locale', '-E', 'UTF8')
+    run('initdb', '-D', str(scratch / 'data'), '-A', 'trust', '--no-locale', '-E', 'UTF8', '-U', 'postgres')
     with socket.socket() as reserve:
         reserve.bind(('127.0.0.1', 0))
         port = str(reserve.getsockname()[1])
     # TCP only avoids macOS Unix socket path limits in deeply nested owned worktrees.
-    run('pg_ctl', '-D', str(scratch / 'data'), '-l', str(scratch / 'server.log'), '-o', f"-h 127.0.0.1 -p {port} -c unix_socket_directories=''", 'start')
+    run('pg_ctl', '-D', str(scratch / 'data'), '-l', str(scratch / 'server.log'), '-o', f"-h 127.0.0.1 -p {port} -c unix_socket_directories='' -c track_functions=all", 'start')
     try:
         def sql(source, check=True):
-            return run('psql', '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', port, '-d', 'postgres', source=source, check=check)
+            return run('psql', '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', port, '-d', 'postgres', '-U', 'postgres', source=source, check=check)
         def value(source):
             return sql(source).stdout.strip()
         def uid(n):
@@ -147,6 +147,59 @@ END$$;"""
         assert replay.returncode and 'changed; qualify current source' in replay.stderr
         assert snapshot() == settled
         print('PASS: preimage guard rejects migration replay; no evidence rows rewritten')
+        # Original d659: the final-two authority must prove the whole history
+        # without planning/executing the scalar function once per settled row.
+        full_preimage=(ROOT/'scripts/ci/fixtures/final-two-unsettled-bounty-preimage.sql').read_text()
+        scoped=(MIGRATIONS/'20261116231027_the_final_bounty_proof_evaluates_the_whole_scoped_field_once.sql').read_text()
+        sql("ALTER TABLE tournament_bounty_awards ADD COLUMN tournament_id uuid;")
+        sql(full_preimage+";REVOKE ALL ON FUNCTION fn_tournament_has_unsettled_bounties(uuid) FROM PUBLIC,anon,authenticated;GRANT EXECUTE ON FUNCTION fn_tournament_has_unsettled_bounties(uuid) TO service_role;")
+        assert value("SELECT md5(pg_get_functiondef('fn_tournament_has_unsettled_bounties(uuid)'::regprocedure))")=='8041a7f3d6b2886ce7d688bb5525d952'
+        assert value("SELECT md5(pg_get_functiondef('fn_bounty_obligation_has_complete_marker(uuid)'::regprocedure))")=='11700b51aab5116d79a8dc0078242def'
+        sql("UPDATE tournament_bounty_obligations SET state='settled';")
+        field=lambda n:value(f"SELECT fn_tournament_has_unsettled_bounties('{uid(n)}');")
+        targets=list(range(100,107))+list(range(110,114))
+        expected={n:field(n) for n in targets}
+        assert expected=={n:('f' if marker(n) else 't') for n in targets}
+        meta="SELECT to_jsonb(p)-'prosrc'-'prolang' FROM pg_proc p WHERE oid='fn_tournament_has_unsettled_bounties(uuid)'::regprocedure"
+        before=value(meta)
+        # The original event had1353 settled heads. Count actual function work,
+        # not wall-clock timing: the entire canonical history is still proved.
+        sql(f"INSERT INTO tournaments VALUES('{uid(2000)}',1);INSERT INTO tournament_bounty_obligations(id,tournament_id,mode,claimants,head_amount,state) SELECT md5(g::text)::uuid,'{uid(2000)}','pko','[{{\"user_id\":\"{uid(1)}\",\"weight\":1}}]'::jsonb,1,'settled' FROM generate_series(1,1353) g;INSERT INTO tournament_bounties SELECT id,'{uid(1)}',1,.5 FROM tournament_bounty_obligations WHERE tournament_id='{uid(2000)}';")
+        counter="SELECT coalesce((SELECT calls FROM pg_stat_user_functions WHERE funcid='fn_bounty_obligation_has_complete_marker(uuid)'::regprocedure),0)"
+        reset="SELECT pg_stat_reset_single_function_counters('fn_bounty_obligation_has_complete_marker(uuid)'::regprocedure)"
+        value(reset);assert field(2000)=='f';assert value(counter)=='1353'
+        # An actual failure during replacement restores its complete preimage.
+        sql("CREATE FUNCTION refuse_scoped_proof() RETURNS event_trigger LANGUAGE plpgsql AS $$BEGIN IF position('Scoped complete bounty marker proof' in pg_get_functiondef('fn_tournament_has_unsettled_bounties(uuid)'::regprocedure))>0 THEN RAISE EXCEPTION 'injected_scoped_failure';END IF;END$$;CREATE EVENT TRIGGER refuse_scoped_proof ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION') EXECUTE FUNCTION refuse_scoped_proof();")
+        failure=sql(scoped,check=False)
+        assert failure.returncode and 'injected_scoped_failure' in failure.stderr
+        assert value("SELECT md5(pg_get_functiondef('fn_tournament_has_unsettled_bounties(uuid)'::regprocedure))")=='8041a7f3d6b2886ce7d688bb5525d952'
+        assert value(meta)==before
+        sql('DROP EVENT TRIGGER refuse_scoped_proof;DROP FUNCTION refuse_scoped_proof();')
+        sql(scoped)
+        value(reset);assert field(2000)=='f';assert value(counter)=='0'
+        assert value(f"BEGIN;UPDATE tournament_bounties SET bounty_amount=.99 WHERE bounty_obligation_id=md5('1353')::uuid;SELECT fn_tournament_has_unsettled_bounties('{uid(2000)}');ROLLBACK;")=='t'
+        print('PASS actual1353 scalar marker executions become0; full history corrupt last marker still refuses; atomic failure leaves original source and metadata')
+        assert value(meta)==before
+        assert {n:field(n) for n in targets}==expected
+        for n,mutation,label in cases:
+            assert value(f"BEGIN;{mutation};SELECT fn_tournament_has_unsettled_bounties('{uid(n)}');ROLLBACK;")=='t',label
+        for status in ('reserved','revealed','paid'):
+            assert value(f"BEGIN;INSERT INTO tournament_bounty_awards(id,tournament_id,status) VALUES('{uid(9990)}','{uid(110)}','{status}');SELECT fn_tournament_has_unsettled_bounties('{uid(110)}');ROLLBACK;")=='t'
+        assert value(f"BEGIN;UPDATE tournament_bounty_obligations SET state='pending' WHERE id='{uid(110)}';SELECT fn_tournament_has_unsettled_bounties('{uid(110)}');ROLLBACK;")=='t'
+        assert field(999)=='f' # another event's debt/marker never leaks into this field
+        assert value("SELECT has_function_privilege('anon','fn_tournament_has_unsettled_bounties(uuid)','EXECUTE') OR has_function_privilege('authenticated','fn_tournament_has_unsettled_bounties(uuid)','EXECUTE')")=='f'
+        assert value("SELECT has_function_privilege('service_role','fn_tournament_has_unsettled_bounties(uuid)','EXECUTE')")=='t'
+        # Drift of even an otherwise equivalent scalar definition refuses the
+        # compiled proof rather than accepting stale financial semantics.
+        actual_marker=value("SELECT pg_get_functiondef('fn_bounty_obligation_has_complete_marker(uuid)'::regprocedure)")
+        sql(actual_marker.replace('AS $function$', 'AS $function$\n-- changed marker source'))
+        refused=sql(f"SELECT fn_tournament_has_unsettled_bounties('{uid(110)}');",check=False)
+        assert refused.returncode and 'scoped_bounty_marker_source_changed' in refused.stderr
+        sql(actual_marker)
+        assert field(110)=='f'
+        refused=sql(scoped,check=False)
+        assert refused.returncode and 'scoped_bounty_proof_preimage_changed' in refused.stderr
+        print('PASS scoped complete history: all actual marker modes/11 corruptions/pending/awards/scope/ACL/source drift/replay; no financial rows changed')
         print('SCOPE: actual SQL marker, floor helper and ack trigger on PG17; controlled unit lookup; no wallet payer or production mutation')
     finally:
         run('pg_ctl', '-D', str(scratch / 'data'), '-m', 'immediate', 'stop')
