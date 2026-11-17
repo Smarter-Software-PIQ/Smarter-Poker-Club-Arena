@@ -3203,7 +3203,7 @@ sys.exit(int(os.environ.get('FAKE_GIT_ARCHIVE_FAILURE', '0')))
       {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: 10_000,
+        timeout: CHILD_HANG_GUARD_MS,
       }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
