@@ -9,11 +9,12 @@ import argparse,os,json,subprocess,tempfile,hashlib,uuid
 from pathlib import Path
 R=Path(__file__).resolve().parents[2]
 MIGRATION=R/'supabase/migrations/20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql'
+SATELLITE_FIX=R/'supabase/migrations/20261117172824_satellite_remainder_keeps_original_promo_earning_source.sql'
 REBASE_FIX=R/'supabase/migrations/20261117164841_promo_tournament_hand_capture_accepts_the_commits_own_rebase.sql'
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--migration',type=Path,default=MIGRATION);p.add_argument('--financial-root',type=Path,default=R);p.add_argument('--profit-root',type=Path,default=R);p.add_argument('--custody-migration',type=Path);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args();MIGRATION=args.migration.resolve()
 if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
 PG=args.pg_bin;out=args.output;out.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='peg-'));checks=[]
-inputs=[R/'scripts/ci/migration-stale-pins.mjs',MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',REBASE_FIX,Path(__file__)]
+inputs=[R/'scripts/ci/migration-stale-pins.mjs',MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',REBASE_FIX,SATELLITE_FIX,Path(__file__)]
 (out/'INPUTS.json').write_text(json.dumps({str(x.relative_to(R)):{'sha256':hashlib.sha256(x.read_bytes()).hexdigest()} for x in inputs},indent=2)+'\n')
 
 def run(sql,ok=True):
@@ -231,6 +232,35 @@ try:
  check('a rebased hand with a different engine stack still refuses',bad.returncode!=0,True)
  run('SET check_function_bodies=off;'+guarded(fix,REBASE_FIX))
  check('rebase fix is idempotent',one("SELECT md5(pg_get_functiondef('public.fn_ca_promo_profit_capture_tournament_hand(uuid,uuid,jsonb)'::regprocedure))"),fixed)
+ # Satellite's original direct cash-remainder owner needs the same source
+ # handoff as the ordinary obligation payer. Exercise the real helpers and
+ # compile the guarded patch against the captured original cohort authority.
+ run('ALTER TABLE tournament_obligations ADD COLUMN source text,ADD COLUMN place integer;')
+ rem=uid(130);remkey=f'tourney:{T}:satellite_remainder:place:6'
+ run(f"INSERT INTO tournament_obligations(id,tournament_id,user_id,kind,amount_paid,amount_owed,source,place) VALUES('{rem}','{T}','{U}','satellite_remainder',0,16,'engine.fn_settle_satellite_tournament',6)")
+ before=run(f"SELECT fn_ca_promo_profit_prepare_tournament_credit('{rem}','{remkey}',16)",False)
+ check('pre-fix satellite original key refuses source preparation',before.returncode!=0 and 'original_tournament_earning_credit_intent_mismatch' in before.stderr,True)
+ satellite=SATELLITE_FIX.read_text();run('SET check_function_bodies=off;'+guarded(satellite,SATELLITE_FIX))
+ sid=one(f"SELECT fn_ca_promo_profit_prepare_tournament_credit('{rem}','{remkey}',16)")
+ check('satellite exact unpaid remainder keeps original operation identity',one(f"SELECT operation_ref||':'||source_kind||':'||amount FROM ca_promo_profit_earning_sources WHERE source_id='{sid}'"),remkey+':satellite_remainder:16')
+ check('satellite source preparation is idempotent',one(f"SELECT fn_ca_promo_profit_prepare_tournament_credit('{rem}','{remkey}',16)"),sid)
+ for key,amount in [(remkey,15),(remkey+'x',16),(f'tourney:{T}:satellite_remainder:place:7',16)]:
+  bad=run(f"SELECT fn_ca_promo_profit_prepare_tournament_credit('{rem}','{key}',{amount})",False)
+  check('partial or wrong satellite remainder identity refuses '+key+':'+str(amount),bad.returncode!=0,True)
+ # A wrong earning-source GUC still refuses; there is no new fallback.
+ led=uid(131)
+ run(f"INSERT INTO chip_ledger VALUES('{led}','prize_liability','player_wallet','{T}','{U}',16,'tournament_prize','{T}','posted','{C}','{{}}',NULL)")
+ bad=run(f"SET app.ca_promo_profit_earning_source='';SELECT fn_ca_promo_profit_bind_earning_ledger('{led}')",False)
+ check('missing original source still refuses the actual ledger binding',bad.returncode!=0,True)
+ run(f"INSERT INTO wallet_credit_idempotency VALUES('{remkey}','{U}',16);SET app.ca_promo_profit_earning_source='{sid}';SELECT fn_ca_promo_profit_bind_earning_ledger('{led}')")
+ check('satellite ledger binds exact original key and conserved earning slices',one(f"SELECT count(*) FROM ca_promo_profit_earning_credit_links WHERE ledger_id='{led}' AND source_id='{sid}'"),'1')
+ check('satellite ledger response loss replay is idempotent',one(f"SELECT fn_ca_promo_profit_bind_earning_ledger('{led}')"),sid)
+ cohort=one("SELECT pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure)")
+ check('actual cohort prepares source before its original direct payment',cohort.index('fn_ca_promo_profit_prepare_tournament_credit(')<cohort.index('v_credited := public.fn_credit_and_log('),True)
+ check('actual cohort restores caller source after original payment',cohort.index("COALESCE(v_promo_earning_prior,'')")>cohort.index("p_payout_source => 'satellite_remainder'"),True)
+ fixed=one("SELECT md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure))")
+ run('SET check_function_bodies=off;'+guarded(satellite,SATELLITE_FIX))
+ check('satellite source migration replay is idempotent',one("SELECT md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure))"),fixed)
  print(json.dumps({'status':'passed','checks':len(checks)}));(out/'RESULTS.json').write_text(json.dumps({'status':'passed','checks':checks},indent=2)+'\n')
 finally:
  if started:subprocess.run([PG/'pg_ctl','-D',tmp/'data','-m','fast','-w','stop'],capture_output=True)
