@@ -934,6 +934,11 @@ class CashoutServiceClass {
     }
     if (
       !objectValue(data) ||
+      data.success !== true ||
+      data.contract_version !== 1 ||
+      typeof data.replayed !== 'boolean' ||
+      data.op_id !== operationId ||
+      data.actor_user_id !== actorId ||
       data.cashout_id !== cashout.id ||
       data.club_id !== cashout.clubId ||
       data.is_escalated !== true ||

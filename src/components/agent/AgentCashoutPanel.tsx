@@ -258,7 +258,7 @@ function AgentCashoutContent({
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: '*',
             schema: 'public',
             table: 'club_notice_access_events',
             filter: `user_id=eq.${user?.id}`,

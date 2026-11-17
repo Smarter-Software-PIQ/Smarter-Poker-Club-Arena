@@ -1168,6 +1168,10 @@ describe('Notice Board escalation identity', () => {
     createdAt: '2026-09-15T00:00:00Z',
   };
   const card = {
+    success: true,
+    contract_version: 1,
+    replayed: false,
+    actor_user_id: ID.agent,
     cashout_id: ID.cashout,
     club_id: ID.club,
     amount: '250.00',
@@ -1180,7 +1184,9 @@ describe('Notice Board escalation identity', () => {
     await expect(cashoutService.escalateCashout(pending, ID.agent, current)).rejects.toThrow(
       'Connection Lost'
     );
-    rpc.mockResolvedValueOnce({ data: card, error: null } as never);
+    rpc.mockImplementationOnce(
+      async (_name, args: any) => ({ data: { ...card, op_id: args.p_op_id }, error: null }) as never
+    );
     await expect(cashoutService.escalateCashout(pending, ID.agent, current)).resolves.toBe(
       ID.event
     );
@@ -1196,6 +1202,25 @@ describe('Notice Board escalation identity', () => {
   it('refuses a mismatched response without advertising delivery', async () => {
     signIn(ID.agent);
     rpc.mockResolvedValueOnce({ data: { ...card, amount: 251 }, error: null } as never);
+    await expect(cashoutService.escalateCashout(pending, ID.agent, current)).rejects.toThrow(
+      'Not Confirmed'
+    );
+  });
+  it.each([
+    ['success', false],
+    ['contract_version', 2],
+    ['replayed', undefined],
+    ['op_id', ID.event],
+    ['actor_user_id', ID.player],
+  ])('refuses an unbound escalation envelope: %s', async (field, value) => {
+    signIn(ID.agent);
+    rpc.mockImplementationOnce(
+      async (_name, args: any) =>
+        ({
+          data: { ...card, op_id: args.p_op_id, [field]: value },
+          error: null,
+        }) as never
+    );
     await expect(cashoutService.escalateCashout(pending, ID.agent, current)).rejects.toThrow(
       'Not Confirmed'
     );

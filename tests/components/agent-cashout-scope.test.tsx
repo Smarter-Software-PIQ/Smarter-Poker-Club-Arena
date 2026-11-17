@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   recover: vi.fn(),
   listeners: [] as Array<() => void>,
   realtime: new Map<string, (payload: any) => void>(),
+  realtimeEvents: new Map<string, string>(),
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: state.userId } }),
@@ -87,7 +88,7 @@ vi.mock('../../src/core/MasterBus', () => ({
     },
     removeRegisteredChannel: vi.fn(),
     getOrCreateChannel: () => {
-      const c = { on: (_event: string, filter: { table: string }, callback: (payload: any) => void) => { state.realtime.set(filter.table, callback); return c; }, subscribe: vi.fn() };
+      const c = { on: (_event: string, filter: { table: string; event: string }, callback: (payload: any) => void) => { state.realtime.set(filter.table, callback); state.realtimeEvents.set(filter.table, filter.event); return c; }, subscribe: vi.fn() };
       return c;
     },
   },
@@ -287,10 +288,11 @@ it('renders an escalated request read only for agents and retains the original p
   expect(screen.queryByRole('button', { name: 'Send To Notice Board' })).toBeNull();
 });
 
-it('revokes visible queue and decisions on the private access event', async () => {
+it('revokes visible queue and decisions on an UPDATE to the private access event', async () => {
   render(<AgentCashoutPanel clubId="club-a" />);
   await readyApprove();
-  act(() => state.realtime.get('club_notice_access_events')?.({ new: { club_id: 'club-a', can_access: false } }));
+  expect(state.realtimeEvents.get('club_notice_access_events')).toBe('*');
+  act(() => state.realtime.get('club_notice_access_events')?.({ eventType: 'UPDATE', new: { club_id: 'club-a', can_access: false } }));
   expect(screen.queryByRole('button', { name: 'Approve Cashout' })).not.toBeInTheDocument();
   expect(screen.queryByText('request-a')).not.toBeInTheDocument();
   expect(state.approve).not.toHaveBeenCalled();

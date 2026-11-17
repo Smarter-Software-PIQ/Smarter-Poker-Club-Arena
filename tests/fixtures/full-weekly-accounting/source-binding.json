@@ -1,7 +1,7 @@
 {
   "noticeCashoutClientAudit20261117": {
     "reason": "Reviewed cashout fixture changes for 2000-character notes, authoritative queue capabilities, Notice Board escalation, club-bank receipts and concurrent second-request invalidation. Existing private receipt and financial safeguards remain asserted. Current source identities only; no historical certificate restamp.",
-    "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final scope and own-event group 25 passed; integrated application build 607e2cccd09b4ba4e35a22c8a8986c49e8ed479f passed.",
+    "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final service, scope and own-event group 192 passed, including UPDATE revocation and strict escalation envelope refusals. Application compiler and Vite passed; final provenance required integration of concurrent main and a subsequent exact build.",
     "changes": [
       {
         "path": "tests/cashout-escrow-flow.test.ts",
@@ -11,7 +11,7 @@
       {
         "path": "tests/components/agent-cashout-scope.test.tsx",
         "previousSHA256": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
-        "currentSHA256": "335ae1b807644b2fd6498705369adaacbd0b0d7826e5aaa4c2fe8faadfb0ded3"
+        "currentSHA256": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a"
       },
       {
         "path": "tests/components/cashier-cashout-generations.test.tsx",
@@ -31,7 +31,7 @@
       {
         "path": "tests/unit/CashoutService.test.ts",
         "previousSHA256": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
-        "currentSHA256": "07000822664ed2e55d213fc90dbea289c8ba54090fda882175da72df9c012cfd"
+        "currentSHA256": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232"
       }
     ],
     "historicalEvidenceRestamped": false,
@@ -337,8 +337,8 @@
     "tests/unit/CreditRequestAuthority.test.ts": "0dce14c178ef4f5bd8f8a2aa794cfc8f76fec4fe3207e0882add16e162abb821",
     "tests/unit/CreditRequestLegacyCaller.test.ts": "ef6f8458a54ce3b5e646d831c176f279456e8f59598616e20dbb3a9dbc7f2e7b",
     "tests/unit/CreditRequestService.test.ts": "47bc48d13b54901999a6a58b36a93edb79e4f2d057427a4a6d622ff009d7c0c3",
-    "tests/components/agent-cashout-scope.test.tsx": "335ae1b807644b2fd6498705369adaacbd0b0d7826e5aaa4c2fe8faadfb0ded3",
-    "tests/unit/CashoutService.test.ts": "07000822664ed2e55d213fc90dbea289c8ba54090fda882175da72df9c012cfd",
+    "tests/components/agent-cashout-scope.test.tsx": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a",
+    "tests/unit/CashoutService.test.ts": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232",
     "tests/config/roleScopedCashier.test.ts": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074",
     "tests/cashout-escrow-flow.test.ts": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf",
     "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": "edef6d6318f142277069de1fead9cbfe8ea732cc5d774987d8f4894bdc06807f",
