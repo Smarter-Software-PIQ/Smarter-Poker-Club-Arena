@@ -65,6 +65,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off PLO6 multiway weak made-hand bet-to-check (PLO6 lane 2026-11-15, plo6NoMultiwayBetWithWeakMadeHand): a flop or turn bet facing nothing against two or more live opponents with a pair below the top card, two pair without the top card, the board pair with such a pair or a pocket pair above the top card of an unpaired board, no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs, not nut class, becomes a check; runs with the owner-ruled own-bet checks in the wager rules',
     'src/engine/HorsePlo6StrategyCalibration.ts':
       'the PLO6 calibration of the Omaha strategy constants (PLO6 lane 2026-11-16, omahaStrategyInPlo6, default off and off-only): HorseLogic.decide registers its six-card values with omahaStrategyConstant only for a decision whose gate is on, and takes them back otherwise',
+    'src/engine/HorseOmahaRunoutRealization.ts':
+      'the default-off turn call realization read from the per-river counts (PLO Strategy lane 2026-11-17, omahaTurnCallRealizationByRunout): reached only from the Omaha facing-bet EV verdict when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaRunoutRealization.test.ts), so no reference decision depends on it',
     'src/engine/HorsePlo6FastCount.ts':
       'the exact six-card count used by the Omaha facing-bet EV rule (PLO6 lane 2026-11-16): the barred-pair graph counted as an independence polynomial, equal to the walk it replaces on every tested hand; read only while a six-card hand is counted',
     'src/engine/HorsePlo6PricingPort.ts':
