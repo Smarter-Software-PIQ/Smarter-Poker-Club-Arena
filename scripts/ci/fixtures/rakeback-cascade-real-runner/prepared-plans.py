@@ -9,7 +9,9 @@ try:
         original=next((R/'supabase/migrations').glob(version+'_*.sql')).read_text()
         ddl=original[original.index('CREATE FUNCTION smarter_private.'+name):].split('END $admit$;',1)[0]+'END $admit$;'
         q('SET check_function_bodies=off;'+ddl)
-    for version in ('20261116145019','20261116161800','20261117001201','20261117001202'):
+    for version in ('20261116145019','20261116161800','20261116163408','20261116172800','20261117001201','20261117001202'):
+        if version=='20261117001202':
+            assert one("SELECT md5(pg_get_functiondef('smarter_private.weekly_payout_next_round()'::regprocedure))")=='4dbdcf0216558c59625f87f01f9602ad', 'install on the exact November 16 production admission function'
         q(next((R/'supabase/migrations').glob(version+'_*.sql')).read_text())
     args="'union',rr.u('U'),rr.ws(),rr.we()"
     ready_sql="SELECT smarter_private.weekly_prepared_payout_plans("+args+")"
