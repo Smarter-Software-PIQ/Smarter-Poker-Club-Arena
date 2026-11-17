@@ -54,3 +54,18 @@ INSERT INTO hand_atomic_commits
  '2026-10-01 00:00Z'::timestamptz+g*interval '1 second','2026-10-01 00:00Z'::timestamptz+(g+1)*interval '1 second',
  '{"rake":null,"bbj_contribution":{"amount":1}}'::jsonb FROM generate_series(1,1000)g;
 ANALYZE hand_atomic_commits;
+-- Pre-floor accepted obligations remain candidates when bank completion is
+-- later, and unfinished obligations remain indexed without masking each day.
+INSERT INTO hand_atomic_commits VALUES
+ ('c0000000-0000-0000-0000-000000000001',9110,'eeeeeeee-0000-0000-0000-000000009110','2026-11-08 23:00Z','2026-11-13 08:00Z','{"rake":null,"bbj_contribution":{"amount":1}}'),
+ ('c0000000-0000-0000-0000-000000000001',9111,'eeeeeeee-0000-0000-0000-000000009111','2026-11-08 22:00Z',NULL,'{"rake":null,"bbj_contribution":{"amount":1}}');
+INSERT INTO bbj_contributions(pool_id,hand_id,table_id,hand_number,amount,created_at) VALUES
+ ('bbbbbbbb-0000-0000-0000-000000009100','eeeeeeee-0000-0000-0000-000000009110','c0000000-0000-0000-0000-000000000001',9110,1,'2026-11-13 07:59:59.999Z');
+DO $test$ DECLARE r jsonb;BEGIN
+ IF fn_ca_club_acct_bbj_gap_days('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-12','2026-11-12')<>ARRAY['2026-11-12'::date] THEN RAISE EXCEPTION 'pre-floor accepted late bank escaped sparse qualification';END IF;
+ IF fn_ca_club_acct_bbj_gap_days('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-16','2026-11-16')<>ARRAY[]::date[] THEN RAISE EXCEPTION 'pre-floor pending hand masked unrelated day';END IF;
+ -- A version receipt cannot expand the explicitly bounded BBJ availability.
+ INSERT INTO ca_club_acct_seed_log SELECT (jsonb_populate_record(NULL::ca_club_acct_seed_log,to_jsonb(l)||'{"acct_day":"2026-11-08","bbj_version":1}')).* FROM ca_club_acct_seed_log l WHERE acct_day='2026-11-10' ON CONFLICT(acct_day) DO UPDATE SET bbj_version=1;
+ r:=fn_ca_club_acct_reconciliation('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-08','2026-11-08','{}');
+ IF r->>'complete'<>'false' OR r->'bbj_gross' IS DISTINCT FROM 'null'::jsonb OR NOT(r->'missing_days' @> '["2026-11-08"]') THEN RAISE EXCEPTION 'pre-floor receipt falsely certified BBJ: %',r;END IF;
+END $test$;
