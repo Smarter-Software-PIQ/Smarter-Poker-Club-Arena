@@ -57,13 +57,7 @@
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { warmTable, observeLobbyTableWarmups } from '../../../services/tableWarmup';
 import { useToast } from '../../common/Toast';
-import {
-  chips,
-  stackChips,
-  isPlayerLive,
-  shortTableName,
-  type TournamentTabProps,
-} from './types';
+import { chips, stackChips, isPlayerLive, shortTableName, type TournamentTabProps } from './types';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
 /* `TournamentEntry` was imported here too and referenced nowhere in the file. */
 import type { TournamentTable } from './types';
@@ -519,7 +513,13 @@ export default function TablesTab({
               : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
     return (
       <div className="tl-panel tt-panel">
-        {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+        {myPlayers.ready && (
+          <MyPlayersCard
+            summary={myPlayers.summary}
+            tournamentId={tournament.id}
+            onWatchPlayer={onWatchPlayer}
+          />
+        )}
         <div className="tl-empty">
           <span>{empty.title}</span>
           <span className="tl-empty__hint">{empty.hint}</span>
@@ -533,7 +533,13 @@ export default function TablesTab({
   return (
     <div className="tl-panel tt-panel">
       {/* Your players first (Dan 2026-11-08), then the field. */}
-      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+      {myPlayers.ready && (
+        <MyPlayersCard
+          summary={myPlayers.summary}
+          tournamentId={tournament.id}
+          onWatchPlayer={onWatchPlayer}
+        />
+      )}
 
       <div className="tl-stat-grid tt-stats">
         <div className="tl-stat">

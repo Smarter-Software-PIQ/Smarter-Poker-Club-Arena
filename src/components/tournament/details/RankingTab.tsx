@@ -1121,6 +1121,8 @@ function RankingTabForTournament({
       {myPlayers.ready && (
         <MyPlayersCard
           summary={myPlayers.summary}
+          tournamentId={tournament.id}
+          onWatchPlayer={onWatchPlayer}
           action={
             canFilterDownline ? (
               <button

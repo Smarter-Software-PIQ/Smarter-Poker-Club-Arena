@@ -9,13 +9,16 @@
  */
 
 import { useId, useState, type ReactNode } from 'react';
-import { chips, chipsCompact, ordinal } from './types';
+import { chips, chipsCompact, ordinal, type TournamentTabProps } from './types';
+import WatchAtTableButton from '../../club/WatchAtTableButton';
 import { myPlayerStatusText, type MyPlayersSummary } from './myPlayersSummary';
 import '../../../styles/tournament-lobby-3d.css';
 import './MyPlayersCard.css';
 
 export interface MyPlayersCardProps {
   summary: MyPlayersSummary;
+  tournamentId?: string;
+  onWatchPlayer?: TournamentTabProps['onWatchPlayer'];
   /** Optional control at the right edge (Ranking's Mine Only / Show All). */
   action?: ReactNode;
   className?: string;
@@ -48,7 +51,13 @@ function headline(s: MyPlayersSummary): { line: string; sub: string | null } {
   }
 }
 
-export default function MyPlayersCard({ summary, action, className }: MyPlayersCardProps) {
+export default function MyPlayersCard({
+  summary,
+  tournamentId,
+  onWatchPlayer,
+  action,
+  className,
+}: MyPlayersCardProps) {
   const listId = useId();
   const hasList = summary.players.length > 0;
   // Open by default once nobody is left, because then the list IS the answer.
@@ -86,10 +95,33 @@ export default function MyPlayersCard({ summary, action, className }: MyPlayersC
         <ul id={listId} className="mp-card__list tl-scroll">
           {summary.players.map((p) => (
             <li key={p.userId} className={`mp-card__row mp-card__row--${p.state}`}>
-              <span className="mp-card__name">{p.username}</span>
-              <span className="mp-card__status">
-                {myPlayerStatusText(p, ordinal, chipsCompact)}
+              <span className="mp-card__player">
+                <span className="mp-card__name">{p.username}</span>
+                <span className="mp-card__status">
+                  {myPlayerStatusText(p, ordinal, chipsCompact)}
+                </span>
               </span>
+              {summary.mode === 'live' &&
+                p.state === 'live' &&
+                p.tableId &&
+                tournamentId &&
+                onWatchPlayer && (
+                  <span className="mp-card__watch">
+                    <WatchAtTableButton
+                      socket="MTT"
+                      eyebrow={p.tableName || 'Table'}
+                      title="Click And Watch"
+                      ariaLabel={`Click And Watch ${p.username} At Their Table`}
+                      onClick={() =>
+                        onWatchPlayer(p.tableId!, p.tableName || undefined, {
+                          tournamentId,
+                          userId: p.userId,
+                          username: p.username,
+                        })
+                      }
+                    />
+                  </span>
+                )}
             </li>
           ))}
         </ul>

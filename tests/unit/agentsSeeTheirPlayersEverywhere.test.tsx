@@ -186,6 +186,72 @@ describe('MyPlayersCard', () => {
     expect(screen.getByRole('button', { name: 'Hide Players' })).toBeTruthy();
   });
 
+  it('opens the selected live player through the lobby observer handler, including follow identity', () => {
+    const watch = vi.fn();
+    const summary = deriveMyPlayers(T, FIELD, TABLES, new Set(['danimal', 'kingfish', 'zoe']));
+    const { rerender } = render(
+      <MyPlayersCard summary={summary} tournamentId="event" onWatchPlayer={watch} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Players' }));
+    const button = screen.getByRole('button', { name: 'Click And Watch kingfish At Their Table' });
+    expect(button.textContent).toContain('Click And Watch');
+    fireEvent.click(button);
+    expect(watch).toHaveBeenLastCalledWith('t2', 'Table 2', {
+      tournamentId: 'event',
+      userId: 'kingfish',
+      username: 'kingfish',
+    });
+    expect(screen.queryByRole('button', { name: /Click And Watch zoe/ })).toBeNull();
+    // Realtime table moves update the destination rather than retaining the old table.
+    const moved = FIELD.map((p) => (p.user_id === 'kingfish' ? { ...p, table_id: 't1' } : p));
+    rerender(
+      <MyPlayersCard
+        summary={deriveMyPlayers(T, moved, TABLES, new Set(['kingfish']))}
+        tournamentId="event"
+        onWatchPlayer={watch}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Click And Watch kingfish At Their Table' })
+    );
+    expect(watch).toHaveBeenLastCalledWith(
+      't1',
+      'Table 1',
+      expect.objectContaining({ userId: 'kingfish' })
+    );
+  });
+
+  it('offers no watch action without a live event, seat, or page-owned handler', () => {
+    const watch = vi.fn();
+    const { rerender } = render(
+      <MyPlayersCard
+        summary={deriveMyPlayers(T, FIELD, TABLES, new Set(['danimal']))}
+        tournamentId="event"
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Players' }));
+    expect(screen.queryByRole('button', { name: /Click And Watch/ })).toBeNull();
+    for (const status of ['REGISTERING', 'COMPLETED']) {
+      rerender(
+        <MyPlayersCard
+          summary={deriveMyPlayers({ ...T, status }, FIELD, TABLES, new Set(['danimal']))}
+          tournamentId="event"
+          onWatchPlayer={watch}
+        />
+      );
+      expect(screen.queryByRole('button', { name: /Click And Watch/ })).toBeNull();
+    }
+    rerender(
+      <MyPlayersCard
+        summary={deriveMyPlayers(T, [e('waiting', 5000, 'playing')], [], new Set(['waiting']))}
+        tournamentId="event"
+        onWatchPlayer={watch}
+      />
+    );
+    expect(screen.queryByRole('button', { name: /Click And Watch/ })).toBeNull();
+    expect(watch).not.toHaveBeenCalled();
+  });
+
   it('opens the finishing list by itself once nobody is remaining', () => {
     render(<MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, new Set(['zoe', 'bust']))} />);
     expect(screen.getByText('None Of Your Players Are Remaining')).toBeTruthy();
