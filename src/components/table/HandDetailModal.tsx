@@ -40,8 +40,8 @@
  * header bar carrying three 32px square icon buttons, a pill tab strip, a
  * rounded card per showdown row, bordered board blocks, a boxed rake panel and
  * a rounded "Show What Would Have Come" button. The spade master is the frame
- * now: the table is the eyebrow, HAND DETAIL is engraved in the header well,
- * the hand number sits in the well's painted pill slot, every board, pot,
+ * now: HAND DETAIL heads the glass, the table sits below it on the left and
+ * the hand number prints unframed on the right. Every board, pot,
  * showdown row is a ROW on the black glass, and REPLAY /
  * CLOSE are the plates painted into the foot.
  *
@@ -66,6 +66,7 @@ import {
 } from './replayRabbitOffer';
 import { useRabbitHuntReveal } from './useRabbitHuntReveal';
 import type { RabbitHuntRevealResult } from './RabbitHunt';
+import { sortCardsByRank } from '../../lib/tableCardDisplay';
 import { cardKey } from '../../utils/handEvaluator';
 import type { ReplayModel, ReplayShowdownRow } from '../../utils/handReplay';
 import './HandDetailModal.css';
@@ -481,7 +482,7 @@ function SummaryRow({
       </div>
       <div className="hdm-sd__cards">
         {row.hole
-          ? row.hole.map((c, i) => (
+          ? sortCardsByRank(row.hole).map((c, i) => (
               <CardImage
                 key={i}
                 card={c}
@@ -934,10 +935,9 @@ export function HandDetailModal({
           onClose={onClose}
           as="div"
           className="hdm-console"
-          eyebrow={hand.tableName || 'This Table'}
+          subtitle={hand.tableName || 'This Table'}
           title="Hand Detail"
-          /* The hand number in the well's painted pill slot: it is what every
-             dispute and every chat about a hand opens with. */
+          /* Printed beside the game name, without a separate number frame. */
           pill={`#${hand.handNumber}`}
           pillInk="blue"
           foot="foot"
@@ -980,7 +980,7 @@ export function HandDetailModal({
                       <span className="hdm-sd__pos">{me.position}</span>
                     </div>
                     <div className="hdm-sd__cards">
-                      {cards?.map((card, i) => (
+                      {sortCardsByRank(cards ?? []).map((card, i) => (
                         <CardImage
                           key={i}
                           card={card}
