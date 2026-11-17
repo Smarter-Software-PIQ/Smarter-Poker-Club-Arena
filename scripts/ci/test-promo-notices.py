@@ -64,6 +64,10 @@ def main():
    subprocess.run([str(pg/'initdb'),'-D',str(data),'-U','postgres','-A','trust','--no-locale'],check=True,capture_output=True)
    subprocess.run([str(pg/'pg_ctl'),'-D',str(data),'-l',str(d/'pg.log'),'-o',f"-F -k {directory} -p {port} -c listen_addresses='' -c track_functions=all",'-w','start'],check=True,capture_output=True);started=True
    db.run('CREATE DATABASE promo_notices',db='postgres');db.run(base.STUB)
+   # Freeze the product's last closed Chicago day once. PostgreSQL may run
+   # in UTC, where current_date crosses midnight several hours earlier.
+   fixture_clock=db.json("SELECT json_build_object('database_timezone',current_setting('TimeZone'),'utc_day',(clock_timestamp() AT TIME ZONE 'UTC')::date,'chicago_day',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date,'closed_day',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1)")
+   closed_day=fixture_clock['closed_day']
    for f in base.MIGRATIONS:db.run(Path(f).read_text())
    integrity=args.integrity_migration.read_text()
    for table in ['ca_promo_integrity_cases','ca_promo_integrity_releases','ca_promo_integrity_custody']:
@@ -73,7 +77,7 @@ def main():
    for name in ['fn_ca_promo_integrity_move','fn_ca_promo_integrity_release']:
     db.run(function(integrity,name))
    custody=args.custody_migration.read_text()
-   (args.output/'INPUTS.json').write_text(json.dumps({'custody_migration_sha256':hashlib.sha256(custody.encode()).hexdigest(),'custody_components_sha256':{name:hashlib.sha256(function(custody,name).encode()).hexdigest() for name in ['fn_ca_promo_cash_fee_clock_missing','fn_ca_promo_fee_events','fn_ca_promo_play_through_state']},'integrity_migration_sha256':hashlib.sha256(integrity.encode()).hexdigest(),'integrity_components_sha256':{name:hashlib.sha256(function(integrity,name).encode()).hexdigest() for name in ['fn_ca_promo_integrity_move','fn_ca_promo_integrity_release']},'notices_migration_sha256':hashlib.sha256(MIG.read_bytes()).hexdigest(),'owners_sha256':hashlib.sha256((ROOT/'tests/fixtures/promo-notices/owners.sql').read_bytes()).hexdigest()},indent=2)+'\n')
+   (args.output/'INPUTS.json').write_text(json.dumps({'custody_migration_sha256':hashlib.sha256(custody.encode()).hexdigest(),'custody_components_sha256':{name:hashlib.sha256(function(custody,name).encode()).hexdigest() for name in ['fn_ca_promo_cash_fee_clock_missing','fn_ca_promo_fee_events','fn_ca_promo_play_through_state']},'integrity_migration_sha256':hashlib.sha256(integrity.encode()).hexdigest(),'integrity_components_sha256':{name:hashlib.sha256(function(integrity,name).encode()).hexdigest() for name in ['fn_ca_promo_integrity_move','fn_ca_promo_integrity_release']},'notices_migration_sha256':hashlib.sha256(MIG.read_bytes()).hexdigest(),'owners_sha256':hashlib.sha256((ROOT/'tests/fixtures/promo-notices/owners.sql').read_bytes()).hexdigest(),'fixture_business_clock':fixture_clock},indent=2)+'\n')
    for name in ['fn_ca_promo_cash_fee_clock_missing','fn_ca_promo_fee_events','fn_ca_promo_play_through_state']:db.run(function(custody,name))
    ticket=args.ticket_migration.read_text()
    paid_ddl=re.search(r'CREATE TABLE public\.ca_promo_event_fee_consumption_receipts \(.*?\n\);',ticket,re.S).group(0)
@@ -173,9 +177,9 @@ def main():
    check('existing observer type constraint stays validated',db.one("SELECT convalidated FROM pg_constraint WHERE conrelid='ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check'"),'t')
    check('actual daily digest contains observer wiring',db.one("SELECT position('fn_ca_promo_daily_digest' in prosrc)>0 FROM pg_proc WHERE oid='fn_sp_daily_digest(date,boolean)'::regprocedure"),'t')
    # Exact original funder partition survives later grants or hierarchy changes.
-   db.run(f"UPDATE ca_promo_play_through_grants SET cycle_started_at=(current_date-1)::timestamptz,granted_at=(current_date-1)::timestamptz+interval '12 hours' WHERE id='{g2}'; INSERT INTO ca_promo_principal_return_receipts VALUES('{g2}','expired',7,(current_date-1)::timestamptz+interval '13 hours')")
-   db.run(f"INSERT INTO ca_promo_integrity_cases(hand_id,source_club_id,source_user_id,club_id,recipient_id,amount,evidence,created_at) VALUES('{base.TOUR_A}','{C}','{A}','{C}','{base.BOB}',0,'{{}}',(current_date-1)::timestamptz+interval '14 hours'); INSERT INTO ca_promo_integrity_source_grants VALUES('{base.TOUR_A}','{g2}','{C}','{A}','promo_wallet','{base.BOB}',10)")
-   report=db.json('SELECT fn_ca_promo_daily_digest(current_date-1)')
+   db.run(f"UPDATE ca_promo_play_through_grants SET cycle_started_at=('{closed_day}'::date::timestamp AT TIME ZONE 'America/Chicago'),granted_at=(('{closed_day}'::date+time '12:00') AT TIME ZONE 'America/Chicago') WHERE id='{g2}'; INSERT INTO ca_promo_principal_return_receipts VALUES('{g2}','expired',7,(('{closed_day}'::date+time '13:00') AT TIME ZONE 'America/Chicago'))")
+   db.run(f"INSERT INTO ca_promo_integrity_cases(hand_id,source_club_id,source_user_id,club_id,recipient_id,amount,evidence,created_at) VALUES('{base.TOUR_A}','{C}','{A}','{C}','{base.BOB}',0,'{{}}',(('{closed_day}'::date+time '14:00') AT TIME ZONE 'America/Chicago')); INSERT INTO ca_promo_integrity_source_grants VALUES('{base.TOUR_A}','{g2}','{C}','{A}','promo_wallet','{base.BOB}',10)")
+   report=db.json(f"SELECT fn_ca_promo_daily_digest('{closed_day}'::date)")
    check('digest original grant funding identity',next(x for x in report['funding_owners'] if x['expired']==7)['funded_from_id'],base.BOB)
    check('digest actual expired return amount',sum(x['expired'] for x in report['funding_owners']),7)
    check('digest flags only exact original source funder',next(x for x in report['funding_owners'] if x['funded_from_id']==base.BOB)['flagged'],1)
