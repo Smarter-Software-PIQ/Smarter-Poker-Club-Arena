@@ -1,3 +1,4 @@
+import { traceTableNavigation } from './support/tableNavigationTrace';
 import {
   installHorseSeatPaints,
   initialAvatarPaint,
@@ -34,6 +35,7 @@ import {
   test,
   type APIRequestContext,
   type BrowserContext,
+  type Locator,
   type Page,
   type TestInfo,
 } from '@playwright/test';
@@ -463,6 +465,26 @@ async function selectCashLobbyTab(page: Page, tabName: string): Promise<void> {
   );
   // Yield the same lobby paint for discovery and for the chosen witness's View action.
   await page.waitForTimeout(100);
+}
+
+async function cashSpectatorAction(page: Page, tableId: string) {
+  const row = page.locator(`[data-testid="lobby-game-row"][data-id="${tableId}"]`);
+  if (await row.isVisible()) {
+    const details = row.getByRole('button', { name: /^Details:/ });
+    // The sticky phone controls cover the geometric viewport centre. Let the
+    // lobby's measured scroll padding place this row inside its usable area
+    // before WebKit resolves the real pointer location.
+    await details.evaluate((button) =>
+      button.scrollIntoView({ block: 'center', behavior: 'instant' })
+    );
+    await details.click();
+  }
+  const card = page.locator(
+    `[data-testid="arena-lobby-game-card"][data-kind="cash"][data-id="${tableId}"]`
+  );
+  return (await row.isVisible())
+    ? page.getByRole('dialog').getByRole('button', { name: CASH_SPECTATOR_ACTION })
+    : card.getByRole('button', { name: CASH_SPECTATOR_ACTION });
 }
 
 /**
@@ -2456,6 +2478,8 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           }
           return route.continue();
         });
+        const journal = phoneWidth === 393 ? new EngineSocketJournal(page) : null;
+        let lobbyDocumentSince = Date.now();
         const selected = await selectOccupiedRunningCashTables(page, request, {
           perVariantLimit: 3,
         });
@@ -2465,8 +2489,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         // first full nine-seat card can otherwise exercise a different URL.
         const remaining: { candidate: Pick<RunningTableCandidate, 'id' | 'capacityHint'> }[] =
           selected.tables.map(({ candidate }) => ({ candidate }));
+        const reportedId = 'e78717a2-294d-4b8f-a6ce-d42ec54b237f';
+        let measuredClick = false;
         if (phoneWidth === 393) {
-          const reportedId = 'e78717a2-294d-4b8f-a6ce-d42ec54b237f';
           const health = await readEngineHealth(request, { candidateTableIds: [reportedId] });
           if (healthyRunningTable(health, reportedId, 'cash')) {
             const existing = remaining.findIndex(({ candidate }) => candidate.id === reportedId);
@@ -2478,35 +2503,129 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         while (remaining.length) {
           const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
           const table = page.locator('.table-page:visible').first();
-          await test.step(`Open occupied table ${candidate.id} at ${phoneWidth}px and render its connected view`, async () => {
-            const document = await page.goto(`table/${candidate.id}`, {
-              waitUntil: 'domcontentloaded',
-            });
-            expect(document?.ok(), 'the selected table document must respond successfully').toBe(
-              true
+          const lobbySource = selected.tables.find((t) => t.candidate.id === candidate.id);
+          const useClick =
+            phoneWidth === 393 && candidate.id !== reportedId && !measuredClick && lobbySource;
+          let view: Locator | undefined;
+          if (useClick) {
+            if (!new URL(page.url()).pathname.endsWith('/' + CLUB_LOBBY)) {
+              lobbyDocumentSince = Date.now();
+              await page.goto(CLUB_LOBBY, { waitUntil: 'domcontentloaded' });
+            }
+            await prepareCashLobbyActions(page);
+            await openLobbyGameSection(page, 'ALL');
+            await selectCashLobbyTab(page, useClick.tabName);
+            view = await cashSpectatorAction(page, candidate.id);
+            await expect(view).toBeVisible();
+            await view.click({ trial: true });
+            await view.evaluate(
+              (button, id) =>
+                button.addEventListener(
+                  'click',
+                  (event) => {
+                    if (event.isTrusted) console.debug('spectator-click-' + id + ':' + Date.now());
+                  },
+                  { capture: true, once: true }
+                ),
+              candidate.id
             );
-            expect(new URL(page.url()).pathname).toMatch(new RegExp(`/table/${candidate.id}/?$`));
-            await expect(table).toBeVisible({ timeout: 30_000 });
-            await expect(page.getByTestId('table-connection-banner')).toBeHidden({
-              timeout: 30_000,
-            });
-          });
-          const capacity = await table.getAttribute('data-seats');
-          if (phoneWidth === 393) {
-            await testInfo.attach(`393px-navigation-${candidate.id}`, {
-              contentType: 'application/json',
-              body: JSON.stringify({ tableId: candidate.id, capacity, committed: true }),
-            });
           }
-          if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
-          await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
-          await certifyMobileLiveTableLayout(page, testInfo, {
-            requireAvatarGrowth: true,
-            spectator: true,
-          });
-          capacities.add(capacity);
-          if (capacities.size === 2) break;
+          const trace =
+            journal && traceTableNavigation(page, candidate.id, view ? 'click' : 'document');
+          try {
+            await test.step(`Open occupied table ${candidate.id} at ${phoneWidth}px and render its connected view`, async () => {
+              if (view) {
+                await Promise.all([
+                  page.waitForURL((url) => url.pathname.endsWith('/table/' + candidate.id)),
+                  view.click(),
+                ]);
+                measuredClick = true;
+              } else {
+                const document = await page.goto(`table/${candidate.id}`, {
+                  waitUntil: trace ? 'commit' : 'domcontentloaded',
+                });
+                expect(
+                  document?.ok(),
+                  'the selected table document must respond successfully'
+                ).toBe(true);
+              }
+              trace?.mark('table-route-observed');
+              expect(new URL(page.url()).pathname).toMatch(new RegExp(`/table/${candidate.id}/?$`));
+              await expect(table).toBeVisible({ timeout: 30_000 });
+              if (trace && journal) {
+                await expect(table.locator('.table-surface')).toBeVisible({ timeout: 30_000 });
+                trace.mark('felt-visible');
+                await expect(table.locator('.seat__avatar-img').first()).toBeVisible({
+                  timeout: 30_000,
+                });
+                await expect(table.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+                trace.mark('occupied-felt-uncovered');
+                const query = {
+                  direction: 'received' as const,
+                  tableId: candidate.id,
+                  type: 'SNAPSHOT',
+                };
+                const snapshot =
+                  journal.matchingFrames({ ...query, since: trace.start })[0] ??
+                  (view
+                    ? journal.matchingFrames({ ...query, since: lobbyDocumentSince }).at(-1)
+                    : undefined) ??
+                  (await journal.waitForFrame(
+                    { ...query, since: trace.start },
+                    CONNECT_DEADLINE_MS,
+                    'No authoritative table snapshot'
+                  ));
+                console.log(
+                  '[393px-snapshot]',
+                  JSON.stringify({
+                    tableId: candidate.id,
+                    entry: view ? 'click' : 'document',
+                    at: snapshot.at,
+                    elapsedMs: snapshot.at - trace.start,
+                  })
+                );
+              }
+              await expect(page.getByTestId('table-connection-banner')).toBeHidden({
+                timeout: 30_000,
+              });
+              trace?.mark('connected-table-visible');
+            });
+            const capacity = await table.getAttribute('data-seats');
+            if (phoneWidth === 393) {
+              await testInfo.attach(`393px-navigation-${candidate.id}`, {
+                contentType: 'application/json',
+                body: JSON.stringify({ tableId: candidate.id, capacity, committed: true }),
+              });
+            }
+            if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
+            await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
+            await certifyMobileLiveTableLayout(page, testInfo, {
+              requireAvatarGrowth: true,
+              spectator: true,
+            });
+            capacities.add(capacity);
+            if (capacities.size === 2) break;
+          } finally {
+            trace?.stop();
+            if (trace)
+              console.log(
+                '[393px-timing]',
+                JSON.stringify({
+                  tableId: candidate.id,
+                  entry: view ? 'click' : 'document',
+                  start: trace.start,
+                  events: trace.events,
+                })
+              );
+            if (trace)
+              await testInfo.attach(`393px-timing-${candidate.id}`, {
+                contentType: 'application/json',
+                body: JSON.stringify(trace.events),
+              });
+          }
         }
+        if (phoneWidth === 393)
+          expect(measuredClick, 'measured a real lobby spectator action').toBe(true);
         expect(mutations, 'Layout observation must never participate in a live game').toEqual([]);
         expect(
           [...capacities].sort(),
@@ -2615,23 +2734,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       // Discovery races witnesses from every cash tab and leaves the last tab
       // active. Restore the winner's tab before looking for its read-only action.
       await selectCashLobbyTab(page, engineBeforeNavigation.selected.tabName);
-      const row = page.locator(`[data-testid="lobby-game-row"][data-id="${candidate.id}"]`);
-      if (await row.isVisible()) {
-        const details = row.getByRole('button', { name: /^Details:/ });
-        // The sticky phone controls cover the geometric viewport centre. Let the
-        // lobby's measured scroll padding place this row inside its usable area
-        // before WebKit resolves the real pointer location.
-        await details.evaluate((button) =>
-          button.scrollIntoView({ block: 'center', behavior: 'instant' })
-        );
-        await details.click();
-      }
-      const card = page.locator(
-        `[data-testid="arena-lobby-game-card"][data-kind="cash"][data-id="${candidate.id}"]`
-      );
-      const view = (await row.isVisible())
-        ? page.getByRole('dialog').getByRole('button', { name: CASH_SPECTATOR_ACTION })
-        : card.getByRole('button', { name: CASH_SPECTATOR_ACTION });
+      const view = await cashSpectatorAction(page, candidate.id);
       await expect(
         view,
         `occupied table ${candidate.name} lost its visible read-only View/Watch Table or Game action`

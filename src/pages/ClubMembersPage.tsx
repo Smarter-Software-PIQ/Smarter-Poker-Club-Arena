@@ -2313,7 +2313,7 @@ export const MemberRow = memo(function MemberRow({
                 title="Player Wallet Balance"
                 aria-label={`Player Wallet Balance ${walletFigure(member.player_wallet)}`}
               >
-                {walletFigure(member.player_wallet)}
+                Wallet Balance {walletFigure(member.player_wallet)}
               </span>
               <span
                 className={`member-simple-balance__secondary${secondaryTone}`}

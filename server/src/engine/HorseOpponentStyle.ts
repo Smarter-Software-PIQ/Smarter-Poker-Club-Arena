@@ -670,6 +670,9 @@ export interface OpponentStyleInput {
   /** TIGHT BEYOND VPIP (2026-11-15, HorseDecideOpts.styleTightMultiSignal, default off): only an explicit true
    *  admits the multi-signal tight route (tightMultiSignalRead). Absent, the read is byte for byte what it was. */
   tightMultiSignal?: boolean;
+  /** TIGHT AT THE OBSERVATION LINE (2026-11-16, HorseDecideOpts.styleTightMethodLine, default off): only an explicit
+   *  true admits the method-line tight route (tightMethodLineRead). Absent, the read is byte for byte what it was. */
+  tightMethodLine?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -823,6 +826,9 @@ export interface StyleReceipt {
   /** TIGHT BEYOND VPIP (2026-11-15): present only when styleTightMultiSignal asked for the route. route:vpipBelow:
    *  raiseShare:foldTo3Bet, each the posterior probability that decided it (see tightMultiSignalRead). */
   readonly tightMultiSignal?: string;
+  /** TIGHT AT THE OBSERVATION LINE (2026-11-16): present only when styleTightMethodLine asked for the route.
+   *  route:line:hands:vpip:pfr:vpipBelowMean (see tightMethodLineRead). */
+  readonly tightMethodLine?: string;
   /** features the decision-time counters cannot carry; consumers condition on them at the decision */
   readonly notAvailable: readonly string[];
 }
@@ -1089,6 +1095,7 @@ function buildRead(
     callingRelease?: number;
     longWindow?: readonly string[];
     tightMultiSignal?: string;
+    tightMethodLine?: string;
   }
 ): OpponentStyleRead {
   const prior = populationPriorFor(family, hands);
@@ -1137,6 +1144,7 @@ function buildRead(
     }),
     longWindow: Object.freeze([...(parts.longWindow ?? [])]),
     ...(parts.tightMultiSignal !== undefined ? { tightMultiSignal: parts.tightMultiSignal } : {}),
+    ...(parts.tightMethodLine !== undefined ? { tightMethodLine: parts.tightMethodLine } : {}),
     notAvailable: NOT_AVAILABLE,
   });
   return Object.freeze({
@@ -1341,6 +1349,68 @@ export function tightMultiSignalRead(i: TightMultiSignalInput): TightMultiSignal
     tight,
     confidence: tight ? Math.min(conf(hands, M.minHands), corroboration) : 0,
     receipt: [vpipBelow, rs.pAbove, rs.pBelow, f3.pAbove].map(round4).join(':'),
+  };
+}
+
+/**
+ * TIGHT AT THE OBSERVATION LINE (2026-11-16, Hold'em Strategy lane; option styleTightMethodLine, read === true,
+ * default off). The human-vs-Horse observation method (TIGHT-MANIAC-METHOD-v1) classes a hold'em player tight at 50
+ * or more hands with VPIP at or below 0.18 six-handed or more, 0.30 short-handed. No-limit hold'em reads only (fixed
+ * limit has its own population). The style read's own tight side
+ * needs VPIP credibly below the Horse mean MINUS a margin, so a player at VPIP 0.157-0.171 at a full table sat
+ * between the two lines on four builds: tight by the method, neutral to the engine. CLASS DEFINITION, declared before
+ * measurement (docs/changelog/2026-11-16-tight-at-the-observation-line.md): TIGHT by this route iff all of
+ *  1. at least 50 hands in the window read (the 120-hand long participation window when it holds more hands than
+ *     the decayed counters, else the decayed counters);
+ *  2. VPIP of that window at or below the method line of the table size (full 0.18, short 0.30; heads-up has no
+ *     line and never qualifies);
+ *  3. VPIP credibly below the Horse VPIP mean of the cell: P(rate < mean) >= 0.90 (the method line alone, a point
+ *     estimate, would name about one average player in three tight at 50 hands);
+ *  4. the player does not raise more than the average Horse: PFR of the window at or below the Horse PFR mean;
+ *  5. no contrary evidence: VPIP and call share not high.
+ * Unlike the multi-signal route it needs no corroborating raise share, so a tight player who mostly calls qualifies:
+ * that is the player the observation kept finding. Confidence: n / (n + 50). Pure.
+ */
+export const TIGHT_METHOD_LINE = Object.freeze({
+  minHands: 50,
+  credibility: 0.9,
+  line: Object.freeze({ full: 0.18, short: 0.3 }) as Readonly<Record<string, number>>,
+});
+export interface TightMethodLineInput {
+  vpipSuccesses: number;
+  pfrSuccesses: number;
+  hands: number;
+  /** the method line of the table size, or null where the method has none */
+  line: number | null;
+  vpipMean: number;
+  pfrMean: number;
+  contrary: boolean;
+}
+export interface TightMethodLine {
+  tight: boolean;
+  confidence: number;
+  /** compact receipt: line:hands:vpip:pfr:vpipBelowMean */
+  receipt: string;
+}
+export function tightMethodLineRead(i: TightMethodLineInput): TightMethodLine {
+  const M = TIGHT_METHOD_LINE;
+  const hands = Math.max(0, num(i.hands));
+  const vp = clamp(num(i.vpipSuccesses), 0, hands);
+  const pf = clamp(num(i.pfrSuccesses), 0, vp);
+  const vpipRate = hands > 0 ? vp / hands : 1;
+  const pfrRate = hands > 0 ? pf / hands : 1;
+  const vpipBelow = posterior(vp, hands, i.vpipMean, 0).pBelow;
+  const tight =
+    i.line !== null &&
+    hands >= M.minHands &&
+    vpipRate <= i.line &&
+    vpipBelow >= M.credibility &&
+    pfrRate <= i.pfrMean &&
+    !i.contrary;
+  return {
+    tight,
+    confidence: tight ? hands / (hands + M.minHands) : 0,
+    receipt: [i.line ?? -1, hands, vpipRate, pfrRate, vpipBelow].map(round4).join(':'),
   };
 }
 
@@ -1659,6 +1729,28 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
       : null;
   const multiTight = participationSide === 'neutral' && multi !== null && multi.tight;
   if (multiTight) participationSide = 'tight';
+  // TIGHT AT THE OBSERVATION LINE (2026-11-16, styleTightMethodLine, default off): a hold'em player both routes
+  // above leave neutral is tight when the window holds 50 or more hands with VPIP at or below the observation
+  // method's line for the table size, credibly below the Horse mean, and PFR not above the Horse mean. Never
+  // overrides a loose read; never reached with the option off (the read is then exactly what it was).
+  const methodWindowLong = longHands > counterHands;
+  const method =
+    input.tightMethodLine === true &&
+    family === 'holdem' &&
+    ['', 'nlh'].includes((variant ?? '').toLowerCase()) &&
+    String(scope).startsWith('holdem:')
+      ? tightMethodLineRead({
+          vpipSuccesses: methodWindowLong ? num(cl?.lVpip) : num(c?.vpip),
+          pfrSuccesses: methodWindowLong ? num(cl?.lPfr) : num(c?.pfr),
+          hands: methodWindowLong ? longHands : counterHands,
+          line: TIGHT_METHOD_LINE.line[String(scope).split(':')[1] ?? ''] ?? null,
+          vpipMean: vpipCell.mean,
+          pfrMean: pfrCell.mean,
+          contrary: vpip.side === 'high' || callShare.side === 'high',
+        })
+      : null;
+  const methodTight = participationSide === 'neutral' && method !== null && method.tight;
+  if (methodTight) participationSide = 'tight';
   const participation: StyleAxis<'tight' | 'loose'> = {
     score: participationScore,
     side: participationSide,
@@ -1668,8 +1760,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
         ? 0
         : multiTight
           ? multi!.confidence * capLow
-          : Math.max(vpip.confidence, callShare.confidence) *
-            (participationSide === 'tight' ? capLow : capHigh),
+          : methodTight
+            ? method!.confidence * capLow
+            : Math.max(vpip.confidence, callShare.confidence) *
+              (participationSide === 'tight' ? capLow : capHigh),
   };
 
   // ── AGGRESSION ───────────────────────────────────────────────────────
@@ -1829,6 +1923,9 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     longWindow,
     ...(multi !== null
       ? { tightMultiSignal: `${multiTight ? 'tight' : 'none'}:${multi.receipt}` }
+      : {}),
+    ...(method !== null
+      ? { tightMethodLine: `${methodTight ? 'tight' : 'none'}:${method.receipt}` }
       : {}),
   });
 }

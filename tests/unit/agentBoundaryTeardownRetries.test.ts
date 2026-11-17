@@ -88,6 +88,15 @@ function run(deleteFailure: { status: number; code: string }) {
 }
 
 describe('agent boundary teardown', () => {
+  it('qualifies Pacific fees for all ranks and rejects stale or missing day metadata', () => {
+    const result = spawnSync(
+      process.execPath,
+      ['--test', resolve(__dirname, '../../scripts/ci/qualify-agent-boundary.test.mjs')],
+      { encoding: 'utf8', timeout: 60_000 }
+    );
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  }, 60_000);
+
   it('retries a statement timeout on the fixture DELETE and leaves no agent behind', () => {
     const { status, stderr, state } = run({ status: 500, code: '57014' });
     // The qualification body still fails, and says so.
