@@ -1,11 +1,16 @@
 import { act, render, screen, renderHook, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ read: vi.fn(), refresh: null as null | (() => void) }));
+const state = vi.hoisted(() => ({
+  read: vi.fn(),
+  refresh: null as null | ((payload?: unknown) => void),
+  events: [] as string[],
+}));
 vi.mock('../../src/services/PromoPlayThroughService', () => ({
   readMyPromoPlayThrough: state.read,
 }));
 vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
-  useMasterBusSubscriptions: (_events: unknown, callback: () => void) => {
+  useMasterBusSubscriptions: (events: string[], callback: (payload?: unknown) => void) => {
+    state.events = events;
     state.refresh = callback;
   },
 }));
@@ -73,6 +78,24 @@ it('a later refresh wins over an earlier in-flight response', async () => {
   expect(hook.result.current.summary?.locked).toBe(0);
 });
 
+it('refreshes a reviewed hold from its actual notification event without changing the promo target', async () => {
+  state.read.mockResolvedValueOnce({ ...figure(50), integrity_held: 20, cashable: 10 });
+  state.read.mockResolvedValueOnce({ ...figure(50), integrity_held: 0, cashable: 30 });
+  const hook = renderHook(() => usePromoPlayThrough('club-a', 'user-a'));
+  await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(10));
+  expect(state.events).toContain('NOTIFICATION_RECEIVED');
+  act(() => state.refresh?.({ notification: { type: 'chat_message' } }));
+  expect(state.read).toHaveBeenCalledTimes(1);
+  act(() =>
+    state.refresh?.({
+      notification: { type: 'promo_play_through', metadata: { event: 'source_review_released' } },
+    })
+  );
+  await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(30));
+  expect(hook.result.current.summary?.locked).toBe(50);
+  expect(hook.result.current.summary?.fee_target).toBe(200);
+});
+
 it('a stale active reply cannot resurrect a completed rendered meter, and a new grant can appear', async () => {
   let oldReply!: (value: unknown) => void;
   state.read.mockReturnValueOnce(
@@ -96,3 +119,45 @@ it('a stale active reply cannot resurrect a completed rendered meter, and a new 
   act(() => state.refresh?.());
   expect(await screen.findByRole('progressbar')).toBeTruthy();
 });
+
+it.each(['profit_unlocked', 'support_override'])(
+  'refreshes the actual %s notice while preserving an independent review hold and principal target',
+  async (milestone) => {
+    state.read.mockResolvedValueOnce({
+      ...figure(50),
+      wallet_profit_locked: 10,
+      integrity_held: 5,
+      cashable: 15,
+      agent_wallet: 70,
+      agent_cashable: 53,
+      agent_profit_locked: 5,
+    });
+    state.read.mockResolvedValueOnce({
+      ...figure(50),
+      wallet_profit_locked: 0,
+      integrity_held: 5,
+      cashable: 25,
+      agent_wallet: 70,
+      agent_cashable: 58,
+      agent_profit_locked: 0,
+    });
+    const hook = renderHook(() => usePromoPlayThrough('club-a', 'user-a'));
+    await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(15));
+    act(() =>
+      state.refresh?.({
+        notification: {
+          type: 'promo_play_through',
+          data: {
+            milestone,
+            club_id: 'physical-club-b',
+            source_club_id: 'club-a',
+          },
+        },
+      })
+    );
+    await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(25));
+    expect(hook.result.current.summary?.integrity_held).toBe(5);
+    expect(hook.result.current.summary?.fee_target).toBe(200);
+    expect(hook.result.current.summary?.agent_cashable).toBe(58);
+  }
+);

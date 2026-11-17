@@ -23,12 +23,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 import TermsOfServicePage from '../src/pages/legal/TermsOfServicePage';
 import PrivacyPolicyPage from '../src/pages/legal/PrivacyPolicyPage';
 import TOSAcceptanceModal from '../src/components/legal/TOSAcceptanceModal';
-import { PRIVACY_LAST_UPDATED, TERMS_LAST_UPDATED } from '../src/components/legal/legalDates';
+import {
+  PRIVACY_LAST_UPDATED,
+  TERMS_LAST_UPDATED,
+  TERMS_REVISION,
+} from '../src/components/legal/legalDates';
 
 /** Re-record in the same commit as the words, with the date they shipped. */
 const RECORDED = {
-  terms: { date: 'November 7, 2026', words: '169868056e04d4a8' },
-  acceptanceModal: { date: 'November 7, 2026', words: '2a93c0e31b3a13ea' },
+  terms: { date: 'November 16, 2026', words: '87a8e57589a09136' },
+  acceptanceModal: { date: 'November 16, 2026', words: 'c2881a01e3c1b5fd' },
   privacy: { date: 'September 16, 2026', words: '9995740553602c75' },
 };
 
@@ -57,6 +61,7 @@ describe('legal dates move with the words', () => {
   it('the Terms of Service page', () => {
     const words = fingerprint(<TermsOfServicePage />, 'article section', TERMS_LAST_UPDATED);
     expect({ date: TERMS_LAST_UPDATED, words }, HOW).toEqual(RECORDED.terms);
+    expect(TERMS_REVISION).toBe(`2026-11-16-${words}`);
   });
 
   it('the acceptance modal, which summarises the Terms and carries their date', () => {

@@ -1,0 +1,18 @@
+[
+  {
+    "table_name": "table_seats",
+    "name": "zy_ca_tally_balance_move",
+    "enabled": "O",
+    "definition": "CREATE TRIGGER zy_ca_tally_balance_move AFTER INSERT OR DELETE OR UPDATE OF stack, left_at, table_id ON public.table_seats FOR EACH ROW EXECUTE FUNCTION fn_ca_tally_balance_move()",
+    "signature": "fn_ca_tally_balance_move()",
+    "function_md5": "b7911a245d4bf33134a9a2f474c1f410"
+  },
+  {
+    "table_name": "table_seats",
+    "name": "zz_ca_balance_has_its_ledger_row",
+    "enabled": "O",
+    "definition": "CREATE CONSTRAINT TRIGGER zz_ca_balance_has_its_ledger_row AFTER INSERT OR DELETE OR UPDATE OF stack, left_at, table_id ON public.table_seats DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_ca_balance_has_its_ledger_row()",
+    "signature": "fn_ca_balance_has_its_ledger_row()",
+    "function_md5": "2df7b3f67e95b8a6c0abe7ba3faff63c"
+  }
+]

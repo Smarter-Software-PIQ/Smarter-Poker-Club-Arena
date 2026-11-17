@@ -1,0 +1,17 @@
+[
+  {
+    "proname": "fn_ca_settle_satellite_cohort",
+    "status": "approved",
+    "notes": "Private recorded-format satellite settlement: service-role wrapper, admission and finish locks, immutable qualifier receipt, atomic target-entry/ticket/cash journals and exact source closeout."
+  },
+  {
+    "proname": "fn_collect_bounty",
+    "status": "approved",
+    "notes": "grandfathered at phase-1 baseline (2026-08-31 audit)"
+  },
+  {
+    "proname": "fn_mystery_bounty_pay",
+    "status": "approved",
+    "notes": "grandfathered at phase-1 baseline (2026-08-31 audit)"
+  }
+]

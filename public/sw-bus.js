@@ -161,7 +161,11 @@ async function shellFromCache(event) {
 
   let timer;
   const network = fetch(event.request, { cache: 'no-cache' })
-    .then((response) => {
+    .then(async (response) => {
+      // fetch resolves at headers. A partial HTML stream cannot boot the table.
+      // Drain a clone within the same deadline and preserve the original response
+      // (including its URL and headers) for navigation.
+      if (response?.ok) await response.clone().arrayBuffer();
       if (response?.ok && cache) {
         const stored = response.clone();
         keepOptionalCacheWork(event, () => cache.put(SHELL_KEY, stored));

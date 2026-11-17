@@ -1,0 +1,1564 @@
+[
+  {
+    "name": "cash_games",
+    "columns": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "club_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "union_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "template_name",
+        "type": "text",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "variant",
+        "type": "text",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "sb",
+        "type": "numeric(14,2)",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bb",
+        "type": "numeric(14,2)",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "handedness",
+        "type": "integer",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ruleset_snapshot",
+        "type": "jsonb",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "enabled",
+        "type": "boolean",
+        "default": "true",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "state",
+        "type": "text",
+        "default": "'live'::text",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "cap_mains",
+        "type": "integer",
+        "default": "8",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "allow_second_feeder",
+        "type": "boolean",
+        "default": "false",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "created_by",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "must_move",
+        "type": "boolean",
+        "default": "true",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "closed_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "closed_by",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "opening_hold_since",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "last_tick_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "last_tick_actions",
+        "type": "jsonb",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "opening_hold_rested_until",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "cluster_mode",
+        "type": "text",
+        "default": "'must_move'::text",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "lightning_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "cluster_epoch",
+        "type": "integer",
+        "default": "0",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "lightning_off_condition_since",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "lightning_on_condition_since",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      }
+    ]
+  },
+  {
+    "name": "tables",
+    "columns": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "club_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "game_type",
+        "type": "text",
+        "default": "'nlhe'::text",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "stakes",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "small_blind",
+        "type": "numeric(15,2)",
+        "default": "1",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "big_blind",
+        "type": "numeric(15,2)",
+        "default": "2",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "min_buy_in",
+        "type": "numeric(15,2)",
+        "default": "40",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "max_buy_in",
+        "type": "numeric(15,2)",
+        "default": "200",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "max_players",
+        "type": "integer",
+        "default": "9",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "current_players",
+        "type": "integer",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "default": "'waiting'::text",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_private",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "settings",
+        "type": "jsonb",
+        "default": "'{}'::jsonb",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "game_variant",
+        "type": "text",
+        "default": "'nlh'::text",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "enable_straddle",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "run_it_twice",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_muck",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ante",
+        "type": "numeric(15,2)",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "allow_rabbit_hunt",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "allow_run_it_twice",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "allow_straddle",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "game_mode",
+        "type": "character varying(10)",
+        "default": "'regular'::character varying",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_vip_only",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_anonymous",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ban_chat",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "label_as_new",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_featured",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "hide_club_name",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_template",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "double_board",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "triple_board",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "pineapple_holdem",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "seven_deuce_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "nit_game",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "cap_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "no_rathole",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "action_time_seconds",
+        "type": "integer",
+        "default": "15",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ante_bb",
+        "type": "numeric(10,2)",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "career_percent_min",
+        "type": "integer",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "maintain_percent_min",
+        "type": "integer",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "maintain_hands",
+        "type": "integer",
+        "default": "10",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_start_players",
+        "type": "integer",
+        "default": "2",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "game_length_hours",
+        "type": "integer",
+        "default": "12",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "created_by",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "calltime_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_extension",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_restart",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_create_table",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_utg_straddle",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "voluntary_straddle",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "insurance_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "run_it_mode",
+        "type": "character varying(20)",
+        "default": "'none'::character varying",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "rake_percent",
+        "type": "numeric(5,2)",
+        "default": "'-1'::integer",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "rake_cap_bb",
+        "type": "numeric(5,2)",
+        "default": "'-1'::integer",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "agent_downline_limit",
+        "type": "integer",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "buy_in_authorization",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "restrict_device",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "restrict_observers",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "gps_restriction",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ip_restriction",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "pc_emulator_restriction",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "photo_rotation_verification",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "short_description",
+        "type": "text",
+        "default": "''::text",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "accelerated_mtt",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "all_in_or_fold",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "custom_rebuy_reentry_cost",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "number_of_rebuys_reentries",
+        "type": "integer",
+        "default": "3",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "add_on_multiplier",
+        "type": "numeric(3,1)",
+        "default": "1.0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "custom_add_on",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "add_on_break_length_minutes",
+        "type": "integer",
+        "default": "1",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ko_bounty",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "gtd_prize_pool",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "final_table_deal",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "big_blind_ante",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "authorized_to_register",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "late_registration_level",
+        "type": "integer",
+        "default": "6",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "early_bird_registration",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bubble_protection",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "featured_tournament",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "min_players_mtt",
+        "type": "integer",
+        "default": "30",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "max_players_mtt",
+        "type": "integer",
+        "default": "300",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "multi_day_mtt",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "save_start_time",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "start_time",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "restart_tournament_every",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "tournament_schedule",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "synchronized_breaks",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "sng_buy_in",
+        "type": "numeric(10,2)",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "blind_structure",
+        "type": "character varying(20)",
+        "default": "'standard'::character varying",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "payout_structure",
+        "type": "character varying(50)",
+        "default": "'winner_takes_all'::character varying",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "starting_chips",
+        "type": "integer",
+        "default": "1500",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "blinds_up_minutes",
+        "type": "integer",
+        "default": "10",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "next_step_satellite",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "sng_custom_buy_in",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "sng_player_count",
+        "type": "integer",
+        "default": "9",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_spins",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "spins_multiplier",
+        "type": "integer",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "is_deleted",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "deleted_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "deleted_by",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bbj_percent",
+        "type": "numeric(5,2)",
+        "default": "100",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "tournament_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "live_state",
+        "type": "jsonb",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "union_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "big_blind_ante_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "straddle_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "straddle_type",
+        "type": "text",
+        "default": "'utg'::text",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "max_straddles",
+        "type": "integer",
+        "default": "1",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "run_it_twice_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "auto_muck_enabled",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "show_hand_enabled",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "disconnect_timeout_seconds",
+        "type": "integer",
+        "default": "30",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "max_consecutive_timeouts",
+        "type": "integer",
+        "default": "3",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "prefer_check_over_fold",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "time_bank_max_uses",
+        "type": "integer",
+        "default": "4",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "time_bank_enabled",
+        "type": "boolean",
+        "default": "true",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "ante_enabled",
+        "type": "boolean",
+        "default": "false",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_frequency",
+        "type": "integer",
+        "default": "0",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_ante_multiplier",
+        "type": "integer",
+        "default": "2",
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "wait_for_big_blind",
+        "type": "boolean",
+        "default": "true",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "seven_deuce_amount",
+        "type": "numeric",
+        "default": "2",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "hands_dealt",
+        "type": "bigint",
+        "default": "0",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "avg_pot",
+        "type": "numeric(14,2)",
+        "default": "0",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_double_board",
+        "type": "boolean",
+        "default": "false",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "cap_bb",
+        "type": "numeric(10,2)",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_board_count",
+        "type": "smallint",
+        "default": "1",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_trigger_mode",
+        "type": "text",
+        "default": "'every_n_hands'::text",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_interval_seconds",
+        "type": "integer",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_min_players",
+        "type": "smallint",
+        "default": "3",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_ante_fixed",
+        "type": "numeric",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "first_button_seat",
+        "type": "integer",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_variant",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_next_due_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_sched_state",
+        "type": "jsonb",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_manual_pending",
+        "type": "boolean",
+        "default": "false",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_button_policy",
+        "type": "text",
+        "default": "'regular'::text",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "bomb_pot_announce_seconds",
+        "type": "integer",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "min_buy_in_bb",
+        "type": "integer",
+        "default": "\nCASE\n    WHEN ((tournament_id IS NULL) AND (COALESCE(big_blind, (0)::numeric) > (0)::numeric) AND (min_buy_in IS NOT NULL)) THEN (ceil((min_buy_in / big_blind)))::integer\n    ELSE NULL::integer\nEND",
+        "notnull": false,
+        "identity": "",
+        "generated": "s"
+      },
+      {
+        "name": "max_buy_in_bb",
+        "type": "integer",
+        "default": "\nCASE\n    WHEN ((tournament_id IS NULL) AND (COALESCE(big_blind, (0)::numeric) > (0)::numeric) AND (max_buy_in IS NOT NULL)) THEN (floor((max_buy_in / big_blind)))::integer\n    ELSE NULL::integer\nEND",
+        "notnull": false,
+        "identity": "",
+        "generated": "s"
+      },
+      {
+        "name": "min_buyin",
+        "type": "integer",
+        "default": "\nCASE\n    WHEN ((tournament_id IS NULL) AND (COALESCE(big_blind, (0)::numeric) > (0)::numeric) AND (min_buy_in IS NOT NULL)) THEN (ceil((min_buy_in / big_blind)))::integer\n    ELSE NULL::integer\nEND",
+        "notnull": false,
+        "identity": "",
+        "generated": "s"
+      },
+      {
+        "name": "max_buyin",
+        "type": "integer",
+        "default": "\nCASE\n    WHEN ((tournament_id IS NULL) AND (COALESCE(big_blind, (0)::numeric) > (0)::numeric) AND (max_buy_in IS NOT NULL)) THEN (floor((max_buy_in / big_blind)))::integer\n    ELSE NULL::integer\nEND",
+        "notnull": false,
+        "identity": "",
+        "generated": "s"
+      },
+      {
+        "name": "cluster_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "main_index",
+        "type": "integer",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "lifecycle",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "opened_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "live_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "break_started_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "break_eligible_since",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "promote_pending",
+        "type": "boolean",
+        "default": "false",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "observer_show_cards",
+        "type": "boolean",
+        "default": "false",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "terminal_closed_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "seat_game_scope",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "seat_admission_key",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "f06_lifecycle",
+        "type": "bigint",
+        "default": "smarter_private.f06_new_lifecycle()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "dealing_halted_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "dealing_halted_reason",
+        "type": "text",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "kill_mode",
+        "type": "text",
+        "default": "'off'::text",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "kill_threshold_bb",
+        "type": "smallint",
+        "default": "10",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "dealing_halt_observed_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "last_human_seen_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      }
+    ]
+  }
+]

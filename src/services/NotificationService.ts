@@ -28,6 +28,7 @@ export interface Notification {
     | 'message'
     | 'achievement'
     | 'bonus'
+    | 'promo_play_through'
     | 'settlement'
     | 'accounting_invoice'
     | 'system'
@@ -403,6 +404,10 @@ class NotificationServiceClass {
         return '/achievements';
       case 'bonus':
         return '/bonus';
+      case 'promo_play_through':
+        return typeof metadata.club_id === 'string'
+          ? `/wallet?club=${encodeURIComponent(metadata.club_id)}`
+          : '/wallet';
       case 'settlement':
         if (metadata.unionId)
           return `/unions/${unionRouteRef(String(metadata.unionId))}/settlement`;

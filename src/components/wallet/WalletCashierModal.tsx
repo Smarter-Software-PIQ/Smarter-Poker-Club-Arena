@@ -1,3 +1,4 @@
+import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../legal/promoPlayThroughTerms';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import {
   claimReturnWallets,
@@ -1911,10 +1912,7 @@ export default function WalletCashierModal({
 
             <div className="cbc-body">
               {tab === 'send' && spendWallet === 'promo_wallet' && (
-                <p className="cbc-note">
-                  Promo Chips Stay Locked Until Their Full Fee Target Is Met, Normally 4 Times The
-                  Grant. Profit Above The Locked Amount Can Be Cashed Out.
-                </p>
+                <p className="cbc-note">{PROMO_PLAY_THROUGH_SENDER_TERMS}</p>
               )}
 
               {walletType === 'agent_wallet' && tab === 'send' && holdsPlayerWallet(viewerRole) && (

@@ -2,7 +2,8 @@ name: Promo play-through locks the grant until its fees are paid
 
 # Owner ruling 2026-11-15: promo chips carry a 4x play-through in fees before
 # they can be cashed out or claimed back; profit above the locked amount stays
-# cashable. Runs scripts/ci/test-promo-play-through.py against a throwaway
+# cashable after the original gift has earned 2x in fees. The same fees count
+# toward both thresholds. Runs scripts/ci/test-promo-play-through.py against a throwaway
 # PostgreSQL 17 cluster, never production: it applies the real migrations and
 # proves the lock, the fee meter (cash rake share plus tournament fees net of
 # refunds), oldest-first filling, expiry, the go-live boundary and that a
@@ -17,6 +18,23 @@ on:
       - scripts/ci/test-signup-promo-identity.py
       - tests/fixtures/signup-promo-identity/**
       - scripts/ci/test-promo-play-through.py
+      - supabase/migrations/*_promo_winnings_retain_*.sql
+      - scripts/ci/test-promo-profit*.py
+      - tests/fixtures/promo-profit-*/**
+      - scripts/ci/test-promo-principal-returns.py
+      - supabase/migrations/*_returned_promo_ticket_*.sql
+      - scripts/ci/test-promo-ticket-principal-returns.py
+      - tests/fixtures/promo-ticket-principal-returns/**
+      - tests/fixtures/promo-principal-returns/**
+      - scripts/ci/test-promo-tournament-earning-financial.py
+      - tests/fixtures/promo-tournament-earning-generation/**
+      - supabase/migrations/*_promo_grant_notices_*.sql
+      - scripts/ci/test-promo-notices.py
+      - supabase/migrations/*_promo_tickets_require_cashable_wallets_*.sql
+      - supabase/migrations/*_promo_principal_follows_*.sql
+      - supabase/migrations/*_suspect_promo_chip_dumping_*.sql
+      - tests/fixtures/promo-notices/**
+      - supabase/migrations/*_promo_tickets_*.sql
       - supabase/migrations/*_promo_principal_*.sql
       - scripts/ci/test-promo-custody.py
       - scripts/ci/test-promo-custody-accepted-hand.py
@@ -28,11 +46,25 @@ on:
       - scripts/ci/fixtures/hand-submission/**
       - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
       - supabase/migrations/*_promo_funded_fees_*.sql
+      - supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql
+      - supabase/migrations/*_tournament_winnings_retain_original_*.sql
+      - scripts/ci/test-promo-tournament-earning-generation.py
+      - scripts/ci/test-promo-ticket-play-through.py
+      - scripts/ci/fixtures/promo-ticket-play-through/**
+      - tests/fixtures/promo-ticket-play-through/**
       - scripts/ci/test-promo-fee-basis.py
       - tests/fixtures/promo-fee-basis/**
       - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
       - scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
       - scripts/ci/fixtures/rakeback-cascade-real-guards/world.py
+      - supabase/migrations/*_promo_expiry_keeps_*.sql
+      - scripts/ci/test-promo-expiry-thaw.py
+      - scripts/ci/test-on-time-maintenance-thaw.py
+      - scripts/ci/test-thaw-preserves-retired-clubs.py
+      - scripts/ci/test-promo-integrity.py
+      - scripts/ci/test-promo-integrity-accepted-hand.py
+      - tests/fixtures/promo-integrity-*.json
+      - scripts/ci/test-mtt-unlimited.py
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -48,6 +80,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Configure the private runner temporary directory for every proof
+        run: printf 'TMPDIR=%s\n' "${RUNNER_TEMP:?}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - name: Install PostgreSQL 17 from the signed PGDG source only
         uses: ./.github/actions/install-postgres-17
@@ -55,6 +89,19 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Promo notices use original fees and the existing push bridge
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-promo-notices.py --output artifacts/promo-notices
+      - name: Promo tickets preserve their original grant through the money owners
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
+      - name: Tournament earnings retain their original entry generation
+        env:
+          TMPDIR: ${{ runner.temp }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-tournament-earning-generation.py --output artifacts/promo-tournament-earning-generation
       - name: Promo principal follows wallet and table custody
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
@@ -67,6 +114,48 @@ jobs:
         run: python3 scripts/ci/test-signup-promo-identity.py --output artifacts/signup-promo-identity
       - name: Promo fees preserve gross rake and exclude free earnings
         run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
+      - name: Promo expiry retains its original time through bounded maintenance thaw
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-promo-expiry-thaw.py --output artifacts/promo-expiry-thaw
+      - name: Build the stock PostgreSQL isolation client
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/build_pg17_isolationtester.py
+      - name: Original promo returns preserve journal custody and concurrent replay
+        env:
+          PG_ISOLATION_TESTER: ${{ github.workspace }}/artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-promo-principal-returns.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-principal-returns
+      - name: Review holds follow actual restricted principal
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          PG_ISOLATION_TESTER: ${{ github.workspace }}/artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester
+        run: python3 -B scripts/ci/test-promo-integrity.py --output artifacts/promo-integrity
+      - name: Actual accepted hands and response-loss replay preserve review custody
+        run: python3 -B scripts/ci/test-promo-integrity-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-integrity-accepted-hand
+      - name: Promo winnings retain the original gift and the overlapping fee milestones
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-profit.py --output artifacts/promo-profit
+      - name: Actual accepted hands preserve promo winnings and integrity holds
+        run: python3 -B scripts/ci/test-promo-profit-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-profit-accepted-hand
+      - name: Original jackpot recipients preserve source and transaction locks
+        env:
+          TMPDIR: ${{ runner.temp }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-profit-bbj.py --output artifacts/promo-profit-bbj
+      - name: Original guarded money owners preserve promo custody through transfers and cashout
+        env:
+          TMPDIR: ${{ runner.temp }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-profit-movements-financial.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-profit-movements
+      - name: Original noncash refunds return promo principal to its original fund
+        env:
+          TMPDIR: ${{ runner.temp }}
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-ticket-principal-returns.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-ticket-principal-returns
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,9 +163,30 @@ jobs:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-principal-returns/RESULTS.json
+            artifacts/promo-principal-returns/source-manifest.json
+            artifacts/promo-principal-returns/*race*.stdout
+            artifacts/promo-principal-returns/*race*.stderr
+            artifacts/promo-ticket-principal-returns/RESULTS.json
+            artifacts/promo-profit*/RESULTS.json
+            artifacts/promo-profit*/INPUTS.json
+            artifacts/promo-profit-bbj/financial/RESULTS.json
+            artifacts/promo-profit-bbj/financial/INPUTS.json
+            artifacts/promo-tournament-earning-generation/public-financial/RESULTS.json
+            artifacts/promo-tournament-earning-generation/public-financial/INPUTS.json
+            artifacts/promo-expiry-thaw/RESULTS.json
+            artifacts/promo-notices/RESULTS.json
+            artifacts/promo-notices/INPUTS.json
+            artifacts/promo-notices/PERFORMANCE.json
+            artifacts/promo-ticket-play-through/RESULTS.json
+            artifacts/promo-tournament-earning-generation/RESULTS.json
+            artifacts/promo-tournament-earning-generation/INPUTS.json
             artifacts/promo-custody/RESULTS.json
             artifacts/promo-custody-accepted-hand/RESULTS.json
             artifacts/signup-promo-identity/RESULTS.json
             artifacts/promo-fee-basis/RESULTS.json
+            artifacts/promo-integrity/RESULTS.json
+            artifacts/promo-integrity/review-race-*.log
+            artifacts/promo-integrity-accepted-hand/RESULTS.json
           retention-days: 7
           if-no-files-found: warn

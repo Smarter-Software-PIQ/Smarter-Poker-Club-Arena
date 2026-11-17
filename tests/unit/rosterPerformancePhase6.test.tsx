@@ -124,7 +124,7 @@ describe('Phase 6 real roster row render budget', () => {
   it('applies new wallets, role, seating and revoked financial visibility immediately', () => {
     const props = row();
     const view = render(<MemberRow {...props} />);
-    expect(screen.getByText('Player Wallet')).toBeVisible();
+    expect(screen.getByText('Balance')).toBeVisible();
     const changed = {
       ...props.member,
       alias: 'Updated Player',
@@ -138,7 +138,7 @@ describe('Phase 6 real roster row render budget', () => {
     ).toBeEnabled();
     expect(screen.getByText('999.00')).toBeVisible();
     view.rerender(<MemberRow {...props} member={{ ...changed, can_view_financials: false }} />);
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Balance')).not.toBeInTheDocument();
     expect(screen.queryByText('999.00')).not.toBeInTheDocument();
   });
 
@@ -172,13 +172,13 @@ describe('Phase 6 real roster row render budget', () => {
     // Simple mode keeps fees primary and adds the player wallet (owner, November 16).
     expect(screen.getByText('87.50')).toBeVisible();
     expect(screen.getByText('Fees This Week')).toBeVisible();
-    expect(screen.getByLabelText('Player Wallet Balance 250.00')).toBeVisible();
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Balance 250.00')).toBeVisible();
+    expect(screen.queryByText('Balance')).not.toBeInTheDocument();
     expect(screen.queryByText('Agent Wallet')).not.toBeInTheDocument();
     view.rerender(
       <MemberRow {...next} selectable={false} simpleMode={false} columns={new Set()} />
     );
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Balance')).not.toBeInTheDocument();
   });
 });

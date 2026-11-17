@@ -1,4 +1,5 @@
 import { sameUnchangedLobbyOrder } from './support/lobbyFavoriteOrderProof';
+import { tableRouteIdentity } from './support/tableRouteIdentity';
 import { isOwnedLiveSeatRead } from './support/ownedSeatRefreshRead';
 import {
   closedBoardEvidence,
@@ -731,9 +732,9 @@ test.describe('the mobile lobby chrome on production', () => {
         body: await page.screenshot(),
         contentType: 'image/png',
       });
-      expect(page.url()).toBe(tableUrl);
+      expect(tableRouteIdentity(page.url())).toBe(tableRouteIdentity(tableUrl));
       expect(
-        routeTrace.every((url) => url === tableUrl),
+        routeTrace.every((url) => tableRouteIdentity(url) === tableRouteIdentity(tableUrl)),
         'Details left the running table route'
       ).toBe(true);
       // Only the player's explicit Close Lobby gesture removes this page.
@@ -746,9 +747,9 @@ test.describe('the mobile lobby chrome on production', () => {
         'aria-current',
         'true'
       );
-      expect(page.url()).toBe(tableUrl);
+      expect(tableRouteIdentity(page.url())).toBe(tableRouteIdentity(tableUrl));
       expect(
-        routeTrace.every((url) => url === tableUrl),
+        routeTrace.every((url) => tableRouteIdentity(url) === tableRouteIdentity(tableUrl)),
         'Closing The Lobby Left The Running Table Route'
       ).toBe(true);
       expect(participation, 'spectator navigation attempted participation').toEqual([]);

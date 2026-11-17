@@ -19,7 +19,33 @@ def verify_tickets(run):
  run("CREATE DATABASE ticket_identity_probe");os.environ["PGDATABASE"]="ticket_identity_probe"
  try:
   setup=(here/"fixture.sql").read_text()+latest("fn_club_members_ledger_writer")+(here/"ticket-fixture.sql").read_text()
+  # The maintained issuer is now a thin wrapper over a source-aware private
+  # owner. Install that real owner and its original no-grant custody closure;
+  # a latest-body-only fixture otherwise omits an executed financial dependency.
+  # Active P/W/H behavior has separate full financial qualification. This
+  # journal fixture must remain an explicit no-promo-source opening.
+  def function_from(sql,name):
+   match=re.search(r"CREATE(?: OR REPLACE)? FUNCTION public\."+name+r"\s*\(",sql,re.I)
+   if not match:raise RuntimeError("Missing original ticket dependency: "+name)
+   text=sql[match.start():];body=re.search(r"\bAS\s+(\$[A-Za-z0-9_]*\$)",text,re.I)
+   end=text.find(body.group(1),body.end())
+   return text[:end+len(body.group(1))]+";"
+  phase=(root/"supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql").read_text()
+  custody=(root/"supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql").read_text()
+  for sql,table in [(phase,"ca_promo_play_through_grants"),(custody,"ca_promo_principal_custody")]:
+   start=sql.index("CREATE TABLE public."+table+" (")
+   setup+=sql[start:sql.index("\n);",start)+3]
+  setup+=function_from(custody,"fn_ca_promo_play_through_state")
+  setup+=function_from(phase,"fn_ca_promo_play_through_settle")
+  setup+=function_from(custody,"fn_ca_promo_locked_at")
+  owners=json.loads((root/"tests/fixtures/promo-ticket-play-through/additional-owners.json").read_text())
+  original_owner=next(row for row in owners if row["signature"].startswith("fn_issue_tournament_ticket_phase2_core_20260831("))
+  setup+=original_owner["definition"]+";"
+  ticket_source=next((root/"supabase/migrations").glob("20261116154719_*.sql")).read_text()
+  start=ticket_source.index("DO $cash_ticket_owner$")
+  setup+=ticket_source[start:ticket_source.index("END $cash_ticket_owner$;",start)+len("END $cash_ticket_owner$;")]
   for name in ["fn_issue_tournament_ticket_phase2_core_20260831","fn_cancel_tournament_ticket","fn_redeem_tournament_ticket"]:setup+=latest(name)
+  setup+="""DO $$BEGIN IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_grants) OR EXISTS(SELECT 1 FROM public.ca_promo_principal_custody) THEN RAISE EXCEPTION 'Ticket journal fixture requires no promo source';END IF;END$$;"""
   run(setup)
   C="80000000-0000-4000-8000-000000000001";I="80000000-0000-4000-8000-000000000002";H="80000000-0000-4000-8000-000000000003";X="80000000-0000-4000-8000-000000000004"
   seed=f"INSERT INTO clubs(id) VALUES('{C}');INSERT INTO club_members(id,user_id,club_id) VALUES('{I}','{I}','{C}'),('{H}','{H}','{C}');"

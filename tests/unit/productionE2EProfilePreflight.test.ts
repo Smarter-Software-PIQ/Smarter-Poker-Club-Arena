@@ -253,76 +253,79 @@ describe('authenticated production account preflight', () => {
     expect(fixture.agreement.check).not.toHaveBeenCalled();
   });
 
-  it('records the original Terms HTTP failure and script rejection without private inputs', () => {
-    const page = Object.assign(new EventEmitter(), { mainFrame: () => 'main' });
-    const observation = observeSetupFailure(
-      page as unknown as Page,
-      'https://smarter.poker/hub/club-arena/',
-      'https://project.supabase.co'
-    );
-    observation.stage('terms');
-    const request = {
-      url: () =>
-        'https://project.supabase.co/rest/v1/profiles?select=club_arena_tos_accepted_at&id=eq.private-account&token=private-token#private-fragment',
-      resourceType: () => 'fetch',
-      failure: () => ({ errorText: 'net::ERR_HTTP2_PROTOCOL_ERROR private-token' }),
-    };
-    page.emit('request', request);
-    page.emit('response', { request: () => request, status: () => 503 });
-    page.emit('requestfailed', request);
-    page.emit('console', {
-      type: () => 'error',
-      text: () => '[ProfileService.getTOSStatus] TypeError: Failed to fetch private-token',
-    });
-    const script = {
-      url: () =>
-        'https://smarter.poker/hub/club-arena/assets/ProfileService-secret.js?token=private-token',
-      resourceType: () => 'script',
-      failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
-    };
-    page.emit('requestfailed', script);
-    page.emit('console', {
-      type: () => 'error',
-      text: () =>
-        '[TOSGuard.status_check_failed] Failed to fetch dynamically imported module: https://private-user:private-password@example.com/private-account',
-    });
-    const result = observation.snapshot();
-    expect(result.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          event: 'response',
-          kind: 'terms-query',
-          status: 503,
-          request: 1,
-        }),
-        expect.objectContaining({
-          event: 'requestfailed',
-          kind: 'terms-query',
-          errorClass: 'ERR_HTTP2_PROTOCOL_ERROR',
-          request: 1,
-        }),
-        expect.objectContaining({
-          event: 'requestfailed',
-          kind: 'script',
-          errorClass: 'ERR_CONNECTION_RESET',
-          request: 2,
-        }),
-        expect.objectContaining({
-          event: 'reported-error',
-          kind: 'terms-query',
-          errorClass: 'FetchError',
-        }),
-        expect.objectContaining({
-          event: 'reported-error',
-          kind: 'terms-status-chain',
-          errorClass: 'ModuleImportError',
-        }),
-      ])
-    );
-    expect(JSON.stringify(result)).not.toMatch(/private-|secret|\?|#|id=|token=/);
-    expect(result.events.every((event) => event.stage === 'terms')).toBe(true);
-    observation.dispose();
-  });
+  it.each(['club_arena_tos_accepted_at', 'club_arena_tos_accepted_at,club_arena_tos_revision'])(
+    'records Terms HTTP failure for %s without private inputs',
+    (select) => {
+      const page = Object.assign(new EventEmitter(), { mainFrame: () => 'main' });
+      const observation = observeSetupFailure(
+        page as unknown as Page,
+        'https://smarter.poker/hub/club-arena/',
+        'https://project.supabase.co'
+      );
+      observation.stage('terms');
+      const request = {
+        url: () =>
+          `https://project.supabase.co/rest/v1/profiles?select=${select}&id=eq.private-account&token=private-token#private-fragment`,
+        resourceType: () => 'fetch',
+        failure: () => ({ errorText: 'net::ERR_HTTP2_PROTOCOL_ERROR private-token' }),
+      };
+      page.emit('request', request);
+      page.emit('response', { request: () => request, status: () => 503 });
+      page.emit('requestfailed', request);
+      page.emit('console', {
+        type: () => 'error',
+        text: () => '[ProfileService.getTOSStatus] TypeError: Failed to fetch private-token',
+      });
+      const script = {
+        url: () =>
+          'https://smarter.poker/hub/club-arena/assets/ProfileService-secret.js?token=private-token',
+        resourceType: () => 'script',
+        failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
+      };
+      page.emit('requestfailed', script);
+      page.emit('console', {
+        type: () => 'error',
+        text: () =>
+          '[TOSGuard.status_check_failed] Failed to fetch dynamically imported module: https://private-user:private-password@example.com/private-account',
+      });
+      const result = observation.snapshot();
+      expect(result.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: 'response',
+            kind: 'terms-query',
+            status: 503,
+            request: 1,
+          }),
+          expect.objectContaining({
+            event: 'requestfailed',
+            kind: 'terms-query',
+            errorClass: 'ERR_HTTP2_PROTOCOL_ERROR',
+            request: 1,
+          }),
+          expect.objectContaining({
+            event: 'requestfailed',
+            kind: 'script',
+            errorClass: 'ERR_CONNECTION_RESET',
+            request: 2,
+          }),
+          expect.objectContaining({
+            event: 'reported-error',
+            kind: 'terms-query',
+            errorClass: 'FetchError',
+          }),
+          expect.objectContaining({
+            event: 'reported-error',
+            kind: 'terms-status-chain',
+            errorClass: 'ModuleImportError',
+          }),
+        ])
+      );
+      expect(JSON.stringify(result)).not.toMatch(/private-|secret|\?|#|id=|token=/);
+      expect(result.events.every((event) => event.stage === 'terms')).toBe(true);
+      observation.dispose();
+    }
+  );
 
   it('distinguishes navigation failure from a successful Terms response and premature close', () => {
     const page = Object.assign(new EventEmitter(), { mainFrame: () => 'main' });

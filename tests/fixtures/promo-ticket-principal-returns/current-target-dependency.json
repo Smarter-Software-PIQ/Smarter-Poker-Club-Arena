@@ -1,0 +1,9 @@
+[
+  {
+    "proname": "fn_ca_satellite_ticket_target_is_closed",
+    "signature": "fn_ca_satellite_ticket_target_is_closed(uuid)",
+    "md5": "70ec2081ea936a03caa244d46ecd10ff",
+    "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_satellite_ticket_target_is_closed(p_target_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n  /* A direct satellite ticket admits its holder to ONE target, and only while\n     that target still takes entries. Once the target has finalized its pool,\n     or is finishing, finished or cancelled, no door can ever admit the ticket\n     again: the entry door refuses a finalized pool and every terminal state.\n     Both facts only ever move one way, so a closed answer is permanent. */\n  SELECT COALESCE((\n    SELECT upper(COALESCE(t.status::text,'')) IN\n             ('COMPLETING','COMPLETED','CANCELLED','CANCELED')\n        OR COALESCE(t.prize_pool_finalized,false)\n      FROM public.tournaments t\n     WHERE t.id=p_target_id),false);\n$function$\n",
+    "acl": "{postgres=X/postgres,service_role=X/postgres}"
+  }
+]
