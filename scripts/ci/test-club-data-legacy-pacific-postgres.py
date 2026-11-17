@@ -239,12 +239,6 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  q(f"INSERT INTO clubs VALUES('{K}','Wrong parent fallback',NULL),('{F}','Original funded club',NULL); INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{NG}','{K}','Funded child parent','nlh',2); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{NR}','{NG}',0.5,'2026-11-16T09:00Z','{{\"{U}\":1,\"{V}\":2}}'); INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) SELECT '{NR}',u::uuid,'{F}',0.17,'2026-11-16T09:00Z' FROM(VALUES('{U}'),('{V}'))x(u); INSERT INTO ca_club_data_fact VALUES('{K}','2026-11-16','CASH','{NG}','{U}',0.5/3,0,0,0,'2026-11-16T09:00Z'),('{K}','2026-11-16','CASH','{NG}','{V}',0.5*2/3,0,0,0,'2026-11-16T09:00Z');")
  q(f"INSERT INTO ca_club_data_pacific_fact VALUES('{K}','2026-11-16','2026-11-16','CASH','{NG}','{U}',0.5/3,0,0,0,'2026-11-16T09:00Z',0,true,1),('{K}','2026-11-16','2026-11-16','CASH','{NG}','{V}',0.5*2/3,0,0,0,'2026-11-16T09:00Z',0,true,1); INSERT INTO club_table_daily(club_id,table_id,stat_date,hands) VALUES('{K}','{NG}','2026-11-16',3);")
  check(json.loads(seed('2026-11-16',True))['complete'],True,'canonical immutable cash owner qualifies despite wrong UNIQUE UTC club')
- # This Pacific day also overlaps the following UTC day. The immutable
- # attachment frontier may include it once the UTC clock reaches Nov17.
- # Qualify that actual empty source day rather than fabricating coverage.
- adjacent_utc_day=q("SELECT least('2026-11-17'::date,history_through)::text FROM ca_club_data_pacific_state")
- if adjacent_utc_day>'2026-11-16':
-  check(json.loads(seed(adjacent_utc_day))['complete'],True,'actual adjacent UTC source day qualifies the Pacific screen window')
  check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND stat_date='2026-11-16'"),'0','wrong original club has no phantom game after rebuild')
  check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND stat_date='2026-11-16'"),'0.50000000000000000000:2:1','canonical owner keeps raw fractional fees and participant hands')
  # This fixed Pacific day also touches UTC November 17. After real UTC
