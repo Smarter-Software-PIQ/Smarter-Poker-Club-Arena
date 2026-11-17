@@ -2397,6 +2397,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBigBetIsPotShare: true },
     b: {},
   })),
+  // 2026-11-17 OMAHA FLOP FACING-BET EV (HorseOmahaFlopFacingBetEv, default
+  // OFF): on the flop facing a bet or a raise, a fold or a call becomes the
+  // priced verdict (sampled two-card runouts with a seed from the cards, the
+  // bettor's range by pot share and read, realization from the runouts), so
+  // the stack-share paired-board fold and the 20 big blind mark no longer
+  // decide that spot; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_facing_bet_ev`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFlopFacingBetEv: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
   // barrel only against measured postflop value leaders, and the bare overpair
