@@ -2892,12 +2892,18 @@ ATTENTION14_DATABASE_PAIR = (
 
 # One finite owner-authorized Promo Play Through prerequisite installation.
 # This is not general batch admission; its protected bytes and order are fixed.
-PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-remaining"
-PROMO_DATABASE_WINDOW_ANCHOR = "e54a5d6039b1393770f6439f312447f3727679f5"
-PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T09:20:00Z", "2026-11-17T09:29:00Z")
+PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-corrected"
+PROMO_DATABASE_WINDOW_ANCHOR = "187839923e50a6e9a548ff1bab86fbd6520d8f7e"
+PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T07:50:00Z", "2026-11-17T09:00:00Z")
 PROMO_DATABASE_MIGRATIONS = (
+    ("20261116151020_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql",
+     "179c48c37def66c6d6b9d43102e9d70c330f428d8358fda58e2e8030481028af"),
+    ("20261116195541_club_arena_terms_acceptance_records_the_exact_reviewed_revis.sql",
+     "2e7bb2e1ffe8fb96a65ada8a7a179a1655639a379220407ed0ea27b674d7f77e"),
+    ("20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql",
+     "d9b36cdb2ae8896cf4f3e156be2f591ec1c40b79d167ddfbbe319d75fec709c2"),
     ("20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
-     "26f2a5ad900f2bd69e7aafed9383686c1e2df51104a0035867918cdaf476d330"),
+     "b9004e5e4c4172af14c3cc67fc206973ee73b05bfffab11b00ed1fe8a953ec9d"),
     ("20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
      "9fae038f689e65c572dd813340b9e5c8f0bf7f2425ea23c5302f226f4cfcfdea"),
     ("20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
@@ -2905,7 +2911,7 @@ PROMO_DATABASE_MIGRATIONS = (
     ("20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
      "884236f69bcc2827f62482643f6fb3187b9d2d87a2285dd9d323ba8bf4c17d05"),
     ("20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
-     "7eb088c749cb10a76efa29cdc9438809a5cbd4d20b22b581f63c3c23df067a93"),
+     "f460db65afab07fedf4247b6a9c7e881629f5624a1ff40f33fcdc3a2f915750d"),
     ("20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
      "f709af8675743421af4f7a5b6668456d65d068d77b2dfb95285ce686da0c660e"),
     ("20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql",
