@@ -314,7 +314,11 @@ function HomePageInner() {
     if (!joinCode && !welcome) return;
     const next = new URLSearchParams(searchParams);
     if (joinCode) {
-      setJoinIntent({ code: joinCode.trim(), watchTableId: null, ref: searchParams.get('ref')?.trim() || null });
+      setJoinIntent({
+        code: joinCode.trim(),
+        watchTableId: null,
+        ref: searchParams.get('ref')?.trim() || null,
+      });
       setShowJoinModal(true);
       next.delete('join');
       next.delete('ref');
@@ -944,15 +948,6 @@ function HomePageInner() {
             (r) => r,
             (error) => ({ data: null, error })
           );
-        /* Dan 2026-11-02: Kings Club shows +1,500 members and +233 active as a
-           separately labelled addition. The real counts above stay real; the
-           addition is never folded into them. */
-        const displayAdditionsPromise = supabase
-          .rpc('fn_club_display_labeled_additions', { p_club_ids: clubIds })
-          .then(
-            (r) => r,
-            (error) => ({ data: null, error })
-          );
 
         /* THE ARENA'S COUNT CANNOT COME FROM A MEMBERSHIP JOIN (2026-09-20).
            fn_batch_club_realtime_active_counts reaches its seats through
@@ -1027,19 +1022,6 @@ function HomePageInner() {
           reportError(e, 'HomePage.batchRealtimeMemberCounts');
         }
 
-        const displayAdditionMap = new Map<string, { members: number; active: number; label: string }>();
-        try {
-          const { data: additions } = await displayAdditionsPromise;
-          for (const r of (additions as any[]) || [])
-            displayAdditionMap.set(r.club_id, {
-              members: Number(r.member_addition) || 0,
-              active: Number(r.active_addition) || 0,
-              label: String(r.label || 'Bonus'),
-            });
-        } catch (e) {
-          reportError(e, 'HomePage.displayAdditions');
-        }
-
         /* Live seats in the Diamond Arena. `undefined` means the read never
            answered, which the card prints as an unknown rather than a zero. */
         let arenaSeated: number | undefined;
@@ -1111,7 +1093,6 @@ function HomePageInner() {
                       : activePlayers,
                 activeCash: activeSplit?.cash ?? null,
                 activeEvents: activeSplit?.events ?? null,
-                displayAddition: displayAdditionMap.get(club.id) ?? null,
               };
             }
           })
@@ -1148,11 +1129,12 @@ function HomePageInner() {
               supabase.from('unions').select('id, name').in('id', floorUnionIds),
             ]);
             if (floorResult.error) reportError(floorResult.error, 'HomePage.memberClubUnionFloor');
-            const floorSplit = new Map<string, { cash: number; events: number }>();
+            const floorSplit = new Map<string, { cash: number; events: number; total: number }>();
             for (const r of (floorResult.data as any[]) || [])
               floorSplit.set(String(r.union_id), {
                 cash: Number(r.cash_count) || 0,
                 events: Number(r.event_count) || 0,
+                total: Number(r.active_count) || 0,
               });
             const floorName = new Map<string, string>();
             for (const r of (floorNamesResult.data as any[]) || [])
@@ -1167,6 +1149,7 @@ function HomePageInner() {
                 activeCash: split.cash,
                 activeEvents: split.events,
                 splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
+                floorPlaying: split.total,
               };
             }
           } catch (e) {
