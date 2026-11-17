@@ -1,6 +1,6 @@
 # omahaMultiwayRiverCallNeedsStrength: authority for the live switch
 
-Lane brief of 2026-11-16 (PLO4/PLO5 defence, part 2). Evidence NOT MET: evaluation NOT RUN.
+Lane brief of 2026-11-16 (PLO4/PLO5 defence, part 2). Evidence NOT MET: it FAILED its declared paired league evaluation on 2026-11-17 and is OFF-ONLY.
 
 ## What it does
 
@@ -8,7 +8,7 @@ PLO4/PLO5 cash, one board, high only, the river, facing a bet with at least one 
 
 Precedence: inside the owner-ruled chain (`omahaOwnerRuledFinal`, after the owner-ruled turn and flop verdicts), so no later rule raises over its fold; `omahaTurnRiverRaiseNeedsNuts` runs outside it and decides a raise on its own terms.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayRiverCallNeedsStrength docs/horse-option-authority.d/omahaMultiwayRiverCallNeedsStrength.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261117181040 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayRiverCallNeedsStrength docs/horse-option-authority.d/omahaMultiwayRiverCallNeedsStrength.md sha256 <digest>`). Registered in the live switch OFF-ONLY (follow-up list migration 20261117181040 names it; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY, failed its declared evaluation): it cannot be switched on. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on
 
@@ -32,7 +32,8 @@ HorseOmahaMultiwayDiscipline.test.ts (the multiway value region: derived identit
 
 - Mechanism, scope, visibility (receipts in HorseDataLedger.ts), tests: MET.
 - Option unset or false: decisions identical to the base (decision digest pin, plo4/plo5 x dev/horse, 150 pairs, seed 5560001, the strategy-head method: unset and all three options false both give b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1, 446 / 2714 / 428 / 2844 decisions, 0 illegal, 0 fallbacks; archive defense2-20261116/fp-\*.json).
-- Value, continuation, reach: NOT MET. Evaluation NOT RUN (league cards plo4/plo5 `_omaha_multiway_river_call_needs_strength` dealt, not run).
+- Value: FAILED (2026-11-17, bar written before the runs: archive plo-handoff-review-01a1cbbd/wave2b-01BNteGZ/eval/PROTOCOL.md, RESULTS.md; build 59b1c034607; both arms carry the 32 options live on 2026-11-16, arm A adds this one; 3 seeds x 4,000 mirrored pairs per cell; 0 illegal, 0 truncated, 0 fallbacks). Horse-only table PLO5 -0.27 bb/100, SE 0.11, 46 divergent pairs: loses beyond two standard errors. Horse-only PLO4 -0.42, SE 0.19 with 21 divergent pairs, human-like field PLO4 1 divergent pair and PLO5 none: inconclusive. The option is nearly inert in the league (18 call-to-fold receipts in 192,000 hands), so the failure rests on very few decisions. No constant was changed after the runs.
+- Continuation, reach: NOT MET.
 
 ## Limits
 

@@ -335,6 +335,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBeatenMadeHandDefense',
   'omahaBluffCatcherRaiseFold',
   'omahaReraisedPotDiscipline',
+  // 2026-11-17 wave two: read `=== true`, off in source; both failed their declared evaluation (OPTION_SWITCH_OFF_ONLY)
+  'omahaStreetPlanFlop',
+  'omahaMultiwayRiverCallNeedsStrength',
   'omahaReraisedPotStackOffFold',
   'omahaReraisedPotStackOffRealistic',
   'omahaOnePairDiscipline',
@@ -448,6 +451,16 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   omahaNoRiverBluffIntoValueLeader: hold(
     'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
     'its check is gated by an opponent label (measured value leader): held until rewritten as a priced comparison'
+  ),
+  // 2026-11-17 PLO Strategy wave two: the two options whose verdicts were rewritten under the owner's
+  // no-blanket-rules order were then evaluated on a bar written before the runs, and both lost.
+  omahaStreetPlanFlop: ploFailed(
+    'Horse-only mirror PLO4 -2.05 bb/100 (SE 0.89, z -2.31) lost beyond two standard errors; PLO5 -1.36 (SE 0.86); field cells inconclusive',
+    '2026-11-17T18:48:14Z (wave2b-01BNteGZ/eval/RESULTS.md, PROTOCOL.md)'
+  ),
+  omahaMultiwayRiverCallNeedsStrength: ploFailed(
+    'Horse-only mirror PLO5 -0.27 bb/100 (SE 0.11, 46 divergent pairs) lost beyond two standard errors; nearly inert elsewhere (18 folds in 192,000 hands)',
+    '2026-11-17T18:48:14Z (wave2b-01BNteGZ/eval/RESULTS.md, PROTOCOL.md)'
   ),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
