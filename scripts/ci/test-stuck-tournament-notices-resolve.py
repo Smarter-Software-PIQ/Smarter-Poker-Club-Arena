@@ -19,7 +19,7 @@ if not parent:
     raise RuntimeError('Set TMPDIR to owned SSD scratch or provider runner temp')
 if os.uname().sysname == 'Darwin' and not parent.startswith('/Volumes/SmarterWork/agent-work/'):
     raise RuntimeError('Mac fixture storage must be on SmarterWork')
-migration = root / 'supabase/migrations/20261117173255_stuck_tournament_pages_resolve_when_the_tournament_stops_running.sql'
+migration = root / 'supabase/migrations/20261117173255_stuck_tournament_notices_resolve_at_source.sql'
 preimage = root / 'tests/fixtures/sp-critical-scan-preimage-20261117.sql'
 
 SCHEMA = r'''

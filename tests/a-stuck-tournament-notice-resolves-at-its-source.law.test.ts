@@ -15,7 +15,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const DIR = 'supabase/migrations';
-const FIX = '20261117173255_stuck_tournament_pages_resolve_when_the_tournament_stops_running.sql';
+const FIX = '20261117173255_stuck_tournament_notices_resolve_at_source.sql';
 const MARK = 'STUCK TOURNAMENT NOTICES RESOLVE AT THEIR SOURCE (20261117173255)';
 const fix = readFileSync(`${DIR}/${FIX}`, 'utf8');
 const flat = (s: string) => s.replace(/\s+/g, ' ');

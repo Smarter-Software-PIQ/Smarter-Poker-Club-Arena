@@ -14,7 +14,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - supabase/migrations/20261117173255_stuck_tournament_pages_resolve_when_the_tournament_stops_running.sql
+      - supabase/migrations/20261117173255_stuck_tournament_notices_resolve_at_source.sql
       - tests/fixtures/sp-critical-scan-preimage-20261117.sql
       - scripts/ci/test-stuck-tournament-notices-resolve.py
       - .github/workflows/a-stuck-tournament-notice-resolves-at-its-source.yml

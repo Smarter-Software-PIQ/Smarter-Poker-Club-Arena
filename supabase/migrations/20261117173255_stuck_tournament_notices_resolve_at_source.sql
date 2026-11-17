@@ -1,5 +1,5 @@
 -- @live-proof: position('STUCK TOURNAMENT NOTICES RESOLVE AT THEIR SOURCE (20261117173255)' in pg_get_functiondef('public.fn_sp_critical_scan()'::regprocedure)) > 0
--- 20261117173255_stuck_tournament_pages_resolve_when_the_tournament_stops_running.sql
+-- 20261117173255_stuck_tournament_notices_resolve_at_source.sql
 --
 -- WHAT THIS CHANGES, AND WHY:
 --
