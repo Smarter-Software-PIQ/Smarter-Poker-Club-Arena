@@ -59,6 +59,7 @@ on:
       - scripts/ci/fixtures/rakeback-cascade-real-guards/world.py
       - supabase/migrations/*_promo_expiry_keeps_*.sql
       - scripts/ci/test-promo-expiry-thaw.py
+      - server/scripts/engine-release-database-proof.py
       - scripts/ci/test-on-time-maintenance-thaw.py
       - scripts/ci/test-thaw-preserves-retired-clubs.py
       - scripts/ci/test-promo-integrity.py

@@ -725,6 +725,35 @@ printf 'NOOP\n'
             db.verify_failed_routine_idle('https://'+db.PROJECT_HOST,'fixture-key','1-abcdef12',15)
         network.assert_not_called()
 
+    def test_promo_thaw_promise_requires_exact_installed_contract_without_reopening_certified_recovery(self):
+        spec=importlib.util.spec_from_file_location('promo_promise_database',ROOT/'server/scripts/engine-release-database-proof.py')
+        db=importlib.util.module_from_spec(spec);spec.loader.exec_module(db)
+        digest='1d4456082f94fceffff1616b85706e66'
+        contract={'schema':'engine-certified-recovery-contract/v1','policyId':db.CERTIFIED_POLICY,
+            'profile':copy.deepcopy(db.CERTIFIED_PROFILE),'thawDefinitionMd5':digest,
+            'notBefore':'2026-11-04T23:00:00Z','notAfter':'2026-11-05T05:00:00Z'}
+        with patch.object(db,'certified_rpc',return_value=contract) as read:
+            self.assertTrue(db.maintenance_promise_contract_valid({'thawDefinitionMd5':digest},'https://fixture','fixture-key'))
+        read.assert_called_once_with('https://fixture','fixture-key','fn_engine_certified_recovery_contract')
+        self.assertEqual(contract['thawDefinitionMd5'],digest)
+        for key,value in [('schema','unknown'),('policyId','other'),('thawDefinitionMd5',db.CERTIFIED_THAW_MD5),
+                ('notBefore','2026-11-16T00:00:00Z'),('notAfter','2099-01-01T00:00:00Z'),
+                ('profile',{**db.CERTIFIED_PROFILE,'freezeMs':900000}),('extra',True)]:
+            with self.subTest(key=key),patch.object(db,'certified_rpc',return_value={**contract,key:value}),self.assertRaises(ValueError):
+                db.maintenance_promise_contract_valid({'thawDefinitionMd5':digest},'https://fixture','fixture-key')
+        with patch.object(db,'certified_rpc',side_effect=ValueError('installed source or ACL refused')),self.assertRaises(ValueError):
+            db.maintenance_promise_contract_valid({'thawDefinitionMd5':digest},'https://fixture','fixture-key')
+        with patch.object(db,'certified_rpc') as read:
+            self.assertFalse(db.maintenance_promise_contract_valid({'thawDefinitionMd5':'0'*32},'https://fixture','fixture-key'))
+            self.assertTrue(db.maintenance_promise_contract_valid({'thawDefinitionMd5':'cb733d7201725719813ffd1b1e099b1b'},'https://fixture','fixture-key'))
+        read.assert_not_called()
+        historical={**contract,'thawDefinitionMd5':db.CERTIFIED_THAW_MD5}
+        with patch.object(db,'certified_rpc',return_value=historical):
+            self.assertTrue(db.maintenance_promise_contract_valid({'thawDefinitionMd5':db.CERTIFIED_THAW_MD5},'https://fixture','fixture-key'))
+        # The new ordinary source digest does not qualify the expired recovery.
+        with self.assertRaises(ValueError):db.validate_certified_contract(contract)
+        self.assertEqual(db.validate_certified_contract(historical),historical)
+
     def test_promise_reader_uses_one_bounded_get_and_requires_installed_contract(self):
         spec=importlib.util.spec_from_file_location('promise_database',ROOT/'server/scripts/engine-release-database-proof.py')
         db=importlib.util.module_from_spec(spec);spec.loader.exec_module(db)

@@ -572,7 +572,7 @@ it(
       }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 31 tests');
+    expect(result.stderr).toContain('Ran 32 tests');
   },
   hourlyCycleGitContextTimeoutMs + hourlyCycleQualificationTimeoutMs + 5_000
 );
