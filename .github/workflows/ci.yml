@@ -4874,6 +4874,23 @@ jobs:
       - name: Install Chromium and WebKit
         run: npx playwright install chromium webkit --with-deps
 
+      - name: Verify bounded table reloads in Linux WebKit
+        if: matrix.partition == 'general' && matrix.shard == 1
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          probe=scripts/ci/webkit-table-reload.mjs
+          if git diff --quiet "$CI_BASE_SHA" HEAD -- public/sw-bus.js "$probe"; then
+            exit 0
+          fi
+          # Replay the archived worker when introducing the case. Later edits
+          # need only qualify the worker that this branch actually ships.
+          if ! git cat-file -e "$CI_BASE_SHA:$probe" 2>/dev/null; then
+            node "$probe" --archived
+          fi
+          node "$probe"
+
       # Same content-addressed media cache as Production Build, same key, so
       # whichever of the two runs first warms it for the other.
       - name: Cache optimized dist media

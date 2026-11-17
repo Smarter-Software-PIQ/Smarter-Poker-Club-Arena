@@ -33,14 +33,17 @@ function fixture(overrides: Record<string, any> = {}) {
     URL,
     Request: requestConstructor,
     Response,
+    TransformStream,
+    AbortController,
+    performance,
     Date,
     setTimeout,
     clearTimeout,
   });
-  const request = (path: string) => {
+  const request = (path: string, signal?: AbortSignal) => {
     const background: Promise<unknown>[] = [];
     let response!: Promise<Response>;
-    const req = new Request(origin + path);
+    const req = new Request(origin + path, { signal });
     if (path === '/hub/club-arena/table/fixture')
       Object.defineProperty(req, 'destination', { value: 'document' });
     handler!({
@@ -86,6 +89,33 @@ describe.each(assets)('actual worker cache admission: %s', (path) => {
     const { response } = f.request(path);
     expect(await (await response).text()).toBe('network');
     expect(f.fetch).toHaveBeenCalledTimes(1);
+  });
+  it('streams the first bytes to the page and caches every byte without cloning the network response', async () => {
+    const stream = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = stream.writable.getWriter();
+    const original = new Response(stream.readable, { headers: { 'Content-Type': 'image/webp' } });
+    const clone = vi.spyOn(original, 'clone');
+    let saved: number[] = [];
+    const f = fixture({
+      fetch: async () => original,
+      cache: {
+        put: async (_: Request, copy: Response) => {
+          saved = Array.from(new Uint8Array(await copy.arrayBuffer()));
+        },
+      },
+    });
+    const { response, background } = f.request(path);
+    const delivered = await response;
+    expect(delivered.headers.get('Content-Type')).toBe('image/webp');
+    const reader = delivered.body!.getReader();
+    await writer.write(Uint8Array.of(1));
+    expect((await reader.read()).value).toEqual(Uint8Array.of(1));
+    await writer.write(Uint8Array.of(2));
+    await writer.close();
+    expect((await reader.read()).value).toEqual(Uint8Array.of(2));
+    await Promise.all(background);
+    expect(saved).toEqual([1, 2]);
+    expect(clone).not.toHaveBeenCalled();
   });
   it('serves healthy fresh cache without network', async () => {
     const f = fixture({ cache: { match: vi.fn(async () => fresh()) } });
@@ -202,6 +232,39 @@ it('falls back when the table HTML returns headers but its body outlasts the net
   } finally {
     finish();
   }
+});
+it('aborts a headerless inner fetch at the shell deadline without retaining it in waitUntil', async () => {
+  vi.useFakeTimers();
+  let signal: AbortSignal | undefined;
+  const f = fixture({
+    cache: { match: vi.fn(async () => fresh()) },
+    fetch: vi.fn((_request, options) => {
+      signal = options.signal;
+      return new Promise((_, reject) => options.signal?.addEventListener('abort', reject));
+    }),
+  });
+  const { response, background } = f.request(shell);
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(await (await response).text()).toBe('cached');
+  expect(signal?.aborted).toBe(true);
+  await Promise.all(background);
+  expect(f.cache.put).not.toHaveBeenCalled();
+});
+it('cancels an inner network read when the original document request is abandoned', async () => {
+  const caller = new AbortController();
+  const f = fixture({
+    cache: { match: vi.fn(async () => fresh()) },
+    fetch: vi.fn(
+      (_request, { signal }) =>
+        new Promise((_, reject) => {
+          signal.addEventListener('abort', reject, { once: true });
+          caller.abort();
+        })
+    ),
+  });
+  await f.request(shell, caller.signal).response;
+  expect(f.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+  expect(f.cache.put).not.toHaveBeenCalled();
 });
 it('shell cache write rejection cannot hide a genuine fresh shell', async () => {
   const f = fixture({

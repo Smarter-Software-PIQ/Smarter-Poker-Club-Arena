@@ -1063,6 +1063,16 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    // Preserve the historical gate fingerprint after checking this exact addition.
+    const install = browserJob.steps.findIndex(
+      (step: { name: string }) => step.name === 'Install Chromium and WebKit'
+    );
+    const reloadProbe = browserJob.steps[install + 1];
+    expect(reloadProbe.name).toBe('Verify bounded table reloads in Linux WebKit');
+    expect(createHash('sha256').update(JSON.stringify(reloadProbe)).digest('hex')).toBe(
+      'c93386856823824ac3ae62dfb9a7046c2b9dcafbb38724ff04a9229785666560'
+    );
+    browserJob.steps.splice(install + 1, 1);
     normalizePhoneTableLayoutAddition(browserJob);
     normalizeTournamentRebuyHeroCardsAddition(browserJob);
     normalizeLightningHeroCardsAddition(browserJob);
