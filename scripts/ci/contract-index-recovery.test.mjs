@@ -1,3 +1,4 @@
+import { concurrentIndexBudget } from './migration-concurrent-preamble.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -258,8 +259,13 @@ test('owning applier keeps bounded single recovery before unchanged migration bo
     source.indexOf('validateRecoverySnapshots') <
       source.indexOf('sendOnce(recoveryStatement(recovery))')
   );
-  assert.ok(source.includes("SET statement_timeout = '600s'"));
-  assert.ok(source.includes('PREAMBLE_MINUTES_NEEDED = 12'));
+  assert.deepEqual(concurrentIndexBudget(RECOVERY_FILE, ''), {
+    statementMs: 600000,
+    admissionMinutes: 12,
+    eachIndexMinutes: 5,
+  });
+  assert.ok(source.includes('const deadline = performance.now() + 600000;'));
+  assert.ok(source.includes('PREAMBLE_MINUTES_NEEDED = concurrentBudget.admissionMinutes'));
   assertAtomicBodyAfterRecovery(source);
 });
 

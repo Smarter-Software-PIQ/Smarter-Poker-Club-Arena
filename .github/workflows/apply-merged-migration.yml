@@ -124,7 +124,8 @@ jobs:
     # Queue wait (900 s) + the applier's bounded DDL admission wait (12 min,
     # apply-recorded-migration.mjs) + the apply itself. Pinned by
     # tests/unit/aMergedMigrationIsInstallable.test.ts.
-    timeout-minutes: 35
+    # Exact BBJ index: FIFO15 + DDL admission12 + build20 + setup/body reserve.
+    timeout-minutes: ${{ (inputs.migration || github.event.client_payload.migration) == '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql' && 55 || 35 }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
         if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
@@ -136,7 +137,6 @@ jobs:
           gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver apply-merged-migration
       - uses: actions/checkout@v4
-
       - name: Use the production Node major
         uses: actions/setup-node@v4
         with:

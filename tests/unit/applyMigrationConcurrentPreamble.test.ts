@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import {
   splitConcurrentPreamble,
   minutesBeforeBreakWindow,
+  concurrentIndexBudget,
+  BBJ_INDEX_BUDGET_FILE,
 } from '../../scripts/ci/migration-concurrent-preamble.mjs';
 
 // apply-recorded-migration.mjs (the Apply Merged Migration door) sends a file as
@@ -178,5 +180,25 @@ describe('the apply door accepts concurrent index builds before the transaction 
     expect(minutesBeforeBreakWindow(new Date('2026-09-26T03:50:00Z'))).toBe(0);
     expect(minutesBeforeBreakWindow(new Date('2026-09-26T04:02:59Z'))).toBe(0);
     expect(minutesBeforeBreakWindow(new Date('2026-09-26T04:03:00Z'))).toBe(47);
+  });
+});
+
+describe('the measured BBJ index alone receives a bounded installation budget', () => {
+  it('binds twenty minutes and full runway to the exact reviewed file bytes', () => {
+    const sql = readFileSync(join('supabase/migrations', BBJ_INDEX_BUDGET_FILE), 'utf8');
+    expect(concurrentIndexBudget(BBJ_INDEX_BUDGET_FILE, sql)).toEqual({
+      statementMs: 1_200_000,
+      admissionMinutes: 22,
+      eachIndexMinutes: 22,
+    });
+    const ordinary = { statementMs: 600_000, admissionMinutes: 12, eachIndexMinutes: 5 };
+    expect(concurrentIndexBudget(BBJ_INDEX_BUDGET_FILE, sql + '\n')).toEqual(ordinary);
+    expect(concurrentIndexBudget('another.sql', sql)).toEqual(ordinary);
+    const door = readFileSync('scripts/ci/apply-recorded-migration.mjs', 'utf8');
+    expect(door).toContain('concurrentBudget.statementMs');
+    expect(door).toContain(
+      'minutesBeforeBreakWindow(new Date()) < concurrentBudget.eachIndexMinutes'
+    );
+    expect(door).toContain('const PREAMBLE_MINUTES_NEEDED = concurrentBudget.admissionMinutes;');
   });
 });

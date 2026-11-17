@@ -58,11 +58,17 @@ import {
 } from './serial-journal-index.mjs';
 import { join } from 'node:path';
 import { supersededBy } from './check-migrations-are-live.mjs';
-import { minutesBeforeBreakWindow } from './migration-concurrent-preamble.mjs';
+import {
+  minutesBeforeBreakWindow,
+  concurrentIndexBudget,
+} from './migration-concurrent-preamble.mjs';
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
 import { classifyMigration } from './recording-only.mjs';
 import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
-import { observeWheelWalletReaders, WHEEL_WALLET_CUTOVER } from './wheel-wallet-lock-observation.mjs';
+import {
+  observeWheelWalletReaders,
+  WHEEL_WALLET_CUTOVER,
+} from './wheel-wallet-lock-observation.mjs';
 import { stalePinParts } from './migration-stale-pins.mjs';
 
 import {
@@ -337,7 +343,8 @@ if (
 // Leave room for the slowest ledger build to finish before :50: a concurrent
 // build still running when the break window opens is refused at its end and
 // leaves an INVALID index behind.
-const PREAMBLE_MINUTES_NEEDED = 12;
+const concurrentBudget = concurrentIndexBudget(file, sql);
+const PREAMBLE_MINUTES_NEEDED = concurrentBudget.admissionMinutes;
 
 // CLAUDE.md section 2 rule 8: the database refuses non-temporary DDL from a
 // postgres-role session inside minute-of-hour :50-:03 UTC, the hourly
@@ -771,10 +778,10 @@ let cashHashBuiltSelectorOid = recovery?.retirementOnly
 const indexPreamble = recovery?.retirementOnly || cashHashExistingSelectorOid ? [] : preamble;
 for (const ix of indexPreamble) {
   const refusal = await refusalNow();
-  if (refusal || minutesBeforeBreakWindow(new Date()) < 5) {
+  if (refusal || minutesBeforeBreakWindow(new Date()) < concurrentBudget.eachIndexMinutes) {
     await client.end().catch(() => {});
     refused(
-      `stopped before ${ix.name}: ${refusal || 'fewer than 5 minutes before :50 UTC'}. Indexes already built stay (IF NOT EXISTS skips them); the transaction was NOT sent. Dispatch again after :03.`
+      `stopped before ${ix.name}: ${refusal || `fewer than ${concurrentBudget.eachIndexMinutes} minutes before :50 UTC`}. Indexes already built stay (IF NOT EXISTS skips them); the transaction was NOT sent. Dispatch again after :03.`
     );
   }
   const t0 = Date.now();
@@ -784,7 +791,10 @@ for (const ix of indexPreamble) {
       const remaining = Math.floor(cashHashRecoveryDeadline - performance.now());
       if (remaining <= 0) throw new Error('shared 600s cash HASH recovery/build budget exhausted');
       await client.query("SELECT set_config('statement_timeout',$1,false)", [remaining + 'ms']);
-    } else await client.query("SET statement_timeout = '600s'");
+    } else
+      await client.query("SELECT set_config('statement_timeout',$1,false)", [
+        concurrentBudget.statementMs + 'ms',
+      ]);
     if (serialJournalIndex) {
       try {
         await bindSerialJournalIndex(client);
@@ -964,7 +974,9 @@ if (ordinaryTransaction && file === WHEEL_WALLET_CUTOVER) {
     await client.end().catch(() => {});
     refused(`wallet cutover preflight: ${e.message}; migration transaction not sent`);
   }
-  console.log('[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.');
+  console.log(
+    '[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.'
+  );
 }
 
 // Ordinary installs must not retain live row locks across an unbounded series

@@ -757,6 +757,7 @@ try:
     require(q('live', "SELECT to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NULL AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='ca_club_acct_fact' AND column_name='bbj_gross')") == 't', 'an absent or INVALID sparse index refuses before installing fields or readers')
     # Retain both failed previous indexes as the production recovery does.
     run(psql('live'), "CREATE INDEX CONCURRENTLY ca_club_bbj_only_commit_span_nov9 ON hand_atomic_commits ((1/(hand_number-hand_number)));", expect_fail='division by zero')
+    run(psql('live'), "CREATE INDEX CONCURRENTLY ca_club_bbj_only_commit_receipt_span ON hand_atomic_commits ((1/(hand_number-hand_number)));", expect_fail='division by zero')
     for index in split['indexes']:
         run(psql('live'), index['statement'])
     require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'qualified replacement preserves the failed original index artifact')
@@ -813,7 +814,7 @@ try:
     predicate = split['indexes'][0]['statement'].split(' WHERE ', 1)[1].rstrip(';')
     plan = json.loads(q('live', "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) SELECT hand_id FROM hand_atomic_commits WHERE " + predicate +
         " AND tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange('2026-11-10 08:00Z','2026-11-11 08:00Z','[)')"))
-    require('ca_club_bbj_only_commit_receipt_span' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
+    require('ca_club_bbj_only_receipt_budget_span' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
     require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_bbj_gap_days(uuid,date,date)','EXECUTE')") == 't',
             'the sparse original-source qualification helper remains private')
     print('BBJ sparse candidate plan: ' + json.dumps(plan), flush=True)
