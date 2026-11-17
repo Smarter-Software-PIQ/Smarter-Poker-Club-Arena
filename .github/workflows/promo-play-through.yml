@@ -67,6 +67,9 @@ on:
       - scripts/ci/test-promo-integrity-accepted-hand.py
       - tests/fixtures/promo-integrity-*.json
       - scripts/ci/test-mtt-unlimited.py
+      - supabase/migrations/*_a_spin_fee_source_agrees_*.sql
+      - scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py
+      - tests/fixtures/spin-fee-guard/**
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -120,6 +123,10 @@ jobs:
         run: python3 scripts/ci/test-signup-promo-identity.py --output artifacts/signup-promo-identity
       - name: Promo fees preserve gross rake and exclude free earnings
         run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
+      - name: A Spin's canonical fee agrees with its zero-fee entry (incident 002a0deb)
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py --pg-bin /usr/lib/postgresql/17/bin
       - name: Promo expiry retains its original time through bounded maintenance thaw
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
