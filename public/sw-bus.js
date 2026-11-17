@@ -147,12 +147,22 @@ function keepOptionalCacheWork(event, work) {
 }
 
 function cacheAssetResponse(event, cache, response, cacheName, maxEntries) {
-  if (!cache || !response.ok) return;
-  const copy = response.clone();
+  if (!cache || !response.ok || !response.body || response.redirected || response.status === 206)
+    return response;
+  // Cloning an unfinished native image response can freeze WebKit's worker
+  // during navigation. Read the network body once, then fork the JS stream.
+  const [pageBody, cacheBody] = response.body.pipeThrough(new TransformStream()).tee();
+  const copy = new Response(cacheBody, response);
   keepOptionalCacheWork(event, async () => {
-    await cache.put(event.request, copy);
+    try {
+      await cache.put(event.request, copy);
+    } catch {
+      void cacheBody.cancel().catch(() => {});
+      return;
+    }
     await trimCache(cacheName, maxEntries);
   });
+  return new Response(pageBody, response);
 }
 
 // One opt-in, short-lived trace for a real table reload. Only the requesting
@@ -339,10 +349,7 @@ sw.addEventListener('fetch', (event) => {
       lookupCachedResponse(CACHE_NAME, event.request).then(({ cache, cached }) => {
         if (cached) return cached;
         return fetch(event.request).then((response) => {
-          if (response.ok) {
-            cacheAssetResponse(event, cache, response, CACHE_NAME, MAX_CACHE_ENTRIES);
-          }
-          return response;
+          return cacheAssetResponse(event, cache, response, CACHE_NAME, MAX_CACHE_ENTRIES);
         }).catch(() => {
           // Network failed and no cache — return a proper error so the app
           // can trigger its chunk-reload recovery logic instead of hanging
@@ -409,10 +416,7 @@ sw.addEventListener('fetch', (event) => {
         const revalidate = fetch(
           new Request(event.request, { cache: 'no-cache' })
         ).then((response) => {
-          if (response.ok) {
-            cacheAssetResponse(event, cache, response, MEDIA_CACHE, MAX_MEDIA_ENTRIES);
-          }
-          return response;
+          return cacheAssetResponse(event, cache, response, MEDIA_CACHE, MAX_MEDIA_ENTRIES);
         }).catch(() => {
           // Offline: the cached copy, however old, beats a broken image.
           if (cached) return cached;

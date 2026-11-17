@@ -33,6 +33,7 @@ function fixture(overrides: Record<string, any> = {}) {
     URL,
     Request: requestConstructor,
     Response,
+    TransformStream,
     AbortController,
     performance,
     Date,
@@ -88,6 +89,33 @@ describe.each(assets)('actual worker cache admission: %s', (path) => {
     const { response } = f.request(path);
     expect(await (await response).text()).toBe('network');
     expect(f.fetch).toHaveBeenCalledTimes(1);
+  });
+  it('streams the first bytes to the page and caches every byte without cloning the network response', async () => {
+    const stream = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = stream.writable.getWriter();
+    const original = new Response(stream.readable, { headers: { 'Content-Type': 'image/webp' } });
+    const clone = vi.spyOn(original, 'clone');
+    let saved: number[] = [];
+    const f = fixture({
+      fetch: async () => original,
+      cache: {
+        put: async (_: Request, copy: Response) => {
+          saved = Array.from(new Uint8Array(await copy.arrayBuffer()));
+        },
+      },
+    });
+    const { response, background } = f.request(path);
+    const delivered = await response;
+    expect(delivered.headers.get('Content-Type')).toBe('image/webp');
+    const reader = delivered.body!.getReader();
+    await writer.write(Uint8Array.of(1));
+    expect((await reader.read()).value).toEqual(Uint8Array.of(1));
+    await writer.write(Uint8Array.of(2));
+    await writer.close();
+    expect((await reader.read()).value).toEqual(Uint8Array.of(2));
+    await Promise.all(background);
+    expect(saved).toEqual([1, 2]);
+    expect(clone).not.toHaveBeenCalled();
   });
   it('serves healthy fresh cache without network', async () => {
     const f = fixture({ cache: { match: vi.fn(async () => fresh()) } });

@@ -1,4 +1,4 @@
-// A loopback origin runs the real worker. Only this origin delays HTML.
+// A loopback origin runs the real worker. Only this origin delays HTML or an animated table image.
 // The observer stays outside the worker scope so its receipt survives a reload.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -9,6 +9,8 @@ import { devices, webkit } from 'playwright';
 
 const scope = '/hub/club-arena/';
 const table = scope + 'table/8aea2cc5-e05a-4aa2-9404-ffa34a9fb33e';
+const asset = scope + 'images/throwables/animated/chicken.webp';
+const image = readFileSync('public/images/throwables/animated/chicken.webp');
 const archived = process.argv.includes('--archived');
 // This is the worker source served in production job 133706789784, before
 // deployment stamping. Use its immutable source only for an explicit replay.
@@ -18,28 +20,40 @@ const source = archived
     })
   : readFileSync('public/sw-bus.js', 'utf8');
 const observer = `
-const stages = [];
+let observerPort;
+function stage(name) { observerPort?.postMessage(name); }
+self.addEventListener('fetch', event => {
+  if (new URL(event.request.url).pathname === ${JSON.stringify(table)}) stage('fetch-event');
+});
 const nativeFetch = self.fetch.bind(self);
 self.fetch = async (request, init) => {
   if (!(request instanceof Request) || new URL(request.url).pathname !== ${JSON.stringify(table)})
     return nativeFetch(request, init);
-  stages.push('inner-fetch');
-  init?.signal?.addEventListener('abort', () => stages.push('inner-abort'), { once: true });
+  stage('inner-fetch');
+  init?.signal?.addEventListener('abort', () => stage('inner-abort'), { once: true });
   const response = await nativeFetch(request, init);
-  stages.push('inner-headers');
+  stage('inner-headers');
   return response;
 };
 self.addEventListener('message', event => {
-  if (event.data === 'read-loopback-stages') event.ports[0].postMessage(stages);
+  if (event.data === 'observe-loopback') {
+    observerPort = event.ports[0];
+    stage('armed');
+  }
 });
 `;
 
 const browser = await webkit.launch();
 try {
-  for (const hold of ['headers', 'first-byte', 'body']) {
+  for (const hold of ['asset', 'headers', 'first-byte', 'body']) {
     let delayed = false,
       requests = 0,
       disconnected = false;
+    let imageResponse;
+    let firstBytes;
+    const imageStarted = new Promise((resolve) => {
+      firstBytes = resolve;
+    });
     let closeTransfer;
     const closed = new Promise((resolve) => {
       closeTransfer = resolve;
@@ -50,9 +64,17 @@ try {
         res.setHeader('Content-Type', 'application/javascript');
         return res.end(observer + source);
       }
+      if (req.url === asset) {
+        res.writeHead(200, { 'Content-Type': 'image/webp', 'Content-Length': image.length });
+        res.write(image.subarray(0, 16384));
+        imageResponse = res;
+        firstBytes();
+        return;
+      }
       res.setHeader('Content-Type', 'text/html');
       if (req.url === table && delayed) {
         requests++;
+        if (hold === 'asset') return res.end('<!doctype html><title>complete shell</title>');
         res.once('close', () => {
           disconnected = true;
           closeTransfer();
@@ -79,7 +101,22 @@ try {
         await navigator.serviceWorker.ready;
       }, scope);
       await page.waitForFunction(() => !!navigator.serviceWorker.controller);
-      await page.evaluate((path) => history.pushState(null, '', path), table);
+      await monitor.evaluate(async (scope) => {
+        window.workerStages = [];
+        const worker = (await navigator.serviceWorker.getRegistration(scope)).active;
+        const channel = new MessageChannel();
+        await new Promise((resolve) => {
+          channel.port1.onmessage = ({ data }) => {
+            window.workerStages.push(data);
+            if (data === 'armed') resolve();
+          };
+          worker.postMessage('observe-loopback', [channel.port2]);
+        });
+      }, scope);
+      await page.evaluate((path) => {
+        history.pushState(null, '', path);
+        window.originalTable = true;
+      }, table);
       const receipt = randomUUID();
       const timing = (type) =>
         page.evaluate(
@@ -103,6 +140,16 @@ try {
       await context.setOffline(true);
       await context.setOffline(false);
       if (!archived) assert.equal((await timing('ARM_SHELL_TRACE')).armed, true);
+      if (hold === 'asset') {
+        await page.evaluate((path) => {
+          const img = new Image();
+          img.src = path;
+          document.body.append(img);
+        }, asset);
+        await imageStarted;
+        // Original trace: image headers arrived 77ms before reload.
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
       delayed = true;
       let outerResponse = false;
       page.on('response', (response) => {
@@ -126,21 +173,11 @@ try {
         timedOut = true;
       }
       const elapsedMs = Date.now() - start;
-      const stages = await monitor.evaluate(async (scope) => {
-        const worker = (await navigator.serviceWorker.getRegistration(scope)).active;
-        const channel = new MessageChannel();
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error('Missing worker timing receipt')), 3000);
-          channel.port1.onmessage = (e) => {
-            clearTimeout(timer);
-            channel.port1.close();
-            resolve(e.data);
-          };
-          worker.postMessage('read-loopback-stages', [channel.port2]);
-        });
-      }, scope);
+      const stages = await monitor.evaluate(() => window.workerStages);
+      const originalDocument = await page.evaluate(() => window.originalTable === true);
       console.log(
         JSON.stringify({
+          originalDocument,
           archived,
           hold,
           requests,
@@ -153,6 +190,22 @@ try {
           disconnected,
         })
       );
+      if (hold === 'asset') {
+        assert.equal(crashed, false);
+        assert.equal(originalDocument, archived);
+        assert.equal(timedOut, archived);
+        assert.equal(committed, !archived);
+        assert.equal(outerResponse, !archived);
+        assert.equal(requests, archived ? 0 : 1);
+        if (!archived) {
+          assert.ok(stages.includes('inner-headers'));
+          assert.equal(await page.title(), 'complete shell');
+          console.log(
+            JSON.stringify({ hold, workerTiming: (await timing('READ_SHELL_TRACE')).events })
+          );
+        }
+        continue;
+      }
       assert.equal(requests, 1);
       assert.equal(crashed, false);
       assert.equal(timedOut, archived && stages.includes('inner-headers'));
@@ -185,6 +238,7 @@ try {
         }
       }
     } finally {
+      imageResponse?.end(image.subarray(16384));
       await context.close();
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
