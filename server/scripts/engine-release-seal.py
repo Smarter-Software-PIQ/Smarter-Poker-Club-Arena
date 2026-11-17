@@ -2892,16 +2892,16 @@ ATTENTION14_DATABASE_PAIR = (
 
 # One finite owner-authorized Promo Play Through prerequisite installation.
 # This is not general batch admission; its protected bytes and order are fixed.
-PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db"
-PROMO_DATABASE_WINDOW_ANCHOR = "c69e9eded03165bf9049053f77554c12f03346f0"
-PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T05:20:00Z", "2026-11-17T09:00:00Z")
+PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-corrected"
+PROMO_DATABASE_WINDOW_ANCHOR = "187839923e50a6e9a548ff1bab86fbd6520d8f7e"
+PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T06:50:00Z", "2026-11-17T09:00:00Z")
 PROMO_DATABASE_MIGRATIONS = (
     ("20261116151020_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql",
-     "576954b696d2827fd83746954aeed458308b5acb93519eea75deb05e876e12da"),
+     "179c48c37def66c6d6b9d43102e9d70c330f428d8358fda58e2e8030481028af"),
     ("20261116195541_club_arena_terms_acceptance_records_the_exact_reviewed_revis.sql",
      "2e7bb2e1ffe8fb96a65ada8a7a179a1655639a379220407ed0ea27b674d7f77e"),
     ("20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql",
-     "ee7badea90d9ab5412ad2ced278f55aa3d291b4d888d5e4ef079c58bba78c983"),
+     "d9b36cdb2ae8896cf4f3e156be2f591ec1c40b79d167ddfbbe319d75fec709c2"),
     ("20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
      "b9004e5e4c4172af14c3cc67fc206973ee73b05bfffab11b00ed1fe8a953ec9d"),
     ("20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",

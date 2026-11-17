@@ -1671,6 +1671,26 @@
         "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
         "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
       ]
+    },
+    {
+      "id": "2026-11-17-promo-play-through-db-corrected",
+      "ownerOrder": "Dan in Codex chat01a1e4d3-758c-7a40-b396-d867efdffbfc ordered completion of the required ten migrations, terms publication, activation and live verification, then answered \"Authorize protected off-cycle installation\" to the exact question without waiting4AM. Root interprets that continuing complete-assignment authority to permit this necessary corrective attempt after original44023469833 refused allten transactions and verified thaw, not as a claim the owner separately selected this new attempt or timestamps. Original05:20\u201309:00 booking, hashes, refusal and terminal receipt stay immutable and are never replayed. Two exact source prerequisites are now reconciled with their current reviewed owners, and the ordinary bounded-freeze watchdog correction installs first. This NEW single-use database-only operation installs exactly the still-uninstalled ten files below, preserving source/engine custody and locks, rolling-hour spacing,120-second last-hand lead, confirmed drain/freeze,285-second admission reserve,150-second installer opening/100-second commit reserve,1-second lock/5-second statement/8-second transaction budgets, one attempt per file, stop UNKNOWN and originalv3thaw. The original continuous primary public notice says a break can start any time before03:00Chicago, strictly covering this narrower06:40\u2013SAME09:00UTC interval; after06:50 its displayed timing sentence is identical to the new notice. This is an explicit interpretation of unchanged player-visible promise coverage, not a waiver of notice: the NEW exact notice row must additionally be published and independently verified for twenty minutes before dispatch. No old record edit, expiry extension, consumed-ID replay, engine replacement, financial replay, new-start hold, watcher or automatic retry. Root retains this corrective operation and final activation/live verification.",
+      "contains": "187839923e50a6e9a548ff1bab86fbd6520d8f7e",
+      "playerNoticeAt": "2026-11-17T06:30:00Z",
+      "notBefore": "2026-11-17T06:50:00Z",
+      "notAfter": "2026-11-17T09:00:00Z",
+      "migrations": [
+        "20261116151020_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql",
+        "20261116195541_club_arena_terms_acceptance_records_the_exact_reviewed_revis.sql",
+        "20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql",
+        "20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
+        "20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+        "20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
+        "20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
+        "20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
+        "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
+        "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
+      ]
     }
   ]
 }
