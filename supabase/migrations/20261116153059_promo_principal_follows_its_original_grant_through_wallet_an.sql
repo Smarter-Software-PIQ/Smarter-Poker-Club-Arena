@@ -415,7 +415,7 @@ DO $inventory_pin$
 DECLARE def text;needle text;replacement text;
 BEGIN
  SELECT pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure) INTO def;
- IF md5(def)<>'2115cc50e91b586e152baa0ba6395b58' THEN RAISE EXCEPTION 'promo_original_inventory_guard_changed'; END IF;
+ IF md5(def)<>'b144764b93485000ab88aa4ecc0a7b56' THEN RAISE EXCEPTION 'promo_original_inventory_guard_changed'; END IF;
  needle:='(''public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'',''d01404c53405fd1826de26e58b04f4b1'')';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_original_inventory_funding_pin_changed'; END IF;
  replacement:='(''public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'','''

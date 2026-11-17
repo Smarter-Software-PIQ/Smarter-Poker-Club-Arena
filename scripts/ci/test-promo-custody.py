@@ -114,6 +114,12 @@ def main():
    script="import{stalePinGuardSQL}from'./scripts/ci/migration-stale-pins.mjs';let s='';for await(const b of process.stdin)s+=b;process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
    return subprocess.run(['node','--input-type=module','-e',script,str(MIGRATION)],input=sql,text=True,capture_output=True,check=True,cwd=ROOT).stdout
   migration=MIGRATION.read_text();pin_start=migration.index('DO $inventory_pin$');pin_end=migration.index('END $inventory_pin$;',pin_start)+len('END $inventory_pin$;')
+  old_guard_migration=migration.replace("IF md5(def)<>'"+inventory['md5']+"' THEN RAISE EXCEPTION 'promo_original_inventory_guard_changed'", "IF md5(def)<>'2115cc50e91b586e152baa0ba6395b58' THEN RAISE EXCEPTION 'promo_original_inventory_guard_changed'")
+  if old_guard_migration==migration:raise RuntimeError('original inventory precondition regression anchor changed')
+  old_guard_refused=db.run(guarded(old_guard_migration),check=False)
+  (args.output/'current-inventory-before.stderr').write_text(old_guard_refused.stderr)
+  check('former guard precondition refuses the actual current original inventory owner',old_guard_refused.returncode!=0 and 'promo_original_inventory_guard_changed' in old_guard_refused.stderr,True)
+  check('former guard precondition refusal rolls back custody and funding hook',one("SELECT to_regclass('public.ca_promo_principal_custody') IS NULL AND md5(pg_get_functiondef('public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'::regprocedure))='d01404c53405fd1826de26e58b04f4b1'"),'t')
   refused=db.run(guarded(migration[:pin_start]+migration[pin_end:]),check=False)
   (args.output/'stale-pin-before.stderr').write_text(refused.stderr)
   check('real applier refuses the former stale funding pin',refused.returncode!=0 and 'migration_left_a_stale_pin' in refused.stderr,True)

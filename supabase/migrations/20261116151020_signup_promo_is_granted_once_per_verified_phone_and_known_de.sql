@@ -193,11 +193,13 @@ $patch$;
 -- The existing weekly owner now pays the KINGS branch of this same campaign.
 -- Reserve the same identity in that original payment transaction as well;
 -- refusing one gift does not block the remaining eligible recipients.
+-- Current205150 owns document-gated book selection and its durable receipt;
+-- preserve that entire owner and add only the same identity claim before credit.
 DO $weekly$
 DECLARE d text;needle text:=E'    payment:=public.fn_promo_disburse(';
 BEGIN
  SELECT pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure) INTO d;
- IF md5(d)<>'290c1c3f6c23a1341fe61eb453c0510f' THEN
+ IF md5(d)<>'a5b39719461d6f6e9e81c46acb2301fd' THEN
   RAISE EXCEPTION 'Weekly signup promo owner changed; reconcile its original identity and credit transaction';
  END IF;
  IF length(d)-length(replace(d,needle,''))<>length(needle) THEN RAISE EXCEPTION 'weekly_signup_promo_credit_anchor_changed'; END IF;

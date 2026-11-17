@@ -241,7 +241,8 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  original_generic_body=generic_body
  # The complete source guard is the maintained production preimage, not a
  # substitute that grants missing owners permission in this smaller fixture.
- pin=json.loads((R/'tests/fixtures/promo-custody-inventory-pin.json').read_text())
+ # This installer tests its exact historical preimage, not the latest live guard.
+ pin=json.loads((F/'original-key-guard-preimage.json').read_text())
  sql(pin['definition']+";REVOKE ALL ON FUNCTION smarter_private.original_inventory_proof_sources_match() FROM PUBLIC,anon,authenticated,service_role;REVOKE ALL ON FUNCTION "+window_signature+" FROM PUBLIC,anon,authenticated,service_role;")
  guard='smarter_private.original_inventory_proof_sources_match()'
  assert sql("SELECT md5(pg_get_functiondef('"+guard+"'::regprocedure))")==pin['md5']
