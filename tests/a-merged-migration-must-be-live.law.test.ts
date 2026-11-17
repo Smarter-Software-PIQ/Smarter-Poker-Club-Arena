@@ -70,6 +70,7 @@ import {
   proofIsRunnable,
 } from '../scripts/ci/check-migrations-are-live.mjs';
 import { classifyMigration } from '../scripts/ci/recording-only.mjs';
+import { migrationCorpus } from './helpers/migrationCorpus';
 
 const ROOT = path.resolve(__dirname, '..');
 const MIGRATIONS = path.join(ROOT, 'supabase', 'migrations');
@@ -465,18 +466,17 @@ describe('a merged migration must be live', () => {
   });
 
   it('every real proof in every Lightning migration is harvested, and nothing else', () => {
-    const lightning = migrations().filter((f) => f.includes('_lightning_'));
+    const lightning = migrationCorpus().filter(({ name }) => name.includes('_lightning_'));
+    const registry = JSON.parse(read('scripts/ci/migration-live-proofs.json'));
     let total = 0;
     let withProofs = 0;
-    for (const file of lightning) {
-      const sql = fs.readFileSync(path.join(MIGRATIONS, file), 'utf8');
+    for (const { name: file, sql } of lightning) {
       // The same lines `grep -c '^-- @live-proof:'` counts.
       const raw = sql.split('\n').filter((l) => /^-- @live-proof:/.test(l));
       const inline = resolveDeclaredProofs(sql, { schema: 1, entries: [] }, MIGRATIONS);
       expect(inline.length, file).toBe(raw.length);
       expect(inline, file).toEqual(raw.map((l) => l.slice('-- @live-proof:'.length).trim()));
       const proofs = declaredProofs(sql);
-      const registry = JSON.parse(read('scripts/ci/migration-live-proofs.json'));
       expect(proofs, file).toEqual(resolveDeclaredProofs(sql, registry, MIGRATIONS));
       total += proofs.length;
       if (proofs.length > 0) withProofs++;
@@ -561,8 +561,12 @@ describe('a merged migration must be live', () => {
     expect(proofIsRunnable("(SELECT 'it''s fine') = 'it''s fine'")).toBe(true);
     // Non-vacuity: the real proofs in the window are overwhelmingly runnable,
     // so this gate cannot be passing by refusing everything.
-    const declared = migrations().flatMap((f) =>
-      declaredProofs(fs.readFileSync(path.join(MIGRATIONS, f), 'utf8'))
+    // Read every current file through the bounded shared reader. Reuse this
+    // invocation's registry, while resolveDeclaredProofs still verifies every
+    // immutable external source identity on each call.
+    const registry = JSON.parse(read('scripts/ci/migration-live-proofs.json'));
+    const declared = migrationCorpus().flatMap(({ sql }) =>
+      resolveDeclaredProofs(sql, registry, MIGRATIONS)
     );
     expect(declared.length).toBeGreaterThanOrEqual(150);
     const refused = declared.filter((p) => !proofIsRunnable(p));
@@ -612,10 +616,9 @@ describe('a merged migration must be live', () => {
    */
   it('every migration written after this law is checkable', () => {
     const offenders: string[] = [];
-    for (const file of migrations()) {
+    for (const { name: file, sql } of migrationCorpus()) {
       const version = file.slice(0, file.indexOf('_'));
       if (version < BINDS_FROM) continue;
-      const sql = fs.readFileSync(path.join(MIGRATIONS, file), 'utf8');
       if (declaredObjects(sql).length > 0) continue;
       if (declaredProofs(sql).length > 0) continue;
       // A verified RECORDING (scripts/ci/recording-only.mjs: a manifest row whose
