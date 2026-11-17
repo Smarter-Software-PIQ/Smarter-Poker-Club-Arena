@@ -110,3 +110,24 @@ name preserves all three failed INVALID artifacts without DROP. No financial
 source, body lock timeout, maintenance guard or retry policy is widened.
 Actual installation/readback remains required; 1,200 seconds is a bounded
 measured allowance, not a guarantee of successful production completion.
+
+The 1,200-second production attempt completed its first heap scan around760s,
+then reached711,397/2,182,410 validation blocks after another431s. The two-scan
+projection is about2,082 seconds. The owner ordered only a bounded installation
+limit correction: exact reviewed BBJ bytes now receive2,400s with42-minute
+initial and per-index runway before:50. The existing hourly DDL window stays
+unchanged, so admission is possible only early in the open hour. Its job alone
+has75minutes for unchanged FIFO900s, admission720s, index2400s and300s reserve;
+other jobs remain35minutes and other index budgets remain600s/12min/5min.
+A new qualified name retains all four failed artifacts; no DROP, override,
+reader/financial semantics, numeric alternative, new index design or retry loop
+is introduced. Successful production installation remains to be proved.
+
+Final admission uses the steady validation segment rather than its initially
+hot pages:434,382 to711,397blocks in241s is about1,150blocks/s, projecting
+about2,477s total. The exact same SQL receives only2,520s and44-minute
+initial/per-index runway, including two minutes before:50. Its75-minute job
+still bounds FIFO900s + admission720s + index2520s + reserve300s=4440s.
+SQL, index name, financial/read behavior and all ordinary limits are unchanged.
+The prior77native/recovery/default evidence remains valid; production proof
+is still required, and no further automatic budget tuning is introduced.

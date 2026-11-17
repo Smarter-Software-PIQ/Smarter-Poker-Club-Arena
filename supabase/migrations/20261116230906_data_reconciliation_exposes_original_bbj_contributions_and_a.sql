@@ -2,14 +2,14 @@
 -- Report-only extension of the existing atomic aggregate/journal and finite loader.
 -- Old rows are not zero BBJ: versioned source coverage refuses their reconciliation
 -- until the original accounting day is reconstructed by the maintained loader.
--- @live-proof: EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ca_club_acct_fact' AND column_name='bbj_gross') AND to_regprocedure('public.fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.fn_ca_club_acct_cash_fee_rows(jsonb)') AND position('bbj_attributed_contribution' IN prosrc)>0) AND EXISTS(SELECT 1 FROM pg_index WHERE indexrelid=to_regclass('public.ca_club_bbj_only_receipt_budget_span') AND indisvalid AND indisready AND indislive) AND to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NOT NULL
+-- @live-proof: EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ca_club_acct_fact' AND column_name='bbj_gross') AND to_regprocedure('public.fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.fn_ca_club_acct_cash_fee_rows(jsonb)') AND position('bbj_attributed_contribution' IN prosrc)>0) AND EXISTS(SELECT 1 FROM pg_index WHERE indexrelid=to_regclass('public.ca_club_bbj_only_receipt_measured_span') AND indisvalid AND indisready AND indislive) AND to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NOT NULL
 -- Sparse original BBJ-only obligations, including later original bank receipts.
 -- Compact accepted stack fees are bound to the obligation by the original DB
 -- fee-mismatch refusal. Missing/non-numeric receipts retain the original JSON
 -- fallback. Readers still verify the exact original JSON after index scoping.
 -- Both failed previous index artifacts are retained, never dropped here.
 -- Built by the maintained ordinary CONCURRENTLY preamble, never a hot trigger.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS ca_club_bbj_only_receipt_budget_span ON public.hand_atomic_commits
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ca_club_bbj_only_receipt_measured_span ON public.hand_atomic_commits
  USING gist(tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]'))
  INCLUDE(committed_at,table_id,hand_number,hand_id) WHERE CASE WHEN jsonb_typeof(stack_result->'bbj')='number' AND jsonb_typeof(stack_result->'rake')='number' THEN (stack_result->>'bbj')::numeric>0 AND (stack_result->>'rake')::numeric<=0 ELSE (CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END) END;
 BEGIN;
@@ -18,7 +18,7 @@ SET LOCAL TimeZone='UTC';
 SET LOCAL statement_timeout='60s';
 DO $sparse_guard$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
- WHERE i.indexrelid=to_regclass('public.ca_club_bbj_only_receipt_budget_span')
+ WHERE i.indexrelid=to_regclass('public.ca_club_bbj_only_receipt_measured_span')
  AND i.indrelid='public.hand_atomic_commits'::regclass AND i.indisvalid AND i.indisready AND i.indislive
  AND NOT i.indisunique AND NOT i.indisexclusion AND c.reloptions IS NULL AND am.amname='gist' AND i.indnkeyatts=1 AND i.indnatts=5
  AND pg_get_indexdef(i.indexrelid,1,true)=$key$tstzrange(committed_at, COALESCE(post_commit_completed_at, 'infinity'::timestamp with time zone), '[]'::text)$key$
