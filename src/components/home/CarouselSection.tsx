@@ -79,6 +79,7 @@ export interface ClubStats {
   /** For a union member club: the union whose floor the cash/events split counts. */
   splitFloorLabel?: string | null;
   floorPlaying?: number | null;
+  floorHorses?: number | null;
 }
 
 export interface CarouselSectionProps {
@@ -314,6 +315,7 @@ export default function CarouselSection({
                 entityType={club.entity_type || 'club'}
                 splitFloorLabel={stats?.splitFloorLabel ?? null}
                 floorPlaying={stats?.floorPlaying ?? null}
+                floorHorses={stats?.floorHorses ?? null}
               />
             )}
           </PageErrorBoundary>

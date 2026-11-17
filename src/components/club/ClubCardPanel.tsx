@@ -70,10 +70,12 @@ interface ClubCardPanelProps {
   splitFloorLabel?: string | null;
   /**
    * Dan 2026-11-17: distinct players on that union floor, printed with the
-   * union's name ("306 PLAYING ACROSS MIDWAY UNION") so the card carries the
+   * union's name ("296 PLAYERS ACROSS MIDWAY UNION") so the card carries the
    * same union figure as the club's invite and never under the club's ACTIVE.
    */
   floorPlaying?: number | null;
+  /** How many of floorPlaying are Horses; any at all adds "· INCLUDES HORSES". */
+  floorHorses?: number | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -92,6 +94,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   entityType = 'club',
   splitFloorLabel = null,
   floorPlaying = null,
+  floorHorses = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -268,7 +271,9 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           {splitFloorLabel ? (
             <span className="club-card-stat-split-floor sc-label sc-ink--blue">
               {floorPlaying != null
-                ? `${floorPlaying.toLocaleString()} PLAYING ACROSS ${splitFloorLabel}`
+                ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACROSS ${splitFloorLabel}${
+                    (floorHorses ?? 0) > 0 ? ' · INCLUDES HORSES' : ''
+                  }`
                 : splitFloorLabel}
             </span>
           ) : null}

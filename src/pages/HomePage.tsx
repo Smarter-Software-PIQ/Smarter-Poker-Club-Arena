@@ -1122,19 +1122,29 @@ function HomePageInner() {
         if (memberClubUnion.size > 0 && isMounted) {
           const floorUnionIds = Array.from(new Set(memberClubUnion.values()));
           try {
-            const [floorResult, floorNamesResult] = await Promise.all([
+            const [floorResult, floorNamesResult, floorPlayersResult] = await Promise.all([
               supabase.rpc('fn_batch_union_realtime_active_counts', {
                 p_union_ids: floorUnionIds,
               }),
               supabase.from('unions').select('id, name').in('id', floorUnionIds),
+              /* Dan 2026-11-17: the union total and how many of those accounts
+                 are Horses, from the same read the club's invite words. */
+              supabase.rpc('fn_batch_union_floor_players', { p_union_ids: floorUnionIds }),
             ]);
             if (floorResult.error) reportError(floorResult.error, 'HomePage.memberClubUnionFloor');
-            const floorSplit = new Map<string, { cash: number; events: number; total: number }>();
+            const floorSplit = new Map<string, { cash: number; events: number }>();
             for (const r of (floorResult.data as any[]) || [])
               floorSplit.set(String(r.union_id), {
                 cash: Number(r.cash_count) || 0,
                 events: Number(r.event_count) || 0,
-                total: Number(r.active_count) || 0,
+              });
+            if (floorPlayersResult.error)
+              reportError(floorPlayersResult.error, 'HomePage.memberClubUnionFloorPlayers');
+            const floorPlayers = new Map<string, { players: number; horses: number }>();
+            for (const r of (floorPlayersResult.data as any[]) || [])
+              floorPlayers.set(String(r.union_id), {
+                players: Number(r.active_count) || 0,
+                horses: Number(r.horse_count) || 0,
               });
             const floorName = new Map<string, string>();
             for (const r of (floorNamesResult.data as any[]) || [])
@@ -1149,7 +1159,9 @@ function HomePageInner() {
                 activeCash: split.cash,
                 activeEvents: split.events,
                 splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
-                floorPlaying: split.total,
+                // Unknown stays unknown: no union total is printed without its read.
+                floorPlaying: floorPlayers.get(unionId)?.players ?? null,
+                floorHorses: floorPlayers.get(unionId)?.horses ?? null,
               };
             }
           } catch (e) {

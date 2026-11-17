@@ -23,9 +23,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '../..');
-const MIGRATION = readdirSync(join(ROOT, 'supabase/migrations')).find((f) =>
-  f.includes('_club_invite_counts_name_their_scope_and_show_measured_figure')
-);
+const MIGRATIONS = readdirSync(join(ROOT, 'supabase/migrations'))
+  .filter(
+    (f) =>
+      f.includes('_club_invite_counts_name_their_scope_and_show_measured_figure') ||
+      f.includes('_the_union_player_count_names_its_horses_and_club_levels_foll')
+  )
+  .sort();
+const MIGRATION = MIGRATIONS.length === 2 ? MIGRATIONS[0] : undefined;
 const bin = [
   process.env.PG_BIN,
   '/opt/homebrew/opt/postgresql@17/bin',
@@ -97,6 +102,16 @@ CREATE TABLE public.club_display_labeled_additions (club_id uuid PRIMARY KEY,
 CREATE FUNCTION public.fn_ca_stats_counts_in_club(p_club_id uuid, p_user_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$;
 CREATE FUNCTION public.fn_club_invite_join_path(uuid, uuid, text) RETURNS text LANGUAGE sql AS $$ SELECT '/hub/club-arena/join' $$;
 CREATE FUNCTION public.fn_diamond_arena_players_playing(uuid) RETURNS integer LANGUAGE sql AS $$ SELECT NULL::integer $$;
+CREATE TABLE public.ladder_calls (club_id uuid, at timestamptz DEFAULT now());
+CREATE FUNCTION public.fn_get_club_realtime_member_count(p_club_id uuid) RETURNS bigint LANGUAGE sql STABLE AS $f$
+  SELECT (count(*) + COALESCE((SELECT b.boost FROM public.club_display_member_boost b WHERE b.club_id = p_club_id), 0))::bigint
+    FROM public.club_members cm WHERE cm.club_id = p_club_id AND (cm.status IS NULL OR cm.status IN ('active', 'approved'));
+$f$;
+CREATE FUNCTION public.fn_apply_club_ladder(p_club_id uuid) RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  INSERT INTO public.ladder_calls (club_id) VALUES (p_club_id);
+  UPDATE public.clubs SET member_count = public.fn_get_club_realtime_member_count(p_club_id)::integer WHERE id = p_club_id;
+END $f$;
 CREATE FUNCTION public.fn_club_card_figures(p_club_id uuid) RETURNS TABLE(members integer, active integer) LANGUAGE sql AS $$ SELECT 0, 0 $$;
 -- Production bodies (live pg_proc, 2026-11-17).
 CREATE FUNCTION public.fn_batch_club_realtime_member_counts(p_club_ids uuid[])
@@ -178,6 +193,8 @@ INSERT INTO public.clubs (id, club_id, slug, name, asset, union_id) VALUES
   ('${OTHER}', 25453, 'other', 'Harbor Club', 'chips', NULL),
   ('${MIDWAY}', 25400, 'midway-union', 'Midway Union', 'chips', '${MIDWAY}');
 INSERT INTO public.union_clubs VALUES ('${MIDWAY}', '${KINGS}'), ('${MIDWAY}', '${DSS}'), ('${NORTH}', '${OTHER}');
+UPDATE public.clubs SET member_count = 1002 WHERE id = '${DSS}';
+UPDATE public.clubs SET member_count = 4 WHERE id = '${KINGS}';
 INSERT INTO public.club_display_member_boost VALUES ('${DSS}', 1000, 'display +1,000', now()), ('${KINGS}', 0, 'real', now());
 INSERT INTO public.club_display_labeled_additions VALUES ('${KINGS}', 1500, 233, 'Bonus', 'display', now());
 INSERT INTO public.profiles (id, alias, is_horse) SELECT ('00000000-0000-0000-0000-' || lpad(g::text, 12, '0'))::uuid, 'P' || g, g >= 100
@@ -236,8 +253,10 @@ beforeAll(() => {
   started = true;
   const seed = psql(SCHEMA);
   expect(seed.status, seed.stderr).toBe(0);
-  const install = psql(readFileSync(join(ROOT, 'supabase/migrations', MIGRATION!), 'utf8'));
-  expect(install.status, install.stderr).toBe(0);
+  for (const file of MIGRATIONS) {
+    const install = psql(readFileSync(join(ROOT, 'supabase/migrations', file), 'utf8'));
+    expect(install.status, `${file}: ${install.stderr}`).toBe(0);
+  }
 });
 
 afterAll(() => {
@@ -257,7 +276,7 @@ describe('club invite figures name their scope', () => {
     expect(f.members_line).toBe('4 Members In KINGS CLUB');
     expect(f.activity_scope).toBe('union');
     expect(f.activity_scope_name).toBe('Midway Union');
-    expect(f.activity_line).toBe('3 Playing Across Midway Union Now');
+    expect(f.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
   });
 
   it('counts unique players, not occupied seats, and skips away, departed and closed-table seats', () => {
@@ -270,20 +289,59 @@ describe('club invite figures name their scope', () => {
   });
 
   it('every union member club names its own union; a club with no union names itself', () => {
-    expect(figures(DSS).activity_line).toBe('3 Playing Across Midway Union Now');
-    expect(figures(OTHER).activity_line).toBe('1 Playing Across North Star Union Now');
+    expect(figures(DSS).activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
+    expect(figures(OTHER).activity_line).toBe('1 Player Across North Star Union Now');
     const solo = figures(SOLO);
     expect(solo.activity_scope).toBe('club');
     // Its members seated on its own floor, the same figure as its card's ACTIVE:
     // u10 is a member; u11 at the same table is not.
-    expect(solo.activity_line).toBe('1 Playing In Solo Room Now');
+    expect(solo.activity_line).toBe('1 Player In Solo Room Now');
     expect(solo.members_line).toBe('1 Member In Solo Room');
+  });
+
+  it('the union line names its Horses only when the count holds one, and keeps them in the count', () => {
+    const f = figures(KINGS);
+    expect(f.players_playing).toBe(3);
+    expect(f.horses_playing).toBe(2);
+    expect(f.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
+    expect(figures(OTHER).horses_playing).toBe(0);
+    expect(figures(OTHER).activity_line).not.toMatch(/Horses/);
+    // The union read the card prints is the same count as the union card's own read.
+    expect(
+      psql(`SELECT (SELECT active_count FROM public.fn_batch_union_floor_players(ARRAY['${MIDWAY}'::uuid]))
+          = (SELECT active_count FROM public.fn_batch_union_realtime_active_counts(ARRAY['${MIDWAY}'::uuid]));`).stdout.trim()
+    ).toBe('t');
+    expect(
+      psql(`SELECT has_function_privilege('anon', 'public.fn_batch_union_floor_players(uuid[])', 'EXECUTE')
+          || '/' || has_function_privilege('authenticated', 'public.fn_batch_union_floor_players(uuid[])', 'EXECUTE');`).stdout.trim()
+    ).toBe('false/true');
+  });
+
+  it('a club with no union discloses Horses among its seated members', () => {
+    const r =
+      psql(`INSERT INTO public.club_members VALUES ('${SOLO}', '${u(110)}', 'active', 'member');
+      INSERT INTO public.table_seats VALUES ('${u(904)}', '${u(110)}', NULL, false);`);
+    expect(r.status, r.stderr).toBe(0);
+    expect(figures(SOLO).activity_line).toBe('2 Players In Solo Room Now · Includes Horses');
+    psql(
+      `DELETE FROM public.table_seats WHERE user_id = '${u(110)}'; DELETE FROM public.club_members WHERE user_id = '${u(110)}';`
+    );
+    expect(figures(SOLO).activity_line).toBe('1 Player In Solo Room Now');
+  });
+
+  it('the stored level of a club that carried the retired boost follows its measured members, and only those clubs', () => {
+    expect(
+      psql(`SELECT string_agg(club_id::text, ',') FROM public.ladder_calls;`).stdout.trim()
+    ).toBe(DSS);
+    expect(psql(`SELECT member_count FROM public.clubs WHERE id = '${DSS}';`).stdout.trim()).toBe(
+      '2'
+    );
   });
 
   it("the union's own row counts distinct members across its clubs and its floor", () => {
     const f = figures(MIDWAY);
     expect(f.members_line).toBe('6 Members Across Midway Union');
-    expect(f.activity_line).toBe('3 Playing Across Midway Union Now');
+    expect(f.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
   });
 
   it('configured display additions are retired and cannot be set again', () => {
@@ -317,7 +375,7 @@ describe('club invite figures name their scope', () => {
     expect(resolved.member_count).toBe(4);
     expect(resolved.players_playing).toBe(3);
     expect(resolved.members_line).toBe('4 Members In KINGS CLUB');
-    expect(resolved.activity_line).toBe('3 Playing Across Midway Union Now');
+    expect(resolved.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
     expect(resolved.activity_scope_name).toBe('Midway Union');
     const link = json(
       `SET test.uid = '${u(1)}'; SELECT (public.fn_club_invite_link('${KINGS}')->'figures')::text;`
@@ -331,8 +389,8 @@ describe('club invite figures name their scope', () => {
 
   it('unavailable activity is omitted, never a zero or another metric', () => {
     const r =
-      psql(`CREATE OR REPLACE FUNCTION public.fn_batch_union_realtime_active_counts(p_union_ids uuid[])
-      RETURNS TABLE(union_id uuid, active_count bigint, cash_count bigint, event_count bigint)
+      psql(`CREATE OR REPLACE FUNCTION public.fn_batch_union_floor_players(p_union_ids uuid[])
+      RETURNS TABLE(union_id uuid, active_count bigint, horse_count bigint)
       LANGUAGE plpgsql STABLE AS $f$ BEGIN RAISE EXCEPTION 'floor read failed'; END $f$;`);
     expect(r.status, r.stderr).toBe(0);
     const f = figures(KINGS);
