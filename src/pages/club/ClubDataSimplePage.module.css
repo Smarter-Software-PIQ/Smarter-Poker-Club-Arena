@@ -286,7 +286,9 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 12px 2px 11px;
+  /* Keep 22px below the label centre inside this bay's own hit area. The
+     following reconciliation surface must not take the bottom of a thumb tap. */
+  padding: 12px 2px 17px;
   min-width: 0;
 }
 
