@@ -1,5 +1,0 @@
-{
-  "_owner": "fix/invite-link-display-counts",
-  "_comment": "Club invite previews print the club card's MEMBERS and ACTIVE figures (20261117185451).",
-  "functions": ["fn_club_card_figures"]
-}

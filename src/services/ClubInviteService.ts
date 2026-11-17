@@ -29,10 +29,23 @@ export const CLUB_INVITE_STORAGE_KEY = 'sp-club-invite';
 export const DEVICE_ID_STORAGE_KEY = 'sp-device-id';
 export const CLUB_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * The two figures an invite carries, worded by fn_club_share_figures so the
+ * copied message, link preview, preview image and landing page all say the
+ * same thing: measured members of this club, and distinct players on the
+ * floor it plays on (its union, or the club itself). A figure that could not
+ * be read is null and its line is left out, never printed as zero.
+ */
+export interface InviteFigures {
+  membersLine: string | null;
+  activityLine: string | null;
+}
+
 export interface InviteLink {
   code: string;
   shortUrl: string;
   joinPath: string;
+  figures: InviteFigures | null;
 }
 
 export interface InviteStats {
@@ -78,10 +91,23 @@ export { normalizeInviteCode };
 export function inviteShareText(
   inviterAlias: string,
   clubName: string,
-  clubNumber: unknown
+  clubNumber: unknown,
+  figures: InviteFigures | null = null
 ): string {
-  const id = clubNumber == null || clubNumber === '' ? '' : `\nClub ID: ${String(clubNumber)}`;
-  return `${inviterAlias} Invited You To Join ${clubName} On Smarter.Poker!${id}`;
+  const lines = [`${inviterAlias} Invited You To Join ${clubName} On Smarter.Poker!`];
+  if (clubNumber != null && clubNumber !== '') lines.push(`Club ID: ${String(clubNumber)}`);
+  if (figures?.membersLine) lines.push(figures.membersLine);
+  if (figures?.activityLine) lines.push(figures.activityLine);
+  return lines.join('\n');
+}
+
+/** Reads the figures block fn_club_invite_link returns; anything malformed is null. */
+export function parseInviteFigures(raw: unknown): InviteFigures | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as { members_line?: unknown; activity_line?: unknown };
+  const line = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const figures = { membersLine: line(r.members_line), activityLine: line(r.activity_line) };
+  return figures.membersLine || figures.activityLine ? figures : null;
 }
 
 export function shortInviteUrl(code: string): string {
@@ -202,9 +228,15 @@ export async function getMyInviteLink(clubId: string): Promise<InviteLink> {
     code?: string;
     join_path?: string;
     error?: string;
+    figures?: unknown;
   };
   if (!r.success || !r.code) throw new Error(r.error || 'Could Not Create Your Invite Link');
-  return { code: r.code, shortUrl: shortInviteUrl(r.code), joinPath: r.join_path || '' };
+  return {
+    code: r.code,
+    shortUrl: shortInviteUrl(r.code),
+    joinPath: r.join_path || '',
+    figures: parseInviteFigures(r.figures),
+  };
 }
 
 export async function getMyInviteStats(clubId: string): Promise<InviteStats> {

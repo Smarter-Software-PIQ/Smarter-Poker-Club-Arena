@@ -293,6 +293,33 @@ export async function loadSeatedPlayers(tableId: string) {
     .map((seat) => seatedPlayerFrom(seat, profileMap.get(seat.user_id)!));
 }
 
+/**
+ * The face a player shows in a chair they are buying into (SeatArrivalDisplay,
+ * 2026-11-17): the same profile projection and the same name rule as the
+ * roster read, for one player who has no seat row yet. Null when no profile.
+ */
+export async function loadSeatHoldIdentity(userId: string): Promise<{
+  username: string;
+  avatar_url: string;
+  equipped_frame: string;
+  equipped_aura: string;
+} | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select(SEATED_PROFILE_SELECT)
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw new Error('loadSeatHoldIdentity failed: ' + error.message);
+  if (!data) return null;
+  const profile = data as unknown as SeatedProfileRow;
+  return {
+    username: arenaPlayerName(profile),
+    avatar_url: profile.avatar_url || '',
+    equipped_frame: profile.equipped_frame || '',
+    equipped_aura: profile.equipped_aura || '',
+  };
+}
+
 const SEAT_SELECT =
   'id, joined_at, user_id, occupancy_id, stack, seat_number, time_bank_remaining, time_bank_uses_remaining, is_sitting_out, sit_out_at, entry_hold, entry_post_agreed, leave_pending';
 

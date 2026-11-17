@@ -4,6 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 const read = (path: string) => readFileSync(join(__dirname, '..', path), 'utf8');
 const promo = parse(read('.github/workflows/promo-play-through.yml'));
+// The workflow is a required check (2026-11-17): its watched paths live in the
+// relevance step, not in a pull_request path filter.
+const promoPaths = (): string[] =>
+  promo.jobs['promo-play-through'].steps
+    .find((step: any) => step.id === 'relevant')
+    .env.PROMO_PATHS.split('\n')
+    .filter(Boolean);
 describe('promo returns and expiry retain their original owners', () => {
   it('gives nested financial fixtures the short private runner directory in step scope', () => {
     expect(promo.jobs['promo-play-through'].env).toBeUndefined();
@@ -37,7 +44,8 @@ describe('promo returns and expiry retain their original owners', () => {
       steps.findIndex((step: any) => step.run?.includes('scripts/ci/build_pg17_isolationtester.py'))
     );
     const proof = steps[index];
-    expect(proof.if).toBeUndefined();
+    // Only the required-check relevance gate may condition it (2026-11-17).
+    expect(proof.if).toBe("steps.relevant.outputs.run == 'true'");
     expect(proof.run).toContain('--pg-bin /usr/lib/postgresql/17/bin');
     expect(proof.env.TMPDIR).toBe('${{ runner.temp }}');
     expect(proof.env.PG_ISOLATION_TESTER).toContain('postgresql-17-isolationtester/toolchain/');
@@ -53,11 +61,9 @@ describe('promo returns and expiry retain their original owners', () => {
     for (const path of ['RESULTS.json', 'source-manifest.json', '*race*.stdout', '*race*.stderr']) {
       expect(artifacts).toContain(`artifacts/promo-principal-returns/${path}`);
     }
-    expect(promo.on.pull_request.paths).toContain('scripts/ci/test-promo-principal-returns.py');
-    expect(promo.on.pull_request.paths).toContain('tests/fixtures/promo-principal-returns/**');
-    expect(promo.on.pull_request.paths).toContain(
-      'tests/fixtures/promo-custody-inventory-pin.json'
-    );
+    expect(promoPaths()).toContain('scripts/ci/test-promo-principal-returns.py');
+    expect(promoPaths()).toContain('tests/fixtures/promo-principal-returns/**');
+    expect(promoPaths()).toContain('tests/fixtures/promo-custody-inventory-pin.json');
     const owner = read('scripts/ci/test-promo-principal-returns.py');
     for (const name of [
       'self-stake.sql',
@@ -80,7 +86,7 @@ describe('promo returns and expiry retain their original owners', () => {
     ]) {
       expect(steps.some((step: any) => step.run?.includes(name))).toBe(true);
     }
-    expect(promo.on.pull_request.paths).toContain('scripts/ci/test-promo-expiry-thaw.py');
+    expect(promoPaths()).toContain('scripts/ci/test-promo-expiry-thaw.py');
     expect(
       steps.find((step: any) => step.uses === 'actions/upload-artifact@v4').with.path
     ).toContain('artifacts/promo-expiry-thaw/RESULTS.json');

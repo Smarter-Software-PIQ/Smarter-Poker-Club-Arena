@@ -583,7 +583,13 @@ it('shows agent, full downline and combined activity separately and refreshes al
   await act(async () => {
     state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId });
   });
-  await within(screen.getByRole('region', { name: 'Agent + Downline' })).findByText('605');
+  await within(screen.getByRole('region', { name: 'Agent + Downline' })).findByText(
+    '605',
+    {},
+    // The broadcast re-reads authority then metrics; a loaded CI runner can
+    // take past the 1 s default (Client Unit Tests shard 3, run 44184728823).
+    { timeout: 5000 }
+  );
   expect(
     within(screen.getByRole('region', { name: 'Downline Only' })).getByText('405')
   ).toBeVisible();
