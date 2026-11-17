@@ -8,6 +8,7 @@ import { ensureClubMembership } from '../e2e/support/ensureClubMembership';
 import { ensureAcceptedTerms } from '../e2e/support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from '../e2e/support/ensurePlayableProfile';
 import { observeSetupFailure } from '../e2e/support/setupFailureObservation';
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 
 const source = (path: string) => readFileSync(resolve(__dirname, '../..', path), 'utf8');
 
@@ -63,6 +64,19 @@ function playablePage(
 }
 
 function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, responseStatus = 200) {
+  const acceptedAt = '2026-11-17T07:00:00.000Z';
+  const profileResponse = {
+    request: () => ({ method: () => 'GET' }),
+    url: () =>
+      'https://example.supabase.co/rest/v1/profiles?select=club_arena_tos_revision%2C%20club_arena_tos_accepted_at',
+    ok: () => true,
+    json: vi.fn().mockResolvedValue([
+      {
+        club_arena_tos_revision: TERMS_REVISION,
+        club_arena_tos_accepted_at: '2026-11-17T07:00:00+00:00',
+      },
+    ]),
+  };
   const [initialStatus, persistedStatus] = statuses;
   const decision = {
     waitFor: vi.fn().mockResolvedValue(undefined),
@@ -74,6 +88,10 @@ function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, res
   };
   const verification = {
     goto: vi.fn().mockResolvedValue(undefined),
+    waitForResponse: vi.fn(async (predicate: (candidate: typeof profileResponse) => boolean) => {
+      expect(predicate(profileResponse)).toBe(true);
+      return profileResponse;
+    }),
     locator: vi.fn(() => persistedDecision),
     close: vi.fn().mockResolvedValue(undefined),
   };
@@ -83,10 +101,14 @@ function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, res
   const agreement = { check: vi.fn().mockResolvedValue(undefined) };
   const accept = { click: vi.fn().mockResolvedValue(undefined) };
   const response = {
-    request: () => ({ method: () => 'POST' }),
+    request: () => ({
+      method: () => 'POST',
+      postDataJSON: () => ({ termsRevision: TERMS_REVISION }),
+    }),
     url: () => 'https://smarter.poker/api/club-arena/accept-tos',
     ok: () => responseStatus >= 200 && responseStatus < 300,
     status: () => responseStatus,
+    json: vi.fn().mockResolvedValue({ success: true, termsRevision: TERMS_REVISION, acceptedAt }),
   };
   const page = {
     locator: vi.fn((selector: string) =>
@@ -115,6 +137,8 @@ function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, res
     heading,
     agreement,
     accept,
+    response,
+    profileResponse,
   };
 }
 
@@ -242,6 +266,51 @@ describe('authenticated production account preflight', () => {
     );
     expect(fixture.acceptedMarker.waitFor).not.toHaveBeenCalled();
     expect(fixture.page.reload).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { success: true, acceptedAt: '2026-11-17T07:00:00Z' },
+    { success: true, termsRevision: 'old-terms', acceptedAt: '2026-11-17T07:00:00Z' },
+    { success: true, termsRevision: TERMS_REVISION, acceptedAt: 'invalid' },
+  ])('refuses a noncanonical acceptance receipt before opening a fresh page', async (receipt) => {
+    const fixture = termsPage(['not_accepted', 'accepted']);
+    fixture.response.json.mockResolvedValue(receipt);
+    await expect(ensureAcceptedTerms(fixture.page as unknown as Page)).rejects.toThrow(
+      'exact reviewed Terms revision'
+    );
+    expect(fixture.context.newPage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { profile: [] },
+    {
+      profile: [
+        {
+          club_arena_tos_revision: TERMS_REVISION,
+          club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+        },
+        {},
+      ],
+    },
+    {
+      profile: {
+        club_arena_tos_revision: 'old-terms',
+        club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+      },
+    },
+    {
+      profile: {
+        club_arena_tos_revision: TERMS_REVISION,
+        club_arena_tos_accepted_at: '2026-11-17T07:00:01Z',
+      },
+    },
+  ])('refuses ambiguous or mismatched persisted acceptance', async ({ profile }) => {
+    const fixture = termsPage(['not_accepted', 'accepted']);
+    fixture.profileResponse.json.mockResolvedValue(profile);
+    await expect(ensureAcceptedTerms(fixture.page as unknown as Page)).rejects.toThrow(
+      'Fresh canonical Terms read disagrees'
+    );
+    expect(fixture.verification.close).toHaveBeenCalledOnce();
   });
 
   it('fails loudly when the canonical Terms decision is unavailable', async () => {

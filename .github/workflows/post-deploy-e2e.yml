@@ -1475,6 +1475,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/ci/production-e2e-account.mjs cleanup-first-run
 
+      # Retain this finite certificate after its immediate cleanup, before the
+      # unrelated broad sweep. Only the existing report is uploaded, never auth.
+      - name: Retain the first-run Terms receipt after immediate cleanup
+        if: always() && steps.live.outputs.ready == 'true' && steps.first_run_account.outcome == 'success' && steps.first_run.outcome != 'skipped' && steps.first_run.outcome != '' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: first-run-terms-${{ github.run_id }}-${{ github.run_attempt }}
+          path: e2e-report/first-run-iphone.json
+          if-no-files-found: error
+          retention-days: 3
+
       # WHICH RELEASE DID THE LIGHTNING OPERATOR CERTIFICATE RUN AGAINST?
       #
       # Until 2026-10-12 the spec compared build-info.json against the SHA this

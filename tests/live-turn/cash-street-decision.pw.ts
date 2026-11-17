@@ -1,6 +1,7 @@
 /** Cash decisions stay coherent across a street and a recoverable state-frame loss.
  * Uses only the committed synthetic engine recording and the isolated backend.
  */
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
@@ -58,7 +59,8 @@ function backendFor(rec: Recording) {
           role: 'user',
           diamonds: 0,
           diamond_balance: 0,
-          club_arena_tos_accepted_at: '2026-09-01T00:00:00Z',
+          club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+          club_arena_tos_revision: TERMS_REVISION,
           avatar_url: '/hub/club-arena/default-avatar.png',
           arena_avatar_url: '/hub/club-arena/default-avatar.png',
         },

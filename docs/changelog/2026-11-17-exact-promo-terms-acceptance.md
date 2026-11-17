@@ -1,0 +1,17 @@
+# Club Arena requires the exact reviewed terms revision
+
+The pre-play gate requires revision `2026-11-16-87a8e57589a09136` and a valid persisted acceptance timestamp. A timestamp for older terms does not count as renewed acceptance. The public acceptance request sends this revision and opens play only after the endpoint confirms the same persisted revision and timestamp; unknown reads and failed acknowledgements retain the existing refusal flow.
+
+The two existing asynchronous acceptance paths load the revision authority on demand, preserving the initial entry chunk.
+
+The existing isolated browser journey verifies the actual acceptance response against a fresh canonical profile read and retains only a sanitized revision/timestamp receipt. Unit regressions cover legacy acknowledgements, wrong revisions, invalid timestamps and the exact successful request/response.
+
+The existing dedicated first-run iPhone case now uses that same acceptance proof and requires a new acknowledgement from its own fresh account. Its profile taps, welcome/reload checks and immediate account cleanup stay in the existing journey.
+
+The existing first-run JSON report is uploaded immediately after its account cleanup, so the passed/not-skipped result and sanitized receipt are available before unrelated browser routes finish. The artifact contains only that report and expires after three days; it adds no account, workflow, event or production operation.
+
+Already-consented isolated interactive profiles now declare the reviewed revision and a valid fixture acknowledgement timestamp. The central mock backend and five custom table profiles retain their original authentication, replay and timing behavior; intentional legacy, missing, stale and unknown consent negatives are unchanged.
+
+Publication prerequisite: the revision column and service-only acceptance RPC must be installed, and the World Hub exact-revision writer must be live before this client merges. This draft does not activate Promo Play Through or promote historical acceptance.
+
+The schema manifest fragment declares the revision column from migration `20261116195541`, so the existing phantom-column guard validates the profile reader against the same storage contract. The guard rejected the missing declaration before this correction and passes with it; its checks and the read-only base snapshot remain unchanged.
