@@ -31,10 +31,17 @@ describe('a union member club card splits the union floor', () => {
         activeEvents={243}
         clubId={25450}
         splitFloorLabel="MIDWAY UNION"
+        floorPlaying={306}
       />
     );
     const floor = document.querySelector('.club-card-stat-split-floor');
-    expect(floor?.textContent).toBe('MIDWAY UNION');
+    // Dan 2026-11-17: the union figure is named with its union, never as the
+    // club's ACTIVE, which stays the club's own measured figure.
+    expect(floor?.textContent).toBe('306 PLAYING ACROSS MIDWAY UNION');
+    const active = document.querySelector(
+      '.club-card-stat--active .club-card-stat-value, .club-card-stat-value.sc-ink--green'
+    );
+    expect(active?.textContent).toBe('2');
     const parts = Array.from(document.querySelectorAll('.club-card-stat-split-part')).map((el) =>
       el.textContent?.trim()
     );

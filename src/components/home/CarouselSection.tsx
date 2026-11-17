@@ -78,6 +78,7 @@ export interface ClubStats {
   /** Owner-set display addition, labelled separately; never part of the real counts. */
   /** For a union member club: the union whose floor the cash/events split counts. */
   splitFloorLabel?: string | null;
+  floorPlaying?: number | null;
 }
 
 export interface CarouselSectionProps {
@@ -312,6 +313,7 @@ export default function CarouselSection({
                 }
                 entityType={club.entity_type || 'club'}
                 splitFloorLabel={stats?.splitFloorLabel ?? null}
+                floorPlaying={stats?.floorPlaying ?? null}
               />
             )}
           </PageErrorBoundary>

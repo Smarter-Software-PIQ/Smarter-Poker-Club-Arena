@@ -68,6 +68,12 @@ interface ClubCardPanelProps {
    * Null for a standalone club or a union's own card.
    */
   splitFloorLabel?: string | null;
+  /**
+   * Dan 2026-11-17: distinct players on that union floor, printed with the
+   * union's name ("306 PLAYING ACROSS MIDWAY UNION") so the card carries the
+   * same union figure as the club's invite and never under the club's ACTIVE.
+   */
+  floorPlaying?: number | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -85,6 +91,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   logoUrl,
   entityType = 'club',
   splitFloorLabel = null,
+  floorPlaying = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -138,7 +145,9 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   const shownMembers = totalMembers;
   const shownActive = activePlayers;
 
-  const scope = clubId != null && clubId !== '' ? `club:${clubId}` : '';
+  /* "club-measured:" (2026-11-17): figures cached under "club:" before the
+     display additions were retired could still hold them; they are not read. */
+  const scope = clubId != null && clubId !== '' ? `club-measured:${clubId}` : '';
   const cached = useMemo(() => readFigures(scope), [scope]);
 
   useEffect(() => {
@@ -258,7 +267,9 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
               on the floor no longer reads as a wrong number. */}
           {splitFloorLabel ? (
             <span className="club-card-stat-split-floor sc-label sc-ink--blue">
-              {splitFloorLabel}
+              {floorPlaying != null
+                ? `${floorPlaying.toLocaleString()} PLAYING ACROSS ${splitFloorLabel}`
+                : splitFloorLabel}
             </span>
           ) : null}
           <span

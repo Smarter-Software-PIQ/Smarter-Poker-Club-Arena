@@ -134,12 +134,49 @@ CREATE FUNCTION public.fn_batch_union_realtime_active_counts(p_union_ids uuid[])
    GROUP BY requested.union_id;
 $f$;
 
+CREATE FUNCTION public.fn_batch_club_realtime_active_counts(p_club_ids uuid[])
+ RETURNS TABLE(club_id uuid, active_count bigint, cash_count bigint, event_count bigint)
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $f$
+  WITH requested AS (SELECT DISTINCT r.club_id FROM unnest(p_club_ids) r(club_id)),
+  seated AS (
+    SELECT requested.club_id, ts.user_id, (t.tournament_id IS NULL) AS at_cash
+      FROM requested
+      JOIN public.clubs cl ON cl.id = requested.club_id
+      JOIN public.club_members cm ON cm.club_id = requested.club_id
+       AND (cm.status IS NULL OR cm.status IN ('active', 'approved'))
+      JOIN public.table_seats ts ON ts.user_id = cm.user_id
+       AND ts.left_at IS NULL AND COALESCE(ts.is_away, false) = false
+      JOIN public.tables t ON t.id = ts.table_id
+       AND (t.club_id = requested.club_id OR (cl.union_id IS NOT NULL AND t.union_id = cl.union_id))
+       AND lower(COALESCE(t.status, '')) NOT IN ('closed','completed','cancelled','finished'))
+  SELECT requested.club_id, count(DISTINCT s.user_id)::bigint,
+         count(DISTINCT s.user_id) FILTER (WHERE s.at_cash)::bigint,
+         count(DISTINCT s.user_id) FILTER (WHERE NOT s.at_cash)::bigint
+    FROM requested LEFT JOIN seated s ON s.club_id = requested.club_id
+   GROUP BY requested.club_id;
+$f$;
+CREATE FUNCTION public.fn_batch_union_realtime_member_counts(p_union_ids uuid[])
+ RETURNS TABLE(union_id uuid, member_count bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $f$
+  SELECT requested.union_id,
+         ((SELECT count(DISTINCT cm.user_id)
+             FROM public.union_clubs uc
+             JOIN public.club_members cm ON cm.club_id = uc.club_id
+              AND (cm.status IS NULL OR cm.status IN ('active', 'approved'))
+            WHERE uc.union_id = requested.union_id)
+          + COALESCE((SELECT sum(b.boost)
+                        FROM public.union_clubs uc
+                        JOIN public.club_display_member_boost b ON b.club_id = uc.club_id
+                       WHERE uc.union_id = requested.union_id), 0))::bigint
+    FROM (SELECT DISTINCT r.union_id FROM unnest(p_union_ids) r(union_id)) requested;
+$f$;
+
 INSERT INTO public.unions VALUES ('${MIDWAY}', 'Midway Union'), ('${NORTH}', 'North Star Union');
 INSERT INTO public.clubs (id, club_id, slug, name, asset, union_id) VALUES
   ('${KINGS}', 25450, 'kings-club', 'KINGS CLUB', 'chips', '${MIDWAY}'),
   ('${DSS}', 25451, 'dss', 'Deep Stack Society', 'chips', '${MIDWAY}'),
   ('${SOLO}', 25452, 'solo', 'Solo Room', 'chips', NULL),
-  ('${OTHER}', 25453, 'other', 'Harbor Club', 'chips', NULL);
+  ('${OTHER}', 25453, 'other', 'Harbor Club', 'chips', NULL),
+  ('${MIDWAY}', 25400, 'midway-union', 'Midway Union', 'chips', '${MIDWAY}');
 INSERT INTO public.union_clubs VALUES ('${MIDWAY}', '${KINGS}'), ('${MIDWAY}', '${DSS}'), ('${NORTH}', '${OTHER}');
 INSERT INTO public.club_display_member_boost VALUES ('${DSS}', 1000, 'display +1,000', now()), ('${KINGS}', 0, 'real', now());
 INSERT INTO public.club_display_labeled_additions VALUES ('${KINGS}', 1500, 233, 'Bonus', 'display', now());
@@ -237,8 +274,16 @@ describe('club invite figures name their scope', () => {
     expect(figures(OTHER).activity_line).toBe('1 Playing Across North Star Union Now');
     const solo = figures(SOLO);
     expect(solo.activity_scope).toBe('club');
-    expect(solo.activity_line).toBe('2 Playing In Solo Room Now');
+    // Its members seated on its own floor, the same figure as its card's ACTIVE:
+    // u10 is a member; u11 at the same table is not.
+    expect(solo.activity_line).toBe('1 Playing In Solo Room Now');
     expect(solo.members_line).toBe('1 Member In Solo Room');
+  });
+
+  it("the union's own row counts distinct members across its clubs and its floor", () => {
+    const f = figures(MIDWAY);
+    expect(f.members_line).toBe('6 Members Across Midway Union');
+    expect(f.activity_line).toBe('3 Playing Across Midway Union Now');
   });
 
   it('configured display additions are retired and cannot be set again', () => {
@@ -299,6 +344,14 @@ describe('club invite figures name their scope', () => {
     );
     expect(resolved.players_playing).toBeNull();
     expect(resolved.activity_line).toBeNull();
+    const c =
+      psql(`CREATE OR REPLACE FUNCTION public.fn_batch_club_realtime_active_counts(p_club_ids uuid[])
+      RETURNS TABLE(club_id uuid, active_count bigint, cash_count bigint, event_count bigint)
+      LANGUAGE plpgsql STABLE AS $f$ BEGIN RAISE EXCEPTION 'club floor read failed'; END $f$;`);
+    expect(c.status, c.stderr).toBe(0);
+    const solo = figures(SOLO);
+    expect(solo.activity_line).toBeNull();
+    expect(solo.members_line).toBe('1 Member In Solo Room');
   });
 
   it('only service_role and the definer functions may read the figures directly', () => {

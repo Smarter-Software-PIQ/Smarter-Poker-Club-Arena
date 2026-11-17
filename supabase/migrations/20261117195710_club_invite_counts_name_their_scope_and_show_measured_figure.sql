@@ -39,6 +39,11 @@
 --        "152 Members In KINGS CLUB"
 --        "312 Playing Across Midway Union Now"   (union member club)
 --        "4 Playing In <Club> Now"               (club with no union)
+--        "3,154 Members Across Midway Union"     (the union's own row)
+--      A club with no union counts its members seated on its own floor, the
+--      same figure as its card's ACTIVE (fn_batch_club_realtime_active_counts,
+--      never above members). The union's own row counts distinct members
+--      across its clubs (fn_batch_union_realtime_member_counts), as its card.
 --      The union is the club's own (union_clubs, then clubs.union_id), never a
 --      fixed name. A figure that cannot be read is NULL and its line is
 --      omitted; it never becomes a zero or another metric.
@@ -80,6 +85,7 @@ SET search_path TO 'public', 'pg_temp'
 AS $$
 DECLARE
   v_club        record;
+  v_is_union    boolean;
   v_union_id    uuid;
   v_union_name  text;
   v_scope       text;
@@ -93,9 +99,20 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- The union's own club row speaks for the whole union.
+  v_is_union := EXISTS (SELECT 1 FROM public.unions u WHERE u.id = p_club_id);
+
   -- Members. A diamonds arena's membership is an entitlement row, not a roster,
   -- so it has no member figure to print.
-  IF COALESCE(v_club.asset, '') <> 'diamonds' THEN
+  IF v_is_union THEN
+    BEGIN
+      SELECT m.member_count::integer INTO v_members
+        FROM public.fn_batch_union_realtime_member_counts(ARRAY[p_club_id]) m
+       WHERE m.union_id = p_club_id;
+    EXCEPTION WHEN OTHERS THEN
+      v_members := NULL;
+    END;
+  ELSIF COALESCE(v_club.asset, '') <> 'diamonds' THEN
     BEGIN
       SELECT m.member_count::integer INTO v_members
         FROM public.fn_batch_club_realtime_member_counts(ARRAY[p_club_id]) m
@@ -106,8 +123,12 @@ BEGIN
   END IF;
 
   -- The floor the club plays on.
-  SELECT uc.union_id INTO v_union_id FROM public.union_clubs uc WHERE uc.club_id = p_club_id LIMIT 1;
-  v_union_id := COALESCE(v_union_id, v_club.union_id);
+  IF v_is_union THEN
+    v_union_id := p_club_id;
+  ELSE
+    SELECT uc.union_id INTO v_union_id FROM public.union_clubs uc WHERE uc.club_id = p_club_id LIMIT 1;
+    v_union_id := COALESCE(v_union_id, v_club.union_id);
+  END IF;
   IF v_union_id IS NOT NULL AND COALESCE(v_club.asset, '') <> 'diamonds' THEN
     v_scope := 'union';
     SELECT NULLIF(btrim(u.name), '') INTO v_union_name FROM public.unions u WHERE u.id = v_union_id;
@@ -124,12 +145,12 @@ BEGIN
       IF COALESCE(v_club.asset, '') = 'diamonds' THEN
         v_playing := public.fn_diamond_arena_players_playing(p_club_id);
       ELSE
-        SELECT count(DISTINCT ts.user_id)::integer INTO v_playing
-          FROM public.tables t
-          JOIN public.table_seats ts ON ts.table_id = t.id
-           AND ts.left_at IS NULL AND COALESCE(ts.is_away, false) = false
-         WHERE t.club_id = p_club_id
-           AND lower(COALESCE(t.status, '')) NOT IN ('closed', 'completed', 'cancelled', 'finished');
+        SELECT a.active_count::integer INTO v_playing
+          FROM public.fn_batch_club_realtime_active_counts(ARRAY[p_club_id]) a
+         WHERE a.club_id = p_club_id;
+        IF v_members > 0 THEN
+          v_playing := LEAST(v_playing, v_members);
+        END IF;
       END IF;
     EXCEPTION WHEN OTHERS THEN
       v_playing := NULL;
@@ -138,8 +159,9 @@ BEGIN
 
   IF v_members IS NOT NULL THEN
     v_members_line := to_char(v_members, 'FM999,999,999,990')
-      || CASE WHEN v_members = 1 THEN ' Member In ' ELSE ' Members In ' END
-      || v_club.name;
+      || CASE WHEN v_members = 1 THEN ' Member' ELSE ' Members' END
+      || CASE WHEN v_is_union THEN ' Across ' || COALESCE(v_union_name, v_club.name)
+              ELSE ' In ' || v_club.name END;
   END IF;
   IF v_playing IS NOT NULL THEN
     v_activity_line := to_char(v_playing, 'FM999,999,999,990')

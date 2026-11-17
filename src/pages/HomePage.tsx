@@ -1129,11 +1129,12 @@ function HomePageInner() {
               supabase.from('unions').select('id, name').in('id', floorUnionIds),
             ]);
             if (floorResult.error) reportError(floorResult.error, 'HomePage.memberClubUnionFloor');
-            const floorSplit = new Map<string, { cash: number; events: number }>();
+            const floorSplit = new Map<string, { cash: number; events: number; total: number }>();
             for (const r of (floorResult.data as any[]) || [])
               floorSplit.set(String(r.union_id), {
                 cash: Number(r.cash_count) || 0,
                 events: Number(r.event_count) || 0,
+                total: Number(r.active_count) || 0,
               });
             const floorName = new Map<string, string>();
             for (const r of (floorNamesResult.data as any[]) || [])
@@ -1148,6 +1149,7 @@ function HomePageInner() {
                 activeCash: split.cash,
                 activeEvents: split.events,
                 splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
+                floorPlaying: split.total,
               };
             }
           } catch (e) {
