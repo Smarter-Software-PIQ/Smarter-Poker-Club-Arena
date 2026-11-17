@@ -578,17 +578,15 @@ it('shows agent, full downline and combined activity separately and refreshes al
     'true'
   );
   extra = 5;
+  // The broadcast starts an asynchronous authority/metrics read. Flush that
+  // interaction before asserting the current regions, including any remount.
   await act(async () => {
     state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId });
   });
-  await waitFor(() => {
-    expect(
-      within(screen.getByRole('region', { name: 'Agent + Downline' })).getByText('605')
-    ).toBeVisible();
-    expect(
-      within(screen.getByRole('region', { name: 'Downline Only' })).getByText('405')
-    ).toBeVisible();
-  });
+  await within(screen.getByRole('region', { name: 'Agent + Downline' })).findByText('605');
+  expect(
+    within(screen.getByRole('region', { name: 'Downline Only' })).getByText('405')
+  ).toBeVisible();
 });
 
 it('keeps a player-only account on individual activity', async () => {

@@ -44,7 +44,7 @@
  * so; the attribution cases should not need to move. Node 13's baseline shove is driven by the VPIP floor
  * (PLO6-AUDIT-004), which is why the unfloored control is here.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   COMPLAINT_SEEDS,
@@ -486,5 +486,96 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     expect(baseline13.receipts.vpip_floor).toBe(CELL);
     expect(unfloored.receipts.vpip_floor).toBeUndefined();
     expect(unfloored.actions.all_in).toBeUndefined();
+  });
+});
+
+// ─── the six-card port, preflop, through the decision (PLO6 lane 2026-11-16) ─
+//
+// The recorded PLO6 four-bet node with an uncoordinated pair of kings, a hand
+// that today calls the 4-bet part of the time. omahaStrategyInPlo6 is the
+// gate (off-only in the live switch; set here as a decision option).
+describe('PLO6 six-card port at the four-bet node: the re-raised-pot options with the gate on', () => {
+  const SUITS: Record<string, string> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
+  const six = (spec: string) =>
+    (spec.match(/../g) ?? []).map((x) => ({ rank: x[0] === 'T' ? '10' : x[0], suit: SUITS[x[1]] }));
+  const KINGS = 'KsKd8h4c2s7d';
+  const GATE = { omahaStrategyInPlo6: true };
+  const at = (cls: OpponentClass, opts: Record<string, unknown>) =>
+    decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, (_gs, hero) => (hero.cards = six(KINGS)), opts)
+      .actions;
+  const base = {
+    unknown: at('unknown', {}),
+    sustained: at('sustained', {}),
+    tightFolder: at('tightFolder', {}),
+  };
+
+  it('the spot is live: today the hand calls the 4-bet against each class', () => {
+    for (const cls of ['unknown', 'sustained', 'tightFolder'] as const)
+      expect(base[cls].call ?? 0).toBeGreaterThan(0);
+  });
+
+  it('the gate alone changes nothing', () => {
+    for (const cls of ['unknown', 'sustained', 'tightFolder'] as const)
+      expect(at(cls, GATE)).toEqual(base[cls]);
+  });
+
+  it('omahaReraisedPotDiscipline and omahaReraisedFoldVsTight never act in PLO6, gate on', () => {
+    for (const cls of ['unknown', 'sustained', 'tightFolder'] as const) {
+      expect(at(cls, { ...GATE, omahaReraisedPotDiscipline: true })).toEqual(base[cls]);
+      expect(at(cls, { ...GATE, omahaReraisedFoldVsTight: true })).toEqual(base[cls]);
+    }
+  });
+
+  it('omahaOopReraisedPotStrongRange: without the gate it is silent in PLO6', () => {
+    for (const cls of ['unknown', 'sustained'] as const)
+      expect(at(cls, { omahaOopReraisedPotStrongRange: true })).toEqual(base[cls]);
+  });
+
+  it('omahaOopReraisedPotStrongRange, gate on: every call folds against a presumed or a tight raiser', () => {
+    for (const cls of ['unknown', 'tightFolder'] as const) {
+      const on = at(cls, { ...GATE, omahaOopReraisedPotStrongRange: true });
+      expect(on.call).toBeUndefined();
+      expect(on.fold).toBe((base[cls].fold ?? 0) + (base[cls].call ?? 0));
+      expect(on.all_in).toBe(base[cls].all_in);
+    }
+  });
+
+  it('gate off, the two PLO6-only lines take no opponent read of their own (pre-review finding 1, as behaviour)', () => {
+    // Counted on the mind's own read function through whole decisions.
+    const reads = (opts: Record<string, unknown>): number => {
+      const spy = vi.spyOn(HorseMind, 'opponentRead');
+      try {
+        at('unknown', opts);
+        return spy.mock.calls.length;
+      } finally {
+        spy.mockRestore();
+      }
+    };
+    // omahaOopReraisedPotStrongRange: the measured-maniac read is taken only
+    // with the gate on. Gate off, the option's reads are the ones it took
+    // before the port; gate on there is at least one more.
+    const rangeOff = reads({ omahaOopReraisedPotStrongRange: true });
+    const rangeOn = reads({ ...GATE, omahaOopReraisedPotStrongRange: true });
+    expect(rangeOn).toBeGreaterThan(rangeOff);
+    // omahaReraisedPotDiscipline: the PLO6 return is taken only with the gate
+    // on. Gate off the function runs on and takes its maniac reads as before;
+    // gate on it returns before them.
+    const disciplineOff = reads({ omahaReraisedPotDiscipline: true });
+    const disciplineOn = reads({ ...GATE, omahaReraisedPotDiscipline: true });
+    expect(disciplineOff).toBeGreaterThan(disciplineOn);
+    // and the gate alone moves no read
+    expect(reads(GATE)).toBe(reads({}));
+  });
+
+  it('SPEC-B 3.24 item 7: against a MEASURED maniac the rule stands aside; a presumed one is not enough', () => {
+    expect(maniacRaiseWidth(readOf('sustained').read)).not.toBeNull();
+    expect(readOf('sustained').read?.presumed).not.toBe(true);
+    expect(readOf('unknown').read?.presumed).toBe(true);
+    expect(at('sustained', { ...GATE, omahaOopReraisedPotStrongRange: true })).toEqual(
+      base.sustained
+    );
+    expect(at('unknown', { ...GATE, omahaOopReraisedPotStrongRange: true })).not.toEqual(
+      base.unknown
+    );
   });
 });

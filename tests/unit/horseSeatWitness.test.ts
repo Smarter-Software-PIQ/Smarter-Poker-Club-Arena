@@ -1,20 +1,22 @@
 import { readFileSync } from 'node:fs';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import {
   initialAvatarPaint,
+  installHorseSeatPaints,
   inspectHorseSeats,
   seatAuthority,
   type SeatPaints,
 } from '../e2e/support/horseSeatWitness';
 const atSeat = { id: 'horse', seat: 3, badge: 'waiting' as const };
 const horse = new Set(['horse']);
-const expected = (
-  at: number,
-  hand: number,
-  socket: number,
-  badge: 'waiting' | 'sitting-out' | null = 'waiting'
-) => ({ at, hand, socket, seats: [{ ...atSeat, badge, playing: badge === null }] });
-const paint = (at: number, avatar = true, badge: 'waiting' | 'sitting-out' | null = 'waiting') => ({
+type Badge = ReturnType<typeof seatAuthority>[number]['seats'][number]['badge'];
+const expected = (at: number, hand: number, socket: number, badge: Badge = 'waiting') => ({
+  at,
+  hand,
+  socket,
+  seats: [{ ...atSeat, badge, playing: badge === null }],
+});
+const paint = (at: number, avatar = true, badge: Badge = 'waiting') => ({
   at,
   seats: [{ ...atSeat, badge, avatar }],
 });
@@ -23,6 +25,74 @@ const inspect = (
   wire: ReturnType<typeof seatAuthority>,
   exits: Parameters<typeof inspectHorseSeats>[3] = []
 ) => inspectHorseSeats({ changes, dropped: 0 }, wire, horse, exits, 10000);
+
+it('projects waiting for the button before other entry reasons and retains its exact badge', () => {
+  const wire = seatAuthority([
+    {
+      at: 0,
+      socketId: 1,
+      direction: 'received',
+      message: {
+        type: 'SNAPSHOT',
+        seq: 1,
+        state: {
+          hand_number: 1,
+          waiting_for_bb_user_ids: ['horse'],
+          posting_bb_user_ids: ['horse'],
+          players: [
+            { user_id: 'horse', seat: 3, is_sitting_out: true, is_waiting_for_button: true },
+          ],
+        },
+      },
+    },
+  ]);
+  expect(wire[0].seats[0].badge).toBe('waiting-for-button');
+});
+
+it('requires the button badge across hands and reconnect, and rejects any substituted badge', () => {
+  const wire = [
+    expected(0, 1, 1, 'waiting-for-button'),
+    expected(2000, 2, 2, 'waiting-for-button'),
+  ];
+  expect(inspect([paint(100, true, 'waiting-for-button')], wire).violations).toEqual([]);
+  for (const wrong of ['waiting', 'sitting-out', null] as const) {
+    expect(
+      inspect([paint(100, true, 'waiting-for-button'), paint(3000, true, wrong)], wire).violations
+    ).toContain('horse/3: badge mismatch');
+  }
+  expect(
+    inspect([paint(100, true, 'waiting-for-button')], [expected(0, 1, 1, 'sitting-out')]).violations
+  ).toContain('horse/3: badge mismatch');
+});
+
+it('reads the visible waiting-for-button paint instead of reporting a missing sit-out badge', () => {
+  const pathname = location.pathname;
+  const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    top: 0,
+    left: 0,
+    right: 100,
+    bottom: 100,
+    toJSON() {
+      return {};
+    },
+  });
+  try {
+    history.pushState({}, '', '/table/button-fixture');
+    document.body.innerHTML =
+      '<div class="table-page"><div class="table-surface"><div data-seat-num="3" data-player-id="horse"><div data-testid="seat-waiting-button-badge">Waiting For The Button To Pass</div></div></div></div>';
+    installHorseSeatPaints('button-fixture');
+    expect(window.__readHorseSeatPaint?.()?.seats[0].badge).toBe('waiting-for-button');
+  } finally {
+    window.__horseSeatPaints?.();
+    document.body.innerHTML = '';
+    history.replaceState({}, '', pathname);
+    rect.mockRestore();
+  }
+});
 it('detects a painted loss of the held chair, avatar or tag under unchanged engine authority', () => {
   for (const broken of [{ at: 3000, seats: [] }, paint(3000, false), paint(3000, true, null)]) {
     expect(inspect([paint(100), broken, paint(3100)], [expected(0, 1, 1)]).violations).not.toEqual(

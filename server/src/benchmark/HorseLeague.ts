@@ -2208,6 +2208,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
   },
+  // 2026-11-16 TIGHT AT THE OBSERVATION LINE (styleTightMethodLine, default
+  // OFF): a reads a neutral player tight at the observation method's VPIP
+  // line (50 or more hands, credibly below the Horse mean, PFR not above the
+  // mean); b is today's read. Both arms switch on the two consumers that see
+  // the tight side, as the multi-signal card does. Against a Horse field the
+  // route is expected to be near inert: the card is a harm check.
+  {
+    name: 'nlh_style_tight_method_line',
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      styleTightMethodLine: true,
+      styleValueBettorNotManiac: true,
+      styleTightReRaiserRespect: true,
+    },
+    b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
+  },
   // 2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (holdemRiverFullHouseValue,
   // default OFF): a leads a qualifying river full house out of position into
   // the prior aggressor (70%); b checks it, as today. Full houses in that seat
@@ -2848,6 +2865,61 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6ManiacPriceRefusalToRangePlay: true },
     b: {},
   },
+  // 2026-11-16 (PLO6 lane) THE SIX-CARD PORT OF THE OMAHA STRATEGY OPTIONS
+  // (omahaStrategyInPlo6, default OFF and OFF-ONLY). Both arms switch on the
+  // 27 catalogue options the PLO6 port takes or adapts (plo6StrategyOptionVerdict;
+  // the four it skips stay off); arm A also opens the PLO6 gate, so the card
+  // measures the port alone: in arm B those options are outside PLO6 and the
+  // arm is today's six-card brain. Six seats, production personas, cash.
+  // Smoke run measured 2026-11-16 (150 pairs / 300 hands, seed 20261116,
+  // 9.088 s at nice 19): 38 of 150 pairs diverged (inert false), bb100
+  // -7.42 +/- 15.26 (blockStderr 11.02 over 6 blocks), 0 illegalActions,
+  // 0 truncatedStreets, 0 correctedActions, 0 brainExceptionFallbacks. Not
+  // yet measured at the full 6,000-pair card size.
+  // The card only measures; the gate stays off-only and no evidence row is
+  // claimed from it.
+  ...(() => {
+    const ported = {
+      omahaOopTurnCheckAfterFlopCall: true,
+      omahaTurnRiverRaiseNeedsNuts: true,
+      omahaNoDrawRaiseOutOfPosition: true,
+      omahaBigDrawAggression: true,
+      omahaBareOverpairOopFlopCheck: true,
+      omahaOverpairNoOopBarrelVsValueLeader: true,
+      omahaPairedRiverNoThinLeadVsValueLeader: true,
+      omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true,
+      omahaTurnBetNeedsRiverPlan: true,
+      omahaStreetPlan: true,
+      omahaCardImpact: true,
+      omahaFacingBetEv: true,
+      omahaRiverMediumBetStrongHandCalls: true,
+      omahaBigBetIsPotShare: true,
+      omahaPairedBoardFoldRespectsPrice: true,
+      omahaBluffCatcherFoldVsValueLeader: true,
+      omahaMadeHandDefenseVsValueLeader: true,
+      omahaPressureNeedsPostflopAggression: true,
+      omahaStrongHandValue: true,
+      omahaUnderpairNoMultiwayFlopContinue: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraisedPotFlopContinueNeedsEquityShape: true,
+      omahaNoCallColdFourBetWithoutPremium: true,
+      omahaManiacReRaiseWidthMeasured: true,
+      omahaVpipFloorByLimp: true,
+    };
+    return [
+      {
+        name: 'plo6_omaha_strategy_six_card_port',
+        variant: 'plo6',
+        seats: 6,
+        pairs: 6000,
+        productionStyles: true,
+        a: { ...ported, omahaStrategyInPlo6: true },
+        b: ported,
+      },
+    ];
+  })(),
   // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
   // default ON: a is today's brain, b the engine fold it replaces. The small
   // blind against the big blind alone plays every hand as the pot-limit
@@ -3925,11 +3997,9 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'The option is DEFAULT OFF (read as === true) and OFF-ONLY in the live switch. ' +
       'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261116, 300 pairs): ' +
       '0 of 300 pairs diverged (inert, as the structure says). ' +
-      'A card that also switches the strategy options on in both arms is not dealt yet on purpose: the ' +
-      'six-card port is incomplete (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so ' +
-      'it would measure rules known to be wrong or silent for six cards. ' +
-      'What would change this: the port complete and reviewed; then this refusal is replaced by a PLO6 card ' +
-      'with the ported options on in both arms and the gate on in one.',
+      'The port itself is measured by the card plo6_omaha_strategy_six_card_port (the ported options on in ' +
+      'both arms, the gate on in one); this refusal stands for the gate alone. ' +
+      'What would change this: nothing for the one-option question; the card answers the port.',
   },
   // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
   // default off. Refused, not dealt: this league seats no VPIP-floor table.

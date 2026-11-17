@@ -2,7 +2,7 @@ import jsonPatch, { type Operation } from 'fast-json-patch';
 import { createClient } from '@supabase/supabase-js';
 import type { EngineFrame } from './liveTableRealtime';
 
-type Badge = 'waiting' | 'sitting-out' | null;
+type Badge = 'waiting-for-button' | 'waiting' | 'sitting-out' | null;
 type Seat = { id: string; seat: number; badge: Badge };
 type Paint = { at: number; seats: (Seat & { avatar: boolean; avatarPending?: boolean })[] };
 type Authority = {
@@ -49,11 +49,13 @@ export function installHorseSeatPaints(table: string) {
     ).map((el) => {
       const img = el.querySelector<HTMLImageElement>('.seat__avatar-img');
       const rig = el.querySelector('.seat__avatar-wrap--rigged .seat__avatar-rive');
-      const badge: Badge = visible(el.querySelector('[data-testid="seat-waiting-bb-badge"]'))
-        ? 'waiting'
-        : visible(el.querySelector('[data-testid="seat-sitout-badge"]'))
-          ? 'sitting-out'
-          : null;
+      const badge: Badge = visible(el.querySelector('[data-testid="seat-waiting-button-badge"]'))
+        ? 'waiting-for-button'
+        : visible(el.querySelector('[data-testid="seat-waiting-bb-badge"]'))
+          ? 'waiting'
+          : visible(el.querySelector('[data-testid="seat-sitout-badge"]'))
+            ? 'sitting-out'
+            : null;
       return {
         id: el.dataset.playerId!,
         seat: Number(el.dataset.seatNum),
@@ -105,6 +107,7 @@ export function seatAuthority(frames: EngineFrame[]): Authority[] {
       user_id: string;
       seat: number;
       is_sitting_out?: boolean;
+      is_waiting_for_button?: boolean;
       is_folded?: boolean;
       is_all_in?: boolean;
       position?: string;
@@ -130,13 +133,17 @@ export function seatAuthority(frames: EngineFrame[]): Authority[] {
       const posting =
         state!.posting_bb_user_ids?.includes(p.user_id) ||
         state!.post_bb_deferred_user_ids?.includes(p.user_id);
-      const badge: Badge = posting
-        ? null
-        : state!.waiting_for_bb_user_ids.includes(p.user_id)
-          ? 'waiting'
-          : p.is_sitting_out && !p.is_folded && !p.is_all_in
-            ? 'sitting-out'
-            : null;
+      // TablePage gives the engine's button hold precedence over posting/BB
+      // reasons. It has its own visible badge, not a voluntary sit-out badge.
+      const badge: Badge = p.is_waiting_for_button
+        ? 'waiting-for-button'
+        : posting
+          ? null
+          : state!.waiting_for_bb_user_ids.includes(p.user_id)
+            ? 'waiting'
+            : p.is_sitting_out && !p.is_folded && !p.is_all_in
+              ? 'sitting-out'
+              : null;
       return {
         id: p.user_id,
         seat: p.seat,

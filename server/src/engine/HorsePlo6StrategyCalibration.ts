@@ -4,11 +4,16 @@
  * The six-card values and class tests the Omaha strategy options need before
  * any of them may act in PLO6. No PLO4 or PLO5 value is changed by it.
  *
- * One reader (2026-11-16): HorseLogic.decide calls
+ * Readers (2026-11-16): HorseLogic.decide calls
  * applyPlo6OmahaStrategyCalibration with the decision's omahaStrategyInPlo6
- * gate (see the end of this file). With the gate off (the option is OFF-ONLY)
- * nothing here is registered and every PLO6 decision reads what it read
- * before. The class tests and the remaining entries are still read by nothing.
+ * gate (see the end of this file), and the receipt validator registers the
+ * same values for the re-run of a decision whose context carries that gate,
+ * then takes them back. The class tests are read by the six-card branches of
+ * the Omaha strategy modules (re-raised pots, the pricing rules through
+ * HorsePlo6PricingPort.ts, the strong-hand class), each reached only with the
+ * gate on. With the gate off (the option is OFF-ONLY) nothing here is
+ * registered and every PLO6 decision reads what it read before. The draw-out
+ * helpers and the entries no rule reads yet are documented where they stand.
  *
  * Sources: SPEC-A (options 3.1 to 3.16, helpers H1-H26, measured inputs M1-M5)
  * and SPEC-B (options 3.17 to 3.31, helpers H27-H39, counts N1-N3), written for
@@ -31,6 +36,7 @@ import {
   OMAHA_STRATEGY_CONSTANT_DEFAULTS,
   type OmahaPlo6StrategyCalibration,
   type OmahaStrategyConstantKey,
+  omahaStrategyConstant,
   registerOmahaPlo6StrategyCalibration,
 } from './HorseOmahaStrategyGame.js';
 
@@ -790,15 +796,19 @@ export function clearPlo6OmahaStrategyCalibration(): void {
 }
 
 /**
- * The one production caller of the two functions above: HorseLogic.decide,
+ * The decision's caller of the two functions above: HorseLogic.decide,
  * before anything else of the decision, with the decision's own gate
- * (opts.omahaStrategyInPlo6 === true).
+ * (opts.omahaStrategyInPlo6 === true). The receipt validator calls the two
+ * functions itself, around the re-run of a decision.
  *
- * The values are registered ONLY for a decision whose gate is on, and taken
- * back at the next decision whose gate is off. So with the option unset or
- * false the accessor holds no PLO6 value at any read of that decision, and a
- * process in which the option is never on never registers anything: PLO6
- * plays exactly as it did before this hookup, whatever reads the accessor.
+ * Both callers first read what the accessor holds
+ * (plo6OmahaStrategyCalibrationHeld), set it to their own gate, and put back
+ * what they found in a finally. So the values are in the accessor ONLY while
+ * a decision (or a validation) whose gate is on runs; with the option unset
+ * or false the accessor holds no PLO6 value at any read of that decision,
+ * nothing of a decision is left after it, and a decide entered inside another
+ * decide hands the outer one its own state back. PLO6 plays exactly as it did
+ * before this hookup, whatever reads the accessor.
  * It does not rest on each reader's own game gate. (One reader does run for
  * PLO6 with the gate off: HorseLogic's bluff-catcher argument computes
  * omahaTurnRedrawShareOf before omahaBluffCatcherCell refuses the game.)
@@ -807,4 +817,18 @@ export function clearPlo6OmahaStrategyCalibration(): void {
 export function applyPlo6OmahaStrategyCalibration(gateOn: boolean): void {
   if (gateOn === true) registerPlo6OmahaStrategyCalibration();
   else clearPlo6OmahaStrategyCalibration();
+}
+
+/**
+ * Whether the Omaha strategy accessor holds the PLO6 calibration right now.
+ * Read off the accessor itself, so no state is kept beside it:
+ * turnRedrawNutFullHouseOnly is 0 for every game by default and 1 for PLO6
+ * only while the calibration is registered. The one read both callers
+ * (HorseLogic.decide and the receipt validator) save before they set the
+ * accessor and restore after. Only this module's calibration is ever
+ * registered in production code; a caller that registered another one would
+ * get this one back.
+ */
+export function plo6OmahaStrategyCalibrationHeld(): boolean {
+  return omahaStrategyConstant('turnRedrawNutFullHouseOnly', { gameVariant: 'plo6' }) !== 0;
 }
