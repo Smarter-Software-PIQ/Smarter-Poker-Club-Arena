@@ -24,3 +24,8 @@ explicit filename tuple and bind it to their selected source root. The applied
 migration paths and the selector source remain recorded in their evidence.
 Their former independent globs had the same activation-selection defect. The
 public tournament financial proof exercises the corrected shared return bootstrap.
+
+The existing notice race fixture now captures one timestamp for its cloned
+grant and cycle. Two independent volatile reads could differ by a microsecond
+and violate the unchanged cycle-order constraint. This fixture-only correction
+preserves all notice assertions and changes no production clock or constraint.
