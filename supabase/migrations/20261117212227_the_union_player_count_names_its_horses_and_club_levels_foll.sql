@@ -194,6 +194,10 @@ BEGIN
   );
 END $$;
 
+-- Unchanged from 20261117195710: definer functions call it; only service_role may call it directly.
+REVOKE ALL ON FUNCTION public.fn_club_share_figures(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_club_share_figures(uuid) TO service_role;
+
 -- 2. The two clubs whose stored level still carries the retired display boost.
 SELECT public.fn_apply_club_ladder(b.club_id)
   FROM public.club_display_member_boost b
