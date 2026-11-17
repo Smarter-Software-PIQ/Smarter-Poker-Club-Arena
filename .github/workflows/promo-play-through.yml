@@ -87,6 +87,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL 17 from the signed PGDG source only
         uses: ./.github/actions/install-postgres-17
+        with:
+          packages: postgresql-17 postgresql-17-plpgsql-check
       - name: Promo play-through lock ledger and fee meter
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
@@ -100,7 +102,7 @@ jobs:
       - name: Promo tickets preserve their original grant through the money owners
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
+        run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through --require-resolution-guard
       - name: Tournament earnings retain their original entry generation
         env:
           TMPDIR: ${{ runner.temp }}
@@ -184,6 +186,7 @@ jobs:
             artifacts/promo-notices/INPUTS.json
             artifacts/promo-notices/PERFORMANCE.json
             artifacts/promo-ticket-play-through/RESULTS.json
+            artifacts/promo-ticket-play-through/POSTIMAGES.json
             artifacts/promo-tournament-earning-generation/RESULTS.json
             artifacts/promo-tournament-earning-generation/INPUTS.json
             artifacts/promo-custody/RESULTS.json

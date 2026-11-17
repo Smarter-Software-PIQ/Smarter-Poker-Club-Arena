@@ -3,6 +3,8 @@
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.free_buy_ticket_redemptions'::regclass AND tgname='ca_promo_free_buy_principal' AND tgenabled='O')
 -- Promo may enter tournaments directly, but cannot purchase a gifted ticket.
 -- Original event principal follows entry, earned awards, refund and full loss.
+-- Later optional integrity and required return owners resolve at their runtime
+-- boundary through fixed typed SQL; no unresolved static dependency at this commit.
 BEGIN;
 SET LOCAL lock_timeout='1s';
 DO $$ BEGIN
@@ -63,7 +65,7 @@ BEGIN
  END LOOP;
  IF total_extra>l.amount THEN RAISE EXCEPTION 'promo_event_charge_principal_exceeds_charge'; END IF;
  PERFORM public.fn_ca_promo_consume_entry_fee(l.id);
- IF to_regprocedure('public.fn_ca_promo_integrity_consume_entry_fee(uuid)') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(l.id); END IF;
+ IF to_regprocedure('public.fn_ca_promo_integrity_consume_entry_fee(uuid)') IS NOT NULL THEN EXECUTE 'SELECT public.fn_ca_promo_integrity_consume_entry_fee($1::uuid)' USING l.id; END IF;
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_record_event_charge(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
@@ -195,7 +197,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 BEGIN
  IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN
   PERFORM public.fn_ca_promo_consume_entry_fee(NEW.source_ledger_id);
-  IF to_regprocedure('public.fn_ca_promo_integrity_consume_entry_fee(uuid)') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(NEW.source_ledger_id); END IF;
+  IF to_regprocedure('public.fn_ca_promo_integrity_consume_entry_fee(uuid)') IS NOT NULL THEN EXECUTE 'SELECT public.fn_ca_promo_integrity_consume_entry_fee($1::uuid)' USING NEW.source_ledger_id; END IF;
  END IF;
  RETURN NULL;
 END $$;
@@ -308,10 +310,11 @@ BEGIN
  FOR r IN SELECT s.grant_id,s.amount,g.granted_at FROM public.ca_promo_event_realization_slices s
   JOIN public.ca_promo_play_through_grants g ON g.id=s.grant_id
   WHERE s.ledger_id=l.id ORDER BY g.granted_at,g.id LOOP
-  paid:=public.fn_ca_promo_return_principal(r.grant_id,'player_wallet','returned',r.amount,'event_refund:'||l.id||':'||r.grant_id);
+  EXECUTE 'SELECT public.fn_ca_promo_return_principal($1::uuid,$2::text,$3::text,$4::numeric,$5::text)' INTO paid USING r.grant_id,'player_wallet','returned',r.amount,'event_refund:'||l.id||':'||r.grant_id;
   total:=total+paid;
  END LOOP;
- total:=total+public.fn_ca_promo_return_spent_event_fee(p_credit_ledger_id);
+ EXECUTE 'SELECT public.fn_ca_promo_return_spent_event_fee($1::uuid)' INTO paid USING p_credit_ledger_id;
+ total:=total+paid;
  RETURN total;
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_return_refunded_principal(uuid) FROM PUBLIC,anon,authenticated,service_role;
@@ -588,10 +591,10 @@ BEGIN
  def:=replace(def,E'  v_entitlement record;\nBEGIN',E'  v_entitlement record;\n  v_prev_promo_refund text:=current_setting(''app.ca_promo_refund_entitlement'',true);\nBEGIN');
  needle:=E'  SELECT m.chip_balance INTO v_balance_before\n';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_refund_wallet_lock_anchor_changed'; END IF;
- def:=replace(def,needle,E'  PERFORM public.fn_ca_promo_lock_grant_funds(ARRAY(SELECT DISTINCT lot.grant_id FROM public.ca_promo_event_principal_lots lot JOIN public.ca_promo_play_through_grants gr ON gr.id=lot.grant_id WHERE lot.charge_ledger_id=v_entitlement.source_ledger_id AND (lot.remaining>0 AND gr.closed_at IS NULL OR EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_slices fee WHERE fee.lot_id=lot.id) OR EXISTS(SELECT 1 FROM public.ca_promo_event_entry_loss_slices lost WHERE lost.lot_id=lot.id)) ORDER BY lot.grant_id));\n'||needle);
+ def:=replace(def,needle,E'  EXECUTE ''SELECT public.fn_ca_promo_lock_grant_funds($1::uuid[])'' USING ARRAY(SELECT DISTINCT lot.grant_id FROM public.ca_promo_event_principal_lots lot JOIN public.ca_promo_play_through_grants gr ON gr.id=lot.grant_id WHERE lot.charge_ledger_id=v_entitlement.source_ledger_id AND (lot.remaining>0 AND gr.closed_at IS NULL OR EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_slices fee WHERE fee.lot_id=lot.id) OR EXISTS(SELECT 1 FROM public.ca_promo_event_entry_loss_slices lost WHERE lost.lot_id=lot.id)) ORDER BY lot.grant_id);\n'||needle);
  needle:=E'  PERFORM public.fn_ca_declare_ledger(\n    ''refund'',''prize_liability'',p_tournament_id,NULL,v_key,NULL);';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_refund_credit_anchor_changed'; END IF;
- def:=replace(def,needle,E'  IF to_regprocedure(''public.fn_ca_promo_integrity_restore_event_fees(uuid)'') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_restore_event_fees(v_entitlement.id); END IF;\n  PERFORM set_config(''app.ca_promo_refund_entitlement'',v_entitlement.id::text,true);\n'||needle);
+ def:=replace(def,needle,E'  IF to_regprocedure(''public.fn_ca_promo_integrity_restore_event_fees(uuid)'') IS NOT NULL THEN EXECUTE ''SELECT public.fn_ca_promo_integrity_restore_event_fees($1::uuid)'' USING v_entitlement.id; END IF;\n  PERFORM set_config(''app.ca_promo_refund_entitlement'',v_entitlement.id::text,true);\n'||needle);
  needle:=E'  IF v_balance_after IS NULL\n';
  def:=replace(def,needle,E'  PERFORM set_config(''app.ca_promo_refund_entitlement'',COALESCE(v_prev_promo_refund,''''),true);\n'||needle);
  needle:=E'  RETURN jsonb_build_object(\n    ''ok'',true,''fully_settled'',true,''remaining'',0,';
@@ -727,7 +730,7 @@ BEGIN
   PERFORM public.fn_ca_promo_play_through_settle(p_club_id,v_me);
   v_locked:=public.fn_ca_promo_locked_at(p_club_id,v_me,p_source_wallet,v_me);
   IF to_regprocedure('public.fn_ca_promo_integrity_locked_at(uuid,uuid,text,uuid)') IS NOT NULL THEN
-    v_locked:=v_locked+public.fn_ca_promo_integrity_locked_at(p_club_id,v_me,p_source_wallet,v_me);
+    EXECUTE 'SELECT $1::numeric+public.fn_ca_promo_integrity_locked_at($2::uuid,$3::uuid,$4::text,$5::uuid)' INTO v_locked USING v_locked,p_club_id,v_me,p_source_wallet,v_me;
   END IF;
   IF v_before IS NULL OR p_value>GREATEST(v_before-v_locked,0) THEN
     RETURN jsonb_build_object('success',false,'error','Tickets Require Cashable Player Or Agent Chips');

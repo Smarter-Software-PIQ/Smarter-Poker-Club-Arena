@@ -19,7 +19,7 @@ T='71000000-0000-0000-0000-000000000001';F='71000000-0000-0000-0000-000000000002
 MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql'
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--fee-migration',type=Path,default=ROOT/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql');args=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--require-resolution-guard',action='store_true');p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--fee-migration',type=Path,default=ROOT/'supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql');args=p.parse_args()
  if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
  inventory_capture=args.custody_migration.parents[2]/'tests/fixtures/promo-custody-inventory-pin.json'
  args.output.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='ptp-'));pg=Path(base.pg_bin());db=base.Db(str(tmp),54429,'promo_tickets');started=False;checks=[];passed=False
@@ -74,10 +74,36 @@ def main():
   db.run("INSERT INTO union_wallets VALUES('fade0000-0000-0000-0000-000000000001',10000,NULL)")
   fee=args.fee_migration.read_text();db.run(fee[:fee.index('DO $owners$')]+'COMMIT;')
   db.run(MIGRATION.read_text())
+  if args.require_resolution_guard:
+   guard=ROOT/'supabase/migrations/20261115020406_a_function_that_calls_a_missing_signature_is_refused_at_comm.sql'
+   db.run(guard.read_text())
+   check('genuine production function checker is installed',one("SELECT extname='plpgsql_check' AND extversion IS NOT NULL FROM pg_extension WHERE extname='plpgsql_check'"),'t')
+   # The financial fixture intentionally omits unrelated original manager and
+   # seat readers. Qualify this exact failing source owner under the complete
+   # genuine deferred DDL guard after its actual relation closure exists.
+   current=one("SELECT pg_get_functiondef('public.fn_ca_promo_record_event_charge(uuid)'::regprocedure)")
+   callback="THEN EXECUTE 'SELECT public.fn_ca_promo_integrity_consume_entry_fee($1::uuid)' USING l.id; END IF;"
+   assert current.count(callback)==1
+   before=current.replace(callback,'THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(l.id); END IF;',1)
+   refused=db.run('BEGIN;'+before+';COMMIT;',check=False)
+   check('actual deferred production guard refuses the original missing H callback',refused.returncode!=0 and 'calls a function that does not exist' in refused.stderr and 'fn_ca_promo_integrity_consume_entry_fee' in refused.stderr,True)
+   check('actual resolution refusal preserves the installed source owner atomically',one("SELECT pg_get_functiondef('public.fn_ca_promo_record_event_charge(uuid)'::regprocedure)"),current)
+   db.run('BEGIN;'+current+';COMMIT;')
+  postimages={signature:one("SELECT md5(pg_get_functiondef('"+signature+"'::regprocedure))") for signature in ['public.fn_ca_promo_record_event_charge(uuid)','public.fn_ca_promo_return_refunded_principal(uuid)','public.fn_settle_tournament_refund_exact(uuid,uuid,uuid,numeric,numeric,numeric,numeric,text,text)','public.fn_ca_issue_cashable_ticket_owned(uuid,uuid,numeric,text,text,text)','public.fn_cashier_batch_transfer(uuid,text,jsonb,uuid)','public.fn_cancel_tournament_ticket(uuid)']}
+  (args.output/'POSTIMAGES.json').write_text(json.dumps(postimages,indent=2)+'\n')
   purchase_hash=one("SELECT md5(pg_get_functiondef('public.fn_ca_process_tournament_chip_purchase_money_v1(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure))")
   original_guard=next(r['definition'] for r in purchase if 'guard_mtt' in r['signature'])
   check('original admission guard changes only the exact purchase owner pin',one("SELECT pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure)").strip(),original_guard.replace('9ff346ac60f760311d884c6d63d9001d',purchase_hash).strip())
   check('private ticket owner is not browser callable',one("SELECT NOT has_function_privilege('authenticated','fn_ca_issue_cashable_ticket_owned(uuid,uuid,numeric,text,text,text)','EXECUTE')"),'t')
+  reset();db.run('UPDATE ca_promo_play_through_settings SET enforced_from=NULL')
+  return_defs=[one("SELECT pg_get_functiondef('"+signature+"'::regprocedure)") for signature in ['public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)','public.fn_ca_promo_lock_grant_funds(uuid[])']]
+  db.run('DROP FUNCTION public.fn_ca_promo_return_principal(uuid,text,text,numeric,text);DROP FUNCTION public.fn_ca_promo_lock_grant_funds(uuid[])')
+  check('cold ticket admission has no later H or return owners',one("SELECT to_regprocedure('public.fn_ca_promo_integrity_locked_at(uuid,uuid,text,uuid)') IS NULL AND to_regprocedure('public.fn_ca_promo_return_principal(uuid,text,text,numeric,text)') IS NULL"),'t')
+  result=call(A,f"fn_issue_tournament_ticket_phase2_core_20260831('{C}','{B}',10,NULL,'cold-player-ticket')")
+  check('ordinary cold player ticket works before H and return installation',result.get('success'),True)
+  result=call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',10,NULL,'cold-agent-ticket')")
+  check('ordinary cold agent ticket works before H and return installation',result.get('success'),True)
+  for definition in return_defs:db.run(definition)
   reset()
   result=call(A,f"fn_cashier_promo_ticket_send('{C}','{B}',20,'new-promo-ticket')")
   check('original promo ticket door refuses new purchases',result.get('error_code'),'promo_ticket_purchase_forbidden')
@@ -277,7 +303,7 @@ def main():
   check('concurrent agent ticket creates one escrow entitlement',one('SELECT count(*) FROM tournament_tickets'),'1')
   passed=True
  finally:
-  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),str(inventory_capture):hashlib.sha256(inventory_capture.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
+  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),str(inventory_capture):hashlib.sha256(inventory_capture.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',ROOT/'supabase/migrations/20261115020406_a_function_that_calls_a_missing_signature_is_refused_at_comm.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
   (args.output/'RESULTS.json').write_text(json.dumps(report,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(tmp)

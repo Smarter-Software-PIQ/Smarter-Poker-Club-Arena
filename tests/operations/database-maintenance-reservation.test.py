@@ -17,6 +17,15 @@ seal = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(seal)
 
 
+# Immutable qualified source of the consumed corrected exact-ten operation.
+PROMO_HISTORICAL_SOURCE = 'e54a5d6039b1393770f6439f312447f3727679f5'
+
+
+def historical_promo_source(path):
+    return subprocess.check_output(['git', '-C', str(ROOT), 'show',
+        PROMO_HISTORICAL_SOURCE + ':' + path])
+
+
 class DatabaseReservation(unittest.TestCase):
     def setUp(self):
         # Git hooks export GIT_DIR/INDEX/WORK_TREE. A native fixture must never
@@ -308,8 +317,11 @@ class PromoDatabaseReservation(unittest.TestCase):
         self.window.update(id=seal.PROMO_DATABASE_WINDOW_ID, contains=anchor,
             notBefore=seal.PROMO_DATABASE_WINDOW_BOUNDS[0], notAfter=seal.PROMO_DATABASE_WINDOW_BOUNDS[1],
             migrations=[f for f, _ in seal.PROMO_DATABASE_MIGRATIONS])
+        # This consumed exact-ten operation retains its original SQL forever.
+        # Later qualified corrections to uninstalled files must not change its
+        # replay/tamper fixture or the immutable production authority hashes.
         for file, expected in seal.PROMO_DATABASE_MIGRATIONS:
-            data = (ROOT/'supabase/migrations'/file).read_bytes()
+            data = historical_promo_source('supabase/migrations/' + file)
             self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
             (self.repo/'supabase/migrations'/file).write_bytes(data)
         self.publish_window()
@@ -618,9 +630,18 @@ budgets:[TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,WINDOW_STATEMENT_TIME
         self.assertEqual(result['files'],[f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])
         self.assertEqual(result['budgets'],[8,1000,5000,150,100])
         self.assertEqual(len(result['files'])*result['budgets'][0],80)
+        historical=tempfile.TemporaryDirectory(prefix='promo-consumed-binding-')
+        self.addCleanup(historical.cleanup)
+        source=Path(historical.name)
+        for path in ['server/release/owner-maintenance-windows.json'] + [
+                'supabase/migrations/'+file for file,_ in seal.PROMO_DATABASE_MIGRATIONS]:
+            target=source/path; target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(historical_promo_source(path))
+        for file,expected_hash in seal.PROMO_DATABASE_MIGRATIONS:
+            self.assertEqual(hashlib.sha256((source/'supabase/migrations'/file).read_bytes()).hexdigest(),expected_hash)
         old=os.getcwd()
         try:
-            os.chdir(ROOT)
+            os.chdir(source)
             expected=controller.expected_pair_binding(seal.PROMO_DATABASE_WINDOW_ID)
             controller.validate_pair_terminal(copy.deepcopy(expected),expected)
             for mutate in [lambda r:r['migrations'].reverse(),lambda r:r['migrations'].pop(),

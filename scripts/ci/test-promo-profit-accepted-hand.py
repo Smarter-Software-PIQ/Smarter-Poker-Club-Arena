@@ -169,6 +169,22 @@ SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;'''
  END$$;SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;"""
  e.sql(db,gain,label='actual-promo-funded-net-gain-and-replay',seconds=120)
  e.report['native'].append({'case':'actual-promo-funded-net-gain-and-replay','assertions':4})
+ # The same original HU settlement now allocates a half-cent W/H
+ # intersection. Its real cent-capacity lookup must name the receipt column.
+ cent=gain[:gain.index('DO $$DECLARE r jsonb;BEGIN')]
+ cent=cent.replace(",100,'club_promo','native-hu');",",50,'club_promo','native-hu');")
+ cent=cent.replace("'table_stack','88100000-0000-0000-0000-000000000001',100);","'table_stack','88100000-0000-0000-0000-000000000001',50);")
+ cent+="""SELECT fn_ca_promo_play_through_record_grant('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002',.01,'club_promo','native-cent-donor');
+SELECT fn_ca_promo_move_custody('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000002','player_wallet','10000000-0000-0000-0000-000000000002','table_stack','88100000-0000-0000-0000-000000000001',.01);
+DO $$DECLARE r jsonb;BEGIN
+ r:=pg_temp.roster_commit(8800008,'88400000-0000-0000-0000-000000000008');
+ IF r->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'actual cent source hand refused %',r;END IF;
+ IF fn_ca_promo_profit_locked_at('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','table_stack','88100000-0000-0000-0000-000000000001')<>50 OR fn_ca_promo_integrity_locked_at('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','table_stack','88100000-0000-0000-0000-000000000001')<>.01 OR fn_ca_promo_profit_overlap_at('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','table_stack','88100000-0000-0000-0000-000000000001')<>.01 THEN RAISE EXCEPTION 'actual accepted half-cent intersection not conserved';END IF;
+ r:=pg_temp.roster_commit(8800008,'88400000-0000-0000-0000-000000000008');
+ IF r->>'success' IS DISTINCT FROM 'true' OR (SELECT sum(amount) FROM ca_promo_profit_cash_intersections WHERE hand_id='88400000-0000-0000-0000-000000000008')<>.01 THEN RAISE EXCEPTION 'actual accepted cent replay changed source';END IF;
+END$$;SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;"""
+ e.sql(db,cent,label='actual-half-cent-source-intersection-and-replay',seconds=120)
+ e.report['native'].append({'case':'actual-half-cent-source-intersection-and-replay','assertions':3})
  if winnings.read_text()!=winnings_sql:raise RuntimeError('winnings source changed during qualification')
  e.report['selected_winnings_sha256']=roster.sha(winnings)
  e.report['qualification_limits']=['Actual original accepted-hand/seat/journal/provenance chain; original W/P opening source is explicitly typed. Selected W prefix excludes separately qualified BBJ source. Notification-only fixture sink, no notice-delivery claim.']
