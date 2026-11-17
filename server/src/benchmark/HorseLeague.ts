@@ -4181,6 +4181,24 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'VPIP window (as the live Madness tables do); until it is built, the recorded-hand cases in ' +
       'HorseOmahaVpipFloorByLimp.test.ts are the only evidence.',
   })),
+  // 2026-11-17 (F-10, owner ruling 14:34 Chicago): vpipFloorLimpOnly, default off.
+  // Refused, not dealt: this league seats no VPIP-floor table.
+  ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_vpip_floor_limp_only`,
+    variant,
+    a: { vpipFloorLimpOnly: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option only acts on a table that carries a VPIP floor ' +
+      '(vpipFloorLimpOnlyApplies needs vpipFloor > 0), and playHand builds its decision state with ' +
+      'no vpipFloor, vpipWindowHands or ownVpip, so the two arms play identical poker. The option is ' +
+      'DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-17 by running this refused matchup through runMatchup (seed 20261117, 300 pairs): ' +
+      '0 of 300 pairs diverged. ' +
+      "What would change this: a league table that carries a VPIP floor and each seat's judged VPIP " +
+      'window; until it is built, HorseVpipFloorLimpOnly.test.ts and the sitting evaluation of ' +
+      'HorseVpipFloorLimpOnly.test-support.ts are the evidence.',
+  })),
   // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
   // dealt: the evidence it reads does not exist in a league hand.
   {
