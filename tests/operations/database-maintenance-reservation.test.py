@@ -17,8 +17,8 @@ seal = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(seal)
 
 
-# Immutable qualified source of the consumed corrected exact-ten operation.
-PROMO_HISTORICAL_SOURCE = 'e54a5d6039b1393770f6439f312447f3727679f5'
+# Immutable qualified SQL source of the reviewed drained exact-seven operation.
+PROMO_HISTORICAL_SOURCE = '1306cee8dd4c99a325238e36951e7e603398c2e5'
 
 
 def historical_promo_source(path):
@@ -317,7 +317,7 @@ class PromoDatabaseReservation(unittest.TestCase):
         self.window.update(id=seal.PROMO_DATABASE_WINDOW_ID, contains=anchor,
             notBefore=seal.PROMO_DATABASE_WINDOW_BOUNDS[0], notAfter=seal.PROMO_DATABASE_WINDOW_BOUNDS[1],
             migrations=[f for f, _ in seal.PROMO_DATABASE_MIGRATIONS])
-        # This consumed exact-ten operation retains its original SQL forever.
+        # The reviewed exact-seven operation retains its qualified SQL forever.
         # Later qualified corrections to uninstalled files must not change its
         # replay/tamper fixture or the immutable production authority hashes.
         for file, expected in seal.PROMO_DATABASE_MIGRATIONS:
@@ -326,13 +326,13 @@ class PromoDatabaseReservation(unittest.TestCase):
             (self.repo/'supabase/migrations'/file).write_bytes(data)
         self.publish_window()
 
-    def reserve_promo(self, at='2026-11-17T07:50:00+00:00', run='100-1'):
+    def reserve_promo(self, at='2026-11-17T11:20:00+00:00', run='100-1'):
         from unittest.mock import patch
         with patch.object(seal.time, 'time', return_value=datetime.fromisoformat(at).timestamp()):
             return seal.reserve_database_window({'runId':run, 'controlSha':self.control,
                 'servingSha':self.serving, 'windowId':self.window['id']}, str(self.repo))
 
-    def test_exact_ten_protected_bytes_replay_and_shared_custody(self):
+    def test_exact_seven_protected_bytes_replay_and_shared_custody(self):
         self.prepare_promo(); first=self.reserve_promo()
         self.assertEqual(self.reserve_promo(), first)
         self.assertEqual(first['type'], 'database-maintenance-promo/v1')
@@ -344,13 +344,13 @@ class PromoDatabaseReservation(unittest.TestCase):
         self.assertEqual(len(seal.AUDIT_FILE.read_text().splitlines()), 1)
         with self.assertRaises(SystemExit): self.reserve_promo(run='200-1')
         with self.assertRaises(SystemExit):
-            self.reserve_promo(at='2026-11-17T07:51:00+00:00',run='200-1')
+            self.reserve_promo(at='2026-11-17T11:21:00+00:00',run='200-1')
         self.assertEqual(self.reserve_promo(), first)
 
     def test_exact_authority_and_order_fail_closed_before_journal(self):
         self.prepare_promo(); original=copy.deepcopy(self.window)
         for key,value in [('id','unreviewed-promo'),('contains',self.serving),
-                ('notBefore','2026-11-17T07:49:00Z'),('notAfter','2026-11-17T09:01:00Z'),
+                ('notBefore','2026-11-17T11:19:00Z'),('notAfter','2026-11-17T13:01:00Z'),
                 ('migrations',list(reversed(original['migrations']))),
                 ('migrations',original['migrations'][:-1]),
                 ('migrations',original['migrations']+[original['migrations'][0]]),
@@ -371,7 +371,7 @@ class PromoDatabaseReservation(unittest.TestCase):
 
     def test_expiry_and_unknown_receipt_are_not_extended_or_replaced(self):
         self.prepare_promo()
-        for at in ['2026-11-17T07:49:59+00:00','2026-11-17T08:53:01+00:00','2026-11-17T09:00:00+00:00']:
+        for at in ['2026-11-17T11:19:59+00:00','2026-11-17T12:53:01+00:00','2026-11-17T13:00:00+00:00']:
             with self.subTest(at=at):
                 with self.assertRaises(SystemExit):self.reserve_promo(at)
                 self.assert_no_pair_reservation()
@@ -629,14 +629,14 @@ budgets:[TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,WINDOW_STATEMENT_TIME
             json.dumps([f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])],cwd=ROOT))
         self.assertEqual(result['files'],[f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])
         self.assertEqual(result['budgets'],[8,1000,5000,150,100])
-        self.assertEqual(len(result['files'])*result['budgets'][0],80)
+        self.assertEqual(len(result['files'])*result['budgets'][0],56)
         historical=tempfile.TemporaryDirectory(prefix='promo-consumed-binding-')
         self.addCleanup(historical.cleanup)
         source=Path(historical.name)
         for path in ['server/release/owner-maintenance-windows.json'] + [
                 'supabase/migrations/'+file for file,_ in seal.PROMO_DATABASE_MIGRATIONS]:
             target=source/path; target.parent.mkdir(parents=True,exist_ok=True)
-            target.write_bytes(historical_promo_source(path))
+            target.write_bytes((ROOT/path).read_bytes() if path.endswith('owner-maintenance-windows.json') else historical_promo_source(path))
         for file,expected_hash in seal.PROMO_DATABASE_MIGRATIONS:
             self.assertEqual(hashlib.sha256((source/'supabase/migrations'/file).read_bytes()).hexdigest(),expected_hash)
         old=os.getcwd()

@@ -1691,6 +1691,23 @@
         "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
         "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
       ]
+    },
+    {
+      "id": "2026-11-17-promo-play-through-db-drained",
+      "ownerOrder": "Root interprets the continuing complete-assignment order and the owner's explicit \"Authorize protected off-cycle installation\" in Codex chat01a1e4d3-758c-7a40-b396-d867efdffbfc as authority for this necessary technical correction; this is not a claim the owner separately selected these timestamps or another attempt. Original44041909015 installed151020/195541/153059, which must never be replayed. The routine daily attempt refused all remaining seven and its original receipt and thaw must be verified before any new operation. This NEW single-use database-only operation installs exactly the seven qualified protected files below, ONLY AFTER ordinary migration20261117100849_terminal_settlement_takes_the_existing_maintenance_lane.sql is protected-installed, its exact function body/ACL/configuration are read back, and the pre-admitted terminal transaction drain proof passes. This is a root dispatch prerequisite, not a new API or waiver. Preserve all old consumed bookings, hashes, fixed09:00 expiry, refusals and receipts; the abandoned unpublished09:20 draft is not a published booking. This later promise requires its OWN primary public notice at11:00UTC and at least twenty minutes of independently verified primary visibility before admission11:20 through fixed13:00UTC November17. Later publication delays admission within the same expiry. Preserve unchanged sealed engine SHA/image/instance, source and engine custody/locks, rolling-hour spacing,120-second last-hand lead, confirmed hand-boundary drain and durable freeze,285-second admission reserve,150-second installer opening and100-second commit reserve,1-second lock/5-second statement/8-second transaction budgets, one attempt per file, stop UNKNOWN and originalv3thaw. No engine replacement, active transaction kill, new tournament-start hold, guard or budget waiver, financial replay, watcher, automatic retry, renewal or extension. Root retains sole operation, activation and live-verification ownership.",
+      "contains": "1306cee8dd4c99a325238e36951e7e603398c2e5",
+      "playerNoticeAt": "2026-11-17T11:00:00Z",
+      "notBefore": "2026-11-17T11:20:00Z",
+      "notAfter": "2026-11-17T13:00:00Z",
+      "migrations": [
+        "20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
+        "20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+        "20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
+        "20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
+        "20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
+        "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
+        "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
+      ]
     }
   ]
 }

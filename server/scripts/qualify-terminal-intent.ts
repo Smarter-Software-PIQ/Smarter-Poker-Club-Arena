@@ -6,7 +6,15 @@ import pg from 'pg';
 const [host, port, database, scenario, output] = process.argv.slice(2);
 assert(host.startsWith('/'));
 assert(/^r46_mtt_isolation_[0-9a-f]{32}$/.test(database));
-assert(['commit-replay', 'close-queued-send', 'adopt-original'].includes(scenario));
+assert(
+  [
+    'commit-replay',
+    'close-queued-send',
+    'adopt-original',
+    'maintenance-before',
+    'maintenance-after',
+  ].includes(scenario)
+);
 const config = {
   host,
   port: Number(port),
@@ -50,7 +58,10 @@ async function snapshot() {
 }
 async function execute(c: pg.Client, g = generation) {
   return (
-    await c.query('SELECT public.fn_execute_tournament_terminal_request($1,$2) AS value', [id, g])
+    await c.query(
+      `SELECT public.${scenario === 'maintenance-after' ? 'fn_execute_capped_satellite_terminal_request' : 'fn_execute_tournament_terminal_request'}($1,$2) AS value`,
+      [id, g]
+    )
   ).rows[0].value;
 }
 try {
@@ -152,7 +163,92 @@ try {
     await a.query('COMMIT');
   }
   const original = await snapshot();
-  if (scenario === 'commit-replay') {
+  if (scenario.startsWith('maintenance-')) {
+    const aPid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const token = '92090000-0000-4000-8000-000000000099';
+    const times = (
+      await observer.query(
+        "SELECT clock_timestamp()-interval '2 minutes' AS announced,clock_timestamp() AS started,clock_timestamp()+interval '5 minutes' AS ended"
+      )
+    ).rows[0];
+    async function freeze() {
+      return b.query(
+        "SELECT public.fn_save_engine_maintenance_break('counting_down',$1,$2,$3,'native','native',$4)",
+        [times.announced, times.started, times.ended, token]
+      );
+    }
+    if (scenario === 'maintenance-before') {
+      await freeze();
+      await actor(a);
+      const unsafe = await execute(a);
+      assert.equal(unsafe.request.phase, 'committed');
+      assert(
+        (
+          await observer.query(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND relation='public.tournaments'::regclass AND granted AND mode='RowExclusiveLock') AS held",
+            [aPid]
+          )
+        ).rows[0].held
+      );
+      await a.query('ROLLBACK');
+    } else {
+      await actor(a);
+      const paid = await execute(a);
+      assert.equal(paid.request.phase, 'committed');
+      assert(
+        (
+          await observer.query(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=530090 AND objid=1 AND objsubid=2 AND mode='ShareLock' AND granted) AS held",
+            [aPid]
+          )
+        ).rows[0].held
+      );
+      const busy = await freeze().then(
+        () => null,
+        (e) => e
+      );
+      assert.equal(busy?.code, '55P03');
+      assert(
+        !(await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen
+      );
+      await a.query('COMMIT');
+      await freeze();
+      const frozenSnapshot = await snapshot();
+      await observer.query('BEGIN;LOCK TABLE public.tournaments IN ACCESS EXCLUSIVE MODE');
+      await actor(a);
+      const frozen = await execute(a).then(
+        () => null,
+        (e) => e
+      );
+      assert.equal(
+        frozen?.code,
+        '55006',
+        'must refuse before needing the held tournament relation'
+      );
+      await a.query('ROLLBACK');
+      await observer.query('ROLLBACK');
+      assert.deepEqual(await snapshot(), frozenSnapshot);
+      await b.query(
+        "SELECT public.fn_clear_engine_maintenance_break('counting_down',$1,$2,$3,'native',$4)",
+        [times.announced, times.started, times.ended, token]
+      );
+      assert(
+        !(await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen
+      );
+      await actor(a);
+      assert.deepEqual(await execute(a), paid);
+      await a.query('COMMIT');
+      assert.equal(
+        (
+          await observer.query(
+            'SELECT count(*)::int AS n FROM tournament_payouts WHERE tournament_id=$1',
+            [event]
+          )
+        ).rows[0].n,
+        1
+      );
+    }
+  } else if (scenario === 'commit-replay') {
     await actor(a);
     const first = await execute(a);
     await a.query('COMMIT');
