@@ -3053,10 +3053,17 @@ groups:
         # short_deck 96, plo8 110; (a): the smallest full day of any variant was
         # flh 19,233 on 2026-10-16 (13/min). Gate: at least 5 a minute over the
         # previous hour, then none for 15 minutes outside a break.
+        # A variant whose last horse table closed (a single-variant event
+        # finished, or the night's cash tables closed) is quiet, not silent:
+        # poker_tables_with_horses_by_variant at 0 for 10 minutes withholds it
+        # (alert 376529; the overnight firings of 2026-11-16/17). The gauge is
+        # seeded at 0 for every ledger variant; an engine that does not yet
+        # emit it leaves the rule exactly as before (fixtures: tests/monitoring/horse-brain-variant-silent.test.yml).
         expr: |
           sum by (variant) (rate(poker_horse_policy_decisions_total{variant!="other"}[1h] offset 15m)) * 60 > 5
           unless on(variant) sum by (variant) (rate(poker_horse_policy_decisions_total[15m])) > 0
           unless on() max_over_time(poker_maintenance_break_active[20m]) == 1
+          unless on(variant) max_over_time(poker_tables_with_horses_by_variant[10m]) == 0
         for: 15m
         labels:
           severity: warning
