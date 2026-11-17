@@ -4,9 +4,12 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HorsePolicyGraph, HORSE_POLICY_ORDER } from './HorsePolicyGraph.js';
 import {
   classifyHorsePolicyDecision,
+  countHorseTablesByVariant,
+  horseLedgerVariant,
   observeHorsePolicyDecision,
 } from './HorsePolicyLedgerObserver.js';
 import {
+  HORSE_POLICY_LEDGER_VARIANTS,
   alwaysOnRegistry,
   horsePolicyDecisionsTotal,
   horseReferenceAgreementTotal,
@@ -209,5 +212,58 @@ describe('Phase 15 policy ledger observer', () => {
     expect(() =>
       observeHorsePolicyDecision({ gameVariant: 'nlh' }, { policyGraph: 7 } as never)
     ).not.toThrow();
+  });
+});
+
+/**
+ * Production alert 376529 (2026-11-11): HorseBrainVariantSilent paged for plo8
+ * after the PLO8 Hi-Lo Turbo completed and closed its last table. The silence
+ * rule needs to know whether any table of the variant still holds a horse.
+ */
+describe('poker_tables_with_horses_by_variant', () => {
+  const engine = (variant: string, horses: number) => ({
+    horsesSeated: () => horses,
+    horseLedgerVariant: () => variant,
+  });
+
+  it('seeds every ledger variant at zero, so a closed variant is a 0 sample, not an absent series', () => {
+    const counts = countHorseTablesByVariant([]);
+    expect(Object.keys(counts).sort()).toEqual([...HORSE_POLICY_LEDGER_VARIANTS].sort());
+    expect(Object.values(counts).every((n) => n === 0)).toBe(true);
+  });
+
+  it('counts tables (not horses) holding a horse with chips, under the ledger label', () => {
+    const counts = countHorseTablesByVariant([
+      engine('plo8', 5),
+      engine('plo8', 1),
+      engine('flo8', 0),
+      engine('flo8', 3),
+      engine('nlh', 0),
+      engine('razz', 2),
+    ]);
+    expect(counts.plo8).toBe(2);
+    expect(counts.flo8).toBe(1);
+    expect(counts.nlh).toBe(0);
+    expect(counts.other).toBe(1);
+  });
+
+  it('labels a table exactly as the decision counter labels its decisions', () => {
+    for (const raw of ['plo8', 'short_deck', 'PLO8', 'nlhe', undefined]) {
+      const decisionLabel = classifyHorsePolicyDecision({ gameVariant: raw }, null).variant;
+      expect(horseLedgerVariant(raw ?? 'nlh')).toBe(decisionLabel);
+    }
+  });
+
+  it('skips a table that throws instead of breaking the scrape', () => {
+    const counts = countHorseTablesByVariant([
+      {
+        horsesSeated: () => {
+          throw new Error('torn state');
+        },
+        horseLedgerVariant: () => 'plo8',
+      },
+      engine('plo8', 2),
+    ]);
+    expect(counts.plo8).toBe(1);
   });
 });
