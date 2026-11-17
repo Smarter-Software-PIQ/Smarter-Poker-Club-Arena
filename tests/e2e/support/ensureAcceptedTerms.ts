@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { TERMS_REVISION } from '../../../src/components/legal/legalDates';
 
 type TermsGateStatus = 'accepted' | 'not_accepted' | 'unknown';
 
@@ -51,6 +52,18 @@ export async function ensureAcceptedTerms(page: Page): Promise<boolean> {
     throw new Error(`Terms Of Service acceptance failed in production (${response.status()}).`);
   }
 
+  const request = response.request().postDataJSON();
+  const receipt = await response.json();
+  if (
+    request?.termsRevision !== TERMS_REVISION ||
+    receipt?.success !== true ||
+    receipt.termsRevision !== TERMS_REVISION ||
+    typeof receipt.acceptedAt !== 'string' ||
+    !Number.isFinite(Date.parse(receipt.acceptedAt))
+  ) {
+    throw new Error('Production acceptance did not confirm the exact reviewed Terms revision.');
+  }
+
   await page
     .locator('[data-tos-gate-status="accepted"]')
     .waitFor({ state: 'attached', timeout: 30_000 });
@@ -68,7 +81,43 @@ export async function ensureAcceptedTerms(page: Page): Promise<boolean> {
   };
   const verification = await page.context().newPage();
   try {
-    await verification.goto(page.url(), { waitUntil: 'commit', timeout: remaining() });
+    const canonicalRead = verification.waitForResponse(
+      (result) => {
+        const url = new URL(result.url());
+        const columns = url.searchParams
+          .get('select')
+          ?.split(',')
+          .map((column) => column.trim())
+          .sort()
+          .join(',');
+        return (
+          result.request().method() === 'GET' &&
+          url.pathname === '/rest/v1/profiles' &&
+          columns === 'club_arena_tos_accepted_at,club_arena_tos_revision'
+        );
+      },
+      { timeout: remaining() }
+    );
+    const [, profileResponse] = await Promise.all([
+      verification.goto(page.url(), { waitUntil: 'commit', timeout: remaining() }),
+      canonicalRead,
+    ]);
+    const payload = await profileResponse.json();
+    // maybeSingle GET receives JSON arrays and unwraps only in the client.
+    const profile = Array.isArray(payload) ? (payload.length === 1 ? payload[0] : null) : payload;
+    if (
+      !profileResponse.ok() ||
+      profile === null ||
+      typeof profile !== 'object' ||
+      Array.isArray(profile) ||
+      profile?.club_arena_tos_revision !== receipt.termsRevision ||
+      typeof profile.club_arena_tos_accepted_at !== 'string' ||
+      Date.parse(profile.club_arena_tos_accepted_at) !== Date.parse(receipt.acceptedAt)
+    ) {
+      throw new Error(
+        'Fresh canonical Terms read disagrees with the persisted acceptance receipt.'
+      );
+    }
     const persistedStatus = await waitForTermsDecision(verification, remaining());
     if (persistedStatus !== 'accepted') {
       throw new Error('Terms Of Service acceptance appeared to succeed but did not persist.');
@@ -77,6 +126,13 @@ export async function ensureAcceptedTerms(page: Page): Promise<boolean> {
     await verification.close();
   }
 
-  console.log('[global-setup] dedicated account Terms Of Service acceptance is persisted.');
+  console.log(
+    '[global-setup] exact Terms acceptance receipt ' +
+      JSON.stringify({
+        termsRevision: receipt.termsRevision,
+        acceptedAt: receipt.acceptedAt,
+        persisted: true,
+      })
+  );
   return true;
 }
