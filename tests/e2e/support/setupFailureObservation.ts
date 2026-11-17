@@ -74,7 +74,9 @@ export function observeSetupFailure(page: Page, baseURL: string, supabaseURL?: s
     if (
       url.origin === supabaseOrigin &&
       url.pathname === '/rest/v1/profiles' &&
-      url.searchParams.get('select') === 'club_arena_tos_accepted_at'
+      ['club_arena_tos_accepted_at', 'club_arena_tos_accepted_at,club_arena_tos_revision'].includes(
+        url.searchParams.get('select')?.replace(/\s/g, '') ?? ''
+      )
     ) {
       kind = 'terms-query';
       path = '/rest/v1/profiles';

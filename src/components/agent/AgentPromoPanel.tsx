@@ -1,3 +1,4 @@
+import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../legal/promoPlayThroughTerms';
 import { formatWalletChips } from '../../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -776,7 +777,8 @@ export default function AgentPromoPanel({
         }}
       >
         ⓘ Promo Chips Are Non-Transferable Between Agents. They Can Only Be Distributed To Your
-        Assigned Players. Promo Chips Do Not Count As Settlement Debt.
+        Assigned Players. Promo Chips Do Not Count As Settlement Debt.{' '}
+        {PROMO_PLAY_THROUGH_SENDER_TERMS}
       </div>
     </div>
   );

@@ -153,6 +153,13 @@ describe('NotificationService', () => {
     });
   });
 
+  it('opens the original promo grant club wallet', () => {
+    expect(
+      notificationService.getDeepLinkUrl('promo_play_through', { club_id: 'club&other=value' })
+    ).toBe('/wallet?club=club%26other%3Dvalue');
+    expect(notificationService.getDeepLinkUrl('promo_play_through', {})).toBe('/wallet');
+  });
+
   it('opens the actual Hub Messenger conversation for an accounting invoice', () => {
     expect(
       notificationService.getDeepLinkUrl('accounting_invoice', {

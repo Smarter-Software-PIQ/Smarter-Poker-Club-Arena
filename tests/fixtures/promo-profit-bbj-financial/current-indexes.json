@@ -1,0 +1,149 @@
+[
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payout_recipients",
+    "indexname": "bbj_payout_recipients_pkey",
+    "indexdef": "CREATE UNIQUE INDEX bbj_payout_recipients_pkey ON public.bbj_payout_recipients USING btree (id)",
+    "constraint_backed": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payout_recipients",
+    "indexname": "idx_bbj_payout_recipients_payout",
+    "indexdef": "CREATE INDEX idx_bbj_payout_recipients_payout ON public.bbj_payout_recipients USING btree (payout_id)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payout_recipients",
+    "indexname": "idx_bbj_payout_recipients_user",
+    "indexdef": "CREATE INDEX idx_bbj_payout_recipients_user ON public.bbj_payout_recipients USING btree (user_id)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payout_recipients",
+    "indexname": "uq_bbj_payout_recipients_payout_user",
+    "indexdef": "CREATE UNIQUE INDEX uq_bbj_payout_recipients_payout_user ON public.bbj_payout_recipients USING btree (payout_id, user_id)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payouts",
+    "indexname": "bbj_payouts_pkey",
+    "indexdef": "CREATE UNIQUE INDEX bbj_payouts_pkey ON public.bbj_payouts USING btree (id)",
+    "constraint_backed": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payouts",
+    "indexname": "bbj_payouts_pool_table_hand_uidx",
+    "indexdef": "CREATE UNIQUE INDEX bbj_payouts_pool_table_hand_uidx ON public.bbj_payouts USING btree (pool_id, table_id, hand_number)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_payouts",
+    "indexname": "idx_bbj_payouts_table_hand",
+    "indexdef": "CREATE INDEX idx_bbj_payouts_table_hand ON public.bbj_payouts USING btree (table_id, hand_number)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_pools",
+    "indexname": "bbj_pools_club_id_key",
+    "indexdef": "CREATE UNIQUE INDEX bbj_pools_club_id_key ON public.bbj_pools USING btree (club_id)",
+    "constraint_backed": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_pools",
+    "indexname": "bbj_pools_pkey",
+    "indexdef": "CREATE UNIQUE INDEX bbj_pools_pkey ON public.bbj_pools USING btree (id)",
+    "constraint_backed": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_pools",
+    "indexname": "idx_bbj_pools_union",
+    "indexdef": "CREATE INDEX idx_bbj_pools_union ON public.bbj_pools USING btree (union_id) WHERE (union_id IS NOT NULL)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_pools",
+    "indexname": "uq_bbj_pools_club_active",
+    "indexdef": "CREATE UNIQUE INDEX uq_bbj_pools_club_active ON public.bbj_pools USING btree (club_id) WHERE ((club_id IS NOT NULL) AND (status = 'active'::text))",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_pools",
+    "indexname": "uq_bbj_pools_union_active",
+    "indexdef": "CREATE UNIQUE INDEX uq_bbj_pools_union_active ON public.bbj_pools USING btree (union_id) WHERE ((club_id IS NULL) AND (union_id IS NOT NULL) AND (status = 'active'::text))",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_recipient_reporting_owners",
+    "indexname": "bbj_recipient_reporting_owners_pkey",
+    "indexdef": "CREATE UNIQUE INDEX bbj_recipient_reporting_owners_pkey ON public.bbj_recipient_reporting_owners USING btree (payout_id, user_id)",
+    "constraint_backed": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_unclaimed_shares",
+    "indexname": "bbj_unclaimed_shares_pkey",
+    "indexdef": "CREATE UNIQUE INDEX bbj_unclaimed_shares_pkey ON public.bbj_unclaimed_shares USING btree (id)",
+    "constraint_backed": true
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_unclaimed_shares",
+    "indexname": "idx_bbj_unclaimed_shares_payout_id_fk",
+    "indexdef": "CREATE INDEX idx_bbj_unclaimed_shares_payout_id_fk ON public.bbj_unclaimed_shares USING btree (payout_id)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_unclaimed_shares",
+    "indexname": "idx_bbj_unclaimed_user",
+    "indexdef": "CREATE INDEX idx_bbj_unclaimed_user ON public.bbj_unclaimed_shares USING btree (user_id) WHERE (paid_at IS NULL)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "bbj_unclaimed_shares",
+    "indexname": "uq_bbj_unclaimed_open",
+    "indexdef": "CREATE UNIQUE INDEX uq_bbj_unclaimed_open ON public.bbj_unclaimed_shares USING btree (payout_id, user_id) WHERE (paid_at IS NULL)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "wallet_credit_idempotency",
+    "indexname": "idx_wallet_credit_idempotency_created",
+    "indexdef": "CREATE INDEX idx_wallet_credit_idempotency_created ON public.wallet_credit_idempotency USING btree (created_at)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "wallet_credit_idempotency",
+    "indexname": "idx_wallet_credit_idempotency_user_id",
+    "indexdef": "CREATE INDEX idx_wallet_credit_idempotency_user_id ON public.wallet_credit_idempotency USING btree (user_id)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "wallet_credit_idempotency",
+    "indexname": "wallet_credit_idempotency_key_pattern_idx",
+    "indexdef": "CREATE INDEX wallet_credit_idempotency_key_pattern_idx ON public.wallet_credit_idempotency USING btree (key text_pattern_ops)",
+    "constraint_backed": false
+  },
+  {
+    "schemaname": "public",
+    "tablename": "wallet_credit_idempotency",
+    "indexname": "wallet_credit_idempotency_pkey",
+    "indexdef": "CREATE UNIQUE INDEX wallet_credit_idempotency_pkey ON public.wallet_credit_idempotency USING btree (key)",
+    "constraint_backed": true
+  }
+]

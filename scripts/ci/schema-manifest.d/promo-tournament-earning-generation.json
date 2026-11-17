@@ -1,0 +1,40 @@
+{
+  "_owner": "agent/promo-tournament-earning-generation-01a1e4d3",
+  "_comment": "Prospective200638 original earning generation metadata. No live installation claim.",
+  "tables": [
+    "ca_promo_profit_event_generations",
+    "ca_promo_profit_generation_heads",
+    "ca_promo_profit_charge_generations",
+    "ca_promo_profit_tournament_hand_clocks",
+    "ca_promo_profit_tournament_hand_sources",
+    "ca_promo_profit_obligation_earnings",
+    "ca_promo_profit_earning_sources",
+    "ca_promo_profit_earning_source_slices",
+    "ca_promo_profit_earning_credit_links",
+    "ca_promo_profit_head_components",
+    "ca_promo_profit_head_retirements",
+    "ca_promo_profit_nonwallet_earning_intents"
+  ],
+  "functions": [
+    "fn_ca_promo_profit_generation_immutable",
+    "fn_ca_promo_profit_initial_generation",
+    "fn_ca_promo_profit_admission_context",
+    "fn_ca_promo_profit_apply_generation",
+    "fn_ca_promo_profit_record_charge_generation",
+    "fn_ca_promo_profit_assign_charge",
+    "fn_ca_promo_profit_funding_generation",
+    "fn_ca_promo_profit_charge_generation_complete",
+    "fn_ca_promo_profit_assign_free_buy_face",
+    "fn_ca_promo_profit_capture_tournament_hand",
+    "fn_ca_promo_profit_capture_obligation_earning",
+    "fn_ca_promo_profit_prepare_tournament_credit",
+    "fn_ca_promo_profit_bind_earning_ledger",
+    "fn_ca_promo_profit_earning_slices_conserved",
+    "fn_ca_promo_profit_add_earned_head",
+    "fn_ca_promo_profit_retire_knocked_out_head",
+    "fn_ca_promo_profit_capture_residual_head",
+    "fn_ca_promo_profit_capture_legacy_head",
+    "fn_ca_promo_profit_prepare_nonwallet_earning",
+    "fn_ca_promo_profit_bind_nonwallet_earning"
+  ]
+}

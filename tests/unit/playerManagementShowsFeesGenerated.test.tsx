@@ -95,7 +95,7 @@ describe('Player Management shows fees generated', () => {
       render(simpleRow({ role, agent_wallet: 999 }));
       expect(screen.getByText('Fees This Week')).toBeVisible();
       expect(screen.getByText('12,345.67')).toBeVisible();
-      const wallet = screen.getByLabelText('Player Wallet Balance 274,600.00');
+      const wallet = screen.getByLabelText('Balance 274,600.00');
       expect(wallet).toHaveTextContent('274,600.00');
       expect(wallet.nextElementSibling).toHaveAttribute('aria-label', 'Today W/L ...');
       expect(screen.queryByText('999.00')).not.toBeInTheDocument();
@@ -104,11 +104,11 @@ describe('Player Management shows fees generated', () => {
 
   it('hides the wallet without financial permission and preserves restricted values', () => {
     const { rerender } = render(simpleRow({ can_view_financials: false }));
-    expect(screen.queryByLabelText(/Player Wallet Balance/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Balance/)).not.toBeInTheDocument();
     rerender(simpleRow({ player_wallet: null }));
-    expect(screen.getByLabelText('Player Wallet Balance Restricted')).toBeVisible();
+    expect(screen.getByLabelText('Balance Restricted')).toBeVisible();
     rerender(simpleRow({ player_wallet: 0 }));
-    expect(screen.getByLabelText('Player Wallet Balance 0.00')).toBeVisible();
+    expect(screen.getByLabelText('Balance 0.00')).toBeVisible();
   });
 
   it('adds downline fees for an agent with a downline', () => {
@@ -202,4 +202,46 @@ describe('Player Management shows fees generated', () => {
     expect(sql).toContain('t.day >= b.from_day');
     expect(sql).not.toMatch(/\b(DELETE|TRUNCATE|UPDATE)\b/);
   });
+});
+
+it('shows withdrawable balance only for an actual wallet promo restriction and preserves wallet-column privacy', () => {
+  const row = simpleRow({});
+  const promo = {
+    locked: 50,
+    wallet_locked: 0,
+    wallet_profit_locked: 0,
+    open_grants: 1,
+    fee_target: 200,
+    fee_progress: 50,
+    fee_remaining: 150,
+    percent: 25,
+    wallet: 274600,
+    cashable: 274580,
+    next_expiry_at: null,
+    integrity_held: 20,
+  };
+  const view = render({ ...row, props: { ...row.props, promo } });
+  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
+  view.rerender({ ...row, props: { ...row.props, promo: { ...promo, wallet_profit_locked: 10 } } });
+  expect(screen.getByText('Withdrawable Balance 274,580.00')).toBeVisible();
+  view.rerender({
+    ...row,
+    props: {
+      ...row.props,
+      promo: { ...promo, wallet_locked: 50 },
+      simpleMode: false,
+      columns: new Set(['wallets']),
+    },
+  });
+  expect(screen.getByText('Withdrawable Balance')).toBeVisible();
+  view.rerender({
+    ...row,
+    props: {
+      ...row.props,
+      promo: { ...promo, wallet_locked: 50 },
+      simpleMode: false,
+      columns: new Set(['fees']),
+    },
+  });
+  expect(screen.queryByText('Withdrawable Balance')).toBeNull();
 });

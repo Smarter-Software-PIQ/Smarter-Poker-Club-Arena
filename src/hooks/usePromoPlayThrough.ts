@@ -46,8 +46,16 @@ export function usePromoPlayThrough(clubId: string | null | undefined, userId: s
       'HAND_COMPLETED',
       'TOURNAMENT_REGISTERED',
       'REALTIME_CONNECTED',
+      'NOTIFICATION_RECEIVED',
     ],
-    () => {
+    (payload) => {
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'notification' in payload &&
+        (payload.notification as { type?: string })?.type !== 'promo_play_through'
+      )
+        return;
       void load();
     },
     { debounce: 250 }
