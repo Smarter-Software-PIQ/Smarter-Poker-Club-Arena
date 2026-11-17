@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { migrationCorpus } from './helpers/migrationCorpus';
+import { spawnSync } from 'node:child_process';
 import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -378,9 +378,31 @@ describe('backed payout discovery is the same accounting question in a batch', (
   // Exhaustive SSD source scan measured 5.3-6.2s during concurrent local checks.
   // Keep every input/assertion and a finite budget with room for I/O contention.
   it('requires renewed batch qualification when the maintained scalar formula changes', () => {
+    const selection = spawnSync(
+      'rg',
+      [
+        '--files-with-matches',
+        '--fixed-strings',
+        '--no-ignore',
+        '--follow',
+        '--text',
+        '--glob',
+        '*.sql',
+        name,
+        'supabase/migrations',
+      ],
+      { encoding: 'utf8', timeout: 45000 }
+    );
+    expect(selection.error).toBeUndefined();
+    expect(selection.status).toBe(0);
+    const relevant = selection.stdout
+      .trim()
+      .split('\n')
+      .sort()
+      .map((path) => ({ name: path.split('/').at(-1)!, sql: read(path) }));
     // A matching parsed declaration necessarily contains this exact identifier.
     // Parse only candidate files; preserve every definition and version ordering.
-    const declarations = migrationCorpus()
+    const declarations = relevant
       .filter(({ sql }) => sql.includes(name))
       .flatMap(({ name: file, sql }) =>
         declaredFunctions(sql)
@@ -396,7 +418,7 @@ describe('backed payout discovery is the same accounting question in a batch', (
     expect(normalize(latest.body), latest.file).toBe(normalize(baseline.body));
     // A dynamic patch is also a formula change: future pg_get_functiondef
     // writers must be reviewed together, rather than evading CREATE detection.
-    const laterDynamic = migrationCorpus().filter(
+    const laterDynamic = relevant.filter(
       ({ name: file, sql }) =>
         file > latest.file &&
         ![
