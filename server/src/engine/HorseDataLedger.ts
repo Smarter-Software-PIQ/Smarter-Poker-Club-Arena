@@ -950,6 +950,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPreflopReraiseDefencePriced',
+    "PLO Strategy lane 2026-11-17 (owner 2026-11-17: the size of the bet must not make or break a decision, no blanket rule may decide one, the decision is the math, the hand, the opponent's range, equity and EV): in PLO4/PLO5 cash, high only, one board, preflop facing a 3-bet or more, the answer of the reference brain and of the preflop re-raise rules (omahaReraiseRangeOutOfPosition / EarlyPosition, omahaOopReraisedPotStrongRange, the cold 4-bet rule) is replaced by one priced decision (HorseOmahaPreflopReraiseDefence.ts): EV(call) = realization x equity x (pot after the call - rake) - call against EV(fold) = 0 and, when a re-raise was proposed, the EV of that re-raise; equity is the exact hand against the top share of hands given by the re-raiser's measured re-raise rate (posterior mean, the population mean with no evidence; sampled with a seed from the cards, never the brain's random stream), realization is measured on recorded calls (position, stack-to-pot ratio after the call, other players in the pot, hand shape). The out-of-position 4-bet call cell of HorseOmahaOopReraisedPot (paired non-aces hand, ratio after the call 2.5 or less) is left to that rule. Default OFF (read === true) until its declared evaluation passes; registered off-only under the owner preflop range hold",
+    'V94'
+  ),
+  flag(
     'omahaReraiseRangeOutOfPosition',
     'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges out of position must be capped): a PLO4/PLO5 cash preflop raise that would be the 3-bet or the 4-bet stands, when the Horse will be out of position against the player it re-raises or against a caller in the pot who acts again, only with suited aces, any aces when the re-raise commits (stack-to-pot ratio once it is called at or under 1), or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better). Every other hand calls instead; the call of a 3-bet is judged by the calling rule of omahaOopReraisedPotStrongRange, the call of a single raise stands for a coordinated hand, aces, or equity clearing the price plus the realization margin, and otherwise folds. Blind against blind keeps the ranges of today. Applied outermost, after the VPIP floor and the maniac-pressure paths. Switched separately from omahaReraiseRangeEarlyPosition. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -4462,6 +4467,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_reraised_flop_continue_kept',
     'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraisedPotFlopContinueNeedsEquityShape)',
     'a flop continue in a re-raised pot the Horse called that the flop cell examined and kept: two pair or better, a pair with a nut-leaning draw, a strong draw, or a cheap call',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_reraise_defence_fold',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'a PLO4/PLO5 cash preflop decision facing a 3-bet or more in which the priced decision was a fold (fired every time the rule answers, changed or not)',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_reraise_defence_call',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'the same decision in which the priced decision was a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_reraise_defence_raise',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'the same decision in which the priced decision kept the re-raise the earlier rules proposed',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_reraise_defence_changed',
+    'HorseLogic call discipline (HorseOmahaPreflopReraiseDefenceRule, omahaPreflopReraiseDefencePriced)',
+    'the priced preflop decision differed from the answer it was given (a fold became a call, a call or a re-raise became a fold, a re-raise became a call)',
     'V94'
   ),
   receipt(

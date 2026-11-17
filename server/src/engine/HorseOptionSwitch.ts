@@ -438,6 +438,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   lightningCheapEntryHoldem: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   lightningCheapEntryOmaha: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-17 PLO Strategy: the priced preflop re-raise defence changes which hands continue against a 3-bet
+  // or more (a preflop calling and re-raising range), so it is under the owner preflop range hold.
+  omahaPreflopReraiseDefencePriced: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,

@@ -120,6 +120,9 @@ const RECEIPT_ONLY_FILES = [
   'engine/HorseLightningParticipation.ts',
   // Lightning cheap entry (2026-11-15, default off): same, for its own receipts.
   'engine/HorseLightningCheapEntry.ts',
+  // Omaha priced preflop re-raise defence (2026-11-17, default off): the rule fires its verdict and
+  // change receipts where it answers (HorseLogic only hands it the preflop decision).
+  'engine/HorseOmahaPreflopReraiseDefenceRule.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
