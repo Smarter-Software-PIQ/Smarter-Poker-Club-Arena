@@ -10,7 +10,6 @@ import { masterBus } from '../core/MasterBus';
 import { reportError } from '../utils/errorReporter';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { resolveVipStatus, type VipStatus } from '../utils/vipStatus';
-import { TERMS_REVISION } from '../components/legal/legalDates';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -287,6 +286,7 @@ class ProfileServiceClass {
       }
       // A missing profile row is not an error and not consent. It is a user we
       // have no acceptance on file for.
+      const { TERMS_REVISION } = await import('../components/legal/legalDates');
       const acceptedAt = data?.club_arena_tos_accepted_at;
       return data?.club_arena_tos_revision === TERMS_REVISION &&
         typeof acceptedAt === 'string' &&

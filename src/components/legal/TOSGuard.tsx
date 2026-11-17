@@ -52,7 +52,6 @@ import { supabase } from '../../lib/supabase';
 import { reportError } from '../../utils/errorReporter';
 import { useHoldPromptLane } from '../../lib/promptLane';
 import { uuid } from '../../utils/uuid';
-import { TERMS_REVISION } from './legalDates';
 /* LAZY on purpose. This guard wraps the entire router, so a static import
    here would put the whole acceptance modal and its stylesheet into the chunk
    every player downloads before first paint, including players whose current
@@ -135,6 +134,7 @@ export default function TOSGuard({ children }: TOSGuardProps) {
     } = await supabase.auth.getSession();
     const token = session?.access_token;
     if (!token) throw new Error('Not authenticated');
+    const { TERMS_REVISION } = await import('./legalDates');
 
     /* THE HEADER IS NOT OPTIONAL. Every World Hub `/api/club-arena/*` POST
        runs `checkIdempotency` before anything else, and that guard answers a
