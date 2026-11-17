@@ -59,6 +59,7 @@ assert changed()==sorted(MIGRATED+['smarter_private.weekly_prep_shard']),changed
 case('P1 fix: migration 20261110053814 installs whole on the production preimage, replaces only weekly_prep_shard (postimage md5 bb29caec, owner and ACL unchanged, its live proof true) and refuses a second install')
 pre=[first,all_jobs(8,1),all_jobs(9,29)]
 exec((F/'prep-fresh-calculator.py').read_text())
+exec((F/'prepared-plans.py').read_text())
 ready=tick('weekly-payout-readiness-0330',minute(9,30))
 pre.append(all_jobs(9,59))
 
