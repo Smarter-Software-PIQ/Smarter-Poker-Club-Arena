@@ -3,6 +3,7 @@ import {
   clubDataRangeDays,
   clubDataRangeError,
   readClubDataRange,
+  clubDataRequestedRangeError,
 } from '../../src/lib/clubDataRange';
 describe('Club Data custom calendar range', () => {
   it('reads inclusive single days and weeks while preserving older exclusive links', () => {
@@ -37,6 +38,20 @@ describe('Club Data custom calendar range', () => {
       'Choose Dates Within The Past 90 Days.'
     );
   });
+  it.each(['2026-09-31', ''])(
+    'refuses malformed exclusive legacy boundary %j without falling back to today',
+    (until) => {
+      const params = new URLSearchParams({
+        dataStart: '2026-09-30',
+        dataEnd: '2026-09-30',
+        dataUntil: until,
+      });
+      expect(readClubDataRange(params, '2026-11-17')).toBeNull();
+      expect(clubDataRequestedRangeError(params, '2026-11-17')).toBe(
+        'Choose A Start And End Date.'
+      );
+    }
+  );
   it('counts inclusive calendar days across both Chicago DST transitions', () => {
     expect(clubDataRangeDays('2026-03-07', '2026-03-09')).toBe(3);
     expect(clubDataRangeDays('2026-10-31', '2026-11-02')).toBe(3);

@@ -1,4 +1,4 @@
-import { addCalendarDays } from './clubDataDay';
+import { addCalendarDays, isCalendarDate } from './clubDataDay';
 
 /** The reporting RPC accepts the past 90 inclusive reporting dates. */
 export const CLUB_DATA_MAX_DAYS = 90;
@@ -51,11 +51,8 @@ export function clubDataOldestDay(today: string): string {
 }
 export function clubDataRequestedRangeError(params: URLSearchParams, today: string): string | null {
   if (!params.has('dataStart') && !params.has('dataEnd') && !params.has('dataUntil')) return null;
-  const end = params.get('dataUntil')
-    ? /^\d{4}-\d{2}-\d{2}$/.test(params.get('dataUntil')!) &&
-      Number.isFinite(Date.parse(params.get('dataUntil')! + 'T12:00:00Z'))
-      ? addCalendarDays(params.get('dataUntil')!, -1)
-      : ''
-    : (params.get('dataEnd') ?? '');
+  const until = params.get('dataUntil');
+  if (until !== null && !isCalendarDate(until)) return 'Choose A Start And End Date.';
+  const end = until !== null ? addCalendarDays(until, -1) : (params.get('dataEnd') ?? '');
   return clubDataRangeError(params.get('dataStart') ?? end, end, today);
 }
