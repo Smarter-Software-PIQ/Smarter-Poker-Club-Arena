@@ -35,10 +35,8 @@ REVOKE ALL ON FUNCTION smarter_private.weekly_club_calculation_current(uuid,date
 CREATE FUNCTION smarter_private.weekly_finalize_club_calculation(p_club uuid,p_from date,p_to date)
 RETURNS boolean LANGUAGE plpgsql
  SET search_path=pg_catalog,public,smarter_private
- SET app.weekly_accounting_chunked='on'
- SET app.weekly_calculation_finalize_only='on'
 AS $final$
-DECLARE result jsonb;
+DECLARE result jsonb; saved_chunked text; saved_finalize text;
 BEGIN
  IF smarter_private.weekly_club_calculation_current(p_club,p_from,p_to) THEN RETURN true; END IF;
  IF NOT EXISTS(SELECT FROM public.accounting_recompute_split_parts
@@ -47,7 +45,15 @@ BEGIN
  THEN RETURN false; END IF;
  -- The same calculator checks late sources, authoritative counts, per-player
  -- evidence and every written page. In this mode it returns on missing work.
+ -- Early exits above leave the caller's context intact. A raised error
+ -- unwinds the statement/subtransaction and these local settings with it.
+ saved_chunked:=coalesce(current_setting('app.weekly_accounting_chunked',true),'');
+ saved_finalize:=coalesce(current_setting('app.weekly_calculation_finalize_only',true),'');
+ PERFORM set_config('app.weekly_accounting_chunked','on',true);
+ PERFORM set_config('app.weekly_calculation_finalize_only','on',true);
  result:=public.fn_rakeback_recompute_split(p_club,p_from,p_to);
+ PERFORM set_config('app.weekly_calculation_finalize_only',saved_finalize,true);
+ PERFORM set_config('app.weekly_accounting_chunked',saved_chunked,true);
  RETURN coalesce(result->>'status'='ready',false) AND smarter_private.weekly_club_calculation_current(p_club,p_from,p_to);
 END $final$;
 REVOKE ALL ON FUNCTION smarter_private.weekly_finalize_club_calculation(uuid,date,date) FROM PUBLIC,anon,authenticated,service_role;
