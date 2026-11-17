@@ -122,6 +122,8 @@ function AgentCashoutContent({
    */
   const inFlightRef = useRef<Set<string>>(new Set());
   const queuedCashoutReload = useRef(false);
+  const blockedDecisions = useRef(new Set<string>());
+  const [, redrawBlockedDecisions] = useState(0);
 
   /**
    * The skeleton belongs to the FIRST load only. `setLoading(true)` on every
@@ -151,6 +153,7 @@ function AgentCashoutContent({
       if (!current()) return;
       rowsCurrent.current = current;
       rowsScope.current = isCurrent;
+      blockedDecisions.current.clear();
       setCashouts(pending);
       // A load that succeeded clears the previous failure. Without this the
       // error banner sat above a perfectly fresh list forever.
@@ -240,9 +243,14 @@ function AgentCashoutContent({
             table: 'club_notice_board',
             ...(resolved ? { filter: `club_id=eq.${resolved}` } : {}),
           },
-          () => {
+          (payload: { new?: { cashout_id?: string } }) => {
             // Escalation leaves the financial request and its timestamps intact.
             // Retire idle private actions immediately, then read server capabilities.
+            const changedId = payload.new?.cashout_id;
+            if (changedId && !inFlightRef.current.has(changedId)) {
+              blockedDecisions.current.add(changedId);
+              redrawBlockedDecisions((value) => value + 1);
+            }
             if (inFlightRef.current.size === 0) rowsCurrent.current = null;
             void loadCashouts();
           }
@@ -351,7 +359,8 @@ function AgentCashoutContent({
       !isCurrent() ||
       !rowsCurrent.current?.() ||
       cashout.status !== 'pending' ||
-      cashout.canDecide !== true
+      cashout.canDecide !== true ||
+      blockedDecisions.current.has(cashout.id)
     )
       return;
     if (inFlightRef.current.has(cashout.id)) return;
@@ -412,6 +421,7 @@ function AgentCashoutContent({
       !isCurrent() ||
       !rowsCurrent.current?.() ||
       !cashout.canEscalate ||
+      blockedDecisions.current.has(cashout.id) ||
       cashout.isEscalated ||
       inFlightRef.current.has(cashout.id)
     )
@@ -609,7 +619,7 @@ function AgentCashoutContent({
                 </div>
               )}
 
-              {cashout.canDecide && (
+              {cashout.canDecide && !blockedDecisions.current.has(cashout.id) && (
                 <div className="acp-actions">
                   <button
                     type="button"
@@ -635,16 +645,18 @@ function AgentCashoutContent({
                   </button>
                 </div>
               )}
-              {cashout.canEscalate && !cashout.isEscalated && (
-                <button
-                  type="button"
-                  className="acp-word acp-word-blue"
-                  disabled={processing.has(cashout.id)}
-                  onClick={() => handleEscalate(cashout)}
-                >
-                  {processing.has(cashout.id) ? 'Sending...' : 'Send To Notice Board'}
-                </button>
-              )}
+              {cashout.canEscalate &&
+                !cashout.isEscalated &&
+                !blockedDecisions.current.has(cashout.id) && (
+                  <button
+                    type="button"
+                    className="acp-word acp-word-blue"
+                    disabled={processing.has(cashout.id)}
+                    onClick={() => handleEscalate(cashout)}
+                  >
+                    {processing.has(cashout.id) ? 'Sending...' : 'Send To Notice Board'}
+                  </button>
+                )}
               <div className="acp-escrow sc-copy">
                 {cashout.isEscalated
                   ? 'Sent To Notice Board. Only The Owner, CO-Owner Or Admin Can Decide This Request. Approval Transfers The Held Chips To The Club Bank.'

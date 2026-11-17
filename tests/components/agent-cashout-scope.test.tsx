@@ -303,3 +303,20 @@ it('refreshes capabilities after another session sends the request to Notice Boa
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve Cashout' })).not.toBeInTheDocument());
   expect(screen.queryByRole('button', { name: 'Send To Notice Board' })).not.toBeInTheDocument();
 });
+
+it('retires another request immediately while preserving the accepted request receipt', async () => {
+  const acknowledgment = deferred<boolean>();
+  state.read.mockResolvedValue([row('request-a'), row('request-b')]);
+  state.approve.mockReturnValue(acknowledgment.promise);
+  render(<AgentCashoutPanel clubId="club-a" />);
+  const buttons = await screen.findAllByRole('button', { name: 'Approve Cashout' });
+  await waitFor(() => expect(buttons[0]).not.toBeDisabled());
+  fireEvent.click(buttons[0]);
+  await waitFor(() => expect(state.approve).toHaveBeenCalledTimes(1));
+  act(() => state.realtime.get('club_notice_board')?.({ new: { club_id: 'club-a', cashout_id: 'request-b' } }));
+  expect(screen.getAllByRole('button', { name: /Approve Cashout|Approving/ })).toHaveLength(1);
+  state.read.mockResolvedValue([{ ...row('request-b'), isEscalated: true, canDecide: false, canEscalate: false }]);
+  await act(async () => acknowledgment.resolve(true));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve Cashout' })).not.toBeInTheDocument());
+  expect(state.approve).toHaveBeenCalledTimes(1);
+});
