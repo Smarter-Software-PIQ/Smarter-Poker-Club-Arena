@@ -1089,7 +1089,17 @@ export default function ClubDataPage() {
   const [ledgerSource, setLedgerSource] = useState<'cold' | 'cached' | 'live' | 'degraded'>('cold');
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
-  const [advanced, setAdvanced] = usePlayerPreference('club/ClubDataPage:advanced', false);
+  const [savedAdvanced, saveAdvanced] = usePlayerPreference('club/ClubDataPage:advanced', false);
+  // Report is an explicit navigation choice, including after a saved Simple
+  // preference hydrates. The URL also lets the user switch modes normally.
+  const requestedView = searchParams.get('view');
+  const advanced = requestedView === 'advanced' || (requestedView !== 'simple' && savedAdvanced);
+  const setAdvanced = (next: boolean) => {
+    saveAdvanced(next);
+    const params = new URLSearchParams(searchParams);
+    params.set('view', next ? 'advanced' : 'simple');
+    setSearchParams(params, { replace: true });
+  };
   const [tab, setTab] = usePlayerPreference<'games' | 'players'>('club/ClubDataPage:tab', 'games');
   /** Read by the poll/visibility handlers, which must not re-register per tab. */
   const tabRef = useRef<'games' | 'players'>('games');
