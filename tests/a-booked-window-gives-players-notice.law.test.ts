@@ -578,11 +578,11 @@ it('keeps the reserved promo attempt inside the continuous drained promise', () 
 it('gives the final one-file promo generation attempt its own later primary notice', () => {
   const id = '2026-11-17-promo-generation-db';
   const own = BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === id);
-  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-17T13:45:00Z'));
-  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-17T14:05:00Z'));
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-17T13:55:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-17T14:15:00Z'));
   expect(own?.notAfterMs).toBe(Date.parse('2026-11-17T15:00:00Z'));
-  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T13:44:59.999Z'))).toBeNull();
-  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T13:45:00Z'))?.id).toBe(id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T13:54:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T13:55:00Z'))?.id).toBe(id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-17T14:59:59.999Z'))?.id).toBe(id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-17T15:00:00Z'))).toBeNull();
   const row = doc.databaseWindows.find((w) => w.id === id);
