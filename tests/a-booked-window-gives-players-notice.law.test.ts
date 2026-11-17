@@ -533,3 +533,22 @@ it('publishes the 2026-11-16-owner-offcycle-engine-2320z engine window promise w
   expect(bookedMaintenanceNotice(Date.parse('2026-11-17T01:59:59.999Z'))?.id).toBe(own?.id);
   expect(bookedMaintenanceNotice(Date.parse('2026-11-17T02:00:00Z'))).toBeNull();
 });
+
+it('gives the drained promo database attempt its own primary notice and fixed expiry', () => {
+  const id = '2026-11-17-promo-play-through-db-drained';
+  const own = BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === id);
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-17T11:00:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-17T11:20:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-17T13:00:00Z'));
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T10:59:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T11:00:00Z'))?.id).toBe(id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T12:59:59.999Z'))?.id).toBe(id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-17T13:00:00Z'))).toBeNull();
+  for (const old of [
+    '2026-11-17-promo-play-through-db',
+    '2026-11-17-promo-play-through-db-corrected',
+  ])
+    expect(BOOKED_MAINTENANCE_NOTICES.find((n) => n.id === old)?.notAfterMs).toBe(
+      Date.parse('2026-11-17T09:00:00Z')
+    );
+});
