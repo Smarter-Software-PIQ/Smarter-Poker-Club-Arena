@@ -4,6 +4,12 @@ import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
 import { durableProfileCounters, opponentMemoryKey } from '../HorseOpponentMemory.js';
 import { shownRiverReadOf, type ShownRiverRead } from '../HorseLongShownMemory.js';
+import {
+  copyStreetRead,
+  streetReadCarriedFor,
+  validStreetRead,
+  type StreetReadCounters,
+} from '../HorseOmahaStreetRead.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
@@ -658,6 +664,20 @@ export class HorseObserverReads {
             read
           );
       }
+    // THE POSTFLOP READ BY STREET AND FLOP TEXTURE (2026-11-17). Each pooled exact row of an Omaha game that carries
+    // a well-formed street read (horse_exact_profiles.street_counters) brings a detached copy of it into the
+    // decision's own state, beside its counters. The row is the one the pooled read already chose by availability
+    // (accepted at or before decisionTimeMs). Donor rows never carry one, and a Hold'em row carries nothing, so a
+    // Hold'em decision's state and read frame are exactly what they were. No decision reads it yet
+    // (HorseMind.omahaStreetReadOf has no caller): the action is the same with the record or without it.
+    const pooledStreetRead = new Map<string, StreetReadCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (streetReadCarriedFor(row.variant) && validStreetRead(row.street_counters))
+          pooledStreetRead.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyStreetRead(row.street_counters)
+          );
     // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
     // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
     // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
@@ -683,6 +703,7 @@ export class HorseObserverReads {
                   ...(pooledProvenance.size ? { pooledProvenance } : {}),
                   ...(pooledShownRiver.size ? { pooledShownRiver } : {}),
                   ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
+                  ...(pooledStreetRead.size ? { pooledStreetRead } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),

@@ -7,6 +7,7 @@ import {
   computeDonorHandClockStaleness,
   copyLongCounters,
   copyShownRiver,
+  copyStreetCounters,
   durableProfileCounters,
   opponentMemoryDonors,
   opponentMemoryKey,
@@ -140,6 +141,8 @@ export class PooledPublicProfiles {
           ...copyLongCounters(p),
           // So does its durable shown river record (2026-11-15; a malformed one is dropped).
           ...copyShownRiver(p),
+          // And its postflop read by street and flop texture (2026-11-17; a malformed one is dropped).
+          ...copyStreetCounters(p),
         },
         at: snapshot.availableAtMs,
         // Saved notes are fresh at boot; staleness counts the hands the
@@ -267,6 +270,7 @@ export class PooledPublicProfiles {
           counters: { ...p.counters },
           ...copyLongCounters(p),
           ...copyShownRiver(p),
+          ...copyStreetCounters(p),
         },
         at,
         clock: this.clocks.get(p.user_id)?.count ?? 0,
