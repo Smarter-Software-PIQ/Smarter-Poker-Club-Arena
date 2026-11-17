@@ -1689,7 +1689,8 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
         const v = omahaFacingBetEvVerdict(spot, hero.cards, gs.communityCards, [], rd)!;
         expect(v.call).toBe(true);
         expect(v.field).toBeGreaterThan(0.35);
-        expect(v.ev).toBeGreaterThan(40);
+        expect(v.margin).toBeLessThanOrEqual(1);
+        expect(v.ev).toBeGreaterThan(25);
       }
       vi.spyOn(HorseMind, 'omahaFacingBetEvReadOf').mockImplementation(() => vlRead);
       seedFastRandom(59777909);

@@ -50,7 +50,7 @@
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
 import { RANK_VALUES } from './PokerEngine.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
@@ -1266,9 +1266,10 @@ export function omahaFacingBetEvVerdict(
   }
   // Hand #59749333: on a non-final turn facing a >= 70%-pot barrel from an
   // earlier-street aggressor with river barrel stacks behind, an unimproved
-  // one-pair or two-pair hand (< trips) with zero straight/flush redraw outs
-  // (<= 4 outs to straight or better) folds most river barrels and cannot
-  // realize IP check-down equity.
+  // one-pair or two-pair hand (< trips) without a nut flush draw, nut straight
+  // outs, or an >= 8-out straight draw folds most river barrels (a baby flush
+  // draw like 7d3d wins rarely when completed against a multi-street pot barrel)
+  // and cannot realize IP check-down equity.
   if (
     spot.street === 'turn' &&
     !spot.final &&
@@ -1278,20 +1279,10 @@ export function omahaFacingBetEvVerdict(
     board.length === 4 &&
     scoreOmahaHiPartial(hole, board) < 4 * 0x100000
   ) {
-    const seen = new Set([...hole, ...board, ...dead].map(key));
-    let strongOuts = 0;
-    for (const s of SUITS) {
-      for (const r of RANKS) {
-        const k = `${r}:${s}`;
-        if (seen.has(k)) continue;
-        if (scoreOmahaHiPartial(hole, [...board, { rank: r, suit: s }]) >= 5 * 0x100000) {
-          strongOuts++;
-          if (strongOuts > 4) break;
-        }
-      }
-      if (strongOuts > 4) break;
+    const draw = omahaDrawQuality(hole, board, false);
+    if (!draw.nutFlushDraw && draw.nutStraightOuts === 0 && draw.straightOuts < 8) {
+      realization = Math.min(realization, 0.65);
     }
-    if (strongOuts <= 4) realization = Math.min(realization, 0.68);
   }
   pWin *= realization;
   pTie *= realization;
