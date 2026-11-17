@@ -24,12 +24,13 @@ export default function ClubDataReturnLink() {
     const value = params.get(key);
     if (value !== null) query.set(key, value);
   }
+  const returnPath =
+    params.get('view') === 'advanced'
+      ? `/clubs/${encodeURIComponent(source)}/data/advanced`
+      : `/clubs/${encodeURIComponent(source)}/data`;
   return (
     <p className={styles.note}>
-      <Link
-        className={styles.action}
-        to={`/clubs/${encodeURIComponent(source)}/data${params.get('view') === 'advanced' ? '/advanced' : ''}?${query}`}
-      >
+      <Link className={styles.action} to={`${returnPath}?${query}`}>
         Return To Club Data
       </Link>{' '}
       {clubDataCalendarLabel(range.start, range.end, 'pacific')}. Member Ledger Figures Retain Their
