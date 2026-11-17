@@ -179,3 +179,7 @@ BEGIN
   RETURN v_out;
 END;
 $function$;
+
+-- Match the installed owner-only helper ACL explicitly on replacement.
+REVOKE ALL ON FUNCTION public.fn_ca_club_game_recent_rows_union_basis(uuid,date,date,integer)
+  FROM PUBLIC, anon, authenticated, service_role;
