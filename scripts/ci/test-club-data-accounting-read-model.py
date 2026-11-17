@@ -827,7 +827,7 @@ try:
     before_rows = [q('live', query) for query in queries]
     require(any(value and value != '[]' for value in before_rows), 'optimized reader fixture exercises real visible game rows, not only fallback')
     before_acl = q('live', "SELECT coalesce(proacl::text,'') FROM pg_proc WHERE oid='public.fn_ca_club_game_recent_rows_union_basis(uuid,date,date,integer)'::regprocedure")
-    run(psql('live'), (M / '20261117190502_club_data_recent_games_read_visible_facts_once.sql').read_text())
+    run(psql('live'), (M / '20261117193740_club_data_recent_games_read_visible_facts_once.sql').read_text())
     require([q('live', query) for query in queries] == before_rows, 'visible-fact aggregation preserves every ordered row, exact fee, player count and fallback')
     require(q('live', "SELECT coalesce(proacl::text,'') FROM pg_proc WHERE oid='public.fn_ca_club_game_recent_rows_union_basis(uuid,date,date,integer)'::regprocedure") == before_acl, 'optimized source keeps the private helper ACL unchanged')
     print('{"native_fixture": "passed", "production_installation": false}')
