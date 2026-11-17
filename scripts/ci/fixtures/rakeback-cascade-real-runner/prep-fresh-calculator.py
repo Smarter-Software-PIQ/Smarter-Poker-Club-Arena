@@ -11,6 +11,21 @@ calc_args="rr.u('T'),'2026-11-09','2026-11-15'"
 finalize="SELECT smarter_private.weekly_finalize_club_calculation("+calc_args+")"
 current="SELECT smarter_private.weekly_club_calculation_current("+calc_args+")"
 parts="SELECT count(*) FROM accounting_recompute_split_parts WHERE club_id=rr.u('T') AND period_start='2026-11-09'"
+# The managed installer rejects custom app.* settings in function DDL.
+assert one("SELECT NOT EXISTS(SELECT FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid='smarter_private.weekly_finalize_club_calculation(uuid,date,date)'::regprocedure AND c LIKE 'app.%')")=='t'
+caller="SET LOCAL app.weekly_accounting_chunked='outer-chunk';SET LOCAL app.weekly_calculation_finalize_only='outer-final';"
+unchanged="current_setting('app.weekly_accounting_chunked')='outer-chunk' AND current_setting('app.weekly_calculation_finalize_only')='outer-final'"
+q("BEGIN;"+caller+"""
+ CREATE FUNCTION rr.reject_test_calc() RETURNS trigger LANGUAGE plpgsql AS $x$BEGIN
+   RAISE EXCEPTION 'fixture_calc_injected_failure' USING ERRCODE='23514';END$x$;
+ CREATE TRIGGER rr_test_calc_error BEFORE UPDATE ON accounting_period_recompute_requests
+   FOR EACH ROW EXECUTE FUNCTION rr.reject_test_calc();
+ DO $x$BEGIN BEGIN PERFORM smarter_private.weekly_finalize_club_calculation(rr.u('T'),'2026-11-09','2026-11-15');
+   RAISE EXCEPTION 'calculator did not reach the original writer';
+   EXCEPTION WHEN check_violation THEN IF SQLERRM<>'fixture_calc_injected_failure' THEN RAISE; END IF;
+   END;END$x$;
+"""+"SELECT rr.ok("+unchanged+",'restore after interrupted finalization');ROLLBACK;")
+assert one("BEGIN;"+caller+finalize+";SELECT "+unchanged+";COMMIT;")=='t'
 assert one(finalize)=='t' and one(current)=='t' and one(parts)=='0'
 initial_attempt=one("SELECT attempts FROM accounting_period_recompute_requests WHERE club_id=rr.u('T') AND period_start='2026-11-09'")
 assert one(finalize)=='t'
