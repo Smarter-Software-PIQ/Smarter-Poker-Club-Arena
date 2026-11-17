@@ -63,6 +63,13 @@ BAND = (330, 2940)          # admitted announcement second-of-hour (:05:30 to :4
 MIN_SPAN, MAX_SPAN = 420, 21600
 # The booking tests require these in every owner order, plus the predecessor SHA.
 STABLE_PHRASES = ('twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended')
+# Owner 2026-11-17 11:05 Chicago: one release without advance player notice. These two values are
+# the ones scripts/ci/owner-notice-waiver.mjs holds; tests/operations/book-owner-engine-window.test.py
+# refuses a difference. A waived booking carries no playerNoticeAt and ships no client notice.
+OWNER_NOTICE_WAIVER = ('For this release, execute the earliest qualified engine cutover without an advance '
+                       'player-warning announcement or notice countdown. Preserve safe hand completion, settlement, '
+                       'certification, admission, recovery and live verification.')
+OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-19T09:30:00Z'
 SUITE_TIMEOUT = 900
 
 
@@ -138,12 +145,21 @@ def order_digest(window):
     return sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode())
 
 
+def notice_waived(window):
+    """Mirror of ownerNoticeWaived in scripts/ci/owner-notice-waiver.mjs (engine windows only)."""
+    return (window.get('ownerNoticeWaiver') == OWNER_NOTICE_WAIVER and 'playerNoticeAt' not in window
+            and OWNER_NOTICE_WAIVER in str(window.get('ownerOrder', ''))
+            and parse_z('notAfter', window['notAfter']) <= parse_z('waiver expiry', OWNER_NOTICE_WAIVER_VALID_UNTIL))
+
+
 def render_notices(doc, ship_from):
     """Mirror of projectOwnerMaintenanceNotices + JSON.stringify(_, null, 2)."""
     rows = []
     for kind, key in (('engine', 'windows'), ('database', 'databaseWindows')):
         for window in doc.get(key) or []:
             if parse_z('notAfter', window['notAfter']) <= ship_from:
+                continue
+            if kind == 'engine' and notice_waived(window):
                 continue
             notice = window.get('playerNoticeAt')
             rows.append({'id': window['id'], 'kind': kind,
@@ -194,10 +210,16 @@ class Booking:
                 refuse(f'{label} must be a 40-hex commit SHA, got {value!r}')
         if not SLUG.fullmatch(a.slug):
             refuse('--slug must be lowercase letters, digits and hyphens')
-        self.notice = parse_z('--notice-at', a.notice_at)
+        self.waived = bool(a.no_advance_notice)
+        if self.waived == (a.notice_at is not None):
+            refuse('give exactly one of --notice-at and --no-advance-notice')
+        self.notice = None if self.waived else parse_z('--notice-at', a.notice_at)
         self.start = parse_z('--not-before', a.not_before)
         self.end = parse_z('--not-after', a.not_after)
-        lead = (self.start - self.notice).total_seconds()
+        if self.waived and self.end > parse_z('waiver expiry', OWNER_NOTICE_WAIVER_VALID_UNTIL):
+            refuse(f'--no-advance-notice is the owner order of 2026-11-17 for one release; a window closing after '
+                   f'{OWNER_NOTICE_WAIVER_VALID_UNTIL} cannot use it')
+        lead = MIN_NOTICE_LEAD if self.waived else (self.start - self.notice).total_seconds()
         if lead < MIN_NOTICE_LEAD:
             refuse(f'notice lead is {int(lead)} s; playerNoticeAt must be at least '
                    f'{MIN_NOTICE_LEAD} s (20 minutes) before notBefore')
@@ -218,7 +240,10 @@ class Booking:
         order = self.read_input('--owner-order-file', a.owner_order_file).strip()
         if not order or '\n' in order or '\r' in order:
             refuse('the owner order must be one non-empty paragraph on a single line')
-        missing = [p for p in STABLE_PHRASES + (a.predecessor,) if p not in order]
+        # A waived order does not promise twenty minutes of notice; it must carry the owner's exact waiver.
+        self.phrases = (tuple(p for p in STABLE_PHRASES if p != 'twenty minutes') + (OWNER_NOTICE_WAIVER,)
+                        if self.waived else STABLE_PHRASES)
+        missing = [p for p in self.phrases + (a.predecessor,) if p not in order]
         if missing:
             refuse('the owner order lacks required text the booking tests pin: ' + ', '.join(repr(p) for p in missing))
         self.order = order
@@ -282,7 +307,8 @@ class Booking:
         self.files[FLOOR] = new_floor.decode()
         self.window = {
             'id': a.window_id, 'ownerOrder': self.order, 'contains': a.contains,
-            'playerNoticeAt': a.notice_at, 'notBefore': a.not_before, 'notAfter': a.not_after,
+            **({'ownerNoticeWaiver': OWNER_NOTICE_WAIVER} if self.waived else {'playerNoticeAt': a.notice_at}),
+            'notBefore': a.not_before, 'notAfter': a.not_after,
             'announcementPolicy': 'earliest-certified', 'supersedesPhase1Schedule': True,
             'migrations': [],
             'releaseWitness': {'path': FLOOR, 'sha256': self.manifest}}
@@ -346,6 +372,12 @@ class Booking:
             refuse(f'{NOTICES} is not what this command renders for the current registry, so its mirror of '
                    f'{NOTICE_GENERATOR} cannot be trusted; run the generator and investigate first')
         rows = render_notices(self.new_doc, ship_from)
+        self.notice_overlap = []
+        if self.waived:
+            # No advance notice is shipped: the client projection must stay byte-identical.
+            if any(row['id'] == a.window_id for row in rows) or notices_text(rows, ship_text) != current:
+                refuse(f'{NOTICES}: a waived window must leave the shipped notices unchanged')
+            return
         if sum(1 for row in rows if row['notBefore'] == a.not_before) != 1:
             refuse(f'another shipped notice shares notBefore {a.not_before}; the generator orders ties with '
                    'localeCompare, which this command does not reproduce. Choose another minute.')
@@ -505,7 +537,7 @@ class Booking:
 
     def new_test(self, carried_absent):
         a = self.args
-        required = (a.predecessor,) + STABLE_PHRASES
+        required = (a.predecessor,) + self.phrases
         absent = self.old_pred if self.old_pred != a.predecessor else carried_absent
         if absent == a.predecessor:
             absent = None
@@ -519,7 +551,10 @@ class Booking:
             '        self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)',
             "        self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)",
             "        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), floor.NOV7_ORDER_DIGEST)",
-            f"        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('{a.notice_at}', '{a.not_before}', '{a.not_after}'))",
+            *(["        self.assertNotIn('playerNoticeAt', window)",
+               f"        self.assertEqual((window['ownerNoticeWaiver'], window['notBefore'], window['notAfter']), ({OWNER_NOTICE_WAIVER!r}, '{a.not_before}', '{a.not_after}'))"]
+              if self.waived else
+              [f"        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('{a.notice_at}', '{a.not_before}', '{a.not_after}'))"]),
             f"        self.assertEqual(window['contains'], '{a.contains}')",
             "        self.assertEqual(window['announcementPolicy'], 'earliest-certified')",
             "        self.assertIs(window['supersedesPhase1Schedule'], True)",
@@ -567,6 +602,24 @@ class Booking:
         self.files[DAILY_LAW] = replace_exact(DAILY_LAW, text, pop % self.old_id, pop % a.window_id + pop % self.old_id, 1)
 
         text = self.read(NOTICE_LAW)
+        if self.waived:
+            title = f'books the {a.window_id} engine window on the owner notice waiver and ships no advance notice'
+            if title in text or f"'{a.window_id}'" in text:
+                refuse(f'{NOTICE_LAW} already has a case for {a.window_id}')
+            if 'OWNER_NOTICE_WAIVER_INSTRUCTION' not in text or 'ownerNoticeWaived' not in text:
+                refuse(f'{NOTICE_LAW} no longer imports the owner notice waiver; update this command')
+            case = ['', f"it('{title}', () => {{",
+                    f"  const id = '{a.window_id}';",
+                    '  const own = doc.windows.find((w) => w.id === id);',
+                    '  expect(own).toBeDefined();',
+                    "  expect(ownerNoticeWaived(own, 'windows')).toBe(true);",
+                    '  expect(own?.playerNoticeAt).toBeUndefined();',
+                    '  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);',
+                    f"  expect([own?.notBefore, own?.notAfter]).toEqual(['{a.not_before}', '{a.not_after}']);",
+                    '  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);',
+                    '});', '']
+            self.files[NOTICE_LAW] = text.rstrip('\n') + '\n' + '\n'.join(case)
+            return
         title = f'publishes the {a.window_id} engine window promise with its lead and fixed expiry'
         if title in text or f"'{a.window_id}'" in text:
             refuse(f'{NOTICE_LAW} already has a case for {a.window_id}')
@@ -614,7 +667,8 @@ class Booking:
             f'new window          {a.window_id}',
             f'  predecessor       {a.predecessor}' + ('  (unchanged)' if a.predecessor == self.old_pred else ''),
             f'  contains          {a.contains}',
-            f'  notice            {a.notice_at}  ({chicago(self.notice)})',
+            ('  notice            none (owner notice waiver 2026-11-17; no playerNoticeAt, no client notice)' if self.waived
+             else f'  notice            {a.notice_at}  ({chicago(self.notice)})'),
             f'  notBefore         {a.not_before}  ({chicago(self.start)})',
             f'  notAfter          {a.not_after}  ({chicago(self.end)}), {self.span} s',
             f'  routine 03:30     {z(self.routine)}  (the next preparation; the window ends before it)',
@@ -705,7 +759,10 @@ def main(argv=None):
     parser.add_argument('--window-id', required=True)
     parser.add_argument('--predecessor', required=True, help='40-hex SHA the engine is serving')
     parser.add_argument('--contains', required=True, help='40-hex content minimum')
-    parser.add_argument('--notice-at', required=True, help='player notice, UTC ISO Z')
+    parser.add_argument('--notice-at', help='player notice, UTC ISO Z (required unless --no-advance-notice)')
+    parser.add_argument('--no-advance-notice', action='store_true',
+                        help='owner order 2026-11-17: book one engine window with no playerNoticeAt and no client notice; '
+                             'the order file must contain the exact owner instruction')
     parser.add_argument('--not-before', required=True, help='admission opens, UTC ISO Z')
     parser.add_argument('--not-after', required=True, help='fixed expiry, UTC ISO Z')
     parser.add_argument('--owner-order-file', required=True, help='text file holding the verbatim ownerOrder paragraph')

@@ -23,6 +23,7 @@ import {
   NOTICE_HEADROOM_MS,
   TOLERANCE_MS,
 } from '../../scripts/ci/check-owner-window-booking.mjs';
+import { OWNER_NOTICE_WAIVER_INSTRUCTION } from '../../scripts/ci/owner-notice-waiver.mjs';
 
 const at = (s) => Date.parse(s);
 const doc = (windows = [], databaseWindows = []) => ({ version: 1, windows, databaseWindows });
@@ -248,6 +249,39 @@ test('databaseWindows are held to the same rule; certified recovery stays exempt
   assert.deepEqual(recovery, []);
 });
 
+test('an engine window on the exact owner notice waiver (2026-11-17) books without playerNoticeAt', () => {
+  const now = at('2026-11-17T17:30:00Z');
+  const waived = {
+    id: 'waived',
+    ownerOrder: `Synthetic order. ${OWNER_NOTICE_WAIVER_INSTRUCTION}`,
+    ownerNoticeWaiver: OWNER_NOTICE_WAIVER_INSTRUCTION,
+    notBefore: '2026-11-17T18:40:00Z',
+    notAfter: '2026-11-17T23:00:00Z',
+  };
+  assert.deepEqual(bookingRecordViolations(doc(), doc([waived]), now), []);
+  // Its admission is still held to the ordinary rules.
+  const past = bookingRecordViolations(doc(), doc([{ ...waived, notBefore: '2026-11-17T17:00:00Z' }]), now);
+  assert.equal(past.length, 1);
+  assert.match(past[0], /notBefore 2026-11-17T17:00:00Z is in the past/);
+  const inverted = bookingRecordViolations(doc(), doc([{ ...waived, notAfter: '2026-11-17T18:40:00Z' }]), now);
+  assert.match(inverted[0], /notAfter 2026-11-17T18:40:00Z must be after notBefore/);
+  // Every other use of the field is refused: wrong sentence, a claimed notice, a database window, a later release.
+  for (const [windows, databaseWindows] of [
+    [[{ ...waived, ownerNoticeWaiver: 'skip it' }], []],
+    [[{ ...waived, playerNoticeAt: '2026-11-17T18:10:00Z' }], []],
+    [[{ ...waived, ownerOrder: 'no quote' }], []],
+    [[{ ...waived, notAfter: '2026-11-19T09:30:01Z' }], []],
+    [[], [waived]],
+  ]) {
+    const refused = bookingRecordViolations(doc(), doc(windows, databaseWindows), now);
+    assert.equal(refused.length, 1);
+    assert.match(refused[0], /ownerNoticeWaiver is accepted only/);
+  }
+  // Without the field a missing notice is refused exactly as before.
+  const { ownerNoticeWaiver, ...plain } = waived;
+  assert.match(bookingRecordViolations(doc(), doc([plain]), now)[0], /playerNoticeAt is required/);
+});
+
 test('the gate actually runs, with this test, in the required compilation job', () => {
   const ci = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const start = ci.indexOf('\n  typecheck_compile:\n');
@@ -286,6 +320,9 @@ test('actual CLI requires a valid on-main public witness and fails closed on unk
     mkdirSync(join(dir, 'scripts/ci'), { recursive: true });
     mkdirSync(join(dir, 'server/release'), { recursive: true });
     writeFileSync(join(dir, script), readFileSync(new URL(`../../${script}`, import.meta.url)));
+    // The check imports the owner notice waiver (2026-11-17) from beside itself.
+    const waiver = 'scripts/ci/owner-notice-waiver.mjs';
+    writeFileSync(join(dir, waiver), readFileSync(new URL(`../../${waiver}`, import.meta.url)));
     const windows = JSON.parse(readFileSync(new URL(`../../${FILE}`, import.meta.url), 'utf8'));
     const record = windows.windows.find(w => w.id === '2026-11-15-owner-offcycle-engine-1206z');
     const witness = JSON.parse(readFileSync(new URL(`../../${witnessPath}`, import.meta.url), 'utf8'));
