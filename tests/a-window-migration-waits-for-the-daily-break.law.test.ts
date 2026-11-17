@@ -45,6 +45,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
+import { migrationCorpus } from './helpers/migrationCorpus';
 import {
   WINDOW_ANNOTATION,
   WINDOW_LOCK_TIMEOUT_MS,
@@ -408,6 +409,7 @@ describe('the route runs on the daily schedule that already exists', () => {
   it('is qualified natively on every pull request that touches it', () => {
     const wf = parse(read('.github/workflows/maintenance-window-migrations.yml'));
     expect(wf.on.pull_request.paths).toContain('scripts/ci/maintenance-window-migrations.mjs');
+    expect(wf.on.pull_request.paths).toContain('scripts/ci/read-migration-corpus.mjs');
     expect(wf.on.pull_request.paths).toContain('scripts/ci/apply-recorded-migration.mjs');
     const run = wf.jobs.qualify.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
     expect(run).toContain('bash scripts/ci/test-maintenance-window-migrations.sh');
@@ -426,9 +428,9 @@ describe('the route runs on the daily schedule that already exists', () => {
   });
 
   it('every declared migration on main passes the window rules', () => {
-    const dir = resolve(root, 'supabase/migrations');
-    for (const f of readdirSync(dir).filter((n) => /^\d{14}_[a-z0-9_]+\.sql$/.test(n))) {
-      const sql = readFileSync(resolve(dir, f), 'utf8');
+    for (const { name: f, sql } of migrationCorpus().filter(({ name }) =>
+      /^\d{14}_[a-z0-9_]+\.sql$/.test(name)
+    )) {
       if (!/@install-window/.test(sql)) continue;
       expect(() => validateWindowMigration(f, sql, { preamble: [] }), f).not.toThrow();
     }
