@@ -4777,6 +4777,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_facing_bet_ev_call_blocked_by_plo6_river_fold',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv; PLO6 only, omahaStrategyInPlo6 on)',
+    'the same decision in a six-card game on the river: the expected value of the call exceeds the margin, but the live river fold rule (V58 paired / V59 unpaired, its own seeded beaten share and price) folds this hand, so the answer is the fold; fired in place of the call and the fold receipt',
+    'V94'
+  ),
+  receipt(
     'omaha_owner_ruled_check_kept',
     'HorseLogic wager_rules (omahaOwnBetRules and omahaOwnerRuledFinal, precedence 2026-11-15)',
     'a pricing rule (omahaCardImpact, omahaStrongHandValue), the big-draw wager (omahaBigDrawAggression) or the checked-to pricing bet proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules), the made-hand defence (omahaBeatenMadeHandDefense, omahaMadeHandDefenseVsValueLeader) or the street plan checks, or a rule that ran after omahaOwnBetRules proposed a wager in the spot the PLO6 multiway weak made-hand rule checks (plo6NoMultiwayBetWithWeakMadeHand, HorsePlo6MultiwayWeakBet.ts, with that option on): the bet was not made',

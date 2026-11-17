@@ -51,6 +51,7 @@ import { omahaMadeClass, scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import { plo6MediumBetPriced, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 
 export const OMAHA_RIVER_MEDIUM_BET_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** The bet's share of the pot before it: the measured band, both ends included. */
@@ -96,7 +97,8 @@ export function omahaRiverHoldsShare(
   dead: Card[] = []
 ): number | null {
   if (!Array.isArray(hole) || !Array.isArray(board) || board.length !== 5) return null;
-  if (hole.length !== 4 && hole.length !== 5) return null;
+  // Six cards (SPEC-A 3.13, helper H17): the count is exact for any hole size.
+  if (hole.length !== 4 && hole.length !== 5 && hole.length !== 6) return null;
   const known = [...hole, ...board, ...(Array.isArray(dead) ? dead : [])];
   if (known.some((c) => !c || !RANKS.includes(c.rank as never) || !SUITS.includes(c.suit as never)))
     return null;
@@ -207,6 +209,8 @@ export function omahaRiverMediumBetSpot(
     const board = gs.communityCards ?? [];
     const hole = player.cards ?? [];
     if (board.length !== 5 || hole.length !== Number(variant.at(-1))) return null;
+    // PLO6 (SPEC-A 3.13 item 6): cash only, no bomb pot.
+    if (hole.length === 6 && plo6PricingExcludes(gs)) return null;
     if (!Number.isFinite(player.bet) || !Number.isFinite(gs.currentBet)) return null;
     // What the Horse owes: gs.toCall, or the current bet less its own chips
     // when the state carries no toCall (the league; audit 2026-11-15, item 3).
@@ -261,7 +265,10 @@ export function omahaRiverMediumBetSpot(
     if (others.some((p) => !p.is_all_in && p.bet + 0.011 < gs.currentBet)) return null;
 
     // Two pair or better in the engine's classes; two pair on a paired board
-    // is its one-pair class.
+    // is its one-pair class. Kept for six cards too (pre-review finding 11):
+    // the PLO6 calibration records the class bar as dropped because under its
+    // beaten-share bars the bar never binds (SPEC-A 3.13); keeping it is the
+    // stricter reading and costs nothing.
     const made = omahaMadeClass(hole, board);
     if (made.category < TWO_PAIR) return null;
     if (made.category === TWO_PAIR && (made.boardPaired || made.cls === 'board2p')) return null;
@@ -288,10 +295,14 @@ export function omahaRiverMediumBetSpot(
       category: made.category,
       holds,
       // omahaStrategyInTournaments: a tournament call also pays the survival premium.
+      // PLO6 (SPEC-A 3.13): the PLO5 "1.5 x price" class is not ported; the
+      // fold becomes a call only under the M1 beaten bars.
       priced:
-        holds + 1e-12 >=
-        omahaStrategyConstant('riverMediumBetRangeFactor', gs) * price +
-          omahaTournamentIcmPremium(player, gs, paid),
+        hole.length === 6
+          ? plo6MediumBetPriced(holds, board, price)
+          : holds + 1e-12 >=
+            omahaStrategyConstant('riverMediumBetRangeFactor', gs) * price +
+              omahaTournamentIcmPremium(player, gs, paid),
       allIn,
     };
   } catch {

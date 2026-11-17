@@ -578,3 +578,51 @@ describe('the contract', () => {
     expect(plo6NoMultiwayBetWithWeakMadeHand(d, hero, gs).decision).toBe(d);
   });
 });
+
+describe('Lightning PLO6 cash is a PLO6 cash table for this rule', () => {
+  // A Lightning table is flagged by its public memory domain's speed
+  // (HorseLightningParticipation.ts reads the same field). The Lightning
+  // participation rules are preflop and Hold'em / PLO4 / PLO5 only; no
+  // Lightning rule owns a PLO6 flop or turn bet, so the rule is not excluded
+  // there and must read the spot exactly as at a regular table.
+  const LIGHTNING = { publicMemoryDomain: { speed: 'lightning' } };
+  const REGULAR = { publicMemoryDomain: { speed: 'regular' } };
+  const TURN = 'Ks9d4c2h';
+  const rows: Array<[string, string, Over]> = [
+    ['underpair on the flop', UNDERPAIR, {}],
+    ['bottom two on the flop', BOTTOM_TWO, {}],
+    ['underpair on the turn', UNDERPAIR, { board: TURN, stage: 'turn' }],
+    ['heads-up (outside the spot)', UNDERPAIR, { headsUp: true }],
+    ['top set (outside the spot)', 'KhKcQd6s3h2c', {}],
+  ];
+  it.each(rows)('%s: same spot, same result', (_name, hole, o) => {
+    const plain = run(hole, o);
+    const regular = run(hole, { ...o, gs: REGULAR });
+    const lightning = run(hole, { ...o, gs: LIGHTNING });
+    const spotOf = (r: typeof plain) => plo6MultiwayWeakBetSpot(r.hero, r.gs);
+    expect(spotOf(lightning)).toEqual(spotOf(plain));
+    expect(spotOf(regular)).toEqual(spotOf(plain));
+    expect(lightning.out.changed).toBe(plain.out.changed);
+    expect(lightning.out.decision.action).toBe(plain.out.decision.action);
+    expect(lightning.out.decision.amount).toBe(plain.out.decision.amount);
+  });
+  it('the rule and the six-card port modules read no table-speed field', async () => {
+    const { readFileSync } = await import('node:fs');
+    for (const f of [
+      'HorsePlo6MultiwayWeakBet.ts',
+      'HorsePlo6PricingPort.ts',
+      'HorseOmahaFacingBetEv.ts',
+      'HorseOmahaRiverMediumBetCalls.ts',
+      'HorseOmahaOopReraisedPot.ts',
+      'HorseOmahaReraisedPot.ts',
+      'HorseOmahaUnderpair.ts',
+      'HorseOmahaOopChecks.ts',
+      'HorseOmahaStrongHandValue.ts',
+      'HorsePloPairedBoardFold.ts',
+      'HorseOmahaStrategyGame.ts',
+    ]) {
+      const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8');
+      expect(src, f).not.toMatch(/publicMemoryDomain|lightning/i);
+    }
+  });
+});
