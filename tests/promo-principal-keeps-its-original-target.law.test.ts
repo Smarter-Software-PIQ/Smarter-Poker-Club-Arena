@@ -16,6 +16,23 @@ describe('An original promo grant keeps one target through its custody', () => {
     ])
       expect(baseline).toContain(name);
     expect(baseline).not.toContain('*_promo_play_through_*.sql');
+    for (const name of [
+      'test-promo-custody-accepted-hand.py',
+      'test-promo-integrity-accepted-hand.py',
+      'test-promo-profit-accepted-hand.py',
+      'test-promo-principal-returns.py',
+      'test-promo-profit-bbj-financial.py',
+    ]) {
+      const consumer = read(`scripts/ci/${name}`);
+      expect(consumer).toContain(
+        "module(root/'scripts/ci/test-promo-play-through.py','promo_baseline')"
+      );
+      expect(consumer).toContain(
+        "base_migrations=[root/'supabase/migrations'/name for name in baseline.BASE_MIGRATION_FILES]"
+      );
+      expect(consumer).not.toContain('*_promo_play_through_*.sql');
+      expect(consumer).toMatch(/for (?:f|file) in base_migrations/);
+    }
     expect(read('.github/workflows/promo-play-through.yml')).toContain(
       'python3 -B scripts/ci/test-promo-activation.py --pg-bin /usr/lib/postgresql/17/bin'
     );

@@ -18,3 +18,9 @@ migration, whose installation-history prerequisite is absent from the foundation
 fixture. The existing custody, notice and integrity consumers reuse that same
 baseline list. Activation remains fully exercised by its separate 17-check
 history-aware proof; no activation guard or financial rule is weakened.
+
+All five original accepted-hand and financial bootstraps now import that same
+explicit filename tuple and bind it to their selected source root. The applied
+migration paths and the selector source remain recorded in their evidence.
+Their former independent globs had the same activation-selection defect. The
+public tournament financial proof exercises the corrected shared return bootstrap.

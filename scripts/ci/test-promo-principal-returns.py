@@ -8,6 +8,8 @@ import argparse,os,sys,json,hashlib,uuid
 from pathlib import Path
 root=Path(__file__).resolve().parents[2];sys.path.insert(0,str(root/'scripts/ci'))
 from satellite_qualifier_fixture import module,table_sql
+baseline=module(root/'scripts/ci/test-promo-play-through.py','promo_baseline')
+base_migrations=[root/'supabase/migrations'/name for name in baseline.BASE_MIGRATION_FILES]
 hs=module(root/'scripts/ci/test-hand-submission.py','promo_returns_hs')
 native=module(root/'scripts/ci/test-mtt-unlimited.py','promo_returns_native')
 p=argparse.ArgumentParser(description=__doc__)
@@ -24,7 +26,7 @@ manifest=hs.prepare(root,out)
 tested={};
 def remember(path):
  path=path.resolve();key=str(path.relative_to(root)) if path.is_relative_to(root) else str(path);tested[key]=hashlib.sha256(path.read_bytes()).hexdigest()
-for path in [Path(__file__),args.current_financial,args.disburse_owner,root/'tests/fixtures/promo-principal-returns/journal-owners.json']+[root/'tests/fixtures/promo-principal-returns/self-stake.sql',root/'tests/fixtures/promo-principal-returns/agent-send.sql',root/'tests/fixtures/promo-principal-returns/claim-back.sql',root/'tests/fixtures/promo-principal-returns/member-leave.sql']:remember(path)
+for path in [Path(__file__),root/'scripts/ci/test-promo-play-through.py',args.current_financial,args.disburse_owner,root/'tests/fixtures/promo-principal-returns/journal-owners.json']+[root/'tests/fixtures/promo-principal-returns/self-stake.sql',root/'tests/fixtures/promo-principal-returns/agent-send.sql',root/'tests/fixtures/promo-principal-returns/claim-back.sql',root/'tests/fixtures/promo-principal-returns/member-leave.sql']:remember(path)
 e=native.Execution(root,out,args.pg_bin.resolve(),Path(os.environ.get('TMPDIR',str(out))),600,socket_parent=Path(os.environ.get('TMPDIR',str(out))))
 try:
  e.start();db=e.database()
@@ -91,7 +93,7 @@ try:
  remember(root/'supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql')
  original=(root/'supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql').read_text()
  e.sql(db,original[original.index('CREATE FUNCTION public.fn_cash_record_original_funding('):original.index('-- This is a prospective game/roster snapshot')],label='original-cash-funding')
- for file in sorted((root/'supabase/migrations').glob('*_promo_play_through_*.sql')):
+ for file in base_migrations:
   remember(file);e.sql(db,file=file,label=file.stem[:40])
  inventory_path=root/'tests/fixtures/promo-custody-inventory-pin.json';remember(inventory_path)
  inventory=json.loads(inventory_path.read_text())
