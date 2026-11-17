@@ -63,6 +63,7 @@ import {
 } from '../../utils/rakeSnapshotExport';
 import { uuid } from '../../utils/uuid';
 import ClubDataRangeCalendar from './ClubDataRangeCalendar';
+import ClubDataReconciliation from './ClubDataReconciliation';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import {
   isClubDataPacificIncomplete,
@@ -1330,6 +1331,14 @@ export default function RakeSnapshotPanel({
         )}
       </dl>
 
+      {snapshot && !isAgent && (
+        <ClubDataReconciliation
+          basis={snapshot.accounting_basis}
+          coverage={snapshot.accounting_coverage}
+          range={snapshot.range}
+          reconciliation={summary?.reconciliation}
+        />
+      )}
       {series.length > 1 && (
         <figure className={styles.trend}>
           <figcaption className={`sc-label sc-ink--blue ${styles.trendCaption}`}>

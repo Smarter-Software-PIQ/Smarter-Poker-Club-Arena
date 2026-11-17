@@ -11,7 +11,8 @@
  * are a convenience so an operator is not shown a chip that will refuse them.
  */
 
-import { chicagoDay, accountingDay } from '../lib/clubDataDay';
+import { chicagoDay, accountingDay, type ClubDataCoverage } from '../lib/clubDataDay';
+import type { ClubDataReconciliation } from '../lib/clubDataReconciliation';
 import { supabase } from '../lib/supabase';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 
@@ -20,6 +21,7 @@ export type RakeScope = 'club' | 'union' | 'agent';
 export type PeriodKey = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'custom';
 
 export interface RakeSnapshotSummary {
+  reconciliation?: ClubDataReconciliation | null;
   fee: number;
   cash_fee: number | null;
   mtt_fee: number | null;
@@ -148,7 +150,7 @@ export interface RakeSnapshot {
     | 'chicago_net_money_flow'
     | 'pacific_net_money_flow'
     | 'union_invoice_accounting';
-  accounting_coverage?: { complete?: boolean; provisional?: boolean };
+  accounting_coverage?: ClubDataCoverage | null;
   day_basis?: string;
   previous_coverage?: { complete?: boolean };
   scope: RakeScope;
