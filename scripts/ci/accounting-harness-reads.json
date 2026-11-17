@@ -1779,6 +1779,7 @@
     "supabase/migrations/20261116222207_original_flow_refund_proof_keeps_its_original_key_before_own.sql",
     "supabase/migrations/20261116231027_the_final_bounty_proof_evaluates_the_whole_scoped_field_once.sql",
     "supabase/migrations/20261117002644_same_transaction_cash_refunds_prove_their_exact_original_rec.sql",
+    "supabase/migrations/20261117173834_digest_distinguishes_funded_credit_tracking_statements.sql",
     "supabase/tests/fixed_limit_buyin_policy.sql",
     "tests/fixtures/accounting-agreement-history/bootstrap.sql",
     "tests/fixtures/accounting-agreement-history/eco-bootstrap.sql",
