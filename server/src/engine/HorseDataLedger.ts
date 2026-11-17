@@ -1045,6 +1045,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'vpipFloorLimpOnly',
+    'Owner 2026-11-17 14:34 Chicago, finding F-10 ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops."): on a floored cash table of a variant listed in VPIP_FLOOR_LIMP_ONLY_VARIANTS (a declared table derived from the F-10 evaluation E1d/E3: the 20% hold-em floor only; PLO5 and PLO6 50% and PLO4 30% are left out because a limp-only floor was measured to evict there, and the other variants were not measured, so on all of those the option changes nothing; never tournaments, All-In-Or-Fold, bomb pots or Lightning) the table VPIP floor no longer widens a bar (vpipFloorMul), calls a raise (vpipFloorCallDown) or swaps an intent (omahaVpipFloorByLimp): every decision is the unfloored one. Its one action: a Horse whose own judged VPIP is under its line (the floor plus VPIP_LIMP_BUFFER_HANDS hands of the judged window, 18 of 30 on a 50% table) turns a preflop fold in a pot nobody has raised, at a price of at most the big blind and less than its stack, into the limp or the small blind completion when the expected value of that limp (equity against the ranges still to act from reads or the measured population envelope, flop realization by position, the chance of a raise behind and the hand own EV when raised) is at least minus the price times the share of the three-hand buffer still needed (owner 15:30: priced, never blanket); no straddled hand; no judged sample yet means no action. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
     'omahaManiacReRaiseWidthMeasured',
     'Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and called his re-raises; the decisions replay as v53_pressure_four_bet and the maniac price call, priced against a range the read sets at his whole raising width (0.69) for his 3-bet and 0.58 for his 5-bet. With this on (PLO4/PLO5 cash) a measured maniac whose re-raises rest on 12 or more decayed opportunities is read on a re-raising line at his own re-raise rate (never wider than today); the price arithmetic and its margins are unchanged. HorseMind.bandFor. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -3220,6 +3225,34 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'under its target, called a small preflop price instead of folding (2026-10-17)',
     'VPIP',
     'vpip_floor'
+  ),
+  receipt(
+    'vpip_floor_limp_only_seen',
+    'HorseLogic (VPIP floor, vpipFloorLimpOnly)',
+    'a floored cash decision under vpipFloorLimpOnly: the floor widened no bar and may only limp (owner 2026-11-17)',
+    'VPIP',
+    'vpip_floor'
+  ),
+  receipt(
+    'vpip_floor_limp_only_limp',
+    'HorseLogic (VPIP floor, vpipFloorLimpOnly)',
+    'under its line, a preflop fold in an unraised pot for at most the big blind became the limp or the small blind completion',
+    'VPIP',
+    'vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'vpip_floor_limp_only_fold_kept',
+    'HorseLogic (VPIP floor, vpipFloorLimpOnly)',
+    'under its line in an unraised pot, the limp of this hand was priced below what the floor pays at this distance from the line (vpipFloorLimpOnlySelects): the fold stands',
+    'VPIP',
+    'vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'vpip_floor_limp_only_priced_out',
+    'HorseLogic (VPIP floor, vpipFloorLimpOnly)',
+    'under its line but the price is not a one big blind limp (a raised pot, a straddle, the whole stack or a priced refusal): the floor took no action and the fold stands',
+    'VPIP',
+    'vpip_floor_limp_only_seen'
   ),
   receipt(
     'v15_nut_status',
