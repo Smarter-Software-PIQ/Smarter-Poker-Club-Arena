@@ -1097,6 +1097,10 @@ export function omahaFacingBetEvSpot(
       allIn &&
       aggressorStreets >= 1 &&
       (bucket === 'under40' || bucket === 'mid');
+    // Hand #59775543: betting >= 25% pot into multiple opponents on a paired
+    // river is polarized to trips or full houses, never thin two-pair/one-pair value.
+    const pairedRiverMultiwayValue =
+      street === 'river' && !isRaise && boardPaired && potFrac >= 0.25 && callers + behind >= 1;
     // Hand #59755179: raising an earlier postflop street and barreling every
     // street into a >= 70%-pot river bet represents a raise-narrowed nutted range.
     const earlierRaisedBigRiverBarrel =
@@ -1104,7 +1108,7 @@ export function omahaFacingBetEvSpot(
     let valueShare = pairedRiverDonkIntoAggressor
       ? OMAHA_EV_VALUE_SHARE.river.raise * OMAHA_EV_LINE_AGGRESSOR ** callerStreets
       : OMAHA_EV_VALUE_SHARE[street][
-          isRaise ? 'raise' : unpairedMultiStreetAllIn ? 'big' : bucket
+          isRaise ? 'raise' : unpairedMultiStreetAllIn || pairedRiverMultiwayValue ? 'big' : bucket
         ] *
         OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets *
         OMAHA_EV_LINE_CALLER ** callerStreets;
@@ -1219,7 +1223,10 @@ export function omahaFacingBetEvVerdict(
   // keeps no showdown record of a player's calls by wager size, so there is
   // no per-caller read to move it (audit 2026-11-15, item 8: the unfed
   // callerShown input was removed).
-  if (spot.callers > 0) field *= need(OMAHA_EV_CALLER_SHARE[spot.street], true) ** spot.callers;
+  const baseCallerShare = OMAHA_EV_CALLER_SHARE[spot.street];
+  const callerShare =
+    spot.potFrac < 0.25 ? 1 - (1 - baseCallerShare) * (spot.potFrac / 0.25) : baseCallerShare;
+  if (spot.callers > 0) field *= need(callerShare, true) ** spot.callers;
   if (spot.allIns > 0) field *= need(OMAHA_EV_ALL_IN_SHARE, true) ** spot.allIns;
   if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
   pWin *= field;
@@ -1227,6 +1234,7 @@ export function omahaFacingBetEvVerdict(
   let realization = spot.final
     ? 1
     : Math.max(0.5, Math.min(1, Number.isFinite(ctx.realization) ? ctx.realization! : 0.85));
+  if (!spot.final && spot.behind > 0) realization = Math.min(realization, 0.85);
   // Hand #59725321: on an already-paired turn facing a >= 40%-pot wager with
   // river barrel stacks still behind, a non-boat hand with zero full-house/quad
   // river outs draws dead against every boat in the bettor's range and folds
@@ -1256,6 +1264,35 @@ export function omahaFacingBetEvVerdict(
     }
     if (boatOuts === 0) realization = Math.min(realization, 0.42);
   }
+  // Hand #59749333: on a non-final turn facing a >= 70%-pot barrel from an
+  // earlier-street aggressor with river barrel stacks behind, an unimproved
+  // one-pair or two-pair hand (< trips) with zero straight/flush redraw outs
+  // (<= 4 outs to straight or better) folds most river barrels and cannot
+  // realize IP check-down equity.
+  if (
+    spot.street === 'turn' &&
+    !spot.final &&
+    spot.potFrac >= 0.7 &&
+    spot.aggressorStreets >= 1 &&
+    spot.bettorCanBarrelRiver !== false &&
+    board.length === 4 &&
+    scoreOmahaHiPartial(hole, board) < 4 * 0x100000
+  ) {
+    const seen = new Set([...hole, ...board, ...dead].map(key));
+    let strongOuts = 0;
+    for (const s of SUITS) {
+      for (const r of RANKS) {
+        const k = `${r}:${s}`;
+        if (seen.has(k)) continue;
+        if (scoreOmahaHiPartial(hole, [...board, { rank: r, suit: s }]) >= 5 * 0x100000) {
+          strongOuts++;
+          if (strongOuts > 4) break;
+        }
+      }
+      if (strongOuts > 4) break;
+    }
+    if (strongOuts <= 4) realization = Math.min(realization, 0.68);
+  }
   pWin *= realization;
   pTie *= realization;
   const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? ctx.rake! : 0));
@@ -1266,9 +1303,11 @@ export function omahaFacingBetEvVerdict(
     Number.isFinite(ctx.riskPremium) && (ctx.riskPremium as number) > 0
       ? Math.min(0.5, ctx.riskPremium as number)
       : 0;
-  const margin =
-    (omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) + premium) *
+  const baseMargin =
+    omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) *
     (spot.winnable + spot.paid);
+  const cashMargin = spot.potFrac < 0.1 ? Math.min(baseMargin, 0.5 * spot.paid) : baseMargin;
+  const margin = cashMargin + premium * (spot.winnable + spot.paid);
   return {
     call: ev > margin,
     ev,
