@@ -39,7 +39,7 @@ import {
   ownerWindowPredicate,
 } from '../scripts/ci/owner-window-migration.mjs';
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -540,11 +540,22 @@ describe('a superseded window migration is never queued', () => {
     const name = '20261024020328_agents_can_watch_every_live_downline_table.sql';
     const sql = read(`supabase/migrations/${name}`);
     expect(sql.split('\n')[0]).toBe('-- SUPERSEDED BY 20261024193818');
-    expect(
-      readdirSync(resolve(root, 'supabase/migrations')).some((f) => f.startsWith('20261024193818_'))
-    ).toBe(true);
-    const run = runInstaller(root);
-    expect(run.stdout).toContain(`skipped \`${name}\`: SUPERSEDED BY 20261024193818`);
+    const successor = readdirSync(resolve(root, 'supabase/migrations')).find((f) =>
+      f.startsWith('20261024193818_')
+    );
+    expect(successor).toBeDefined();
+    // Exercise the actual installer on this exact superseded pair. Scanning
+    // unrelated migrations again took52s on the shared volume. The separate
+    // corpus test above still validates every declared file on main.
+    const cwd = tree({ [name]: sql, [successor!]: read(`supabase/migrations/${successor}`) });
+    try {
+      const run = runInstaller(cwd);
+      expect(run.stdout).toContain(`skipped \`${name}\`: SUPERSEDED BY 20261024193818`);
+      expect(run.stdout).toContain('NOTHING QUEUED');
+      expect(run.status).toBe(0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
