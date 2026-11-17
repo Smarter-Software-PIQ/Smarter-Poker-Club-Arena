@@ -9,10 +9,11 @@ import argparse,os,json,subprocess,tempfile,hashlib,uuid
 from pathlib import Path
 R=Path(__file__).resolve().parents[2]
 MIGRATION=R/'supabase/migrations/20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql'
+REBASE_FIX=R/'supabase/migrations/20261117164841_promo_tournament_hand_capture_accepts_the_commits_own_rebase.sql'
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--migration',type=Path,default=MIGRATION);p.add_argument('--financial-root',type=Path,default=R);p.add_argument('--profit-root',type=Path,default=R);p.add_argument('--custody-migration',type=Path);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args();MIGRATION=args.migration.resolve()
 if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
 PG=args.pg_bin;out=args.output;out.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='peg-'));checks=[]
-inputs=[R/'scripts/ci/migration-stale-pins.mjs',MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',Path(__file__)]
+inputs=[R/'scripts/ci/migration-stale-pins.mjs',MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',REBASE_FIX,Path(__file__)]
 (out/'INPUTS.json').write_text(json.dumps({str(x.relative_to(R)):{'sha256':hashlib.sha256(x.read_bytes()).hexdigest()} for x in inputs},indent=2)+'\n')
 
 def run(sql,ok=True):
@@ -65,9 +66,9 @@ try:
  proc=proc.replace(needle,'    IF public.fn_ca_tournament_unit_cents(p_tournament_id)=1 THEN PERFORM public.fn_ca_promo_retire_busted_entry(p_tournament_id,p_user_id,v_candidate.id,v_effective_token); END IF;\n'+needle)
  run('SET check_function_bodies=off;'+proc+';')
  run('INSERT INTO ca_promo_play_through_settings VALUES(true,NULL);')
- def guarded(sql):
+ def guarded(sql,path=None):
   script="import{stalePinGuardSQL}from'./scripts/ci/migration-stale-pins.mjs';let s='';for await(const b of process.stdin)s+=b;process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
-  return subprocess.run(['node','--input-type=module','-e',script,str(MIGRATION)],input=sql,text=True,capture_output=True,check=True,cwd=R).stdout
+  return subprocess.run(['node','--input-type=module','-e',script,str(path or MIGRATION)],input=sql,text=True,capture_output=True,check=True,cwd=R).stdout
  candidate=MIGRATION.read_text();start=candidate.index('DO $obligation_admission_pin$');end=candidate.index('END $obligation_admission_pin$;',start)+len('END $obligation_admission_pin$;')
  before=run('SET check_function_bodies=off;'+guarded(candidate[:start]+candidate[end:]),False)
  check('real protected stale-pin guard refuses the former missing credit pin',before.returncode!=0 and 'migration_left_a_stale_pin' in before.stderr and 'df387bd37001630d94ab2e380144ccab' in before.stderr,True)
@@ -210,6 +211,26 @@ try:
  oldcomponent,newcomponent,lossbo=uid(117),uid(118),uid(119)
  run(f"INSERT INTO ca_promo_profit_head_components(id,operation_ref,tournament_id,user_id,head_generation_id,generation_id,earning_club_id,charge_ledger_ids,amount,source_kind,earned_at) VALUES('{oldcomponent}','old head','{T}','{U}','{REG}','{REG}','{C}',ARRAY['{CH}'::uuid],5,'bought_head',clock_timestamp()),('{newcomponent}','new head','{T}','{U}','{CAND}','{CAND}','{C}',ARRAY['{CH2}'::uuid],2,'bought_head',clock_timestamp());INSERT INTO tournament_bounty_obligations VALUES('{lossbo}','{T}','{user2}','[]','{H}','{TB}','{U}',5,clock_timestamp());SET app.bounty_obligation_id='{lossbo}';SELECT fn_ca_promo_profit_retire_knocked_out_head('{T}','{U}',5)")
  check('delayed old head retires original accepted generation only',one(f"SELECT EXISTS(SELECT 1 FROM ca_promo_profit_head_retirements WHERE component_id='{oldcomponent}') AND NOT EXISTS(SELECT 1 FROM ca_promo_profit_head_retirements WHERE component_id='{newcomponent}')"),'t')
+ # An add-on or rebuy between hands: the original delta-mode commit writes
+ # round(db_before+engine_after-engine_before,2) and records db_before-
+ # engine_before as rebased[user]. Production 2026-11-17 15:32Z: hands
+ # #59866957/#59866958 rolled back on every replay and two tables froze.
+ HA,HB=uid(120),uid(121);s0=json.dumps([{'user_id':U,'stack':0}])
+ addon=json.dumps({'written':{U:3000},'rebased':{U:3000}});beyond=json.dumps({'written':{U:3001},'rebased':{U:3000}})
+ run(f"INSERT INTO hand_atomic_commits VALUES('{HA}','{TB}',121,clock_timestamp(),'{addon}'),('{HB}','{TB}',122,clock_timestamp(),'{beyond}')")
+ pre=run(f"SELECT fn_ca_promo_profit_capture_tournament_hand('{HA}','{TB}','{s0}')",False)
+ check('pre-fix guard refuses an add-on hand the commit wrote whole',pre.returncode!=0 and 'original_tournament_earning_hand_players_mismatch' in pre.stderr,True)
+ fix=REBASE_FIX.read_text();run('SET check_function_bodies=off;'+guarded(fix,REBASE_FIX))
+ fixed=one("SELECT md5(pg_get_functiondef('public.fn_ca_promo_profit_capture_tournament_hand(uuid,uuid,jsonb)'::regprocedure))")
+ check('rebase fix keeps private owner, definer and ACL',one("SELECT pg_get_userbyid(proowner)||':'||prosecdef||':'||proacl::text FROM pg_proc WHERE oid='public.fn_ca_promo_profit_capture_tournament_hand(uuid,uuid,jsonb)'::regprocedure"),'postgres:true:{postgres=X/postgres}')
+ run(f"SELECT fn_ca_promo_profit_capture_tournament_hand('{HA}','{TB}','{s0}')")
+ check('fixed guard captures the add-on hand once',one(f"SELECT count(*) FROM ca_promo_profit_tournament_hand_clocks WHERE hand_id='{HA}'"),'1')
+ bad=run(f"SELECT fn_ca_promo_profit_capture_tournament_hand('{HB}','{TB}','{s0}')",False)
+ check('a write beyond the recorded rebase still refuses',bad.returncode!=0 and 'original_tournament_earning_hand_players_mismatch' in bad.stderr,True)
+ bad=run(f"SELECT fn_ca_promo_profit_capture_tournament_hand('{HA}','{TB}','[{{\"user_id\":\"{U}\",\"stack\":1}}]')",False)
+ check('a rebased hand with a different engine stack still refuses',bad.returncode!=0,True)
+ run('SET check_function_bodies=off;'+guarded(fix,REBASE_FIX))
+ check('rebase fix is idempotent',one("SELECT md5(pg_get_functiondef('public.fn_ca_promo_profit_capture_tournament_hand(uuid,uuid,jsonb)'::regprocedure))"),fixed)
  print(json.dumps({'status':'passed','checks':len(checks)}));(out/'RESULTS.json').write_text(json.dumps({'status':'passed','checks':checks},indent=2)+'\n')
 finally:
  if started:subprocess.run([PG/'pg_ctl','-D',tmp/'data','-m','fast','-w','stop'],capture_output=True)
