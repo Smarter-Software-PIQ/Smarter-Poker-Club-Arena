@@ -155,48 +155,97 @@ function cacheAssetResponse(event, cache, response, cacheName, maxEntries) {
   });
 }
 
+// One opt-in, short-lived trace for a real table reload. Only the requesting
+// window can arm its own URL. The random receipt survives replacing that
+// window; it contains timings only, never headers, bodies or player data.
+let shellTrace;
+sw.addEventListener('message', (event) => {
+  const { type, receipt, pathname } = event.data || {};
+  if (type !== 'ARM_SHELL_TRACE' && type !== 'READ_SHELL_TRACE') return;
+  const port = event.ports[0];
+  if (!port || !event.source?.url || typeof receipt !== 'string' || !/^[a-f0-9-]{36}$/.test(receipt)) return;
+  const url = new URL(event.source.url);
+  // Client.url can still be the lobby document after history.pushState.
+  if (url.origin !== sw.location.origin || (url.pathname !== SHELL_KEY && !url.pathname.startsWith(SHELL_KEY + '/')) ||
+      typeof pathname !== 'string' || !/^\/hub\/club-arena\/table\/[a-f0-9-]{36}\/?$/.test(pathname)) return;
+  const now = Date.now();
+  if (type === 'ARM_SHELL_TRACE') {
+    const available = !shellTrace || shellTrace.expires < now;
+    if (available) shellTrace = { receipt, pathname, expires: now + 45000, events: [] };
+    port.postMessage({ armed: available });
+  } else if (shellTrace?.receipt === receipt && shellTrace.pathname === pathname && shellTrace.expires >= now) {
+    port.postMessage({ events: shellTrace.events });
+    shellTrace = undefined;
+  } else {
+    port.postMessage({ events: [] });
+  }
+});
+
 async function shellFromCache(event) {
+  const trace = shellTrace && shellTrace.pathname === new URL(event.request.url).pathname &&
+    !shellTrace.events.length && shellTrace.expires >= Date.now() ? shellTrace : null;
+  const start = trace ? performance.now() : 0;
+  const mark = (phase) => trace?.events.push({ phase, ms: Math.round(performance.now() - start) });
+  mark('fetch-event');
   const lookup = await lookupCachedResponse(CACHE_NAME, SHELL_KEY);
   const { cache, cached } = lookup;
+  mark(cached ? 'cached-shell-found' : 'cache-lookup-ended-without-shell');
 
+  const controller = new AbortController();
+  const cancelled = () => controller.abort();
+  const caller = event.request.signal;
+  if (caller.aborted) cancelled();
+  else caller.addEventListener('abort', cancelled, { once: true });
   let timer;
-  const network = fetch(event.request, { cache: 'no-cache' })
+  mark('network-start');
+  const network = fetch(event.request, { cache: 'no-cache', signal: controller.signal })
     .then(async (response) => {
-      // fetch resolves at headers. A partial HTML stream cannot boot the table.
-      // Drain a clone within the same deadline and preserve the original response
-      // (including its URL and headers) for navigation.
-      if (response?.ok) await response.clone().arrayBuffer();
-      if (response?.ok && cache) {
-        const stored = response.clone();
-        keepOptionalCacheWork(event, () => cache.put(SHELL_KEY, stored));
+      mark('network-headers');
+      if (response?.ok) {
+        await response.clone().arrayBuffer();
+        mark('network-body-complete');
+        if (cache && !controller.signal.aborted) {
+          const stored = response.clone();
+          keepOptionalCacheWork(event, () => cache.put(SHELL_KEY, stored));
+        }
       }
       return response;
     })
-    .catch(() => null);
+    .catch(() => {
+      mark(controller.signal.aborted ? 'network-aborted' : 'network-error');
+      return null;
+    });
   let fresh;
   try {
     fresh = await Promise.race([
       network,
       new Promise((resolve) => {
-        timer = setTimeout(() => resolve(null), SHELL_NETWORK_TIMEOUT_MS);
+        timer = setTimeout(() => {
+          mark('network-deadline');
+          controller.abort();
+          resolve(null);
+        }, SHELL_NETWORK_TIMEOUT_MS);
       }),
     ]);
   } finally {
     clearTimeout(timer);
+    caller.removeEventListener('abort', cancelled);
   }
-  // Finish this same request/cache write if the offline fallback won. No
-  // broadcast can reboot the document that has already been handed back.
-  event.waitUntil(network);
-  if (fresh?.ok) return fresh;
-  if (cached) return cached;
-
-  // Do not discard a genuine shell that the original cache read delivered
-  // after admission timed out. No second read, request, or extra delay.
-  if (lookup.cached) return lookup.cached;
+  if (fresh?.ok) {
+    mark('serve-network');
+    return fresh;
+  }
+  if (cached || lookup.cached) {
+    mark('serve-cached-shell');
+    return cached || lookup.cached;
+  }
   const { cached: offline } = await lookupCachedResponse(CACHE_NAME, '/hub/club-arena/offline.html');
-  if (lookup.cached) return lookup.cached;
-  if (offline) return offline;
-  return fresh || Response.error();
+  if (lookup.cached) {
+    mark('serve-cached-shell');
+    return lookup.cached;
+  }
+  mark(offline ? 'serve-offline' : 'network-failed');
+  return offline || fresh || Response.error();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

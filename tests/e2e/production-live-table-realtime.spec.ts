@@ -1,3 +1,4 @@
+import { reloadWithWorkerTiming } from './support/shellReloadTrace';
 import { traceTableNavigation } from './support/tableNavigationTrace';
 import {
   installHorseSeatPaints,
@@ -3269,7 +3270,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           // Reuse only these existing connected observations; reload begins a new owner.
           await stopHorsePaints();
           await stopBoardInterval();
-          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+          await reloadWithWorkerTiming(page, testInfo);
           await expect(page.locator('.table-surface')).toBeVisible({ timeout: 20_000 });
           let afterReload: Awaited<ReturnType<typeof assertPublicStatsCache>> | undefined;
           await expect(async () => {
