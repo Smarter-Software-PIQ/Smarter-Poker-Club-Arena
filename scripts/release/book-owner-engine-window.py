@@ -69,7 +69,7 @@ STABLE_PHRASES = ('twenty minutes', '1800-second', '285s', 'zero opportunities',
 OWNER_NOTICE_WAIVER = ('For this release, execute the earliest qualified engine cutover without an advance '
                        'player-warning announcement or notice countdown. Preserve safe hand completion, settlement, '
                        'certification, admission, recovery and live verification.')
-OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-19T09:30:00Z'
+OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-18T09:30:00Z'
 SUITE_TIMEOUT = 900
 
 

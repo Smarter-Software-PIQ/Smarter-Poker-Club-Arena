@@ -334,9 +334,9 @@ class BookOwnerEngineWindow(unittest.TestCase):
             (dict(), waived_order_text(W['predecessor']).replace(instruction, 'No notice this time.'),
              r'lacks required text.*For this release, execute the earliest qualified engine cutover'),
             (dict(), waived_order_text(W['predecessor']).replace('not extended', 'kept'), r"lacks required text.*'not extended'"),
-            # 03:30 America/Chicago on November 19 is 09:30 UTC; a window on November 20 is a later release.
+            # The waiver ends at the 03:30 America/Chicago preparation of November 18 (09:30 UTC).
             (dict(window_id='2026-11-20-owner-test-engine-0606z', not_before='2026-11-20T06:06:00Z',
-                  not_after='2026-11-20T08:30:00Z'), None, r'a window closing after 2026-11-19T09:30:00Z cannot use it'),
+                  not_after='2026-11-20T08:30:00Z'), None, r'a window closing after 2026-11-18T09:30:00Z cannot use it'),
             (dict(not_before='2026-11-18T06:05:29Z'), None, r'329 s past the hour'),
         )
         for changes, order, pattern in refusals:
@@ -513,7 +513,8 @@ class BookOwnerEngineWindow(unittest.TestCase):
 
     def test_an_overlapping_notice_is_booked_with_a_warning_and_a_narrower_case(self):
         # Overlap the current window's still-shipped promise: its notAfter is not before the new notice.
-        current = json.loads(self.read(WINDOWS))['windows'][-1]
+        # A window booked on the owner notice waiver ships no notice, so it cannot overlap one.
+        current = [w for w in json.loads(self.read(WINDOWS))['windows'] if 'ownerNoticeWaiver' not in w][-1]
         spec = dict(A, window_id='2026-11-14-owner-test-engine-0712z', notice_at='2026-11-14T06:45:00Z',
                     not_before='2026-11-14T07:12:00Z', not_after='2026-11-14T09:00:00Z')
         self.assertGreater(current['notAfter'], spec['notice_at'])

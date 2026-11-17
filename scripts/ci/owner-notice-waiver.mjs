@@ -22,8 +22,10 @@
  *   - ownerNoticeWaiver is the exact instruction above;
  *   - ownerOrder contains the exact instruction;
  *   - it carries no playerNoticeAt (a waived window never claims a notice);
- *   - it closes no later than OWNER_NOTICE_WAIVER_VALID_UNTIL, so the waiver
- *     cannot be reused for a later release.
+ *   - it closes no later than OWNER_NOTICE_WAIVER_VALID_UNTIL, the routine
+ *     03:30 America/Chicago preparation of November 18. Until then a lapsed
+ *     booking of this same release can be rebooked on it; from the next daily
+ *     break on, no window can use it.
  * Anything else that carries an ownerNoticeWaiver field is refused.
  */
 export const OWNER_NOTICE_WAIVER_INSTRUCTION =
@@ -31,8 +33,8 @@ export const OWNER_NOTICE_WAIVER_INSTRUCTION =
   'player-warning announcement or notice countdown. Preserve safe hand completion, settlement, ' +
   'certification, admission, recovery and live verification.';
 
-/** The waiver is spent with this release: no window closing after this may use it. */
-export const OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-19T09:30:00Z';
+/** The next routine preparation (03:30 America/Chicago, November 18): no window closing after it may use the waiver. */
+export const OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-18T09:30:00Z';
 
 /** True only for an engine window that carries the exact, unexpired owner waiver. */
 export function ownerNoticeWaived(w, collection = 'windows') {

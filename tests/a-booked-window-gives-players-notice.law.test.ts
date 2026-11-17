@@ -114,7 +114,7 @@ describe('one release without advance notice (owner order 2026-11-17)', () => {
     expect(OWNER_NOTICE_WAIVER_INSTRUCTION).toBe(
       'For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.'
     );
-    expect(OWNER_NOTICE_WAIVER_VALID_UNTIL).toBe('2026-11-19T09:30:00Z');
+    expect(OWNER_NOTICE_WAIVER_VALID_UNTIL).toBe('2026-11-18T09:30:00Z');
   });
   it('exempts an engine window that carries the exact waiver and no notice instant', () => {
     expect(ownerNoticeWaived(waived, 'windows')).toBe(true);
@@ -126,7 +126,7 @@ describe('one release without advance notice (owner order 2026-11-17)', () => {
       [{ ...waived, ownerNoticeWaiver: true }, 'windows'],
       [{ ...waived, ownerOrder: 'Synthetic order that does not quote the owner.' }, 'windows'],
       [{ ...waived, playerNoticeAt: '2026-11-17T19:40:00Z' }, 'windows'],
-      [{ ...waived, notAfter: '2026-11-19T09:30:01Z' }, 'windows'],
+      [{ ...waived, notAfter: '2026-11-18T09:30:01Z' }, 'windows'],
       [{ ...waived, notAfter: 'later' }, 'windows'],
       [waived, 'databaseWindows'],
     ] as const;

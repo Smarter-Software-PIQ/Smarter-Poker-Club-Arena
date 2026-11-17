@@ -270,7 +270,7 @@ test('an engine window on the exact owner notice waiver (2026-11-17) books witho
     [[{ ...waived, ownerNoticeWaiver: 'skip it' }], []],
     [[{ ...waived, playerNoticeAt: '2026-11-17T18:10:00Z' }], []],
     [[{ ...waived, ownerOrder: 'no quote' }], []],
-    [[{ ...waived, notAfter: '2026-11-19T09:30:01Z' }], []],
+    [[{ ...waived, notAfter: '2026-11-18T09:30:01Z' }], []],
     [[], [waived]],
   ]) {
     const refused = bookingRecordViolations(doc(), doc(windows, databaseWindows), now);

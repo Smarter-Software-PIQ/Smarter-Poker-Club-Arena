@@ -12,7 +12,7 @@ Since November 7 every booked owner window must carry `playerNoticeAt` at least 
 
 ## The change
 
-- `scripts/ci/owner-notice-waiver.mjs` (new) holds the owner's exact sentence and one predicate. An ENGINE window is waived only when its `ownerNoticeWaiver` is that exact sentence, its `ownerOrder` contains it, it has no `playerNoticeAt`, and it closes by `2026-11-19T09:30:00Z`. Any other record carrying `ownerNoticeWaiver` is refused. Database windows are never waived.
+- `scripts/ci/owner-notice-waiver.mjs` (new) holds the owner's exact sentence and one predicate. An ENGINE window is waived only when its `ownerNoticeWaiver` is that exact sentence, its `ownerOrder` contains it, it has no `playerNoticeAt`, and it closes by `2026-11-18T09:30:00Z`. Any other record carrying `ownerNoticeWaiver` is refused. Database windows are never waived.
 - The notice law, `scripts/ci/check-owner-window-booking.mjs` and `scripts/ci/check-owner-window-notice-after-merge.mjs` exempt exactly that record from the notice rules. Its `notBefore` and `notAfter` are still judged.
 - `scripts/generate-owner-maintenance-notices.mjs` does not project a waived engine window, so the client shows no banner for it and `src/utils/ownerMaintenanceNotices.json` is unchanged by such a booking.
 - `scripts/release/book-owner-engine-window.py --no-advance-notice` books such a window: no `playerNoticeAt`, the waiver field, an order that must contain the exact sentence (and no longer the phrase "twenty minutes"), a floor-suite test that pins the absence of a notice, and a notice-law case that pins that nothing is shipped.
