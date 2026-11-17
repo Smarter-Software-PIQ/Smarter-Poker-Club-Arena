@@ -1063,6 +1063,12 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    // Require the added Report regression exactly once, preserving every
+    // historical command and gate fingerprint after this single addition.
+    const reportBeat = browserJob.steps.find((step: { id?: string }) => step.id === 'css-beats');
+    const reportSpec = 'tests/e2e/css/club-data-report.spec.ts ';
+    expect(reportBeat.run.split(reportSpec)).toHaveLength(2);
+    reportBeat.run = reportBeat.run.replace(reportSpec, '');
     // Preserve the historical gate fingerprint after checking this exact addition.
     const install = browserJob.steps.findIndex(
       (step: { name: string }) => step.name === 'Install Chromium and WebKit'
