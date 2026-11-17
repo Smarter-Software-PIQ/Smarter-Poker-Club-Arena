@@ -205,6 +205,17 @@ describe('the last-hand window is the same window everywhere', () => {
     expect(ENGINE).toMatch(/LAST_HAND_LEAD_MS = 2 \* 60 \* 1000/);
   });
 
+  it('the durable terminal cutoff preserves the engine settlement reserve', () => {
+    const lead = Number(ENGINE.match(/LAST_HAND_LEAD_MS = (\d+) \* 60 \* 1000/)![1]) * 60;
+    const reserve = Number(ENGINE.match(/TERMINAL_SETTLEMENT_RESERVE_MS = (\d+) \* 1000/)![1]);
+    const terminal = read(
+      'supabase/migrations/20261117112838_terminal_settlement_reserves_existing_maintenance_admission_.sql'
+    );
+    const cutoff = terminal.match(/announced_at\s*\+\s*INTERVAL\s*''(\d+) seconds''/i);
+    expect(cutoff, 'durable terminal admission must enforce the engine cutoff').not.toBeNull();
+    expect(Number(cutoff![1])).toBe(lead - reserve);
+  });
+
   it('the current SQL and browser use the exact seven-minute announcement window', () => {
     // The original four-minute fallback is historical and superseded: it
     // reopened entry at :57 although a recovered engine stayed parked to :00.

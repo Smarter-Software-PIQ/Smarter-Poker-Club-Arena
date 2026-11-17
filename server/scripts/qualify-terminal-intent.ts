@@ -13,6 +13,8 @@ assert(
     'adopt-original',
     'maintenance-before',
     'maintenance-after',
+    'reservation-before',
+    'reservation-after',
   ].includes(scenario)
 );
 const config = {
@@ -24,7 +26,8 @@ const config = {
 };
 const a = new pg.Client(config),
   b = new pg.Client(config),
-  observer = new pg.Client(config);
+  observer = new pg.Client(config),
+  incoming = new pg.Client(config);
 const event = '92010000-0000-0000-0000-000000000001';
 const generation = '92090000-0000-4000-8000-000000000002';
 const successor = '92090000-0000-4000-8000-000000000005';
@@ -59,14 +62,14 @@ async function snapshot() {
 async function execute(c: pg.Client, g = generation) {
   return (
     await c.query(
-      `SELECT public.${scenario === 'maintenance-after' ? 'fn_execute_capped_satellite_terminal_request' : 'fn_execute_tournament_terminal_request'}($1,$2) AS value`,
+      `SELECT public.${['maintenance-after', 'reservation-after'].includes(scenario) ? 'fn_execute_capped_satellite_terminal_request' : 'fn_execute_tournament_terminal_request'}($1,$2) AS value`,
       [id, g]
     )
   ).rows[0].value;
 }
 try {
-  await Promise.all([a, b, observer].map((c) => c.connect()));
-  for (const c of [a, b, observer]) {
+  await Promise.all([a, b, observer, incoming].map((c) => c.connect()));
+  for (const c of [a, b, observer, incoming]) {
     const proof = (
       await c.query(
         "SELECT inet_server_addr() IS NULL AS local,current_setting('server_version_num')::int AS version"
@@ -163,7 +166,249 @@ try {
     await a.query('COMMIT');
   }
   const original = await snapshot();
-  if (scenario.startsWith('maintenance-')) {
+  if (scenario.startsWith('reservation-')) {
+    const aPid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const bPid = (await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const incomingPid = (await incoming.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const token = '92090000-0000-4000-8000-000000000098';
+    const times = (
+      await observer.query(
+        "SELECT clock_timestamp()-interval '2 minutes' AS announced,clock_timestamp() AS started,clock_timestamp()+interval '5 minutes' AS ended"
+      )
+    ).rows[0];
+    const freeze = () =>
+      b.query(
+        "SELECT public.fn_save_engine_maintenance_break('counting_down',$1,$2,$3,'native','native',$4)",
+        [times.announced, times.started, times.ended, token]
+      );
+    await actor(a);
+    const paid = await execute(a);
+    assert.equal(paid.request.phase, 'committed');
+    if (scenario === 'reservation-before') {
+      assert.equal(
+        (
+          await freeze().then(
+            () => null,
+            (e) => e
+          )
+        )?.code,
+        '55P03'
+      );
+      await actor(incoming);
+      const next = execute(incoming);
+      const until = performance.now() + 3000;
+      let admitted = false;
+      while (performance.now() < until) {
+        admitted = (
+          await observer.query(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=530090 AND objid=1 AND objsubid=2 AND mode='ShareLock' AND granted) AS held",
+            [incomingPid]
+          )
+        ).rows[0].held;
+        if (admitted) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert(admitted, 'installed preimage lets another long reader join the busy global lane');
+      await a.query('COMMIT');
+      assert.deepEqual(await next, paid);
+      assert.equal(
+        (
+          await freeze().then(
+            () => null,
+            (e) => e
+          )
+        )?.code,
+        '55P03',
+        'overlapping admitted readers refuse the next writer too'
+      );
+      await incoming.query('COMMIT');
+      await freeze();
+    } else {
+      assert(
+        (
+          await observer.query(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=530090 AND objid=2 AND objsubid=2 AND mode='ShareLock' AND granted) AS held",
+            [aPid]
+          )
+        ).rows[0].held
+      );
+      // A second real terminal sender is admitted concurrently on shared lane 2.
+      // Its original event lane waits for the first sender, exactly as before.
+      await actor(incoming);
+      const alreadyAdmitted = execute(incoming);
+      let sharedGroup = false;
+      const groupUntil = performance.now() + 3000;
+      while (performance.now() < groupUntil) {
+        sharedGroup =
+          (
+            await observer.query(
+              "SELECT count(*)::int AS n FROM pg_locks WHERE pid=ANY($1::int[]) AND locktype='advisory' AND classid=530090 AND objid=2 AND objsubid=2 AND mode='ShareLock' AND granted",
+              [[aPid, incomingPid]]
+            )
+          ).rows[0].n === 2;
+        if (sharedGroup) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert(sharedGroup, 'terminal admission stays shared before maintenance reserves its turn');
+      const writing = freeze();
+      const until = performance.now() + 3000;
+      let queued = false;
+      while (performance.now() < until) {
+        queued = (
+          await observer.query(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND classid=530090 AND objid=2 AND objsubid=2 AND mode='ExclusiveLock' AND NOT granted) AS waiting",
+            [bPid]
+          )
+        ).rows[0].waiting;
+        if (queued) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert(queued, 'actual original maintenance writer must queue on existing reservation 2');
+      await observer.query('BEGIN');
+      assert(
+        (await observer.query('SELECT pg_try_advisory_xact_lock_shared(530090,1) AS hand')).rows[0]
+          .hand,
+        'ordinary hand continuation remains admitted while maintenance reserves lane 2'
+      );
+      await observer.query('COMMIT');
+      await actor(observer);
+      const busy = await execute(observer).then(
+        () => null,
+        (e) => e
+      );
+      assert.equal(busy?.code, '55P03');
+      assert.match(busy.message, /TERMINAL_MAINTENANCE_RESERVATION_BUSY/);
+      await observer.query('ROLLBACK');
+      await a.query('COMMIT');
+      assert.deepEqual(await alreadyAdmitted, paid);
+      assert(
+        (
+          await observer.query('SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS waiting', [
+            incomingPid,
+            bPid,
+          ])
+        ).rows[0].waiting,
+        'maintenance still drains the second original admitted terminal'
+      );
+      await incoming.query('COMMIT');
+      await writing;
+      assert((await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen);
+      await actor(incoming);
+      assert.equal(
+        (
+          await execute(incoming).then(
+            () => null,
+            (e) => e
+          )
+        )?.code,
+        '55006'
+      );
+      await incoming.query('ROLLBACK');
+    }
+    await b.query(
+      "SELECT public.fn_clear_engine_maintenance_break('counting_down',$1,$2,$3,'native',$4)",
+      [times.announced, times.started, times.ended, token]
+    );
+    await actor(incoming);
+    assert.deepEqual(await execute(incoming), paid);
+    await incoming.query('COMMIT');
+    assert.equal(
+      (
+        await observer.query(
+          'SELECT count(*)::int AS n FROM public.tournament_payouts WHERE tournament_id=$1',
+          [event]
+        )
+      ).rows[0].n,
+      1
+    );
+    if (scenario === 'reservation-after') {
+      const early = (
+        await observer.query("SELECT clock_timestamp()-interval '20 seconds' AS announced")
+      ).rows[0].announced;
+      await b.query(
+        "SELECT public.fn_save_engine_maintenance_break('last_hand',$1,NULL,NULL,'native','native',$2)",
+        [early, token]
+      );
+      assert(
+        !(await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen
+      );
+      await actor(incoming);
+      assert.deepEqual(
+        await execute(incoming),
+        paid,
+        'early last-hand terminal replay remains allowed'
+      );
+      await incoming.query('COMMIT');
+      const late = (
+        await observer.query("SELECT clock_timestamp()-interval '95 seconds' AS announced")
+      ).rows[0].announced;
+      await b.query(
+        "SELECT public.fn_save_engine_maintenance_break('last_hand',$1,NULL,NULL,'native','native',$2)",
+        [late, token]
+      );
+      assert(
+        !(await observer.query('SELECT public.fn_platform_frozen() AS frozen')).rows[0].frozen,
+        '95 seconds is before the original 120-second full freeze'
+      );
+      const beforeLate = await snapshot();
+      const correct = (
+        await observer.query(
+          "SELECT pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure) AS definition"
+        )
+      ).rows[0].definition;
+      // Exact prior candidate counterfactual, confined to this isolated catalog.
+      const cutoffStart = correct.indexOf('  -- The announced last-hand terminal window');
+      const cutoffEnd = correct.indexOf(
+        '  PERFORM pg_catalog.pg_advisory_xact_lock_shared(530090,1);',
+        cutoffStart
+      );
+      assert(cutoffStart > 0 && cutoffEnd > cutoffStart);
+      await observer.query(correct.slice(0, cutoffStart) + correct.slice(cutoffEnd));
+      assert.equal(
+        (
+          await observer.query(
+            "SELECT md5(pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure)) AS digest"
+          )
+        ).rows[0].digest,
+        'fc2dd75d5e2c2c7bb9ebbda2dc9d7794'
+      );
+      await actor(incoming);
+      assert.deepEqual(
+        await execute(incoming),
+        paid,
+        'prior candidate wrongly admits a direct late last-hand replay'
+      );
+      await incoming.query('COMMIT');
+      await observer.query(correct);
+      await actor(incoming);
+      const lateRefusal = await execute(incoming).then(
+        () => null,
+        (e) => e
+      );
+      assert.equal(lateRefusal?.code, '55006');
+      assert.match(lateRefusal.message, /terminal settlement reserve has started/);
+      await incoming.query('ROLLBACK');
+      assert.deepEqual(
+        await snapshot(),
+        beforeLate,
+        'late direct RPC refusal preserves every financial receipt and balance'
+      );
+      await observer.query('BEGIN');
+      assert(
+        (await observer.query('SELECT pg_try_advisory_xact_lock_shared(530090,1) AS hand')).rows[0]
+          .hand,
+        'hand continuation remains admitted during the terminal reserve'
+      );
+      await observer.query('COMMIT');
+      await b.query(
+        "SELECT public.fn_clear_engine_maintenance_break('last_hand',$1,NULL,NULL,'native',$2)",
+        [late, token]
+      );
+      await actor(incoming);
+      assert.deepEqual(await execute(incoming), paid);
+      await incoming.query('COMMIT');
+    }
+  } else if (scenario.startsWith('maintenance-')) {
     const aPid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
     const token = '92090000-0000-4000-8000-000000000099';
     const times = (
@@ -378,7 +623,7 @@ try {
     )
   );
 } finally {
-  for (const c of [a, b, observer]) {
+  for (const c of [a, b, observer, incoming]) {
     await c.query('ROLLBACK').catch(() => {});
     await c.end().catch(() => {});
   }

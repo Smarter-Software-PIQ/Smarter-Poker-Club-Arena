@@ -52,9 +52,9 @@ def qualify(e, root, output, satellite_template=None, satellite_probe=None, qual
     if len(identities) != 13:
         raise RuntimeError('original terminal installed identity inventory differs')
     proofs = []
-    for scenario in ['commit-replay', 'close-queued-send', 'adopt-original', 'maintenance-before', 'maintenance-after']:
+    for scenario in ['commit-replay', 'close-queued-send', 'adopt-original', 'maintenance-before', 'maintenance-after', 'reservation-before', 'reservation-after']:
         database = e.database(template)
-        if scenario.startswith('maintenance-'):
+        if scenario.startswith(('maintenance-', 'reservation-')):
             capture = root / 'scripts/ci/fixtures/terminal-original-request/maintenance-owners.json'
             hashes[str(capture.relative_to(root))] = sha(capture)
             for owner in json.loads(capture.read_text()):
@@ -65,7 +65,7 @@ def qualify(e, root, output, satellite_template=None, satellite_probe=None, qual
                     e.sql(database,'GRANT EXECUTE ON FUNCTION '+owner['signature']+' TO service_role;',label='maintenance-original-acl')
             patch = root / 'supabase/migrations/20261117100849_terminal_settlement_takes_the_existing_maintenance_lane.sql'
             hashes[str(patch.relative_to(root))] = sha(patch)
-            if scenario == 'maintenance-after':
+            if scenario == 'maintenance-after' or scenario.startswith('reservation-'):
                 capped_path=root/'supabase/migrations/20261108154158_capped_frozen_satellite_cohort_awards.sql'
                 hashes[str(capped_path.relative_to(root))]=sha(capped_path)
                 capped=capped_path.read_text();marker='CREATE FUNCTION public.fn_execute_capped_satellite_terminal_request('
@@ -82,6 +82,22 @@ def qualify(e, root, output, satellite_template=None, satellite_probe=None, qual
                 _, actual, _=e.sql(database,"SELECT md5(pg_get_functiondef(p.oid)),p.proacl::text,p.proconfig::text FROM pg_proc p WHERE p.oid='public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure;",label='terminal-maintenance-postimage')
                 (output/'maintenance-postimage.txt').write_text(actual)
                 if '{postgres=X/postgres,service_role=X/postgres}' not in actual or 'lock_timeout=8s' not in actual or 'statement_timeout=45s' not in actual:raise RuntimeError('original terminal metadata changed')
+        if scenario == 'reservation-after':
+            reservation=root/'supabase/migrations/20261117112838_terminal_settlement_reserves_existing_maintenance_admission_.sql'
+            hashes[str(reservation.relative_to(root))]=sha(reservation)
+            drift=reservation.read_text().replace('BEGIN;','BEGIN; REVOKE EXECUTE ON FUNCTION public.fn_execute_tournament_terminal_request(uuid,uuid) FROM service_role;',1)
+            refused, _, error=e.sql(database,drift,label='terminal-reservation-rejects-original-acl-drift',check=False)
+            if not refused or 'TERMINAL_RESERVATION_ORIGINAL_OWNER_CHANGED' not in error:raise RuntimeError('terminal reservation must refuse original metadata drift')
+            e.sql(database,reservation.read_text().replace('COMMIT;','ROLLBACK;'),label='terminal-reservation-ddl-rollback')
+            _, rollback_pin, _=e.sql(database,"SELECT md5(pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure));",label='terminal-reservation-rollback-pin')
+            if rollback_pin.strip()!='3628dcabd106aeb79bdefc748d65d11e':raise RuntimeError('terminal reservation rollback changed installed owner')
+            e.sql(database,file=reservation,label='terminal-reservation-admission')
+            declared=[line.removeprefix('-- @live-proof: ') for line in reservation.read_text().splitlines() if line.startswith('-- @live-proof: ')]
+            if len(declared)!=1:raise RuntimeError('terminal reservation postimage proof missing')
+            _, valid, _=e.sql(database,'SELECT ('+declared[0]+');',label='terminal-reservation-exact-postimage')
+            if valid.strip()!='t':raise RuntimeError('terminal reservation postimage/ACL/config mismatch')
+            _, final_pin, _=e.sql(database,"SELECT md5(pg_get_functiondef(p.oid)),p.proacl::text,p.proconfig::text FROM pg_proc p WHERE p.oid='public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure;",label='terminal-reservation-postimage')
+            (output/'reservation-postimage.txt').write_text(final_pin)
         result = output / (scenario + '.json')
         e.run('original-terminal-' + scenario,
               [root / 'server/node_modules/.bin/tsx', script, e.socket, e.port, database, scenario, result], seconds=45)

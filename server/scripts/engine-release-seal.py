@@ -2892,9 +2892,9 @@ ATTENTION14_DATABASE_PAIR = (
 
 # One finite owner-authorized Promo Play Through prerequisite installation.
 # This is not general batch admission; its protected bytes and order are fixed.
-PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-drained"
-PROMO_DATABASE_WINDOW_ANCHOR = "1306cee8dd4c99a325238e36951e7e603398c2e5"
-PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T11:20:00Z", "2026-11-17T13:00:00Z")
+PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-reserved"
+PROMO_DATABASE_WINDOW_ANCHOR = "ef1d921b635318263b66445c33fce425a415bae1"
+PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T12:50:00Z", "2026-11-17T13:00:00Z")
 PROMO_DATABASE_MIGRATIONS = (
     ("20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
      "26f2a5ad900f2bd69e7aafed9383686c1e2df51104a0035867918cdaf476d330"),
