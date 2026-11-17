@@ -217,7 +217,9 @@ def main():
    db.run(f"INSERT INTO profiles VALUES('{user}'); INSERT INTO club_members VALUES('{C}','{user}',80,'member')")
    with held_notice(f"SELECT pg_advisory_xact_lock(hashtextextended('ca-promo-progress-notice:'||'{forced}',0))"):
     columns=db.one("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid='ca_promo_play_through_grants'::regclass AND attnum>0 AND NOT attisdropped AND attgenerated=''")
-    db.run(f"INSERT INTO ca_promo_play_through_grants({columns}) SELECT {columns} FROM jsonb_populate_record(NULL::ca_promo_play_through_grants,(SELECT to_jsonb(g)||jsonb_build_object('id','{forced}','user_id','{user}','source_ref','{forced}','remaining',50,'closed_at',NULL,'close_reason',NULL,'granted_at',clock_timestamp(),'cycle_started_at',clock_timestamp()) FROM ca_promo_play_through_grants g WHERE id='{g2}'))")
+    # Both identity clocks share one actual instant; separate volatile calls
+    # can violate the original cycle-not-after-grant constraint by a microsecond.
+    db.run(f"WITH stamp AS MATERIALIZED (SELECT clock_timestamp() AS at) INSERT INTO ca_promo_play_through_grants({columns}) SELECT {columns} FROM jsonb_populate_record(NULL::ca_promo_play_through_grants,(SELECT to_jsonb(g)||jsonb_build_object('id','{forced}','user_id','{user}','source_ref','{forced}','remaining',50,'closed_at',NULL,'close_reason',NULL,'granted_at',stamp.at,'cycle_started_at',stamp.at) FROM ca_promo_play_through_grants g CROSS JOIN stamp WHERE id='{g2}'))")
     db.run(race_source(user,200));db.run(f"SELECT fn_ca_promo_play_through_settle('{C}','{user}')")
    check('received and actual met completion always persist despite a busy optional progress key',db.one(f"SELECT string_agg(milestone,',' ORDER BY created_at) FROM ca_promo_notice_milestones WHERE grant_id='{forced}'"),'received,unlocked')
    # Original paid fees qualify immediately without a commission agreement

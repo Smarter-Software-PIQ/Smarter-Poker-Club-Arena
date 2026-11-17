@@ -9,6 +9,8 @@ import argparse,os,sys,json
 from pathlib import Path
 root=Path(__file__).resolve().parents[2];sys.path.insert(0,str(root/'scripts/ci'))
 from satellite_qualifier_fixture import module
+baseline=module(root/'scripts/ci/test-promo-play-through.py','promo_baseline')
+base_migrations=[root/'supabase/migrations'/name for name in baseline.BASE_MIGRATION_FILES]
 roster=module(root/'scripts/ci/test-accepted-hand-roster.py','custody_roster')
 hs=module(root/'scripts/ci/test-hand-submission.py','custody_hs')
 native=module(root/'scripts/ci/test-mtt-unlimited.py','custody_native')
@@ -37,7 +39,7 @@ try:
  funding_start=original_funding.index('CREATE FUNCTION public.fn_cash_record_original_funding(')
  funding_end=original_funding.index('-- This is a prospective game/roster snapshot',funding_start)
  e.sql(db,original_funding[funding_start:funding_end],label='original-cash-funding-owner')
- for f in sorted((root/'supabase/migrations').glob('*_promo_play_through_*.sql')):e.sql(db,file=f,label=f.stem[:35])
+ for f in base_migrations:e.sql(db,file=f,label=f.stem[:35])
  inventory=json.loads((root/'tests/fixtures/promo-custody-inventory-pin.json').read_text())
  for source in inventory['funding_owners']:
   e.sql(db,source['definition']+';',label='actual-'+source['signature'].split('(')[0])
@@ -62,10 +64,10 @@ ROLLBACK;'''
  e.sql(db,probe,label='actual-accepted-cash-hand',seconds=120)
  e.report['status']='passed'
  e.report['native'].append({'case':'actual-accepted-cash-hand-and-replay','assertions':2})
- inputs=[Path(__file__).resolve(),root/'tests/fixtures/promo-custody-inventory-pin.json',root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql',
+ inputs=[Path(__file__).resolve(),root/'scripts/ci/test-promo-play-through.py',root/'tests/fixtures/promo-custody-inventory-pin.json',root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql',
   root/'scripts/ci/test-accepted-hand-roster.py',root/roster.CAPTURE,root/roster.LIGHTNING,
   root/roster.RETIRED_CASH,root/roster.RAKED_DIAMOND,root/roster.MIGRATION,root/roster.FIXTURE]
- inputs+=sorted((root/'supabase/migrations').glob('*_promo_play_through_*.sql'))
+ inputs+=base_migrations
  e.report['source_sha256']={**manifest['source_sha256'],**{str(f.relative_to(root)):roster.sha(f) for f in inputs}}
  print('actual accepted hand and replay passed')
 finally:
