@@ -632,7 +632,7 @@ export default function ClubDataSimplePage() {
           visibleSnapshot?.scope === 'club'
             ? () =>
                 navigate(
-                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ dataStart: startDate, dataEnd: endDate })}`
+                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ dataStart: startDate, dataEnd: endDate, view: 'advanced' })}`
                 )
             : undefined
         }

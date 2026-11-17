@@ -132,6 +132,8 @@ const ALLOWED_ORPHANS: Record<string, string> = {
     'guarded legacy bookmark redirect - platform staff are forwarded to /financial-incidents',
   players: 'LegacyClubToolRedirect - resolves a club and forwards to its members page',
   data: 'LegacyClubToolRedirect - resolves a club and forwards to its data page',
+  'unions/:unionId/data/advanced':
+    'retired union Report bookmark redirects to the guarded house-club report',
   invite: 'LegacyClubToolRedirect - resolves a club and forwards to /invite/:clubId',
   'anti-cheat':
     'LegacyClubToolRedirect - the club-scoped clubs/:clubId/anti-cheat is the linked one (phase 7)',
