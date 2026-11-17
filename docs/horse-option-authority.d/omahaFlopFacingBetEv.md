@@ -1,6 +1,6 @@
 # omahaFlopFacingBetEv: authority for the live switch
 
-Built 2026-11-17 by the PLO Strategy lane on the owner's ruling of 2026-11-16. Evidence NOT MET (see the evaluation below). This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
+Built 2026-11-17 by the PLO Strategy lane on the owner's ruling of 2026-11-16. Evidence NOT MET as a whole: the value row is MET by the declared evaluation (WIN, below); the continuation and reach row is NOT MET. This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
 
 ## What it does
 
@@ -52,7 +52,16 @@ The one PLO5 decision over 80 ms (118 ms) is the same generated state whose time
 
 ## Evaluation
 
-The paired league evaluation was declared before it ran (archive `plo-handoff-review-01a1cbbd/flopev-01BNteGZ/PASS-BAR.md`, written 2026-11-17T18:14Z; launched 18:21Z) and is RUNNING at this commit. Until its result is recorded here the value row is NOT MET.
+The paired league evaluation was declared before it ran (archive `plo-handoff-review-01a1cbbd/flopev-01BNteGZ/PASS-BAR.md`, written 2026-11-17T18:14Z; launched 18:21Z) and ran to its declared size on the declared seeds. Result: WIN under the bar (archive `flopev-01BNteGZ/final/RESULT.txt`, per-session lines in the same folder).
+
+| cell | table                                          | sessions x pairs | hero hands | A minus B, bb/100 | SE   | z     |
+| ---- | ---------------------------------------------- | ---------------- | ---------- | ----------------- | ---- | ----- |
+| F4   | PLO4, one Horse vs five human-calibrated seats | 1,000 x 500      | 1,000,000  | +3.90             | 1.13 | +3.44 |
+| F5   | PLO5, the same                                 | 1,000 x 500      | 1,000,000  | +4.88             | 1.21 | +4.03 |
+| M4   | PLO4, Horse-only, production styles            | 100 x 500        | 100,000    | +1.75             | 0.58 | +3.02 |
+| M5   | PLO5, the same                                 | 100 x 500        | 100,000    | +2.26             | 0.65 | +3.49 |
+
+Pooled: human-like +4.39 bb/100, SE 0.83 (z +5.30); Horse-only +2.00 bb/100, SE 0.43 (z +4.61). Validity: illegal actions 0, brain exception fallbacks 0, truncated streets 0, no inert cell; divergent pairs F4 9,167, F5 8,321, M4 5,598, M5 4,750. The two field runs were killed from outside at about 19:40Z (session 645 of PLO4, 468 of PLO5) and were finished from the last completed session with the same driver and a start index; the overlapping session was rerun and matched its first line exactly (seed, result, standard error, divergent pairs, both arms), and the engine files still matched their launch sha256 (archive `final/INTERRUPTION.txt`). No constant was changed. Limits of this result: the human-like field is a development population that misses its fidelity criterion at the flop facing-bet node and does not adapt; no rake; six seats; stacks reset each hand.
 
 - Arms: A = the 2026-11-16 production option list plus this option; B = that list without it.
 - Cells: PLO4 and PLO5, six seats, 100 big blinds, cash: one Horse against five seats of the human-calibrated Omaha development field (1,000 sessions of 500 duplicate pairs per game), and Horse-only tables with production styles (100 sessions of 500 pairs per game).
@@ -63,7 +72,7 @@ The paired league evaluation was declared before it ran (archive `plo-handoff-re
 - Mechanism, scope, visibility (flag and receipts in `HorseDataLedger.ts`), tests: MET.
 - Option unset or false: every decision byte-identical to the base at the fifteen recorded nodes, with and without the production option list (`HorseOmahaFlopFacingBetEv.test.ts`; with the list every byte but `thinkTime`, which `horseActionTimeIsPublicOnly` draws from the timing stream), and at 368 replayed flop decisions with no options (archive `flopev-01BNteGZ/replay/`).
 - Speed: MET against the 80 ms mark (table above), measured under load on the development machine, not on the engine host.
-- Value: NOT MET. The declared evaluation is running at this commit; its result is recorded in the section above when it ends.
+- Value: MET. The declared evaluation's result is WIN under the bar written before it ran (section above), with the limits stated there.
 - Continuation, reach: NOT MET. What a called hand does on the turn and river with the option on is whatever today's turn and river rules do; it is not measured apart. Not counted in production.
 
 ## Limits
