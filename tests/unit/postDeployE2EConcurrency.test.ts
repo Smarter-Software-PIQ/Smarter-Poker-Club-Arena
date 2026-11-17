@@ -648,6 +648,20 @@ describe('explicit passive observation queue ownership', () => {
 });
 
 describe('focused published hero celebration proof', () => {
+  it('detaches pending phone projection handlers before disposal while preserving page write refusal', () => {
+    const start = gameplayCertification.indexOf(
+      "test.step('open the cash table from the lobby on 393px WebKit'"
+    );
+    const end = gameplayCertification.indexOf('await Promise.all([', start);
+    const phone = gameplayCertification.slice(start, end);
+    expect(phone).toContain('await blockProjectedTableWrites(page)');
+    const teardown = phone.slice(phone.indexOf('} finally {'));
+    expect(teardown).toContain("await context?.unrouteAll({ behavior: 'ignoreErrors' })");
+    expect(teardown.indexOf('unrouteAll')).toBeLessThan(teardown.indexOf('phone.close()'));
+    expect(teardown).not.toContain('page.unroute');
+    expect(phone.slice(0, phone.indexOf('} finally {'))).not.toContain('ignoreErrors');
+  });
+
   it('runs one owned case with protected provenance and required cleanup qualification', () => {
     const job = workflow.slice(
       workflow.indexOf('  hero-celebration-proof:'),

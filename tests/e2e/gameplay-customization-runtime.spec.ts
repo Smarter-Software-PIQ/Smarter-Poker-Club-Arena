@@ -1656,9 +1656,10 @@ test.describe('production routed gameplay customization', () => {
 
       await test.step('open the cash table from the lobby on 393px WebKit', async () => {
         const phone = await webkit.launch();
+        let context: BrowserContext | undefined;
         try {
           const size = { width: 393, height: 852 };
-          const context = await phone.newContext({
+          context = await phone.newContext({
             ...devices['iPhone 13'],
             screen: size,
             viewport: size,
@@ -1719,6 +1720,10 @@ test.describe('production routed gameplay customization', () => {
             JSON.stringify(geometry)
           ).toBeNull();
         } finally {
+          // Match the two main projection contexts below. A pending profile
+          // route.fetch must not replace this journey's assertion with a
+          // browser-disposal exception. Page-level write refusal stays armed.
+          await context?.unrouteAll({ behavior: 'ignoreErrors' });
           await phone.close();
         }
       });
