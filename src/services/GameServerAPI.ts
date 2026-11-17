@@ -1257,6 +1257,43 @@ export async function addChips(
  */
 
 /**
+ * A CHAIR IS SHOWN THE MOMENT IT IS TAKEN (Dan 2026-11-17). Tells the engine
+ * that this player tapped + (`hold`, with the seat), closed the buy-in sheet
+ * unpaid (`release`), or committed the buy-in (`seated`), so every viewer's
+ * felt shows the chair now rather than when the next hand is dealt. Display
+ * only: the buy-in RPC remains the one door to a seat, so a lost request costs
+ * the early paint and nothing else. A refusal (chair taken, already seated)
+ * is the engine's answer and is not an error.
+ */
+export async function sendSeatArrival(
+  tableId: string,
+  state: 'hold' | 'release' | 'seated',
+  seatNumber?: number
+): Promise<boolean> {
+  if (!tableId) return false;
+  try {
+    const headers = await getAuthHeaders();
+    const response = await engineFetch(`${GAME_SERVER_URL}/seat_arrival`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(state === 'hold' ? { tableId, state, seatNumber } : { tableId, state }),
+    });
+    if (response.ok) return true;
+    // 409 and 403 are the engine's answer; 404 is an engine that predates the route.
+    if (![403, 404, 409].includes(response.status)) {
+      reportError(
+        new Error(`seat_arrival ${state} answered ${response.status}`),
+        'GameServerAPI.sendSeatArrival'
+      );
+    }
+    return false;
+  } catch (err: unknown) {
+    reportError(err, 'GameServerAPI.sendSeatArrival');
+    return false;
+  }
+}
+
+/**
  * Bible V8 §7.12: Player sit out or sit back in.
  * @param sitOut - true = sit out, false = sit back in
  */

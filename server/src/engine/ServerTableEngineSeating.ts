@@ -2145,6 +2145,12 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     code?: 'LEAVE_LOCKED' | 'STALE_OCCUPANCY' | 'LIGHTNING_HAND_IN_PROGRESS';
     stay_remaining_ms?: number;
   }> {
+    // A chair shown before the hand boundary is not left behind (SeatArrivalDisplay).
+    if (this.seatArrivals.forget(userId)) {
+      this.broadcastCurrentState().catch((err) =>
+        reportError(err, `ServerTableEngine.${this.tableId}.seat_arrival_leave_broadcast_failed`)
+      );
+    }
     const weeklyMutation = this.weeklyHandPause.enterMutation();
     if (!weeklyMutation)
       return { success: false, error: 'Weekly Accounting Pause', immediate: false };

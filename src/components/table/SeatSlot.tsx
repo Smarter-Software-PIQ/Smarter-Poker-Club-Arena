@@ -211,6 +211,8 @@ const CELEBRATE_MS = 940;
 
 export interface SeatPlayer {
   waitingForButton?: boolean;
+  /** Dan 2026-11-17: an engine-shown chair not yet adopted by a hand. */
+  seatArrival?: 'buying_in' | 'seated';
   id: string;
   name: string;
   avatar?: string;
@@ -593,12 +595,24 @@ export interface SeatSlotProps {
    *                     and they have not asked to post: the badge says so.
    *   'posting_bb'      held, and they agreed to post: nothing is wrong with
    *                     this seat and no badge is drawn.
+   *   'buying_in'       Dan 2026-11-17: the player tapped + and has the
+   *                     sixty-second buy-in window. Their face is in the
+   *                     chair for every viewer; no chips have moved.
+   *   'joining'         the buy-in committed and the chair waits for the
+   *                     engine's next hand boundary to adopt it.
    *   null / undefined  not an entry hold - a sat-out seat is sat out.
    *
    * Decided by the parent from the engine's waiting_for_bb_user_ids and
-   * post_bb_deferred_user_ids, the same two lists the hero's footer reads.
+   * post_bb_deferred_user_ids, the same two lists the hero's footer reads,
+   * and the engine's per-seat seat_arrival.
    */
-  entryWait?: 'waiting_for_button' | 'waiting_for_bb' | 'posting_bb' | null;
+  entryWait?:
+    | 'waiting_for_button'
+    | 'waiting_for_bb'
+    | 'posting_bb'
+    | 'buying_in'
+    | 'joining'
+    | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3495,7 +3509,20 @@ export const SeatSlot = memo(
               Waiting For The Button To Pass
             </div>
           )}
+          {/* Dan 2026-11-17: a chair is shown the moment it is taken. */}
+          {entryWait === 'buying_in' && (
+            <div className="seat__sitout-badge" data-testid="seat-buying-in-badge">
+              Buying In
+            </div>
+          )}
+          {entryWait === 'joining' && (
+            <div className="seat__sitout-badge" data-testid="seat-joining-badge">
+              Joining
+            </div>
+          )}
           {entryWait !== 'waiting_for_button' &&
+            entryWait !== 'buying_in' &&
+            entryWait !== 'joining' &&
             (player.status === 'sitting_out' || entryWait === 'waiting_for_bb') &&
             entryWait !== 'posting_bb' &&
             (entryWait === 'waiting_for_bb' ? (
