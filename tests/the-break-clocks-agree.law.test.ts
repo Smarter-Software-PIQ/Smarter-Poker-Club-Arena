@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  THE BREAK CLOCKS AGREE (law, to-do #2563 item 12)
@@ -535,24 +536,14 @@ describe('the break scorecard grades only what the break controls', () => {
 
   it('never shows a bare question mark where a measurement is missing', () => {
     // "Recovery ?s" reads as a broken template. Say what is missing.
-    const selected = spawnSync(
-      'rg',
-      [
-        '--files-with-matches',
-        '--no-ignore',
-        '--follow',
-        '--text',
-        '--glob',
-        '*.sql',
-        '--fixed-strings',
-        'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push',
-        MIGRATIONS_DIR,
-      ],
-      { encoding: 'utf8', timeout: 25_000 }
+    const selection = nativeMigrationSelection(
+      'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push',
+      MIGRATIONS_DIR,
+      { fixed: true, timeout: 25_000 }
     );
-    expect(selected.error).toBeUndefined();
-    expect(selected.status).toBe(0);
-    const all = selected.stdout.trim().split('\n').sort();
+    expect(selection.error).toBeUndefined();
+    expect(selection.status).toBe(0);
+    const all = selection.stdout.trim().split('\n').sort();
     expect(all.length).toBeGreaterThan(0);
     const push = readFileSync(all[all.length - 1], 'utf8');
     expect(

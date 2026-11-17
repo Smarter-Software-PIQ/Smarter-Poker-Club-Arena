@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 /**
  * ===========================================================================
  *  LAW: A MIGRATION THAT MERGED MUST BE LIVE
@@ -562,25 +563,14 @@ describe('a merged migration must be live', () => {
     expect(proofIsRunnable("(SELECT 'it''s fine') = 'it''s fine'")).toBe(true);
     // Non-vacuity: the real proofs in the window are overwhelmingly runnable,
     // so this gate cannot be passing by refusing everything.
-    const selected = spawnSync(
-      'rg',
-      [
-        '--files-with-matches',
-        '--no-ignore',
-        '--follow',
-        '--text',
-        '--glob',
-        '*.sql',
-        '^-- @live-proof: ',
-        MIGRATIONS,
-      ],
-      { encoding: 'utf8', timeout: 25_000 }
-    );
-    expect(selected.error).toBeUndefined();
-    expect(selected.status).toBe(0);
+    const selection = nativeMigrationSelection('^-- @live-proof: ', MIGRATIONS, {
+      timeout: 25_000,
+    });
+    expect(selection.error).toBeUndefined();
+    expect(selection.status).toBe(0);
     const corpus = new Set(migrations());
     const names = new Set(
-      selected.stdout
+      selection.stdout
         .trim()
         .split('\n')
         .map((f) => path.basename(f))

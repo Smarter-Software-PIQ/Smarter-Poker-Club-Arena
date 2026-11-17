@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -378,21 +379,10 @@ describe('backed payout discovery is the same accounting question in a batch', (
   // Exhaustive SSD source scan measured 5.3-6.2s during concurrent local checks.
   // Keep every input/assertion and a finite budget with room for I/O contention.
   it('requires renewed batch qualification when the maintained scalar formula changes', () => {
-    const selection = spawnSync(
-      'rg',
-      [
-        '--files-with-matches',
-        '--fixed-strings',
-        '--no-ignore',
-        '--follow',
-        '--text',
-        '--glob',
-        '*.sql',
-        name,
-        'supabase/migrations',
-      ],
-      { encoding: 'utf8', timeout: 45000 }
-    );
+    const selection = nativeMigrationSelection(name, 'supabase/migrations', {
+      fixed: true,
+      timeout: 45000,
+    });
     expect(selection.error).toBeUndefined();
     expect(selection.status).toBe(0);
     const relevant = selection.stdout
