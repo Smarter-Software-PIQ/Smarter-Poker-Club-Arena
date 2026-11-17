@@ -1,4 +1,4 @@
-import MessengerDock from './dock/MessengerDock';
+import MessengerDock from './dock/MessengerDock.jsx';
 import './dock/MessengerDock.css';
 import { supabase, getAuthUser } from '../../lib/supabase';
 import { getFreshAccessToken } from '../../lib/authToken';
