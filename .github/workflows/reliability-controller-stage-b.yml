@@ -23,6 +23,7 @@ on:
       - scripts/ci/qualify-alert-review-outcomes.py
       - tests/fixtures/alert-review-outcomes/**
       - supabase/migrations/*_verified_alert_outcomes_follow_original_source_identity.sql
+      - supabase/migrations/*_proved_owner_source_resolution_survives_stale_incident_class.sql
       - scripts/ci/fixtures/reliability-controller-production-objects.sql
       - .github/workflows/reliability-controller-stage-b.yml
 
