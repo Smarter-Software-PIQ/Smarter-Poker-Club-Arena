@@ -89,7 +89,10 @@ import {
   omahaBigDrawEquities,
   type OmahaBigDrawEquities,
 } from './HorseOmahaBigDrawAggression.js';
-import { omahaPricedBluffFactor } from './HorseOmahaPricedMode.js';
+import {
+  OMAHA_PRICED_PERSON_BET_CHECKED_TO,
+  omahaPricedBluffFactor,
+} from './HorseOmahaPricedMode.js';
 
 export const OMAHA_PRICED_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -225,25 +228,14 @@ export function omahaPricedFacingBetRead(
   base: OmahaFacingBetEvRead | null,
   read: OmahaPricedRead
 ): OmahaFacingBetEvRead {
-  return { ...(base ?? OMAHA_EV_UNKNOWN_READ), betCheckedToRatio: read.betRatio };
+  return {
+    ...(base ?? OMAHA_EV_UNKNOWN_READ),
+    betCheckedToRatio: read.betRatio,
+    betCheckedTo: read.betCheckedTo,
+  };
 }
 
-/**
- * A person's bet rate when checked to, by street: MEASURED, PLO4/PLO5 cash,
- * every hand with a person seated from 2026-11-13 19:40Z to 2026-11-17 19:40Z
- * (5,379 hands, 13 persons; archive plo-handoff-review-01a1cbbd/priced-01BNteGZ/
- * calibration): flop 843 of 2,913, turn 627 of 1,827, river 388 of 1,217
- * (PLO4 and PLO5 agree within 0.05 on every street). It replaces the
- * card-impact model's stated 0.45 where a priced comparison has no read of
- * the opponent. The card-impact bluff share 0.3 stays: the same calibration
- * measures the share of a person's 40-110 percent pot bets outside the value
- * region at 0.24 to 0.29 on the river and 0.30 to 0.43 on the turn.
- */
-export const OMAHA_PRICED_PERSON_BET_CHECKED_TO: Readonly<Record<string, number>> = Object.freeze({
-  flop: 0.289,
-  turn: 0.343,
-  river: 0.319,
-});
+export { OMAHA_PRICED_PERSON_BET_CHECKED_TO };
 
 /** The card-impact response model's read, from the priced read: continuous, no label. */
 export function omahaPricedCardImpactRead(

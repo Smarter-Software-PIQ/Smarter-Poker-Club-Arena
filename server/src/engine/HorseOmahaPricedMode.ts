@@ -244,6 +244,50 @@ export const OMAHA_PRICED_MEASURED_BLUFF: Readonly<Record<'turn' | 'river', Omah
   });
 
 /**
+ * A person's bet rate when checked to, by street: MEASURED, PLO4/PLO5 cash,
+ * every hand with a person seated from 2026-11-13 19:40Z to 2026-11-17 19:40Z
+ * (5,379 hands, 13 persons; archive plo-handoff-review-01a1cbbd/priced-01BNteGZ/
+ * calibration): flop 843 of 2,913, turn 627 of 1,827, river 388 of 1,217
+ * (PLO4 and PLO5 agree within 0.05 on every street). It replaces the
+ * card-impact model's stated 0.45 where a priced comparison has no read of
+ * the opponent, and it is the reference rate of the measured bluff prior
+ * (OMAHA_PRICED_MEASURED_BLUFF, see omahaPricedBluffReference). The
+ * card-impact bluff share 0.3 stays: the same calibration
+ * measures the share of a person's 40-110 percent pot bets outside the value
+ * region at 0.24 to 0.29 on the river and 0.30 to 0.43 on the turn.
+ */
+export const OMAHA_PRICED_PERSON_BET_CHECKED_TO: Readonly<Record<string, number>> = Object.freeze({
+  flop: 0.289,
+  turn: 0.343,
+  river: 0.319,
+});
+
+/**
+ * The bet rate the bluff prior in force was measured at: one place owns the
+ * prior and the rate it belongs to, and omahaBluffShareFromBetRate only
+ * consumes it. The measured prior (rangeContinuous on) was measured on
+ * persons, so his rate is read against a person's rate on this street; the
+ * stepped prior carries no rate of its own and keeps the Horse mean the read
+ * supplies (betCheckedToRatio). Without this, a player betting at the
+ * person rate had the measured prior scaled again by his rate over the Horse
+ * mean: the bettor's bluffs were counted twice (all nine families on, PLO5
+ * human-like field: dropping either option gained 6.8 +/- 1.9 and 6.5 +/-
+ * 1.7 bb/100, 80 sessions each, 2026-11-17 diagnostic).
+ * Returns the ratio to use, or null when there is nothing to scale by.
+ */
+export function omahaPricedBluffReferenceRatio(
+  betCheckedTo: number | null | undefined,
+  betCheckedToRatio: number | null | undefined,
+  street: 'turn' | 'river' | undefined
+): number | null {
+  if (omahaPricedModeNow().rangeContinuous && street !== undefined) {
+    const ref = OMAHA_PRICED_PERSON_BET_CHECKED_TO[street];
+    return Number.isFinite(betCheckedTo) && ref > 0 ? (betCheckedTo as number) / ref : null;
+  }
+  return Number.isFinite(betCheckedToRatio) ? (betCheckedToRatio as number) : null;
+}
+
+/**
  * A realization cap that a size line used to switch on (">= 40 percent of the
  * pot: at most 0.42"), as a continuous function of the size: no cap at or
  * below `lo`, the full cap at or above `hi`.

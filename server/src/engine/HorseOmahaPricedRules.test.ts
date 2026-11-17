@@ -237,6 +237,38 @@ describe('the bluff share follows the bet rate, with no label', () => {
       expect(omahaEvBluffShare(0.2, null)).toBeCloseTo(0.2, 12);
     });
   });
+  it('the bluffs are counted once: with the measured prior in force his rate is read against the rate it was measured at', () => {
+    // He bets exactly as often as a person does on the river (0.319), less than the Horse mean (ratio 0.7).
+    const person = {
+      measured: true,
+      betCheckedToRatio: 0.7,
+      betCheckedTo: OMAHA_PRICED_PERSON_BET_CHECKED_TO.river,
+      postflopManiac: false,
+      valueLeader: false,
+      sizeShown: null,
+    };
+    withOmahaPricedMode({ rangeContinuous: true, bluffShareFromBetRate: true }, () => {
+      // the measured prior already holds a person's bluffs at a person's rate: not scaled again
+      expect(omahaEvBluffShare(0.3, person, 'river')).toBeCloseTo(0.3, 12);
+      // a player betting twice as often as a person carries more, by the same law and cap
+      expect(
+        omahaEvBluffShare(
+          0.3,
+          { ...person, betCheckedTo: 2 * OMAHA_PRICED_PERSON_BET_CHECKED_TO.river },
+          'river'
+        )
+      ).toBeCloseTo(0.3 * 1.6, 12);
+      // no absolute rate: nothing to scale by
+      expect(omahaEvBluffShare(0.3, { ...person, betCheckedTo: null }, 'river')).toBeCloseTo(
+        0.3,
+        12
+      );
+    });
+    // the stepped prior has no rate of its own: the Horse-mean ratio scales it, as before
+    withOmahaPricedMode({ rangeContinuous: false, bluffShareFromBetRate: true }, () => {
+      expect(omahaEvBluffShare(0.3, person, 'river')).toBeCloseTo(0.3 * 0.7 ** 1.5, 12);
+    });
+  });
 });
 
 describe('the opponent read: one interface, shrinkage continuous in the opportunity count', () => {
