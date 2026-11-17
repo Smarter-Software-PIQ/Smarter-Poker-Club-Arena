@@ -34,14 +34,39 @@ export const LIGHTNING_HORSE_SEEDED: ReadonlySet<string> = new Set(
  * feeder, so it stood behind every other chair on the floor, and the four
  * seeded Main 1 tables stood behind every occupied Main 1.
  *
- * Until a horse-seeded Lightning game holds one full ring, ONE of its tables
- * (the fullest, then a Main before a feeder, then the lowest id) is seated
- * ahead of the ordinary order, beside an opening feeder. One table, so the
- * game forms one full ring that can turn into Lightning rather than several
- * thin feeders. The seat ceiling, the work schedule, bankroll and every other
- * admission rule still apply: this changes the order only.
+ * Until a horse-seeded Lightning game holds its pool target, ONE of its
+ * tables that still has a free chair (the fullest, then a Main before a
+ * feeder, then the lowest id) is seated ahead of the ordinary order, beside an
+ * opening feeder. One table at a time, so the game fills ring by ring rather
+ * than as several thin feeders. The seat ceiling, the work schedule, bankroll,
+ * the database's 70-90 second Lightning arrival pace
+ * (fn_lightning_horse_admit_paced) and every other admission rule still apply.
+ *
+ * TWO RINGS, NOT ONE (Dan 2026-11-17, "Fill each to 10-12"). A pool of one
+ * ring cannot fast fold: with six players one hand is dealt at a time, and a
+ * folder waits for that hand to end before four are idle. Measured on Lightning
+ * PLO4 .25/.50 (705270cd): idle_to_match p95 20.9 s with 6 in the pool, 4.6 s
+ * with 17, 2.6 s with 41. Every seeded game is a six-max game, so twelve is
+ * two full rings: two hands in the air whose folders regroup with each other.
+ * Ten or eleven would leave the second ring short-handed. Kept for every
+ * seeded game; it means fewer free horses for Classic, which the owner chose.
  */
-export const LIGHTNING_STARTER_PLAYERS = 6;
+export const LIGHTNING_SEEDED_POOL_PLAYERS = 12;
+/** @deprecated the one-ring target before 2026-11-17; now the pool target. */
+export const LIGHTNING_STARTER_PLAYERS = LIGHTNING_SEEDED_POOL_PLAYERS;
+/**
+ * The seat target of a seeded Lightning game's starter table: as many of the
+ * game's missing players as its free chairs hold. Only ever raises a target;
+ * how fast those chairs fill is still the arrival pace's decision.
+ */
+export function lightningStarterSeatTarget(
+  currentCount: number,
+  maxPlayers: number,
+  gameTotal: number
+): number {
+  const missing = Math.max(0, LIGHTNING_SEEDED_POOL_PLAYERS - Math.max(0, gameTotal));
+  return Math.max(0, Math.min(maxPlayers, currentCount + missing));
+}
 export function lightningStarterTables(
   tables: ReadonlyArray<CashPlanTable>,
   seatedAt: (tableId: string) => number,
@@ -93,17 +118,26 @@ export function lightningStarterGameSeats(
     list.push(t);
     byGame.set(t.cluster_id, list);
   }
+  /* A table with no free chair cannot take the next horse: the fullest table
+     is passed over once it is full, so the game's next ring (its feeder)
+     becomes the starter. An unread size is treated as having room. */
+  const hasRoom = (t: CashPlanTable): boolean => {
+    const max = Number(t.max_players);
+    return !(Number.isFinite(max) && max > 0) || count(t) < max;
+  };
   const out = new Map<string, number>();
   for (const list of byGame.values()) {
     const total = list.reduce((sum, t) => sum + count(t), 0);
-    if (total >= LIGHTNING_STARTER_PLAYERS) continue;
-    const first = [...list].sort(
-      (a, b) =>
-        count(b) - count(a) ||
-        Number(a.role !== 'main') - Number(b.role !== 'main') ||
-        Number(a.main_index ?? 999) - Number(b.main_index ?? 999) ||
-        String(a.id).localeCompare(String(b.id))
-    )[0];
+    if (total >= LIGHTNING_SEEDED_POOL_PLAYERS) continue;
+    const first = list
+      .filter(hasRoom)
+      .sort(
+        (a, b) =>
+          count(b) - count(a) ||
+          Number(a.role !== 'main') - Number(b.role !== 'main') ||
+          Number(a.main_index ?? 999) - Number(b.main_index ?? 999) ||
+          String(a.id).localeCompare(String(b.id))
+      )[0];
     if (first) out.set(String(first.id), total);
   }
   return out;
@@ -130,6 +164,7 @@ export type CashPlanTable = {
   big_blind?: unknown;
   lifecycle?: unknown;
   last_human_seen_at?: unknown;
+  max_players?: unknown;
 };
 
 /** Main numbering is not unique in the database. Select one stable chair

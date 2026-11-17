@@ -76,9 +76,10 @@ export interface ClubStats {
   /** Of those, distinct players in tournaments, Spins and SNGs. */
   activeEvents?: number | null;
   /** Owner-set display addition, labelled separately; never part of the real counts. */
-  displayAddition?: { members: number; active: number; label: string } | null;
   /** For a union member club: the union whose floor the cash/events split counts. */
   splitFloorLabel?: string | null;
+  floorPlaying?: number | null;
+  floorHorses?: number | null;
 }
 
 export interface CarouselSectionProps {
@@ -312,8 +313,9 @@ export default function CarouselSection({
                     : club.logo_url
                 }
                 entityType={club.entity_type || 'club'}
-                displayAddition={stats?.displayAddition ?? null}
                 splitFloorLabel={stats?.splitFloorLabel ?? null}
+                floorPlaying={stats?.floorPlaying ?? null}
+                floorHorses={stats?.floorHorses ?? null}
               />
             )}
           </PageErrorBoundary>
