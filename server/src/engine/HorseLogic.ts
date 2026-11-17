@@ -144,6 +144,7 @@ import {
 import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
+  omahaReraisedPremium,
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
 import {
@@ -674,6 +675,7 @@ import { variantPostflopProfile, variantPreflopShift } from './HorseVariantProfi
 import { handClassRead, omahaSuitAndCoreQuality, omahaEliteClassRead } from './HorseHandClasses.js';
 import {
   omahaDowngradedThreeBetCalls,
+  omahaOopCoordinated,
   omahaOopReraisedCallCell,
   omahaReraiseByPositionCell,
   omahaReraiseByPositionSpot,
@@ -7472,11 +7474,20 @@ function omahaOopReraisedPotStrongRange(
         band = null;
       }
     }
+    const coldCall =
+      heroBet <= bb + 0.005 &&
+      !history.some(
+        (a) =>
+          a.stage === 'preflop' &&
+          a.seat === player.seat &&
+          (a.action === 'call' || a.action === 'raise' || a.action === 'bet')
+      );
     const verdict = omahaOopReraisedCallCell({
       variant: String(gs.gameVariant ?? ''),
       hole: player.cards ?? [],
       dead: player.knownDeadCards ?? [],
       outOfPosition,
+      coldCall,
       preflopRaises,
       toCall,
       stack,
@@ -8864,6 +8875,46 @@ function plo6MultiwayWeakBetRule(
  * (omaha_nut_class_wager_kept). A failure keeps the decision the owner
  * rules gave.
  */
+function omahaLimpedPotMinBetFloor(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaBigBetIsPotShare !== true || decision.action !== 'bet') return decision;
+  const stage = String(gs.stage ?? '');
+  if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return decision;
+  if (gs.bettingStructure === 'fixed_limit' || gs.allInOrFold === true || gs.wagersCapped === true)
+    return decision;
+  const vi = variantInfo(gs.gameVariant);
+  if (!vi.isOmaha || vi.isHiLo || (vi.holeCount !== 4 && vi.holeCount !== 5)) return decision;
+  if (omahaCashOnlyExcludes(player, gs)) return decision;
+  const bb = Number.isFinite(gs.bigBlind) && gs.bigBlind > 0 ? gs.bigBlind : 0;
+  const pot = Number.isFinite(gs.pot) ? gs.pot : 0;
+  const stack = Number.isFinite(player.stack) ? player.stack : 0;
+  const amt =
+    typeof decision.amount === 'number' && Number.isFinite(decision.amount) ? decision.amount : 0;
+  const floor = bb * 2;
+  if (!(bb > 0) || !(pot >= bb * 4 - 0.005) || !(amt > 0) || !(amt < floor - 0.005))
+    return decision;
+  const minR =
+    typeof gs.minRaiseTo === 'number' && Number.isFinite(gs.minRaiseTo) && gs.minRaiseTo > 0
+      ? gs.minRaiseTo
+      : bb;
+  const maxR =
+    typeof gs.maxRaiseTo === 'number' && Number.isFinite(gs.maxRaiseTo) && gs.maxRaiseTo > 0
+      ? Math.min(gs.maxRaiseTo, stack)
+      : Math.min(vi.isPotLimit ? pot : stack, stack);
+  if (!(maxR >= floor - 0.005) || !(stack > floor + 0.005)) return decision;
+  const target = Math.min(maxR, Math.max(minR, Math.round(Math.max(floor, pot * 0.4) * 100) / 100));
+  if (!(target > amt + 0.005)) return decision;
+  const step = bb >= 1 ? 1 : 0.01;
+  const snapped = Math.min(maxR, Math.max(minR, Math.round(target / step) * step));
+  return snapped > amt + 0.005
+    ? { ...decision, amount: Math.round(snapped * 100) / 100 }
+    : decision;
+}
+
 function omahaOwnBetRules(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -8877,10 +8928,11 @@ function omahaOwnBetRules(
     opts
   );
   if (ruled !== decision) return ruled;
-  if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true) return ruled;
+  if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true)
+    return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
   const planned = omahaStreetPlanRules(ruled, player, gs, opts);
   let priced = omahaCardImpactRule(planned, player, gs, opts);
-  if (priced === ruled) return ruled;
+  if (priced === ruled) return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
   try {
     if (priced !== planned && omahaWagerIsChecked(priced, player, gs, opts)) {
       if (telemetryOn(opts))
@@ -8898,13 +8950,13 @@ function omahaOwnBetRules(
       omahaNutClassNow(player, gs)
     ) {
       if (telemetryOn(opts)) noteFire('omaha_nut_class_wager_kept');
-      return ruled;
+      return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
     }
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
-    return ruled;
+    return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
   }
-  return priced;
+  return omahaLimpedPotMinBetFloor(priced, player, gs, opts);
 }
 
 /**
@@ -13947,9 +13999,35 @@ export class HorseLogic {
           if (maniacPrice38 && maniacRaiserWidth !== null)
             maniacPriceReceiptPending = maniacPriceReadReceipt(maniacRaiserWidth, eq38, required38);
           const gap38 = eq38 - required38;
+          // Against any non-postflopManiac opponent in Omaha cash, do not 4-bet
+          // bloat the pot via v53_pressure_four_bet without AA or a coordinated
+          // premium 4-bet structure (Hands #59709936 JJ2KQ, #59719920 ragged KK63T,
+          // #59751306 AKQT7, #59772951 AJ943 when valueLeader flipped false);
+          // those hands take the priced flat call instead.
+          const omahaPressureFourBetNeedsCoordinatedPremium =
+            opts.omahaPressureNeedsPostflopAggression === true &&
+            vi.isOmaha &&
+            !vi.isHiLo &&
+            (vi.holeCount === 4 || vi.holeCount === 5) &&
+            !omahaCashOnlyExcludes(player, gs) &&
+            (() => {
+              try {
+                const read53 = HorseMind.opponentRead(raiser38.user_id);
+                if (read53 !== null && read53.presumed !== true && isPostflopManiac(read53))
+                  return false;
+                const aces53 = player.cards.filter((c) => c.rank === 'A').length >= 2;
+                if (aces53) return false;
+                return (
+                  !omahaReraisedPremium(player.cards) || omahaOopCoordinated(player.cards) === null
+                );
+              } catch {
+                return false;
+              }
+            })();
           if (
             v53ThreeBet &&
             gap38 >= 0.06 &&
+            !omahaPressureFourBetNeedsCoordinatedPremium &&
             gs.legalActions?.includes('raise') &&
             gs.minRaiseTo != null &&
             gs.maxRaiseTo != null &&

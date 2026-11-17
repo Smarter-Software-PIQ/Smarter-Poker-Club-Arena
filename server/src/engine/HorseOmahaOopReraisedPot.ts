@@ -236,6 +236,8 @@ export interface OmahaOopReraisedInput {
   dead: readonly Card[];
   /** hero acts before the last raiser on every later street */
   outOfPosition: boolean;
+  /** hero put no voluntary money (> bb) in before facing this 3-bet+ */
+  coldCall?: boolean;
   /** preflop raises so far (open = 1) */
   preflopRaises: number;
   toCall: number;
@@ -275,7 +277,7 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
   if (!holeCountServed(i.variant, i.hole.length)) return null;
   if (i.preflopRaises < 2) return null;
-  if (!i.outOfPosition && i.preflopRaises < 3) return null;
+  if (!i.outOfPosition && i.preflopRaises < 3 && i.coldCall !== true) return null;
   if (!(i.toCall > 0.005) || !(i.pot > 0) || !(i.stack > 0)) return null;
   const call = Math.min(i.toCall, i.stack);
   const price = call / (i.pot + call);
@@ -457,7 +459,9 @@ export function omahaReraiseByPositionCell(
     return i.reraiseCommits === true
       ? { reraise: true, reason: 'aces_commitment' }
       : { reraise: false, reason: 'bare_aces' };
-  return omahaReraisedPremium(i.hole)
+  const premiumOk =
+    omahaReraisedPremium(i.hole) && (i.preflopRaises < 2 || omahaOopCoordinated(i.hole) !== null);
+  return premiumOk
     ? { reraise: true, reason: 'premium_structure' }
     : { reraise: false, reason: 'not_premium' };
 }

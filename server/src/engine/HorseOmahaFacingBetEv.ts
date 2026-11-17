@@ -50,7 +50,7 @@
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
 import { RANK_VALUES } from './PokerEngine.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
@@ -1116,10 +1116,11 @@ export function omahaFacingBetEvSpot(
     const lineOn = (
       st: string,
       seat: number
-    ): { wagers: number; aggr: boolean; called: boolean } => {
+    ): { wagers: number; aggr: boolean; raised: boolean; called: boolean } => {
       let level = 0;
       let wagers = 0;
       let aggr = false;
+      let raised = false;
       let called = false;
       const totals = new Map<number, number>();
       for (const a of gs.actionHistory ?? []) {
@@ -1135,19 +1136,25 @@ export function omahaFacingBetEvSpot(
           if (now > level + 0.005) {
             level = now;
             wagers++;
-            if (a.seat === seat) aggr = true;
+            if (a.seat === seat) {
+              aggr = true;
+              if (wagers >= 2) raised = true;
+            }
           } else if (a.seat === seat && now > prev) called = true;
         }
       }
-      return { wagers, aggr, called };
+      return { wagers, aggr, raised, called };
     };
     const isRaise = lineOn(street, faced.bettorSeat).wagers >= 2;
     let aggressorStreets = 0;
     let callerStreets = 0;
+    let earlierRaised = false;
     for (const st of street === 'river' ? ['flop', 'turn'] : ['flop']) {
       const l = lineOn(st, faced.bettorSeat);
-      if (l.aggr) aggressorStreets++;
-      else if (l.called) callerStreets++;
+      if (l.aggr) {
+        aggressorStreets++;
+        if (l.raised) earlierRaised = true;
+      } else if (l.called) callerStreets++;
     }
 
     // The field.
@@ -1195,14 +1202,44 @@ export function omahaFacingBetEvSpot(
       aggressorStreets === 0 &&
       callerStreets >= 1 &&
       lineOn('turn', player.seat).aggr;
-    const valueShare = pairedRiverDonkIntoAggressor
+    // Hands #59770288, #59740955, #59768596: when an opponent who already bet or
+    // raised an earlier postflop street puts hero's capped remaining stack all-in
+    // on an unpaired board, effectiveWager is truncated by hero's remaining stack
+    // rather than chosen as a thin <40%/mid block bet.
+    const unpairedMultiStreetAllIn =
+      !isRaise &&
+      !boardPaired &&
+      allIn &&
+      aggressorStreets >= 1 &&
+      (bucket === 'under40' || bucket === 'mid');
+    // Hand #59775543: betting >= 25% pot into multiple opponents on a paired
+    // river is polarized to trips or full houses, never thin two-pair/one-pair value.
+    const pairedRiverMultiwayValue =
+      street === 'river' && !isRaise && boardPaired && potFrac >= 0.25 && callers + behind >= 1;
+    // Hand #59755179: raising an earlier postflop street and barreling every
+    // street into a >= 70%-pot river bet represents a raise-narrowed nutted range.
+    const earlierRaisedBigRiverBarrel =
+      street === 'river' && !isRaise && earlierRaised && aggressorStreets >= 2 && potFrac >= 0.7;
+    let valueShare = pairedRiverDonkIntoAggressor
       ? OMAHA_EV_VALUE_SHARE.river.raise * OMAHA_EV_LINE_AGGRESSOR ** callerStreets
-      : OMAHA_EV_VALUE_SHARE[street][isRaise ? 'raise' : bucket] *
+      : OMAHA_EV_VALUE_SHARE[street][
+          isRaise ? 'raise' : unpairedMultiStreetAllIn || pairedRiverMultiwayValue ? 'big' : bucket
+        ] *
         OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets *
         OMAHA_EV_LINE_CALLER ** callerStreets;
-    const priorBluff = pairedRiverDonkIntoAggressor
+    let priorBluff = pairedRiverDonkIntoAggressor
       ? OMAHA_EV_PRIOR_BLUFF.river.raise
-      : omahaEvPriorBluffShare(street, potFrac, isRaise);
+      : unpairedMultiStreetAllIn
+        ? Math.min(
+            omahaEvPriorBluffShare(street, potFrac, false),
+            OMAHA_EV_PRIOR_BLUFF[street].big
+          ) *
+          OMAHA_EV_LINE_AGGRESSOR ** aggressorStreets
+        : omahaEvPriorBluffShare(street, potFrac, isRaise);
+    if (earlierRaisedBigRiverBarrel) {
+      valueShare *= 0.7;
+      priorBluff = Math.min(priorBluff, OMAHA_EV_PRIOR_BLUFF.river.raise);
+    }
     return {
       street,
       bettorSeat: faced.bettorSeat,
@@ -1336,7 +1373,10 @@ export function omahaFacingBetEvVerdict(
   // keeps no showdown record of a player's calls by wager size, so there is
   // no per-caller read to move it (audit 2026-11-15, item 8: the unfed
   // callerShown input was removed).
-  if (spot.callers > 0) field *= need(OMAHA_EV_CALLER_SHARE[spot.street], true) ** spot.callers;
+  const baseCallerShare = OMAHA_EV_CALLER_SHARE[spot.street];
+  const callerShare =
+    spot.potFrac < 0.25 ? 1 - (1 - baseCallerShare) * (spot.potFrac / 0.25) : baseCallerShare;
+  if (spot.callers > 0) field *= need(callerShare, true) ** spot.callers;
   if (spot.allIns > 0) field *= need(OMAHA_EV_ALL_IN_SHARE, true) ** spot.allIns;
   if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
   pWin *= field;
@@ -1344,6 +1384,7 @@ export function omahaFacingBetEvVerdict(
   let realization = spot.final
     ? 1
     : Math.max(0.5, Math.min(1, Number.isFinite(ctx.realization) ? ctx.realization! : 0.85));
+  if (!spot.final && spot.behind > 0) realization = Math.min(realization, 0.85);
   // Hand #59725321: on an already-paired turn facing a >= 40%-pot wager with
   // river barrel stacks still behind, a non-boat hand with zero full-house/quad
   // river outs draws dead against every boat in the bettor's range and folds
@@ -1373,6 +1414,26 @@ export function omahaFacingBetEvVerdict(
     }
     if (boatOuts === 0) realization = Math.min(realization, 0.42);
   }
+  // Hand #59749333: on a non-final turn facing a >= 70%-pot barrel from an
+  // earlier-street aggressor with river barrel stacks behind, an unimproved
+  // one-pair or two-pair hand (< trips) without a nut flush draw, nut straight
+  // outs, or an >= 8-out straight draw folds most river barrels (a baby flush
+  // draw like 7d3d wins rarely when completed against a multi-street pot barrel)
+  // and cannot realize IP check-down equity.
+  if (
+    spot.street === 'turn' &&
+    !spot.final &&
+    spot.potFrac >= 0.7 &&
+    spot.aggressorStreets >= 1 &&
+    spot.bettorCanBarrelRiver !== false &&
+    board.length === 4 &&
+    scoreOmahaHiPartial(hole, board) < 4 * 0x100000
+  ) {
+    const draw = omahaDrawQuality(hole, board, false);
+    if (!draw.nutFlushDraw && draw.nutStraightOuts === 0 && draw.straightOuts < 8) {
+      realization = Math.min(realization, 0.65);
+    }
+  }
   pWin *= realization;
   pTie *= realization;
   const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? ctx.rake! : 0));
@@ -1383,9 +1444,11 @@ export function omahaFacingBetEvVerdict(
     Number.isFinite(ctx.riskPremium) && (ctx.riskPremium as number) > 0
       ? Math.min(0.5, ctx.riskPremium as number)
       : 0;
-  const margin =
-    (omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) + premium) *
+  const baseMargin =
+    omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) *
     (spot.winnable + spot.paid);
+  const cashMargin = spot.potFrac < 0.1 ? Math.min(baseMargin, 0.5 * spot.paid) : baseMargin;
+  const margin = cashMargin + premium * (spot.winnable + spot.paid);
   // PLO6 (SPEC-A 3.12 item 4, K1): where the M1 river fold test holds, the
   // verdict is never a call, whatever the EV says. Against every holding
   // (uniform) the hand is beaten 1 - win - tie of the time: the exact form of

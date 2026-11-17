@@ -261,7 +261,8 @@ export function omahaBareBigPairOnFlop(hole: Card[], board: Card[]): boolean {
   const over = board.filter((c) => RANKS.indexOf(c.rank) > pocket).length;
   const big = pocket >= RANKS.indexOf(OMAHA_BIG_PAIR_MIN_RANK as never);
   if (!(over === 0 || (big && over === 1))) return false;
-  if (category(hole, board) !== ONE_PAIR) return false;
+  const made = omahaMadeClass(hole, board);
+  if (made.category !== ONE_PAIR && !(made.category === 3 && made.cls === 'board2p')) return false;
   const draw = omahaDrawQuality(hole, board, false);
   if (draw.nutFlushDraw || draw.dominatedFlushDraw) return false;
   return draw.straightOuts < OMAHA_OOP_CHECK_STRAIGHT_DRAW_OUTS;
