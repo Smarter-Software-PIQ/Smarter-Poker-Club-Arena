@@ -112,11 +112,25 @@ $body$;
  EXECUTE replace(d,old,replacement);
 END $patch$;
 
-CREATE OR REPLACE TRIGGER a0_operational_alert_mirror_classify
- BEFORE INSERT ON public.operational_alert_events FOR EACH ROW
- WHEN(NEW.investigation_status='new' AND NEW.source IN
- ('financial-alerts-backfill','financial-alerts-updates','drift-incidents-backfill','drift-incidents-updates','alertmanager','owner-operational-notifications'))
- EXECUTE FUNCTION public.fn_operational_alert_mirror_classify();
+-- Preserve any other original source admitted by the current trigger. A
+-- concurrent source extension must never be replaced by an older fixed list.
+DO $arrival_trigger$
+DECLARE d text; enabled "char"; anchor text:='''alertmanager''::text';
+BEGIN
+ SELECT pg_get_triggerdef(t.oid),t.tgenabled INTO STRICT d,enabled
+ FROM pg_trigger t WHERE t.tgrelid='public.operational_alert_events'::regclass
+   AND t.tgname='a0_operational_alert_mirror_classify' AND NOT t.tgisinternal;
+ IF enabled<>'O' OR strpos(d,'fn_operational_alert_mirror_classify()')=0 THEN
+  RAISE EXCEPTION 'original mirror arrival trigger changed';
+ END IF;
+ IF strpos(d,'owner-operational-notifications')=0 THEN
+  IF length(d)-length(replace(d,anchor,''))<>length(anchor) THEN
+   RAISE EXCEPTION 'original mirror source selector changed';
+  END IF;
+  EXECUTE replace(replace(d,'CREATE TRIGGER','CREATE OR REPLACE TRIGGER'),
+    anchor,anchor||', ''owner-operational-notifications''::text');
+ END IF;
+END $arrival_trigger$;
 
 -- Project already-proved original outcomes once at installation. Future changes
 -- are owned by the original synchronous triggers above, never a repair schedule.

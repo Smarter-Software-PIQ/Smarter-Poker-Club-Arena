@@ -18,6 +18,11 @@ def qualify(root,sql,psql,record,incident,tick,now,ok):
     """)
     for row in json.loads(path.read_text()):
         sql(row['definition']+';')
+    # A concurrently admitted source keeps its existing classification path.
+    row=next(row for row in json.loads(path.read_text()) if row['signature']=='fn_operational_alert_mirror_classify()')
+    extra_handler="  IF NEW.source='already-supported-extra' THEN NEW.investigation_status:='informational'; NEW.investigation:=jsonb_build_object('rule','existing-source-handler'); RETURN NEW; END IF;\n"
+    sql(row['definition'].replace('BEGIN\n','BEGIN\n'+extra_handler,1)+';')
+    sql("CREATE TRIGGER a0_operational_alert_mirror_classify BEFORE INSERT ON public.operational_alert_events FOR EACH ROW WHEN(NEW.investigation_status='new' AND NEW.source IN('financial-alerts-backfill','financial-alerts-updates','drift-incidents-backfill','drift-incidents-updates','alertmanager','already-supported-extra')) EXECUTE FUNCTION public.fn_operational_alert_mirror_classify();")
     sql("""CREATE TRIGGER a_operational_alert_investigation_touched BEFORE UPDATE OF investigation,investigation_status ON public.operational_alert_events FOR EACH ROW WHEN(OLD.investigation IS DISTINCT FROM NEW.investigation OR OLD.investigation_status IS DISTINCT FROM NEW.investigation_status) EXECUTE FUNCTION public.fn_operational_alert_investigation_touched();
     CREATE TRIGGER fixture_original_source_resolution AFTER UPDATE ON public.ca_drift_incidents FOR EACH ROW EXECUTE FUNCTION public.fn_ca_incident_resolution_reaches_the_alerts();""")
     def literal(v):return "'"+json.dumps(v).replace("'","''")+"'::jsonb"
@@ -43,6 +48,8 @@ def qualify(root,sql,psql,record,incident,tick,now,ok):
     metadata=sql("SELECT jsonb_agg(jsonb_build_array(oid,proowner,proacl,proconfig,prosecdef) ORDER BY oid) FROM pg_proc WHERE oid IN("+','.join("'"+row['signature']+"'::regprocedure" for row in json.loads(path.read_text()))+")")
     before_observations=sql(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id={owner}")
     sql(source.read_text())
+    extra=record('already-supported-extra','source-extension','ExistingExtraSource','firing','info',{})
+    assert sql(f"SELECT investigation->>'rule' FROM operational_alert_events WHERE id={extra}")=='existing-source-handler'
     assert proof(reviewed)['reviewed'] and not proof(reviewed)['verified']
     assert report(reviewed)['status']=='fixed' and 'no signup code failure' in report(reviewed)['resolution']
     assert sql(f"SELECT status FROM operational_alert_events WHERE id={reviewed}")=='firing'
