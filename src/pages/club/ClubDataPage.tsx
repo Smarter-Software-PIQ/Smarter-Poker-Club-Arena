@@ -1428,6 +1428,7 @@ export default function ClubDataPage() {
     tab === 'players' ? '' : stakes,
     tab === 'players' ? '' : search,
     tab === 'players' ? '' : gameSort,
+    reportRangeError,
   ].join(':');
 
   // A complete financial export belongs to the exact painted question. Abort
@@ -1959,11 +1960,6 @@ export default function ClubDataPage() {
 
   useLayoutEffect(() => {
     if (!clubUuid || isHydrating || !userId) return;
-    if (reportRangeError) {
-      setSnapshot(null);
-      setLoading(false);
-      return;
-    }
     const restoreKey = gameScopeKey;
     if (restoredGameKeyRef.current === restoreKey) return;
     restoredGameKeyRef.current = restoreKey;
@@ -1982,6 +1978,18 @@ export default function ClubDataPage() {
     setGameCursor(null);
     gameCursorRef.current = null;
     restoredGameCacheHitRef.current = false;
+    if (reportRangeError) {
+      snapshotRef.current = null;
+      verifiedGameSummaryRef.current = null;
+      setSnapshot(null);
+      setGamesHasMore(false);
+      setError(null);
+      setLedgerSource('cold');
+      setLastVerifiedAt(null);
+      setLastRequestMs(null);
+      setLoading(false);
+      return;
+    }
     const cached = readClubDataCache<CachedGameLedger>(userId, clubUuid, gameCacheKey);
     if (!isVerifiedCachedGameLedger(cached, expectedGameSnapshot)) {
       if (cached) removeClubDataCaches(userId, clubUuid);
@@ -2261,12 +2269,29 @@ export default function ClubDataPage() {
   );
 
   useLayoutEffect(() => {
-    if (tab !== 'players') return;
+    // A rejected date question retires player reads even while its tab is hidden.
     if (reportRangeError) {
+      if (restoredPlayerKeyRef.current !== playerScopeKey) {
+        restoredPlayerKeyRef.current = playerScopeKey;
+        playersQueryEpoch.current += 1;
+        playersVersion.current += 1;
+        playersSpinnerVersion.current = playersVersion.current;
+        playersReadInFlight.current = null;
+        coldPlayersRead.current = null;
+        playersMoreRef.current = false;
+      }
+      playersRef.current = null;
+      playerCursorRef.current = null;
       setPlayers(null);
+      setPlayerCursor(null);
+      setPlayersHasMore(false);
+      setPlayersLoadingMore(false);
+      setPlayersPageError(null);
+      setPlayersError(null);
       setPlayersLoading(false);
       return;
     }
+    if (tab !== 'players') return;
     if (!clubUuid || isHydrating || !userId) return;
     const restoreKey = playerScopeKey;
     let preserveExistingRows = true;
@@ -2312,6 +2337,7 @@ export default function ClubDataPage() {
     userId,
     playerCacheKey,
     playerScopeKey,
+    reportRangeError,
   ]);
 
   loadRef.current = (showSpinner: boolean, preserveOnError = false) =>
@@ -3644,7 +3670,7 @@ export default function ClubDataPage() {
             <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
           </DataHelpTip>
         )}
-        {clubUuid && (
+        {clubUuid && !reportRangeError && (
           <RakeSnapshotPanel
             reportBasis="pacific"
             reportRange={{ start: startDate, end: endDate }}

@@ -26,6 +26,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { catalogSQLUnits } from './migrationSQLUnits';
+import { migrationCorpus } from './migrationCorpus';
 
 export const MIGRATIONS_DIR = resolve(__dirname, '..', '..', 'supabase/migrations');
 
@@ -91,6 +92,11 @@ const declaring = new Map<string, { name: string; sql: string }>();
 export function latestDeclaring(fn: string): { name: string; sql: string } {
   const hit = declaring.get(fn);
   if (hit) return hit;
+  // Preserve the complete ascending scan (including ambiguous JSON-carried
+  // DDL in older files), while avoiding thousands of serial filesystem opens.
+  for (const migration of migrationCorpus()) {
+    if (!contents.has(migration.name)) contents.set(migration.name, migration.sql);
+  }
   const hits = migrationFiles().filter((f) => {
     const sql = authoritativeMigrationSQL(readMigration(f), fn);
     return (
