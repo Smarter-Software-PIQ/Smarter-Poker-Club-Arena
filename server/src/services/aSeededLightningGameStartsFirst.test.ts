@@ -74,13 +74,12 @@ describe('a seeded Lightning game starts first', () => {
     expect([...starters].sort()).toEqual(['f2', 'm1', 'y']);
   });
 
-  it('stops once the game holds a full ring across its tables', () => {
+  it('stops once the game holds its pool target across its tables', () => {
     const tables = [table('m', NLH_ONE_TWO), table('f', NLH_ONE_TWO, { role: 'feeder' })];
     expect(lightningStarterTables(tables, seats({ m: 4, f: 1 })).size).toBe(1);
     expect(
-      lightningStarterTables(tables, seats({ m: 4, f: LIGHTNING_STARTER_PLAYERS - 4 })).size
+      lightningStarterTables(tables, seats({ m: 6, f: LIGHTNING_STARTER_PLAYERS - 6 })).size
     ).toBe(0);
-    expect(lightningStarterTables(tables, seats({ m: 6 })).size).toBe(0);
   });
 
   it('never names a closed or breaking table, an unseeded game or a table outside a game', () => {
