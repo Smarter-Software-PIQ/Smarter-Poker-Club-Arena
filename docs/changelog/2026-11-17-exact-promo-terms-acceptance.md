@@ -10,4 +10,6 @@ The existing dedicated first-run iPhone case now uses that same acceptance proof
 
 The existing first-run JSON report is uploaded immediately after its account cleanup, so the passed/not-skipped result and sanitized receipt are available before unrelated browser routes finish. The artifact contains only that report and expires after three days; it adds no account, workflow, event or production operation.
 
+Already-consented isolated interactive profiles now declare the reviewed revision and a valid fixture acknowledgement timestamp. The central mock backend and five custom table profiles retain their original authentication, replay and timing behavior; intentional legacy, missing, stale and unknown consent negatives are unchanged.
+
 Publication prerequisite: the revision column and service-only acceptance RPC must be installed, and the World Hub exact-revision writer must be live before this client merges. This draft does not activate Promo Play Through or promote historical acceptance.

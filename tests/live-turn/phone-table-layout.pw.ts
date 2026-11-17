@@ -22,6 +22,7 @@
  * player, at a table whose engine socket is answered in the browser. Every
  * measurement is in the 600px layout's own CSS px unless it says device px.
  */
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { verifyLightningStaleCashout } from '../e2e/support/lightningStaleCashout';
 import { verifyLightningPreviousHandReview } from '../e2e/support/lightningPreviousHandReview';
@@ -420,7 +421,8 @@ function backendFor(s: Scenario, heroSeat: number) {
     role: 'user',
     diamonds: 0,
     diamond_balance: 0,
-    club_arena_tos_accepted_at: '2026-09-01T00:00:00Z',
+    club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+    club_arena_tos_revision: TERMS_REVISION,
     avatar_url: '/hub/club-arena/default-avatar.png',
     arena_avatar_url: '/hub/club-arena/default-avatar.png',
   };

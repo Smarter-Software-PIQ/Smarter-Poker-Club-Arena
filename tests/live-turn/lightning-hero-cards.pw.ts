@@ -11,6 +11,7 @@
  * a live hand shows no cards at all there, because deliveries that arrive
  * before the page knows its player were discarded and nothing asked again.
  */
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 import { tapLightningFold, verifyLightningFoldFrames } from '../e2e/support/lightningFoldFrames';
 import { writeFile } from 'node:fs/promises';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
@@ -303,7 +304,8 @@ function backend() {
     role: 'user',
     diamonds: 0,
     diamond_balance: 0,
-    club_arena_tos_accepted_at: '2026-09-01T00:00:00Z',
+    club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+    club_arena_tos_revision: TERMS_REVISION,
     avatar_url: '/hub/club-arena/default-avatar.png',
     arena_avatar_url: '/hub/club-arena/default-avatar.png',
   };
