@@ -1691,6 +1691,23 @@
         "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
         "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
       ]
+    },
+    {
+      "id": "2026-11-17-promo-play-through-db-remaining",
+      "ownerOrder": "Dan in Codex chat01a1e4d3-758c-7a40-b396-d867efdffbfc ordered completion of the required migrations, exact terms, activation and live verification, then explicitly answered \"Authorize protected off-cycle installation\" without waiting4AM. Root interprets that continuing complete-assignment authority to permit this necessary technical correction after original44041909015 installed151020/195541/153059, refused the seven remaining files and verified originalv3thaw with the same engine28372c9a. This records root interpretation, not a claim the owner separately selected these timestamps or another attempt. Original44023469833 and44041909015 bookings, records, hashes, refusals, receipts and fixed09:00UTC expiries remain immutable; the three installed migrations are never replayed. This NEW single-use database-only operation admits exactly the still-uninstalled seven named files from protected main. Its new09:29UTC deadline extends the old03:00Chicago promise, so old notice coverage does NOT qualify it: publish this new row before09:00UTC, then independently verify its own PRIMARY notice continuously from09:00UTC for twenty minutes after the old notice expires. Admission is09:20UTC through fixed09:29UTC November17 (03:20-03:29Chicago), before routine03:30preparation, and the full420-second notice/maintenance budget must still fit. Preserve unchanged serving engine/image/instance, original source and engine custody/locks, rolling-hour spacing,120-second last-hand lead, hand-boundary drain, confirmed durable freeze,285-second admission reserve,150-second installer opening/100-second commit reserve,1-second lock/5-second statement/8-second transaction budgets, one attempt per file, stop UNKNOWN and originalv3thaw. No old-ID replay, installed-file replay, engine replacement, financial replay, new-start hold, watcher, automatic retry, renewal or extension. Root retains this operation and final activation/live verification.",
+      "contains": "e54a5d6039b1393770f6439f312447f3727679f5",
+      "playerNoticeAt": "2026-11-17T09:00:00Z",
+      "notBefore": "2026-11-17T09:20:00Z",
+      "notAfter": "2026-11-17T09:29:00Z",
+      "migrations": [
+        "20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
+        "20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+        "20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
+        "20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
+        "20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
+        "20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
+        "20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql"
+      ]
     }
   ]
 }

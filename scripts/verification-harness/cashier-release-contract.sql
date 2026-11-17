@@ -210,7 +210,7 @@ BEGIN
      WHERE version = '20261116154719'
        AND name = 'promo_tickets_require_cashable_wallets_and_keep_entry_source'
        AND cardinality(statements) = 1
-       AND md5(statements[1]) = '45ee3d7701acb4401325a12eaeb7a3fd'
+       AND md5(statements[1]) = 'bb4501db1780b6992705abd68dab5475'
   ) THEN
     RAISE EXCEPTION 'cashier promo tickets successor migration history drift';
   END IF;

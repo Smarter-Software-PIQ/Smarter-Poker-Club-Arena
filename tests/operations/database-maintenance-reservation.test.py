@@ -314,13 +314,13 @@ class PromoDatabaseReservation(unittest.TestCase):
             (self.repo/'supabase/migrations'/file).write_bytes(data)
         self.publish_window()
 
-    def reserve_promo(self, at='2026-11-17T07:50:00+00:00', run='100-1'):
+    def reserve_promo(self, at='2026-11-17T09:20:00+00:00', run='100-1'):
         from unittest.mock import patch
         with patch.object(seal.time, 'time', return_value=datetime.fromisoformat(at).timestamp()):
             return seal.reserve_database_window({'runId':run, 'controlSha':self.control,
                 'servingSha':self.serving, 'windowId':self.window['id']}, str(self.repo))
 
-    def test_exact_ten_protected_bytes_replay_and_shared_custody(self):
+    def test_exact_seven_protected_bytes_replay_and_shared_custody(self):
         self.prepare_promo(); first=self.reserve_promo()
         self.assertEqual(self.reserve_promo(), first)
         self.assertEqual(first['type'], 'database-maintenance-promo/v1')
@@ -332,13 +332,13 @@ class PromoDatabaseReservation(unittest.TestCase):
         self.assertEqual(len(seal.AUDIT_FILE.read_text().splitlines()), 1)
         with self.assertRaises(SystemExit): self.reserve_promo(run='200-1')
         with self.assertRaises(SystemExit):
-            self.reserve_promo(at='2026-11-17T07:51:00+00:00',run='200-1')
+            self.reserve_promo(at='2026-11-17T09:21:00+00:00',run='200-1')
         self.assertEqual(self.reserve_promo(), first)
 
     def test_exact_authority_and_order_fail_closed_before_journal(self):
         self.prepare_promo(); original=copy.deepcopy(self.window)
         for key,value in [('id','unreviewed-promo'),('contains',self.serving),
-                ('notBefore','2026-11-17T07:49:00Z'),('notAfter','2026-11-17T09:01:00Z'),
+                ('notBefore','2026-11-17T09:19:00Z'),('notAfter','2026-11-17T09:30:00Z'),
                 ('migrations',list(reversed(original['migrations']))),
                 ('migrations',original['migrations'][:-1]),
                 ('migrations',original['migrations']+[original['migrations'][0]]),
@@ -359,7 +359,7 @@ class PromoDatabaseReservation(unittest.TestCase):
 
     def test_expiry_and_unknown_receipt_are_not_extended_or_replaced(self):
         self.prepare_promo()
-        for at in ['2026-11-17T07:49:59+00:00','2026-11-17T08:53:01+00:00','2026-11-17T09:00:00+00:00']:
+        for at in ['2026-11-17T09:19:59+00:00','2026-11-17T09:22:01+00:00','2026-11-17T09:29:00+00:00']:
             with self.subTest(at=at):
                 with self.assertRaises(SystemExit):self.reserve_promo(at)
                 self.assert_no_pair_reservation()
@@ -617,7 +617,7 @@ budgets:[TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,WINDOW_STATEMENT_TIME
             json.dumps([f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])],cwd=ROOT))
         self.assertEqual(result['files'],[f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])
         self.assertEqual(result['budgets'],[8,1000,5000,150,100])
-        self.assertEqual(len(result['files'])*result['budgets'][0],80)
+        self.assertEqual(len(result['files'])*result['budgets'][0],56)
         old=os.getcwd()
         try:
             os.chdir(ROOT)

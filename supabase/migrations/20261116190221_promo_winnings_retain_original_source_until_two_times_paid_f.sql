@@ -666,7 +666,7 @@ DO $original_tournament_hand_source$ DECLARE def text;needle text;BEGIN
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'original_winnings_capture_anchor_changed';END IF;
  EXECUTE replace(def,needle,$hook$IF EXISTS(SELECT 1 FROM public.tables WHERE id=p_table AND tournament_id IS NOT NULL) THEN
   IF to_regprocedure('public.fn_ca_promo_profit_capture_tournament_hand(uuid,uuid,jsonb)') IS NOT NULL THEN
-   PERFORM public.fn_ca_promo_profit_capture_tournament_hand(p_hand,p_table,p_stacks);
+   EXECUTE 'SELECT public.fn_ca_promo_profit_capture_tournament_hand($1::uuid,$2::uuid,$3::jsonb)' USING p_hand,p_table,p_stacks;
   ELSIF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL AND enforced_from<=clock_timestamp()) THEN
    RAISE EXCEPTION 'original_tournament_earning_source_contract_missing';
   END IF;
@@ -1012,9 +1012,9 @@ DO $original_entry_expense_rendezvous$ DECLARE def text;sig text;needle text;BEG
   IF sig='public.fn_ca_promo_integrity_record_event(uuid)' THEN
    needle:='PERFORM public.fn_ca_promo_integrity_consume_entry_fee(l.id);';
   ELSIF sig='public.fn_ca_promo_entry_fee_entitlement()' THEN
-   needle:='IF to_regprocedure(''public.fn_ca_promo_integrity_consume_entry_fee(uuid)'') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(NEW.source_ledger_id); END IF;';
+   needle:='IF to_regprocedure(''public.fn_ca_promo_integrity_consume_entry_fee(uuid)'') IS NOT NULL THEN EXECUTE ''SELECT public.fn_ca_promo_integrity_consume_entry_fee($1::uuid)'' USING NEW.source_ledger_id; END IF;';
   ELSE
-   needle:='IF to_regprocedure(''public.fn_ca_promo_integrity_consume_entry_fee(uuid)'') IS NOT NULL THEN PERFORM public.fn_ca_promo_integrity_consume_entry_fee(l.id); END IF;';
+   needle:='IF to_regprocedure(''public.fn_ca_promo_integrity_consume_entry_fee(uuid)'') IS NOT NULL THEN EXECUTE ''SELECT public.fn_ca_promo_integrity_consume_entry_fee($1::uuid)'' USING l.id; END IF;';
   END IF;
   IF position(needle in def)=0 THEN RAISE EXCEPTION 'original_winnings_entry_rendezvous_changed: %',sig;END IF;
   EXECUTE replace(def,needle,needle||E'\n '||CASE WHEN sig='public.fn_ca_promo_entry_fee_entitlement()' THEN 'PERFORM public.fn_ca_promo_profit_finish_entry_fee(NEW.source_ledger_id);' ELSE 'PERFORM public.fn_ca_promo_profit_finish_entry_fee(l.id);' END);
@@ -1076,7 +1076,7 @@ BEGIN
  -- particular return can commit; it must never become player-owned W.
  IF EXISTS(SELECT 1 FROM public.ca_promo_event_fee_consumption_slices f WHERE f.charge_ledger_id=e.source_ledger_id) OR EXISTS(SELECT 1 FROM public.ca_promo_event_principal_lots f WHERE f.charge_ledger_id=e.source_ledger_id) OR EXISTS(SELECT 1 FROM public.ca_promo_event_entry_loss_slices f WHERE f.charge_ledger_id=e.source_ledger_id) THEN
   IF to_regprocedure('public.fn_ca_promo_returned_ticket_principal_fee(uuid,uuid,uuid)') IS NULL THEN RAISE EXCEPTION 'original_fund_ticket_fee_custody_required';END IF;
-  PERFORM public.fn_ca_promo_returned_ticket_principal_fee(l.id,e.id,p_ticket);
+  EXECUTE 'SELECT public.fn_ca_promo_returned_ticket_principal_fee($1::uuid,$2::uuid,$3::uuid)' USING l.id,e.id,p_ticket;
  END IF;
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_restore_returned_ticket_costs(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
@@ -1467,7 +1467,7 @@ DO $original_movement_owners$ DECLARE def text;needle text;BEGIN
   SELECT pg_get_functiondef('public.fn_ca_issue_cashable_ticket_owned(uuid,uuid,numeric,text,text,text)'::regprocedure) INTO def;
   needle:=$n$  v_locked:=public.fn_ca_promo_locked_at(p_club_id,v_me,p_source_wallet,v_me);
   IF to_regprocedure('public.fn_ca_promo_integrity_locked_at(uuid,uuid,text,uuid)') IS NOT NULL THEN
-    v_locked:=v_locked+public.fn_ca_promo_integrity_locked_at(p_club_id,v_me,p_source_wallet,v_me);
+    EXECUTE 'SELECT $1::numeric+public.fn_ca_promo_integrity_locked_at($2::uuid,$3::uuid,$4::text,$5::uuid)' INTO v_locked USING v_locked,p_club_id,v_me,p_source_wallet,v_me;
   END IF;$n$;
   IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'original_cash_ticket_union_anchor_changed';END IF;
   EXECUTE replace(def,needle,'  v_locked:=public.fn_ca_promo_restricted_at(p_club_id,v_me,p_source_wallet,v_me);');
@@ -1940,13 +1940,13 @@ DO $original_event_projection$ DECLARE def text;needle text;BEGIN
  def:=replace(def,'DECLARE l public.chip_ledger%ROWTYPE;','DECLARE source_id uuid;l public.chip_ledger%ROWTYPE;');
  needle:=' SELECT * INTO l FROM public.chip_ledger WHERE id=p_ledger_id;';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'original_event_P_source_projection_anchor_changed';END IF;
- def:=replace(def,needle,needle||E'\n IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL) AND l.category IN(''tournament_prize'',''bounty'') THEN\n  source_id:=public.fn_ca_promo_profit_bind_earning_ledger(l.id);\n  IF source_id IS NOT NULL THEN RETURN public.fn_ca_promo_profit_project_earning(l.id,source_id,''player_wallet'',l.to_entity_id);END IF;\n END IF;');
+ def:=replace(def,needle,needle||E'\n IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL) AND l.category IN(''tournament_prize'',''bounty'') THEN\n  EXECUTE ''SELECT public.fn_ca_promo_profit_bind_earning_ledger($1::uuid)'' INTO source_id USING l.id;\n  IF source_id IS NOT NULL THEN RETURN public.fn_ca_promo_profit_project_earning(l.id,source_id,''player_wallet'',l.to_entity_id);END IF;\n END IF;');
  EXECUTE def;
  SELECT pg_get_functiondef('public.fn_ca_promo_roll_event_principal(uuid,uuid,text)'::regprocedure) INTO def;
  def:=replace(def,'DECLARE l public.chip_ledger%ROWTYPE;','DECLARE source_id uuid;l public.chip_ledger%ROWTYPE;');
  needle:=' SELECT * INTO l FROM public.chip_ledger WHERE id=p_ledger_id;';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'original_noncash_P_source_projection_anchor_changed';END IF;
- EXECUTE replace(def,needle,needle||E'\n IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL) THEN\n  IF l.metadata->>''kind''=''tournament_entry_ticket_return'' THEN RETURN public.fn_ca_promo_profit_return_entitlement_ticket(l.id,p_user);END IF;\n  source_id:=public.fn_ca_promo_profit_bind_nonwallet_earning(l.id,p_user);\n  IF source_id IS NOT NULL THEN RETURN public.fn_ca_promo_profit_project_earning(l.id,source_id,p_destination,CASE WHEN p_destination=''ticket'' THEN COALESCE(NULLIF(l.metadata->>''ticket_id'','''')::uuid,l.to_entity_id) ELSE l.to_entity_id END);END IF;\n END IF;');
+ EXECUTE replace(def,needle,needle||E'\n IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL) THEN\n  IF l.metadata->>''kind''=''tournament_entry_ticket_return'' THEN RETURN public.fn_ca_promo_profit_return_entitlement_ticket(l.id,p_user);END IF;\n  EXECUTE ''SELECT public.fn_ca_promo_profit_bind_nonwallet_earning($1::uuid,$2::uuid)'' INTO source_id USING l.id,p_user;\n  IF source_id IS NOT NULL THEN RETURN public.fn_ca_promo_profit_project_earning(l.id,source_id,p_destination,CASE WHEN p_destination=''ticket'' THEN COALESCE(NULLIF(l.metadata->>''ticket_id'','''')::uuid,l.to_entity_id) ELSE l.to_entity_id END);END IF;\n END IF;');
 END $original_event_projection$;
 
 -- Exact refund destination can differ from its frozen entry earning scope.

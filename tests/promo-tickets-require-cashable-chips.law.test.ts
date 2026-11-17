@@ -20,6 +20,11 @@ describe('Tickets use cashable player or agent chips; promo enters tournaments d
     expect(workflow).toContain(
       'python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through'
     );
+    expect(workflow).toContain('packages: postgresql-17 postgresql-17-plpgsql-check');
+    expect(workflow).toContain('--require-resolution-guard');
+    expect(read('scripts/ci/test-promo-ticket-play-through.py')).toContain(
+      'actual deferred production guard refuses the original missing H callback'
+    );
   });
   it('refuses new promo purchases before debits and retains only the original replay path', () => {
     expect(sql).toContain('promo_ticket_purchase_forbidden');
