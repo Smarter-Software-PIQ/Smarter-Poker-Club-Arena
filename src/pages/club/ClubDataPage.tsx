@@ -1,6 +1,8 @@
 import { parseWeeklyPlayerResults } from '../../utils/unionStatementBoard';
 import { unionEcoRows, unionEcoComponents } from '../../utils/unionEco';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
+import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
+import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
 /**
  * CLUB DATA
  * ============================================================================
@@ -154,6 +156,7 @@ interface SnapshotRow {
 }
 
 interface SnapshotSummary {
+  reconciliation?: Reconciliation | null;
   games: number;
   total_winnings: number;
   mtt_winnings: number;
@@ -3775,6 +3778,14 @@ export default function ClubDataPage() {
           RENDERED on the Games tab. Switching to Players left Omaha-only totals
           sitting above a whole-club per-player breakdown with nothing saying
           so. Say so. */}
+        {snapshot && (
+          <ClubDataReconciliation
+            basis={snapshot.accounting_basis}
+            coverage={snapshot.accounting_coverage}
+            range={snapshot.range}
+            reconciliation={summary?.reconciliation}
+          />
+        )}
         {summary && filtersActive && (
           <p className={`sc-copy ${styles.note}`} role="status">
             These Totals Are Filtered{game !== 'ALL' ? ` - ${titleCase(game)}` : ''}
