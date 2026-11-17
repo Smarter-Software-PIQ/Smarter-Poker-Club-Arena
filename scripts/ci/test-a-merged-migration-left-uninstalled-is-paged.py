@@ -20,6 +20,10 @@ a fake extensions.http answering from a table, so every outcome is data:
     resolves; an added file that arrives superseded is never paged; a marker
     naming no file on main is ignored; an unreadable modification is retried
     (20261112035143, alert 376926);
+  * a window file still uninstalled fifteen minutes after the 04:05 Central
+    thaw of a window it was eligible for is raised ONCE as a private warning
+    (never an owner page), a file merged after that window's 03:30 cutoff is
+    not, and installing it resolves the warning (20261112105047);
   * an unreadable GitHub raises nothing new and keeps the cursor;
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
@@ -40,6 +44,8 @@ MIGRATION = next(MIGRATIONS.glob('*_a_merged_migration_still_uninstalled_after_a
 RENAME_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_renamed_migration_s_header_from_it.sql'))
 # 20261112035143: a superseded file is never paged; a modified waiting file is re-read.
 SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_migration_as_never_to_b*.sql'))
+# 20261112105047: a window file a daily window left uninstalled is raised once.
+WINDOW_FIX = next(MIGRATIONS.glob('*_the_install_watch_flags_a_window_file_a_daily_window_left_un*.sql'))
 # The never-run marker, spelled in two pieces so this file is not read as one.
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
@@ -119,6 +125,12 @@ def main():
             proof = re.search(r'^-- @live-proof: (.+)$', SUPERSEDED_FIX.read_text(), re.M).group(1)
             assert sql(f'SELECT {proof}') == 't', 'superseded-fix live proof must hold after install'
             ok('the superseded fix installs over the exact installed watch (md5 preimage) and its live proof holds')
+        if os.environ.get('MIGWATCH_PRE_FIX') != '1' and os.environ.get('MIGWATCH_PRE_WINDOW') != '1':
+            r = psql(['-f', str(WINDOW_FIX)])
+            assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', WINDOW_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'window-fix live proof must hold after install'
+            ok('the window-file fix installs over the exact installed watch (md5 preimage) and its live proof holds')
 
         def mock(pattern, body, status=200):
             sql("INSERT INTO mock_http VALUES ($m$%s$m$, %d, $m$%s$m$) ON CONFLICT (pattern) DO UPDATE SET status = EXCLUDED.status, body = EXCLUDED.body"
@@ -364,13 +376,58 @@ def main():
         assert sql(f"SELECT count(*) FROM mock_http_calls WHERE uri = '{RAW}/{sha(22)}/supabase/migrations/20261110100000_ordinary_change.sql'") == '0'
         ok('a modification to an installed file is not fetched')
 
+        # A WINDOW FILE A DAILY WINDOW LEFT UNINSTALLED (2026-11-10..12: the
+        # installer job was skipped three days running and nothing said so).
+        # On main before the 03:30 Central cutoff of the Nov 11 window, still
+        # uninstalled at 04:20 Central: raised once, privately; a file merged
+        # after the cutoff is not raised for that window.
+        WINW = 'supabase/migrations/20261111080000_window_left_behind.sql'
+        WINL = 'supabase/migrations/20261111094000_window_after_cutoff.sql'
+        merge(23, '2026-11-11T08:00:00Z', [{'filename': WINW, 'status': 'added',
+                                            'patch': '@@ -0,0 +1,1 @@\n+-- @install-window: daily-maintenance'}])
+        merge(24, '2026-11-11T09:40:00Z', [{'filename': WINL, 'status': 'added',
+                                            'patch': '@@ -0,0 +1,1 @@\n+-- @install-window: daily-maintenance'}])
+
+        def window_alert(version):
+            return sql(f"SELECT coalesce(string_agg(status || ':' || severity, ','), '') FROM operational_alert_events "
+                       f"WHERE event_key = 'window-missed:{version}'")
+
+        owner_pages_before = int(sql("SELECT count(*) FROM notifications_sent"))
+        watch('2026-11-11 10:15:00Z')  # 04:15 Central: inside the grace after the 04:05 thaw
+        assert window_alert('20261111080000') == '', 'raised before 04:20 Central'
+        r = watch('2026-11-11 10:20:00Z')  # 04:20 Central
+        assert window_alert('20261111080000') == 'firing:warning', r
+        assert window_alert('20261111094000') == '', 'a file merged after the 03:30 cutoff missed no window'
+        summary = sql("SELECT payload->>'summary' FROM operational_alert_events WHERE event_key = 'window-missed:20261111080000'")
+        assert summary.startswith('20261111080000_window_left_behind.sql (daily-maintenance window file) merged at Nov 11 02:00 Central') \
+            and 'after the Nov 11 04:00 Central window' in summary, summary
+        assert sql("SELECT payload->>'target_task_id' FROM operational_alert_events WHERE event_key = 'window-missed:20261111080000'") == \
+            '01a09b86-5ba8-7290-8657-1041f13dd3ca'
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:20261111080000'") == '0'
+        assert int(sql("SELECT count(*) FROM notifications_sent")) == owner_pages_before
+        raised = int(sql("SELECT count(*) FROM operational_alert_events WHERE event_key LIKE 'window-missed:%'"))
+        watch('2026-11-11 10:30:00Z')
+        watch('2026-11-11 12:00:00Z')
+        assert int(sql("SELECT count(*) FROM operational_alert_events WHERE event_key LIKE 'window-missed:%'")) == raised
+        ok('a window file a daily window left uninstalled is raised once as a private warning, never paged to the owner')
+
+        sql("INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('20261111080000', 'window_left_behind')")
+        watch('2026-11-11 12:10:00Z')
+        assert window_alert('20261111080000') == 'resolved:warning'
+        assert sql("SELECT payload->>'resolution' FROM operational_alert_events WHERE event_key = 'window-missed:20261111080000'") == \
+            'installed in production'
+        watch('2026-11-12 10:20:00Z')  # the next window: the later file is now raised, the installed one is not
+        assert window_alert('20261111094000') == 'firing:warning'
+        assert window_alert('20261111080000') == 'resolved:warning'
+        ok('installing the window file resolves its warning; the next window raises the file that missed it')
+
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "
             "jsonb_build_object('summary', 'The 4 AM engine update did not happen.'))")
         assert pages('Engine Update Missed At 4 AM') == 1
         ok('a migration page does not hold back an engine release page')
 
-        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '2'  # both inserted by this test
+        assert sql("SELECT count(*) FROM supabase_migrations.schema_migrations") == '3'  # all inserted by this test
         assert sql("SELECT count(*) FROM mock_http_calls WHERE uri NOT LIKE 'https://api.github.com/%' AND uri NOT LIKE 'https://raw.githubusercontent.com/%'") == '0'
         assert sql("SELECT jobname || ' ' || schedule FROM cron.job WHERE jobname LIKE 'ca-merged-migration%'") == 'ca-merged-migration-install-watch-10m */10 * * * *'
         ok('it never writes the migration ledger and only reads GitHub')
