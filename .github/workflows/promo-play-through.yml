@@ -18,6 +18,7 @@ on:
       - scripts/ci/test-signup-promo-identity.py
       - tests/fixtures/signup-promo-identity/**
       - scripts/ci/test-promo-play-through.py
+      - scripts/ci/test-promo-activation.py
       - supabase/migrations/*_promo_winnings_retain_*.sql
       - scripts/ci/test-promo-profit*.py
       - tests/fixtures/promo-profit-*/**
@@ -90,6 +91,8 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Programme activation is prospective and refuses missing prerequisites
+        run: python3 -B scripts/ci/test-promo-activation.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-activation
       - name: Promo notices use original fees and the existing push bridge
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
@@ -164,6 +167,7 @@ jobs:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-activation/RESULTS.json
             artifacts/promo-principal-returns/RESULTS.json
             artifacts/promo-principal-returns/source-manifest.json
             artifacts/promo-principal-returns/*race*.stdout
