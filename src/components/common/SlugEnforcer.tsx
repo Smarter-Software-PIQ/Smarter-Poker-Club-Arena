@@ -60,6 +60,15 @@ export default function SlugEnforcer() {
           newPath = newPath.replace(uuid, unionRes.data.slug);
           redirected = true;
         }
+      } else if (
+        clubRes.data?.is_union &&
+        /^\/clubs?\/[^/]+\/data\/advanced\/?$/.test(location.pathname)
+      ) {
+        // The house club's Report is served by the guarded Club Data route.
+        // There is no /unions/:unionId/data/advanced route to redirect into.
+        newPath = newPath.replace(/^\/club\//, '/clubs/');
+        if (clubRes.data.slug) newPath = newPath.replace(uuid, clubRes.data.slug);
+        redirected = true;
       } else if (clubRes.data?.is_union) {
         // A union's house club row: the app serves it from the union routes.
         // The union's id usually equals the row's id, but read it, don't assume.
