@@ -50,6 +50,10 @@ def main():
   if promo is not None:q(f"INSERT INTO ca_promo_cash_hand_funding VALUES('{hand}','{C}','{P}',100,{promo});")
   return rec,hand
  def accrue(hand):return q(f"SELECT fn_accrue_cash_hand_commissions('{hand}')")
+ def rakeback():
+  # Keep the same original period/certificate for cash, later tournament
+  # recognition, and replay. Both original earning dates belong to this range.
+  return q(f"SELECT fn_rakeback_split_write('{C}','{period_from}','{period_to}',ARRAY['{P}'::uuid])")
  try:
   subprocess.run([pg/'initdb','-D',scratch/'data','-U','postgres','-A','trust'],check=True,capture_output=True)
   subprocess.run([pg/'pg_ctl','-D',scratch/'data','-w','-o',f"-p {port} -k {scratch} -c listen_addresses=''",'-l',scratch/'server.log','start'],check=True,capture_output=True);started=True
@@ -126,10 +130,15 @@ def main():
   # A canonical later interpretation must retain the original funding cut.
   q(f"INSERT INTO accounting_own_agent_interpretations VALUES('cash_rake_accrual',(SELECT id FROM accounting_cash_rake_sources WHERE rake_record_id='{mixed}'),fn_accounting_earning_contract('{C}','{P}',100,NULL,now()-interval '2 hours'),clock_timestamp())")
   check('later agreement interpretation cannot restore promo earnings',q(f"SELECT contract->'tiers'->0->>'amount' FROM accounting_effective_cash_rake_sources WHERE rake_record_id='{mixed}'"),'25.00')
-  period=q("SELECT to_char(now() AT TIME ZONE 'America/Los_Angeles','YYYY-MM-DD')")
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  # Cash sources deliberately predate this transaction by two hours; actual
+  # tournament recognition below uses its original transaction clock. Freeze
+  # two adjacent Pacific dates from the original cash day. This also covers
+  # recognition crossing midnight after the first calculation, without moving
+  # the immutable certificate key or overriding any producer's clock.
+  period_from,period_to=q(f"WITH original AS (SELECT min(earned_at AT TIME ZONE 'America/Los_Angeles')::date AS day FROM accounting_payable_earning_sources WHERE club_id='{C}' AND player_id='{P}') SELECT day||'|'||(day+1) FROM original").split('|')
+  rakeback()
   check('actual rakeback calculator writes only real-funded entitlement',q('SELECT rakeback_amount FROM rakeback_periods'),'30.00')
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  rakeback()
   check('rakeback replay retains one original certificate',q('SELECT count(*) FROM accounting_rakeback_period_calculations'),'1')
   for role in ['anon','authenticated','service_role']:
    q(f"SET ROLE {role};SELECT fn_ca_promo_capture_entry_funding('{uid('none')}',0);",'permission denied')
@@ -192,7 +201,7 @@ def main():
   rc,rr,source=entry('entry-refunded',100);q(source)
   q(f"INSERT INTO accounting_tournament_recognized_sources SELECT id,tournament_id,(SELECT recognized_at FROM accounting_tournament_fee_recognitions WHERE tournament_id='{T}'),'refunded',rake_credit FROM accounting_tournament_fee_sources WHERE rake_record_id='{rr}'")
   check('refunded promo entry never enters payable earnings',q(f"SELECT count(*) FROM accounting_payable_earning_sources WHERE rake_record_id='{rr}'"),'0')
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  rakeback()
   check('actual calculator includes only five eligible tournament fee chips',q('SELECT rakeback_amount FROM rakeback_periods'),'31.00')
   initial=(ROOT/'supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql').read_text()
   start=initial.index('CREATE FUNCTION public.fn_ca_promo_play_through_fees_between(')
@@ -246,7 +255,7 @@ def main():
   check('actual tournament fee producer freezes combined P and H receipt',q(f"SELECT f.promo_amount=50 AND (s.contract->>'payable_rake_credit')::numeric=5 FROM ca_promo_entry_fee_funding f JOIN accounting_tournament_fee_sources s ON s.source_charge_ledger_id=f.charge_ledger_id WHERE f.charge_ledger_id='{hc}'"),'t')
   q(f"INSERT INTO accounting_tournament_recognized_sources SELECT id,tournament_id,(SELECT recognized_at FROM accounting_tournament_fee_recognitions WHERE tournament_id='{T}'),'earned',rake_credit FROM accounting_tournament_fee_sources WHERE rake_record_id='{hr}';SELECT fn_post_accounting_commission_source(s.id,'tournament_fee_accrual',(SELECT recognized_at FROM accounting_tournament_fee_recognitions WHERE tournament_id=s.tournament_id),s.contract) FROM accounting_tournament_fee_sources s WHERE s.rake_record_id='{hr}'")
   check('actual recognized H-entry commission posts only eligible historical tiers',q(f"SELECT sum(c.amount) FROM agent_commissions c JOIN accounting_tournament_fee_sources s ON s.id=c.source_id WHERE s.rake_record_id='{hr}'"),'3.00')
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  rakeback()
   check('actual certified rakeback writer excludes H cash and entry funding',q('SELECT rakeback_amount FROM rakeback_periods'),'36.00')
   before_charge,_,before_source=entry('before-nonwallet-earning-club',0,nonwallet=True)
   before_body=before_source.strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
