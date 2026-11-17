@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './TOSAcceptanceModal.css';
 import { TERMS_LAST_UPDATED } from './legalDates';
+import { PROMO_PLAY_THROUGH_TERMS } from './promoPlayThroughTerms';
 import { AI_OPPONENTS_DISCLOSURE } from './aiOpponentsDisclosure';
 import { reportError } from '../../utils/errorReporter';
 
@@ -112,6 +113,9 @@ export default function TOSAcceptanceModal({ onAccept }: TOSAcceptanceModalProps
               Agent Is Private And Off-Platform. Diamonds Are A Virtual Currency Sold By
               Smarter.Poker For Use Inside The Platform Only.
             </p>
+
+            <h3>Promo Play Through</h3>
+            <p>{PROMO_PLAY_THROUGH_TERMS}</p>
 
             <h3>5. Prohibited Activities</h3>
             <p>You Agree Not To:</p>

@@ -1,0 +1,19 @@
+{
+  "coverage": [
+    {
+      "notes": "table_seats stack on cash tables. Tournament felt is deliberately excluded and carried by tournament_liability instead",
+      "store": "table_stack",
+      "added_at": "2026-09-11T16:10:27.128168+00:00",
+      "treatment": "counted",
+      "counted_by": "felt"
+    }
+  ],
+  "store_modes": [
+    {
+      "mode": "refuse",
+      "store": "table_stack",
+      "reason": "20261002015339: refusing since 02:31:54 UTC, carried here unchanged",
+      "changed_at": "2026-10-02T04:14:45.611383+00:00"
+    }
+  ]
+}

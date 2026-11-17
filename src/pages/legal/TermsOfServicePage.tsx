@@ -2,6 +2,7 @@ import LegalDocumentLayout, {
   type LegalDocumentSection,
 } from '../../components/legal/LegalDocumentLayout';
 import { TERMS_LAST_UPDATED } from '../../components/legal/legalDates';
+import { PROMO_PLAY_THROUGH_TERMS } from '../../components/legal/promoPlayThroughTerms';
 import { AI_OPPONENTS_DISCLOSURE } from '../../components/legal/aiOpponentsDisclosure';
 
 const SECTIONS: LegalDocumentSection[] = [
@@ -57,6 +58,11 @@ const SECTIONS: LegalDocumentSection[] = [
         Inside The Platform Only.
       </p>
     ),
+  },
+  {
+    id: 'promo-play-through',
+    title: 'Promo Play Through',
+    content: <p>{PROMO_PLAY_THROUGH_TERMS}</p>,
   },
   {
     id: 'fair-play',

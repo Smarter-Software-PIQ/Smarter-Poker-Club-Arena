@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { TERMS_REVISION } from '../../src/config/legalDates';
 import { readFileSync } from 'node:fs';
 import { expect, test, type Locator, type WebSocketRoute, type Route } from '@playwright/test';
 const samples = JSON.parse(
@@ -243,7 +244,8 @@ test(TITLE, async ({ page, context, request }, info) => {
               display_name: ACTOR_NAME,
               role: 'player',
               is_active: true,
-              club_arena_tos_accepted_at: '2026-11-01T00:00:00Z',
+              club_arena_tos_accepted_at: '2026-11-16T20:00:00Z',
+              club_arena_tos_revision: TERMS_REVISION,
               arena_avatar_url: '/avatars/table/free_samurai@2x.webp',
             },
           ]

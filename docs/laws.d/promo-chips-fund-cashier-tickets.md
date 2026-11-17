@@ -1,3 +1,5 @@
 # tests/promo-chips-fund-cashier-tickets.law.test.ts
 
 Owner November 12, 2026: agents can send cashier tickets to their downlines using promo chips, 50 max. A promo ticket debits the sender's promo wallet into the ticket escrow, its receipt counts toward the same 50 chips per downline seven day allowance as a promo send and a cancelled promo ticket returns to the promo wallet. The cashier previews that allowance, sends promo tickets in one batch call and recovers them by retry key. The weekly and daily digests count a promo ticket as promo given and the statement's Ticket filter returns its receipt. A promo ticket's note names it, the Tickets tab tells its issuer a cancel returns to the Promo Wallet, the statement files a ticket escrow refund under Ticket, and the dialog names the selected players the allowance holds back.
+
+Owner November 16 supersedes new promo ticket purchasing: only cashable player or agent wallet chips may fund new tickets. The historical promo receipt, exact retry and cancellation assertions remain for tickets already committed; the disabled historical-recovery source is never a new purchase choice. See the cashable-ticket law.
