@@ -1,5 +1,6 @@
 import { formatCashierAmountInput, cashierAmountInputValue } from '../../utils/cashierAmount';
 import { formatWalletChips } from '../../utils/format';
+import { CASHOUT_NOTE_LIMIT } from '../../utils/cashoutNote';
 import { CASHOUT_AMOUNT_LIMIT, validateCashoutAmount } from '../../utils/cashoutAmount';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -659,10 +660,11 @@ function CashoutRequestContent({
 
               <div className="cro-field">
                 <label className="sc-label sc-ink--blue" htmlFor="cashout-note">
-                  Note (Optional)
+                  Note For Agent (Optional)
                 </label>
                 <textarea
                   id="cashout-note"
+                  maxLength={CASHOUT_NOTE_LIMIT}
                   className="cro-input cro-textarea"
                   placeholder="Any Message For Your Agent..."
                   value={note}

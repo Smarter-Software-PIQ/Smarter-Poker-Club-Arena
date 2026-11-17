@@ -1,3 +1,4 @@
+import { cashoutNote } from '../utils/cashoutNote';
 import { formatWalletChips } from '../utils/format';
 import { validateCashoutAmount } from '../utils/cashoutAmount';
 /**
@@ -460,13 +461,39 @@ function verifiedCashoutReceipt(
         data.hold_invoice_id === data.invoice_id
   )
     return refuse();
+  const bankApproval = kind === 'approval' && data.approval_destination === 'club_bank';
+  if (
+    bankApproval &&
+    (cashier.approval_destination !== 'club_bank' ||
+      !['owner', 'co_owner', 'admin'].includes(String(data.actor_role)) ||
+      receiptMoney(data.club_bank_after, true) === null ||
+      receiptMoney(data.club_bank_after, true) !== receiptMoney(data.actor_wallet_after, true))
+  )
+    return refuse();
+  if (
+    (data.approval_destination !== undefined || cashier.approval_destination !== undefined) &&
+    !bankApproval
+  )
+    return refuse();
   if (
     data.ledger_from_type !== (hold ? 'player_wallet' : 'escrow') ||
     data.ledger_from_entity_id !== (hold ? context.playerId : data.escrow_id) ||
     data.ledger_to_type !==
-      (hold ? 'escrow' : kind === 'approval' ? 'agent_wallet' : 'player_wallet') ||
+      (hold
+        ? 'escrow'
+        : bankApproval
+          ? 'club_treasury'
+          : kind === 'approval'
+            ? 'agent_wallet'
+            : 'player_wallet') ||
     data.ledger_to_entity_id !==
-      (hold ? data.escrow_id : kind === 'approval' ? context.actorId : context.playerId)
+      (hold
+        ? data.escrow_id
+        : bankApproval
+          ? context.clubId
+          : kind === 'approval'
+            ? context.actorId
+            : context.playerId)
   )
     return refuse();
   if (
@@ -540,7 +567,7 @@ async function mutateCashout(
   note?: string
 ): Promise<CashoutRequest> {
   if (note !== undefined && typeof note !== 'string') throw new Error('Cashout Note Must Be Text');
-  const normalizedNote = note?.trim() || null;
+  const normalizedNote = cashoutNote(note) || null;
   try {
     context.clubId = await resolveClubUUID(context.clubId);
   } catch (error) {
@@ -657,6 +684,11 @@ export interface CashoutRequest {
   status: CashoutStatus;
   playerNote?: string;
   agentNote?: string;
+  isEscalated?: boolean;
+  canDecide?: boolean;
+  canEscalate?: boolean;
+  noticeId?: string;
+  approvalDestination?: 'club_bank' | 'agent_wallet';
   createdAt: string;
   /** Legacy queue rows do not expose update time; mutation receipts always do. */
   updatedAt?: string;
@@ -726,6 +758,11 @@ function readCashoutRow(value: unknown): CashoutRequest {
     cancelledAt: (value.cancelled_at as string | null | undefined) ?? undefined,
     playerNote: (value.player_note as string | null | undefined) ?? undefined,
     agentNote: (value.agent_note as string | null | undefined) ?? undefined,
+    isEscalated: value.is_escalated === true,
+    canDecide: value.can_decide === true,
+    canEscalate: value.can_escalate === true,
+    noticeId: typeof value.notice_id === 'string' ? value.notice_id : undefined,
+    approvalDestination: value.approval_destination === 'club_bank' ? 'club_bank' : 'agent_wallet',
     playerName:
       (value.player_name as string | undefined) ??
       (typeof player.display_name === 'string' ? player.display_name : undefined),
@@ -766,7 +803,7 @@ class CashoutServiceClass {
     ) {
       throw new Error('The Cashout Lookup Does Not Match Its Original Intent');
     }
-    const acceptedNote = note?.trim() || null;
+    const acceptedNote = cashoutNote(note) || null;
     try {
       context.clubId = await resolveClubUUID(context.clubId);
     } catch (error) {
@@ -856,6 +893,60 @@ class CashoutServiceClass {
     masterBus.emit('BALANCE_UPDATED', { source: 'cashout_request', userId: playerId });
     masterBus.emit('CASHOUT_REQUESTED', { clubId: context.clubId, amount, userId: playerId });
     return request;
+  }
+
+  /** Escalation only links this request. Its deterministic operation identity survives
+   * reload, disconnect and another tab without creating a second financial intent. */
+  async escalateCashout(
+    cashout: CashoutRequest,
+    actorId: string,
+    viewCurrent: () => boolean
+  ): Promise<string> {
+    const currentAccount = captureCashoutAccountGuard(actorId);
+    const current = () => currentAccount() && viewCurrent();
+    if (!current() || !uuidValue(actorId) || !uuidValue(cashout.id) || !uuidValue(cashout.clubId))
+      throw new Error('Refresh To Verify This Cashout Before Sending It');
+    const scope = JSON.stringify([
+      'notice-cashout-escalation-v1',
+      actorId.toLowerCase(),
+      cashout.clubId.toLowerCase(),
+      cashout.id.toLowerCase(),
+    ]);
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(scope));
+    const bytes = new Uint8Array(digest).slice(0, 16);
+    bytes[6] = (bytes[6] & 15) | 80;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, (byte) => (byte < 16 ? '0' : '') + byte.toString(16)).join('');
+    const operationId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    if (!current()) throw new Error('The Cashout Account Or Club Changed');
+    const { data, error } = await supabase.rpc('fn_cashout_escalate_v2', {
+      p_cashout_id: cashout.id,
+      p_club_id: cashout.clubId,
+      p_expected_actor_id: actorId,
+      p_op_id: operationId,
+    });
+    if (!current()) throw new Error('The Cashout Account Or Club Changed. Refresh Its Status.');
+    if (error) {
+      reportError(error, 'CashoutService.escalateCashout');
+      throw new Error(
+        error.message || 'Could Not Confirm Notice Board Delivery. Retry The Same Request.'
+      );
+    }
+    if (
+      !objectValue(data) ||
+      data.cashout_id !== cashout.id ||
+      data.club_id !== cashout.clubId ||
+      data.is_escalated !== true ||
+      !uuidValue(data.notice_id) ||
+      receiptMoney(data.amount) !== cashout.amount
+    )
+      throw new Error('Notice Board Delivery Was Not Confirmed. Refresh Before Retrying.');
+    masterBus.emit('DATA_MUTATED', {
+      table: 'cashout_requests',
+      action: 'update',
+      clubId: cashout.clubId,
+    });
+    return data.notice_id;
   }
 
   async cancelCashout(
@@ -950,7 +1041,7 @@ class CashoutServiceClass {
     check();
     if (clubId && !uuidValue(resolvedInput)) throw new Error('Cashout Club Could Not Be Verified');
     const resolved = resolvedInput?.toLowerCase() ?? null;
-    const { data, error } = await supabase.rpc('fn_cashout_queue', {
+    const { data, error } = await supabase.rpc('fn_cashout_queue_v2', {
       p_club_id: resolved,
       p_status: 'pending',
     });
@@ -962,6 +1053,19 @@ class CashoutServiceClass {
     if (!Array.isArray(data)) throw new Error('Cashout Queue Could Not Be Verified');
     const seen = new Set<string>();
     return data.map((row) => {
+      if (
+        !objectValue(row) ||
+        typeof row.can_decide !== 'boolean' ||
+        typeof row.can_escalate !== 'boolean' ||
+        typeof row.is_escalated !== 'boolean' ||
+        !['club_bank', 'agent_wallet'].includes(String(row.approval_destination)) ||
+        (row.is_escalated
+          ? !uuidValue(row.notice_id) ||
+            row.can_escalate ||
+            row.approval_destination !== 'club_bank'
+          : row.notice_id != null || row.approval_destination !== 'agent_wallet')
+      )
+        throw new Error('Cashout Queue Permissions Could Not Be Verified');
       const request = readCashoutRow(row);
       if (
         (resolved && request.clubId !== resolved) ||

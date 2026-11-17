@@ -198,7 +198,17 @@ describe('an empty queue and a broken queue are different answers', () => {
   it('and returns verified scoped rows normally', async () => {
     identity.userId = ID.agent;
     rpc.mockResolvedValueOnce({
-      data: [{ ...cashoutV2Receipt().request, amount: 500 }],
+      data: [
+        {
+          ...cashoutV2Receipt().request,
+          amount: 500,
+          can_decide: true,
+          can_escalate: true,
+          is_escalated: false,
+          notice_id: null,
+          approval_destination: 'agent_wallet',
+        },
+      ],
       error: null,
     } as never);
     const rows = await cashoutService.getAgentPendingCashouts(ID.agent, ID.club);
