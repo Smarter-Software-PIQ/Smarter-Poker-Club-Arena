@@ -2894,7 +2894,7 @@ ATTENTION14_DATABASE_PAIR = (
 # This is not general batch admission; its protected bytes and order are fixed.
 PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-corrected"
 PROMO_DATABASE_WINDOW_ANCHOR = "187839923e50a6e9a548ff1bab86fbd6520d8f7e"
-PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T07:20:00Z", "2026-11-17T09:00:00Z")
+PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T07:50:00Z", "2026-11-17T09:00:00Z")
 PROMO_DATABASE_MIGRATIONS = (
     ("20261116151020_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql",
      "179c48c37def66c6d6b9d43102e9d70c330f428d8358fda58e2e8030481028af"),
