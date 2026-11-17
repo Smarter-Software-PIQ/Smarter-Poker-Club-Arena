@@ -126,7 +126,12 @@ import type {
 } from './protocol.js';
 import { horseDecisionSolverStoresAreValid } from './protocol.js';
 import {
-  horseDecisionReceiptRefusal,
+  DELIVERED_SWITCH_CONFIGS_NONE,
+  type DeliveredSwitchConfigs,
+  deliveredSwitchConfigsNote,
+  deliveredSwitchConfigsPrevious,
+  horseDecisionReceiptRefusalForPlo6Gates,
+  omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
   horseComputeMetadataIsValid,
   horseSamplingStateIsValid,
@@ -1702,11 +1707,21 @@ export class LiveHorseDecisionWorkerClient {
   postStyleSwitch(message: StyleSwitchStateMessage): boolean {
     try {
       this.worker.postMessage(message);
+      // What this worker was last handed (null: an unreadable answer). The
+      // receipt validation reads the PLO6 gate's row from it.
+      // The configuration it held before a change is kept for one poll
+      // interval: the worker may still be deciding under it.
+      this.deliveredSwitchConfigs = deliveredSwitchConfigsNote(
+        this.deliveredSwitchConfigs,
+        message.status === 'ok' ? message.config : null,
+        Date.now()
+      );
       return true;
     } catch {
       return false;
     }
   }
+  private deliveredSwitchConfigs: DeliveredSwitchConfigs = DELIVERED_SWITCH_CONFIGS_NONE;
   private v31Control?: V31ControlClient;
   requestV31Control(request: V31ControlRequest): Promise<V31ControlAck> {
     if (this.phase !== 'ready') return Promise.reject(Error('v31_control_worker_not_ready'));
@@ -2190,10 +2205,22 @@ export class LiveHorseDecisionWorkerClient {
         delete message.decision.jointPolicy;
         noteFire('phase13_shadow_receipt_binding_dropped');
       }
-      const receiptRefusal = horseDecisionReceiptRefusal(
+      // PLO6 lane: the validator admits PLO6 to the Omaha strategy admissions
+      // only under the gate the worker may have run: the live switch row this
+      // client last delivered to it, else the request's own option
+      // (omahaStrategyInPlo6GateCandidates).
+      const receiptRefusal = horseDecisionReceiptRefusalForPlo6Gates(
         message.decision,
         active.request.gameState.gameVariant,
-        { player: active.request.player, gameState: active.request.gameState }
+        {
+          player: active.request.player,
+          gameState: active.request.gameState,
+        },
+        omahaStrategyInPlo6GateCandidates(
+          active.request.opts,
+          this.deliveredSwitchConfigs.current,
+          deliveredSwitchConfigsPrevious(this.deliveredSwitchConfigs, Date.now())
+        )
       );
       if (receiptRefusal !== null) {
         this.refuseDecision(

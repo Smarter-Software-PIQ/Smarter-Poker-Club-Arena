@@ -136,7 +136,8 @@ import {
   omahaReraisedPremium,
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
-import { omahaStrategyGameInScope } from './HorseOmahaStrategyGame.js';
+import { omahaStrategyGameInScope, omahaStrategyGameScopeNow } from './HorseOmahaStrategyGame.js';
+import { PLO6_HOLE_CARDS, plo6OopCoordinated } from './HorsePlo6StrategyCalibration.js';
 
 /** Stack-to-pot ratio after the call under which the call is a commitment. */
 export const OOP_COMMIT_MAX_SPR = 1;
@@ -148,6 +149,20 @@ export const IP_REALIZATION_MARGIN = 0.05;
 export const DOMINATED_KEY_CARD_MARGIN = 0.03;
 /** One-rank gaps allowed inside the connected group, by hole count; a double-suited hand may have one more. */
 export const COORDINATED_MAX_GAPS: Readonly<Record<number, number>> = { 4: 1, 5: 2 };
+// The six-card row (SPEC-B H29 and 3.24: three gaps, all six cards one group)
+// is the PLO6 calibration's own entry COORDINATED_MAX_GAPS, read by
+// plo6OopCoordinated; it is not restated here (omahaOopCoordinated hands six
+// cards to that function, only inside a decision whose gate is on).
+/**
+ * The hole-count gate of the three cells (SPEC-B H30): four or five cards in PLO4/PLO5 as before;
+ * exactly six in PLO6, which reaches a cell only through omahaStrategyGameInScope (gate on).
+ */
+function holeCountServed(variant: string, count: number): boolean {
+  // PLO6 is past the scope check only with the gate on; it then needs its own six cards.
+  if (variant.toLowerCase() === 'plo6')
+    return count === PLO6_HOLE_CARDS && omahaStrategyGameScopeNow().plo6;
+  return count === 4 || count === 5;
+}
 /** Flop rule: straight outs, and nut-straight outs among them, that make one pair a continue. */
 export const FLOP_PAIR_MIN_STRAIGHT_OUTS = 8;
 export const FLOP_PAIR_MIN_NUT_STRAIGHT_OUTS = 4;
@@ -194,6 +209,9 @@ function groupGaps(distinct: number[]): number | null {
 /** Which coordination class the hand is, or null (see the module comment). */
 export function omahaOopCoordinated(hole: readonly Card[]): OmahaOopCoordination {
   const n = hole.length;
+  // PLO6 (SPEC-B H29 and 3.24): the six-card class is the calibration's, with the
+  // six-card row of COORDINATED_MAX_GAPS; only with the gate on for the decision.
+  if (n === PLO6_HOLE_CARDS && omahaStrategyGameScopeNow().plo6) return plo6OopCoordinated(hole);
   if (n !== 4 && n !== 5) return null;
   const cards = [...hole];
   if (handClassRead(cards, true, false).cls === 'dangler') return null;
@@ -255,7 +273,7 @@ export interface OmahaOopReraisedVerdict {
 export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopReraisedVerdict | null {
   if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
-  if (i.hole.length !== 4 && i.hole.length !== 5) return null;
+  if (!holeCountServed(i.variant, i.hole.length)) return null;
   if (i.preflopRaises < 2) return null;
   if (!i.outOfPosition && i.preflopRaises < 3) return null;
   if (!(i.toCall > 0.005) || !(i.pot > 0) || !(i.stack > 0)) return null;
@@ -366,7 +384,7 @@ export function omahaReraisedFlopContinueCell(
 ): { fold: boolean; reason: OmahaFlopContinueReason } | null {
   if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament) return null;
-  if (i.hole.length !== 4 && i.hole.length !== 5) return null;
+  if (!holeCountServed(i.variant, i.hole.length)) return null;
   if (i.board.length !== 3) return null;
   if (i.preflopRaises < 2 || i.heroLastPreflopRaiser) return null;
   if (!(i.toCall > 0.005) || !(i.pot > 0) || !(i.stack > 0)) return null;
@@ -428,7 +446,7 @@ export function omahaReraiseByPositionCell(
 ): OmahaReraiseByPositionVerdict | null {
   if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
-  if (i.hole.length !== 4 && i.hole.length !== 5) return null;
+  if (!holeCountServed(i.variant, i.hole.length)) return null;
   if (i.preflopRaises !== 1 && i.preflopRaises !== 2) return null;
   if (i.blindVersusBlind) return null;
   if (!i.outOfPosition && !i.earlyPosition) return null;
