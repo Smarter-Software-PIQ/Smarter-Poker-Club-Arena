@@ -84,7 +84,13 @@ def qualify(root,sql,psql,record,incident,tick,now,ok):
     sql(f"UPDATE ca_drift_incidents SET status='resolved',resolved_at=clock_timestamp(),closure_basis='aged_out_unverified' WHERE id='{drift}'")
     assert sql(f"SELECT status FROM operational_alert_events WHERE id={fresh}")=='firing'
     assert not proof(fresh)['verified']
-    sql(f"UPDATE ca_drift_incidents SET closure_basis='verified_remeasured' WHERE id='{drift}'")
+    original_root=sql(f"SELECT root_cause FROM ca_drift_incidents WHERE id='{drift}'")
+    sql(f"UPDATE ca_drift_incidents SET closure_basis='verified_remeasured',root_cause='weak' WHERE id='{drift}'")
+    assert sql(f"SELECT status FROM operational_alert_events WHERE id={fresh}")=='firing'
+    assert not proof(fresh)['verified']
+    sql(f"UPDATE ca_drift_incidents SET status='open',resolved_at=NULL WHERE id='{drift}'")
+    root_text="'"+original_root.replace("'","''")+"'"
+    sql(f"UPDATE ca_drift_incidents SET status='resolved',resolved_at=clock_timestamp(),root_cause={root_text} WHERE id='{drift}'")
     assert sql(f"SELECT status FROM operational_alert_events WHERE id={fresh}")=='resolved'
     assert incident(owner_name)=='verifying'
     late=record('owner-operational-notifications','source-late',owner_name,'firing','critical',notification(stamp=now("- interval '1 second'")))

@@ -77,6 +77,9 @@ $body$;
       'source_resolution',jsonb_build_object('incident_id',NEW.id,'resolved_at',NEW.resolved_at,
          'closure_basis',NEW.closure_basis,'correction_ref',NEW.correction_ref))
   WHERE e.source='owner-operational-notifications' AND e.status='firing'
+    AND length(btrim(COALESCE(NEW.root_cause,'')))>=40
+    AND NULLIF(btrim(NEW.resolution),'') IS NOT NULL
+    AND NEW.correction_ref ~* '^(migration[[:space:]]+[^[:space:]]|PR[[:space:]]*#[0-9]|chip_ledger[[:space:]]+[^[:space:]]|correction:[^[:space:]]|(ruling:|verified:|no-change-needed:)[[:space:]]*[^[:space:]])'
     AND e.payload#>>'{original_notification,type}'='financial_incident'
     AND e.payload#>>'{original_notification,data,incident_id}'=NEW.id::text
     AND CASE WHEN pg_input_is_valid(e.payload#>>'{original_notification,created_at}','timestamp with time zone')
