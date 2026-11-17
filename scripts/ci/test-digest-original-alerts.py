@@ -379,5 +379,30 @@ INSERT INTO operational_alert_events(id,alertname,severity,received_at,investiga
         sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) VALUES (20,'local.series-runtime','LocalScraperRuntimeFailure','resolved','critical','2026-11-14 12:20Z','{}'),(21,'other','Other','resolved','critical','2026-11-14 12:20Z','{\"resolves\":\"key\"}'),(22,NULL,'Unknown','firing','critical','2026-11-14 12:20Z',NULL);")
         assert runtime_counts()['alerts_new']['critical']==5
         print('PASS: local runtime failures11->2, resolution-only deliveries excluded, in-place original/other producer/NULL evidence retained, history untouched, exact preimage/replay refusal')
+        # Tracking statements are owner-approved funded-wallet shortfalls,
+        # not spendable borrowing. Run the actual whole attention function.
+        sql("CREATE TABLE credit_invoices(id uuid,agent_id uuid,created_at timestamptz,period_start timestamptz,period_end timestamptz,debt_owed numeric);CREATE TABLE agent_credit_weekly_basis(agent_id uuid,period_start timestamptz,period_end timestamptz,credit_line numeric,agent_wallet_before_rakeback numeric,amount_owed numeric);CREATE TABLE agent_credit_tracking_policy(singleton boolean,activated_at timestamptz);")
+        sql("INSERT INTO agent_credit_tracking_policy VALUES(true,'2026-10-30T08:08:31Z');INSERT INTO credit_invoices VALUES('01000000-0000-0000-0000-000000000001','02000000-0000-0000-0000-000000000001','2026-11-14T12:00Z','2026-11-07T08:00Z','2026-11-14T08:00Z',35);INSERT INTO agent_credit_weekly_basis VALUES('02000000-0000-0000-0000-000000000001','2026-11-07T08:00Z','2026-11-14T08:00Z',500,465,35);")
+        def invoice_attention(count=1):
+            return [x for x in json.loads(sql("SELECT fn_sp_digest_attention('2026-11-14','{\"agents\":{\"agent_credit_invoices\":"+str(count)+"}}'::jsonb)").stdout) if x['rule']=='agent_on_credit']
+        assert invoice_attention(), 'reproduce legitimate funded statement reported as forbidden borrowing'
+        before_rows=sql('SELECT jsonb_agg(to_jsonb(i)) FROM credit_invoices i').stdout
+        metadata=sql("SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid='fn_sp_digest_attention(date,jsonb)'::regprocedure").stdout
+        tracking=root/'supabase/migrations/20261117173834_digest_distinguishes_funded_credit_tracking_statements.sql'
+        sql(tracking.read_text())
+        assert invoice_attention()==[]
+        assert invoice_attention(2)[0]['title']=='Agent Invoice Tracking Evidence Is Incomplete'
+        for mutation,restore in [
+            ("UPDATE agent_credit_weekly_basis SET amount_owed=34","UPDATE agent_credit_weekly_basis SET amount_owed=35"),
+            ("UPDATE agent_credit_weekly_basis SET period_end='2026-11-13T08:00Z'","UPDATE agent_credit_weekly_basis SET period_end='2026-11-14T08:00Z'"),
+            ("UPDATE agent_credit_tracking_policy SET activated_at='2026-11-15T08:00Z'","UPDATE agent_credit_tracking_policy SET activated_at='2026-10-30T08:08:31Z'"),
+            ("UPDATE credit_invoices SET debt_owed=36","UPDATE credit_invoices SET debt_owed=35"),
+        ]:
+            sql(mutation);assert invoice_attention(), mutation;sql(restore)
+        assert not invoice_attention()
+        sql(tracking.read_text());assert not invoice_attention(), 'idempotent installation'
+        assert before_rows==sql('SELECT jsonb_agg(to_jsonb(i)) FROM credit_invoices i').stdout
+        assert metadata==sql("SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid='fn_sp_digest_attention(date,jsonb)'::regprocedure").stdout
+        print('PASS: funded tracking statement no longer cries borrowed credit; original amount/period/policy/missing evidence still warn; invoices and function authority unchanged; migration replay safe')
     finally:
         run('pg_ctl', '-D', str(scratch/'data'), '-m', 'immediate', 'stop')
