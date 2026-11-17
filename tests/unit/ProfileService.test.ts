@@ -15,6 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 
 // ─── Mock dependencies ────────────────────────────────────────────────────
 
@@ -142,9 +143,12 @@ describe('ProfileService', () => {
       expect(await profileService.hasTOSAccepted('user-1')).toBe(false);
     });
 
-    it('returns true only for a recorded acceptance timestamp', async () => {
+    it('returns true only for the current revision and a recorded acceptance timestamp', async () => {
       rowState.single = {
-        data: { club_arena_tos_accepted_at: '2026-08-16T01:00:00.000Z' },
+        data: {
+          club_arena_tos_accepted_at: '2026-11-16T22:00:00.000Z',
+          club_arena_tos_revision: TERMS_REVISION,
+        },
         error: null,
       };
       expect(await profileService.hasTOSAccepted('user-1')).toBe(true);
@@ -163,13 +167,28 @@ describe('ProfileService', () => {
       expect(await profileService.getTOSStatus('user-1')).toBe('unknown');
     });
 
-    it('reports accepted for a stamped profile', async () => {
+    it('reports accepted for the exact revision and a valid recorded timestamp', async () => {
       rowState.single = {
-        data: { club_arena_tos_accepted_at: '2026-08-16T01:00:00.000Z' },
+        data: {
+          club_arena_tos_accepted_at: '2026-11-16T22:00:00.000Z',
+          club_arena_tos_revision: TERMS_REVISION,
+        },
         error: null,
       };
       expect(await profileService.getTOSStatus('user-1')).toBe('accepted');
     });
+  });
+
+  it.each([
+    { club_arena_tos_accepted_at: '2026-11-16T19:00:00.000Z' },
+    {
+      club_arena_tos_accepted_at: '2026-11-16T19:00:00.000Z',
+      club_arena_tos_revision: 'old-terms',
+    },
+    { club_arena_tos_accepted_at: 'not-a-timestamp', club_arena_tos_revision: TERMS_REVISION },
+  ])('requires renewed acceptance for stale or invalid persisted evidence: %j', async (row) => {
+    rowState.single = { data: row, error: null };
+    expect(await profileService.getTOSStatus('user-1')).toBe('not_accepted');
   });
 
   describe('getLeaderboard', () => {

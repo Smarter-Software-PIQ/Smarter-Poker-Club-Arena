@@ -121,7 +121,8 @@ import {
   omahaFacingBetEvVerdict,
   type OmahaFacingBetEvRead,
 } from './HorseOmahaFacingBetEv.js';
-import { omahaStrategyGameInScope } from './HorseOmahaStrategyGame.js';
+import { omahaStrategyGameInScope, omahaStrategyHoleCount } from './HorseOmahaStrategyGame.js';
+import { plo6StrongHandForValue } from './HorsePlo6StrategyCalibration.js';
 
 export const OMAHA_STRONG_HAND_VALUE_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** A value raise must be worth more than the call by this share of the pot. */
@@ -170,6 +171,15 @@ function inGame(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
  */
 export function omahaStrongHandNow(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   try {
+    // PLO6 (reached only with omahaStrategyInPlo6 on; PLO6 lane SPEC-B 3.20,
+    // adapt): the strong hand is the nut class ONLY. A full house counts
+    // only when no bigger full house is possible.
+    if (omahaStrategyHoleCount(gs) === 6)
+      return plo6StrongHandForValue(
+        hero.cards ?? [],
+        gs.communityCards ?? [],
+        hero.knownDeadCards ?? []
+      );
     const score = scoreOmahaHiPartial(hero.cards, gs.communityCards ?? []);
     if (Math.floor(score / 0x100000) >= FULL_HOUSE) return true;
     return omahaNutClassNow(hero, gs);

@@ -1,0 +1,9 @@
+[
+  {
+    "signature": "fn_publish_club_roster(uuid)",
+    "name": "fn_publish_club_roster",
+    "acl": "{postgres=X/postgres}",
+    "definition_md5": "51efd705ee0cbcf733a4d92d154de2ee",
+    "definition": "CREATE OR REPLACE FUNCTION public.fn_publish_club_roster(p_club uuid)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\nDECLARE target uuid; sent jsonb:=coalesce(nullif(current_setting('ca.roster_signaled_clubs',true),''),'[]')::jsonb;\nBEGIN\n IF p_club IS NULL THEN RETURN; END IF;\n FOR target IN\n   SELECT p_club\n   UNION SELECT c.union_id FROM public.clubs c JOIN public.clubs u ON u.id=c.union_id AND u.is_union WHERE c.id=p_club\n   UNION SELECT uc.union_id FROM public.union_clubs uc JOIN public.clubs u ON u.id=uc.union_id AND u.is_union WHERE uc.club_id=p_club\n LOOP\n   IF NOT sent ? target::text THEN\n     PERFORM public.fn_dispatch_private_record_signal('club-roster:'||target::text,'{}'::jsonb);\n     sent:=sent||to_jsonb(target::text);\n     -- Local to the source transaction, including savepoint/rollback behavior.\n     PERFORM set_config('ca.roster_signaled_clubs',sent::text,true);\n   END IF;\n END LOOP;\nEXCEPTION WHEN OTHERS THEN RAISE WARNING 'Club roster signal failed: %',SQLERRM;\nEND $function$\n"
+  }
+]

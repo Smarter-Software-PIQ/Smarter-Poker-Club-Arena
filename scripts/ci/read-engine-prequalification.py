@@ -27,6 +27,7 @@ CONTROL_INPUTS = [
     "scripts/ci/select-daily-engine.py",
     "scripts/ci/check-engine-doors-exist.mjs",
     "scripts/ci/window-migration-doors.mjs",
+    "scripts/ci/recorded-migrations.manifest.json",
     "scripts/ci/record-engine-deploy-attempt.mjs",
     "scripts/ci/record-engine-deploy-exit.mjs",
     "server/scripts",

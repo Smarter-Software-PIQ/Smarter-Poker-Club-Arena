@@ -63,6 +63,7 @@ import {
 } from '../../utils/rakeSnapshotExport';
 import { uuid } from '../../utils/uuid';
 import ClubDataRangeCalendar from './ClubDataRangeCalendar';
+import ClubDataReconciliation from './ClubDataReconciliation';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import {
   isClubDataPacificIncomplete,
@@ -421,6 +422,9 @@ export default function RakeSnapshotPanel({
     () =>
       clubDataQueryKey({
         kind: 'rake-snapshot',
+        ...(reportBasis === 'pacific' && scope !== 'agent'
+          ? { accountingContract: 'invoice-routing-v1' }
+          : {}),
         reportBasis,
         scope,
         start: range.start,
@@ -734,7 +738,8 @@ export default function RakeSnapshotPanel({
    * caveat nobody reads when they do.
    */
   const liveAhead = useMemo(() => {
-    if (!snapshot?.breakdown_live) return null;
+    if (!snapshot?.breakdown_live || snapshot.accounting_basis === 'union_invoice_accounting')
+      return null;
     const shown = Number(snapshot.breakdown_total);
     const headline = Number(snapshot.summary?.cash_fee ?? snapshot.summary?.fee);
     if (!Number.isFinite(shown) || !Number.isFinite(headline)) return null;
@@ -1160,6 +1165,16 @@ export default function RakeSnapshotPanel({
         </p>
       )}
 
+      {snapshot?.accounting_basis === 'union_invoice_accounting' && !isAgent ? (
+        <p className={`sc-ink--muted ${styles.meta}`}>
+          Invoice Accounting In Pacific Time. Cash Winnings Include Hand Results And BBJ Awards. MTT
+          Winnings Count Finished MTTs Only.
+          {snapshot.accounting_coverage?.provisional
+            ? ' Totals Are Provisional Until The Billing Cycle Is Final.'
+            : ''}
+          {scope === 'union' ? ' All Member Clubs And Union Account.' : ''}
+        </p>
+      ) : null}
       {snapshot?.accounting_basis === 'pacific_net_money_flow' && !isAgent ? (
         <p className={`sc-ink--muted ${styles.meta}`}>
           Net Entries And Payouts In Pacific Time. MTT Winnings Count Finished MTTs Only. Unfinished
@@ -1316,6 +1331,14 @@ export default function RakeSnapshotPanel({
         )}
       </dl>
 
+      {snapshot && !isAgent && (
+        <ClubDataReconciliation
+          basis={snapshot.accounting_basis}
+          coverage={snapshot.accounting_coverage}
+          range={snapshot.range}
+          reconciliation={summary?.reconciliation}
+        />
+      )}
       {series.length > 1 && (
         <figure className={styles.trend}>
           <figcaption className={`sc-label sc-ink--blue ${styles.trendCaption}`}>

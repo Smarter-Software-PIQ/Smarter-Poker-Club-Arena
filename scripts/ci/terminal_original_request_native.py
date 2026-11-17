@@ -16,7 +16,7 @@ SCOPE_REVOKE = ('REVOKE ALL ON FUNCTION public.fn_assert_tournament_manager_writ
 from satellite_qualifier_fixture import sha
 
 
-def qualify(e, root, output, satellite_template=None, satellite_probe=None, qualifier_probe=None):
+def qualify(e, root, output, satellite_template=None, satellite_probe=None, qualifier_probe=None, maintenance_only=False):
     output = output / 'original-terminal-request'
     output.mkdir()
     schema, hashes = compose(root)
@@ -52,8 +52,36 @@ def qualify(e, root, output, satellite_template=None, satellite_probe=None, qual
     if len(identities) != 13:
         raise RuntimeError('original terminal installed identity inventory differs')
     proofs = []
-    for scenario in ['commit-replay', 'close-queued-send', 'adopt-original']:
+    for scenario in ['commit-replay', 'close-queued-send', 'adopt-original', 'maintenance-before', 'maintenance-after']:
         database = e.database(template)
+        if scenario.startswith('maintenance-'):
+            capture = root / 'scripts/ci/fixtures/terminal-original-request/maintenance-owners.json'
+            hashes[str(capture.relative_to(root))] = sha(capture)
+            for owner in json.loads(capture.read_text()):
+                e.sql(database, owner['definition']+';REVOKE ALL ON FUNCTION '+owner['signature']+' FROM PUBLIC,anon,authenticated,service_role;', label='actual-maintenance-'+owner['signature'].split('(')[0])
+                _, actual, _ = e.sql(database, "SELECT md5(pg_get_functiondef('"+owner['signature']+"'::regprocedure));", label='maintenance-original-source-pin')
+                if actual.strip()!=owner['md5']: raise RuntimeError('actual maintenance source changed')
+                if 'service_role=X/postgres' in owner['acl']:
+                    e.sql(database,'GRANT EXECUTE ON FUNCTION '+owner['signature']+' TO service_role;',label='maintenance-original-acl')
+            patch = root / 'supabase/migrations/20261117100849_terminal_settlement_takes_the_existing_maintenance_lane.sql'
+            hashes[str(patch.relative_to(root))] = sha(patch)
+            if scenario == 'maintenance-after':
+                capped_path=root/'supabase/migrations/20261108154158_capped_frozen_satellite_cohort_awards.sql'
+                hashes[str(capped_path.relative_to(root))]=sha(capped_path)
+                capped=capped_path.read_text();marker='CREATE FUNCTION public.fn_execute_capped_satellite_terminal_request('
+                e.sql(database,capped[capped.index(marker):].removesuffix('COMMIT;\n'),label='original-capped-terminal-wrapper')
+                _, old_definition, _=e.sql(database,"SELECT pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure);",label='terminal-original-definition')
+                e.sql(database,patch.read_text().replace('COMMIT;','ROLLBACK;'),label='terminal-maintenance-ddl-rollback')
+                _, rollback_definition, _=e.sql(database,"SELECT pg_get_functiondef('public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure);",label='terminal-ddl-rollback-identity')
+                if rollback_definition!=old_definition:raise RuntimeError('terminal maintenance DDL rollback changed original')
+                e.sql(database, file=patch, label='terminal-maintenance-admission')
+                declared=[line.removeprefix('-- @live-proof: ') for line in patch.read_text().splitlines() if line.startswith('-- @live-proof: ')]
+                if len(declared)!=1:raise RuntimeError('terminal maintenance exact postimage proof missing')
+                _, postimage_ok, _=e.sql(database,'SELECT ('+declared[0]+');',label='terminal-maintenance-exact-postimage')
+                if postimage_ok.strip()!='t':raise RuntimeError('terminal maintenance postimage/ACL/config mismatch')
+                _, actual, _=e.sql(database,"SELECT md5(pg_get_functiondef(p.oid)),p.proacl::text,p.proconfig::text FROM pg_proc p WHERE p.oid='public.fn_execute_tournament_terminal_request(uuid,uuid)'::regprocedure;",label='terminal-maintenance-postimage')
+                (output/'maintenance-postimage.txt').write_text(actual)
+                if '{postgres=X/postgres,service_role=X/postgres}' not in actual or 'lock_timeout=8s' not in actual or 'statement_timeout=45s' not in actual:raise RuntimeError('original terminal metadata changed')
         result = output / (scenario + '.json')
         e.run('original-terminal-' + scenario,
               [root / 'server/node_modules/.bin/tsx', script, e.socket, e.port, database, scenario, result], seconds=45)
@@ -63,6 +91,9 @@ def qualify(e, root, output, satellite_template=None, satellite_probe=None, qual
         proofs.append(proof)
         e.discard(database)
     e.discard(template)
+    if maintenance_only:
+        e.report['terminal_maintenance'] = proofs
+        return hashes
     transport_script = root / 'server/scripts/qualify-terminal-intent-transport.ts'
     transport_inputs = [transport_script, root / 'server/src/tournament/terminalDurableRequest.ts', root / 'server/src/tournament/terminalRequestIdentity.ts', root / 'server/src/services/supabase/client.ts',
         root / 'server/src/tournament/terminalSettlementRpc.ts', root / 'server/src/tournament/satelliteSettlementRpc.ts',

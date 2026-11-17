@@ -1,5 +1,6 @@
-import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
+import { hasPromoWithdrawalRestriction } from '../utils/promoPlayThroughVisibility';
 import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
+import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
 import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -2209,12 +2210,13 @@ export const MemberRow = memo(function MemberRow({
           <input type="checkbox" checked={selected} onChange={() => onSelect(member.user_id)} />
         </label>
       )}
-      <button
-        type="button"
-        className="member-row__open"
-        onClick={() => onOpen(member.user_id)}
-        aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
-      >
+      <div className="member-row__open">
+        <button
+          type="button"
+          className="member-row__record"
+          onClick={() => onOpen(member.user_id)}
+          aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
+        />
         <span className="member-avatar">
           {member.avatar_url ? (
             <img
@@ -2270,29 +2272,20 @@ export const MemberRow = memo(function MemberRow({
             )}
             {seated ? (
               table ? (
-                /* The row itself is a button (open the record), so the table
-                   chip is a nested control, not a nested <button>: a tap on
-                   it opens the observer view and does not open the record. */
-                <span
-                  role="button"
-                  tabIndex={0}
+                /* Separate native controls preserve both keyboard actions.
+                   The record hit area is a sibling, never an ancestor. */
+                <button
+                  type="button"
                   className="member-seated member-seated--table"
                   onClick={(event) => {
                     event.stopPropagation();
                     onWatch(table, { userId: member.user_id, name: member.alias });
                   }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onWatch(table, { userId: member.user_id, name: member.alias });
-                    }
-                  }}
                   aria-label={`Watch At Table, ${titleCase(table.name)}`}
                   title="Watch At Table"
                 >
                   {withStakes(titleCase(table.name), titleCase(table.stakes))}
-                </span>
+                </button>
               ) : (
                 <span className="member-seated">At A Table</span>
               )
@@ -2310,11 +2303,14 @@ export const MemberRow = memo(function MemberRow({
               <span>{feeLabel}</span>
               <span
                 className="member-simple-balance__wallet"
-                title="Player Wallet Balance"
-                aria-label={`Player Wallet Balance ${walletFigure(member.player_wallet)}`}
+                title="Balance"
+                aria-label={`Balance ${walletFigure(member.player_wallet)}`}
               >
-                {walletFigure(member.player_wallet)}
+                Wallet Balance {walletFigure(member.player_wallet)}
               </span>
+              {promo && hasPromoWithdrawalRestriction(promo) && (
+                <span>Withdrawable Balance {walletFigure(promo.cashable)}</span>
+              )}
               <span
                 className={`member-simple-balance__secondary${secondaryTone}`}
                 aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
@@ -2382,9 +2378,12 @@ export const MemberRow = memo(function MemberRow({
                     value={walletFigure(member.agent_wallet_text ?? member.agent_wallet)}
                   />
                   <Metric
-                    label="Player Wallet"
+                    label="Balance"
                     value={walletFigure(member.player_wallet_text ?? member.player_wallet)}
                   />
+                  {promo && hasPromoWithdrawalRestriction(promo) && (
+                    <Metric label="Withdrawable Balance" value={walletFigure(promo.cashable)} />
+                  )}
                 </>
               )}
             </span>
@@ -2393,7 +2392,7 @@ export const MemberRow = memo(function MemberRow({
         <span className="member-chevron" aria-hidden="true">
           &rsaquo;
         </span>
-      </button>
+      </div>
     </div>
   );
 });

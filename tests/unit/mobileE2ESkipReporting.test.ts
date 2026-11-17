@@ -168,6 +168,33 @@ test('passed',()=>{});`
     }
   }, 25_000);
 
+  it('retains only the first-run report immediately after its account cleanup', () => {
+    const workflow = parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
+    const steps = workflow.jobs['production-e2e'].steps;
+    const cleanup = steps.findIndex(
+      (step: any) => step.run === 'node scripts/ci/production-e2e-account.mjs cleanup-first-run'
+    );
+    expect(cleanup).toBeGreaterThan(-1);
+    const upload = steps[cleanup + 1];
+    expect(upload.uses).toBe('actions/upload-artifact@v4');
+    expect(upload.with).toEqual({
+      name: 'first-run-terms-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'e2e-report/first-run-iphone.json',
+      'if-no-files-found': 'error',
+      'retention-days': 3,
+    });
+    for (const gate of [
+      'always()',
+      "steps.live.outputs.ready == 'true'",
+      "steps.first_run_account.outcome == 'success'",
+      "steps.first_run.outcome != 'skipped'",
+      "steps.first_run.outcome != ''",
+      "client_navigation != 'true'",
+      "tournament_only != 'true'",
+    ])
+      expect(upload.if).toContain(gate);
+  });
+
   it('runs and retains the mobile receipt on every outcome without changing engine reporting', () => {
     const workflow = parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
     const steps = workflow.jobs['production-e2e'].steps;

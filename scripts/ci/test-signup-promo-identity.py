@@ -22,7 +22,7 @@ native=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 MIGRATION=next((ROOT/'supabase/migrations').glob('*_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql'))
 OWNER=ROOT/'tests/fixtures/signup-promo-identity/signup-owner.sql'
-WEEKLY_OWNER=ROOT/'tests/fixtures/signup-promo-identity/weekly-owner.sql'
+WEEKLY_OWNER=ROOT/'tests/fixtures/signup-promo-identity/weekly-owner.json'
 
 def uid(n): return f'00000000-0000-0000-0000-{n:012d}'
 
@@ -79,9 +79,19 @@ BEGIN
 END $$;
 """)
         query(OWNER.read_text())
-        query(WEEKLY_OWNER.read_text())
+        query(json.loads(WEEKLY_OWNER.read_text())['definition'])
+        query("REVOKE ALL ON FUNCTION smarter_private.weekly_kings_welcome_due() FROM PUBLIC,anon,authenticated,service_role")
+        weekly_original=query("SELECT pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure)")
+        weekly_acl=query("SELECT proacl::text FROM pg_proc WHERE oid='smarter_private.weekly_kings_welcome_due()'::regprocedure")
         check('source snapshot is the measured current signup owner',query("SELECT md5(pg_get_functiondef('fn_sp_signup_welcome_back_run(integer,date)'::regprocedure))")=='51629e5f1ef59835c3719ec553356eb8')
-        check('weekly source snapshot is the installed original campaign owner',query("SELECT md5(pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure))")=='290c1c3f6c23a1341fe61eb453c0510f')
+        check('weekly source snapshot is the installed original campaign owner',query("SELECT md5(pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure))")=='a5b39719461d6f6e9e81c46acb2301fd')
+        # The current real owner remains a strict prerequisite; an unreviewed
+        # change must roll back the earlier signup patch and all cold tables.
+        query(weekly_original.replace('BEGIN\n','BEGIN\n  -- native unreviewed drift\n',1))
+        refused=db.run(MIGRATION.read_text(),check=False)
+        check('unreviewed current weekly owner drift is refused',refused.returncode!=0 and 'Weekly signup promo owner changed' in refused.stderr)
+        check('weekly owner refusal rolls back all signup identity DDL and the hourly patch',query("SELECT to_regclass('ca_signup_promo_identity_claims') IS NULL AND to_regclass('ca_signup_promo_verified_phones') IS NULL AND md5(pg_get_functiondef('fn_sp_signup_welcome_back_run(integer,date)'::regprocedure))='51629e5f1ef59835c3719ec553356eb8'")=='t')
+        query(weekly_original)
         query(MIGRATION.read_text())
         definition=query("SELECT pg_get_functiondef('fn_sp_signup_welcome_back_run(integer,date)'::regprocedure)")
         start=definition.index('    BEGIN\n      v_res := public.fn_ca_signup_promo_claim_identity')
@@ -96,6 +106,9 @@ DECLARE c record; v_op uuid:=p_operation; v_res jsonb; v_err text;
 BEGIN SELECT p_user id INTO c;
 """+block+"\nRETURN v_res; END $probe$;")
         weekly=query("SELECT pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure)")
+        injected="    DECLARE identity_result jsonb; BEGIN\n      identity_result:=public.fn_ca_signup_promo_claim_identity(member.user_id,op);\n      IF identity_result->>'success' IS DISTINCT FROM 'true' THEN CONTINUE; END IF;\n    END;\n"
+        check('current document selection receipt eligibility locks and payment body are preserved byte for byte',weekly.count(injected)==1 and weekly.replace(injected,'',1)==weekly_original)
+        check('the current weekly postgres-only ACL is unchanged',weekly_acl=='{postgres=X/postgres}' and query("SELECT proacl::text FROM pg_proc WHERE oid='smarter_private.weekly_kings_welcome_due()'::regprocedure")==weekly_acl)
         start=weekly.index("    op:=md5('signup-welcome-back:'")
         end=weekly.index('    INSERT INTO public.sp_signup_welcome_back_awards',start)
         weekly_block=weekly[start:end]

@@ -21,10 +21,13 @@ def uid(label):return str(__import__('uuid').UUID(hashlib.md5(label.encode()).he
 def lit(v):return "'"+str(v).replace("'","''")+"'"
 def js(v):return lit(json.dumps(v))+'::jsonb'
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--pg-bin',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args()
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--pg-bin',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);ap.add_argument('--ticket-root',type=Path,default=ROOT);a=ap.parse_args()
  if os.environ.get('DATABASE_URL'):raise SystemExit('remote database forbidden')
  if sys.platform=='darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
  a.output.mkdir(parents=True,exist_ok=False);scratch=Path(tempfile.mkdtemp(prefix='pf-'));pg=a.pg_bin.resolve();port='54421';started=False;checks=[];successful=False
+ ticket=next((a.ticket_root/'supabase/migrations').glob('20261116154719_*.sql'))
+ inputs=[Path(__file__).resolve(),FIXTURE,MIGRATION,ROOT/'tests/fixtures/promo-fee-basis/mtt-admission-guard.json',ROOT/'scripts/ci/migration-stale-pins.mjs',ROOT/'tests/fixtures/promo-fee-basis/owner-basis-dependency.sql',ROOT/'tests/fixtures/promo-fee-basis/tournament-commission-guard.sql',ROOT/'scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/world.py',ROOT/'supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql',ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql',ticket]
+ tested_hashes={str(x):hashlib.sha256(x.read_bytes()).hexdigest() for x in inputs}
  def q(s,error=None):
   p=subprocess.run([str(pg/'psql'),'-X','-qAt','-v','ON_ERROR_STOP=1','-h',str(scratch),'-p',port,'-U','postgres','-d','postgres'],input=s,text=True,capture_output=True,timeout=90)
   if error:
@@ -47,6 +50,10 @@ def main():
   if promo is not None:q(f"INSERT INTO ca_promo_cash_hand_funding VALUES('{hand}','{C}','{P}',100,{promo});")
   return rec,hand
  def accrue(hand):return q(f"SELECT fn_accrue_cash_hand_commissions('{hand}')")
+ def rakeback():
+  # Keep the same original period/certificate for cash, later tournament
+  # recognition, and replay. Both original earning dates belong to this range.
+  return q(f"SELECT fn_rakeback_split_write('{C}','{period_from}','{period_to}',ARRAY['{P}'::uuid])")
  try:
   subprocess.run([pg/'initdb','-D',scratch/'data','-U','postgres','-A','trust'],check=True,capture_output=True)
   subprocess.run([pg/'pg_ctl','-D',scratch/'data','-w','-o',f"-p {port} -k {scratch} -c listen_addresses=''",'-l',scratch/'server.log','start'],check=True,capture_output=True);started=True
@@ -123,28 +130,53 @@ def main():
   # A canonical later interpretation must retain the original funding cut.
   q(f"INSERT INTO accounting_own_agent_interpretations VALUES('cash_rake_accrual',(SELECT id FROM accounting_cash_rake_sources WHERE rake_record_id='{mixed}'),fn_accounting_earning_contract('{C}','{P}',100,NULL,now()-interval '2 hours'),clock_timestamp())")
   check('later agreement interpretation cannot restore promo earnings',q(f"SELECT contract->'tiers'->0->>'amount' FROM accounting_effective_cash_rake_sources WHERE rake_record_id='{mixed}'"),'25.00')
-  period=q("SELECT to_char(now() AT TIME ZONE 'America/Los_Angeles','YYYY-MM-DD')")
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  # Cash sources deliberately predate this transaction by two hours; actual
+  # tournament recognition below uses its original transaction clock. Freeze
+  # two adjacent Pacific dates from the original cash day. This also covers
+  # recognition crossing midnight after the first calculation, without moving
+  # the immutable certificate key or overriding any producer's clock.
+  period_from,period_to=q(f"WITH original AS (SELECT min(earned_at AT TIME ZONE 'America/Los_Angeles')::date AS day FROM accounting_payable_earning_sources WHERE club_id='{C}' AND player_id='{P}') SELECT day||'|'||(day+1) FROM original").split('|')
+  rakeback()
   check('actual rakeback calculator writes only real-funded entitlement',q('SELECT rakeback_amount FROM rakeback_periods'),'30.00')
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  rakeback()
   check('rakeback replay retains one original certificate',q('SELECT count(*) FROM accounting_rakeback_period_calculations'),'1')
   for role in ['anon','authenticated','service_role']:
    q(f"SET ROLE {role};SELECT fn_ca_promo_capture_entry_funding('{uid('none')}',0);",'permission denied')
   q('GRANT SELECT ON accounting_payable_earning_sources TO service_role;SET ROLE service_role;SELECT sum(rake_credit) FROM accounting_payable_earning_sources;')
   check('backend can read the qualified payable source',q('SELECT sum(rake_credit) FROM accounting_payable_earning_sources'),'150.00')
   q(f"INSERT INTO tournaments VALUES('{T}','{C}',NULL,true,'mtt');")
-  def entry(label,promo,*,category='tournament_buyin',capture=True,fee_source='fn_register_for_tournament'):
+  def entry(label,promo,*,category='tournament_buyin',capture=True,fee_source='fn_register_for_tournament',held=0,nonwallet=False):
    charge,registration,entitlement,record=map(uid,(label+'charge',label+'registration',label+'entitlement',label+'fee'))
    kind='tournament_entry_fee' if category=='tournament_buyin' else 'tournament_rebuy_fee'
    capture_sql=f"SELECT fn_ca_promo_capture_entry_funding('{charge}',{promo});" if capture else ''
+   host='c0000000-0000-0000-0000-000000000002' if nonwallet else C
+   ticket_id=uid(label+'ticket');origin='escrow' if nonwallet else 'player_wallet';payer=ticket_id if nonwallet else P
+   category='ticket_redeem' if nonwallet else category
+   entitlement_kind='tournament_ticket' if nonwallet else 'wallet_charge';entitlement_category='tournament_ticket' if nonwallet else category
+   fee_source='fn_register_for_tournament_with_ticket' if nonwallet else fee_source
+   if nonwallet:kind='tournament_ticket_entry_fee'
+   opening=(f"INSERT INTO clubs VALUES('{host}','{O}',false,NULL) ON CONFLICT(id) DO NOTHING;INSERT INTO tournament_tickets VALUES('{ticket_id}','{host}','{P}');" if nonwallet else '')
+   nonwallet_receipt=(f"INSERT INTO ca_promo_event_realization_receipts VALUES('{charge}',100,'{C}','{P}',{promo});" if nonwallet else '')
+   metadata=json.dumps(dict(user_id=P,registration_id=registration))
+
+   held_sql=(f"INSERT INTO ca_promo_funding_custody_receipts VALUES('{charge}',{promo},100,'event','{T}');"
+    f"INSERT INTO ca_promo_integrity_funding VALUES('{charge}',{held},{held});"
+    f"INSERT INTO ca_promo_play_through_grants VALUES('{charge}','{C}','{P}',clock_timestamp(),{promo},NULL,NULL,{promo}*4);"
+    f"INSERT INTO ca_promo_event_principal_lots(id,grant_id,tournament_id,charge_ledger_id,source_ref,original_amount,remaining) VALUES('{charge}','{charge}','{T}','{charge}','opening:{charge}',{promo},{promo});"
+    f"INSERT INTO ca_promo_principal_custody VALUES('{charge}','event','{T}',{promo});"
+    f"INSERT INTO ca_promo_integrity_cases(id,hand_id,source_club_id,source_user_id,club_id,recipient_id,amount,evidence) VALUES('{charge}',gen_random_uuid(),'{C}','{P}','{C}','{P}',{held},'{{}}');"
+    f"INSERT INTO ca_promo_integrity_event_lots VALUES('{charge}','{charge}','{T}','{C}','{P}',{held},{held});"
+    f"INSERT INTO ca_promo_integrity_custody VALUES('{charge}','{C}','{P}','event','{T}',{held});SELECT fn_ca_promo_consume_entry_fee('{charge}');SELECT fn_ca_promo_integrity_consume_entry_fee('{charge}');") if held else ''
    source=f"""BEGIN;
+    {opening}
     INSERT INTO tournament_players VALUES('{registration}','{T}','{P}','{C}');
-    INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,created_at)
-     VALUES('{charge}','player_wallet','{P}','prize_liability','{T}',100,'{category}','{C}',transaction_timestamp());
-    INSERT INTO tournament_refund_entitlements VALUES('{entitlement}','{T}','{P}','{C}','{charge}',transaction_timestamp(),100,10,'wallet_charge','{category}','{registration}',NULL,NULL);
+    INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,created_at,metadata)
+     VALUES('{charge}','{origin}','{payer}','prize_liability','{T}',100,'{category}','{host}',transaction_timestamp(),'{metadata}');
+    {nonwallet_receipt}{held_sql}
+    INSERT INTO tournament_refund_entitlements VALUES('{entitlement}','{T}','{P}','{C}','{charge}',transaction_timestamp(),100,10,'{entitlement_kind}','{entitlement_category}','{registration}',{lit(ticket_id) if nonwallet else 'NULL'},NULL);
     {capture_sql}
     INSERT INTO rake_records(id,club_id,rake_amount,is_tournament,tournament_id,source,metadata,created_at)
-    VALUES('{record}','{C}',10,true,'{T}','{fee_source}',jsonb_build_object('kind','{kind}','user_id','{P}','registration_id','{registration}','accounting_source_version','2',
+    VALUES('{record}','{C}',10,true,'{T}','{fee_source}',jsonb_build_object('kind','{kind}','user_id','{P}','registration_id','{registration}','ticket_id',{lit(ticket_id) if nonwallet else 'NULL'},'accounting_source_version','2',
       'accounting_fee_source',jsonb_build_object('union_id',NULL,'game_type','mtt','contributors',jsonb_build_array(jsonb_build_object(
        'player_id','{P}','club_id','{C}','registration_id','{registration}','charge_ledger_id','{charge}','entitlement_id','{entitlement}','charged_at',transaction_timestamp(),'weight',10)))),transaction_timestamp());
     SELECT fn_capture_accounting_tournament_fee('{record}',NULL);
@@ -169,7 +201,7 @@ def main():
   rc,rr,source=entry('entry-refunded',100);q(source)
   q(f"INSERT INTO accounting_tournament_recognized_sources SELECT id,tournament_id,(SELECT recognized_at FROM accounting_tournament_fee_recognitions WHERE tournament_id='{T}'),'refunded',rake_credit FROM accounting_tournament_fee_sources WHERE rake_record_id='{rr}'")
   check('refunded promo entry never enters payable earnings',q(f"SELECT count(*) FROM accounting_payable_earning_sources WHERE rake_record_id='{rr}'"),'0')
-  q(f"SELECT fn_rakeback_split_write('{C}','{period}','{period}',ARRAY['{P}'::uuid])")
+  rakeback()
   check('actual calculator includes only five eligible tournament fee chips',q('SELECT rakeback_amount FROM rakeback_periods'),'31.00')
   initial=(ROOT/'supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql').read_text()
   start=initial.index('CREATE FUNCTION public.fn_ca_promo_play_through_fees_between(')
@@ -191,10 +223,54 @@ def main():
   check('pre-live entry basis remains unchanged without retroactive capture',q(f"SELECT COALESCE(fn_ca_promo_tournament_payable_contract('{old}',{lit(old_contract)}::jsonb)->>'payable_rake_credit',fn_ca_promo_tournament_payable_contract('{old}',{lit(old_contract)}::jsonb)->>'rake_credit')"),'10')
   q("SET ROLE authenticated;SELECT fn_accounting_cash_commission_plan('"+mixed+"');",'permission denied')
   q("SET request.jwt.claim.role='authenticated';SELECT fn_accounting_cash_commission_plan('"+mixed+"');",'service_role_required')
+  # The original earning producers consume H's exact frozen contribution and
+  # entry receipt through the same canonical helper as P. The upstream H case,
+  # accepted-hand and source-custody proof runs separately; these opening rows
+  # isolate its consumer contract without replacing any financial owner.
+  integrity=ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql'
+  hsql=integrity.read_text()
+  for name in ['ca_promo_integrity_funding','ca_promo_integrity_hand_funding','ca_promo_integrity_cases','ca_promo_integrity_releases','ca_promo_integrity_custody','ca_promo_integrity_event_lots','ca_promo_integrity_fee_spends','ca_promo_integrity_fee_slices']:
+   start=hsql.index('CREATE TABLE public.'+name+' (');end=hsql.index('\n);',start)+3;q(hsql[start:end])
+  q('ALTER TABLE chip_ledger ADD PRIMARY KEY(id);CREATE TABLE ca_promo_play_through_grants(id uuid PRIMARY KEY,club_id uuid,user_id uuid,granted_at timestamptz,remaining numeric,closed_at timestamptz,close_reason text,fee_target numeric);CREATE TABLE ca_promo_principal_custody(grant_id uuid,kind text,entity_id uuid,amount numeric);CREATE TABLE ca_declared_money_triggers(table_name text,trigger_name text,note text);CREATE TABLE ca_promo_funding_custody_receipts(ledger_id uuid,principal_moved numeric,amount numeric,destination_kind text,destination_id uuid);CREATE TABLE ca_promo_event_realization_receipts(ledger_id uuid,amount numeric,club_id uuid,user_id uuid,principal numeric);')
+  ticket=next((a.ticket_root/'supabase/migrations').glob('20261116154719_*.sql'));tsql=ticket.read_text()
+  start=tsql.index('CREATE TABLE public.ca_promo_event_principal_lots');end=tsql.index('\n);',start)+3;q(tsql[start:end])
+  start=tsql.index('CREATE TABLE public.ca_promo_event_fee_consumption_receipts');end=tsql.index('CREATE FUNCTION public.fn_ca_promo_original_entry_fee_events(',start);q(tsql[start:end])
+  start=hsql.index('CREATE FUNCTION public.fn_ca_promo_integrity_consume_entry_fee(');end=hsql.index('-- The original exact-refund owner',start);q(hsql[start:end])
+  before_capture_owner=q("SELECT pg_get_functiondef('public.fn_ca_promo_capture_entry_funding(uuid,numeric)'::regprocedure)")
+  start=hsql.index('DO $fee_owners$');end=hsql.index('END $fee_owners$;',start)+len('END $fee_owners$;');q(hsql[start:end])
+  combined,ch=cash('combined-promo-held',50)
+  q(f"INSERT INTO ca_promo_integrity_hand_funding VALUES('{ch}','{C}','{P}','{uid('held-table')}',100,30,30,0)")
+  accrue(ch)
+  check('actual cash producer excludes combined P and H while retaining gross credit',q(f"SELECT rake_credit||':'||(contract->>'payable_rake_credit') FROM accounting_cash_rake_sources WHERE rake_record_id='{combined}'"),'100:20.00')
+  check('actual commission owner uses original historical rates on combined eligible fees',q(f"SELECT sum(c.amount) FROM agent_commissions c JOIN accounting_cash_rake_sources s ON s.id=c.source_id WHERE s.rake_record_id='{combined}'"),'12.00')
+  only,oh=cash('held-only',0);q(f"INSERT INTO ca_promo_integrity_hand_funding VALUES('{oh}','{C}','{P}','{uid('held-table')}',100,100,100,0)");accrue(oh)
+  check('fully H-funded cash produces zero payable commission',q(f"SELECT contract->>'payable_rake_credit' FROM accounting_cash_rake_sources WHERE rake_record_id='{only}'"),'0.00')
+  hc,hr,source=entry('held-entry',30,held=20);q(source)
+  check('actual original fee producer consumes only the exact P fee share',q(f"SELECT principal FROM ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id='{hc}'"),'3.00')
+  check('spent P fee preserves the original target on surviving principal',q(f"SELECT remaining=27 AND fee_target=120 FROM ca_promo_play_through_grants WHERE id='{hc}'"),'t')
+  check('actual original fee producer retires only H-funded fee principal',q(f"SELECT held_fee FROM ca_promo_integrity_fee_spends WHERE charge_ledger_id='{hc}'"),'2.00')
+  q(f"SELECT fn_capture_accounting_tournament_fee('{hr}',NULL)")
+  check('actual fee response-loss replay never spends held principal twice',q(f"SELECT count(*) FROM ca_promo_integrity_fee_spends WHERE charge_ledger_id='{hc}'"),'1')
+  check('actual original fee producer preserves only surviving held event chips',q(f"SELECT remaining FROM ca_promo_integrity_event_lots WHERE charge_ledger_id='{hc}'"),'18.00')
+  check('actual tournament fee producer freezes combined P and H receipt',q(f"SELECT f.promo_amount=50 AND (s.contract->>'payable_rake_credit')::numeric=5 FROM ca_promo_entry_fee_funding f JOIN accounting_tournament_fee_sources s ON s.source_charge_ledger_id=f.charge_ledger_id WHERE f.charge_ledger_id='{hc}'"),'t')
+  q(f"INSERT INTO accounting_tournament_recognized_sources SELECT id,tournament_id,(SELECT recognized_at FROM accounting_tournament_fee_recognitions WHERE tournament_id='{T}'),'earned',rake_credit FROM accounting_tournament_fee_sources WHERE rake_record_id='{hr}';SELECT fn_post_accounting_commission_source(s.id,'tournament_fee_accrual',(SELECT recognized_at FROM accounting_tournament_fee_recognitions WHERE tournament_id=s.tournament_id),s.contract) FROM accounting_tournament_fee_sources s WHERE s.rake_record_id='{hr}'")
+  check('actual recognized H-entry commission posts only eligible historical tiers',q(f"SELECT sum(c.amount) FROM agent_commissions c JOIN accounting_tournament_fee_sources s ON s.id=c.source_id WHERE s.rake_record_id='{hr}'"),'3.00')
+  rakeback()
+  check('actual certified rakeback writer excludes H cash and entry funding',q('SELECT rakeback_amount FROM rakeback_periods'),'36.00')
+  before_charge,_,before_source=entry('before-nonwallet-earning-club',0,nonwallet=True)
+  before_body=before_source.strip().removeprefix('BEGIN;').removesuffix('COMMIT;')
+  q('BEGIN;'+before_capture_owner+';'+before_body+'ROLLBACK;','promo_fee_original_payer_conflict')
+  check('before host-based receipt rejects original nonwallet earner atomically',q(f"SELECT count(*) FROM chip_ledger WHERE id='{before_charge}'"),'0')
+  nc,nr,source=entry('gifted-cash-ticket',0,nonwallet=True);q(source)
+  check('nonwallet fee captures original entrant earning club rather than ledger host',q(f"SELECT club_id='{C}'::uuid AND user_id='{P}'::uuid AND promo_amount=0 FROM ca_promo_entry_fee_funding WHERE charge_ledger_id='{nc}'"),'t')
+  check('actual original nonwallet fee producer retains clean cash earning basis',q(f"SELECT contract->>'rake_credit' FROM accounting_tournament_fee_sources WHERE rake_record_id='{nr}'"),'10.00')
+  q(f"SELECT fn_ca_promo_capture_entry_funding('{nc}',0)")
+  check('normalized nonwallet receipt replays against original earner',q(f"SELECT count(*) FROM ca_promo_entry_fee_funding WHERE charge_ledger_id='{nc}'"),'1')
+  check('combined-source cash contracts still conserve every gross bank receipt',q("SELECT bool_and((contract->>'club_residual')::numeric+(SELECT COALESCE(sum((t->>'amount')::numeric),0) FROM jsonb_array_elements(contract->'tiers')t)=rake_credit) FROM accounting_cash_rake_sources"),'t')
+  if any(hashlib.sha256(Path(f).read_bytes()).hexdigest()!=digest for f,digest in tested_hashes.items()):raise RuntimeError('prerequisite changed during qualification')
   successful=True
  finally:
-  inputs=[Path(__file__).resolve(),FIXTURE,MIGRATION,ROOT/'tests/fixtures/promo-fee-basis/mtt-admission-guard.json',ROOT/'scripts/ci/migration-stale-pins.mjs',ROOT/'tests/fixtures/promo-fee-basis/owner-basis-dependency.sql',ROOT/'tests/fixtures/promo-fee-basis/tournament-commission-guard.sql',ROOT/'scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/world.py',ROOT/'supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql']
-  (a.output/'RESULTS.json').write_text(json.dumps({'status':'passed' if successful else 'failed','production_mutations':False,'checks':checks,'source_sha256':{str(x.relative_to(ROOT)):hashlib.sha256(x.read_bytes()).hexdigest() for x in inputs}},indent=2)+'\n')
+  (a.output/'RESULTS.json').write_text(json.dumps({'status':'passed' if successful else 'failed','production_mutations':False,'checks':checks,'source_sha256':tested_hashes},indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',scratch/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(scratch)
  print(str(len(checks))+' checks passed')

@@ -239,6 +239,13 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  q(f"INSERT INTO clubs VALUES('{K}','Wrong parent fallback',NULL),('{F}','Original funded club',NULL); INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{NG}','{K}','Funded child parent','nlh',2); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{NR}','{NG}',0.5,'2026-11-16T09:00Z','{{\"{U}\":1,\"{V}\":2}}'); INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) SELECT '{NR}',u::uuid,'{F}',0.17,'2026-11-16T09:00Z' FROM(VALUES('{U}'),('{V}'))x(u); INSERT INTO ca_club_data_fact VALUES('{K}','2026-11-16','CASH','{NG}','{U}',0.5/3,0,0,0,'2026-11-16T09:00Z'),('{K}','2026-11-16','CASH','{NG}','{V}',0.5*2/3,0,0,0,'2026-11-16T09:00Z');")
  q(f"INSERT INTO ca_club_data_pacific_fact VALUES('{K}','2026-11-16','2026-11-16','CASH','{NG}','{U}',0.5/3,0,0,0,'2026-11-16T09:00Z',0,true,1),('{K}','2026-11-16','2026-11-16','CASH','{NG}','{V}',0.5*2/3,0,0,0,'2026-11-16T09:00Z',0,true,1); INSERT INTO club_table_daily(club_id,table_id,stat_date,hands) VALUES('{K}','{NG}','2026-11-16',3);")
  check(json.loads(seed('2026-11-16',True))['complete'],True,'canonical immutable cash owner qualifies despite wrong UNIQUE UTC club')
+ # This Pacific day also overlaps the following UTC day. The immutable
+ # attachment frontier may include it once the UTC clock reaches Nov17.
+ # Qualify that actual empty source day rather than fabricating coverage.
+ adjacent_utc_day=q("SELECT least('2026-11-17'::date,history_through)::text FROM ca_club_data_pacific_state")
+ if adjacent_utc_day>'2026-11-16':
+  q(f"SELECT fn_ca_club_data_pacific_require('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+  check(json.loads(seed(adjacent_utc_day))['complete'],True,'actual adjacent UTC source day qualifies the Pacific screen window')
  check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND stat_date='2026-11-16'"),'0','wrong original club has no phantom game after rebuild')
  check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND stat_date='2026-11-16'"),'0.50000000000000000000:2:1','canonical owner keeps raw fractional fees and participant hands')
  check(json.loads(q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16')"))['summary']['games'],0,'actual screen omits wrong-club game after signed source correction')
@@ -372,6 +379,108 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  assert 'WITH unfinished AS MATERIALIZED(' in require_body and 'JOIN expected e USING(rake_record_id,user_id)' in require_body
  assert 'FROM unnest(r.players) u WHERE NOT EXISTS' not in require_body
  print('PASS: actual completeness reader joins scoped expected sources as sets',flush=True)
+ # Real non-rake callbacks run after the original rake wrapper restored its
+ # local source context to ''. Every UUID cast must tolerate that state.
+ before_errors=int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'"))
+ q(f"BEGIN; INSERT INTO rake_records(table_id,rake_amount,created_at,player_contributions) VALUES('{G}',0,'2026-11-16T17:00Z','{{}}'); SELECT fn_ca_club_data_fact_put('{C}','2026-11-16','CASH','{G}','{U}',0.25,0,0,0,'2026-11-16T17:00Z'); SELECT fn_ca_club_data_hand_put('{C}','{G}','2026-11-16T17:00Z'); COMMIT;")
+ reproduced=int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'"))
+ assert reproduced>before_errors,'original empty-context callback error was not reproduced'
+ print('PASS: original fact/hand empty-context callback defect reproduced',flush=True)
+ captured_before=q(f"SELECT sum(fee)||':'||sum(hands) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{G}' AND stat_date='2026-11-16'")
+ hand_before=q(f"SELECT coalesce(sum(hands),0) FROM ca_club_data_pacific_hands_ct WHERE club_id='{C}' AND table_id='{G}' AND stat_date='2026-11-16'")
+ attached=q("SELECT attached_at FROM ca_club_data_pacific_state")
+ q((ROOT/'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql').read_text())
+ check(q("SELECT attached_at FROM ca_club_data_pacific_state"),attached,'context repair preserves original attachment date')
+ q(f"BEGIN; INSERT INTO rake_records(table_id,rake_amount,created_at,player_contributions) VALUES('{G}',0,'2026-11-16T17:00Z','{{}}'); SELECT fn_ca_club_data_fact_put('{C}','2026-11-16','CASH','{G}','{U}',0.25,0,0,0,'2026-11-16T17:00Z'); SELECT fn_ca_club_data_hand_put('{C}','{G}','2026-11-16T17:00Z'); COMMIT;")
+ check(int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'")),reproduced,'fixed empty-context fact and hand callbacks create no UUID failures')
+ check(q(f"SELECT sum(fee)||':'||sum(hands) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{G}' AND stat_date='2026-11-16'"),'0.50:2','empty-context repair retains exact aggregate fee and participant totals')
+ check(q(f"SELECT coalesce(sum(hands),0) FROM ca_club_data_pacific_hands_ct WHERE club_id='{C}' AND table_id='{G}' AND stat_date='2026-11-16'"),str(int(hand_before)+1),'empty-context repair retains the ordinary club hand increment')
+
+
+ # Data Rake union headlines use the same recorded invoice facts as Data,
+ # while the legacy wallet/felt and agent production contracts stay separate.
+ IC='00000000-0000-0000-0000-0000000000f1';IU='00000000-0000-0000-0000-0000000000f2';IG='00000000-0000-0000-0000-0000000000f3';IT='00000000-0000-0000-0000-0000000000f4';IC2='00000000-0000-0000-0000-0000000000f5';LG='00000000-0000-0000-0000-0000000000f6';IR='00000000-0000-0000-0000-0000000000f7'
+ q("""ALTER TABLE clubs ADD COLUMN code text,ADD COLUMN avatar_url text,ADD COLUMN logo_url text;
+ CREATE TABLE invoice_basis(id uuid,basis_from date,complete boolean,provisional boolean);
+ CREATE OR REPLACE FUNCTION fn_ca_club_data_reads_union_basis(uuid,date,date) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT coalesce((SELECT $2>=basis_from FROM invoice_basis WHERE id=$1),false)$$;
+ CREATE OR REPLACE FUNCTION fn_ca_club_acct_coverage(uuid,date,date) RETURNS jsonb LANGUAGE sql STABLE AS $$SELECT jsonb_build_object('complete',coalesce((SELECT complete FROM invoice_basis WHERE id=$1),false),'provisional',coalesce((SELECT provisional FROM invoice_basis WHERE id=$1),false),'missing_days','[]'::jsonb,'failed_days','[]'::jsonb,'not_invoice_exact_days','[]'::jsonb,'awaiting_boundary_days','[]'::jsonb,'day_zone','America/Los_Angeles','day_boundary','00:00')$$;
+ CREATE OR REPLACE FUNCTION ca_can_read_whole_club_production(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT auth.uid() IS NOT NULL AND current_setting('test.denied',true) IS DISTINCT FROM 'true'$$;
+ CREATE OR REPLACE FUNCTION ca_can_read_club_production(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT ca_can_read_whole_club_production($1)$$;
+ CREATE OR REPLACE FUNCTION ca_can_oversee_union(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT ca_can_read_whole_club_production($1)$$;
+ CREATE TABLE ca_club_acct_fact_ct(club_id uuid,stat_date date,kind text,game_id uuid,user_id uuid,fee numeric,buyins numeric,cashouts numeric,winnings numeric,last_at timestamptz,src smallint,hands bigint);
+ CREATE TABLE ca_club_acct_hands_ct(club_id uuid,stat_date date,table_id uuid,hands bigint,src smallint);
+ """)
+ q(f"INSERT INTO clubs(id,name) VALUES('{IC}','Invoice club'),('{IU}','Invoice union'),('{IC2}','Second invoice club'); INSERT INTO unions VALUES('{IU}','Invoice union'); INSERT INTO union_clubs VALUES('{IU}','{IC}'),('{IU}','{IC2}'); INSERT INTO invoice_basis VALUES('{IC}','2026-11-10',true,true),('{IU}','2026-11-10',true,true); INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{IG}','{IC}','Shared invoice game','nlh',2),('{LG}','{IC}','Wallet-only game','nlh',2); INSERT INTO tournaments(id,club_id,name,tournament_type,status) VALUES('{IT}','{IC}','Finished MTT','MTT','COMPLETED'); INSERT INTO ca_club_acct_fact_ct VALUES('{IC}','2026-11-10','CASH','{IG}','{U}',6.67,0,0,212.91,'2026-11-10T12:00Z',0,1),('{IC}','2026-11-10','CASH','{IG}','00000000-0000-0000-0000-000000000000',0,0,0,50,'2026-11-10T12:00Z',0,0),('{IC}','2026-11-10','TOURNAMENT','{IT}','{U}',13.65,100,192.50,92.50,'2026-11-10T12:00Z',0,0),('{IC2}','2026-11-10','CASH','{IG}','{V}',0.33,0,0,-12,'2026-11-10T12:00Z',0,1); INSERT INTO ca_club_acct_hands_ct VALUES('{IC}','2026-11-10','{IG}',1,0),('{IC2}','2026-11-10','{IG}',1,0); INSERT INTO ca_club_data_pacific_fact VALUES('{IC}','2026-11-10','2026-11-10','CASH','{LG}','{U}',0,100,0,-100,'2026-11-10T12:00Z',0,true,0); INSERT INTO table_seats(table_id,user_id,club_id,stack,joined_at) VALUES('{LG}','{U}','{IC}',900,'2026-11-10T12:00Z'); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{IR}','{IG}',7,'2026-11-10T12:00Z',jsonb_build_object('{U}',20.01,'{V}',1)); INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) VALUES('{IR}','{U}','{IC}',6.67,'2026-11-10T12:00Z'),('{IR}','{V}','{IC2}',0.33,'2026-11-10T12:00Z');")
+ q(f"CREATE OR REPLACE FUNCTION fn_ca_club_data_clubs(uuid) RETURNS uuid[] LANGUAGE sql STABLE AS $$SELECT CASE WHEN $1='{IU}'::uuid THEN ARRAY['{IC}'::uuid,'{IC2}'::uuid,'{IU}'::uuid] ELSE ARRAY[$1] END$$;")
+ production_before=q("SELECT md5(pg_get_functiondef('fn_ca_rake_by_agent_pacific(uuid,date,date,integer,integer,text,text)'::regprocedure))||':'||md5(pg_get_functiondef('fn_ca_club_pacific_member_fee_totals(uuid,date,date,uuid)'::regprocedure))")
+ q('\n'.join(line for line in (ROOT/'tests/fixtures/club-data-report-db/rake-v2-fixture.sql').read_text().splitlines() if line.startswith(('CREATE TABLE ca_club_data_exports','CREATE TABLE ca_club_data_export_rows','CREATE OR REPLACE FUNCTION ca_prune_expired'))))
+ q((ROOT/'supabase/migrations/20261116205043_data_rake_union_headlines_use_invoice_accounting.sql').read_text())
+ q("SELECT fn_ca_rake_invoice_windows_v3(ARRAY[]::uuid[],'2026-11-10','2026-11-10',true)")
+ club=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10')"))
+ check((club['summary']['games'],club['summary']['fee'],club['summary']['total_winnings'],club['summary']['mtt_winnings'],club['summary']['hands']),(2,20.32,355.41,92.50,1),'invoice club uses rounded fees and hand result plus BBJ, no wallet/felt replay')
+ check((club['accounting_basis'],club['accounting_coverage']['provisional'],club['previous_coverage']['complete']),('union_invoice_accounting',True,False),'invoice basis retains provisional state and independently unqualified previous window')
+ check(club['delta']['winnings_abs'],None,'unqualified comparison never fabricates invoice deltas')
+ check(club['series'][0]['winnings'],355.41,'invoice series and headline answer the same original source question')
+ union=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('union',NULL,'{IU}','2026-11-10','2026-11-10')"))
+ check((union['summary']['games'],union['summary']['fee'],union['summary']['total_winnings'],union['summary']['hands']),(2,20.65,343.41,1),'union totals deduplicate shared games and raw hands across member clubs')
+ check(sum(x['fee'] for x in union['breakdown']),20.65,'union club breakdown reads exactly the same accounting window')
+ check(q("SELECT md5(pg_get_functiondef('fn_ca_rake_by_agent_pacific(uuid,date,date,integer,integer,text,text)'::regprocedure))||':'||md5(pg_get_functiondef('fn_ca_club_pacific_member_fee_totals(uuid,date,date,uuid)'::regprocedure))"),production_before,'agent gross production and personal net fee source bodies remain untouched')
+ standalone=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{B}',NULL,'2026-11-16','2026-11-16')"))
+ check(standalone['accounting_basis'],'pacific_net_money_flow','standalone reporting retains its original Pacific money-flow basis')
+ q(f"UPDATE invoice_basis SET complete=false WHERE id='{IC}'; SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+ q(f"SET test.denied='true'; SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10');",'not authorized')
+ check(q("SELECT has_function_privilege('authenticated','fn_ca_rake_invoice_windows_v3(uuid[],date,date,boolean)','EXECUTE')"),'f','browser cannot bypass public invoice scope through private helper')
+ q(f"UPDATE invoice_basis SET complete=true WHERE id='{IC}';")
+ req='00000000-0000-0000-0000-0000000000fa';old_export='00000000-0000-0000-0000-0000000000fb'
+ q(f"INSERT INTO ca_club_data_exports(id,user_id,request_id,kind,scope_type,scope_id,status,metadata) VALUES('{old_export}',auth.uid(),md5('ca-data-pacific:'||'{req}')::uuid,'rake','union','{IU}','ready',jsonb_build_object('day_basis','America/Los_Angeles 00:00','accounting_basis','pacific_net_money_flow'));")
+ q(f"SELECT ca_rake_export_start_pacific_v2('union','{IU}','2026-11-10','2026-11-10',NULL,NULL,'rake','{req}')",'already being prepared')
+ q(f"UPDATE ca_club_data_exports SET expires_at=now()-interval '1 minute' WHERE id='{old_export}';")
+ exported=json.loads(q(f"SELECT ca_rake_export_start_pacific_v2('union','{IU}','2026-11-10','2026-11-10',NULL,NULL,'rake','{req}')"))
+ check(exported['metadata']['accounting_basis'],'union_invoice_accounting','actual frozen export receipt states the invoice accounting question')
+ assert exported['export_id']!=old_export,'invoice request resumed an old wallet-flow receipt'
+ check(q(f"SELECT metadata_fingerprint=md5(metadata::text) FROM ca_club_data_exports WHERE id='{exported['export_id']}'"),'t','invoice export basis is frozen before metadata fingerprint')
+ repeated=json.loads(q(f"SELECT ca_rake_export_start_pacific_v2('union','{IU}','2026-11-10','2026-11-10',NULL,NULL,'rake','{req}')"))
+ check(repeated['export_id'],exported['export_id'],'same invoice export request resumes its immutable original receipt')
+ seed('2026-11-09',True)
+ preunion=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-09','2026-11-09')"))
+ check(preunion['accounting_basis'],'pacific_net_money_flow','the same club before its recorded eligibility keeps legacy Pacific reporting')
+ boundary=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10')"))
+ check((boundary['previous_coverage']['basis_mismatch'],boundary['delta']['winnings_abs']),(True,None),'a qualified pre-union cashflow window is not compared with invoice PNL')
+ same_basis=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-11','2026-11-11')"))
+ check((same_basis['previous_coverage']['complete'],same_basis['previous']['fee']),(True,20.32),'previous invoice window resolves independently and retains exact fees')
+
+ # Historical Spin refunds point to the ORIGINAL positive recognition. Their
+ # immutable original player/club fee shares also match negative UTC controls.
+ # The refund's timestamp, never the original charge date, owns recognition.
+ q("ALTER TABLE rake_records ADD COLUMN source text,ADD COLUMN club_id uuid; ALTER TABLE rake_records DISABLE TRIGGER native_cash_rake;")
+ SC='70000000-0000-0000-0000-0000000000d1';SC2='70000000-0000-0000-0000-0000000000d2';SC3='70000000-0000-0000-0000-0000000000d3'
+ q(f"""INSERT INTO clubs VALUES('{SC}','Refund one',NULL),('{SC2}','Refund two',NULL),('{SC3}','Refund three',NULL);
+ CREATE TABLE native_spin_refunds AS SELECT n,md5('refund-game-'||n)::uuid game,md5('refund-original-'||n)::uuid original_id,md5('refund-negative-'||n)::uuid refund_id FROM generate_series(1,64)n;
+ INSERT INTO tournaments(id,club_id,name,tournament_type,status) SELECT game,'{SC}','Refunded Spin','SPIN','CANCELLED' FROM native_spin_refunds;
+ INSERT INTO rake_records(id,tournament_id,is_tournament,rake_amount,created_at,source,club_id,metadata)
+ SELECT original_id,game,true,24,'2026-11-02T21:00Z'::timestamptz,'fn_spin_book_entry','{SC}'::uuid,jsonb_build_object('kind','spin_rake') FROM native_spin_refunds
+ UNION ALL SELECT refund_id,game,true,-24,'2026-11-03T11:44Z'::timestamptz,'atomic_cancel_tournament','{SC}'::uuid,jsonb_build_object('kind','spin_rake_refund','original_rake_record_id',original_id::text) FROM native_spin_refunds;
+ INSERT INTO accounting_tournament_fee_sources(rake_record_id,club_id,player_id,rake_credit,charged_at)
+ SELECT original_id,club::uuid,player::uuid,8,'2026-11-02T21:00Z' FROM native_spin_refunds CROSS JOIN(VALUES('{SC}','{U}'),('{SC2}','{V}'),('{SC3}','{A}'))s(club,player);
+ INSERT INTO ca_club_data_fact SELECT club_id,'2026-11-03','TOURNAMENT',r.game,f.player_id,-f.rake_credit,0,0,0,'2026-11-03T11:44Z' FROM native_spin_refunds r JOIN accounting_tournament_fee_sources f ON f.rake_record_id=r.original_id;
+ """)
+ check(json.loads(seed('2026-11-03'))['complete'],False,'original Pacific seed refuses 64 fully linked Spin refunds despite exact UTC controls')
+ q((ROOT/'supabase/migrations/20261116230303_pacific_data_recognises_linked_spin_fee_refunds.sql').read_text())
+ check(json.loads(seed('2026-11-03',True))['complete'],True,'linked original Spin receipts qualify all 64 refunds without changing money')
+ check(q("SELECT count(*)||':'||sum(fee) FROM ca_club_data_pacific_fact WHERE utc_day='2026-11-03' AND src=1"),'192:-1536','refund history retains every original player and club at the negative recognition instant')
+ check(q("SELECT count(*) FROM ca_club_data_pacific_fact WHERE stat_date='2026-11-02' AND game_id IN(SELECT game FROM native_spin_refunds)"),'0','original charge date never receives the later refund recognition')
+ for mutation,label in [
+  ("UPDATE rake_records SET metadata=jsonb_set(metadata,'{original_rake_record_id}','\"not-a-uuid\"') WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'malformed original refund link'),
+  ("UPDATE rake_records SET tournament_id=(SELECT game FROM native_spin_refunds WHERE n=2) WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'refund linked to a different tournament'),
+  ("UPDATE rake_records SET rake_amount=-23 WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'partial refund cannot masquerade as full reversal'),
+  ("INSERT INTO rake_records(id,tournament_id,is_tournament,rake_amount,created_at,source,club_id,metadata) SELECT md5('duplicate-refund')::uuid,tournament_id,is_tournament,rake_amount,created_at,source,club_id,metadata FROM rake_records WHERE id=(SELECT refund_id FROM native_spin_refunds WHERE n=1)",'duplicate original refund links'),
+  ("UPDATE accounting_tournament_fee_sources SET rake_credit=7 WHERE rake_record_id=(SELECT original_id FROM native_spin_refunds WHERE n=1)",'original player fees do not conserve recognition'),
+ ]:
+  receipt=json.loads(q('BEGIN ISOLATION LEVEL REPEATABLE READ; '+mutation+"; SELECT fn_ca_club_data_pacific_seed('2026-11-03',true); ROLLBACK;"))
+  check(receipt['complete'],False,label+' remains explicitly unqualified')
+ check(q("SELECT has_function_privilege('authenticated','fn_ca_club_data_pacific_spin_refund_parts(uuid)','EXECUTE') OR has_function_privilege('service_role','fn_ca_club_data_pacific_spin_refund_parts(uuid)','EXECUTE')"),'f','linked refund helper remains private to the qualified report owner')
+ check(json.loads(seed('2026-11-03'))['already_loaded'],True,'qualified linked refund load retains the original idempotent seed receipt')
+
  print('PASS: legacy Pacific native PostgreSQL qualification')
 finally:
  if started:run([PG/'pg_ctl','-D',cluster/'data','-m','fast','-w','stop'])

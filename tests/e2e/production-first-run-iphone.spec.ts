@@ -14,6 +14,7 @@
  * must leave no membership behind.
  */
 import { expect, test } from '@playwright/test';
+import { ensureAcceptedTerms } from './support/ensureAcceptedTerms';
 
 const DEFAULT_E2E_CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 /** Generous for a cold phone on a CI runner; the defect was "never". */
@@ -63,10 +64,10 @@ test('a new iPhone player picks an avatar and ENTER ARENA lets them in', async (
   const terms = page.locator('[role="dialog"][aria-labelledby="tos-title"]');
   const gate = page.getByRole('heading', { name: 'Complete Your Profile' });
   await expect(terms.or(gate).first()).toBeVisible({ timeout: 45_000 });
-  if (await terms.isVisible()) {
-    await terms.getByRole('checkbox').first().check({ force: true });
-    await terms.getByRole('button', { name: /Accept/ }).tap();
-  }
+  expect(
+    await ensureAcceptedTerms(page),
+    'The fresh first-run account must persist acceptance of the reviewed Terms revision.'
+  ).toBe(true);
 
   await expect(gate).toBeVisible({ timeout: 30_000 });
   // One first-run prompt at a time: the welcome waits behind the gate.

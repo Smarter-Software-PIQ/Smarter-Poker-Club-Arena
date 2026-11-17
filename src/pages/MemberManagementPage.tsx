@@ -1258,7 +1258,7 @@ export default function MemberManagementPage() {
             {/* chip_balance and player_wallet are the same club_members row
               read twice; two labels on one number read as two wallets. */}
             <StatRow
-              label="Player Wallet"
+              label="Balance"
               value={formatWalletChips(wallets.player_wallet_text ?? wallets.player_wallet)}
             />
             <StatRow
@@ -1273,6 +1273,8 @@ export default function MemberManagementPage() {
         )}
         {wallets && resolvedClubId && userId && (
           <MemberPromoPlayThrough
+            key={`${resolvedClubId}:${userId}`}
+            canOverride={myRoleLoaded && ['owner', 'co_owner', 'admin'].includes(myRole)}
             clubId={resolvedClubId}
             userId={userId}
             revision={recordRevision}

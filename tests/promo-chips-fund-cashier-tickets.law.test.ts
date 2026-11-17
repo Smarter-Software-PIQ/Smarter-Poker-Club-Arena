@@ -69,14 +69,16 @@ describe('Promo chips fund a cashier ticket, inside the shared 50 chip allowance
     expect(cancelPatch).toContain("position('''app.ledger_category'',''refund''' in d) = 0");
   });
 
-  it('offers the promo wallet in Send Ticket and sends through the promo door', () => {
+  it('preserves historical promo ticket recovery while new tickets use player or agent cash', () => {
     expect(page).toContain('aria-label="Send Ticket From"');
     expect(page).toContain("'fn_cashier_promo_ticket_batch'");
     expect(page).not.toContain("'fn_cashier_promo_ticket_send'");
     expect(page).toContain(
       "kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet'"
     );
-    expect(page).toContain("(amountModal === 'ticket' && ticketSource === 'promo_wallet')");
+    expect(page).toContain('Historical Promo Ticket Recovery');
+    expect(page).toContain('value="agent_wallet"');
+    expect(page).toContain('(Cashable Chips Only)');
     expect(page).toContain('Chips Are Back In Your Promo Wallet');
   });
 });
@@ -146,12 +148,13 @@ describe('Promo ticket dialog state and the cancel replay', () => {
     );
     expect(replay).toContain('You No Longer Hold A Promo Wallet In That Club');
   });
-  it('reads the promo balance for Send Ticket and never carries the source over', () => {
+  it('retains old promo intent recovery but never offers a fresh promo ticket source', () => {
     expect(page).toContain(
       "if (amountModal === 'send' || amountModal === 'ticket' || claimOpen) void loadBankBalance();"
     );
     expect(page.split("setTicketSource('player_wallet');").length - 1).toBeGreaterThanOrEqual(4);
-    expect(page).toContain('{!selfSelected && (');
+    expect(page).toContain('Historical Promo Ticket Recovery');
+    expect(page).toMatch(/<option value="promo_wallet" disabled>/);
     expect(page).toContain('setPromoAllowanceEpoch((epoch) => epoch + 1);');
     expect(page).toContain('Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.');
   });

@@ -71,7 +71,9 @@ try {
   assert.deepEqual(dataScreen.rows,[]);
   const playerSearch=await rpc('ca_club_data_player_search',{p_club_id:club,p_search:'KingFish',p_limit:20});
   assert.deepEqual(playerSearch.items,[],'Data player search leaked an upline or unrelated identity');
-  assert.equal(dataScreen.member_fees?.day_basis,'UTC','Personal fee reader is not installed');
+  // Migration 20261116163311 moved the personal reader to Pacific earning days.
+  // Keep this exact: an old UTC reader or missing metadata cannot qualify.
+  assert.equal(dataScreen.member_fees?.day_basis,'America/Los_Angeles 00:00','Personal Pacific fee reader is not installed');
   for(const field of ['cash_fees','tournament_fees','total_fees']) {
    assert.ok(Object.hasOwn(dataScreen.member_fees,field),'Missing personal fee '+field);
    assert.equal(Number(dataScreen.member_fees[field]),0,'Personal fees leaked another member: '+field);

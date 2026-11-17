@@ -14,6 +14,7 @@
  * LIVE_TURN_EXPECT_DEFECT=1 asserts the defect instead, for a build that
  * predates the fix: the witness that the suite can fail.
  */
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
 
@@ -326,7 +327,8 @@ function backend(fx: Fixture) {
     role: 'user',
     diamonds: 0,
     diamond_balance: 0,
-    club_arena_tos_accepted_at: '2026-09-01T00:00:00Z',
+    club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+    club_arena_tos_revision: TERMS_REVISION,
     avatar_url: '/hub/club-arena/default-avatar.png',
     arena_avatar_url: '/hub/club-arena/default-avatar.png',
   };

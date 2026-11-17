@@ -178,7 +178,54 @@ body:JSON.stringify({announcedAt,cause:'urgent'}),signal:AbortSignal.timeout(150
         require(receipt['result'] == 'completed', 'Database maintenance receipt is unproven')
 
 
+# One finite owner-authorized Promo Play Through prerequisite installation.
+# This is not general batch admission; its protected bytes and order are fixed.
+PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-drained"
+PROMO_DATABASE_WINDOW_ANCHOR = "1306cee8dd4c99a325238e36951e7e603398c2e5"
+PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T11:20:00Z", "2026-11-17T13:00:00Z")
+PROMO_DATABASE_MIGRATIONS = (
+    ("20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
+     "26f2a5ad900f2bd69e7aafed9383686c1e2df51104a0035867918cdaf476d330"),
+    ("20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+     "9fae038f689e65c572dd813340b9e5c8f0bf7f2425ea23c5302f226f4cfcfdea"),
+    ("20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
+     "4b5090c981fcd8f933828be0affad23739638e2634dce5bc5607df997325178b"),
+    ("20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
+     "884236f69bcc2827f62482643f6fb3187b9d2d87a2285dd9d323ba8bf4c17d05"),
+    ("20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
+     "7eb088c749cb10a76efa29cdc9438809a5cbd4d20b22b581f63c3c23df067a93"),
+    ("20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
+     "f709af8675743421af4f7a5b6668456d65d068d77b2dfb95285ce686da0c660e"),
+    ("20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql",
+     "baca159f79a79e6e937e08b23202c1b2efd20b7034fdf8854050ec5e1e111be3"),
+)
+
+
+def expected_promo_binding(window_id):
+    if window_id != PROMO_DATABASE_WINDOW_ID:
+        return None
+    doc = json.loads(Path('server/release/owner-maintenance-windows.json').read_text())
+    matches = [w for w in doc.get('databaseWindows', []) if w.get('id') == window_id]
+    require(doc.get('version') == 1 and len(matches) == 1, 'Promo database authority is ambiguous')
+    w = matches[0]
+    require(w.get('contains') == PROMO_DATABASE_WINDOW_ANCHOR
+        and (w.get('notBefore'), w.get('notAfter')) == PROMO_DATABASE_WINDOW_BOUNDS
+        and w.get('migrations') == [f for f, _ in PROMO_DATABASE_MIGRATIONS],
+        'Promo database authority differs')
+    migrations = []
+    for file, expected_hash in PROMO_DATABASE_MIGRATIONS:
+        data = (Path('supabase/migrations') / file).read_bytes()
+        actual_hash = hashlib.sha256(data).hexdigest()
+        require(actual_hash == expected_hash
+            and '-- @install-window: daily-maintenance' in data.decode().splitlines(),
+            'Promo database source differs')
+        migrations.append({'migration': file, 'migrationSHA256': actual_hash})
+    return {'type': 'database-maintenance-promo/v1', 'migrations': migrations}
+
+
 def expected_pair_binding(window_id):
+    if window_id == PROMO_DATABASE_WINDOW_ID:
+        return expected_promo_binding(window_id)
     if window_id != '2026-11-01-attention14-two-sql-database-operation':
         return None
     pairs = [

@@ -11,6 +11,7 @@ import {
   offDutyReason,
   onDuty,
 } from './HorseWorkSchedule.js';
+import { cashHourlyPolicy } from './CashHourlyPolicy.js';
 import { availableNow } from './HorseRegulars.js';
 import { planHorseQueues } from './HorseGameQueue.js';
 import type { HorseState } from './StableHandTags.js';
@@ -227,6 +228,8 @@ describe('the schedule is visible on /health (owner 2026-11-12)', () => {
       NOW
     );
     const e = m.horseWorkScheduleEvidence();
+    expect(e.cashAdmissionContract).toBe('cash-hourly-tables/v1');
+    expect(e.cashAdmissionContract).toBe(cashHourlyPolicy.contract);
     expect(e.offDutyLeaves).toEqual({ rest_day: 1, daily_cap: 0, off_shift: 2 });
     expect(e.offDutyLeavesDeferred).toBe(1);
     expect(e.seatCallsDeclined).toBe(1);

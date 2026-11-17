@@ -22,8 +22,23 @@ export function useMemberPromoPlayThrough(
     members: Record<string, PromoPlayThroughSummary> | null;
   } | null>(null);
   useMasterBusSubscriptions(
-    ['BALANCE_UPDATED', 'WALLET_REFRESHED', 'HAND_COMPLETED', 'REALTIME_CONNECTED'],
-    () => setAttempt((n) => n + 1),
+    [
+      'BALANCE_UPDATED',
+      'WALLET_REFRESHED',
+      'HAND_COMPLETED',
+      'REALTIME_CONNECTED',
+      'NOTIFICATION_RECEIVED',
+    ],
+    (payload) => {
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'notification' in payload &&
+        (payload.notification as { type?: string })?.type !== 'promo_play_through'
+      )
+        return;
+      setAttempt((n) => n + 1);
+    },
     { debounce: 250 }
   );
   useEffect(() => {

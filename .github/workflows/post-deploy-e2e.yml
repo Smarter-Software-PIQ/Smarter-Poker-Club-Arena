@@ -1475,6 +1475,17 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/ci/production-e2e-account.mjs cleanup-first-run
 
+      # Retain this finite certificate after its immediate cleanup, before the
+      # unrelated broad sweep. Only the existing report is uploaded, never auth.
+      - name: Retain the first-run Terms receipt after immediate cleanup
+        if: always() && steps.live.outputs.ready == 'true' && steps.first_run_account.outcome == 'success' && steps.first_run.outcome != 'skipped' && steps.first_run.outcome != '' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: first-run-terms-${{ github.run_id }}-${{ github.run_attempt }}
+          path: e2e-report/first-run-iphone.json
+          if-no-files-found: error
+          retention-days: 3
+
       # WHICH RELEASE DID THE LIGHTNING OPERATOR CERTIFICATE RUN AGAINST?
       #
       # Until 2026-10-12 the spec compared build-info.json against the SHA this
@@ -2296,8 +2307,11 @@ jobs:
     # These lanes create fresh disposable Auth principals;
     # their table cases are read-only and cleanup owns only that exact account.
     # Client browser checks retain their original shared write-serialization.
+    # The admitted exact engine pin also owns a static independent queue.
+    # A later ordinary publication must not evict the sealed engine's pending
+    # proof before any runner starts (43982351815/job133702100338).
     concurrency:
-      group: ${{ github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_board_reveal == 'true' && 'post-deploy-live-table-natural-board-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_addon == 'true' && 'post-deploy-live-table-natural-addon-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' && 'post-deploy-live-table-multirun-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' && toJSON(github.event.client_payload.mobile_multirun) == 'null' && 'post-deploy-live-table-horse-social-production' || 'post-deploy-live-table-production' }}
+      group: ${{ github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_board_reveal == 'true' && 'post-deploy-live-table-natural-board-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_addon == 'true' && 'post-deploy-live-table-natural-addon-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' && 'post-deploy-live-table-multirun-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' && toJSON(github.event.client_payload.mobile_multirun) == 'null' && 'post-deploy-live-table-horse-social-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.engine_trigger_sha != '' && 'post-deploy-live-table-engine-production' || 'post-deploy-live-table-production' }}
       cancel-in-progress: false
     outputs:
       client_sha: ${{ steps.live.outputs.sha }}
@@ -2656,6 +2670,9 @@ jobs:
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
           EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/live-table-realtime.json
+          # Retain stderr from this job's own browser. Kernel evidence showed
+          # voluntary WPE exit(1), without a signal or OOM; its reason is native.
+          DEBUG: pw:browser
         run: |
           # A page crash loses renderer evidence from the Playwright trace.
           # Keep kernel evidence scoped to this browser invocation on a failed run.
@@ -2667,9 +2684,6 @@ jobs:
             finish_trace() {
               sudo cat "$trace/trace"
               sudo rmdir "$trace"
-              if sudo test -e /sys/kernel/tracing/events/live_table_webkit/process_exit_status; then
-                echo '-:live_table_webkit/process_exit_status' | sudo tee -a /sys/kernel/tracing/kprobe_events >/dev/null
-              fi
             }
             trap finish_trace EXIT
             if sudo bash -eu -s -- "$trace" <<'TRACE'
@@ -2680,15 +2694,13 @@ jobs:
           echo "$filter" > events/sched/sched_process_exit/filter
           echo 1 > events/signal/signal_generate/enable
           echo 1 > events/sched/sched_process_exit/enable
-          # sched_process_exit identifies the exiting thread but omits the wait
-          # status. WPE may exit voluntarily, or a differently named thread may
-          # receive the fatal signal. do_exit receives the encoded wait status.
-          if echo 'p:live_table_webkit/process_exit_status do_exit status=$arg1:s32 comm=$comm' >> /sys/kernel/tracing/kprobe_events; then
-            echo "$filter" > events/live_table_webkit/process_exit_status/filter
-            echo 1 > events/live_table_webkit/process_exit_status/enable
-          else
-            echo '::warning::WebKit numeric exit status unavailable on this kernel'
-          fi
+          # WPE exited with code 1 in a failed menu interaction. These built-in
+          # syscall events retain voluntary exit codes in this instance. The
+          # signal and scheduler events above record fatal signals and exits.
+          for event in sys_enter_exit_group sys_enter_exit; do
+            echo '(COMM ~ "WebKit*" || COMM ~ "WPE*" || COMM ~ "MiniBrowser*")' > "events/syscalls/$event/filter"
+            echo 1 > "events/syscalls/$event/enable"
+          done
           TRACE
             then
               echo "WebKit process signal/exit capture enabled; runner uptime: $(cut -d' ' -f1 /proc/uptime)s"

@@ -223,6 +223,166 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  assert sql(application_query)=='{3,7}'
  print('PASS exact full and window P&L evidence is unchanged; real bounded reader plans both original receipt indexes')
 
+ # SQL functions reuse generic plans. Their refund proof must remain correlated
+ # to this original ledger key before evaluating financial ownership.
+ env['PGOPTIONS']='-c jit=off -c track_functions=all'
+ generic_body=sql("SELECT prosrc FROM pg_proc WHERE oid='"+window_signature+"'::regprocedure")
+ values=re.findall("'([^']+)'",window)
+ for i,parameter in enumerate(arguments,1):
+  generic_body=re.sub(r'\b'+parameter+r'\b','$'+str(i)+'::'+('uuid' if i==1 else 'timestamptz'),generic_body)
+ owner="public.fn_union_pnl_satellite_seat_owner(uuid,uuid)"
+ def executed_plan(mode):
+  sql("SELECT pg_stat_reset_single_function_counters('"+owner+"'::regprocedure)")
+  statement="SET plan_cache_mode="+mode+";PREPARE original_flow(uuid,timestamptz,timestamptz,timestamptz,timestamptz) AS "+generic_body.rstrip().rstrip(';')+";EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) EXECUTE original_flow("+','.join("'"+v+"'" for v in values)+");"
+  plan=json.loads(sql(statement))[0]['Plan']
+  calls=int(sql("SELECT coalesce((SELECT calls FROM pg_stat_user_functions WHERE funcid='"+owner+"'::regprocedure),0)"))
+  scans=[n for n in nodes(plan) if n.get('Relation Name')=='tournament_refund_entitlements']
+  return plan,calls,scans
+ original_generic_body=generic_body
+ # The complete source guard is the maintained production preimage, not a
+ # substitute that grants missing owners permission in this smaller fixture.
+ # This installer tests its exact historical preimage, not the latest live guard.
+ pin=json.loads((F/'original-key-guard-preimage.json').read_text())
+ sql(pin['definition']+";REVOKE ALL ON FUNCTION smarter_private.original_inventory_proof_sources_match() FROM PUBLIC,anon,authenticated,service_role;REVOKE ALL ON FUNCTION "+window_signature+" FROM PUBLIC,anon,authenticated,service_role;")
+ guard='smarter_private.original_inventory_proof_sources_match()'
+ assert sql("SELECT md5(pg_get_functiondef('"+guard+"'::regprocedure))")==pin['md5']
+ before_window=sql("SELECT pg_get_functiondef('"+window_signature+"'::regprocedure)")
+ before_guard=sql("SELECT pg_get_functiondef('"+guard+"'::regprocedure)")
+ metadata=lambda:sql("SELECT jsonb_agg(to_jsonb(p)-'prosrc' ORDER BY oid)::text FROM pg_proc p WHERE oid IN('"+window_signature+"'::regprocedure,'"+guard+"'::regprocedure)")
+ original_metadata=metadata()
+ fix_path=R/'supabase/migrations/20261116222207_original_flow_refund_proof_keeps_its_original_key_before_own.sql'
+ fix=json.loads(run(['node','--input-type=module','-e',
+  "import {readFileSync} from 'node:fs';import {stalePinGuardSQL} from './scripts/ci/migration-stale-pins.mjs';const source=readFileSync(process.argv[1],'utf8');console.log(JSON.stringify(stalePinGuardSQL(process.argv[1],source,source)));",str(fix_path)]))
+ def refused_fix(reason):
+  result=subprocess.run(client,input='SET check_function_bodies=off;'+fix,text=True,capture_output=True,env=env,timeout=30)
+  assert result.returncode and reason in result.stderr,(reason,result.stderr)
+  assert sql("SELECT pg_get_functiondef('"+window_signature+"'::regprocedure)")==before_window
+ sql('GRANT EXECUTE ON FUNCTION '+window_signature+' TO authenticated')
+ refused_fix('original_refund_key_authority_changed')
+ sql('REVOKE EXECUTE ON FUNCTION '+window_signature+' FROM authenticated')
+ sql(before_guard.replace('count(*)=69','count(*)=68'))
+ refused_fix('original_refund_key_preimage_changed')
+ sql(before_guard)
+ # Force a failure after both replacements and prove the transaction restores
+ # both exact bodies and all original metadata.
+ sql("""CREATE FUNCTION public.refuse_changed_inventory_guard() RETURNS event_trigger LANGUAGE plpgsql AS $failure$
+ BEGIN IF md5(pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure))<>'"""+pin['md5']+"""' THEN RAISE EXCEPTION 'injected_after_pin_replacement'; END IF; END $failure$;
+ CREATE EVENT TRIGGER refuse_changed_inventory_guard ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION') EXECUTE FUNCTION public.refuse_changed_inventory_guard();""")
+ refused_fix('injected_after_pin_replacement')
+ assert sql("SELECT pg_get_functiondef('"+guard+"'::regprocedure)")==before_guard
+ assert metadata()==original_metadata
+ sql('DROP EVENT TRIGGER refuse_changed_inventory_guard;DROP FUNCTION public.refuse_changed_inventory_guard();')
+ sql(fix)
+ after_window=sql("SELECT pg_get_functiondef('"+window_signature+"'::regprocedure)")
+ after_guard=sql("SELECT pg_get_functiondef('"+guard+"'::regprocedure)")
+ new_hash=sql("SELECT md5(pg_get_functiondef('"+window_signature+"'::regprocedure))")
+ assert after_guard==before_guard.replace('aa5e609c6fa07876d93db86d7aa3a342',new_hash),'retain every other complete guard binding'
+ assert metadata()==original_metadata
+ assert sql("SELECT has_function_privilege('anon','"+window_signature+"','EXECUTE') OR has_function_privilege('authenticated','"+window_signature+"','EXECUTE') OR has_function_privilege('service_role','"+window_signature+"','EXECUTE')")=='f'
+ # Prove financial refusals before unrelated performance noise is introduced.
+ for name,mutation in faults.items():
+  for _,call in readers.values():
+   assert sql('BEGIN;'+mutation+';SELECT count(*) FROM '+call+f" WHERE ledger_id='{qid}' AND valid;ROLLBACK;")=='0',name
+
+ # The original cash reader must prove two same-key refunds as an exact
+ # multiset, without assigning either receipt arbitrarily to one journal row.
+ cash_fix_path=R/'supabase/migrations/20261117002644_same_transaction_cash_refunds_prove_their_exact_original_rec.sql'
+ cash_fix=json.loads(run(['node','--input-type=module','-e',
+  "import {readFileSync} from 'node:fs';import {stalePinGuardSQL} from './scripts/ci/migration-stale-pins.mjs';const source=readFileSync(process.argv[1],'utf8');console.log(JSON.stringify(stalePinGuardSQL(process.argv[1],source,source)));",str(cash_fix_path)]))
+ full_signature=readers['full'][0]
+ sql('REVOKE ALL ON FUNCTION '+full_signature+' FROM PUBLIC,anon,authenticated,service_role;')
+ advance='public.fn_accounting_union_earned_plan_advance(uuid,timestamptz,timestamptz)'
+ advance_fixture=json.loads((R/'scripts/ci/fixtures/rakeback-cascade-real-runner/union-close.json').read_text())['functions']['public.fn_accounting_union_earned_plan_advance(p_union_id uuid, p_start timestamp with time zone, p_end timestamp with time zone)']
+ sql(advance_fixture['def']+';REVOKE ALL ON FUNCTION '+advance+' FROM PUBLIC,anon,authenticated,service_role;GRANT EXECUTE ON FUNCTION '+advance+' TO service_role;')
+ assert sql("SELECT md5(pg_get_functiondef('"+advance+"'::regprocedure))")==advance_fixture['md5']=='276a23e5aaa880abab19217a33a8f69d'
+ sigs=[full_signature,window_signature,advance,guard]
+ cash_before={sig:sql("SELECT pg_get_functiondef('"+sig+"'::regprocedure)") for sig in sigs}
+ cash_hashes={sig:sql("SELECT md5(pg_get_functiondef('"+sig+"'::regprocedure))") for sig in sigs}
+ cash_metadata=sql("SELECT jsonb_agg(to_jsonb(p)-'prosrc' ORDER BY oid)::text FROM pg_proc p WHERE oid IN("+','.join("'"+sig+"'::regprocedure" for sig in sigs)+")")
+ def cash_refused(reason):
+  result=subprocess.run(client,input='SET check_function_bodies=off;'+cash_fix,text=True,capture_output=True,env=env,timeout=30)
+  assert result.returncode and reason in result.stderr,(reason,result.stderr)
+  assert {sig:sql("SELECT pg_get_functiondef('"+sig+"'::regprocedure)") for sig in sigs}==cash_before
+ sql('GRANT EXECUTE ON FUNCTION '+full_signature+' TO authenticated')
+ cash_refused('cash_refund_cardinality_reader_authority_changed')
+ sql('REVOKE EXECUTE ON FUNCTION '+full_signature+' FROM authenticated')
+ sql("CREATE FUNCTION public.refuse_cash_pin_change() RETURNS event_trigger LANGUAGE plpgsql AS $fail$ BEGIN IF md5(pg_get_functiondef('"+guard+"'::regprocedure))<>'a37ad1912ecb20d2a5cc59e89540cbb3' THEN RAISE EXCEPTION 'injected_cash_pin_change'; END IF; END $fail$;CREATE EVENT TRIGGER refuse_cash_pin_change ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION') EXECUTE FUNCTION public.refuse_cash_pin_change();")
+ cash_refused('injected_cash_pin_change')
+ sql('DROP EVENT TRIGGER refuse_cash_pin_change;DROP FUNCTION public.refuse_cash_pin_change();')
+ cash_fixture="""
+ INSERT INTO public.cash_participant_funding_receipts(id,table_id,user_id,funding_club_id,account_type,account_entity_id,occupancy_id,pending_addon_id)
+ SELECT md5('cash-refund-funding-'||g)::uuid,'0183f083-e9cc-4951-9527-c2a114266f7c','47965354-0e56-43ef-931c-ddaab82af765','a41434bb-8d0c-400a-8f0d-e8b3d65afed4','player_wallet','47965354-0e56-43ef-931c-ddaab82af765',md5('cash-refund-seat-'||g)::uuid,md5('cash-refund-addon-'||g)::uuid FROM generate_series(1,3) g;
+ INSERT INTO public.cash_funding_application_receipts(funding_receipt_id,transaction_id,refunded,original_occupancy_id,pending_addon_id)
+ SELECT id,CASE WHEN id=md5('cash-refund-funding-3')::uuid THEN '654322'::xid8 ELSE '654321'::xid8 END,400,occupancy_id,pending_addon_id FROM public.cash_participant_funding_receipts WHERE table_id='0183f083-e9cc-4951-9527-c2a114266f7c';
+ INSERT INTO public.union_pnl_original_flows(ledger_id,recognized_at,transaction_id,ledger_snapshot,game_scope)
+ SELECT md5('cash-refund-ledger-'||g)::uuid,'2026-11-07 21:00Z',CASE WHEN g=3 THEN '654322'::xid8 ELSE '654321'::xid8 END,
+ jsonb_build_object('id',md5('cash-refund-ledger-'||g),'amount',400,'status','posted','table_id','0183f083-e9cc-4951-9527-c2a114266f7c','club_id','a41434bb-8d0c-400a-8f0d-e8b3d65afed4','from_type','table_stack','from_entity_id','0183f083-e9cc-4951-9527-c2a114266f7c','to_type','player_wallet','to_entity_id','47965354-0e56-43ef-931c-ddaab82af765','category','player_funding'),
+ jsonb_build_object('game_union_id','fade0000-0000-0000-0000-000000000001','asset','chips','unit_scale',2,'tournament_id',NULL) FROM generate_series(1,3) g;
+ """
+ def cash_rows(call):
+  return sql("SELECT count(*)||':'||count(*) FILTER(WHERE valid)||':'||sum(cashouts) FROM "+call+" WHERE ledger_id IN(md5('cash-refund-ledger-1')::uuid,md5('cash-refund-ledger-2')::uuid,md5('cash-refund-ledger-3')::uuid)")
+ sql(cash_fixture)
+ for _,call in readers.values(): assert cash_rows(call)=='3:1:400','baseline must refuse exactly the genuine pair'
+ sql(cash_fix)
+ expected_guard=cash_before[guard]
+ for sig in sigs[:3]:
+  old_hash=cash_hashes[sig]
+  new_hash=sql("SELECT md5(pg_get_functiondef('"+sig+"'::regprocedure))")
+  expected_guard=expected_guard.replace(old_hash,new_hash)
+ assert sql("SELECT pg_get_functiondef('"+guard+"'::regprocedure)")==expected_guard
+ assert sql("SELECT jsonb_agg(to_jsonb(p)-'prosrc' ORDER BY oid)::text FROM pg_proc p WHERE oid IN("+','.join("'"+sig+"'::regprocedure" for sig in sigs)+")")==cash_metadata
+ for _,call in readers.values(): assert cash_rows(call)=='3:3:1200'
+ pair="ledger_id IN(md5('cash-refund-ledger-1')::uuid,md5('cash-refund-ledger-2')::uuid)"
+ cash_faults={
+  'missing_journal':"DELETE FROM union_pnl_original_flows WHERE ledger_id=md5('cash-refund-ledger-1')::uuid",
+  'extra_journal':"INSERT INTO union_pnl_original_flows SELECT (jsonb_populate_record(NULL::union_pnl_original_flows,to_jsonb(f)||jsonb_build_object('ledger_id',md5('cash-refund-extra')))).* FROM union_pnl_original_flows f WHERE ledger_id=md5('cash-refund-ledger-1')::uuid",
+  'missing_application':"DELETE FROM cash_funding_application_receipts WHERE funding_receipt_id=md5('cash-refund-funding-1')::uuid",
+  'duplicate_application':"INSERT INTO cash_funding_application_receipts SELECT * FROM cash_funding_application_receipts WHERE funding_receipt_id=md5('cash-refund-funding-1')::uuid",
+  'reused_funding_identity':"UPDATE cash_funding_application_receipts SET funding_receipt_id=md5('cash-refund-funding-1')::uuid,original_occupancy_id=md5('cash-refund-seat-1')::uuid,pending_addon_id=md5('cash-refund-addon-1')::uuid WHERE funding_receipt_id=md5('cash-refund-funding-2')::uuid",
+  'wrong_occupancy':"UPDATE cash_funding_application_receipts SET original_occupancy_id=gen_random_uuid() WHERE funding_receipt_id=md5('cash-refund-funding-1')::uuid",
+  'wrong_addon':"UPDATE cash_funding_application_receipts SET pending_addon_id=gen_random_uuid() WHERE funding_receipt_id=md5('cash-refund-funding-1')::uuid",
+  'wrong_amount':"UPDATE cash_funding_application_receipts SET refunded=399.99 WHERE funding_receipt_id=md5('cash-refund-funding-1')::uuid",
+  'wrong_owner':"UPDATE cash_participant_funding_receipts SET user_id=gen_random_uuid() WHERE id=md5('cash-refund-funding-1')::uuid",
+  'wrong_club':"UPDATE cash_participant_funding_receipts SET funding_club_id=gen_random_uuid() WHERE id=md5('cash-refund-funding-1')::uuid",
+ }
+ for name,mutation in cash_faults.items():
+  for _,call in readers.values():
+   assert sql('BEGIN;'+mutation+';SELECT count(*) FROM '+call+' WHERE '+pair+' AND valid;ROLLBACK;')=='0',name
+ replay=subprocess.run(client,input='SET check_function_bodies=off;'+cash_fix,text=True,capture_output=True,env=env,timeout=30)
+ assert replay.returncode and 'cash_refund_cardinality_guard_preimage_changed' in replay.stderr
+ sql("DELETE FROM union_pnl_original_flows WHERE ledger_snapshot->>'table_id'='0183f083-e9cc-4951-9527-c2a114266f7c';DELETE FROM cash_funding_application_receipts WHERE transaction_id IN('654321'::xid8,'654322'::xid8);DELETE FROM cash_participant_funding_receipts WHERE table_id='0183f083-e9cc-4951-9527-c2a114266f7c';")
+ assert {name:rows(call) for name,(_,call) in readers.items()}==original_rows
+ print('PASS same-transaction cash refunds: BEFORE 2 genuine returns refused; AFTER 2x400 plus single control exact, 10 cardinality/identity faults refuse in both readers, 69 guard pins/private metadata/atomic rollback/replay retained')
+ sql("""UPDATE tournament_refund_entitlements SET entitlement_kind='satellite_seat',gross=200,refund_prize=200,refund_bounty=0,refund_fee=0,
+     registration_id=md5('noise-registration-'||id)::uuid,user_id='"""+e['user_id']+"""',refund_wallet_club_id='"""+FELT+"""',charge_category='satellite_seat',evidence_kind='atomic_satellite_seat'
+     WHERE id IN (SELECT md5('refund-id-'||g)::uuid FROM generate_series(1,8000) g);
+     INSERT INTO union_pnl_original_flows SELECT (jsonb_populate_record(NULL::union_pnl_original_flows,to_jsonb(f)||jsonb_build_object('ledger_id',md5('old-flow-'||g)::uuid,'recognized_at','2025-01-01T00:00:00Z'))).* FROM union_pnl_original_flows f CROSS JOIN generate_series(1,50000) g WHERE f.ledger_id='"""+qid+"""';
+     CREATE INDEX original_flow_scope_window_fixture ON union_pnl_original_flows((game_scope->>'game_union_id'),recognized_at);
+     CREATE INDEX refund_original_ledger_fixture ON tournament_refund_entitlements(source_ledger_id);
+     CREATE INDEX refund_original_ticket_fixture ON tournament_refund_entitlements(source_ticket_id);
+     ANALYZE tournament_refund_entitlements; ANALYZE union_pnl_original_flows;""")
+ generic_body=original_generic_body
+ custom_plan,custom_calls,custom_scans=executed_plan('force_custom_plan')
+ generic_plan,generic_calls,generic_scans=executed_plan('force_generic_plan')
+ print('GENERIC REFUND WORK',json.dumps({'custom_ownership_calls':custom_calls,'generic_ownership_calls':generic_calls,'custom_refund_rows':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in custom_scans),'generic_refund_rows':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in generic_scans)}),flush=True)
+ assert any(n['Node Type']=='Seq Scan' and n.get('Alias') not in ('duplicate','duplicate_1') for n in generic_scans)
+ assert generic_calls>custom_calls+8000,'baseline must actually prove unrelated entitlement owners'
+ baseline_generic_calls=generic_calls
+ generic_body=sql("SELECT prosrc FROM pg_proc WHERE oid='"+window_signature+"'::regprocedure")
+ for i,parameter in enumerate(arguments,1):
+  generic_body=re.sub(r'\b'+parameter+r'\b','$'+str(i)+'::'+('uuid' if i==1 else 'timestamptz'),generic_body)
+ fixed_custom,fixed_custom_calls,fixed_custom_scans=executed_plan('force_custom_plan')
+ fixed_generic,fixed_generic_calls,fixed_generic_scans=executed_plan('force_generic_plan')
+ for plan in (fixed_custom,fixed_generic):
+  refund=[n for n in nodes(plan) if n.get('Relation Name')=='tournament_refund_entitlements']
+  assert not any(n['Node Type']=='Seq Scan' for n in refund),refund
+  keyed=[n for n in refund if n.get('Index Name')=='weekly_pnl_refund_entitlement_key']
+  assert keyed and all(n['Actual Rows']*n['Actual Loops']<=3 for n in keyed)
+ assert fixed_generic_calls==fixed_custom_calls==custom_calls
+ assert fixed_generic_calls<baseline_generic_calls
+ assert {name: rows(call) for name,(_,call) in readers.items()}==original_rows
+ print('PASS custom and generic actual execution',json.dumps({'ownership_calls_before':baseline_generic_calls,'ownership_calls_after':fixed_generic_calls,'generic_refund_rows_before':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in generic_scans),'generic_refund_rows_after':sum((n['Actual Rows']+n.get('Rows Removed by Filter',0))*n['Actual Loops'] for n in fixed_generic_scans),'financial_rows_unchanged':True,'financial_faults':len(faults),'private_metadata_preserved':True,'complete_guard_pins_preserved':True,'installer_stale_pin_guard':True,'atomic_rollback':True}))
+
 finally:
  if started:subprocess.run([str(PG/'pg_ctl'),'-D',str(w/'data'),'-m','immediate','stop'],capture_output=True,env=env)
  shutil.rmtree(w)

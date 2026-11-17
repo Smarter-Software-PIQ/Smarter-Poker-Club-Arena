@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { type ComponentProps, type ComponentType } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 
 const renders = vi.hoisted(() => ({ calls: 0 }));
 // The real row tree is measured. MemberRow asks the shared minute clock once
@@ -19,6 +20,44 @@ import { mapRosterRow } from '../../src/services/ClubRosterService';
 
 type Props = ComponentProps<typeof MemberRow>;
 const columns: Props['columns'] = new Set(['wallets', 'fees', 'activity', 'downlines']);
+
+it('offers separate native record and watch controls without nested interactive elements', async () => {
+  const user = userEvent.setup();
+  const props = row();
+  const onWatch = vi.fn();
+  const table = {
+    user_id: props.member.user_id,
+    table_id: 'cash-table',
+    tournament_id: null,
+    name: 'Classic',
+    stakes: '1/2',
+    is_tournament: false,
+    alias: props.member.alias,
+    username: '',
+    avatar_url: null,
+  };
+  render(
+    <MemberRow
+      {...props}
+      onWatch={onWatch}
+      live={{ seated: true, online: true, tables: [table] }}
+    />
+  );
+  const watch = screen.getByRole('button', { name: 'Watch At Table, Classic' });
+  const record = screen.getByRole('button', { name: 'Open Player 0, Player, At A Table' });
+  expect(watch.parentElement?.closest('button, [role="button"]')).toBeNull();
+  expect(watch.tagName).toBe('BUTTON');
+  await user.click(watch);
+  await user.keyboard('{Enter}');
+  expect(onWatch).toHaveBeenCalledTimes(2);
+  expect(onWatch).toHaveBeenLastCalledWith(table, {
+    userId: props.member.user_id,
+    name: props.member.alias,
+  });
+  expect(props.onOpen).not.toHaveBeenCalled();
+  await user.click(record);
+  expect(props.onOpen).toHaveBeenCalledExactlyOnceWith(props.member.user_id);
+});
 function row(index = 0): Props {
   return {
     member: mapRosterRow({
@@ -124,7 +163,7 @@ describe('Phase 6 real roster row render budget', () => {
   it('applies new wallets, role, seating and revoked financial visibility immediately', () => {
     const props = row();
     const view = render(<MemberRow {...props} />);
-    expect(screen.getByText('Player Wallet')).toBeVisible();
+    expect(screen.getByText('Balance')).toBeVisible();
     const changed = {
       ...props.member,
       alias: 'Updated Player',
@@ -138,7 +177,7 @@ describe('Phase 6 real roster row render budget', () => {
     ).toBeEnabled();
     expect(screen.getByText('999.00')).toBeVisible();
     view.rerender(<MemberRow {...props} member={{ ...changed, can_view_financials: false }} />);
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Balance')).not.toBeInTheDocument();
     expect(screen.queryByText('999.00')).not.toBeInTheDocument();
   });
 
@@ -172,13 +211,13 @@ describe('Phase 6 real roster row render budget', () => {
     // Simple mode keeps fees primary and adds the player wallet (owner, November 16).
     expect(screen.getByText('87.50')).toBeVisible();
     expect(screen.getByText('Fees This Week')).toBeVisible();
-    expect(screen.getByLabelText('Player Wallet Balance 250.00')).toBeVisible();
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Balance 250.00')).toBeVisible();
+    expect(screen.queryByText('Balance')).not.toBeInTheDocument();
     expect(screen.queryByText('Agent Wallet')).not.toBeInTheDocument();
     view.rerender(
       <MemberRow {...next} selectable={false} simpleMode={false} columns={new Set()} />
     );
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Balance')).not.toBeInTheDocument();
   });
 });

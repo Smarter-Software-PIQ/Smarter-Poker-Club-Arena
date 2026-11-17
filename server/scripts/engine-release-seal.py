@@ -691,14 +691,14 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 # Written under SealLock before the per-run reservation. An interrupted write
 # consumes the exception conservatively. Existing release recovery reads keep
 # their original run identity and never request a second announcement.
-NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-16-owner-offcycle-engine-1906z.json'
+NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-16-owner-offcycle-engine-2320z.json'
 NOV7_PREDECESSOR = '3529e86663daa427b380a8ab9bd09347270c670e'
 
 
 def require_nov7_reservation_authority(args, target, stamp):
     # The installed seal and its policy reader belong to the same pinned control generation.
     deadline = getattr(args, 'deadline', None)
-    expiry = int(datetime.fromisoformat('2026-11-16T23:00:00+00:00').timestamp())
+    expiry = int(datetime.fromisoformat('2026-11-17T02:00:00+00:00').timestamp())
     if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
             or not 330 <= (stamp // 1000) % 3600 <= 2940):
         die('Nov 7 announcement cannot fit the authorized window')
@@ -2890,6 +2890,29 @@ ATTENTION14_DATABASE_PAIR = (
 )
 
 
+# One finite owner-authorized Promo Play Through prerequisite installation.
+# This is not general batch admission; its protected bytes and order are fixed.
+PROMO_DATABASE_WINDOW_ID = "2026-11-17-promo-play-through-db-drained"
+PROMO_DATABASE_WINDOW_ANCHOR = "1306cee8dd4c99a325238e36951e7e603398c2e5"
+PROMO_DATABASE_WINDOW_BOUNDS = ("2026-11-17T11:20:00Z", "2026-11-17T13:00:00Z")
+PROMO_DATABASE_MIGRATIONS = (
+    ("20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql",
+     "26f2a5ad900f2bd69e7aafed9383686c1e2df51104a0035867918cdaf476d330"),
+    ("20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+     "9fae038f689e65c572dd813340b9e5c8f0bf7f2425ea23c5302f226f4cfcfdea"),
+    ("20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql",
+     "4b5090c981fcd8f933828be0affad23739638e2634dce5bc5607df997325178b"),
+    ("20261116163759_promo_grant_notices_progress_pushes_and_digest_share_origina.sql",
+     "884236f69bcc2827f62482643f6fb3187b9d2d87a2285dd9d323ba8bf4c17d05"),
+    ("20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql",
+     "7eb088c749cb10a76efa29cdc9438809a5cbd4d20b22b581f63c3c23df067a93"),
+    ("20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql",
+     "f709af8675743421af4f7a5b6668456d65d068d77b2dfb95285ce686da0c660e"),
+    ("20261116214149_returned_promo_ticket_principal_goes_to_its_original_fund_wi.sql",
+     "baca159f79a79e6e937e08b23202c1b2efd20b7034fdf8854050ec5e1e111be3"),
+)
+
+
 def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any]:
     """One reviewed DB operation, sharing the release seal's rolling-hour ledger.
 
@@ -2930,7 +2953,23 @@ def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any
             die("database window has no owner order")
         git_is_ancestor(repo, valid_sha(window.get("contains", "")), control, "database window anchor is absent")
         files = window.get("migrations")
-        if window["id"] == ATTENTION14_DATABASE_PAIR_ID:
+        if window["id"] == PROMO_DATABASE_WINDOW_ID:
+            if (window.get("contains") != PROMO_DATABASE_WINDOW_ANCHOR
+                    or (window.get("notBefore"), window.get("notAfter")) != PROMO_DATABASE_WINDOW_BOUNDS
+                    or files != [f for f, _ in PROMO_DATABASE_MIGRATIONS]):
+                die("promo database operation differs from its exact reviewed authority")
+            migrations = []
+            for file, expected_hash in PROMO_DATABASE_MIGRATIONS:
+                sql_bytes = subprocess.run(["git", "-C", repo, "show", control + ":supabase/migrations/" + file],
+                                           check=True, capture_output=True, timeout=30).stdout
+                actual_hash = hashlib.sha256(sql_bytes).hexdigest()
+                if (actual_hash != expected_hash
+                        or "-- @install-window: daily-maintenance" not in sql_bytes.decode().splitlines()):
+                    die("promo database SQL differs from its exact qualified bytes")
+                migrations.append({"migration": file, "migrationSHA256": actual_hash})
+            binding = {**request, "type": "database-maintenance-promo/v1",
+                       "imageId": state["desired"]["imageId"], "migrations": migrations}
+        elif window["id"] == ATTENTION14_DATABASE_PAIR_ID:
             if (window.get("contains") != ATTENTION14_DATABASE_PAIR_ANCHOR
                     or (window.get("notBefore"), window.get("notAfter")) != ATTENTION14_DATABASE_PAIR_BOUNDS
                     or files != [f for f, _ in ATTENTION14_DATABASE_PAIR]):
@@ -2964,6 +3003,18 @@ def reserve_database_window(request: dict[str, Any], repo: str) -> dict[str, Any
             if now_ms >= receipt["endsAt"]:
                 die("database operation expired; read its original receipt")
             return receipt
+        if window["id"] == PROMO_DATABASE_WINDOW_ID:
+            # This named authority is one attempt, including after the shared
+            # rolling hour expires. Reuse the original durable seal receipts.
+            for prior_path in STATE_DIR.glob(RECOVERY_WINDOW_PREFIX + "*.json"):
+                try:
+                    prior = json.loads(prior_path.read_text(encoding="utf-8"))
+                    if not isinstance(prior, dict):
+                        die("promo database prior reservation is unreadable")
+                except (OSError, ValueError):
+                    die("promo database prior reservation is unreadable")
+                if prior.get("windowId") == PROMO_DATABASE_WINDOW_ID:
+                    die("promo database operation already has its original attempt; read its receipt")
         if recent_recovery_window(request["runId"], now_ms):
             die("database window rolling hour is already owned")
         receipt = {**binding, "announcedAt": now_ms, "endsAt": now_ms + 420000}

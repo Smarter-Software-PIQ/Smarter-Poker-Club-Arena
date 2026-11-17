@@ -675,6 +675,22 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
               if (count !== null && get()._userId === userId) get().setUnreadMessages(count);
             });
           }
+          // This authenticated channel remains mounted on table routes too.
+          // Promo releases can change cashability without a balance event.
+          if (
+            payload?.eventType === 'INSERT' &&
+            row?.type === 'promo_play_through' &&
+            row.user_id === userId &&
+            !admission.signal.aborted &&
+            get()._userId === userId &&
+            get()._channelKey === channelKey
+          ) {
+            try {
+              masterBus.emit('NOTIFICATION_RECEIVED', { notification: row });
+            } catch (error) {
+              reportError(error, 'useHeaderDataStore.promo_notice_event');
+            }
+          }
           // PERF 2026-08-24: this used to run a `count: 'exact'` query
           // SYNCHRONOUSLY ON EVERY EVENT. This channel lives on the global
           // header, so it is mounted for every user for the whole session, and

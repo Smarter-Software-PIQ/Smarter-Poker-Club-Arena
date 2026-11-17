@@ -1,3 +1,4 @@
+import { countdownPlacementError } from './support/countdownFeltGeometry';
 import {
   verifyPublishedControllerSettings,
   expectPublishedControllerSettings,
@@ -1655,9 +1656,10 @@ test.describe('production routed gameplay customization', () => {
 
       await test.step('open the cash table from the lobby on 393px WebKit', async () => {
         const phone = await webkit.launch();
+        let context: BrowserContext | undefined;
         try {
           const size = { width: 393, height: 852 };
-          const context = await phone.newContext({
+          context = await phone.newContext({
             ...devices['iPhone 13'],
             screen: size,
             viewport: size,
@@ -1680,10 +1682,48 @@ test.describe('production routed gameplay customization', () => {
           await blockProjectedTableWrites(page);
           await page.goto(`table/${tableId}`, { waitUntil: 'domcontentloaded' });
           expect(await page.evaluate(() => screen.width)).toBe(393);
-          await expectClassicCountdownOnFelt(
-            page.locator('.multi-table-page__table-slot--active .table-page')
-          );
+          const root = page.locator('.multi-table-page__table-slot--active .table-page');
+          await expectClassicCountdownOnFelt(root);
+          await expect(root.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+          await expect(root.locator('.seat-wrapper--hero .seat__info')).toBeVisible();
+          const geometry = await root.evaluate((el) => {
+            const rect = (selector: string) => {
+              const target = el.querySelector(selector);
+              if (!target) throw new Error('Missing layout element: ' + selector);
+              return target.getBoundingClientRect().toJSON();
+            };
+            return {
+              pill: rect('[data-testid="hit-run-count-pill"] button'),
+              felt: rect('.table-surface'),
+              hand: rect('.table-brand__line--hand'),
+              heroPanels: [
+                rect('.seat-wrapper--hero .seat__info'),
+                ...Array.from(
+                  el.querySelectorAll('.hero-vpip [data-testid="vpip-badge"]'),
+                  (badge) => badge.getBoundingClientRect().toJSON()
+                ).filter((box) => box.width && box.height),
+              ],
+            };
+          });
+          console.log('[393px-countdown-geometry]', JSON.stringify(geometry));
+          await test.info().attach('393px-countdown-geometry', {
+            contentType: 'application/json',
+            body: JSON.stringify(geometry),
+          });
+          expect(
+            countdownPlacementError(
+              geometry.pill,
+              geometry.felt,
+              geometry.hand,
+              geometry.heroPanels
+            ),
+            JSON.stringify(geometry)
+          ).toBeNull();
         } finally {
+          // Match the two main projection contexts below. A pending profile
+          // route.fetch must not replace this journey's assertion with a
+          // browser-disposal exception. Page-level write refusal stays armed.
+          await context?.unrouteAll({ behavior: 'ignoreErrors' });
           await phone.close();
         }
       });

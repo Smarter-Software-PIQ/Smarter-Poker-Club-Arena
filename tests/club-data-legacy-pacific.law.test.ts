@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { declaredProofs, proofIsRunnable } from '../scripts/ci/check-migrations-are-live.mjs';
 import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 
 const read = (p: string) => readFileSync(p, 'utf8');
@@ -7,6 +8,35 @@ const migration =
   'supabase/migrations/20261116163311_legacy_club_data_reads_pacific_calendar_days.sql';
 const sql = read(migration);
 const native = 'scripts/ci/test-club-data-legacy-pacific-postgres.py';
+
+describe('linked full Spin refunds retain original fee ownership', () => {
+  const path =
+    'supabase/migrations/20261116230303_pacific_data_recognises_linked_spin_fee_refunds.sql';
+  const refund = read(path);
+  it('follows exact original receipts without changing financial writers', () => {
+    expect(refund).toContain('fn_ca_club_data_pacific_spin_refund_parts');
+    expect(refund).toContain('o.tournament_id=r.tournament_id AND o.club_id=r.club_id');
+    expect(refund).toContain('o.rake_amount=-r.rake_amount');
+    expect(refund).toContain("n.metadata->>'original_rake_record_id'=o.id::text");
+    expect(refund).toContain('p.n=p.players AND p.valid AND p.amount=p.original_amount');
+    expect(refund).not.toMatch(
+      /(?:UPDATE|DELETE FROM|INSERT INTO) public\.(?:wallet_transactions|rake_records|chip_ledger|accounting_tournament_fee_sources)\b/i
+    );
+    expect(refund).not.toContain('tournament_players');
+  });
+  it('runs actual before and after source qualification and fail-closed cases', () => {
+    const fixture = read(native);
+    expect(fixture).toContain(
+      'original Pacific seed refuses 64 fully linked Spin refunds despite exact UTC controls'
+    );
+    expect(fixture).toContain('duplicate original refund links');
+    expect(fixture).toContain('original player fees do not conserve recognition');
+    expect(fixture).toContain('malformed original refund link');
+    expect(fixture).toContain('refund linked to a different tournament');
+    expect(proofIsRunnable(declaredProofs(refund)[0])).toBe(true);
+    expect(classifyChangedPaths([path]).server).toBe(true);
+  });
+});
 
 describe('all Data report bases use Pacific dates without rewriting money', () => {
   it('observes existing event ownership and timestamps, keeps the old writers private', () => {
@@ -130,6 +160,34 @@ describe('canonical funded cash report ownership', () => {
     );
     expect(read(native)).toContain(
       'concurrent duplicate source callbacks stay nonblocking and idempotent'
+    );
+  });
+});
+
+describe('restored Pacific source context is nullable at every UUID cast', () => {
+  it('normalizes every cast under exact production preimages without changing captures', () => {
+    const fix = read(
+      'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql'
+    );
+    const proofs = declaredProofs(fix);
+    expect(proofs).toHaveLength(1);
+    expect(proofIsRunnable(proofs[0])).toBe(true);
+    expect(proofs[0]).toContain('count(*)=2');
+    expect(proofs[0]).toContain('bool_and');
+    expect(proofs[0]).toContain('public.fn_ca_club_data_fact_put(');
+    expect(proofs[0]).toContain('public.fn_ca_club_data_hand_put(');
+    expect(proofs[0]).toContain('IN p.prosrc)=0');
+    expect(fix).toContain('caf725b26e6115f60b80412183c61be0');
+    expect(fix).toContain('246735d855771ebedf6278a514a4bffe');
+    expect(fix).toContain("nullif(current_setting(''ca.pacific_rake_record'',true),'''')::uuid");
+    expect(fix).toContain('replace(d,old_cast,new_cast)');
+    expect(fix).toContain('WHERE id=true');
+    expect(fix).not.toMatch(
+      /DELETE FROM|UPDATE public\.(?:ca_club_data_pacific_fact|wallet_transactions|rake_records)\b/i
+    );
+    expect(read(native)).toContain('original fact/hand empty-context callback defect reproduced');
+    expect(read(native)).toContain(
+      'fixed empty-context fact and hand callbacks create no UUID failures'
     );
   });
 });

@@ -521,7 +521,8 @@ describe('explicit passive observation queue ownership', () => {
     optIn?: unknown,
     horseOptIn?: unknown,
     naturalAdmitted = false,
-    boardAdmitted = false
+    boardAdmitted = false,
+    engineSha = ''
   ): string {
     if (!rawGroup.startsWith('${{')) return rawGroup;
     const expression = rawGroup
@@ -530,7 +531,8 @@ describe('explicit passive observation queue ownership', () => {
       .replaceAll('github.event.client_payload.horse_social', 'horseOptIn')
       .replaceAll('github.event_name', 'eventName')
       .replaceAll('needs.publication-gate.outputs.natural_addon', 'naturalOutput')
-      .replaceAll('needs.publication-gate.outputs.natural_board_reveal', 'boardOutput');
+      .replaceAll('needs.publication-gate.outputs.natural_board_reveal', 'boardOutput')
+      .replaceAll('needs.publication-gate.outputs.engine_trigger_sha', 'engineSha');
     return Function(
       'eventName',
       'optIn',
@@ -538,6 +540,7 @@ describe('explicit passive observation queue ownership', () => {
       'toJSON',
       'naturalOutput',
       'boardOutput',
+      'engineSha',
       `return (${expression});`
     )(
       eventName,
@@ -545,7 +548,8 @@ describe('explicit passive observation queue ownership', () => {
       horseOptIn,
       (value: unknown) => JSON.stringify(value ?? null),
       String(naturalAdmitted),
-      String(boardAdmitted)
+      String(boardAdmitted),
+      engineSha
     );
   }
 
@@ -587,6 +591,25 @@ describe('explicit passive observation queue ownership', () => {
     expect(cancelled).not.toContain('explicit-horse-social');
     expect([...slots.values()].some((slot) => slot.running === 'explicit-multirun')).toBe(true);
     expect([...slots.values()].some((slot) => slot.running === 'explicit-horse-social')).toBe(true);
+  });
+
+  it('ordinary publication cannot displace an admitted exact engine certificate', () => {
+    const sha = '28372c9a1750934d1c39839bc551b050da6f4b8d';
+    const engine = group('repository_dispatch', undefined, undefined, false, false, sha);
+    const ordinary = group('workflow_run');
+    expect(engine).toBe('post-deploy-live-table-engine-production');
+    expect(engine).not.toBe(ordinary);
+    expect(rawGroup).toContain("needs.publication-gate.outputs.engine_trigger_sha != ''");
+    // Reproduce GitHub's one-running/one-pending slots with the actual group
+    // expression: the new ordinary request used to cancel the engine job.
+    const pending = new Map<string, string>();
+    pending.set(ordinary, 'older-client');
+    pending.set(engine, 'original-engine');
+    const displaced = pending.get(ordinary);
+    pending.set(ordinary, 'new-client');
+    expect(displaced).toBe('older-client');
+    expect([...pending.values()]).toContain('original-engine');
+    expect(group('workflow_run', undefined, undefined, false, false, sha)).toBe(ordinary);
   });
 
   it('isolates only admitted natural observations in one static queue', () => {
@@ -648,6 +671,20 @@ describe('explicit passive observation queue ownership', () => {
 });
 
 describe('focused published hero celebration proof', () => {
+  it('detaches pending phone projection handlers before disposal while preserving page write refusal', () => {
+    const start = gameplayCertification.indexOf(
+      "test.step('open the cash table from the lobby on 393px WebKit'"
+    );
+    const end = gameplayCertification.indexOf('await Promise.all([', start);
+    const phone = gameplayCertification.slice(start, end);
+    expect(phone).toContain('await blockProjectedTableWrites(page)');
+    const teardown = phone.slice(phone.indexOf('} finally {'));
+    expect(teardown).toContain("await context?.unrouteAll({ behavior: 'ignoreErrors' })");
+    expect(teardown.indexOf('unrouteAll')).toBeLessThan(teardown.indexOf('phone.close()'));
+    expect(teardown).not.toContain('page.unroute');
+    expect(phone.slice(0, phone.indexOf('} finally {'))).not.toContain('ignoreErrors');
+  });
+
   it('runs one owned case with protected provenance and required cleanup qualification', () => {
     const job = workflow.slice(
       workflow.indexOf('  hero-celebration-proof:'),

@@ -12,7 +12,23 @@ fixture_identity=$("${psql_base[@]}" -At -d "$template" -c "SELECT count(*) FROM
 [[ "$fixture_identity" == 1 ]] || { echo 'Private accounting fixture required' >&2; exit 1; }
 race_db="diamond_wheel_single_race_$$"
 "$pgbin/createdb" -h "$socket" -p 55487 -U postgres -T "$template" "$race_db"
-trap '"$pgbin/dropdb" -h "$socket" -p 55487 -U postgres "$race_db"' EXIT
+first= second= writer_open=0
+fifo="$fixture/wheel-first-input"
+cleanup_race() {
+  local status=$? cleanup_status=0
+  trap - EXIT
+  if [[ $writer_open == 1 ]]; then
+    printf 'ROLLBACK;\n' >&8 || true
+    exec 8>&-
+  fi
+  [[ -z $first ]] || wait "$first" 2>/dev/null || true
+  [[ -z $second ]] || wait "$second" 2>/dev/null || true
+  "$pgbin/dropdb" -h "$socket" -p 55487 -U postgres "$race_db" || cleanup_status=$?
+  rm -f "$fifo"
+  if [[ $status == 0 ]]; then status=$cleanup_status; fi
+  exit "$status"
+}
+trap cleanup_race EXIT
 db=("${psql_base[@]}" -d "$race_db")
 sed "s/public.fn_wheel_spin_v2/public.$door/g" <<'SQL' | "${db[@]}"
 DO $$
@@ -51,9 +67,8 @@ BEGIN
 END $$;
 SQL
 amount=$("${db[@]}" -Atc "SELECT diamonds FROM public.profiles WHERE id='d1000000-0000-4000-8000-000000000005'")
-run_spin() {
-  local app=$1 ticket=$2 hold=$3
-  sed "s/public.fn_wheel_spin_v2/public.$door/g" <<'SQL' | "${db[@]}" -At -v amount="$amount" -v app="$app" -v ticket="$ticket" -v hold="$hold"
+spin_sql() {
+  sed "s/public.fn_wheel_spin_v2/public.$door/g" <<'SQL'
 BEGIN;
 SET LOCAL statement_timeout='10s';
 SET LOCAL application_name=:'app';
@@ -61,25 +76,39 @@ SET LOCAL "test.user"='d1000000-0000-4000-8000-000000000005';
 SET LOCAL "request.jwt.claims"='{"role":"authenticated"}';
 SET LOCAL ROLE authenticated;
 SELECT public.fn_wheel_spin_v2('d1000000-0000-4000-8000-000000000003',:'ticket','race-proof',:'amount','paid',NULL)->>'ok';
-SELECT pg_sleep(:'hold');
-COMMIT;
 SQL
 }
-run_spin wheel_funded_first 2248ea4c-7e77-443b-bbba-d4772e4ba108 2 >"$fixture/wheel-first.out" &
+run_spin() {
+  local app=$1 ticket=$2
+  { spin_sql; printf 'COMMIT;\n'; } | "${db[@]}" -At -v amount="$amount" -v app="$app" -v ticket="$ticket"
+}
+# Hold the first transaction on its input pipe, not for the same two seconds
+# as the inherited financial lock timeout. Release only after the waiter is
+# observed behind this exact owner, preserving the real serialization test.
+mkfifo "$fifo"
+"${db[@]}" -At -v amount="$amount" -v app=wheel_funded_first \
+  -v ticket=2248ea4c-7e77-443b-bbba-d4772e4ba108 <"$fifo" >"$fixture/wheel-first.out" &
 first=$!
+exec 8>"$fifo"
+writer_open=1
+spin_sql >&8
 observed=0
 for attempt in $(seq 1 70); do
- if [[ $("${db[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='wheel_funded_first' AND wait_event='PgSleep'") == 1 ]]; then observed=1; break; fi
+ if [[ $("${db[@]}" -Atc "SELECT count(*) FROM pg_stat_activity WHERE application_name='wheel_funded_first' AND state='idle in transaction' AND wait_event='ClientRead'") == 1 ]]; then observed=1; break; fi
  sleep .02
 done
-if [[ $observed != 1 ]]; then wait "$first"; echo 'First spin did not hold its transaction' >&2; exit 1; fi
-run_spin wheel_funded_second 2248ea4c-7e77-443b-bbba-d4772e4ba109 0 >"$fixture/wheel-second.out" &
+if [[ $observed != 1 ]]; then echo 'First spin did not hold its transaction' >&2; exit 1; fi
+run_spin wheel_funded_second 2248ea4c-7e77-443b-bbba-d4772e4ba109 >"$fixture/wheel-second.out" 8>&- &
 second=$!
 blocked=0
 for attempt in $(seq 1 70); do
  if [[ $("${db[@]}" -Atc "SELECT count(*) FROM pg_stat_activity a,pg_stat_activity b WHERE a.application_name='wheel_funded_first' AND b.application_name='wheel_funded_second' AND a.pid=ANY(pg_blocking_pids(b.pid))") == 1 ]]; then blocked=1; break; fi
  sleep .02
 done
+if [[ $blocked != 1 ]]; then echo 'Second spin was not observed behind its first transaction' >&2; exit 1; fi
+printf 'COMMIT;\n' >&8
+exec 8>&-
+writer_open=0
 wait "$first"; wait "$second"
 [[ $blocked == 1 ]] && grep -Fxq true "$fixture/wheel-first.out" && grep -Fxq false "$fixture/wheel-second.out" || { echo 'Concurrent full-wallet spin did not serialize and refuse the second charge' >&2; exit 1; }
 "${db[@]}" <<'SQL'

@@ -1,6 +1,8 @@
 import { parseWeeklyPlayerResults } from '../../utils/unionStatementBoard';
 import { unionEcoRows, unionEcoComponents } from '../../utils/unionEco';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
+import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
+import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
 /**
  * CLUB DATA
  * ============================================================================
@@ -154,6 +156,7 @@ interface SnapshotRow {
 }
 
 interface SnapshotSummary {
+  reconciliation?: Reconciliation | null;
   games: number;
   total_winnings: number;
   mtt_winnings: number;
@@ -375,7 +378,7 @@ interface CachedPlayerLedger {
 
 /** The Rake Snapshot's basis, said beside a union club's invoice-basis figures. */
 const AGENT_RAKE_PRODUCTION_NOTE =
-  'Agent Rake Production: Seat Club And Agent Downline, Pacific Midnight Days. Not The Union Invoice Basis.';
+  'Invoice Headlines Include All Recorded Fees. Agent Rows Show Gross Cash Rake By Seat Club And Downline In Pacific Midnight Days.';
 
 /** What a money tile shows when there is no figure to show. Never "0.00". */
 const NO_VALUE = '-';
@@ -3516,7 +3519,6 @@ export default function ClubDataPage() {
         {clubUuid && (
           <RakeSnapshotPanel
             reportBasis="pacific"
-            headlineLabel={unionBasis ? 'Agent Rake Production' : undefined}
             unframed
             clubId={clubUuid}
             userId={userId}
@@ -3776,6 +3778,14 @@ export default function ClubDataPage() {
           RENDERED on the Games tab. Switching to Players left Omaha-only totals
           sitting above a whole-club per-player breakdown with nothing saying
           so. Say so. */}
+        {snapshot && (
+          <ClubDataReconciliation
+            basis={snapshot.accounting_basis}
+            coverage={snapshot.accounting_coverage}
+            range={snapshot.range}
+            reconciliation={summary?.reconciliation}
+          />
+        )}
         {summary && filtersActive && (
           <p className={`sc-copy ${styles.note}`} role="status">
             These Totals Are Filtered{game !== 'ALL' ? ` - ${titleCase(game)}` : ''}

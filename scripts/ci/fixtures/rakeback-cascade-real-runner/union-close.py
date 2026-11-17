@@ -141,5 +141,6 @@ record.append({'union_close':[{k:r.get(k) for k in ('at','rc','out','err','parts
 exec((F/'weekly-invoices-promo.py').read_text())
 exec((F/'weekly-kings-welcome.py').read_text())
 exec((F/'weekly-agent-statements.py').read_text())
+exec((F/'weekly-club-statements.py').read_text())
 DB='postgres'
 if not A.keep: q("DROP DATABASE close;")  # author aid: --keep leaves it for inspection

@@ -17,6 +17,7 @@
  *     other engine call is refused locally;
  *   - every other host is aborted, so no request leaves this machine.
  */
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 import type { Page, Request, Route } from '@playwright/test';
 
 export const PLAYER = '5ca1ab1e-0000-4000-8000-000000000011';
@@ -130,7 +131,8 @@ export function newBackend(overrides: Partial<Backend> = {}): Backend {
           role: 'user',
           diamonds: 812,
           diamond_balance: 812,
-          club_arena_tos_accepted_at: '2026-09-01T00:00:00Z',
+          club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+          club_arena_tos_revision: TERMS_REVISION,
           avatar_url: '/hub/club-arena/default-avatar.png',
           arena_avatar_url: '/hub/club-arena/default-avatar.png',
         },

@@ -131,6 +131,46 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('the rake snapshot on a union', () => {
+  it('shows original BBJ totals and pending billing from the same invoice snapshot', async () => {
+    const report = {
+      ...payload('club', [clubRow(CLUB_A, 'SHARK CLUB')]),
+      accounting_basis: 'union_invoice_accounting',
+      accounting_coverage: {
+        complete: true,
+        provisional: true,
+        awaiting_boundary_days: ['2026-09-03'],
+      },
+      summary: {
+        ...payload('club', []).summary,
+        reconciliation: {
+          complete: true,
+          missing_days: [],
+          bbj_gross: 42.25,
+          bbj_awards: 10,
+          bbj_net: 32.25,
+          cash_fee: 1900,
+          cash_winnings: -2000,
+          tournament_fee: 100,
+          tournament_winnings: 2100,
+          cash_residual: 67.75,
+          tournament_flow_difference: -2200,
+        },
+      },
+    };
+    rpcMock.mockImplementation((fn: string) =>
+      Promise.resolve({
+        data: fn === 'ca_rake_snapshot_v2' ? report : null,
+        error: null,
+      })
+    );
+    render(
+      <RakeSnapshotPanel clubId={null} unionId={UNION_ID} userId={USER_ID} scopes={['union']} />
+    );
+    expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
+    expect(screen.getByText('42.25')).toBeInTheDocument();
+    expect(screen.getByText('Final Billing Pending')).toBeInTheDocument();
+    expect(screen.getByText(/Sep 4, 2026 12:00 AM Pacific Time/)).toBeInTheDocument();
+  });
   it('shows exact MTTs separately from all tournament fees and includes the union accounting basis', async () => {
     const report = {
       ...payload('club', [
@@ -194,6 +234,34 @@ describe('the rake snapshot on a union', () => {
     expect(screen.getByTitle('-59,073.00')).toHaveTextContent('Unfinished MTT Entries');
     expect(screen.getByTitle('7.00')).toHaveTextContent('7.00');
     expect(screen.getAllByText('Chicago Time').length).toBeGreaterThan(0);
+  });
+
+  it('labels invoice accounting and provisional totals without a cashflow claim', async () => {
+    const report = {
+      ...payload('club', [clubRow(CLUB_A, 'SHARK CLUB')]),
+      day_basis: 'America/Los_Angeles 00:00',
+      accounting_basis: 'union_invoice_accounting',
+      accounting_coverage: { complete: true, provisional: true },
+      breakdown_live: true,
+    };
+    rpcMock.mockImplementation((fn: string) =>
+      Promise.resolve({ data: fn === 'ca_rake_snapshot_pacific_v2' ? report : null, error: null })
+    );
+    render(
+      <RakeSnapshotPanel
+        clubId={null}
+        unionId={UNION_ID}
+        userId={USER_ID}
+        scopes={['union']}
+        reportBasis="pacific"
+      />
+    );
+    expect(await screen.findByText(/Invoice Accounting In Pacific Time/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Totals Are Provisional Until The Billing Cycle Is Final/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Net Entries And Payouts In Pacific Time/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Rollup Written Hourly/)).not.toBeInTheDocument();
   });
 
   it('names its headline as the caller says, "Rake / Fee" by default', async () => {

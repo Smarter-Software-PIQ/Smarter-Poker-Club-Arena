@@ -534,6 +534,7 @@ CERTIFIED_PROFILE = {'id':'eed-240s-certified-release-v1','noticeMs':120000,
     'freezeMs':780000,'nativeQueryMs':240000,'checkpointMs':320000,'postReserveMs':205000}
 CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_THAW_MD5 = 'e2530d18c33dd11f10d5e40bed4bd2e1'
+PROMO_THAW_MD5 = '1d4456082f94fceffff1616b85706e66'
 
 
 def certified_rpc(base_url, service_key, name, parameters=None, *, write=False):
@@ -569,6 +570,17 @@ def validate_certified_contract(proof):
 def maintenance_promise_contract_valid(proof, base_url, service_key):
     digest = proof.get('thawDefinitionMd5')
     if digest == 'cb733d7201725719813ffd1b1e099b1b':
+        return True
+    if digest == PROMO_THAW_MD5:
+        # The installed reader proves every original source pin and ACL. Only
+        # its qualified thaw signature changed; this does not admit a new
+        # recovery profile, predecessor, owner interval or release window.
+        contract = certified_rpc(base_url, service_key, 'fn_engine_certified_recovery_contract')
+        expected = {'schema':'engine-certified-recovery-contract/v1','policyId':CERTIFIED_POLICY,
+            'profile':CERTIFIED_PROFILE,'thawDefinitionMd5':PROMO_THAW_MD5,
+            'notBefore':'2026-11-04T23:00:00Z','notAfter':'2026-11-05T05:00:00Z'}
+        if contract != expected:
+            raise ValueError('promo thaw installed contract is unproved')
         return True
     if digest != CERTIFIED_THAW_MD5:
         return False
