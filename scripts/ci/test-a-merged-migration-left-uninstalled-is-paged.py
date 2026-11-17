@@ -21,6 +21,11 @@ a fake extensions.http answering from a table, so every outcome is data:
     naming no file on main is ignored; an unreadable modification is retried
     (20261112035143, alert 376926);
   * an unreadable GitHub raises nothing new and keeps the cursor;
+  * while Apply Merged Migration or Dispatch Merged Migrations is switched
+    off (the owner-window pause) the hour page is held, for at most six
+    hours; a file merged before the switch-on gets its hour from the
+    switch-on, so a resume that never sent it still pages; an unreadable
+    workflow state holds nothing (20261117165416, incident c1a85d20);
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
 """
@@ -41,6 +46,8 @@ RENAME_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_renamed_migration
 # 20261112035143: a superseded file is never paged; a modified waiting file is re-read.
 SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_migration_as_never_to_b*.sql'))
 # The never-run marker, spelled in two pieces so this file is not read as one.
+# 20261117165416: installs switched off hold the hour page (incident c1a85d20).
+PAUSE_FIX = next(MIGRATIONS.glob('*_the_install_watch_holds_its_page_while_installs_are_switched*.sql'))
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -119,6 +126,15 @@ def main():
             proof = re.search(r'^-- @live-proof: (.+)$', SUPERSEDED_FIX.read_text(), re.M).group(1)
             assert sql(f'SELECT {proof}') == 't', 'superseded-fix live proof must hold after install'
             ok('the superseded fix installs over the exact installed watch (md5 preimage) and its live proof holds')
+        PRE_PAUSE = os.environ.get('MIGWATCH_PRE_FIX') == '1' or os.environ.get('MIGWATCH_PRE_PAUSE') == '1'
+        print('# watch md5 before the pause fix: ' + sql("SELECT md5(pg_get_functiondef('public.fn_ca_merged_migration_install_watch(timestamp with time zone)'::regprocedure))"))
+        if not PRE_PAUSE:
+            for attempt in (1, 2):
+                r = psql(['-f', str(PAUSE_FIX)])
+                assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', PAUSE_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'pause-fix live proof must hold after install'
+            ok('the pause fix amends each anchor once, installs twice idempotently and its live proof holds')
 
         def mock(pattern, body, status=200):
             sql("INSERT INTO mock_http VALUES ($m$%s$m$, %d, $m$%s$m$) ON CONFLICT (pattern) DO UPDATE SET status = EXCLUDED.status, body = EXCLUDED.body"
@@ -363,6 +379,67 @@ def main():
         watch('2026-11-11 01:15:00Z')
         assert sql(f"SELECT count(*) FROM mock_http_calls WHERE uri = '{RAW}/{sha(22)}/supabase/migrations/20261110100000_ordinary_change.sql'") == '0'
         ok('a modification to an installed file is not fetched')
+
+        # INSTALLS SWITCHED OFF (incident c1a85d20, 2026-11-14 to 2026-11-16).
+        # The owner-window playbook switches the applier (and the dispatcher)
+        # off from the booking merge to SEALED; 12 of 18 pages in four days
+        # said "dispatch it" while that was on purpose.
+        APPLIER = f'{REPO}/actions/workflows/apply-merged-migration.yml'
+        DISPATCHER = f'{REPO}/actions/workflows/dispatch-merged-migrations.yml'
+
+        def workflows(applier, dispatcher):
+            for uri, state in ((APPLIER, applier), (DISPATCHER, dispatcher)):
+                if state is None:
+                    sql(f"DELETE FROM mock_http WHERE pattern = '{uri}'")
+                else:
+                    mock(uri, {'name': uri.rsplit('/', 1)[1], 'state': state})
+
+        P1 = 'supabase/migrations/20261111020000_merged_during_a_pause.sql'
+        workflows('disabled_manually', 'active')
+        merge(30, '2026-11-11T02:00:00Z', [{'filename': P1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        r = watch('2026-11-11 02:05:00Z')
+        r = watch('2026-11-11 03:10:00Z')
+        assert alert_status('20261111020000') == '', f'a pause must hold the hour page: {r}'
+        assert r.get('install_pause', '').startswith('paused since'), r
+        ok('a pause holds the hour page for a file merged inside it')
+
+        workflows('active', 'active')
+        watch('2026-11-11 04:00:00Z')
+        watch('2026-11-11 04:59:00Z')
+        assert alert_status('20261111020000') == '', 'the resume gets its own hour'
+        r = watch('2026-11-11 05:00:00Z')
+        assert alert_status('20261111020000') == 'firing', r
+        ok('a file the resume never sent pages one hour after the switch-on, never sooner')
+
+        P2 = 'supabase/migrations/20261111043000_merged_after_the_pause.sql'
+        merge(31, '2026-11-11T04:30:00Z', [{'filename': P2, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-11 05:29:00Z')
+        assert alert_status('20261111043000') == ''
+        watch('2026-11-11 05:30:00Z')
+        assert alert_status('20261111043000') == 'firing'
+        ok('a file merged after the pause keeps its own hour from its merge')
+
+        P3 = 'supabase/migrations/20261111060000_merged_during_a_forgotten_pause.sql'
+        workflows('active', 'disabled_manually')
+        merge(32, '2026-11-11T06:00:00Z', [{'filename': P3, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-11 06:00:00Z')
+        watch('2026-11-11 11:59:00Z')
+        assert alert_status('20261111060000') == ''
+        watch('2026-11-11 12:00:00Z')
+        assert alert_status('20261111060000') == 'firing'
+        ok('a pause still open after six hours is a forgotten pause and pages')
+
+        workflows('active', 'active')
+        watch('2026-11-11 12:10:00Z')
+        workflows(None, None)
+        P4 = 'supabase/migrations/20261111130000_merged_while_the_state_is_unreadable.sql'
+        merge(33, '2026-11-11T13:00:00Z', [{'filename': P4, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        r = watch('2026-11-11 14:00:00Z')
+        assert alert_status('20261111130000') == 'firing', r
+        assert r.get('install_pause') == 'unknown', r
+        assert sql("SELECT count(*) FROM mock_http_calls WHERE uri LIKE '%/actions/workflows/%' AND uri NOT IN "
+                   f"('{APPLIER}', '{DISPATCHER}')") == '0'
+        ok('an unreadable workflow state holds nothing and only the two workflows are read')
 
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "
