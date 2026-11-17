@@ -13,9 +13,20 @@ import {
   type ComplaintFixture,
 } from './HorseComplaintReplay.js';
 import type { Card, CardRank, CardSuit, HorseDecision } from '../types.js';
-import TOP_SET from './horseComplaints/plo5-top-set-check-raises-pot-on-the-four-straight-turn.fixture.json';
+import { readFileSync } from 'node:fs';
 
-const FX = TOP_SET as unknown as ComplaintFixture; // hero seat 6 OOP, opponent seat 1, turn raise node 20
+// Test data, read from disk rather than imported: a non-test module that
+// imports JSON must be listed in tsconfig.emit.json (engine-build-resource-proof),
+// and this fixture is not a runtime resource.
+const FX = JSON.parse(
+  readFileSync(
+    new URL(
+      './horseComplaints/plo5-top-set-check-raises-pot-on-the-four-straight-turn.fixture.json',
+      import.meta.url
+    ),
+    'utf8'
+  )
+) as ComplaintFixture; // hero seat 6 OOP, opponent seat 1, turn raise node 20
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 export const cards = (spec: string): Card[] =>
   (spec.match(/../g) ?? []).map((x) => ({ rank: x[0] as CardRank, suit: SUIT[x[1]] }));
@@ -270,7 +281,7 @@ export function recordedState(r: RecordedDecision) {
   const fx = {
     version: 1,
     slug: `recorded-${r.n}-${r.seat}-${r.street}`,
-    title: 'recorded decision',
+    title: 'Recorded Decision',
     complaint: 'recorded decision',
     handId: String(r.n),
     fmt: 'cash',
