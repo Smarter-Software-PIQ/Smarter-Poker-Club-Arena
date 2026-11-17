@@ -427,7 +427,31 @@ describe('the route runs on the daily schedule that already exists', () => {
 
   it('every declared migration on main passes the window rules', () => {
     const dir = resolve(root, 'supabase/migrations');
-    for (const f of readdirSync(dir).filter((n) => /^\d{14}_[a-z0-9_]+\.sql$/.test(n))) {
+    // Read the complete corpus in rg's native scanner before loading the
+    // declared files. Sequential JS opens took40.8s on the shared external
+    // volume and exceeded this unchanged30s test deadline even in isolation.
+    // Unknown/failed selection is a failure, never an empty passing corpus.
+    const selection = spawnSync(
+      'rg',
+      [
+        '--files-with-matches',
+        '--no-ignore',
+        '--follow',
+        '--text',
+        '--glob',
+        '*.sql',
+        '@install-window',
+        'supabase/migrations',
+      ],
+      { cwd: root, encoding: 'utf8', timeout: 25_000 }
+    );
+    expect(selection.error).toBeUndefined();
+    expect([0, 1]).toContain(selection.status);
+    expect(selection.stderr).toBe('');
+    const names = selection.stdout
+      .split('\n')
+      .map((path) => path.replace(/^supabase\/migrations\//, ''));
+    for (const f of names.filter((n) => /^\d{14}_[a-z0-9_]+\.sql$/.test(n))) {
       const sql = readFileSync(resolve(dir, f), 'utf8');
       if (!/@install-window/.test(sql)) continue;
       expect(() => validateWindowMigration(f, sql, { preamble: [] }), f).not.toThrow();
