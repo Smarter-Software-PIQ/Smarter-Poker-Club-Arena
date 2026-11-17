@@ -57,6 +57,13 @@ import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
+import {
+  OMAHA_PRICED_MEASURED_BLUFF,
+  omahaPricedBluffFactor,
+  omahaPricedFacingRange,
+  omahaPricedModeNow,
+  omahaPricedRealizationCap,
+} from './HorseOmahaPricedMode.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -177,7 +184,11 @@ export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
 /** The bluff share used: the prior, moved by the measured read. */
 export function omahaEvBluffShare(prior: number, read: OmahaFacingBetEvRead | null): number {
   let q = prior;
-  if (read?.measured) {
+  // omahaBluffShareFromBetRate (default off): his bet rate beside the population moves the prior
+  // continuously; the value-leader and maniac labels do not act (HorseOmahaPricedMode).
+  if (omahaPricedModeNow().bluffShareFromBetRate)
+    q *= omahaPricedBluffFactor(read?.betCheckedToRatio);
+  else if (read?.measured) {
     let k = 1;
     if (read.betCheckedToRatio !== null && Number.isFinite(read.betCheckedToRatio))
       k = Math.max(0.7, Math.min(1.5, read.betCheckedToRatio));
@@ -1240,6 +1251,30 @@ export function omahaFacingBetEvSpot(
       valueShare *= 0.7;
       priorBluff = Math.min(priorBluff, OMAHA_EV_PRIOR_BLUFF.river.raise);
     }
+    // omahaFacingBetRangeIsContinuous (default off): the same range knowledge with the size as a
+    // continuous input, never a trigger (HorseOmahaPricedMode.omahaPricedFacingRange).
+    if (omahaPricedModeNow().rangeContinuous) {
+      const continuous = omahaPricedFacingRange({
+        street,
+        isRaise,
+        chosenFrac: faced.wager / faced.potBefore,
+        potFrac,
+        aggressorStreets,
+        callerStreets,
+        earlierRaised,
+        boardPaired,
+        heroBetTurn: street === 'river' && lineOn('turn', player.seat).aggr,
+        others: callers + behind,
+        behindShare: Math.max(0, leftBehind) / (winnable + paid),
+        value: OMAHA_EV_VALUE_SHARE[street],
+        // the measured prior (OMAHA_PRICED_MEASURED_BLUFF), not the stepped table
+        bluff: OMAHA_PRICED_MEASURED_BLUFF[street],
+        lineAggressor: OMAHA_EV_LINE_AGGRESSOR,
+        lineCaller: OMAHA_EV_LINE_CALLER,
+      });
+      valueShare = continuous.valueShare;
+      priorBluff = continuous.priorBluff;
+    }
     return {
       street,
       bettorSeat: faced.bettorSeat,
@@ -1385,6 +1420,8 @@ export function omahaFacingBetEvVerdict(
     ? 1
     : Math.max(0.5, Math.min(1, Number.isFinite(ctx.realization) ? ctx.realization! : 0.85));
   if (!spot.final && spot.behind > 0) realization = Math.min(realization, 0.85);
+  // omahaFacingBetRangeIsContinuous (default off): the two size lines below are weights, not steps.
+  const continuousSize = omahaPricedModeNow().rangeContinuous;
   // Hand #59725321: on an already-paired turn facing a >= 40%-pot wager with
   // river barrel stacks still behind, a non-boat hand with zero full-house/quad
   // river outs draws dead against every boat in the bettor's range and folds
@@ -1393,7 +1430,7 @@ export function omahaFacingBetEvVerdict(
   if (
     spot.street === 'turn' &&
     !spot.final &&
-    spot.potFrac >= 0.4 &&
+    (continuousSize || spot.potFrac >= 0.4) &&
     spot.bettorCanBarrelRiver !== false &&
     board.length === 4 &&
     new Set(board.map((c) => c.rank)).size < 4 &&
@@ -1412,7 +1449,11 @@ export function omahaFacingBetEvVerdict(
       }
       if (boatOuts > 0) break;
     }
-    if (boatOuts === 0) realization = Math.min(realization, 0.42);
+    if (boatOuts === 0)
+      realization = Math.min(
+        realization,
+        continuousSize ? omahaPricedRealizationCap(spot.potFrac, 0.2, 0.6, 0.42) : 0.42
+      );
   }
   // Hand #59749333: on a non-final turn facing a >= 70%-pot barrel from an
   // earlier-street aggressor with river barrel stacks behind, an unimproved
@@ -1423,7 +1464,7 @@ export function omahaFacingBetEvVerdict(
   if (
     spot.street === 'turn' &&
     !spot.final &&
-    spot.potFrac >= 0.7 &&
+    (continuousSize || spot.potFrac >= 0.7) &&
     spot.aggressorStreets >= 1 &&
     spot.bettorCanBarrelRiver !== false &&
     board.length === 4 &&
@@ -1431,7 +1472,10 @@ export function omahaFacingBetEvVerdict(
   ) {
     const draw = omahaDrawQuality(hole, board, false);
     if (!draw.nutFlushDraw && draw.nutStraightOuts === 0 && draw.straightOuts < 8) {
-      realization = Math.min(realization, 0.65);
+      realization = Math.min(
+        realization,
+        continuousSize ? omahaPricedRealizationCap(spot.potFrac, 0.45, 0.95, 0.65) : 0.65
+      );
     }
   }
   pWin *= realization;
@@ -1447,7 +1491,8 @@ export function omahaFacingBetEvVerdict(
   const baseMargin =
     omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) *
     (spot.winnable + spot.paid);
-  const cashMargin = spot.potFrac < 0.1 ? Math.min(baseMargin, 0.5 * spot.paid) : baseMargin;
+  const cashMargin =
+    continuousSize || spot.potFrac < 0.1 ? Math.min(baseMargin, 0.5 * spot.paid) : baseMargin;
   const margin = cashMargin + premium * (spot.winnable + spot.paid);
   // PLO6 (SPEC-A 3.12 item 4, K1): where the M1 river fold test holds, the
   // verdict is never a call, whatever the EV says. Against every holding

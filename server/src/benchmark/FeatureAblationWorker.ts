@@ -560,6 +560,10 @@ export function createFeatureAblationWorker(
             player: request.player,
             gameState: request.gameState,
             ...(request.opts?.omahaStrategyInPlo6 === true ? { omahaStrategyInPlo6: true } : {}),
+            ...(request.opts?.omahaTurnRiverRaiseIsPriced === true ||
+            request.opts?.omahaBigBetCallsArePriced === true
+              ? { omahaPricedRaise: true }
+              : {}),
           }) ??
           horsePhase6AttributionMismatch(result.decision, request) ??
           horsePhase7EvidenceMismatch(result.decision, request);
