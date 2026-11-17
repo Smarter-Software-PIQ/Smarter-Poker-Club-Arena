@@ -121,6 +121,34 @@ def main():
    hand=str(uuid.uuid4())
    db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{hand}','{T}',1,clock_timestamp());INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{C}','{A}',{amount},'{hand}')")
   old=gift(50)
+  # Count actual history evaluations inside this connection's transaction. Each
+  # scenario rolls back so subsequent fee and custody checks use the same gift.
+  def settlement_reads(setup='', user=A):
+   return f"""BEGIN;
+    {setup}
+    SET LOCAL track_functions = 'all';
+    SELECT fn_ca_promo_profit_settle('{C}','{user}');
+    SELECT coalesce(pg_stat_get_xact_function_calls(
+      'public.fn_ca_promo_shared_fee_state(uuid,uuid)'::regprocedure),0);
+    ROLLBACK;"""
+
+  released = f"UPDATE ca_promo_profit_gates SET unlocked_at=clock_timestamp() WHERE grant_id='{old}';"
+  overridden = f"""INSERT INTO ca_promo_profit_overrides(grant_id,reviewed_by,reason)
+                   VALUES('{old}','{B}','Native fee boundary regression');"""
+  check('original settler rereads history after final release',settlement_reads(released),'1')
+  runfile(ROOT/'supabase/migrations/20261117234700_skip_promo_profit_fee_replay_for_final_gates.sql')
+  check('installed settler keeps its definition and private execute grant',"""
+    SELECT md5(pg_get_functiondef(p.oid)) = 'c07f4e3eebcb0de8f34079c07dd2aac8'
+       AND p.prosecdef AND p.proowner = 'postgres'::regrole
+       AND NOT has_function_privilege('service_role', p.oid, 'execute')
+       AND NOT has_function_privilege('authenticated', p.oid, 'execute')
+       AND NOT has_function_privilege('anon', p.oid, 'execute')
+    FROM pg_proc p WHERE p.oid='public.fn_ca_promo_profit_settle(uuid,uuid)'::regprocedure
+  """,'t')
+  check('final release skips fee history',settlement_reads(released),'0')
+  check('reviewed winnings override skips fee history',settlement_reads(overridden),'0')
+  check('member without a grant skips fee history',settlement_reads(user=B),'0')
+  check('open winnings gate still evaluates the original fee history',settlement_reads(),'1')
   check('nonagent authoritative balance fields are both absent values',f"SELECT (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_wallet') IS NULL AND (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable') IS NULL",'t')
   check('original grant has one shared phase and original thresholds',f"SELECT count(*)||':'||max(principal_target)::integer||':'||max(profit_target)::integer FROM fn_ca_promo_shared_fee_state('{C}','{A}') WHERE grant_id='{old}'",'1:200:100')
   fee(40)
