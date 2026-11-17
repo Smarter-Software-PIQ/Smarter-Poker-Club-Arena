@@ -16,7 +16,7 @@
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "d349c59e55f35a9f1f39b269664994f33df64fca4170ec209a5ae7d5b3c25fe6",
     "scripts/ci/apply-recorded-migration.mjs": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc",
-    ".github/workflows/apply-merged-migration.yml": "613491b1989efe1ce5e6d3556785c345d7594d9de01b143511d12afa46fe625d",
+    ".github/workflows/apply-merged-migration.yml": "1ad478fb6dcabd8f9411f67f1e3f465c247c047d9320d43c4dffd260f3bad5f1",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
   },
@@ -178,5 +178,12 @@
     "review": "Reviewed exact final diff. Only the exact BBJ migration filename and SHA256 e9657465bbd6bd8e299d2d60ddfd5ff67fb299c2854b93d7c7ba197b6bdf960e receive a 1200-second concurrent-index statement with 22-minute initial/per-index pre-:50 runway. Other files remain 600 seconds, initial12/per-index5 minutes. The BBJ workflow job alone becomes55minutes for unchanged FIFO900s plus DDL admission720s, CCI1200s and reserve; other jobs remain35. Recovery tests now assert the actual default600/12/5 selector and unchanged shared600-second recovery deadline instead of old literal implementation text. Existing cash HASH recovery, exact OID/catalog/snapshot guards, retirement, ordinary transaction/history/lock safeguards and tournament cover behavior are unchanged. Other textual differences are normal formatter whitespace/import wrapping only.",
     "reason": "Production compact BBJ build44007522358 reached1872924/2182410blocks around569s and failed600248ms before concurrent validation. Owner explicitly ordered the bounded BBJ-specific limit correction. This is installer-source review, not a restamp of financial evidence or production capacity.",
     "verification": "Affected BBJ native77PASS reused unchanged financial sources; postformatter installer/source focused1573PASS and recovery controls24PASS. Prior cash native63 and tournament native33 evidence remains historical unchanged input evidence; no repeated unrelated native suite or new production certification claimed."
+  },
+  "bbjMeasuredValidationRunway20261117": {
+    "path": ".github/workflows/apply-merged-migration.yml",
+    "before": "613491b1989efe1ce5e6d3556785c345d7594d9de01b143511d12afa46fe625d",
+    "after": "1ad478fb6dcabd8f9411f67f1e3f465c247c047d9320d43c4dffd260f3bad5f1",
+    "review": "Reviewed exact BBJ-only scalar/comment diff. Exact migration SHA b5a74ce10bf8f22d7ce5f6b22675a7f34608ad9e616b0829578712849b2985be now receives2400s and42-minute initial/per-index runway; its job alone75minutes. Ordinary600s/initial12/per5 and35-minute jobs, shared600-second cash recovery, catalog/OID/snapshot/retirement and financial/read-source contracts unchanged. No financial qualification restamp.",
+    "reason": "Owner ordered the limit correction after actual1200s attempt: first scan~760s, validation711397/2182410blocks in431s projects~2082s total;2400s is bounded and42-minute runway preserves unchanged:50DDLguard. Newname retains four invalid artifacts, noDROP/override. Actual installation capacity not yet certified."
   }
 }
