@@ -112,6 +112,8 @@ BEGIN
  SELECT pg_get_functiondef('public.fn_engine_certified_recovery_contract()'::regprocedure) INTO def;
  IF md5(def)<>'4db9fbdd98099ef2ba71be9614c0092d' THEN
   RAISE EXCEPTION 'PROMO_THAW_CERTIFIED_CONTRACT_PREIMAGE_DRIFT'; END IF;
+ IF md5(pg_get_functiondef('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)'::regprocedure))<>'1d4456082f94fceffff1616b85706e66' THEN
+  RAISE EXCEPTION 'PROMO_THAW_POSTIMAGE_DRIFT'; END IF;
  needle:=$needle$('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)','e2530d18c33dd11f10d5e40bed4bd2e1')$needle$;
  replacement:=format('(%L,%L)',
   'public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)',

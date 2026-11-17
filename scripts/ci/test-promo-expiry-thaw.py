@@ -92,6 +92,18 @@ CREATE TABLE public.ca_promo_play_through_grants(id uuid PRIMARY KEY DEFAULT gen
                 check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig) == contract_drifted,
                       'drift refusal never overwrites the installed contract')
                 c.psql(contract_before)
+                thaw_sig = 'public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)'
+                thaw_before = c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % thaw_sig)
+                c.psql("ALTER FUNCTION " + thaw_sig + " SET statement_timeout='33s'")
+                thaw_drifted = c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % thaw_sig)
+                c.psql(guarded(source), error='PROMO_THAW_POSTIMAGE_DRIFT')
+                check(c.val("SELECT count(*) FROM pg_proc WHERE proname IN ('fn_snapshot_maintenance_thaw_targets','fn_credit_maintenance_thaw_targets','fn_thaw_platform') AND position('promo_expires_at' in prosrc)>0") == '0',
+                      'unqualified function configuration rolls back all three thaw changes')
+                check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % thaw_sig) == thaw_drifted,
+                      'postimage refusal preserves the independently changed configuration')
+                check(c.psql("SELECT pg_get_functiondef('%s'::regprocedure)" % contract_sig) == contract_before,
+                      'postimage refusal cannot bless an unqualified recovery source')
+                c.psql(thaw_before)
                 c.psql(guarded(source))
                 old_pin = "('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)','e2530d18c33dd11f10d5e40bed4bd2e1')"
                 new_hash = c.val("SELECT md5(pg_get_functiondef('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)'::regprocedure))")
