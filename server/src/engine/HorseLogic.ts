@@ -43,6 +43,11 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { horsePublicActionTimeMs, type HorsePublicTimingSpot } from './horsePublicActionTime.js';
+import {
+  horseBetSizeRandom,
+  horsePublicBetSizeTo,
+  type HorsePublicBetSizeSpot,
+} from './horsePublicBetSize.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
@@ -68,12 +73,16 @@ import {
   horsePlayStyleFor,
   isHorsePlayStyle,
   type HorsePlayStyle,
+  type HorsePlayStyleFallback,
 } from './HorsePlayStyle.js';
 import {
   OMAHA_PLAY_STYLE_NEUTRAL,
   OMAHA_TIGHT_EXPECTED_VPIP_PCT,
+  omahaPlayStyleEntryBarCredit,
+  omahaPlayStyleFoldEquityMul,
   omahaPlayStyleIndifferenceAggressionBias,
   omahaPlayStyleMapped,
+  omahaPlayStyleTieBandMul,
   omahaPlayStylePersona,
   omahaPlayStylePostflopDials,
   omahaPlayStylePreflopDials,
@@ -102,7 +111,17 @@ import {
   omahaUnderpairFlopCell,
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
+import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import {
+  omahaBetVsCheckEv,
+  omahaBetVsCheckOpponents,
+  omahaMultiwayRiverCallSpot,
+  omahaMultiwayRiverCallVerdict,
+  omahaMultiwayWeakHandSpot,
+  omahaRiverBluffIntoValueLeaderSpot,
+  omahaWagerChips,
+} from './HorseOmahaMultiwayDiscipline.js';
 import {
   OMAHA_TOURNAMENT_SCOPE_OFF,
   omahaCashOnlyExcludes,
@@ -139,7 +158,21 @@ import {
   omahaPlanToCall,
   omahaStreetPlanTurnSpot,
   OMAHA_STREET_PLAN_MARGIN_POT_SHARE,
+  omahaFlopPlanChoice,
+  omahaFlopPlanInputAt,
+  omahaFlopPlanRecord,
+  omahaPreflopStackPlan,
+  omahaPreflopStackPlanSpot,
+  omahaStreetPlanFlop,
+  omahaStreetPlanFlopSpot,
+  omahaStreetPlanThreeWay,
+  omahaStreetPlanThreeWayDomain,
+  omahaStreetPlanThreeWaySpot,
+  omahaThreeWayPlanInputAt,
+  omahaThreeWayPlanRecord,
+  type OmahaFlopPlan,
   type OmahaPlanTendency,
+  type OmahaThreeWayPlan,
 } from './HorseOmahaStreetPlan.js';
 import {
   omahaReraisedPostflopCell,
@@ -2581,6 +2614,19 @@ export interface HorseDecideOpts {
    *  stream no longer reach it. Default OFF (opt-in): only an explicit true
    *  switches it on; unset or false is the shipped computeThinkTime. */
   horseActionTimeIsPublicOnly?: boolean;
+  /** PLO Strategy lane 2026-11-16 (owner 2026-11-15: "HE GETS THEM TO FOLD
+   *  WHEN HE WANTS A FOLD, AND GETS A CALL WHEN HE WANTS A CALL"; bet size is
+   *  a tell, sizing-20261116/MEASURE.md): in PLO4/PLO5 cash, pot limit, high
+   *  only, one board, the size of the Horse's own postflop bet or raise is
+   *  chosen by horsePublicBetSize from public information only (street, board
+   *  class, pot, chips, legal bounds, opponents, position, the heads-up
+   *  opponent's measured fold-to-bet read) and a random stream of its own, so
+   *  value hands and bluffs in one public spot share one size distribution.
+   *  The bet-or-check decision is unchanged; a check, a call and an all-in
+   *  are untouched (a commitment-size spot wagers the legal maximum); with omahaNutClassValueSize on, a nut-class
+   *  wager keeps that option's size. Default OFF (opt-in): only an explicit
+   *  true switches it on. */
+  omahaBetSizeByPublicState?: boolean;
   v9Mood?: boolean;
   /** disable the V10 strategy layer: range-advantage c-bets, SPR-scaled
    *  commitment / pot control, river blocker bluff-catching, rake-aware pot
@@ -3411,6 +3457,40 @@ export interface HorseDecideOpts {
    * (HorseOmahaTurnRiverRaiseNeedsNuts.ts); league cards plo4/plo5
    * _omaha_turn_river_raise_needs_nuts. */
   omahaTurnRiverRaiseNeedsNuts?: boolean;
+  /** 2026-11-16 (full sweep family R: 19 multiway river calls without the
+   * nuts, -1,987 bb; HorseOmahaMultiwayDiscipline.ts): PLO4/PLO5 cash, the
+   * river, facing a bet with at least one other opponent live beside the
+   * bettor (a caller in front, an earlier all-in or a player still to act), a
+   * hand that is not nut class: a call or a raise becomes the multiway
+   * exact-hand EV verdict, the facing-bet EV against the bettor times the
+   * chance of beating each other player's continuing range (independent
+   * ranges; population shares, moved by a measured river-call rate): a call
+   * when EV clears the facing-bet margin, else a fold. Never a raise; a fold
+   * is never turned into a call. In the owner-ruled chain
+   * (omahaOwnerRuledFinal). Default OFF (read `=== true`). */
+  omahaMultiwayRiverCallNeedsStrength?: boolean;
+  /** 2026-11-16 (pricingfix in-position river bluffs into a measured value
+   * leader; HorseOmahaMultiwayDiscipline.ts): PLO4/PLO5 cash, the river,
+   * nothing to call, a bet with a hand below the showdown-value line (beats
+   * under half of all holdings, exact count), not nut class, no nut blocker
+   * (the v86 nut-blocker bluff keeps its spots), with a live opponent who is
+   * a measured postflop value leader and bet, raised or called an earlier
+   * postflop street: the bet becomes a check unless the fold-equity EV
+   * comparison (his measured river-call rate, else the population prior)
+   * says the bet is worth more by 2% of the pot. In and out of position,
+   * heads-up and multiway. An owner-ruled check (omahaOopCheckRules, kept
+   * outermost by omahaOwnerRuledFinal). Default OFF (read `=== true`). */
+  omahaNoRiverBluffIntoValueLeader?: boolean;
+  /** 2026-11-16 (full sweep families D2 and B1b; HorseOmahaMultiwayDiscipline.ts):
+   * PLO4/PLO5 cash, the turn and the river, nothing to call, two or more live
+   * opponents, a bet with one pair or less, not nut class, on the turn no
+   * nut-class draw (four or more nut-class outs) and no combo draw: the bet
+   * becomes a check unless the EV comparison against the opponents' ranges
+   * says the bet is worth more by 2% of the pot. An owner-ruled check
+   * (omahaOopCheckRules, kept outermost by omahaOwnerRuledFinal). The PLO4/PLO5
+   * counterpart of the PLO6 lane's plo6NoMultiwayBetWithWeakMadeHand; PLO6 is
+   * untouched. Default OFF (read `=== true`). */
+  omahaMultiwayWeakHandNoBet?: boolean;
   /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, first layer): PLO4/PLO5
    * cash, heads-up, one board, high only. Before a TURN bet facing no wager
    * the Horse prices the bet and the check as whole lines: the opponent's
@@ -3424,6 +3504,45 @@ export interface HorseDecideOpts {
    * Default OFF (opt-in, read `=== true`) until its declared evaluation
    * passes; league cards plo4/plo5 _omaha_street_plan. */
   omahaStreetPlan?: boolean;
+  /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, the flop layer): PLO4/PLO5
+   * cash, heads-up, one board, high only. Before a FLOP bet facing no wager
+   * the Horse prices the bet and the check as two-street lines: the
+   * opponent's fold / call / raise, the turn card by class (texture classes,
+   * eight representative cards weighted by their exact share, each classed
+   * good / neutral / bad), its planned turn action on each (the turn layer's
+   * line model) and eight sampled rivers under each. A bet line that commits
+   * the stack (stack-to-pot after the call at or under 1.5) with a hand that
+   * folds to the expected raise or continues on under 65% of turn cards is
+   * not made; otherwise the bet stands only when its line beats the check
+   * line by 2% of the pot, and a smaller size of the engine's menu replaces
+   * the engine's size only when it beats it by the same margin. Only a bet
+   * becomes a check or a smaller bet; never a raise. Inside the owner-ruled
+   * chain (omahaOwnBetRules): the owner's flop checks act first and are
+   * final. No engine random number. Default OFF (read `=== true`); league
+   * cards plo4/plo5 _omaha_street_plan_flop. */
+  omahaStreetPlanFlop?: boolean;
+  /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, the turn three-way):
+   * the turn layer for exactly two live opponents, each with his own
+   * independent range and measured tendency; the bettor wins at once only
+   * when both fold, otherwise he must beat every caller at showdown (every
+   * river card exactly; no river betting modelled three-way). The turn bet
+   * becomes a check when the check line is worth more by 2% of the pot.
+   * Default OFF (read `=== true`); league cards plo4/plo5
+   * _omaha_street_plan_three_way. */
+  omahaStreetPlanThreeWay?: boolean;
+  /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, the preflop layer):
+   * PLO4/PLO5, before calling a preflop raise heads-up against the raiser,
+   * the Horse computes the stack-to-pot ratio the call creates; under 3 the
+   * call is priced as the stack it commits, (equity - charge) x final pot -
+   * chips put in, against folding (0), with the equity against the raiser's
+   * band and the charge from the hand's playability (realisation by
+   * position scaled by the ratio, halved for a nut-making hand; a stack-off
+   * charge of 0.06 for a hand that makes mostly one pair). A call with a
+   * negative value becomes a fold; nothing else changes. Runs before the
+   * day's 3-bet / 4-bet options, which keep precedence over the calls they
+   * make. Default OFF (read `=== true`); league cards plo4/plo5
+   * _omaha_preflop_stack_plan. */
+  omahaPreflopStackPlan?: boolean;
   /** Owner 2026-11-15 12:18 (the Horses' 3-bet and 4-bet ranges out of
    * position and under the gun must be capped): PLO4/PLO5 cash, a preflop
    * raise that would be the 3-bet or the 4-bet stands, when the Horse will be
@@ -6502,6 +6621,10 @@ const nearNutChosenRaises = new WeakSet<HorseDecision>();
 // omahaOnePairDiscipline: the reference brain chose a river bluff wager in
 // this decision (private provenance; reset at every decision).
 let riverBluffDeclaredPending = false;
+/** The v86 nut-blocker river bluff (omahaRiverNutBlockerBluffReachable's path) made this
+ * decision's bet: omahaNoRiverBluffIntoValueLeader leaves that spot to it. Cleared at the
+ * start of every decision; it changes no decision by itself. */
+let v86NutBlockerBluffPending = false;
 // barrelContinuationOutlook receipt state: a river decision that read a turn
 // outlook while the flag is on, not yet consumed by the V7 continuation.
 let barrelOutlookRiverPending = false;
@@ -7395,8 +7518,15 @@ function omahaOopReraisedPotStrongRange(
   // The re-raise rule first (its own option): a raise it turns into a call is
   // judged inside it. Then the flop rule (its own option); the three never
   // meet on one decision otherwise.
+  // The preflop stack plan (its own option) runs first: a call the re-raise
+  // rule makes from a raise is that rule's, and the stack plan never sees it.
   const decision = omahaReraisedPotFlopContinue(
-    omahaReraiseRangeRules(decision0, player, gs, opts),
+    omahaReraiseRangeRules(
+      omahaPreflopStackPlanRule(decision0, player, gs, opts),
+      player,
+      gs,
+      opts
+    ),
     player,
     gs,
     opts
@@ -7591,6 +7721,7 @@ function omahaReraiseRangeRules(
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
+          omahaPreflopStackPlan: false,
           telemetry: false,
         }).action !== 'fold';
     } else {
@@ -8063,11 +8194,29 @@ export function omahaBigDrawAggression(
       icmRisk: omahaTournamentIcmRisk(player, gs),
       allInOrFold: gs.allInOrFold === true,
       wagersCapped: gs.wagersCapped === true,
+      ...((): { publicTo?: number | 'all_in' } => {
+        const pub = omahaPublicSizeOf(
+          decision.action === 'call' ? 'raise' : 'bet',
+          decision,
+          player,
+          gs,
+          opts
+        );
+        return pub === undefined ? {} : { publicTo: pub };
+      })(),
+      ...(decision.action === 'check'
+        ? {
+            finalCheckVetoes: (w: { action: 'bet' | 'raise' | 'all_in'; amount?: number }) =>
+              omahaBigDrawBetIsVetoed(decision, w, player, gs, opts),
+          }
+        : {}),
     });
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
     if (verdict.wager === null) {
-      if (tele) noteFire('omaha_big_draw_aggression_withheld');
+      if (tele && verdict.withheld === 'final_check')
+        noteFire('omaha_big_draw_aggression_final_check_unpriced');
+      else if (tele) noteFire('omaha_big_draw_aggression_withheld');
       return decision;
     }
     const raised = decision.action === 'call';
@@ -8090,6 +8239,46 @@ export function omahaBigDrawAggression(
     return wagered;
   } catch {
     return decision;
+  }
+}
+
+/**
+ * Lazy big-draw pricing (2026-11-16; no decision changes): would the bet
+ * the big-draw rule can make from this check be replaced by the check in the
+ * final decision anyway? Asked for every check the rule would price (an
+ * owner-ruled, discipline or street-plan check made in this decision, or one
+ * those rules would make of the bet), and answered by the same outermost rule that
+ * would replace it (omahaOwnerRuledFinal, quiet: no receipt, no random
+ * number), on the exact wager the verdict would make. Where the slowplay mix
+ * sits between the draw rules and omahaOwnerRuledFinal it must leave that
+ * wager alone too. True: the verdict skips its equity count (the costly
+ * part, about 100 ms on a PLO5 flop) and the check stands, as it would have
+ * after the veto. A failure answers false (the verdict is priced as before).
+ */
+function omahaBigDrawBetIsVetoed(
+  decision: HorseDecision,
+  w: { action: 'bet' | 'raise' | 'all_in'; amount?: number },
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  try {
+    const wagered: HorseDecision = { ...decision, action: w.action };
+    if (w.amount === undefined) delete wagered.amount;
+    else wagered.amount = w.amount;
+    const quiet: HorseDecideOpts = { ...opts, telemetry: false };
+    // Quiet throughout: the read receipts the question's rules would fire are
+    // not counted (the telemetry suspended), so a question answered no leaves
+    // every count as the priced decision makes it.
+    return withBrainTelemetrySuspended(() => {
+      if (opts.omahaStrongHandSlowplayMix === true) {
+        const mixed = omahaStrongHandSlowplayMixRule(wagered, player, gs, quiet);
+        if (mixed.action !== wagered.action || mixed.amount !== wagered.amount) return false;
+      }
+      return omahaOwnerRuledFinal(wagered, player, gs, quiet).action === 'check';
+    });
+  } catch {
+    return false;
   }
 }
 
@@ -8490,6 +8679,27 @@ function omahaOopTurnFacingBetRule(
 let horsePlayStylePending: HorsePlayStyle = 'current';
 
 /**
+ * Per-style tracking (2026-11-16): one receipt per decision with the option
+ * on, named by HorsePlayStyle.horsePlayStyleReceipt (each name is written out
+ * here so the ledger contract sees it).
+ */
+function noteHorsePlayStyleReceipt(
+  assigned: HorsePlayStyle,
+  fallback: HorsePlayStyleFallback | null
+): void {
+  if (fallback === 'vpip_floor') noteFire('horse_play_style_fallback_current_floor_seen');
+  else if (fallback === 'tournament') noteFire('horse_play_style_fallback_current_tournament_seen');
+  else if (fallback === 'lightning') noteFire('horse_play_style_fallback_current_lightning_seen');
+  else if (fallback === 'short_stack')
+    noteFire('horse_play_style_fallback_current_short_stack_seen');
+  else if (fallback === 'unmapped_game')
+    noteFire('horse_play_style_fallback_current_unmapped_seen');
+  else if (assigned === 'tight') noteFire('horse_play_style_tight');
+  else if (assigned === 'pressure') noteFire('horse_play_style_pressure');
+  else noteFire('horse_play_style_current');
+}
+
+/**
  * horsePlayStyles (owner 2026-11-15 16:40 / 16:42, default off): the style
  * this Horse plays THIS decision. Off, or the Horse's style is 'current':
  * 'current', and nothing else is read.
@@ -8505,7 +8715,11 @@ function resolveHorsePlayStyle(
   const assigned = isHorsePlayStyle(opts.horsePlayStyleForce)
     ? opts.horsePlayStyleForce
     : horsePlayStyleFor(player.user_id, mods.persona?.playStyle);
-  if (assigned === 'current') return 'current';
+  if (assigned === 'current') {
+    // Per-style tracking (2026-11-16): the style in force, every decision.
+    if (telemetryOn(opts)) noteHorsePlayStyleReceipt('current', null);
+    return 'current';
+  }
   const bb = gs.bigBlind > 0 ? gs.bigBlind : 2;
   // The stack each seat started the hand with: what it holds plus what it put in.
   const startStack = (p: SeatPlayer): number =>
@@ -8533,11 +8747,9 @@ function resolveHorsePlayStyle(
       ? (OMAHA_TIGHT_EXPECTED_VPIP_PCT[String(gs.gameVariant)] ?? null)
       : null,
   });
-  if (telemetryOn(opts)) {
-    if (fallback !== null) noteFire('horse_play_style_table_fallback_seen');
-    else if (assigned === 'tight') noteFire('horse_play_style_tight_seen');
-    else noteFire('horse_play_style_pressure_seen');
-  }
+  // Per-style tracking (2026-11-16): the style in force, or the current style
+  // the table rule forced and its reason.
+  if (telemetryOn(opts)) noteHorsePlayStyleReceipt(assigned, fallback);
   return fallback === null ? assigned : 'current';
 }
 
@@ -8676,14 +8888,20 @@ interface OmahaProposedReceipt {
   holds: (final: HorseDecision) => boolean;
   made: () => void;
   vetoed: () => void;
+  /** A rule that proposes from two places (its own node and outermost) names its receipt once. */
+  key?: string;
 }
 let omahaProposedReceipts: OmahaProposedReceipt[] = [];
 function omahaProposeReceipt(
   holds: (final: HorseDecision) => boolean,
   made: () => void,
-  vetoed: () => void
+  vetoed: () => void,
+  key?: string
 ): void {
-  omahaProposedReceipts.push({ holds, made, vetoed });
+  if (key !== undefined && omahaProposedReceipts.some((p) => p.key === key)) return;
+  omahaProposedReceipts.push(
+    key === undefined ? { holds, made, vetoed } : { holds, made, vetoed, key }
+  );
 }
 function omahaSettleReceipts(final: HorseDecision): HorseDecision {
   if (omahaProposedReceipts.length === 0) return final;
@@ -8718,6 +8936,8 @@ function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
   return (
     opts.omahaCardImpact === true ||
     opts.omahaStreetPlan === true ||
+    opts.omahaStreetPlanFlop === true ||
+    opts.omahaStreetPlanThreeWay === true ||
     opts.omahaStrongHandValue === true ||
     opts.omahaBigDrawAggression === true
   );
@@ -8778,6 +8998,18 @@ function omahaWagerIsChecked(
     (defenseOn || omahaEveryLiveOpponentIs(player, gs, quiet, (r) => r.valueLeader))
   )
     return true;
+  if (
+    opts.omahaStreetPlanFlop === true &&
+    !omahaNutClassNow(player, gs) &&
+    omahaStreetPlanFlopRules(wagered, player, gs, quiet).action === 'check'
+  )
+    return true;
+  if (
+    opts.omahaStreetPlanThreeWay === true &&
+    !omahaNutClassNow(player, gs) &&
+    omahaStreetPlanThreeWayRules(wagered, player, gs, quiet).action === 'check'
+  )
+    return true;
   return (
     opts.omahaStreetPlan === true &&
     !omahaNutClassNow(player, gs) &&
@@ -8823,6 +9055,15 @@ function omahaOwnerRuledFinal(
     delete c.amount;
     return c;
   }
+  // omahaMultiwayRiverCallNeedsStrength (default off): the multiway river
+  // call verdict facing a bet is final; no later rule raises over it.
+  const multiwayRiver = omahaMultiwayRiverCallRule(decision, player, gs, opts);
+  if (multiwayRiver !== null) return multiwayRiver;
+  // omahaNoRiverBluffIntoValueLeader / omahaMultiwayWeakHandNoBet (default
+  // off): their check is an owner-ruled check, kept here outermost whatever
+  // pricing option is on (the receipt is proposed once per decision).
+  const disciplined = omahaDisciplineOwnBetRule(decision, player, gs, opts);
+  if (disciplined !== decision) return disciplined;
   if (!omahaPricingOptionOn(opts) || !omahaIsWager(decision)) return decision;
   try {
     if (omahaWagerIsChecked(decision, player, gs, opts)) {
@@ -8856,6 +9097,197 @@ function plo6MultiwayWeakBetRule(
   if (ruled.changed === 'bet_checked' && telemetryOn(opts))
     noteFire('plo6_multiway_weak_made_hand_bet_checked');
   return ruled.decision;
+}
+
+/**
+ * omahaMultiwayRiverCallNeedsStrength (2026-11-16, default OFF, read
+ * `=== true`; HorseOmahaMultiwayDiscipline.ts): on the PLO4/PLO5 cash river,
+ * facing a bet with another opponent live beside the bettor and a hand that
+ * is not nut class, a call is the multiway exact-hand verdict: it stands
+ * when its EV clears the facing-bet margin, else it is a fold. A fold stays
+ * a fold and a raise is not touched (owner order 2026-11-17 11:49
+ * America/Chicago, no blanket rules: this option holds no priced comparison
+ * for a raise, so it does not decide one; the raise rules decide it). Null
+ * when the option is off, the decision is not a call or the spot does not
+ * hold (the caller goes on); otherwise the ruled decision, the one given when
+ * it already agrees. Reads: the bettor's facing-bet read and each other
+ * player's read-conditional read, with the mind on; else the population
+ * prior. Its receipts are proposed and fire for the final action only. A
+ * failure keeps the decision given.
+ */
+function omahaMultiwayRiverCallRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision | null {
+  if (opts.omahaMultiwayRiverCallNeedsStrength !== true) return null;
+  if (String(gs.stage ?? '') !== 'river') return null;
+  try {
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (!(toCall > 0.005)) return null;
+    const calls =
+      decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
+    if (!calls) return null;
+    const mw = omahaMultiwayRiverCallSpot(player, gs);
+    if (!mw) return null;
+    const mind = opts.mind !== false;
+    let bettorRead: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    const fieldReads = new Map<number, OmahaReadConditional | null>();
+    if (mind) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === mw.spot.bettorSeat);
+        bettorRead = bettor
+          ? HorseMind.omahaFacingBetEvReadOf(
+              bettor.user_id,
+              'river',
+              mw.spot.potFrac,
+              mw.spot.isRaise
+            )
+          : null;
+        for (const f of mw.field) {
+          const p = (gs.players ?? []).find((x) => x.seat === f.seat);
+          fieldReads.set(f.seat, p ? HorseMind.omahaReadConditionalOf(p.user_id) : null);
+        }
+      } catch {
+        bettorRead = null;
+        fieldReads.clear();
+      }
+    }
+    const verdict = omahaMultiwayRiverCallVerdict(player, gs, mw, bettorRead, fieldReads, {
+      rake: rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+    });
+    if (!verdict) return null;
+    const tele = telemetryOn(opts);
+    if (!verdict.call) {
+      if (tele)
+        omahaProposeReceipt(
+          (f) => f.action === 'fold',
+          () => noteFire('omaha_multiway_river_call_folded'),
+          () => noteFire('omaha_multiway_river_call_folded_vetoed'),
+          'omaha_multiway_river_call'
+        );
+      const folded: HorseDecision = { ...decision, action: 'fold' };
+      delete folded.amount;
+      delete folded.continuationGuard;
+      return folded;
+    }
+    return decision;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return null;
+  }
+}
+
+/**
+ * omahaNoRiverBluffIntoValueLeader and omahaMultiwayWeakHandNoBet
+ * (2026-11-16, default OFF, read `=== true`; HorseOmahaMultiwayDiscipline.ts):
+ * a PLO4/PLO5 cash wager facing no bet becomes a check (1) on the river with
+ * a hand below the showdown-value line, no nut blocker, against a live
+ * measured postflop value leader who showed strength this hand, or (2) on
+ * the turn or the river with two or more live opponents and one pair or less
+ * without a nut-class or combo draw, unless the bet-versus-check EV says the
+ * bet is worth more by its margin. Owner-ruled checks: run inside
+ * omahaOopCheckRules (so the pricing rules' wagers are re-checked by
+ * omahaWagerIsChecked) and again outermost from omahaOwnerRuledFinal. Never
+ * touches a decision facing a bet; draws no random number. A failure, or a
+ * comparison that cannot be computed, keeps the decision given.
+ */
+function omahaDisciplineOwnBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  const bluffOn = opts.omahaNoRiverBluffIntoValueLeader === true;
+  const weakOn = opts.omahaMultiwayWeakHandNoBet === true;
+  if ((!bluffOn && !weakOn) || !omahaIsWager(decision)) return decision;
+  try {
+    const stage = String(gs.stage ?? '');
+    if (stage !== 'turn' && stage !== 'river') return decision;
+    const chips = omahaWagerChips(player, decision.action, decision.amount);
+    if (chips === null) return decision;
+    const mind = opts.mind !== false;
+    const readsOf = (): Map<number, OmahaReadConditional | null> => {
+      const reads = new Map<number, OmahaReadConditional | null>();
+      if (!mind) return reads;
+      for (const p of gs.players ?? []) {
+        if (p.seat === player.seat || p.is_folded || p.is_sitting_out) continue;
+        try {
+          reads.set(p.seat, HorseMind.omahaReadConditionalOf(p.user_id));
+        } catch {
+          reads.set(p.seat, null);
+        }
+      }
+      return reads;
+    };
+    const tele = telemetryOn(opts);
+    const checked = (made: () => void, vetoed: () => void): HorseDecision => {
+      if (tele)
+        omahaProposeReceipt((f) => f.action === 'check', made, vetoed, 'omaha_discipline_own_bet');
+      const c: HorseDecision = { ...decision, action: 'check' };
+      delete c.amount;
+      delete c.continuationGuard;
+      return c;
+    };
+    let reads: Map<number, OmahaReadConditional | null> | null = null;
+    if (bluffOn && stage === 'river' && mind) {
+      const spot = omahaRiverBluffIntoValueLeaderSpot(player, gs);
+      // No nut blocker story: the v86 nut-blocker bluff keeps the bets it
+      // made, and a hand that blocks the nut flush on a flush board is left
+      // to the blocker bluffs.
+      const holeCount = variantInfo(String(gs.gameVariant ?? '').toLowerCase()).holeCount;
+      if (
+        spot &&
+        !v86NutBlockerBluffPending &&
+        omahaFlushBlocker(player.cards, gs.communityCards ?? [], holeCount).blocksNutFlush !== true
+      ) {
+        reads = readsOf();
+        const leader = spot.shownSeats.some((seat) => {
+          const r = reads!.get(seat);
+          return r != null && r.measured === true && r.valueLeader === true;
+        });
+        if (leader) {
+          const ev = omahaBetVsCheckEv(
+            player,
+            gs,
+            chips,
+            omahaBetVsCheckOpponents(player, gs, 'river', reads)
+          );
+          if (ev && !ev.bet)
+            return checked(
+              () => noteFire('omaha_no_river_bluff_into_value_leader_checked'),
+              () => noteFire('omaha_no_river_bluff_into_value_leader_checked_vetoed')
+            );
+        }
+      }
+    }
+    if (weakOn) {
+      const street = omahaMultiwayWeakHandSpot(player, gs);
+      if (street !== null) {
+        reads = reads ?? readsOf();
+        const ev = omahaBetVsCheckEv(
+          player,
+          gs,
+          chips,
+          omahaBetVsCheckOpponents(player, gs, street, reads)
+        );
+        if (ev && !ev.bet)
+          return checked(
+            () => noteFire('omaha_multiway_weak_hand_bet_checked'),
+            () => noteFire('omaha_multiway_weak_hand_bet_checked_vetoed')
+          );
+      }
+    }
+    return decision;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
 }
 
 /**
@@ -8921,6 +9353,15 @@ function omahaOwnBetRules(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  return omahaOwnBetRulesCore(decision, player, gs, opts);
+}
+
+function omahaOwnBetRulesCore(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
   const ruled = omahaOopCheckRules(
     plo6MultiwayWeakBetRule(decision, player, gs, opts),
     player,
@@ -8928,9 +9369,21 @@ function omahaOwnBetRules(
     opts
   );
   if (ruled !== decision) return ruled;
-  if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true)
+  if (
+    opts.omahaStreetPlan !== true &&
+    opts.omahaCardImpact !== true &&
+    opts.omahaStreetPlanFlop !== true &&
+    opts.omahaStreetPlanThreeWay !== true
+  )
     return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
-  const planned = omahaStreetPlanRules(ruled, player, gs, opts);
+  // The street plan's three layers never meet on one decision (turn heads-up,
+  // flop heads-up, turn three-way).
+  const planned = omahaStreetPlanThreeWayRules(
+    omahaStreetPlanFlopRules(omahaStreetPlanRules(ruled, player, gs, opts), player, gs, opts),
+    player,
+    gs,
+    opts
+  );
   let priced = omahaCardImpactRule(planned, player, gs, opts);
   if (priced === ruled) return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
   try {
@@ -8941,12 +9394,16 @@ function omahaOwnBetRules(
         );
       priced = planned;
     }
+    // omahaBetSizeByPublicState: the bet the owner rules let through is
+    // compared at the size it will be bet (the public size), so a plan or
+    // card impact bet at that size is not a smaller nut-class bet.
+    const ruledBet = omahaPublicSizedBet(ruled, player, gs, opts);
     if (
       omahaIsWager(ruled) &&
       (!omahaIsWager(priced) ||
         (typeof priced.amount === 'number' &&
-          typeof ruled.amount === 'number' &&
-          priced.amount < ruled.amount - 0.005)) &&
+          typeof ruledBet.amount === 'number' &&
+          priced.amount < ruledBet.amount - 0.005)) &&
       omahaNutClassNow(player, gs)
     ) {
       if (telemetryOn(opts)) noteFire('omaha_nut_class_wager_kept');
@@ -8971,6 +9428,19 @@ function omahaOwnBetRules(
  * decision it was given.
  */
 function omahaOopCheckRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  const ruled = omahaOopCheckRulesCore(decision, player, gs, opts);
+  if (ruled !== decision) return ruled;
+  // 2026-11-16 (default off): the river bluff into a measured value leader
+  // and the multiway weak-hand bet, after the older owner-ruled checks.
+  return omahaDisciplineOwnBetRule(decision, player, gs, opts);
+}
+
+function omahaOopCheckRulesCore(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
@@ -9599,6 +10069,81 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
 }
 
 /**
+ * omahaBetSizeByPublicState with the pricing rules (wave two, 2026-11-16).
+ * The public size is final for every own bet that stands, so a rule that
+ * prices bet against check (the street plan's turn, flop and three-way
+ * layers, omahaCardImpact) prices the size the public policy will bet, not
+ * the engine's. The decision's one size draw is taken once, on first use,
+ * and serves the pricing rules and the final sizing alike (the public size
+ * the plan priced is the size bet). Held across the decision's nested
+ * decides (omahaDecideDepth) and cleared when the outermost decision starts
+ * and ends.
+ */
+let omahaPublicSizeUnit: number | null = null;
+let omahaDecideDepth = 0;
+function omahaPublicSizeUnitOf(): number {
+  if (omahaPublicSizeUnit === null) omahaPublicSizeUnit = horseBetSizeRandom();
+  return omahaPublicSizeUnit;
+}
+
+/**
+ * The wager the public size makes of this own bet or raise when
+ * omahaBetSizeByPublicState is on: the decision with the public amount (or
+ * the all-in it commits to), the decision itself where the rule leaves it
+ * (off, out of its game, a nut-class size kept, unusable bounds). Quiet.
+ */
+function omahaPublicSizedBet(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaBetSizeByPublicState !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
+  try {
+    return HorseLogic.omahaPublicBetSizeQuiet(decision, player, gs, opts);
+  } catch {
+    return decision;
+  }
+}
+
+/** A plan record that names the public size it priced (omahaBetSizeByPublicState), for the receipt validator's re-run. */
+function omahaPlanRecordPriced<T extends object>(
+  record: T,
+  sized: HorseDecision,
+  decision: HorseDecision,
+  amount: number
+): T {
+  return sized === decision ? record : { ...record, publicSize: Math.round(amount * 100) / 100 };
+}
+
+/**
+ * The public size of a wager of this kind the rule could make here
+ * (omahaBetSizeByPublicState on): a bet or raise-to amount, or the all-in it
+ * commits to; undefined where the public rule would leave the size (off, out
+ * of its game, a nut-class size kept, unusable bounds).
+ */
+function omahaPublicSizeOf(
+  kind: 'bet' | 'raise',
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): number | 'all_in' | undefined {
+  if (opts.omahaBetSizeByPublicState !== true) return undefined;
+  const probe: HorseDecision = { ...decision, action: kind, amount: 0 };
+  const pub = omahaPublicSizedBet(probe, player, gs, opts);
+  if (pub === probe) return undefined;
+  if (pub.action === 'all_in') return 'all_in';
+  return Number.isFinite(pub.amount) ? (pub.amount as number) : undefined;
+}
+
+/** The chips a bet or an all-in puts in. */
+function omahaBetChips(d: HorseDecision, player: SeatPlayer): number {
+  return d.action === 'all_in' ? player.stack : (d.amount ?? 0);
+}
+
+/**
  * Owner 2026-11-15 11:41, HorseOmahaCardImpact.ts (omahaCardImpact, default
  * OFF): at a PLO4/PLO5 cash heads-up turn or river decision with nothing to
  * call, the chosen check or bet is priced beside a check and every bet size
@@ -9629,7 +10174,22 @@ function omahaCardImpactRule(
         read = null;
       }
     }
-    const result = omahaCardImpactDecision(decision, player, gs, read);
+    // omahaBetSizeByPublicState: the public size is the one size an own bet
+    // will have, so the comparison is the check against that size only (a
+    // bet priced at the public size; a check priced against a bet of it).
+    let asked = decision;
+    let sizes: number[] | undefined;
+    if (opts.omahaBetSizeByPublicState === true) {
+      if (decision.action === 'bet') {
+        asked = omahaPublicSizedBet(decision, player, gs, opts);
+        sizes = [];
+      } else if (decision.action === 'check') {
+        const probe: HorseDecision = { ...decision, action: 'bet', amount: 0 };
+        const pub = omahaPublicSizedBet(probe, player, gs, opts);
+        if (pub !== probe) sizes = [Math.round(omahaBetChips(pub, player) * 100) / 100];
+      }
+    }
+    const result = omahaCardImpactDecision(asked, player, gs, read, sizes);
     if (!result || result.changed === null) return decision;
     // Owner order 2026-11-15 00:32: a nut-class bet is the full pot; it is
     // never checked or made smaller here.
@@ -9747,6 +10307,9 @@ function omahaClearDecisionMemos(): void {
   omahaFacingBetEvCountMemo = null;
   omahaStreetPlanMemo = null;
   omahaStreetPlanRiverMemo = null;
+  omahaStreetPlanFlopMemo = null;
+  omahaStreetPlanThreeWayMemo = null;
+  omahaTurnRiverTablesClear();
 }
 
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
@@ -9757,6 +10320,9 @@ export function omahaDecisionMemosHeld(): string[] {
   if (omahaFacingBetEvCountMemo !== null) held.push('omahaFacingBetEvCountMemo');
   if (omahaStreetPlanMemo !== null) held.push('omahaStreetPlanMemo');
   if (omahaStreetPlanRiverMemo !== null) held.push('omahaStreetPlanRiverMemo');
+  if (omahaStreetPlanFlopMemo !== null) held.push('omahaStreetPlanFlopMemo');
+  if (omahaStreetPlanThreeWayMemo !== null) held.push('omahaStreetPlanThreeWayMemo');
+  if (omahaTurnRiverTablesHeld()) held.push('omahaTurnRiverTables');
   return held;
 }
 
@@ -9987,7 +10553,9 @@ function omahaStreetPlanRules(
     if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanTurnSpot(player, gs)) return decision;
     const opp = omahaStreetPlanDomain(player, gs);
     if (!opp) return decision;
-    const amount = decision.action === 'all_in' ? player.stack : (decision.amount ?? 0);
+    // omahaBetSizeByPublicState: the size priced is the size the public policy bets.
+    const sized = omahaPublicSizedBet(decision, player, gs, opts);
+    const amount = omahaBetChips(sized, player);
     if (!(amount > 0)) return decision;
     if (
       omahaStreetPlanMemo === null ||
@@ -10023,13 +10591,297 @@ function omahaStreetPlanRules(
       const checked: HorseDecision = {
         ...decision,
         action: 'check',
-        streetPlan: omahaStreetPlanRecord(plan, check, bet, tendency),
+        streetPlan: omahaPlanRecordPriced(
+          omahaStreetPlanRecord(plan, check, bet, tendency),
+          sized,
+          decision,
+          amount
+        ),
       };
       delete checked.amount;
       return checked;
     }
     // A copy: the decision handed in is never written to (audit 2026-11-15, item 7).
-    return { ...decision, streetPlan: omahaStreetPlanRecord(plan, bet, bet, tendency) };
+    return {
+      ...sized,
+      streetPlan: omahaPlanRecordPriced(
+        omahaStreetPlanRecord(plan, bet, bet, tendency),
+        sized,
+        decision,
+        amount
+      ),
+    };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/** The flop plans of the decision in progress, once per bet size (cleared with the other memos). */
+let omahaStreetPlanFlopMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  bySize: Map<number, { tendency: OmahaPlanTendency | null; plan: OmahaFlopPlan | null }>;
+} | null = null;
+/** The three-way turn plans of the decision in progress, once per bet size. */
+let omahaStreetPlanThreeWayMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  bySize: Map<
+    number,
+    {
+      tendencies: [OmahaPlanTendency | null, OmahaPlanTendency | null];
+      plan: OmahaThreeWayPlan | null;
+    }
+  >;
+} | null = null;
+
+/**
+ * omahaStreetPlanFlop, the flop layer (HorseOmahaStreetPlan.ts): the engine's
+ * heads-up flop bet facing no wager is priced against the check, and against
+ * the smaller sizes of the engine's menu, as two-street lines; the verdict is
+ * omahaFlopPlanChoice (check, the engine's bet, or a smaller bet). Runs in
+ * omahaOwnBetRules after the owner-ruled checks, which are final. Never
+ * touches a decision facing a bet; draws no random number. Unset or false it
+ * returns the decision it was given.
+ */
+function omahaStreetPlanFlopRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaStreetPlanFlop !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'all_in') return decision;
+  try {
+    if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanFlopSpot(player, gs)) return decision;
+    const opp = omahaStreetPlanDomain(player, gs);
+    if (!opp) return decision;
+    // omahaBetSizeByPublicState: the size priced is the size the public policy bets.
+    const sized = omahaPublicSizedBet(decision, player, gs, opts);
+    const amount = omahaBetChips(sized, player);
+    if (!(amount > 0)) return decision;
+    if (
+      omahaStreetPlanFlopMemo === null ||
+      omahaStreetPlanFlopMemo.player !== player ||
+      omahaStreetPlanFlopMemo.gs !== gs
+    )
+      omahaStreetPlanFlopMemo = { player, gs, bySize: new Map() };
+    let hit = omahaStreetPlanFlopMemo.bySize.get(amount);
+    if (!hit) {
+      const tendency = omahaStreetPlanTendency(opp, opts);
+      hit = {
+        tendency,
+        plan: omahaStreetPlanFlop(
+          omahaFlopPlanInputAt(player, opp, gs, amount, tendency, sized !== decision)
+        ),
+      };
+      omahaStreetPlanFlopMemo.bySize.set(amount, hit);
+    }
+    const { tendency, plan } = hit;
+    if (!plan || plan.lines.length < 2) return decision;
+    const choice = omahaFlopPlanChoice(
+      plan,
+      omahaStrategyConstant('streetPlanFlopMarginPotShare', gs) * gs.pot
+    );
+    const tele = telemetryOn(opts);
+    if (choice.index === 0) {
+      if (tele) {
+        const finalChecks = (f: HorseDecision): boolean => f.action === 'check';
+        if (choice.reason === 'commit_avoided')
+          omahaProposeReceipt(
+            finalChecks,
+            () => noteFire('omaha_street_plan_flop_commit_avoided'),
+            () => noteFire('omaha_street_plan_flop_commit_avoided_vetoed')
+          );
+        else
+          omahaProposeReceipt(
+            finalChecks,
+            () => noteFire('omaha_street_plan_flop_checked'),
+            () => noteFire('omaha_street_plan_flop_checked_vetoed')
+          );
+      }
+      const checked: HorseDecision = {
+        ...decision,
+        action: 'check',
+        streetPlan: omahaPlanRecordPriced(
+          omahaFlopPlanRecord(plan, plan.lines[0], tendency),
+          sized,
+          decision,
+          amount
+        ),
+      };
+      delete checked.amount;
+      return checked;
+    }
+    if (choice.index > 1) {
+      const line = plan.lines[choice.index];
+      const resized: HorseDecision = {
+        ...decision,
+        action: 'bet',
+        amount: line.amount,
+        streetPlan: omahaPlanRecordPriced(
+          omahaFlopPlanRecord(plan, line, tendency),
+          sized,
+          decision,
+          amount
+        ),
+      };
+      if (tele)
+        omahaProposeReceipt(
+          (f) => omahaSameWager(f, resized),
+          () => noteFire('omaha_street_plan_flop_resized'),
+          () => noteFire('omaha_street_plan_flop_resized_vetoed')
+        );
+      return resized;
+    }
+    return {
+      ...sized,
+      streetPlan: omahaPlanRecordPriced(
+        omahaFlopPlanRecord(plan, plan.lines[1], tendency),
+        sized,
+        decision,
+        amount
+      ),
+    };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaStreetPlanThreeWay, the turn with exactly two live opponents
+ * (HorseOmahaStreetPlan.ts): the engine's turn bet facing no wager becomes a
+ * check when the three-way check line is worth more by
+ * streetPlanMarginPotShare of the pot. Runs in omahaOwnBetRules after the
+ * owner-ruled checks. Never touches a decision facing a bet; no random
+ * number. Unset or false it returns the decision it was given.
+ */
+function omahaStreetPlanThreeWayRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaStreetPlanThreeWay !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'all_in') return decision;
+  try {
+    if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanThreeWaySpot(player, gs))
+      return decision;
+    const opps = omahaStreetPlanThreeWayDomain(player, gs);
+    if (!opps) return decision;
+    // omahaBetSizeByPublicState: the size priced is the size the public policy bets.
+    const sized = omahaPublicSizedBet(decision, player, gs, opts);
+    const amount = omahaBetChips(sized, player);
+    if (!(amount > 0)) return decision;
+    if (
+      omahaStreetPlanThreeWayMemo === null ||
+      omahaStreetPlanThreeWayMemo.player !== player ||
+      omahaStreetPlanThreeWayMemo.gs !== gs
+    )
+      omahaStreetPlanThreeWayMemo = { player, gs, bySize: new Map() };
+    let hit = omahaStreetPlanThreeWayMemo.bySize.get(amount);
+    if (!hit) {
+      const tendencies: [OmahaPlanTendency | null, OmahaPlanTendency | null] = [
+        omahaStreetPlanTendency(opps[0], opts),
+        omahaStreetPlanTendency(opps[1], opts),
+      ];
+      hit = {
+        tendencies,
+        plan: omahaStreetPlanThreeWay(
+          omahaThreeWayPlanInputAt(player, opps, gs, amount, tendencies)
+        ),
+      };
+      omahaStreetPlanThreeWayMemo.bySize.set(amount, hit);
+    }
+    const { tendencies, plan } = hit;
+    const check = plan?.lines[0];
+    const bet = plan?.lines[1];
+    if (!plan || !check || !bet) return decision;
+    if (check.ev > bet.ev + omahaStrategyConstant('streetPlanMarginPotShare', gs) * gs.pot) {
+      if (telemetryOn(opts))
+        omahaProposeReceipt(
+          (f) => f.action === 'check',
+          () => noteFire('omaha_street_plan_three_way_checked'),
+          () => noteFire('omaha_street_plan_three_way_checked_vetoed')
+        );
+      const checked: HorseDecision = {
+        ...decision,
+        action: 'check',
+        streetPlan: omahaPlanRecordPriced(
+          omahaThreeWayPlanRecord(plan, check, bet, tendencies),
+          sized,
+          decision,
+          amount
+        ),
+      };
+      delete checked.amount;
+      return checked;
+    }
+    return {
+      ...sized,
+      streetPlan: omahaPlanRecordPriced(
+        omahaThreeWayPlanRecord(plan, bet, bet, tendencies),
+        sized,
+        decision,
+        amount
+      ),
+    };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaPreflopStackPlan, the preflop layer (HorseOmahaStreetPlan.ts): a
+ * preflop call of a raise, heads-up against the raiser, that creates a
+ * stack-to-pot ratio under 3 is priced as the stack it commits and becomes a
+ * fold when that value is negative. Only a call becomes a fold. Runs first
+ * inside omahaOopReraisedPotStrongRange, before the day's 3-bet / 4-bet
+ * options. No random number. Unset or false it returns the decision.
+ */
+function omahaPreflopStackPlanRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaPreflopStackPlan !== true) return decision;
+  if (decision.action !== 'call') return decision;
+  try {
+    if (!omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts)) return decision;
+    const spot = omahaPreflopStackPlanSpot(player, gs);
+    if (!spot) return decision;
+    let band: [number, number] | null = null;
+    const raiser = (gs.players ?? []).find((p) => p.seat === spot.raiserSeat);
+    if (opts.mind !== false && raiser) {
+      try {
+        band = HorseMind.bandFor(
+          raiser.user_id,
+          gs.actionHistory,
+          gs.bigBlind || 1,
+          true,
+          null,
+          undefined,
+          HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+        );
+      } catch {
+        band = null;
+      }
+    }
+    const verdict = omahaPreflopStackPlan({ ...spot, band });
+    if (!verdict || !verdict.fold) return decision;
+    if (telemetryOn(opts))
+      omahaProposeReceipt(
+        (f) => f.action === 'fold',
+        () => noteFire('omaha_preflop_stack_plan_folded'),
+        () => noteFire('omaha_preflop_stack_plan_folded_vetoed')
+      );
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;
@@ -10123,6 +10975,18 @@ function omahaStrongHandValueRule(
       rake: isTournamentMode(gs)
         ? 0
         : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+      // omahaBetSizeByPublicState: the value bet or raise is priced at the public size.
+      ...((): { publicBet?: number | 'all_in'; publicRaiseTo?: number | 'all_in' } => {
+        const pub = omahaPublicSizeOf(
+          decision.action === 'call' ? 'raise' : 'bet',
+          decision,
+          player,
+          gs,
+          opts
+        );
+        if (pub === undefined) return {};
+        return decision.action === 'call' ? { publicRaiseTo: pub } : { publicBet: pub };
+      })(),
     });
     if (telemetryOn(opts)) {
       if (result.changed === 'value_bet') noteFire('omaha_strong_hand_value_bet');
@@ -11186,6 +12050,9 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
     HorseMind.setProbeAwareAggression(opts.probeAwareAggression !== false);
+    // omahaBetSizeByPublicState: the outermost decision owns the size draw.
+    if (omahaDecideDepth === 0) omahaPublicSizeUnit = null;
+    omahaDecideDepth++;
     try {
       if (
         !horsePolicyRegistration(
@@ -11347,6 +12214,8 @@ export class HorseLogic {
           }
         : { action: fallbackAction, thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
+      omahaDecideDepth = Math.max(0, omahaDecideDepth - 1);
+      if (omahaDecideDepth === 0) omahaPublicSizeUnit = null;
       omahaProposedReceipts = [];
       omahaClearDecisionMemos();
       barrelOutlookRiverPending = false;
@@ -11386,6 +12255,7 @@ export class HorseLogic {
     phase12DecisionEquityCeiling = null;
     barrelOutlookRiverPending = false;
     riverBluffDeclaredPending = false;
+    v86NutBlockerBluffPending = false;
     v53IcmAppliedPending = false;
     plo6RefusalHandOffPending = null;
     huDefendToPricePending = null;
@@ -11571,6 +12441,7 @@ export class HorseLogic {
     let phase6Reference: Phase6ReferenceObservation = { route: 'legacy_preflop', lookup: null };
     v87HollywoodEligible = false;
     v87RiverBlockTrapPending = false;
+    v86NutBlockerBluffPending = false;
     styleRespectFoldPending = false;
     maniacPriceReceiptPending = null;
     const graph = new HorsePolicyGraph(undefined, tele);
@@ -12490,6 +13361,11 @@ export class HorseLogic {
         : null;
     if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
     if (preflopReadReceipt) decision.preflopReadReceipt = preflopReadReceipt;
+    // omahaBetSizeByPublicState (default off): the size of the node's final
+    // own bet or raise, chosen from public information only, after every
+    // owner rule has decided bet or check (never turns a check into a bet).
+    const publicSized = (d: HorseDecision): HorseDecision =>
+      this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele);
     decision = graph.run('wager_rules', decision, () => {
       // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
       // in-position hold'em postflop balance runs first, so every owner rule
@@ -12713,16 +13589,18 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: omahaOwnerRuledFinal(
-            omahaDrawRules(
-              onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+          decision: publicSized(
+            omahaOwnerRuledFinal(
+              omahaDrawRules(
+                onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+                player,
+                gs,
+                opts
+              ),
               player,
               gs,
               opts
-            ),
-            player,
-            gs,
-            opts
+            )
           ),
         };
       }
@@ -12737,10 +13615,15 @@ export class HorseLogic {
       // it only turns the final raise into a call or the final flop bet into
       // a check, so an owner-ruled check or fold is never its to change.
       return {
-        decision: omahaTurnRiverRaiseNeedsNutsRule(
-          omahaOwnerRuledFinal(
-            omahaStrongHandSlowplayMixRule(
-              omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+        decision: publicSized(
+          omahaTurnRiverRaiseNeedsNutsRule(
+            omahaOwnerRuledFinal(
+              omahaStrongHandSlowplayMixRule(
+                omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+                player,
+                gs,
+                opts
+              ),
               player,
               gs,
               opts
@@ -12748,10 +13631,7 @@ export class HorseLogic {
             player,
             gs,
             opts
-          ),
-          player,
-          gs,
-          opts
+          )
         ),
       };
     }).decision;
@@ -13174,6 +14054,11 @@ export class HorseLogic {
       const dials = omahaPlayStylePreflopDials(horsePlayStylePending, position === 'late');
       return dials === OMAHA_PLAY_STYLE_NEUTRAL ? null : dials;
     })();
+    // 2026-11-16: the pressure style's entry-bar credit on the cutoff and button.
+    const styleEntryBarCredit =
+      horsePlayStylePending === 'current'
+        ? undefined
+        : omahaPlayStyleEntryBarCredit(horsePlayStylePending, position === 'late');
     // V13: a sitting-out player counted as an opponent, so a two-handed table
     // with one sitter reported oppsLeft = 2 and switched OFF the heads-up and
     // blind-vs-blind ranges entirely — the SB opened on 0.44 instead of 0.24
@@ -15279,6 +16164,15 @@ export class HorseLogic {
       ...(stylePre
         ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
         : {}),
+      ...(styleEntryBarCredit !== undefined
+        ? {
+            styleEntryBarCredit,
+            styleCallTightness: params.tightness,
+            // wave two: the 3-bet widening does not widen the 4-bet node
+            styleFourBetTightness: params.tightness,
+            styleFourBetAggression: params.aggression,
+          }
+        : {}),
       bluffFreq: stylePre ? params.bluffFreq * stylePre.bluffFreqMul : params.bluffFreq,
       aggression: stylePre ? params.aggression * stylePre.aggressionMul : params.aggression,
       slowplayFreq: params.slowplayFreq,
@@ -16085,6 +16979,21 @@ export class HorseLogic {
             decidePreflopV7({
               ...intentCtx7,
               tightness: intentCtx7.tightness / floorMulByLimp,
+              // horsePlayStyles: the style's value-raise, call and 4-bet
+              // tightness carry the same floor factor as `tightness`; without
+              // the floor they are the unfloored values, so the
+              // counterfactual is the decision a table with no floor gives
+              // (conflict sweep 2026-11-17, state 1359: left floored, a
+              // pressure style's floor entry stayed a re-raise).
+              ...(intentCtx7.valueRaiseTightness !== undefined
+                ? { valueRaiseTightness: intentCtx7.valueRaiseTightness / floorMulByLimp }
+                : {}),
+              ...(intentCtx7.styleCallTightness !== undefined
+                ? { styleCallTightness: intentCtx7.styleCallTightness / floorMulByLimp }
+                : {}),
+              ...(intentCtx7.styleFourBetTightness !== undefined
+                ? { styleFourBetTightness: intentCtx7.styleFourBetTightness / floorMulByLimp }
+                : {}),
               vpipFloorMul: undefined,
               noteLayer: undefined,
               noteAuthority: undefined,
@@ -16527,20 +17436,31 @@ export class HorseLogic {
           .map((p) => p.seat)
       );
     let styleCbetMul = 1;
+    // 2026-11-16: the pressure style's fold-equity prior on the EV engine's
+    // bet candidates (undefined in every other case: the engine as today).
+    let styleFoldEquityMul: number | undefined;
     if (horsePlayStylePending !== 'current') {
       const dials = omahaPlayStylePostflopDials(horsePlayStylePending, styleInPosition);
       styleCbetMul = dials.cbetFreqMul;
+      styleFoldEquityMul = omahaPlayStyleFoldEquityMul(horsePlayStylePending, styleInPosition);
       const aggressionBias = omahaPlayStyleIndifferenceAggressionBias(
         horsePlayStylePending,
         styleInPosition
       );
+      const aggressionBandMul = omahaPlayStyleTieBandMul(horsePlayStylePending, styleInPosition);
       if (dials !== OMAHA_PLAY_STYLE_NEUTRAL)
         params = {
           ...params,
           bluffFreq: params.bluffFreq * dials.bluffFreqMul,
           aggression: params.aggression * dials.aggressionMul,
           ...(aggressionBias !== undefined && params.evIndifference
-            ? { evIndifference: { ...params.evIndifference, aggressionBias } }
+            ? {
+                evIndifference: {
+                  ...params.evIndifference,
+                  aggressionBias,
+                  ...(aggressionBandMul !== undefined ? { aggressionBandMul } : {}),
+                },
+              }
             : {}),
         };
     }
@@ -19980,6 +20900,7 @@ export class HorseLogic {
               if (bet86Rb.action === 'bet' || bet86Rb.action === 'all_in') {
                 if (tele15) noteFire('v86_river_nut_blocker_bluff');
                 riverBluffDeclaredPending = true;
+                v86NutBlockerBluffPending = true;
                 return bet86Rb;
               }
             }
@@ -20992,6 +21913,8 @@ export class HorseLogic {
           } else if (turnScareBlocker86) {
             foldMul *= 1.24;
           }
+          // horsePlayStyles: the pressure style in position (fold-equity prior).
+          if (styleFoldEquityMul !== undefined) foldMul *= styleFoldEquityMul;
           models38.push({ foldMul, canRespond });
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
@@ -24781,6 +25704,190 @@ export class HorseLogic {
   // ─────────────────────────────────────────────────────────────────────
   // THINK TIME — humanlike pacing, style- and situation-aware
   // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * omahaBetSizeByPublicState (default OFF, read `=== true`): the size of the
+   * Horse's own postflop bet or raise in PLO4/PLO5 cash comes from
+   * horsePublicBetSizeTo on the public spot alone. Only a bet stays a bet and
+   * a raise a raise (the bet-or-check and raise-or-call decisions are the
+   * engine's); a check, a call, a fold and an all-in are never touched. The
+   * one private read here is the owner option omahaNutClassValueSize's own
+   * gate: with that option on, a nut-class wager keeps its size, as that
+   * option says. The size itself never sees the hand
+   * (aBetSizeIsPublicInformationOnly.law.test.ts).
+   *
+   * Where the public size commits the stack (60% or more of the chips), every
+   * betting hand wagers the largest legal amount; when that is every chip the
+   * legalizer makes it the all-in, the one action change this rule makes.
+   *
+   * Receipts: omaha_public_bet_size_applied, omaha_public_bet_size_committed,
+   * omaha_public_bet_size_unchanged (valid no-change),
+   * omaha_public_bet_size_nut_class_kept, omaha_public_bet_size_illegal_kept.
+   */
+  /** The public size of an own bet, quiet (no receipt), with the decision's size draw. */
+  static omahaPublicBetSizeQuiet(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    const vi = variantInfo(String(gs.gameVariant ?? '').toLowerCase());
+    return withBrainTelemetrySuspended(() =>
+      HorseLogic.omahaBetSizeByPublicStateRule(decision, player, gs, vi, opts, false)
+    );
+  }
+
+  private static omahaBetSizeByPublicStateRule(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts,
+    tele: boolean
+  ): HorseDecision {
+    if (opts.omahaBetSizeByPublicState !== true) return decision;
+    if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
+    try {
+      if (!HorseLogic.publicBetSizeInGame(gs, vi, opts)) return decision;
+      if (opts.omahaNutClassValueSize === true && omahaNutClassNow(player, gs)) {
+        if (tele) noteFire('omaha_public_bet_size_nut_class_kept');
+        return decision;
+      }
+      const spot = HorseLogic.publicBetSizeSpot(
+        gs,
+        player.user_id,
+        decision.action,
+        opts.mind !== false
+      );
+      if (spot === null) return decision;
+      const to = horsePublicBetSizeTo(spot, omahaPublicSizeUnitOf);
+      if (to === null) {
+        if (tele) noteFire('omaha_public_bet_size_illegal_kept');
+        return decision;
+      }
+      const legal = this.legalize({ ...decision, amount: to }, player, gs, vi);
+      // The same kind of wager at the public size, or - where the public size is
+      // the seat's whole stack - the all-in the legalizer makes of it.
+      const sameKind = legal.action === decision.action && Number.isFinite(legal.amount);
+      const committed = legal.action === 'all_in';
+      if (!sameKind && !committed) {
+        if (tele) noteFire('omaha_public_bet_size_illegal_kept');
+        return decision;
+      }
+      if (sameKind && legal.amount === decision.amount) {
+        if (tele) noteFire('omaha_public_bet_size_unchanged');
+        return decision;
+      }
+      if (committed) {
+        if (tele) noteFire('omaha_public_bet_size_committed');
+        const shoved: HorseDecision = { ...decision, action: legal.action };
+        delete shoved.amount;
+        return shoved;
+      }
+      if (tele) noteFire('omaha_public_bet_size_applied');
+      return { ...decision, amount: legal.amount };
+    } catch {
+      return decision;
+    }
+  }
+
+  /** PLO4/PLO5 (omahaStrategyGameInScope) cash, pot limit, high only, one board, no bomb pot, not Lightning, postflop. */
+  private static publicBetSizeInGame(
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): boolean {
+    if (!omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts)) return false;
+    if (!vi.isOmaha || vi.isFixedLimit || !vi.isPotLimit || gs.bettingStructure === 'fixed_limit')
+      return false;
+    if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return false;
+    if (isTournamentMode(gs)) return false;
+    if (
+      (gs.boardCount ?? 1) !== 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0 ||
+      gs.bombPot === true ||
+      (gs as { allInOrFold?: boolean }).allInOrFold === true
+    )
+      return false;
+    const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+    if (speed === 'lightning') return false;
+    if (gs.wagersCapped === true) return false;
+    if (gs.stage !== 'flop' && gs.stage !== 'turn' && gs.stage !== 'river') return false;
+    return (gs.communityCards ?? []).length === { flop: 3, turn: 4, river: 5 }[gs.stage];
+  }
+
+  /**
+   * PUBLIC-ONLY BET SIZE: the spot the table can see, for
+   * horsePublicBetSizeTo. Reads the public game state, the seat's id, the
+   * kind of wager about to be shown and the heads-up opponent's measured
+   * fold-to-bet read. It takes no hole cards, no hand class, no equity, no
+   * proposed amount and no receipt of which rule decided (the law test reads
+   * this function's source).
+   */
+  static publicBetSizeSpot(
+    gs: HorseGameStateV2,
+    seatUserId: string,
+    kind: 'bet' | 'raise',
+    useReads: boolean
+  ): HorsePublicBetSizeSpot | null {
+    if (gs.stage !== 'flop' && gs.stage !== 'turn' && gs.stage !== 'river') return null;
+    const seat = gs.players.find((p) => p.user_id === seatUserId);
+    if (!seat) return null;
+    const live = gs.players.filter(
+      (p) => p !== seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    const toAct = live.filter((p) => !p.is_all_in);
+    // Clockwise distance from the button; the button itself acts last postflop.
+    const span = Math.max(10, ...gs.players.map((p) => p.seat + 1));
+    const dealer = Number.isFinite(gs.dealerSeat) ? (gs.dealerSeat as number) : null;
+    const order = (s: number): number => {
+      const d = dealer === null ? 0 : (((s - dealer) % span) + span) % span;
+      return d === 0 ? span : d;
+    };
+    const inPosition = dealer !== null && toAct.every((p) => order(p.seat) < order(seat.seat));
+    let opponentFoldToBet: 'high' | 'low' | null = null;
+    if (useReads && live.length === 1) {
+      try {
+        const read = HorseMind.omahaReadConditionalOf(live[0].user_id);
+        if (read !== null && read.measured) opponentFoldToBet = read.foldToBet.engaged;
+      } catch {
+        opponentFoldToBet = null;
+      }
+    }
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const currentBet = Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0;
+    const seatBet = Number.isFinite(seat.bet) ? Math.max(0, seat.bet) : 0;
+    const seatStack = Number.isFinite(seat.stack) ? Math.max(0, seat.stack) : 0;
+    // The table's bounds when the state carries them (schema v1); otherwise the
+    // pot-limit bounds the engine itself enforces (minimum raise over the
+    // street's wager, at most the pot after the call, at most every chip).
+    const step = Math.max(gs.bigBlind || 0, gs.lastRaise || 0, gs.minRaise || 0, 0.01);
+    const derivedMax = Math.min(
+      seatBet + seatStack,
+      currentBet + pot + Math.max(0, currentBet - seatBet)
+    );
+    const maxTo = Number.isFinite(gs.maxRaiseTo)
+      ? (gs.maxRaiseTo as number)
+      : Math.floor(derivedMax * 100) / 100;
+    const minTo = Number.isFinite(gs.minRaiseTo)
+      ? (gs.minRaiseTo as number)
+      : Math.min(maxTo, Math.ceil((currentBet > 0 ? currentBet + step : step) * 100) / 100);
+    return {
+      street: gs.stage,
+      kind,
+      board: Array.isArray(gs.communityCards) ? gs.communityCards : [],
+      pot,
+      currentBet,
+      seatBet,
+      seatStack,
+      minTo,
+      maxTo,
+      opponents: live.length,
+      inPosition,
+      opponentFoldToBet,
+    };
+  }
 
   /**
    * PUBLIC-ONLY ACTION TIME (owner order 2026-11-15): the spot the table can

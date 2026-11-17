@@ -722,13 +722,13 @@ const switchOf = (source: Plo6StrategyConstantKey, sixCardForm: string): Plo6Acc
   value: CONSTANTS[source].value === sixCardForm ? 1 : 0,
 });
 /**
- * Each of the accessor's 17 keys (omahaStrategyConstant) with the PLO6 value
+ * Each of the accessor's 18 keys (omahaStrategyConstant) with the PLO6 value
  * this file holds for it and the entry it comes from. Nothing is restated:
  * every number is read from CONSTANTS above.
  *  - riverMediumBetRangeFactor: the PLO6 rule is not a factor (the entry is
  *    the M1 beaten bars of plo6RiverMediumBetCalls), so there is no number.
- *  - eliteContinueMaxPotOdds, tournamentPushFoldMaxBB: the specs list no
- *    six-card value.
+ *  - eliteContinueMaxPotOdds, tournamentPushFoldMaxBB,
+ *    streetPlanFlopMarginPotShare: the specs list no six-card value.
  *  - pairedFoldRespectedInvestedShare: the share; the entry's `armNeeds`
  *    (a straight or better) is an adaptation the accessor cannot carry.
  */
@@ -747,6 +747,8 @@ export const PLO6_OMAHA_STRATEGY_ACCESSOR_VALUES: Readonly<
   oopTurnTokenPrice: numberOf('OMAHA_OOP_TURN_TOKEN_PRICE'),
   cardImpactMargin: numberOf('OMAHA_CARD_IMPACT_MARGIN'),
   streetPlanMarginPotShare: numberOf('OMAHA_STREET_PLAN_MARGIN_POT_SHARE'),
+  /** The flop plan serves four and five cards only (PLO Strategy wave two): no six-card value. */
+  streetPlanFlopMarginPotShare: { source: null, value: null },
   bigDrawMargin: numberOf('OMAHA_BIG_DRAW_MARGIN'),
   raiseNeedsNutsFoldPrice: numberOf('OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE'),
   eliteContinueMaxPotOdds: { source: null, value: null },

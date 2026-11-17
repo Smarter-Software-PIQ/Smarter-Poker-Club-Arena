@@ -51,6 +51,7 @@
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaTurnRiverTables } from './HorseOmahaRiverTables.js';
 import { RANK_VALUES } from './PokerEngine.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
@@ -550,8 +551,27 @@ for (const r of RANKS) RANK_OF_VALUE[RANK_VALUES[r]] = r;
  * share it) with the engine's own evaluator, and every pair reads its score from
  * that table.
  */
-function evRivers(core: EvCore, hole: Card[], board: Card[], unseen: Card[]): EvRiver[] {
+function evRivers(
+  core: EvCore,
+  hole: Card[],
+  board: Card[],
+  unseen: Card[],
+  dead: Card[]
+): EvRiver[] {
   const { m, scores } = core;
+  // The decision's shared exact count (HorseOmahaRiverTables, built the same
+  // way): each river's pair scores are read from it when it serves these cards.
+  // Its card order (SUITS x RANKS of PokerEngine) is not this module's: each
+  // unseen card is mapped to its index there.
+  const tables = omahaTurnRiverTables(hole, board, dead);
+  const shared = tables !== null && tables.n === m ? tables : null;
+  const at = new Int32Array(m);
+  if (shared !== null) {
+    const where = new Map<string, number>();
+    shared.unseen.forEach((c, i) => where.set(key(c), i));
+    for (let i = 0; i < m; i++) at[i] = where.get(key(unseen[i])) ?? -1;
+  }
+  const mapped = shared !== null && at.every((x) => x >= 0) ? shared : null;
   const rv = new Int32Array(m);
   for (let i = 0; i < m; i++) rv[i] = RANK_VALUES[unseen[i].rank];
   const five: Card[] = [board[0], board[1], board[2], board[3], board[0]];
@@ -565,6 +585,25 @@ function evRivers(core: EvCore, hole: Card[], board: Card[], unseen: Card[]): Ev
     const rc = unseen[k];
     five[4] = rc;
     const hero = scoreOmahaHiPartial(hole, five);
+    if (mapped !== null) {
+      const t = mapped.river[at[k]];
+      const n = mapped.n;
+      const B = new PairSet(m);
+      const BT = new PairSet(m);
+      for (let i = 0; i < m; i++) {
+        if (i === k) continue;
+        for (let j = i + 1; j < m; j++) {
+          if (j === k) continue;
+          const s = t[at[i] * n + at[j]];
+          if (s >= hero) {
+            BT.add(i, j);
+            if (s > hero) B.add(i, j);
+          }
+        }
+      }
+      rivers.push({ B, BT });
+      continue;
+    }
     plain.fill(0);
     suited.fill(0);
     let flushSuit: string | null = null;
@@ -873,7 +912,7 @@ function evHandCounts(
   }
 
   // TURN: every river card (evRivers).
-  if (core.rivers === null) core.rivers = evRivers(core, hole, board, unseen);
+  if (core.rivers === null) core.rivers = evRivers(core, hole, board, unseen, deadCards);
   const rivers = core.rivers;
   let V: PairSet | null = null;
   const valueSet = (): PairSet => (V ??= pairsAbove(scores, m, v.t, false));

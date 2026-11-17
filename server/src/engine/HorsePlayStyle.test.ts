@@ -3,6 +3,7 @@
  * (HorsePlayStyle.ts; owner 2026-11-15 16:40 and 16:42; option
  * horsePlayStyles, default OFF).
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   HORSE_PLAY_STYLES,
@@ -10,8 +11,10 @@ import {
   horsePlayStyleAtTable,
   horsePlayStyleFallback,
   horsePlayStyleFor,
+  horsePlayStyleReceipt,
   isHorsePlayStyle,
   type HorsePlayStyle,
+  type HorsePlayStyleFallback,
   type HorsePlayStyleTable,
 } from './HorsePlayStyle.js';
 import {
@@ -42,7 +45,8 @@ describe('assignment: a third of the fleet each, by the id alone', () => {
   });
 
   it('is stable: the same id answers the same style every time', () => {
-    for (const id of IDS.slice(0, 2000)) expect(horsePlayStyleFor(id)).toBe(horsePlayStyleFor(id));
+    for (const id of IDS.filter((_, i) => i < 2000))
+      expect(horsePlayStyleFor(id)).toBe(horsePlayStyleFor(id));
     // Pinned: a change of the hash or the salt re-deals the fleet and must be deliberate.
     expect(
       ['league-1', 'league-2', 'league-3', 'league-4', 'league-5', 'league-6'].map((id) =>
@@ -154,5 +158,32 @@ describe('the table rule', () => {
     expect(horsePlayStyleAtTable('tight', table({ vpipFloorPct: 20 }))).toBe('tight');
     expect(horsePlayStyleAtTable('tight', table({ vpipFloorPct: 24 }))).toBe('tight');
     expect(horsePlayStyleAtTable('tight', table({ vpipFloorPct: 25 }))).toBe('current');
+  });
+});
+
+describe('per-style tracking: the receipt names (2026-11-16)', () => {
+  it('the style in force, or the forced current style with its reason; each name is the one HorseLogic fires', () => {
+    expect(horsePlayStyleReceipt('tight', null)).toBe('horse_play_style_tight');
+    expect(horsePlayStyleReceipt('current', null)).toBe('horse_play_style_current');
+    expect(horsePlayStyleReceipt('pressure', null)).toBe('horse_play_style_pressure');
+    const reasons: Record<string, string> = {
+      vpip_floor: 'floor',
+      tournament: 'tournament',
+      lightning: 'lightning',
+      short_stack: 'short_stack',
+      unmapped_game: 'unmapped',
+    };
+    const logic = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
+    const ledger = readFileSync(new URL('./HorseDataLedger.ts', import.meta.url), 'utf8');
+    for (const [fallback, reason] of Object.entries(reasons)) {
+      const key = horsePlayStyleReceipt('tight', fallback as HorsePlayStyleFallback);
+      expect(key).toBe(`horse_play_style_fallback_current_${reason}_seen`);
+      expect(logic).toContain(`noteFire('${key}')`);
+      expect(ledger).toContain(`'${key}'`);
+    }
+    for (const s of ['tight', 'current', 'pressure'] as const) {
+      expect(logic).toContain(`noteFire('horse_play_style_${s}')`);
+      expect(ledger).toContain(`'horse_play_style_${s}'`);
+    }
   });
 });

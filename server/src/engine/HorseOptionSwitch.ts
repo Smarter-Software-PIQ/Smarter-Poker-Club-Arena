@@ -438,6 +438,17 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   lightningCheapEntryHoldem: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   lightningCheapEntryOmaha: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 PLO Strategy wave two: the preflop stack-to-pot plan turns a heads-up preflop call into a fold
+  // (it narrows a preflop calling range), so it is under the owner preflop range hold until lifted by name.
+  omahaPreflopStackPlan: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-17 PLO Strategy wave two, screened against the owner's no-blanket-rules order: the river bluff check is
+  // asked only against an opponent the engine LABELS a measured value leader, so the label decides which bluffs are
+  // priced. Carried off-only until it is rewritten as a priced comparison for every opponent (his measured fold to a
+  // river bet and the Horse's blockers) and that form passes its own evaluation.
+  omahaNoRiverBluffIntoValueLeader: hold(
+    'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
+    'its check is gated by an opponent label (measured value leader): held until rewritten as a priced comparison'
+  ),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,

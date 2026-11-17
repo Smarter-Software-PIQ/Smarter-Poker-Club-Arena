@@ -38,9 +38,11 @@ import {
   ploArchetypeFor,
   ploPersonaFor,
   ploPersonaOfArchetype,
+  resolveIndifferenceTieBreak,
 } from './HorsePersona.js';
 import { HORSE_PLAY_STYLES, type HorsePlayStyle } from './HorsePlayStyle.js';
 import {
+  OMAHA_PLAY_STYLE_ENTRY_BAR_CREDIT_MAX,
   OMAHA_PLAY_STYLE_MUL_MAX,
   OMAHA_PLAY_STYLE_MUL_MIN,
   OMAHA_PLAY_STYLE_NEUTRAL,
@@ -48,14 +50,19 @@ import {
   OMAHA_PRESSURE_PREFLOP_IP,
   OMAHA_TIGHT_EXPECTED_VPIP_PCT,
   OMAHA_TIGHT_POSTFLOP,
+  OMAHA_PLAY_STYLE_TIE_BAND_MUL_MAX,
   OMAHA_TIGHT_PREFLOP,
   omahaPlayStyleArchetype,
+  omahaPlayStyleEntryBarCredit,
+  omahaPlayStyleFoldEquityMul,
   omahaPlayStyleIndifferenceAggressionBias,
   omahaPlayStyleMapped,
   omahaPlayStylePersona,
   omahaPlayStylePostflopDials,
   omahaPlayStylePreflopDials,
+  omahaPlayStyleTieBandMul,
 } from './HorseOmahaPlayStyle.js';
+import { evaluateSpot } from './HorseEvEngine.js';
 import type { Card, CardRank, CardSuit } from '../types.js';
 import RECORDED from './HorseOmahaUnderpair.fixture.json';
 
@@ -244,6 +251,56 @@ function firstIn(seat: 1 | 2 | 3 | 4, v: Variation = {}) {
   node.publicNode = pn;
   fx.actions = acts;
   fx.hole[String(seat)] = cards(v.hole ?? 'KhQhJsTs9c');
+  v.node?.(pn);
+  const st = stateAt(fx, node);
+  v.gs?.(st.gs);
+  return st;
+}
+/**
+ * The recorded table folded to the cutoff (seat 3), which opens to 7; the
+ * button (seat 4) faces the open: 7 to call into 10.
+ */
+function facingOpen(v: Variation = {}) {
+  const fx = JSON.parse(JSON.stringify(FX)) as ComplaintFixture;
+  const pn = JSON.parse(
+    JSON.stringify(fx.actions.find((a) => a.ord === 7)!.publicNode)
+  ) as ComplaintPublicNode;
+  const acts = fx.actions.slice(0, 3);
+  const add = (s: number, action: string, amount: number) =>
+    acts.push({
+      ord: acts.length + 1,
+      seat: s,
+      stage: 'preflop',
+      action,
+      amount,
+      origin: 'horse_policy',
+      isFullRaise: action === 'raise',
+      dead: false,
+    });
+  add(1, 'fold', 0);
+  add(2, 'fold', 0);
+  add(3, 'raise', 7);
+  pn.seats = [
+    [1, 1426.9, 0, 0, 0, 0, 1],
+    [2, 1172.95, 0, 0, 0, 0, 1],
+    [3, 393, 7, 7, 7, 0, 0],
+    [4, 400.4, 0, 0, 0, 0, 0],
+    [5, 379.65, 1, 1, 0, 0, 0],
+    [6, 795.5, 2, 4, 2, 0, 0],
+  ];
+  Object.assign(pn, {
+    pot: 10,
+    toCall: 7,
+    currentBet: 7,
+    minRaiseTo: 12,
+    maxRaiseTo: 24,
+    actorSeat: 4,
+  });
+  add(4, 'call', 7);
+  const node = acts[acts.length - 1];
+  node.publicNode = pn;
+  fx.actions = acts;
+  fx.hole['4'] = cards(v.hole ?? 'KhQhJsTs9c');
   v.node?.(pn);
   const st = stateAt(fx, node);
   v.gs?.(st.gs);
@@ -497,18 +554,19 @@ describe('tight is tight-aggressive: it enters fewer hands and re-raises its str
 describe('the receipts say which style played', () => {
   it('tight and pressure at the unfloored table; the fallback at the floored one', () => {
     expect(styleFires(() => firstIn(4, { node: noFloor }), style('tight'))).toEqual([
-      'horse_play_style_tight_seen',
+      'horse_play_style_tight',
     ]);
     expect(styleFires(() => firstIn(4, { node: noFloor }), style('pressure'))).toEqual([
-      'horse_play_style_pressure_seen',
+      'horse_play_style_pressure',
     ]);
     expect(styleFires(() => firstIn(4), style('tight'))).toEqual([
-      'horse_play_style_table_fallback_seen',
+      'horse_play_style_fallback_current_floor_seen',
     ]);
-    expect(styleFires(() => firstIn(4), style('pressure'))).toEqual([
-      'horse_play_style_pressure_seen',
+    expect(styleFires(() => firstIn(4), style('pressure'))).toEqual(['horse_play_style_pressure']);
+    expect(styleFires(() => firstIn(4, { node: noFloor }), style('current'))).toEqual([
+      'horse_play_style_current',
     ]);
-    expect(styleFires(() => firstIn(4, { node: noFloor }), style('current'))).toEqual([]);
+    // Option off: no style receipt at all.
     expect(styleFires(() => firstIn(4, { node: noFloor }), {})).toEqual([]);
   });
 });
@@ -601,6 +659,29 @@ describe('the owner rulings stay final for every style', () => {
   );
 
   it.each(HORSE_PLAY_STYLES)(
+    'omahaVpipFloorByLimp, style %s: facing an open, a hand that does not re-raise without the floor does not re-raise with it',
+    (s) => {
+      // Conflict sweep 2026-11-17, state 1359: the no-floor counterfactual kept the
+      // style's value-raise, call and 4-bet tightness floored, so a pressure Horse's
+      // floor entry stayed a re-raise.
+      const raises = (a: string) => a === 'raise' || a === 'all_in';
+      let entries = 0;
+      for (const hole of HANDS) {
+        const opts = { ...style(s), omahaVpipFloorByLimp: true };
+        const without = play(() => facingOpen({ hole, node: noFloor }), opts);
+        const withFloor = play(() => facingOpen({ hole }), opts);
+        SEEDS.forEach((_, i) => {
+          if (raises(without.actions[i])) return;
+          expect([hole, i, raises(withFloor.actions[i])]).toEqual([hole, i, false]);
+          if (without.actions[i] === 'fold' && withFloor.actions[i] === 'call') entries++;
+        });
+      }
+      // the floor does bring hands in here, so the rule above is not vacuous
+      expect(entries).toBeGreaterThan(0);
+    }
+  );
+
+  it.each(HORSE_PLAY_STYLES)(
     'omahaNoCallColdFourBetWithoutPremium, style %s: the cold 4-bet is folded without aces or a premium structure',
     (s) => {
       for (const node of [undefined, noFloor]) {
@@ -671,4 +752,151 @@ describe('in the league', () => {
         expect(r.brainExceptionFallbacks).toBe(0);
       }
   }, 600_000);
+});
+
+describe('2026-11-16: the pressure style biases the EV engine inputs in position, inside bounds', () => {
+  it('the fold-equity prior, the tie-break band and the entry-bar credit are bounded and pressure-in-position only', () => {
+    const fe = omahaPlayStyleFoldEquityMul('pressure', true)!;
+    expect(fe).toBeGreaterThanOrEqual(OMAHA_PLAY_STYLE_MUL_MIN);
+    expect(fe).toBeLessThanOrEqual(OMAHA_PLAY_STYLE_MUL_MAX);
+    expect(fe).toBeGreaterThan(1);
+    const band = omahaPlayStyleTieBandMul('pressure', true)!;
+    expect(band).toBeGreaterThan(1);
+    expect(band).toBeLessThanOrEqual(OMAHA_PLAY_STYLE_TIE_BAND_MUL_MAX);
+    expect(OMAHA_PLAY_STYLE_TIE_BAND_MUL_MAX).toBe(2);
+    const credit = omahaPlayStyleEntryBarCredit('pressure', true)!;
+    expect(credit).toBeGreaterThan(0);
+    expect(credit).toBeLessThanOrEqual(OMAHA_PLAY_STYLE_ENTRY_BAR_CREDIT_MAX);
+    expect(OMAHA_PLAY_STYLE_ENTRY_BAR_CREDIT_MAX).toBe(0.04);
+    for (const [s, ip] of [
+      ['pressure', false],
+      ['current', true],
+      ['current', false],
+      ['tight', true],
+      ['tight', false],
+    ] as const) {
+      expect(omahaPlayStyleFoldEquityMul(s, ip)).toBeUndefined();
+      expect(omahaPlayStyleTieBandMul(s, ip)).toBeUndefined();
+      expect(omahaPlayStyleEntryBarCredit(s, ip)).toBeUndefined();
+    }
+  });
+
+  it('the band widens only when asked: absent, the tie-break is today exactly', () => {
+    for (const gap of [-0.3, -0.2, -0.13, -0.12, -0.05, 0, 0.05, 0.2])
+      for (const bias of [-0.12, 0, 0.06, 0.12])
+        expect(resolveIndifferenceTieBreak(gap, bias, { street: 'flop', handKey: 7 })).toBe(
+          resolveIndifferenceTieBreak(gap, bias, { street: 'flop', handKey: 7, bandMul: undefined })
+        );
+    // A bet 0.18 BB below the check: outside today's band, inside the doubled one with the doubled bias.
+    expect(resolveIndifferenceTieBreak(-0.18, 0.12, { street: 'flop', handKey: 7 })).toBe(false);
+    expect(
+      resolveIndifferenceTieBreak(-0.18, 0.24, { street: 'flop', handKey: 7, bandMul: 2 })
+    ).toBe(true);
+    // Never beyond twice the band.
+    expect(
+      resolveIndifferenceTieBreak(-0.3, 0.24, { street: 'flop', handKey: 7, bandMul: 5 })
+    ).toBe(false);
+  });
+
+  it('the EV engine: without the new keys every spot prices and picks as before; with them only bets gain', () => {
+    const spot = (extra: Partial<Parameters<typeof evaluateSpot>[0]>, seed: number) => {
+      let x = seed;
+      const rand = () => (x = (Math.imul(x, 1103515245) + 12345) >>> 0) / 0x100000000;
+      return evaluateSpot({
+        equity: 0.34,
+        pot: 20,
+        toCall: 0,
+        stack: 180,
+        effectiveStack: 180,
+        street: 'flop',
+        inPosition: true,
+        opponents: 1,
+        models: [{ foldMul: 1 }],
+        realization: 0.85,
+        minBet: 2,
+        maxBet: 20,
+        sizes: [0.33, 0.5, 0.75, 1],
+        indifference: { horseId: 'league-1', mode: 'cash', bigBlind: 2, handKey: seed },
+        rand,
+        ...extra,
+      });
+    };
+    let bets0 = 0;
+    let betsBand = 0;
+    for (let s = 1; s <= 400; s++) {
+      const a = spot({}, s);
+      const b = spot(
+        {
+          indifference: {
+            horseId: 'league-1',
+            mode: 'cash',
+            bigBlind: 2,
+            handKey: s,
+            aggressionBandMul: undefined,
+          },
+        },
+        s
+      );
+      expect(JSON.stringify(b)).toBe(JSON.stringify(a));
+      const c = spot(
+        {
+          indifference: {
+            horseId: 'league-1',
+            mode: 'cash',
+            bigBlind: 2,
+            handKey: s,
+            aggressionBias: 0.12,
+            aggressionBandMul: 2,
+          },
+        },
+        s
+      );
+      // The candidates are priced the same: only the pick may move.
+      expect(JSON.stringify(c.candidates)).toBe(JSON.stringify(a.candidates));
+      if (a.pick.kind === 'bet') bets0++;
+      if (c.pick.kind === 'bet') betsBand++;
+    }
+    expect(betsBand).toBeGreaterThanOrEqual(bets0);
+    // The fold-equity prior raises every bet's price and leaves the check's.
+    const base = spot({}, 1);
+    const fe = spot({ models: [{ foldMul: 1.25 }] }, 1);
+    const check = (v: typeof base) => v.candidates.find((c) => c.kind === 'check')!.ev;
+    expect(check(fe)).toBe(check(base));
+    for (const c of fe.candidates.filter((c) => c.kind === 'bet')) {
+      const was = base.candidates.find(
+        (b) => b.kind === 'bet' && 'amount' in b && 'amount' in c && b.amount === c.amount
+      )!;
+      expect(c.ev).toBeGreaterThan(was.ev);
+    }
+  });
+});
+
+describe('wave two: the pressure style widens its 3-bets, not its 4-bets', () => {
+  const RAISE = new Set(['raise', 'all_in']);
+  /** Decision 13: the button (cutoff/button: pressure in position) 3-bet and faces the 4-bet. */
+  const facingReRaise = (hole: string) => () => recorded(13, { hole, node: noFloor });
+
+  it('with the bluffs off, the button facing a re-raise re-raises exactly the hands and seeds the current style does', () => {
+    const noBluff = { ...LIVE.mods, bluffFreq: 0 };
+    let current = 0;
+    const PREMIUM = [
+      'AsAhKsKhQd',
+      'AdAcKdKcJh',
+      'AsAdKsQsJd',
+      'AhAcJhTc9h',
+      'KsKhQsQhJs',
+      'AsAhQsJhTd',
+      'AdAhKcQcJd',
+      'KdKcQdJcTd',
+    ];
+    for (const hole of [...PREMIUM, ...HANDS.slice(0, 60)]) {
+      const c = play(facingReRaise(hole), {}, SEEDS, noBluff);
+      const p = play(facingReRaise(hole), style('pressure'), SEEDS, noBluff);
+      c.actions.forEach((a, i) =>
+        expect([hole, i, RAISE.has(p.actions[i])]).toEqual([hole, i, RAISE.has(a)])
+      );
+      current += c.actions.filter((a) => RAISE.has(a)).length;
+    }
+    expect(current).toBeGreaterThan(0);
+  });
 });

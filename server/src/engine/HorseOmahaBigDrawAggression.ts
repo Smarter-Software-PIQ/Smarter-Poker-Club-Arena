@@ -580,6 +580,21 @@ export interface OmahaBigDrawInput {
    * money at stake when it goes to showdown.
    */
   icmRisk?: number;
+  /**
+   * Lazy pricing (2026-11-16): asked with the one wager the verdict could
+   * make (its action and chips are fixed before any equity is counted),
+   * true when a later owner-ruled or street-plan check would replace that
+   * wager in the final decision anyway. The verdict then returns withheld
+   * 'final_check' without counting the equities: the final decision is the
+   * check either way. Absent, or false, the verdict is priced as before.
+   */
+  finalCheckVetoes?: (wager: { action: 'bet' | 'raise' | 'all_in'; amount?: number }) => boolean;
+  /**
+   * omahaBetSizeByPublicState (wave two): the public size of this wager, a
+   * raise-to amount or the all-in. Present, it is the size priced and
+   * returned in place of the pot-sized wager. Absent: as before.
+   */
+  publicTo?: number | 'all_in';
 }
 
 export type OmahaBigDrawWithheld =
@@ -590,7 +605,8 @@ export type OmahaBigDrawWithheld =
   | 'out_of_position'
   | 'not_combo'
   | 'no_equity'
-  | 'passive_ev';
+  | 'passive_ev'
+  | 'final_check';
 
 export interface OmahaBigDrawVerdict {
   draw: OmahaBigDraw;
@@ -654,12 +670,20 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
   // The most any opponent can match.
   const cover = Math.max(...i.opponents.map((o) => fin(o.stack) + fin(o.bet)));
   let to = Math.min(max, total);
-  // A pot wager that leaves a later street all in anyway is the whole stack.
-  const costPot = to - heroBet;
-  const xPot = Math.max(0, Math.min(to, cover) - fin(i.currentBet));
-  const behind = total - to;
-  const potAfter = pot + costPot + xPot;
-  const jam = to >= total - 0.005 || behind <= (i.street === 'flop' ? 1 : 0.5) * potAfter + 0.005;
+  let jam: boolean;
+  if (i.publicTo !== undefined) {
+    // omahaBetSizeByPublicState: the public size is the one size this wager
+    // will have, so it is the size priced (the stack where it commits).
+    to = i.publicTo === 'all_in' ? total : Math.min(total, fin(i.publicTo));
+    jam = to >= total - 0.005;
+  } else {
+    // A pot wager that leaves a later street all in anyway is the whole stack.
+    const costPot = to - heroBet;
+    const xPot = Math.max(0, Math.min(to, cover) - fin(i.currentBet));
+    const behind = total - to;
+    const potAfter = pot + costPot + xPot;
+    jam = to >= total - 0.005 || behind <= (i.street === 'flop' ? 1 : 0.5) * potAfter + 0.005;
+  }
   if (jam) to = total;
   if (jam && !legal('all_in')) {
     if (!legal(wagerAction)) return held('no_wager');
@@ -669,6 +693,12 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
   if (!(matched > fin(i.currentBet) + 0.005)) return held('no_wager');
   const cost = matched - heroBet;
   const x = matched - fin(i.currentBet);
+  // The only wager this verdict can return, known before the equities.
+  const allIn = jam && legal('all_in') && to >= total - 0.005;
+  const wager: { action: 'bet' | 'raise' | 'all_in'; amount?: number } = allIn
+    ? { action: 'all_in' }
+    : { action: wagerAction, amount: Math.round(Math.max(min, to) * 100) / 100 };
+  if (i.finalCheckVetoes !== undefined && i.finalCheckVetoes(wager)) return held('final_check');
   const equities = omahaBigDrawEquities(i.hole, i.board, i.dead ?? []);
   if (equities === null) return held('no_equity');
   let foldEquity = 1;
@@ -697,12 +727,9 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
     !(evAggressive > 0)
   )
     return held('passive_ev', numbers);
-  const allIn = jam && legal('all_in') && to >= total - 0.005;
   return {
     draw,
-    wager: allIn
-      ? { action: 'all_in' }
-      : { action: wagerAction, amount: Math.round(Math.max(min, to) * 100) / 100 },
+    wager,
     withheld: null,
     ...numbers,
   };
