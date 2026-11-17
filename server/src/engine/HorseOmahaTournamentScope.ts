@@ -104,6 +104,13 @@ export function omahaTournamentExtensionSpot(hero: SeatPlayer, gs: HorseGameStat
   try {
     if (!omahaIsTournamentMode(gs)) return false;
     if (!omahaStrategyGameInScope(OMAHA_TOURNAMENT_EXTENSION_VARIANTS, gs)) return false;
+    // PLO6 lane 2026-11-16 (SPEC-A 3.15 item 6): PLO6 tournaments stay out of
+    // the day's rules even with omahaStrategyInPlo6 on. The extension never
+    // holds for six cards, so every cash-scoped rule (omahaCashOnlyExcludes)
+    // stands aside in a PLO6 tournament and no survival premium is priced.
+    // PLO4 and PLO5 are not touched; with the PLO6 gate off the line above
+    // has already refused the game.
+    if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6') return false;
     if (gs.variantRules?.splitLow8OrBetter === true) return false;
     if (
       (gs.boardCount ?? 1) > 1 ||

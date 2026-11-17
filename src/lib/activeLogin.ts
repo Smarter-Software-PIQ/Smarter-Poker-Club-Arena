@@ -42,6 +42,10 @@ let started = false;
 let claiming: string | null = null;
 let myDeviceId: string | null = null;
 let approveListenerUp = false;
+let approveListenerEpoch = 0;
+let stopApproveListener: (() => void) | null = null;
+const approvalPrompts = new Set<string>();
+let stopPairingWait: (() => void) | null = null;
 const verifiedThisBoot = new Set<string>();
 const bounced = new Set<string>();
 const choosingFor = new Set<string>();
@@ -222,23 +226,28 @@ async function requestPairingAndWait(deviceId: string, label: string): Promise<v
       rememberDevice(a.device_id);
       startApproveListener();
     }
-  } else {
+  } else if (verdict !== 'cancelled') {
     promptNewDeviceFallback();
   }
 }
 
 /** Subscribe to this pairing request's row; resolve when it is decided. */
-function waitForPairingVerdict(requestId: string): Promise<'approved' | 'denied' | 'timeout'> {
+function waitForPairingVerdict(
+  requestId: string
+): Promise<'approved' | 'denied' | 'timeout' | 'cancelled'> {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (v: 'approved' | 'denied' | 'timeout') => {
+    const finish = (v: 'approved' | 'denied' | 'timeout' | 'cancelled') => {
       if (done) return;
       done = true;
+      stopPairingWait = null;
       try {
         void supabase.removeChannel(ch);
       } catch {
         /* */
       }
+      document.removeEventListener('visibilitychange', onResume);
+      window.removeEventListener('pageshow', onResume);
       clearInterval(poll);
       clearTimeout(timer);
       resolve(v);
@@ -261,7 +270,8 @@ function waitForPairingVerdict(requestId: string): Promise<'approved' | 'denied'
       )
       .subscribe();
     // Realtime can miss the first event; poll as a backstop.
-    const poll = setInterval(async () => {
+    const readVerdict = async () => {
+      if (done) return;
       try {
         const { data, error } = await supabase
           .from('ca_pairing_requests')
@@ -275,8 +285,16 @@ function waitForPairingVerdict(requestId: string): Promise<'approved' | 'denied'
       } catch {
         /* keep waiting */
       }
-    }, 2500);
+    };
+    const onResume = () => {
+      if (document.visibilityState !== 'hidden') void readVerdict();
+    };
+    const poll = setInterval(() => void readVerdict(), 2500);
     const timer = setTimeout(() => finish('timeout'), 180_000);
+    document.addEventListener('visibilitychange', onResume);
+    window.addEventListener('pageshow', onResume);
+    stopPairingWait = () => finish('cancelled');
+    void readVerdict();
   });
 }
 
@@ -290,16 +308,41 @@ export function startApproveListener(): void {
   const mine = recallDevice();
   if (!mine) return;
   approveListenerUp = true;
+  const epoch = ++approveListenerEpoch;
+  stopApproveListener = () => {
+    approveListenerEpoch++;
+    approveListenerUp = false;
+  };
   try {
     supabase.auth
       .getSession()
       .then(({ data }) => {
+        if (epoch !== approveListenerEpoch) return;
         const uid = data.session?.user?.id;
         if (!uid) {
           approveListenerUp = false;
           return;
         }
-        supabase
+        let active = true;
+        const controller = new AbortController();
+        const readPending = async () => {
+          if (!active || document.visibilityState === 'hidden') return;
+          try {
+            const { data: requests, error } = await supabase
+              .from('ca_pairing_requests')
+              .select('id,user_id,target_device_id,label,status,created_at')
+              .eq('user_id', uid)
+              .eq('target_device_id', mine)
+              .eq('status', 'pending')
+              .gte('created_at', new Date(Date.now() - 180_000).toISOString());
+            if (!active || error) return;
+            for (const row of requests ?? []) void maybeShowApprove(row, controller.signal);
+          } catch {
+            /* A later foreground/subscription event can read the durable request. */
+          }
+        };
+        const onResume = () => void readPending();
+        const channel = supabase
           .channel(`pairing-approve:${uid}`)
           .on(
             'postgres_changes',
@@ -309,9 +352,23 @@ export function startApproveListener(): void {
               table: 'ca_pairing_requests',
               filter: `user_id=eq.${uid}`,
             },
-            (p) => void maybeShowApprove(p.new as Record<string, unknown>)
+            (p) => void maybeShowApprove(p.new as Record<string, unknown>, controller.signal)
           )
-          .subscribe();
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') void readPending();
+          });
+        document.addEventListener('visibilitychange', onResume);
+        window.addEventListener('pageshow', onResume);
+        stopApproveListener = () => {
+          active = false;
+          approveListenerEpoch++;
+          controller.abort();
+          document.removeEventListener('visibilitychange', onResume);
+          window.removeEventListener('pageshow', onResume);
+          void supabase.removeChannel(channel);
+          approveListenerUp = false;
+        };
+        void readPending();
       })
       .catch(() => {
         approveListenerUp = false;
@@ -321,24 +378,36 @@ export function startApproveListener(): void {
   }
 }
 
-async function maybeShowApprove(row: Record<string, unknown>): Promise<void> {
+async function maybeShowApprove(row: Record<string, unknown>, signal: AbortSignal): Promise<void> {
   const mine = recallDevice();
-  if (!mine) return;
+  if (signal.aborted || !mine) return;
   if (String(row.status ?? '') !== 'pending') return;
   if (String(row.target_device_id ?? '') !== mine) return;
+  // The requesting browser waits three minutes. Never resurrect an old prompt.
+  const created = Date.parse(String(row.created_at ?? ''));
+  if (!Number.isFinite(created) || Date.now() - created > 180_000) return;
   const reqId = String(row.id ?? '');
   const label = String(row.label ?? 'A New Browser');
-  if (!reqId) return;
-  const approve = await promptApprove(label);
-  try {
-    await supabase.rpc('ca_resolve_pairing', {
-      p_request_id: reqId,
-      p_approve: approve,
-      p_caller_device_id: getDeviceId(),
-    });
-  } catch {
-    /* the requester can retry or choose new device */
-  }
+  if (!reqId || approvalPrompts.has(reqId)) return;
+  approvalPrompts.add(reqId);
+  await promptApprove(
+    label,
+    async (approve) => {
+      if (signal.aborted) return true;
+      try {
+        const { data, error } = await supabase.rpc('ca_resolve_pairing', {
+          p_request_id: reqId,
+          p_approve: approve,
+          p_caller_device_id: getDeviceId(),
+        });
+        const result = (data ?? {}) as { ok?: boolean; why?: string };
+        return !error && (result.ok === true || result.why === 'not_pending');
+      } catch {
+        return false;
+      }
+    },
+    signal
+  );
 }
 
 /** Wire enrollment to sign-in and session restore. Idempotent. */
@@ -347,6 +416,13 @@ export function startSingleActiveLogin(): void {
   started = true;
   try {
     supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        stopPairingWait?.();
+        stopApproveListener?.();
+        stopApproveListener = null;
+        approvalPrompts.clear();
+        return;
+      }
       if (event !== 'SIGNED_IN' && event !== 'INITIAL_SESSION') return;
       const token = session?.access_token;
       const verify = event === 'INITIAL_SESSION';
@@ -358,6 +434,10 @@ export function startSingleActiveLogin(): void {
 }
 
 export function __resetActiveLoginForTests(): void {
+  stopPairingWait?.();
+  stopApproveListener?.();
+  stopApproveListener = null;
+  approvalPrompts.clear();
   started = false;
   claiming = null;
   myDeviceId = null;
@@ -456,14 +536,24 @@ function showWaitingForApproval(label: string): { close: () => void } {
   return { close: () => w.remove() };
 }
 
-function promptApprove(label: string): Promise<boolean> {
+function promptApprove(
+  label: string,
+  decide: (approve: boolean) => Promise<boolean>,
+  signal: AbortSignal
+): Promise<void> {
   return new Promise((resolve) => {
     if (typeof document === 'undefined') {
-      resolve(false);
+      resolve();
       return;
     }
     const w = overlay();
     const c = card();
+    const close = () => {
+      signal.removeEventListener('abort', close);
+      w.remove();
+      resolve();
+    };
+    signal.addEventListener('abort', close, { once: true });
     c.append(heading('Add A New Browser?'));
     c.append(
       body(
@@ -471,15 +561,24 @@ function promptApprove(label: string): Promise<boolean> {
       )
     );
     const ap = button('Approve', true);
-    ap.addEventListener('click', () => {
-      w.remove();
-      resolve(true);
-    });
     const dn = button('Deny', false);
-    dn.addEventListener('click', () => {
-      w.remove();
-      resolve(false);
-    });
+    const errorText = body('');
+    errorText.setAttribute('role', 'status');
+    const submit = async (approve: boolean) => {
+      if (ap.disabled || signal.aborted) return;
+      ap.disabled = dn.disabled = true;
+      errorText.textContent = '';
+      const resolved = await decide(approve);
+      if (resolved) {
+        close();
+      } else {
+        errorText.textContent = 'Unable To Save Your Choice. Check Your Connection And Try Again.';
+        ap.disabled = dn.disabled = false;
+      }
+    };
+    ap.addEventListener('click', () => void submit(true));
+    dn.addEventListener('click', () => void submit(false));
+    c.append(errorText);
     c.append(ap, dn);
     w.append(c);
     document.body.append(w);

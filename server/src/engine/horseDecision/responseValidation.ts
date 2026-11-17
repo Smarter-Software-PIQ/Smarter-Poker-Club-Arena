@@ -60,7 +60,11 @@ import {
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
-import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_FACING_BET_EV_VARIANTS,
+  omahaFacingBetEvSpot,
+  omahaPlo6FacingBetEvFoldStands,
+} from '../HorseOmahaFacingBetEv.js';
 import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
@@ -78,9 +82,19 @@ import {
 } from '../HorseOmahaTournamentScope.js';
 import {
   OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+  OMAHA_STRATEGY_PLO45,
+  omahaStrategyConstant,
   omahaStrategyGameInScope,
+  omahaStrategyGameScopeOf,
   withOmahaStrategyGameScope,
 } from '../HorseOmahaStrategyGame.js';
+import {
+  applyPlo6OmahaStrategyCalibration,
+  plo6OmahaStrategyCalibrationHeld,
+} from '../HorsePlo6StrategyCalibration.js';
+import { plo6RiverLiveFoldTest } from '../HorsePlo6PricingPort.js';
+import { STYLE_SWITCH_POLL_MS } from '../HorseStyleSwitch.js';
+import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../HorseOptionSwitch.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -969,6 +983,15 @@ function phase7Selection(value: RecordValue): Pick<HorseDecision, 'action' | 'am
 export interface HorseDecisionReceiptContext {
   player: SeatPlayer;
   gameState: HorseGameStateV2;
+  /**
+   * PLO6 lane 2026-11-16: the decision's own omahaStrategyInPlo6 gate, read
+   * `=== true`. Only then is PLO6 admitted to the day's PLO4/PLO5 Omaha
+   * strategy admissions (each still re-run on the request), with the
+   * six-card constants in the accessor for the re-run. Absent or false (every
+   * caller that does not know the decision's options, and every decision
+   * today: the option is off-only), the validator is exactly as before.
+   */
+  omahaStrategyInPlo6?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -1102,11 +1125,28 @@ function policyGraphIsValid(
   expectedVariant?: string,
   context?: HorseDecisionReceiptContext
 ): boolean {
-  return withOmahaStrategyGameScope(OMAHA_STRATEGY_GAME_SCOPE_ADMISSION, () =>
-    withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
-      policyGraphIsValidInScope(value, expectedVariant, context)
-    )
-  );
+  // PLO6 joins the day's admissions only for a decision whose own gate was
+  // on, known from the request (context.omahaStrategyInPlo6 === true). The
+  // rules are then re-run with the six-card constants the decision read. In
+  // both cases the accessor is set for this validation alone (gate off: no
+  // six-card value, whatever an earlier decision or validation left) and what
+  // it held before is put back afterwards (pre-review finding 6).
+  const plo6Gate = context?.omahaStrategyInPlo6 === true;
+  const heldBefore = plo6OmahaStrategyCalibrationHeld();
+  applyPlo6OmahaStrategyCalibration(plo6Gate);
+  try {
+    return withOmahaStrategyGameScope(
+      plo6Gate
+        ? omahaStrategyGameScopeOf({ omahaStrategyInPlo6: true })
+        : OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+      () =>
+        withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+          policyGraphIsValidInScope(value, expectedVariant, context)
+        )
+    );
+  } finally {
+    applyPlo6OmahaStrategyCalibration(heldBefore);
+  }
 }
 
 function policyGraphIsValidInScope(
@@ -1327,7 +1367,11 @@ function policyGraphIsValidInScope(
       previous.action === 'fold' &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
-      mediumBetRuleProducesCall(transition.after, context);
+      mediumBetRuleProducesCall(transition.after, context) &&
+      // PLO6: the rule never calls a hand the live river fold rule folds; the
+      // same seeded test is re-run on the request (both board tests on: the
+      // request does not carry V58/V59).
+      !(variant === 'plo6' && plo6RiverLiveFoldTest(context.player, context.gameState));
     // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
     // facing no wager becomes a check on the flop out of position with a bare
     // pair, on the turn after the flop bet was called, and on a paired river
@@ -1416,7 +1460,23 @@ function policyGraphIsValidInScope(
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       (() => {
         const spot = omahaFacingBetEvSpot(context.player, context.gameState);
-        return spot !== null && !spot.allIn && spot.paid === transition.after.amount;
+        if (spot === null || spot.allIn || spot.paid !== transition.after.amount) return false;
+        // PLO6 (six cards): the rule's own guard is pure, so it is re-run on
+        // the request: where the river fold test stands the rule cannot have
+        // called, and an uncountable six-card hand is not admitted either.
+        // (Both tests on: the request does not carry V58/V59.) The rule also
+        // never calls a hand the live river fold rule folds: that seeded
+        // test is re-run on the request too.
+        if (variant === 'plo6')
+          return (
+            omahaPlo6FacingBetEvFoldStands(
+              spot,
+              context.player.cards ?? [],
+              context.gameState.communityCards ?? [],
+              context.player.knownDeadCards ?? []
+            ) === false && !plo6RiverLiveFoldTest(context.player, context.gameState)
+          );
+        return true;
       })();
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
@@ -1493,7 +1553,7 @@ function policyGraphIsValidInScope(
     // on it turns the raise into a call of the same amount.
     const omahaReraiseToCall =
       transition.node === 'wager_rules' &&
-      (variant === 'plo4' || variant === 'plo5') &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
@@ -1505,7 +1565,7 @@ function policyGraphIsValidInScope(
     // call. Admitted only with the request, where the bar re-run on it agrees.
     const omahaDrawRaiseToCall =
       transition.node === 'wager_rules' &&
-      (variant === 'plo4' || variant === 'plo5') &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
@@ -1563,6 +1623,121 @@ function policyGraphIsValidInScope(
 }
 
 /** Finite refusal names only: no player identity, cards or raw receipt data. */
+/**
+ * The omahaStrategyInPlo6 values the worker may have run this decision with
+ * (PLO6 lane 2026-11-16). The live option switch delivers its value inside
+ * the worker, after the request was built, so the request's own option is not
+ * always the effective one. `switchConfig` is the configuration the main
+ * thread last delivered to that worker (the database answer as read; null or
+ * undefined when none was delivered or the read failed).
+ *  - No valid row for the option: the request's own value, alone.
+ *  - A row: the row's value first (on is never returned for an off-only
+ *    option: optionSwitchDecisionOpts), then the request's own value when it
+ *    differs, because a worker whose delivered configuration has aged out
+ *    runs the release default, which is the request's value.
+ * The validator admits the decision when it is valid under one of them
+ * (horseDecisionReceiptRefusalForPlo6Gates).
+ */
+export function omahaStrategyInPlo6GateCandidates(
+  requestOpts: { omahaStrategyInPlo6?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.omahaStrategyInPlo6 === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states).omahaStrategyInPlo6 : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  // The effective value first: the row last delivered, else the request's own.
+  add(switchedOf(switchConfig));
+  add(own);
+  // The configuration delivered before the last change, while the worker may
+  // still be deciding under it (deliveredSwitchConfigsNote / InForce).
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
+ * What a worker was handed, with the configuration it held before the last
+ * change (pre-review 2 finding 1). The worker reads its inbox at most once
+ * per STYLE_SWITCH_POLL_MS, so for one poll interval after a changed
+ * delivery it may still decide under the previous configuration; a decision
+ * made then is validated under that one as well. `previousUntilMs` is the
+ * clock time until which `previous` counts.
+ */
+export interface DeliveredSwitchConfigs {
+  current: unknown;
+  previous: unknown;
+  previousUntilMs: number;
+}
+
+export const DELIVERED_SWITCH_CONFIGS_NONE: DeliveredSwitchConfigs = Object.freeze({
+  current: null,
+  previous: undefined,
+  previousUntilMs: 0,
+});
+
+const sameSwitchConfig = (a: unknown, b: unknown): boolean => {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+};
+
+/** A delivery: an unchanged configuration keeps the state; a changed one keeps the old as previous for one poll interval. */
+export function deliveredSwitchConfigsNote(
+  state: DeliveredSwitchConfigs,
+  config: unknown,
+  nowMs: number,
+  pollMs: number = STYLE_SWITCH_POLL_MS
+): DeliveredSwitchConfigs {
+  if (sameSwitchConfig(state.current, config)) return state;
+  return { current: config, previous: state.current, previousUntilMs: nowMs + pollMs };
+}
+
+/** The previous configuration while it still counts, else undefined. */
+export function deliveredSwitchConfigsPrevious(
+  state: DeliveredSwitchConfigs,
+  nowMs: number
+): unknown {
+  return nowMs <= state.previousUntilMs ? state.previous : undefined;
+}
+
+/**
+ * horseDecisionReceiptRefusal under each candidate gate: null as soon as one
+ * admits the decision, else the refusal under the first (the effective one).
+ */
+export function horseDecisionReceiptRefusalForPlo6Gates(
+  value: unknown,
+  expectedVariant: string | undefined,
+  context: Omit<HorseDecisionReceiptContext, 'omahaStrategyInPlo6'>,
+  gates: readonly boolean[]
+): string | null {
+  let first: string | null = null;
+  let seen = false;
+  for (const gate of gates.length > 0 ? gates : [false]) {
+    const refusal = horseDecisionReceiptRefusal(value, expectedVariant, {
+      ...context,
+      ...(gate ? { omahaStrategyInPlo6: true } : {}),
+    });
+    if (refusal === null) return null;
+    if (!seen) {
+      first = refusal;
+      seen = true;
+    }
+  }
+  return first;
+}
+
 export function horseDecisionReceiptRefusal(
   value: unknown,
   expectedVariant?: string,

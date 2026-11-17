@@ -140,10 +140,10 @@ async function main() {
     await loadBoundaries('before the days');
     for (const day of days) {
       const seeded = await client.query(
-        'SELECT 1 FROM public.ca_club_acct_seed_log WHERE acct_day = $1',
+        'SELECT bbj_version FROM public.ca_club_acct_seed_log WHERE acct_day = $1',
         [day]
       );
-      if (seeded.rowCount && !rebuild) {
+      if (seeded.rowCount && seeded.rows[0].bbj_version === 1 && !rebuild) {
         console.log(`[seed] ${day} already loaded`);
         continue;
       }
@@ -151,7 +151,7 @@ async function main() {
       const begun = await inTransaction(client, 'REPEATABLE READ', '240s', () =>
         client.query('SELECT public.fn_ca_club_acct_seed_begin($1::date, $2::boolean) AS receipt', [
           day,
-          rebuild,
+          rebuild || seeded.rowCount > 0,
         ])
       );
       const snap = begun.rows[0].receipt.snapshot;

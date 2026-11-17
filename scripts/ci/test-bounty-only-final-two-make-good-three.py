@@ -28,7 +28,8 @@ This proves:
     than paying again.
 """
 from pathlib import Path
-import os, shutil, subprocess, tempfile
+import os, shutil, subprocess, tempfile, sys
+from decimal import Decimal
 
 ROOT = Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261109010752_the_house_pays_three_final_two_runners_up_their_own_heads.sql'
@@ -58,6 +59,15 @@ EVENTS = [
 ]
 WALLET0 = 9000.00
 TOTAL = 60.72
+
+# Same maintained settlement proof, selected explicitly for the new witnessed
+# timeout case; the historical three-event fixture remains the default.
+if '--timed-out-final-two' in sys.argv:
+    MIG=ROOT/'supabase/migrations/20261116231529_the_house_pays_the_verified_timed_out_final_two_head.sql'
+    EVENTS=[('4d386437-7777-412a-ab2b-5cfb9eef5d3a','Midday Free Buy (NLH)','2026-11-16',1354.00,1267.94,
+      '70ef34bc-1165-4f0e-86e0-044e82c04d92',27.46,'aba9beb0-16b9-420a-8247-f5ceabe76b47',72.33,86.06,
+      '9b7e45f8-e5d1-45fb-bc96-6a6a598f7d1c',FELT)]
+    TOTAL=27.46
 
 
 def run(args, sql=None, timeout=180):
@@ -255,6 +265,9 @@ try:
     q(SCHEMA)
     seed()
     MIGSQL = MIG.read_text()
+    if '--timed-out-final-two' in sys.argv:
+        q("CREATE FUNCTION public.fn_tournament_has_unsettled_bounties(uuid) RETURNS boolean LANGUAGE sql AS $$-- Scoped complete bounty marker proof\nSELECT false$$;INSERT INTO financial_alerts(id,source,context,resolved) VALUES('e54559ac-f953-4f5e-886e-6798fbf16b5e','fn_ca_bounty_only_final_two_watch','{\"tournament_id\":\"4d386437-7777-412a-ab2b-5cfb9eef5d3a\",\"breach\":\"closed_without_final_two\"}',false);")
+
 
     def bank():
         return one("SELECT chip_balance FROM union_wallets WHERE union_id='%s';" % UNION)
@@ -273,7 +286,7 @@ try:
     THIRD0 = one("SELECT user_id FROM tournament_players WHERE tournament_id='%s' AND position=3;" % E0)
     cases = [
         ("UPDATE tournaments SET bounty_pool_paid=1 WHERE id='%s';" % E0,
-         "UPDATE tournaments SET bounty_pool_paid=253.00 WHERE id='%s';" % E0,
+         "UPDATE tournaments SET bounty_pool_paid=%s WHERE id='%s';" % (EVENTS[0][3], E0),
          'is no longer the completed bounty only PKO'),
         ("INSERT INTO ca_bounty_only_final_two VALUES ('%s');" % E0,
          "DELETE FROM ca_bounty_only_final_two;", 'was closed at two after all'),
@@ -283,18 +296,18 @@ try:
          "UPDATE tournament_players SET prize=0 WHERE tournament_id='%s' AND user_id='%s';" % (E0, RU0),
          'is no longer the eliminated second place'),
         ("UPDATE tournament_bounties SET bounty_amount=30 WHERE id='%s';" % KO0,
-         "UPDATE tournament_bounties SET bounty_amount=17.25 WHERE id='%s';" % KO0,
+         "UPDATE tournament_bounties SET bounty_amount=%s WHERE id='%s';" % (EVENTS[0][6], KO0),
          'no longer carries head'),
-        ("INSERT INTO tournament_bounties VALUES (gen_random_uuid(),'%s','%s','%s',1,0.5,'2026-11-08 23:00:00+00');" % (E0, RU0, EVENTS[0][7]),
-         "DELETE FROM tournament_bounties WHERE created_at='2026-11-08 23:00:00+00';",
+        ("INSERT INTO tournament_bounties VALUES (gen_random_uuid(),'%s','%s','%s',1,0.5,'2026-12-01 23:00:00+00');" % (E0, RU0, EVENTS[0][7]),
+         "DELETE FROM tournament_bounties WHERE created_at='2026-12-01 23:00:00+00';",
          'is no longer the last knockout'),
         ("UPDATE tournament_obligations SET amount_paid=1 WHERE tournament_id='%s' AND kind='bounty_residual';" % E0,
-         "UPDATE tournament_obligations SET amount_paid=31.42 WHERE tournament_id='%s' AND kind='bounty_residual';" % E0,
+         "UPDATE tournament_obligations SET amount_paid=%s WHERE tournament_id='%s' AND kind='bounty_residual';" % (EVENTS[0][9], E0),
          'champion residual of'),
         ("INSERT INTO tournament_obligations(tournament_id,kind,user_id,amount_owed,amount_paid,source) VALUES ('%s','bounty_residual','%s',1,1,'x');" % (E0, RU0),
          "DELETE FROM tournament_obligations WHERE source='x';", 'already holds a bounty residual'),
         ("UPDATE tournament_obligations SET amount_paid=200 WHERE tournament_id='%s' AND kind='bounty';" % E0,
-         "UPDATE tournament_obligations SET amount_paid=221.58 WHERE tournament_id='%s' AND kind='bounty';" % E0,
+         "UPDATE tournament_obligations SET amount_paid=%s WHERE tournament_id='%s' AND kind='bounty';" % (EVENTS[0][4], E0),
          'no longer conserves against the two final heads'),
         ("UPDATE tournament_knockout_candidates k SET hand_id=(SELECT hand_id FROM tournament_knockout_candidates "
          "WHERE tournament_id='%s' AND eliminated_user_id='%s') WHERE k.tournament_id='%s' AND k.eliminated_user_id='%s';"
@@ -304,19 +317,23 @@ try:
          'cannot be shown to have sat at exactly two players'),
         ("DELETE FROM tournament_knockout_candidates WHERE tournament_id='%s' AND eliminated_user_id='%s';" % (E0, THIRD0),
          "INSERT INTO tournament_knockout_candidates(tournament_id,eliminated_user_id,state,hand_id,created_at) "
-         "VALUES ('%s','%s','eliminated',gen_random_uuid(),'2026-11-08 08:58:00+00');" % (E0, THIRD0),
+         "VALUES ('%s','%s','eliminated',gen_random_uuid(),'%s 08:58:00+00');" % (E0, THIRD0, EVENTS[0][2]),
          'cannot be shown to have sat at exactly two players'),
-        ("UPDATE tournament_players SET eliminated_at='2026-11-08 09:30:00+00' WHERE tournament_id='%s' AND position=3;" % E0,
-         "UPDATE tournament_players SET eliminated_at='2026-11-08 08:58:00+00' WHERE tournament_id='%s' AND position=3;" % E0,
+        ("UPDATE tournament_players SET eliminated_at='%s 09:30:00+00' WHERE tournament_id='%s' AND position=3;" % (EVENTS[0][2], E0),
+         "UPDATE tournament_players SET eliminated_at='%s 08:58:00+00' WHERE tournament_id='%s' AND position=3;" % (EVENTS[0][2], E0),
          'third place did not leave'),
-        ("UPDATE clubs SET union_id=gen_random_uuid() WHERE id='%s';" % DSS,
-         "UPDATE clubs SET union_id='%s' WHERE id='%s';" % (UNION, DSS), 'no longer banks in'),
+        ("UPDATE clubs SET union_id=gen_random_uuid() WHERE id='%s';" % EVENTS[0][11],
+         "UPDATE clubs SET union_id='%s' WHERE id='%s';" % (UNION, EVENTS[0][11]), 'no longer banks in'),
         ("INSERT INTO ca_manual_adjustments(actor,reason,amount,target_kind,target_id,tournament_id,status,asset,decision_note) VALUES ('%s','other',1,'player_wallet','%s','%s','approved','chips','migration something_else');" % (RU0, RU0, E0),
          "DELETE FROM ca_manual_adjustments WHERE reason='other';", 'needs inspection before payment'),
         ("UPDATE union_wallets SET chip_balance=5 WHERE union_id='%s';" % UNION,
          "UPDATE union_wallets SET chip_balance=%s WHERE union_id='%s';" % (BANK0, UNION),
          'cannot fund'),
     ]
+    if '--timed-out-final-two' in sys.argv:
+        cases.append(("CREATE OR REPLACE FUNCTION public.fn_tournament_has_unsettled_bounties(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT false$$;",
+          "CREATE OR REPLACE FUNCTION public.fn_tournament_has_unsettled_bounties(uuid) RETURNS boolean LANGUAGE sql AS $$-- Scoped complete bounty marker proof\nSELECT false$$;",
+          'permanent scoped marker proof is not installed'))
     for mutate, undo, needle in cases:
         q(mutate)
         must_fail(MIGSQL, needle)
@@ -329,6 +346,9 @@ try:
     # amounts: the head is owed to whoever finished second (CLAUDE.md 10.5).
     q("UPDATE profiles SET is_horse=false;")
 
+    must_fail(MIGSQL.replace('BEGIN;', "BEGIN;SET LOCAL ca.final_two_make_good_probe='on';",1),'PROBE OK (rolled back)')
+    assert moved()==quiet and bank()==str(BANK0),'probe committed financial writes'
+
     # --- THE PAYMENT ----------------------------------------------------
     before = one("SELECT COALESCE(sum(chip_balance),0) FROM club_members;")
     print('union bank before:      %s' % bank())
@@ -338,16 +358,18 @@ try:
                  one("SELECT chip_balance FROM club_members WHERE user_id='%s' AND club_id='%s';" % (ru, club)),
                  head))
     print(notices(MIGSQL).strip())
+    if '--timed-out-final-two' in sys.argv:
+        assert one("SELECT resolved FROM financial_alerts WHERE id='e54559ac-f953-4f5e-886e-6798fbf16b5e'")=='t'
     after_bank = bank()
-    assert after_bank == '146630616.11', after_bank          # 146630676.83 - 60.72
-    assert one("SELECT round(%s - chip_balance,2) FROM union_wallets WHERE union_id='%s';" % (BANK0, UNION)) == '60.72'
-    assert one("SELECT round(sum(chip_balance) - %s,2) FROM club_members;" % before) == '60.72'
+    assert after_bank == str(Decimal(str(BANK0))-Decimal(str(TOTAL))), after_bank          # 146630676.83 - 60.72
+    assert one("SELECT round(%s - chip_balance,2) FROM union_wallets WHERE union_id='%s';" % (BANK0, UNION)) == f'{TOTAL:.2f}'
+    assert one("SELECT round(sum(chip_balance) - %s,2) FROM club_members;" % before) == f'{TOTAL:.2f}'
     legs = one("SELECT count(*)||'|'||sum(amount) FROM chip_ledger WHERE idempotency_key LIKE 'bounty-only-final-two-make-good:%';")
-    assert legs == '3|60.72', legs
+    assert legs == f'{len(EVENTS)}|{TOTAL:.2f}', legs
     assert one("""SELECT count(*)||'|'||sum(amount) FROM ca_manual_adjustments
-                   WHERE status='settled' AND decision_note LIKE 'migration 20261109010752%';""") == '3|60.72'
+                   WHERE status='settled' AND decision_note LIKE 'migration %s%%';""" % MIG.stem) == f'{len(EVENTS)}|{TOTAL:.2f}'
     assert one("""SELECT count(*)||'|'||sum(amount) FROM wallet_transactions
-                   WHERE category='settlement' AND type='credit';""") == '3|60.72'
+                   WHERE category='settlement' AND type='credit';""") == f'{len(EVENTS)}|{TOTAL:.2f}'
     assert one("""SELECT count(*) FROM chip_ledger WHERE idempotency_key LIKE 'bounty-only-final-two-make-good:%%'
                    AND (from_type<>'union_bank' OR from_entity_id<>'%s' OR to_type<>'player_wallet'
                         OR category<>'settlement' OR tournament_id IS NOT NULL OR club_id IS NULL
@@ -360,20 +382,20 @@ try:
                    % (WALLET0, win, club)) == '0.00', 'the champion was touched'
         assert one("SELECT bounty_pool_paid FROM tournaments WHERE id='%s';" % ev) == ('%.2f' % pool)
     assert one("""SELECT count(*) FROM financial_alerts WHERE source='bounty_only_final_two_make_good'
-                   AND resolved IS TRUE AND (context->>'paid')::numeric=60.72;""") == '1'
+                   AND resolved IS TRUE AND (context->>'paid')::numeric=%s;""" % TOTAL) == '1'
 
     # --- THE REPLAY PAYS NOTHING ----------------------------------------
     paid_state = moved()
     q(MIGSQL)
     assert moved() == paid_state, 'the replay moved money'
-    assert bank() == '146630616.11', bank()
+    assert bank() == str(Decimal(str(BANK0))-Decimal(str(TOTAL))), bank()
     assert one("""SELECT count(*) FROM financial_alerts WHERE source='bounty_only_final_two_make_good';""") == '1'
 
     # --- A KEY WITHOUT ITS EXACT RECEIPTS ABORTS ------------------------
-    q("UPDATE ca_manual_adjustments SET status='approved' WHERE target_id='%s' AND decision_note LIKE 'migration 20261109010752%%';" % RU0)
+    q("UPDATE ca_manual_adjustments SET status='approved' WHERE target_id='%s' AND decision_note LIKE 'migration %s%%';" % (RU0, MIG.stem))
     must_fail(MIGSQL, 'lacks the exact settled receipts')
-    q("UPDATE ca_manual_adjustments SET status='settled' WHERE target_id='%s' AND decision_note LIKE 'migration 20261109010752%%';" % RU0)
-    assert moved() == paid_state and bank() == '146630616.11'
+    q("UPDATE ca_manual_adjustments SET status='settled' WHERE target_id='%s' AND decision_note LIKE 'migration %s%%';" % (RU0, MIG.stem))
+    assert moved() == paid_state and bank() == str(Decimal(str(BANK0))-Decimal(str(TOTAL)))
 
     print('union bank after:       %s' % bank())
     for ev, name, day, pool, cash, ru, head, win, wh, res, ko, club in EVENTS:
@@ -381,10 +403,12 @@ try:
               % (ev[:8], name, day,
                  one("SELECT chip_balance FROM club_members WHERE user_id='%s' AND club_id='%s';" % (ru, club)),
                  head))
-    print('final two make-good: 15 refusals move nothing; 3 runners up paid 60.72 from the union bank '
-          'with one leg and one receipt each; replay and tampered receipts pay nothing - OK')
+    print(f'final two make-good: 15 refusals move nothing; {len(EVENTS)} runners up paid {TOTAL:.2f} from the union bank with one leg and one receipt each; rollback probe/replay/tamper OK')
 finally:
     if started:
         run([PG / 'pg_ctl', '-D', work / 'data', '-m', 'immediate', '-w', 'stop'])
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(sock, ignore_errors=True)
+
+if '--timed-out-final-two' not in sys.argv:
+    subprocess.run([sys.executable,str(Path(__file__).resolve()),'--timed-out-final-two'],check=True,timeout=90)
