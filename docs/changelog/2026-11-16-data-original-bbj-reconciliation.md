@@ -96,3 +96,17 @@ missing compact shapes, late bank receipts, pending spans and Diamond
 exclusion. No installer timeout, financial writer, trigger or scheduler changes.
 Actual production heap-scan/build capacity still requires the maintained
 protected installer result; private query timings are not that proof.
+
+The compact production build also exhausted 600 seconds: its observed scan
+reached 1,872,924 of 2,182,410 blocks around 569 seconds, before remaining scan
+and concurrent validation. The existing installer now grants only this exact
+reviewed BBJ migration SHA a bounded 1,200-second index statement and requires
+22 minutes before :50 both initially and immediately before its index. Other
+files retain 600 seconds, initial 12-minute admission and existing five-minute
+per-index admission. The BBJ job alone has 55 minutes for its unchanged
+900-second FIFO wait, 12-minute DDL admission wait, twenty-minute build and
+setup/body reserve; ordinary jobs remain 35 minutes. A new qualified index
+name preserves all three failed INVALID artifacts without DROP. No financial
+source, body lock timeout, maintenance guard or retry policy is widened.
+Actual installation/readback remains required; 1,200 seconds is a bounded
+measured allowance, not a guarantee of successful production completion.

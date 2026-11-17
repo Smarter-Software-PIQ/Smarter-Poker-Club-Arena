@@ -35,7 +35,7 @@ describe('Data Rake agrees with the invoice-backed Data question', () => {
     expect(split.ok).toBe(true);
     if (!split.ok) throw new Error(split.reason);
     expect(split.indexes).toHaveLength(1);
-    expect(split.indexes[0].name).toBe('ca_club_bbj_only_commit_receipt_span');
+    expect(split.indexes[0].name).toBe('ca_club_bbj_only_receipt_budget_span');
     expect(split.indexes[0].statement).toContain(
       "CASE WHEN jsonb_typeof(stack_result->'bbj')='number'"
     );

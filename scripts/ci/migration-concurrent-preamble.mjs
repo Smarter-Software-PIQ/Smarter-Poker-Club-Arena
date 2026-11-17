@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * Split a migration into its CREATE INDEX CONCURRENTLY preamble and its one
  * transaction.
@@ -44,11 +45,15 @@ const INDEX_STATEMENT =
  */
 export function splitConcurrentPreamble(sql) {
   const begin = /^BEGIN\s*;[ \t]*$/m.exec(sql);
-  if (!begin) return { ok: false, reason: 'no line that is exactly BEGIN; opens the migration transaction' };
+  if (!begin)
+    return { ok: false, reason: 'no line that is exactly BEGIN; opens the migration transaction' };
   const preamble = sql.slice(0, begin.index);
   const body = sql.slice(begin.index);
   if (!/COMMIT\s*;\s*$/i.test(body.trim())) {
-    return { ok: false, reason: 'the migration does not end with COMMIT; (nothing may follow the transaction)' };
+    return {
+      ok: false,
+      reason: 'the migration does not end with COMMIT; (nothing may follow the transaction)',
+    };
   }
   const scanned = statementsOutsideComments(preamble);
   if (!scanned.ok) return scanned;
@@ -62,10 +67,16 @@ export function splitConcurrentPreamble(sql) {
         reason: `only CREATE INDEX CONCURRENTLY IF NOT EXISTS <name> ON <public|smarter_private>.<table> (...) may precede BEGIN; found: ${statement.replace(/\s+/g, ' ').slice(0, 120)}`,
       };
     }
-    indexes.push({ name: m[1].toLowerCase(), schema: m[2].toLowerCase(), table: m[3].toLowerCase(), statement: statement + ';' });
+    indexes.push({
+      name: m[1].toLowerCase(),
+      schema: m[2].toLowerCase(),
+      table: m[3].toLowerCase(),
+      statement: statement + ';',
+    });
   }
   const names = new Set(indexes.map((i) => `${i.schema}.${i.name}`));
-  if (names.size !== indexes.length) return { ok: false, reason: 'the preamble names the same index twice' };
+  if (names.size !== indexes.length)
+    return { ok: false, reason: 'the preamble names the same index twice' };
   return { ok: true, indexes, body };
 }
 
@@ -90,14 +101,21 @@ function statementsOutsideComments(text) {
       i += 2;
       while (i < text.length && depth > 0) {
         const t = text.slice(i, i + 2);
-        if (t === '/*') { depth++; i += 2; } else if (t === '*/') { depth--; i += 2; } else i++;
+        if (t === '/*') {
+          depth++;
+          i += 2;
+        } else if (t === '*/') {
+          depth--;
+          i += 2;
+        } else i++;
       }
       if (depth > 0) return { ok: false, reason: 'an unterminated block comment precedes BEGIN;' };
       current += ' ';
       continue;
     }
     const ch = text[i];
-    if (ch === '$') return { ok: false, reason: 'dollar quoting before BEGIN; is not an index statement' };
+    if (ch === '$')
+      return { ok: false, reason: 'dollar quoting before BEGIN; is not an index statement' };
     if (ch === "'") {
       let j = i + 1;
       while (j < text.length) {
@@ -119,7 +137,11 @@ function statementsOutsideComments(text) {
     current += ch;
     i++;
   }
-  if (current.trim()) return { ok: false, reason: `a statement before BEGIN; is not terminated: ${current.trim().slice(0, 80)}` };
+  if (current.trim())
+    return {
+      ok: false,
+      reason: `a statement before BEGIN; is not terminated: ${current.trim().slice(0, 80)}`,
+    };
   return { ok: true, statements };
 }
 
@@ -133,4 +155,20 @@ export function minutesBeforeBreakWindow(date) {
   const minute = date.getUTCMinutes() + date.getUTCSeconds() / 60;
   if (minute >= 50 || minute < 3) return 0;
   return 50 - minute;
+}
+
+// Production compact BBJ build reached 1,872,924/2,182,410 heap blocks after
+// about 569 seconds, then exhausted 600 seconds before validation completed.
+// Only these exact reviewed bytes receive a bounded twenty-minute statement.
+export const BBJ_INDEX_BUDGET_FILE =
+  '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql';
+export const BBJ_INDEX_BUDGET_SHA =
+  'e9657465bbd6bd8e299d2d60ddfd5ff67fb299c2854b93d7c7ba197b6bdf960e';
+export function concurrentIndexBudget(file, sql) {
+  const extended =
+    file === BBJ_INDEX_BUDGET_FILE &&
+    createHash('sha256').update(sql).digest('hex') === BBJ_INDEX_BUDGET_SHA;
+  return extended
+    ? { statementMs: 1_200_000, admissionMinutes: 22, eachIndexMinutes: 22 }
+    : { statementMs: 600_000, admissionMinutes: 12, eachIndexMinutes: 5 };
 }
