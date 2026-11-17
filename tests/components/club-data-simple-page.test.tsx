@@ -448,7 +448,10 @@ describe('ClubDataSimplePage', () => {
     );
     expect(title.getAttribute('title')).toBe('CLUB JAQK - CLUB DATA');
     expect(headerTitle(null)).toBe('Club Data');
-    expect(screen.getByRole('button', { name: 'Report' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&view=advanced`
+    );
   });
 
   it('an agent reads his own downline, and has no whole-club report door', async () => {

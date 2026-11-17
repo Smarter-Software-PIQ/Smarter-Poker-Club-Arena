@@ -51,6 +51,9 @@ body='''
  generation=proof_migration;remember(generation)
  guarded=subprocess.run(['node','--input-type=module','-e',wrapper,generation.name],input=generation.read_text(),text=True,capture_output=True,check=True,cwd=profit_root).stdout
  e.sql(db,guarded,label='original-generation-source-producer')
+ remainder_fix=next((args.ticket_tree/'supabase/migrations').glob('20261117172824_*.sql'));remember(remainder_fix)
+ guarded=subprocess.run(['node','--input-type=module','-e',wrapper,remainder_fix.name],input=remainder_fix.read_text(),text=True,capture_output=True,check=True,cwd=profit_root).stdout
+ e.sql(db,guarded,label='satellite-remainder-original-earning-source')
  seed=(root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql').read_text().split('SET LOCAL session_replication_role=origin;')[0]
  seed+=(args.ticket_tree/'tests/fixtures/promo-ticket-play-through/generation-public-financial.sql').read_text()
  e.sql(db,seed,label='actual-public-pko-entry-and-source',seconds=60)

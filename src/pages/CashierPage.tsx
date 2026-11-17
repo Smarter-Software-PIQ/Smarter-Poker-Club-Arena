@@ -42,7 +42,7 @@ import { useMasterBusSubscriptions } from '../hooks/useMasterBusSubscription';
 import { useWalletStore } from '../stores/useWalletStore';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useBridgeRate } from '../hooks/useBridgeRate';
-import type { CashoutRequest } from '../services/CashoutService';
+import { CashoutRefusedError, type CashoutRequest } from '../services/CashoutService';
 import { validateCashoutAmount } from '../utils/cashoutAmount';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
 import {
@@ -2124,7 +2124,9 @@ function CashierContent() {
               assertCashoutStartCurrent(cashoutStart);
             } catch (err: unknown) {
               cashoutFailed = true;
-              if (isCashoutStartCurrent(cashoutStart))
+              if (isCashoutStartCurrent(cashoutStart)) {
+                if (err instanceof CashoutRefusedError && err.code === 'P0001')
+                  toast.warning(err.message, 15000);
                 setMessage({
                   type: 'error',
                   text:
@@ -2133,6 +2135,7 @@ function CashierContent() {
                     ((err instanceof Error ? err.message : String(err)) ||
                       'Cashout request failed.'),
                 });
+              }
             }
             // A failed cashout used to fall through to the blanket setAmount('')
             // below, wiping what the user typed while showing them an error they
@@ -2235,13 +2238,16 @@ function CashierContent() {
       assertCashoutStartCurrent(start);
       setAmount('');
     } catch (error: unknown) {
-      if (isCashoutStartCurrent(start))
+      if (isCashoutStartCurrent(start)) {
+        if (error instanceof CashoutRefusedError && error.code === 'P0001')
+          toast.warning(error.message, 15000);
         setMessage({
           type: 'error',
           text:
             (error instanceof Error ? error.message : String(error)) ||
             'Cashout failed. Please try again.',
         });
+      }
     }
     if (isCashoutCurrent()) setIsProcessing(false);
     startCooldown();

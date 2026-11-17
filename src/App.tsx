@@ -154,6 +154,7 @@ const UnionsPage = lazyWithRetry(() => import('./pages/UnionsPage'));
 const UnionDetailPage = lazyWithRetry(() => import('./pages/UnionDetailPage'));
 const UnionStatementsPage = lazyWithRetry(() => import('./pages/UnionStatementsPage'));
 const UnionDataPage = lazyWithRetry(() => import('./pages/UnionDataPage'));
+const UnionReportRedirect = lazyWithRetry(() => import('./pages/UnionReportRedirect'));
 const CreateUnionPage = lazyWithRetry(() => import('./pages/CreateUnionPage'));
 // Lazy like the page it wraps: it is only ever needed on /unions/create.
 const UnionCreationGuard = lazyWithRetry(() => import('./components/auth/UnionCreationGuard'));
@@ -1215,6 +1216,16 @@ function FullApp() {
                   union lead who is not a member of any club in it. The RPC is
                   gated on ca_can_oversee_union and raises on its own.
                 */}
+                <Route
+                  path="unions/:unionId/data/advanced"
+                  element={
+                    <AuthGuard>
+                      <PageErrorBoundary pageName="Union Report">
+                        <UnionReportRedirect />
+                      </PageErrorBoundary>
+                    </AuthGuard>
+                  }
+                />
                 <Route
                   path="unions/:unionId/data"
                   element={
