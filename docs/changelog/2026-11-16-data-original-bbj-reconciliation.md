@@ -122,3 +122,12 @@ other jobs remain35minutes and other index budgets remain600s/12min/5min.
 A new qualified name retains all four failed artifacts; no DROP, override,
 reader/financial semantics, numeric alternative, new index design or retry loop
 is introduced. Successful production installation remains to be proved.
+
+Final admission uses the steady validation segment rather than its initially
+hot pages:434,382 to711,397blocks in241s is about1,150blocks/s, projecting
+about2,477s total. The exact same SQL receives only2,520s and44-minute
+initial/per-index runway, including two minutes before:50. Its75-minute job
+still bounds FIFO900s + admission720s + index2520s + reserve300s=4440s.
+SQL, index name, financial/read behavior and all ordinary limits are unchanged.
+The prior77native/recovery/default evidence remains valid; production proof
+is still required, and no further automatic budget tuning is introduced.

@@ -159,7 +159,8 @@ export function minutesBeforeBreakWindow(date) {
 
 // Production completed its first heap scan around760s; validation scanned
 // 711,397/2,182,410 blocks in another431s before the1200s bound. Both scans
-// project about2082s. Only exact reviewed BBJ bytes get2400s and42min runway.
+// steady validation segment projects about2477s total. Exact BBJ bytes alone
+// get2520s and44min runway, preserving a two-minute pre-:50 reserve.
 export const BBJ_INDEX_BUDGET_FILE =
   '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql';
 export const BBJ_INDEX_BUDGET_SHA =
@@ -169,6 +170,6 @@ export function concurrentIndexBudget(file, sql) {
     file === BBJ_INDEX_BUDGET_FILE &&
     createHash('sha256').update(sql).digest('hex') === BBJ_INDEX_BUDGET_SHA;
   return extended
-    ? { statementMs: 2_400_000, admissionMinutes: 42, eachIndexMinutes: 42 }
+    ? { statementMs: 2_520_000, admissionMinutes: 44, eachIndexMinutes: 44 }
     : { statementMs: 600_000, admissionMinutes: 12, eachIndexMinutes: 5 };
 }

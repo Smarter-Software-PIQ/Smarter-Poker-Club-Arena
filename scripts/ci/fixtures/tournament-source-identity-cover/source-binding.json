@@ -22,7 +22,7 @@
     "scripts/ci/fixtures/weekly-quality-typed-source-maps/current-boundaries.sql": "1756c8ad591066dcb67d1f58c2527d3ae6e274cfa3ec1c17d0c67a507255494c",
     "scripts/ci/fixtures/weekly-statement-indexed-quality/installer-authorities.sql": "6f889b3bfba8638bc2a52c2b43cf639cd17e8c483aedd0d512f1aa2022e15f2f",
     "scripts/ci/fixtures/weekly-statement-indexed-quality/schema.sql": "268e8e2056fd532ad6f1680aeec5b5e27f7c18f532daaf727a759d9ccf7a8f38",
-    "scripts/ci/migration-concurrent-preamble.mjs": "80a6c2f8731ff7977968cb3ce4a387c92c1fc82d8d08c36b97ac201a9f14ba7b",
+    "scripts/ci/migration-concurrent-preamble.mjs": "0e6dfe0a56ab5b89e58c43265ab68e80e71130e6eb8a78e882c4e1bf8ff3c9f5",
     "scripts/ci/test-tournament-source-identity-cover-postgres.py": "8e26f6c6bbd36a77d7f743e696358d9dcd616eaf41ef564b64ac716c67cb6d01",
     "supabase/migrations/20261029020140_weekly_fee_source_identities_retain_their_tournament_and_rak.sql": "062ca87b4f99f5f42860fa3ee2ec91302d56ed9c9e9aec1c62f83111c4d5b7b0",
     "tests/tournament-source-identities-keep-narrow-physical-coverage.law.test.ts": "6ed10fe466e78fec94cebcd3b1f005d73183908f52cae2dad52897832da59715"
@@ -170,5 +170,11 @@
     "after": "80a6c2f8731ff7977968cb3ce4a387c92c1fc82d8d08c36b97ac201a9f14ba7b",
     "review": "Reviewed exact BBJ-only scalar/comment diff. Exact migration SHA b5a74ce10bf8f22d7ce5f6b22675a7f34608ad9e616b0829578712849b2985be now receives2400s and42-minute initial/per-index runway; its job alone75minutes. Ordinary600s/initial12/per5 and35-minute jobs, shared600-second cash recovery, catalog/OID/snapshot/retirement and financial/read-source contracts unchanged. No financial qualification restamp.",
     "reason": "Owner ordered the limit correction after actual1200s attempt: first scan~760s, validation711397/2182410blocks in431s projects~2082s total;2400s is bounded and42-minute runway preserves unchanged:50DDLguard. Newname retains four invalid artifacts, noDROP/override. Actual installation capacity not yet certified."
+  },
+  "bbjSteadyValidationAllowance20261117": {
+    "path": "scripts/ci/migration-concurrent-preamble.mjs",
+    "before": "80a6c2f8731ff7977968cb3ce4a387c92c1fc82d8d08c36b97ac201a9f14ba7b",
+    "after": "0e6dfe0a56ab5b89e58c43265ab68e80e71130e6eb8a78e882c4e1bf8ff3c9f5",
+    "review": "Only exact same reviewed BBJ SQL SHA b5a74ce10bf8f22d7ce5f6b22675a7f34608ad9e616b0829578712849b2985be receives2520s and44-minute initial/per-index runway, correcting steady validation estimate~2477s. Ordinary600/12/5 and cash shared600 recovery unchanged; no SQL/name/financial-reader/producer change or financial restamp.75-minute BBJ job unchanged:900+720+2520+300=4440s<4500s. Native77 and unchanged recovery reused."
   }
 }

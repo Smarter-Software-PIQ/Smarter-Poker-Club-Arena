@@ -124,7 +124,7 @@ jobs:
     # Queue wait (900 s) + the applier's bounded DDL admission wait (12 min,
     # apply-recorded-migration.mjs) + the apply itself. Pinned by
     # tests/unit/aMergedMigrationIsInstallable.test.ts.
-    # Exact BBJ index: FIFO15 + DDL admission12 + build40 + setup/body reserve.
+    # Exact BBJ index: FIFO15 + DDL admission12 + build42 + setup/body reserve.
     timeout-minutes: ${{ (inputs.migration || github.event.client_payload.migration) == '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql' && 75 || 35 }}
     steps:
       - name: Prove a job-token dispatch is the exact intent its trusted sender recorded

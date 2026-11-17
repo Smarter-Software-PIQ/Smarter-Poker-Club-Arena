@@ -184,12 +184,12 @@ describe('the apply door accepts concurrent index builds before the transaction 
 });
 
 describe('the measured BBJ index alone receives a bounded installation budget', () => {
-  it('binds forty minutes and full runway to the exact reviewed file bytes', () => {
+  it('binds forty-two minutes and full runway to the exact reviewed file bytes', () => {
     const sql = readFileSync(join('supabase/migrations', BBJ_INDEX_BUDGET_FILE), 'utf8');
     expect(concurrentIndexBudget(BBJ_INDEX_BUDGET_FILE, sql)).toEqual({
-      statementMs: 2_400_000,
-      admissionMinutes: 42,
-      eachIndexMinutes: 42,
+      statementMs: 2_520_000,
+      admissionMinutes: 44,
+      eachIndexMinutes: 44,
     });
     const ordinary = { statementMs: 600_000, admissionMinutes: 12, eachIndexMinutes: 5 };
     expect(concurrentIndexBudget(BBJ_INDEX_BUDGET_FILE, sql + '\n')).toEqual(ordinary);
