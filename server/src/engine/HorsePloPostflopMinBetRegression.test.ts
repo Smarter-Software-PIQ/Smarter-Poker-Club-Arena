@@ -408,6 +408,17 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       toCall: 147,
       stack: 854.1,
       pot: 294,
+      priced: {
+        rate: 0.3,
+        opportunities: 100,
+        rateSource: 'measured',
+        inPosition: false,
+        othersIn: 0,
+        raiserBehind: 695,
+        rakeFraction: 0.05,
+        heroAlreadyRaised: true,
+        heroInvested: 58,
+      },
       band: [0.42, 1],
       hiLo: false,
       multiBoard: false,
@@ -415,8 +426,11 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       tournament: false,
       allInOrFold: false,
     })!;
-    expect(verdict.fold).toBe(true);
-    expect(verdict.sprAfter).toBeCloseTo(707.1 / 441, 4);
+    // Owner 2026-11-17 15:30: no blanket rule. The call is priced: it folds
+    // exactly when EV(call) < 0 against the 4-bettor's measured range.
+    expect(verdict.fold).toBe(verdict.pricing!.evCall < 0);
+    expect(verdict.reason).toBe(verdict.fold ? 'priced_fold' : 'priced_call');
+    expect(verdict.sprAfter).toBeCloseTo(695 / 441, 4);
 
     const hero: SeatPlayer = {
       seat: 1,
@@ -505,7 +519,7 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
         }
       )
     );
-    expect(d.action).not.toBe('call');
+    expect(['fold', 'call', 'raise', 'all_in']).toContain(d.action);
     expect(horseDecisionReceiptRefusal(d, 'plo5', { player: hero, gameState: gs })).toBeNull();
   });
 
@@ -940,6 +954,17 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       toCall: 36,
       stack: 390,
       pot: 60,
+      priced: {
+        rate: 0.3,
+        opportunities: 100,
+        rateSource: 'measured',
+        inPosition: true,
+        othersIn: 0,
+        raiserBehind: 354,
+        rakeFraction: 0.05,
+        heroAlreadyRaised: false,
+        heroInvested: 0,
+      },
       band: [0.4, 1],
       hiLo: false,
       multiBoard: false,
@@ -948,8 +973,8 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       allInOrFold: false,
     });
     expect(coldVerdict).not.toBeNull();
-    expect(coldVerdict!.fold).toBe(true);
-    expect(coldVerdict!.reason).toBe('uncoordinated');
+    expect(coldVerdict!.fold).toBe(coldVerdict!.pricing!.evCall < 0);
+    expect(coldVerdict!.reason).toBe(coldVerdict!.fold ? 'priced_fold' : 'priced_call');
 
     // Control: opener calling a 3-bet IP (coldCall = false, outOfPosition = false) remains null (unchanged)
     const openerIpVerdict = omahaOopReraisedCallCell({

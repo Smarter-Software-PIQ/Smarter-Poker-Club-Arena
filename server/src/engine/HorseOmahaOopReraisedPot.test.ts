@@ -151,11 +151,24 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 const variantOf = (n: number) => (n === 5 ? 'plo5' : 'plo4');
 /** 100bb, blinds 1/2: a pot-sized 3-bet of a 7 open (17 to call into 34). */
+/** A measured re-raiser at a 3-bet rate of 0.10, heads-up, hero's position as given, 5% rake. */
+const pricing = (inPosition: boolean, raiserBehind: number) => ({
+  rate: 0.1,
+  opportunities: 100,
+  rateSource: 'measured' as const,
+  inPosition,
+  othersIn: 0,
+  raiserBehind,
+  rakeFraction: 0.05,
+  heroAlreadyRaised: false,
+  heroInvested: 0,
+});
 const threeBet = (hole: Card[], outOfPosition: boolean): OmahaOopReraisedInput => ({
   variant: variantOf(hole.length),
   hole,
   dead: [],
   outOfPosition,
+  priced: pricing(!outOfPosition, 193),
   preflopRaises: 2,
   toCall: 17,
   stack: 193,
@@ -174,6 +187,7 @@ const fourBet = (hole: Card[], outOfPosition: boolean): OmahaOopReraisedInput =>
   toCall: 51,
   stack: 376,
   pot: 102,
+  priced: pricing(!outOfPosition, 376),
 });
 
 describe('coordination, by class (seeded census, 500 hands a class)', () => {
@@ -191,65 +205,32 @@ describe('coordination, by class (seeded census, 500 hands a class)', () => {
     }
 });
 
-describe('the preflop cell, by class', () => {
-  const stats: Record<
-    string,
-    { kept3: number; kept4o: number; kept4i: number; eq3: number; eq4: number }
-  > = {};
-  const run = (name: string, hands: Card[][]) => {
-    const v3 = hands.map((h) => omahaOopReraisedCallCell(threeBet(h, true))!);
-    // the 4-bet cells sample the rare declared 4-bet range: a slice of the class
-    const few = hands.slice(0, FOUR_BET_N);
-    const v4o = few.map((h) => omahaOopReraisedCallCell(fourBet(h, true))!);
-    const v4i = few.map((h) => omahaOopReraisedCallCell(fourBet(h, false))!);
-    stats[name] = {
-      kept3: share(v3.map((v) => !v.fold)),
-      kept4o: share(v4o.map((v) => !v.fold)),
-      kept4i: share(v4i.map((v) => !v.fold)),
-      eq3: mean(v3.map((v) => v.equity ?? 0)),
-      eq4: mean(v4o.map((v) => v.equity ?? 0)),
-    };
-    return { v3, v4o, v4i };
-  };
-  it('uncoordinated classes never call a 3-bet out of position or a 4-bet in either position', () => {
+describe('the preflop cell, by class: priced, never folded by the class (owner 2026-11-17 15:30)', () => {
+  it('every hand of every class is priced; it folds exactly when EV(call) < 0', () => {
     for (const n of [4, 5])
       for (const ds of [true, false])
         for (const [name, make] of [
           ['split', splitHighLow],
           ['dangler', bigCardsWithDanglers],
+          ['group', oneGroup],
         ] as const) {
-          const r = run(
-            `${variantOf(n)} ${name} ${ds ? 'ds' : 'ls'}`,
-            census(make, n, ds, 4100 + n + (ds ? 50 : 0))
-          );
-          for (const v of [...r.v3, ...r.v4o, ...r.v4i])
-            expect([v.fold, v.reason]).toEqual([true, 'uncoordinated']);
+          const hands = census(make, n, ds, 4100 + n + (ds ? 50 : 0)).slice(0, 40);
+          for (const h of hands)
+            for (const input of [threeBet(h, true), threeBet(h, false), fourBet(h, true)]) {
+              const v = omahaOopReraisedCallCell(input);
+              if (v === null) continue; // a 3-bet in position is outside the scope
+              expect([name, v.reason]).toEqual([
+                name,
+                v.pricing!.evCall < 0 ? 'priced_fold' : 'priced_call',
+              ]);
+              expect(v.fold).toBe(v.pricing!.evCall < 0);
+              expect(v.equity).toBe(v.pricing!.equity);
+            }
         }
   });
-  it('one-group hands: kept shares and equities (bounds stated)', () => {
-    for (const n of [4, 5])
-      for (const ds of [true, false])
-        run(
-          `${variantOf(n)} group ${ds ? 'ds' : 'ls'}`,
-          census(oneGroup, n, ds, 5100 + n + (ds ? 50 : 0))
-        );
-    // Measured 2026-11-15 (500 hands a class; 100 for the 4-bet cells): double suited
-    // 0.83 kept facing a 3-bet out of position in both games; least suited 0.39 (PLO4)
-    // and 0.65 (PLO5); facing a 4-bet out of position 0.34 / 0.63 double suited and
-    // 0.00 / 0.36 least suited; in position 0.78 / 0.96 and 0.21 / 0.85.
-    for (const v of ['plo4', 'plo5']) {
-      const dsS = stats[`${v} group ds`];
-      const lsS = stats[`${v} group ls`];
-      expect(dsS.kept3).toBeGreaterThanOrEqual(0.75);
-      expect(dsS.kept3).toBeLessThan(1);
-      expect(lsS.kept3).toBeLessThan(dsS.kept3);
-      expect(dsS.eq3).toBeGreaterThan(lsS.eq3);
-      expect(dsS.eq4).toBeGreaterThan(lsS.eq4);
-      // out of position is the stricter test
-      expect(dsS.kept4o).toBeLessThan(dsS.kept4i);
-      expect(lsS.kept4o).toBeLessThanOrEqual(lsS.kept4i);
-      expect(dsS.kept4o).toBeGreaterThanOrEqual(lsS.kept4o);
-    }
+  it('without the pricing inputs the cell does not answer (the call stands)', () => {
+    const h = cards('AsKd7h4c2s');
+    expect(omahaOopReraisedCallCell({ ...threeBet(h, true), priced: undefined })).toBeNull();
   });
 });
 
@@ -530,6 +511,7 @@ function cellAt(rec: Recorded, nth: number) {
     toCall: gs.toCall as number,
     stack: hero.stack,
     pot: gs.pot,
+    priced: pricing(!outOfPosition, hero.stack),
     band: null,
     hiLo: false,
     multiBoard: false,
@@ -540,55 +522,30 @@ function cellAt(rec: Recorded, nth: number) {
   return { outOfPosition, raises: raises.length, verdict };
 }
 
-describe('recorded production calls', () => {
-  it("the sweep's three worst 4-bet-or-more calls were in position, are uncoordinated, and fold", () => {
+describe('recorded production calls: the scope is unchanged, the verdict is priced', () => {
+  it("the sweep's 4-bet-or-more calls and the out-of-position calls are in scope and priced", () => {
     for (const [key, nth] of [
       ['h59462734', 3],
       ['h58764659', 3],
       ['h58761639', 3],
+      ['h59518335', 2],
+      ['h58763434', 3],
+      ['h59455160', 1],
+      ['h59455160', 2],
+      ['h59407629', 2],
+      ['h59521326', 2],
     ] as const) {
       const c = cellAt(RECORDED[key], nth);
-      expect([key, c.outOfPosition, c.raises >= 3]).toEqual([key, false, true]);
-      expect([c.verdict?.fold, c.verdict?.reason, c.verdict?.coordination]).toEqual([
-        true,
-        'uncoordinated',
-        null,
+      expect([key, c.verdict?.reason]).toEqual([
+        key,
+        c.verdict!.pricing!.evCall < 0 ? 'priced_fold' : 'priced_call',
       ]);
-    }
-  });
-  it('59518335: the button calls a 4-bet with unconnected queens (in position): folds', () => {
-    const c = cellAt(RECORDED.h59518335, 2);
-    expect([c.outOfPosition, c.raises]).toEqual([false, 3]);
-    expect([c.verdict?.fold, c.verdict?.reason]).toEqual([true, 'uncoordinated']);
-  });
-  it('out of position: the worst 5-bet call, 4-bet call and 3-bet calls without aces fold', () => {
-    for (const [key, nth, raises] of [
-      ['h58763434', 3, 4],
-      ['h59455160', 1, 2],
-      ['h59455160', 2, 3],
-      ['h59407629', 2, 2],
-      ['h59521326', 2, 2],
-    ] as const) {
-      const c = cellAt(RECORDED[key], nth);
-      expect([key, c.outOfPosition, c.raises]).toEqual([key, true, raises]);
-      expect([c.verdict?.fold, c.verdict?.reason]).toEqual([true, 'uncoordinated']);
     }
   });
 });
 
-describe('the preflop cell: scope and the kept hands', () => {
+describe('the preflop cell: scope', () => {
   const ds = cards('9s8s7h6h');
-  it('a double-suited rundown calls a pot-sized 3-bet out of position', () => {
-    const v = omahaOopReraisedCallCell(threeBet(ds, true))!;
-    expect([v.fold, v.reason, v.coordination]).toEqual([false, 'strong_range', 'rundown']);
-    expect(v.required).toBeCloseTo(17 / 51 + 0.1, 6);
-  });
-  it('ace-king-queen-jack double suited (every card coordinated) calls; ace-king with danglers folds', () => {
-    const all = omahaOopReraisedCallCell(threeBet(cards('AsKsQhJh'), true))!;
-    expect([all.fold, all.reason, all.coordination]).toEqual([false, 'strong_range', 'rundown']);
-    const dangler = omahaOopReraisedCallCell(threeBet(cards('AsKs7h2h'), true))!;
-    expect([dangler.fold, dangler.reason]).toEqual([true, 'uncoordinated']);
-  });
   it('a call of a 3-bet in position, a single raise, Hi-Lo, a tournament and PLO6 are outside', () => {
     expect(omahaOopReraisedCallCell(threeBet(ds, false))).toBeNull();
     expect(omahaOopReraisedCallCell({ ...threeBet(ds, true), preflopRaises: 1 })).toBeNull();
@@ -599,40 +556,26 @@ describe('the preflop cell: scope and the kept hands', () => {
       omahaOopReraisedCallCell({ ...threeBet(cards('9s8s7h6h5d4c'), true), variant: 'plo6' })
     ).toBeNull();
   });
-  it('suited aces are never examined; bare aces are excused coordination and priced', () => {
-    const suited = omahaOopReraisedCallCell(fourBet(cards('AsAh7s6h'), true))!;
-    expect([suited.fold, suited.reason, suited.equity]).toEqual([false, 'aces_suited', null]);
-    const bare = omahaOopReraisedCallCell(threeBet(cards('AsAd7h2c'), true))!;
-    expect([bare.fold, bare.reason, bare.coordination]).toEqual([false, 'strong_range', null]);
+  it('suited aces and coordinated hands are priced like every other hand', () => {
+    for (const h of ['AsAh7s6h', 'Ts9s8h7h', 'AsAd7h2c'].map(cards)) {
+      const v = omahaOopReraisedCallCell(fourBet(h, true))!;
+      expect(v.fold).toBe(v.pricing!.evCall < 0);
+    }
   });
-  it('commitment: facing a 3-bet a ratio under 1 needs only the price; facing a 4-bet only an all-in call does', () => {
-    const split = cards('AsKd9h8c5s');
-    const short3 = omahaOopReraisedCallCell({ ...threeBet(split, true), stack: 40 })!;
-    expect([short3.fold, short3.reason]).toEqual([false, 'commitment']);
-    const deep4 = omahaOopReraisedCallCell({ ...fourBet(split, true), stack: 176 })!;
-    expect(deep4.sprAfter).toBeLessThan(1);
-    expect([deep4.fold, deep4.reason]).toEqual([true, 'uncoordinated']);
-    const allIn4 = omahaOopReraisedCallCell({ ...fourBet(split, true), stack: 51 })!;
-    expect(allIn4.reason === 'commitment' || allIn4.reason === 'short_of_price').toBe(true);
-    expect(allIn4.fold).toBe(!(allIn4.equity! > allIn4.price));
-  });
-  it('facing a 4-bet a hand with exactly one ace or king is charged the key-card margin', () => {
-    const one = omahaOopReraisedCallCell(fourBet(cards('KsQsJhTh'), true))!;
-    const none = omahaOopReraisedCallCell(fourBet(cards('QsJsTh9h'), true))!;
-    expect([one.dominatedKeyCard, none.dominatedKeyCard]).toEqual([true, false]);
-    expect(one.required - none.required).toBeCloseTo(0.03, 6);
-  });
-  it('a wider band for the raiser raises the equity but never excuses coordination or the margin', () => {
-    const coordinated = cards('8c7cTh9s6h');
-    const prior = omahaOopReraisedCallCell(threeBet(coordinated, true))!;
-    const wide = omahaOopReraisedCallCell({ ...threeBet(coordinated, true), band: [0.3, 1] })!;
-    expect(wide.equity!).toBeGreaterThan(prior.equity!);
-    expect(wide.required).toBe(prior.required);
-    const split = omahaOopReraisedCallCell({
-      ...threeBet(cards('AsKd9h8c5s'), true),
-      band: [0.1, 1],
+  it('a wider re-raise range raises the equity; more depth out of position lowers the realization', () => {
+    const h = cards('8c7cTh9s6h');
+    const narrow = omahaOopReraisedCallCell(threeBet(h, true))!;
+    const wide = omahaOopReraisedCallCell({
+      ...threeBet(h, true),
+      priced: { ...pricing(false, 193), rate: 0.4 },
     })!;
-    expect([split.fold, split.reason]).toEqual([true, 'uncoordinated']);
+    expect(wide.equity!).toBeGreaterThan(narrow.equity!);
+    const deep = omahaOopReraisedCallCell({
+      ...threeBet(h, true),
+      stack: 600,
+      priced: pricing(false, 600),
+    })!;
+    expect(deep.pricing!.realization).toBeLessThan(narrow.pricing!.realization);
   });
 });
 
@@ -702,15 +645,18 @@ describe('omahaOopReraisedPotStrongRange in the decision', () => {
     }
     const on = playMany(build, ON);
     expect(on.next).toEqual(unset.next);
+    // Priced (owner 2026-11-17 15:30): a call folds exactly where the priced
+    // receipt says EV(call) < 0; every other decision is unchanged.
     on.actions.forEach((a, i) => {
-      if (unset.actions[i] === 'call' && c.folds) {
+      if (unset.actions[i] === 'call' && on.fires[i].includes('omaha_reraised_call_priced_fold')) {
         expect(a).toBe('fold');
         expect(on.fires[i]).toContain('omaha_oop_reraised_call_folded');
       } else expect(on.bytes[i]).toEqual(unset.bytes[i]);
     });
-    if (c.folds) expect(calls(on)).toBe(0);
-    else expect(count(on, 'omaha_oop_reraised_call_kept')).toBe(calls(unset));
-    expect(count(on, 'omaha_oop_reraised_call_folded')).toBe(c.folds ? calls(unset) : 0);
+    expect(
+      count(on, 'omaha_reraised_call_priced_fold') + count(on, 'omaha_reraised_call_priced_call')
+    ).toBe(calls(unset));
+    void c.folds;
   });
   it('a folded call passes the worker receipt validator', () => {
     for (const s of SEEDS) {
@@ -718,7 +664,6 @@ describe('omahaOopReraisedPotStrongRange in the decision', () => {
       const { hero, gs } = stateAt(OOP, 2);
       seedFastRandom(s);
       const d = structuredClone(HorseLogic.decide(hero, gs, 'balanced', {}, ON));
-      expect(d.action).not.toBe('call');
       expect(
         horseDecisionReceiptRefusal(structuredClone(d), 'plo5', { player: hero, gameState: gs })
       ).toBeNull();

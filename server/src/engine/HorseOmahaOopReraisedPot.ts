@@ -130,6 +130,7 @@ import {
 import { omahaNutClassOuts } from './HorseOmahaOnePair.js';
 import { handClassRead, omahaEliteClassRead } from './HorseHandClasses.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import { reRaiseLineWidth } from './HorseOpponentExploit.js';
 import {
   RERAISED_POT_VARIANTS,
   omahaReraisedEquity,
@@ -238,6 +239,11 @@ export interface OmahaOopReraisedInput {
   outOfPosition: boolean;
   /** hero put no voluntary money (> bb) in before facing this 3-bet+ */
   coldCall?: boolean;
+  /**
+   * The priced call (PLO4/PLO5; see omahaReraisedCallPriced). Absent: the cell
+   * cannot price the call and returns null (the decision stands).
+   */
+  priced?: OmahaReraisedCallPricing;
   /** preflop raises so far (open = 1) */
   preflopRaises: number;
   toCall: number;
@@ -256,7 +262,14 @@ export interface OmahaOopReraisedInput {
 
 export interface OmahaOopReraisedVerdict {
   fold: boolean;
-  reason: 'aces_suited' | 'commitment' | 'strong_range' | 'uncoordinated' | 'short_of_price';
+  reason:
+    | 'aces_suited'
+    | 'commitment'
+    | 'strong_range'
+    | 'uncoordinated'
+    | 'short_of_price'
+    | 'priced_call'
+    | 'priced_fold';
   coordination: OmahaOopCoordination;
   equity: number | null;
   price: number;
@@ -264,6 +277,8 @@ export interface OmahaOopReraisedVerdict {
   sprAfter: number;
   /** exactly one ace or exactly one king facing a 4-bet or more */
   dominatedKeyCard: boolean;
+  /** the priced call's numbers (reasons priced_call / priced_fold only) */
+  pricing?: OmahaReraisedCallPricedNumbers;
 }
 
 /**
@@ -287,6 +302,32 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
   const count = (rank: string) => i.hole.filter((c) => c.rank === rank).length;
   const dominatedKeyCard = i.preflopRaises >= 3 && (count('A') === 1 || count('K') === 1);
   const base = { coordination, price, sprAfter, dominatedKeyCard };
+  // PLO4/PLO5 (owner 2026-11-17 15:30 Chicago: no blanket rule; every decision
+  // from the hand, the ranges, equity and EV): the call is priced, never folded
+  // by a class, a flag or a size. The class rules below serve PLO6 only.
+  if (i.variant.toLowerCase() !== 'plo6') {
+    if (!i.priced) return null;
+    const p = omahaReraisedCallPriced(
+      i.hole,
+      i.dead,
+      i.preflopRaises,
+      call,
+      i.pot,
+      i.stack,
+      i.priced
+    );
+    if (p === null) return null;
+    return {
+      ...base,
+      price: p.price,
+      sprAfter: p.sprAfter,
+      fold: p.evCall < 0,
+      reason: p.evCall < 0 ? 'priced_fold' : 'priced_call',
+      equity: p.equity,
+      required: p.required,
+      pricing: p,
+    };
+  }
   if (elite.cls === 'aa_ds')
     return { ...base, fold: false, reason: 'aces_suited', equity: null, required: price };
   const fourBet = i.preflopRaises >= 3;
@@ -350,6 +391,190 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
   return equity >= required
     ? { ...base, fold: false, reason: 'strong_range', equity, required }
     : { ...base, fold: true, reason: 'short_of_price', equity, required };
+}
+
+/**
+ * THE PRICED CALL OF A RE-RAISE (PLO4/PLO5; owner 2026-11-17 15:30 Chicago:
+ * "DONT' MAKE ANY BLANKET RULES, EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND
+ * DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS").
+ *
+ * The cell turns a call into a fold only when the call loses chips against
+ * folding now:
+ *
+ *   EV(call) = R x equity x (pot after the call) x (1 - rake) - call  <  0 = EV(fold)
+ *
+ *  - equity: this hand against the top `width` of hands (the engine's preflop
+ *    percentile; the deterministic sampler of HorseOmahaReraisedPot, seeded by
+ *    the cards, no draw from the brain's random stream). `width` comes from the
+ *    re-raiser's measured re-raise rate (a posterior mean with opportunity
+ *    denominators, the population mean of the game's envelope when nothing is
+ *    known of him), mapped rate -> width by RERAISE_RANGE_WIDTH_MAX/SCALE, and
+ *    narrowed once per raise beyond the 3-bet by the engine's line rule
+ *    (reRaiseLineWidth).
+ *  - R (realization): the share of that equity a call gets back, from the
+ *    position actually held after the call (after the re-raiser and after every
+ *    player already in for the price; a player still to act who has not raised
+ *    is not counted, measured below), the stack-to-pot ratio after the call, and
+ *    the other players in the pot. A call that is all in realizes 1.
+ *  - rake: the engine's own call deduction (exact when the table's rake is
+ *    known), the same figure the reference price uses.
+ * What hero already put in is in the pot; whether hero raised earlier is not a
+ * term of the decision (it moves the pot and the ranges, nothing else).
+ *
+ * The constants are the measurements of the PLO Strategy lane's priced preflop
+ * defence (session 01BNteGZ, branch
+ * agent/plo-preflop-01BNteGZ/feat/omaha-preflop-reraise-defence-priced,
+ * HorseOmahaPreflopReraiseDefence.ts at 33a4f1f2b45), restated here, not
+ * imported (that branch is not merged):
+ *  - width = 0.55 x (1 - exp(-rate / 0.09)): fitted to recorded 3-bet holdings
+ *    (rate 0.046 -> 0.21 Horses n 282; 0.117 -> 0.40 PLO4 people n 576;
+ *    0.224 -> 0.55 PLO5 people n 414; 0.396 -> 0.49 one PLO5 player n 1,286);
+ *  - R = 1 - COST x spr / (spr + HALF) - 0.35 x others (at most two, faded by
+ *    min(1, spr)): least squares on 2,023 recorded calls of a person's 3-bet or
+ *    4-bet (30 days to 2026-11-17, all-in adjusted, after rake): depth cost in
+ *    position 0.16 (SE 0.31) -> 0.15, out of position 0.73 (SE 0.54) -> 0.70;
+ *    halves 2 / 5 set, not fitted; each other player in 0.35 (SE 0.11); players
+ *    still to act who have not raised: -0.09 (SE 0.13) in position, 0.01 (SE
+ *    0.15) out of position, so no charge. That lane's hand-shape term (weight
+ *    0.47, SE 5.2: not measurable) is left out.
+ */
+export const RERAISE_RANGE_WIDTH_MAX = 0.55;
+export const RERAISE_RANGE_WIDTH_SCALE = 0.09;
+export const RERAISE_CALL_DEPTH_COST: Readonly<Record<'ip' | 'oop', number>> = {
+  ip: 0.15,
+  oop: 0.7,
+};
+export const RERAISE_CALL_DEPTH_HALF: Readonly<Record<'ip' | 'oop', number>> = { ip: 2, oop: 5 };
+export const RERAISE_CALL_OTHER_IN_COST = 0.35;
+export const RERAISE_CALL_REALIZATION_MIN = 0.3;
+/** The re-raise rate when neither the player nor the game's envelope gives one (the full-ring PLO5 envelope's mean). */
+export const RERAISE_RATE_FALLBACK = 0.046;
+/** Opponent holdings sampled for the priced call's equity. */
+export const RERAISE_CALL_EQUITY_SAMPLES = 400;
+
+/** What the caller (HorseLogic) hands the cell to price the call. */
+export interface OmahaReraisedCallPricing {
+  /** the re-raiser's re-raise rate: his posterior mean, or the population mean */
+  rate: number;
+  /** decayed opportunities behind `rate` (0: the population mean) */
+  opportunities: number;
+  rateSource: 'measured' | 'population' | 'fallback';
+  /** hero acts after the re-raiser and after every other player already in for the price */
+  inPosition: boolean;
+  /** other players in the pot besides the re-raiser: already in for the price, or a raiser of this hand still to act */
+  othersIn: number;
+  /** what the re-raiser has behind */
+  raiserBehind: number;
+  /** the share of the pot the call's award loses to rake (the engine's call deduction) */
+  rakeFraction: number;
+  /** receipt only: hero made a raise earlier in this hand's preflop */
+  heroAlreadyRaised: boolean;
+  /** receipt only: what hero has in on this street */
+  heroInvested: number;
+}
+
+export interface OmahaReraisedCallPricedNumbers {
+  equity: number;
+  /** equity at which EV(call) = 0 */
+  required: number;
+  price: number;
+  realization: number;
+  sprAfter: number;
+  width: number;
+  evCall: number;
+  rateSource: OmahaReraisedCallPricing['rateSource'];
+  inPosition: boolean;
+  othersIn: number;
+  heroAlreadyRaised: boolean;
+}
+
+const clamp01 = (x: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, x));
+
+/** The width of the re-raiser's range at `preflopRaises` (2 = facing a 3-bet). */
+export function omahaReraiserRangeWidth(rate: number, preflopRaises: number): number {
+  const r = Number.isFinite(rate) ? clamp01(rate, 0, 1) : RERAISE_RATE_FALLBACK;
+  let width = clamp01(
+    RERAISE_RANGE_WIDTH_MAX * (1 - Math.exp(-r / RERAISE_RANGE_WIDTH_SCALE)),
+    0.02,
+    1
+  );
+  for (let depth = 3; depth <= Math.min(preflopRaises, 6); depth++)
+    width = reRaiseLineWidth(width, depth);
+  return width;
+}
+
+/** Realization of a preflop call of a re-raise: position held, depth after the call, other players in. */
+export function omahaReraisedCallRealization(
+  inPosition: boolean,
+  sprAfter: number,
+  othersIn: number
+): number {
+  const spr = Number.isFinite(sprAfter) ? Math.max(0, sprAfter) : 0;
+  if (spr <= 1e-9) return 1;
+  const side = inPosition ? 'ip' : 'oop';
+  const depth = spr / (spr + RERAISE_CALL_DEPTH_HALF[side]);
+  const r =
+    1 -
+    RERAISE_CALL_DEPTH_COST[side] * depth -
+    Math.min(1, spr) * RERAISE_CALL_OTHER_IN_COST * Math.min(2, Math.max(0, othersIn));
+  return clamp01(r, RERAISE_CALL_REALIZATION_MIN, 1);
+}
+
+/** The priced call for a given equity (the arithmetic alone; omahaReraisedCallPriced samples the equity). */
+export function omahaReraisedCallEv(
+  equity: number,
+  width: number,
+  call: number,
+  pot: number,
+  stack: number,
+  p: OmahaReraisedCallPricing
+): OmahaReraisedCallPricedNumbers {
+  const potAfter = pot + call;
+  const price = call / potAfter;
+  const behind = Math.max(0, Math.min(stack - call, Math.max(0, p.raiserBehind)));
+  const sprAfter = behind / potAfter;
+  const realization = omahaReraisedCallRealization(p.inPosition, sprAfter, p.othersIn);
+  const award =
+    potAfter * (1 - clamp01(Number.isFinite(p.rakeFraction) ? p.rakeFraction : 0, 0, 0.5));
+  const evCall = realization * equity * award - call;
+  const required = realization * award > 0 ? call / (realization * award) : 1;
+  return {
+    equity,
+    required,
+    price,
+    realization,
+    sprAfter,
+    width,
+    evCall,
+    rateSource: p.rateSource,
+    inPosition: p.inPosition,
+    othersIn: p.othersIn,
+    heroAlreadyRaised: p.heroAlreadyRaised,
+  };
+}
+
+/** The priced call, or null when the equity cannot be sampled. */
+export function omahaReraisedCallPriced(
+  hole: readonly Card[],
+  dead: readonly Card[],
+  preflopRaises: number,
+  call: number,
+  pot: number,
+  stack: number,
+  p: OmahaReraisedCallPricing
+): OmahaReraisedCallPricedNumbers | null {
+  if (!(call > 0.005) || !(pot > 0) || !(stack > 0)) return null;
+  const width = omahaReraiserRangeWidth(p.rate, preflopRaises);
+  const lo = 1 - width;
+  const equity = omahaReraisedEquity(
+    hole,
+    [],
+    dead,
+    lo <= 1e-9 ? () => true : (h) => omahaPreflopPercentile([...h], false) >= lo,
+    RERAISE_CALL_EQUITY_SAMPLES
+  );
+  if (equity === null) return null;
+  return omahaReraisedCallEv(equity, width, call, pot, stack, p);
 }
 
 export type OmahaFlopContinueReason =
