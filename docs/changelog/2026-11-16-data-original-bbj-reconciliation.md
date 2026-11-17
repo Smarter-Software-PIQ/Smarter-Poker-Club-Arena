@@ -75,14 +75,24 @@ selected the GiST index and read two candidate rows in three shared-hit blocks
 latency guarantee. The existing four focused files passed 30 tests and the
 maintained concurrent-preamble tests passed 21.
 
-The first production concurrent index build reached its existing 600-second
-budget before the migration transaction was sent. The qualified retry uses a
-new index name and a timestamp-first CASE, so completed obligations before
-November 9 do not detoast their historical JSON. Earlier accepted obligations
-remain candidates if completion is later or pending. The reader uses the same
-predicate and retains the exact original accepted-day/bank-receipt-day and
-union checks. BBJ before November 9 stays unavailable even with a version-one
-seed receipt; fee/winnings headlines retain their existing availability.
-The original failed INVALID index is retained explicitly, without DROP or a
-changed installer timeout. Native qualification retains that artifact beside
-the new valid index and tests the floor, late bank receipts and pending spans.
+Both original all-history obligation-JSON and timestamp-bounded concurrent
+index attempts reached the unchanged 600-second installation budget before
+the migration transaction was sent. Both INVALID artifacts remain explicitly
+retained. The replacement indexes compact original stack-result numeric BBJ
+and rake, falling back to original obligation JSON for missing or nonnumeric
+receipt shapes. It retains the exact JSON qualification after index scoping,
+so a Diamond receipt cannot create a false source gap. There is no artificial
+November 9 availability floor; unqualified aggregate history remains unknown.
+
+The original database acceptance function refuses obligation fee presence or
+amounts that contradict settlement arguments. The exact forwarding, stack
+return and receipt-insert functions are preimage-guarded without changing any
+financial producer. Native qualification executes the actual extracted DB
+validator in private isolation, checks its contradictory requests, installs
+byte-exact original source definitions for the preimage guard, and pins the
+unchanged numeric forwarding/persistence chain. A changed original producer
+refuses before feature installation. Native source-gap cases cover older and
+missing compact shapes, late bank receipts, pending spans and Diamond
+exclusion. No installer timeout, financial writer, trigger or scheduler changes.
+Actual production heap-scan/build capacity still requires the maintained
+protected installer result; private query timings are not that proof.

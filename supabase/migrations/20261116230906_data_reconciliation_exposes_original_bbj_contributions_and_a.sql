@@ -2,23 +2,23 @@
 -- Report-only extension of the existing atomic aggregate/journal and finite loader.
 -- Old rows are not zero BBJ: versioned source coverage refuses their reconciliation
 -- until the original accounting day is reconstructed by the maintained loader.
--- @live-proof: EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ca_club_acct_fact' AND column_name='bbj_gross') AND to_regprocedure('public.fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.fn_ca_club_acct_cash_fee_rows(jsonb)') AND position('bbj_attributed_contribution' IN prosrc)>0) AND EXISTS(SELECT 1 FROM pg_index WHERE indexrelid=to_regclass('public.ca_club_bbj_only_commit_span_nov9') AND indisvalid AND indisready AND indislive) AND to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NOT NULL
+-- @live-proof: EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ca_club_acct_fact' AND column_name='bbj_gross') AND to_regprocedure('public.fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.fn_ca_club_acct_cash_fee_rows(jsonb)') AND position('bbj_attributed_contribution' IN prosrc)>0) AND EXISTS(SELECT 1 FROM pg_index WHERE indexrelid=to_regclass('public.ca_club_bbj_only_commit_receipt_span') AND indisvalid AND indisready AND indislive) AND to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NOT NULL
 -- Sparse original BBJ-only obligations, including later original bank receipts.
--- Timestamp CASE must run before detoasting historical obligation JSON. Earlier
--- completed rows cannot affect the supported Nov9+ report window; pending and
--- pre-floor accepted rows completed later remain candidates. The failed old
--- all-history index is deliberately retained, never dropped by this migration.
+-- Compact accepted stack fees are bound to the obligation by the original DB
+-- fee-mismatch refusal. Missing/non-numeric receipts retain the original JSON
+-- fallback. Readers still verify the exact original JSON after index scoping.
+-- Both failed previous index artifacts are retained, never dropped here.
 -- Built by the maintained ordinary CONCURRENTLY preamble, never a hot trigger.
-CREATE INDEX CONCURRENTLY IF NOT EXISTS ca_club_bbj_only_commit_span_nov9 ON public.hand_atomic_commits
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ca_club_bbj_only_commit_receipt_span ON public.hand_atomic_commits
  USING gist(tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]'))
- INCLUDE(committed_at,table_id,hand_number,hand_id) WHERE CASE WHEN committed_at >= '2026-11-09 08:00:00+00'::timestamptz OR post_commit_completed_at IS NULL OR post_commit_completed_at >= '2026-11-09 08:00:00+00'::timestamptz THEN (CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END) ELSE false END;
+ INCLUDE(committed_at,table_id,hand_number,hand_id) WHERE CASE WHEN jsonb_typeof(stack_result->'bbj')='number' AND jsonb_typeof(stack_result->'rake')='number' THEN (stack_result->>'bbj')::numeric>0 AND (stack_result->>'rake')::numeric<=0 ELSE (CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END) END;
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL TimeZone='UTC';
 SET LOCAL statement_timeout='60s';
 DO $sparse_guard$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
- WHERE i.indexrelid=to_regclass('public.ca_club_bbj_only_commit_span_nov9')
+ WHERE i.indexrelid=to_regclass('public.ca_club_bbj_only_commit_receipt_span')
  AND i.indrelid='public.hand_atomic_commits'::regclass AND i.indisvalid AND i.indisready AND i.indislive
  AND NOT i.indisunique AND NOT i.indisexclusion AND c.reloptions IS NULL AND am.amname='gist' AND i.indnkeyatts=1 AND i.indnatts=5
  AND pg_get_indexdef(i.indexrelid,1,true)=$key$tstzrange(committed_at, COALESCE(post_commit_completed_at, 'infinity'::timestamp with time zone), '[]'::text)$key$
@@ -28,7 +28,8 @@ DO $sparse_guard$ BEGIN
  AND pg_get_indexdef(i.indexrelid,5,true)='hand_id'
  AND pg_get_expr(i.indpred,i.indrelid)=$predicate$
 CASE
-    WHEN ((committed_at >= '2026-11-09 08:00:00+00'::timestamp with time zone) OR (post_commit_completed_at IS NULL) OR (post_commit_completed_at >= '2026-11-09 08:00:00+00'::timestamp with time zone)) THEN (
+    WHEN ((jsonb_typeof((stack_result -> 'bbj'::text)) = 'number'::text) AND (jsonb_typeof((stack_result -> 'rake'::text)) = 'number'::text)) THEN ((((stack_result ->> 'bbj'::text))::numeric > (0)::numeric) AND (((stack_result ->> 'rake'::text))::numeric <= (0)::numeric))
+    ELSE (
     CASE
         WHEN ((jsonb_typeof((post_commit_payload -> 'bbj_contribution'::text)) = 'object'::text) AND (jsonb_typeof((post_commit_payload #> '{bbj_contribution,amount}'::text[])) = 'number'::text)) THEN (((post_commit_payload #>> '{bbj_contribution,amount}'::text[]))::numeric > (0)::numeric)
         ELSE false
@@ -37,10 +38,16 @@ CASE
         WHEN ((jsonb_typeof((post_commit_payload -> 'rake'::text)) = 'object'::text) AND (jsonb_typeof((post_commit_payload #> '{rake,amount}'::text[])) = 'number'::text)) THEN (((post_commit_payload #>> '{rake,amount}'::text[]))::numeric > (0)::numeric)
         ELSE false
     END))
-    ELSE false
 END$predicate$) THEN
  RAISE EXCEPTION 'CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED'; END IF;
 END $sparse_guard$;
+
+DO $accepted_fee_contract$ BEGIN
+ IF md5(pg_get_functiondef('public.fn_ca_commit_hand_settlement(uuid, bigint, jsonb, numeric, numeric, text, numeric, jsonb, jsonb, text, uuid, jsonb)'::regprocedure))<>'ab6d1dfa8292c3d6c1c8ae6409fa1652' THEN RAISE EXCEPTION 'CLUB_DATA_BBJ_ACCEPTED_FEE_CONTRACT_CHANGED: fn_ca_commit_hand_settlement';END IF;
+ IF md5(pg_get_functiondef('public.fn_ca_commit_hand_settlement_before_lease_generation(uuid, bigint, jsonb, numeric, numeric, text, numeric, jsonb, jsonb)'::regprocedure))<>'b49192e78f472d7a931bcf20de46a702' THEN RAISE EXCEPTION 'CLUB_DATA_BBJ_ACCEPTED_FEE_CONTRACT_CHANGED: fn_ca_commit_hand_settlement_before_lease_generation';END IF;
+ IF md5(pg_get_functiondef('public.fn_ca_commit_hand_settlement_exact_before_obligations(uuid, bigint, jsonb, numeric, numeric, text, numeric, jsonb, jsonb, text, uuid)'::regprocedure))<>'c555fb7b83c889312995bc0038c1b275' THEN RAISE EXCEPTION 'CLUB_DATA_BBJ_ACCEPTED_FEE_CONTRACT_CHANGED: fn_ca_commit_hand_settlement_exact_before_obligations';END IF;
+ IF md5(pg_get_functiondef('public.fn_ca_settle_hand_stacks_absolute(uuid, bigint, jsonb, numeric, numeric, text, numeric)'::regprocedure))<>'ff16a5b791b4e2d01b7ab4ee62a85c0e' THEN RAISE EXCEPTION 'CLUB_DATA_BBJ_ACCEPTED_FEE_CONTRACT_CHANGED: fn_ca_settle_hand_stacks_absolute';END IF;
+END $accepted_fee_contract$;
 
 ALTER TABLE public.ca_club_acct_fact ADD COLUMN bbj_gross numeric NOT NULL DEFAULT 0, ADD COLUMN bbj_awards numeric NOT NULL DEFAULT 0;
 ALTER TABLE public.ca_club_acct_fact_journal ADD COLUMN bbj_gross numeric NOT NULL DEFAULT 0, ADD COLUMN bbj_awards numeric NOT NULL DEFAULT 0;
@@ -555,15 +562,12 @@ DECLARE v_union uuid:=public.fn_ca_club_data_union_of(p_context);v_day date;v_lo
  v_missing date[]:=ARRAY[]::date[];v_gap boolean;
 BEGIN
  IF v_union IS NULL THEN RETURN v_missing; END IF;
- -- The bounded index certifies BBJ only from the requested accounting week.
- -- Earlier dates remain unknown even after a version-one aggregate rebuild.
  FOR v_day IN SELECT g::date FROM generate_series(p_from,p_through,interval '1 day')g LOOP
-  IF v_day < date '2026-11-09' THEN v_missing:=array_append(v_missing,v_day);CONTINUE;END IF;
   v_lo:=public.fn_ca_accounting_day_start(v_day);v_hi:=public.fn_ca_accounting_day_start(v_day+1);
   SELECT EXISTS(
    SELECT 1 FROM public.hand_atomic_commits c
    LEFT JOIN public.union_pnl_cash_outcomes o ON o.table_id=c.table_id AND o.hand_number=c.hand_number
-   WHERE CASE WHEN committed_at >= '2026-11-09 08:00:00+00'::timestamptz OR post_commit_completed_at IS NULL OR post_commit_completed_at >= '2026-11-09 08:00:00+00'::timestamptz THEN (CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END) ELSE false END
+   WHERE (CASE WHEN jsonb_typeof(stack_result->'bbj')='number' AND jsonb_typeof(stack_result->'rake')='number' THEN (stack_result->>'bbj')::numeric>0 AND (stack_result->>'rake')::numeric<=0 ELSE (CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END) END) AND (CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END)
     AND tstzrange(c.committed_at,coalesce(c.post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange(v_lo,v_hi,'[)')
     AND ((c.committed_at>=v_lo AND c.committed_at<v_hi) OR EXISTS(
      SELECT 1 FROM public.bbj_contributions b WHERE ((c.hand_id IS NOT NULL AND b.hand_id=c.hand_id) OR (b.table_id=c.table_id AND b.hand_number=c.hand_number))

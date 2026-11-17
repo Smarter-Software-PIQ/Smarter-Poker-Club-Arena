@@ -16,3 +16,5 @@ UPDATE rake_attributions SET bbj_attributed_contribution=4.25 WHERE rake_record_
 INSERT INTO accounting_cash_accrual_batches VALUES('eeeeeeee-0000-0000-0000-000000009001');
 INSERT INTO accounting_cash_rake_sources(id,rake_record_id,player_id,club_id,union_id,earned_at,rake_credit) VALUES('eeeeeeee-0000-0000-0000-000000009021','eeeeeeee-0000-0000-0000-000000009001','11111111-0000-0000-0000-000000000001','a41434bb-8d0c-400a-8f0d-e8b3d65afed4','fade0000-0000-0000-0000-000000000001','2026-11-10 12:00Z',8);
 INSERT INTO ca_club_acct_seed_log(acct_day,fact_rows,hand_rows) VALUES('2026-11-10',0,0);
+
+ALTER TABLE hand_atomic_commits ADD COLUMN stack_result jsonb;

@@ -726,6 +726,25 @@ try:
                                if line.startswith(('CREATE TABLE ca_club_data_exports', 'CREATE TABLE ca_club_data_export_rows'))))
     run(psql('live'), 'SET check_function_bodies=false;' + '\n'.join(x['definition'] + ';' for x in defs))
     run(psql('live'), (recon / 'before.sql').read_text())
+    accepted_defs = json.loads((recon / 'accepted-fee-preimages.json').read_text())
+    run(psql('live'), 'SET check_function_bodies=false;' + '\n'.join(x['definition']+';' for x in accepted_defs))
+    # Execute the exact DB fee-presence/amount validator in a private isolation;
+    # full financial bodies are installed byte-exact above for source guards.
+    fee_contract = json.loads((recon / 'accepted-fee-contract.json').read_text())
+    assert fee_contract['guard'] in next(x['definition'] for x in accepted_defs if x['proname']=='fn_ca_commit_hand_settlement'), 'isolated validator must be exact original production source'
+    contract_sources = {x['proname']: ''.join(x['definition'].split()) for x in accepted_defs}
+    require('RETURNpublic.fn_ca_commit_hand_settlement_before_lease_generation(p_table_id,p_hand_number,p_stacks,p_rake,p_bbj,' in contract_sources['fn_ca_commit_hand_settlement_exact_before_obligations']
+            and 'v_stack_result:=public.fn_ca_settle_hand_stacks_absolute(p_table_id,p_hand_number,v_normalized_stacks,p_rake,p_bbj,' in contract_sources['fn_ca_commit_hand_settlement_before_lease_generation']
+            and 'VALUES(p_table_id,p_hand_number,v_hand_id,v_commit_hash,v_stack_result)' in contract_sources['fn_ca_commit_hand_settlement_before_lease_generation']
+            and "'net_deltas',round(v_delta_sum,2),'rake',p_rake,'bbj',p_bbj" in contract_sources['fn_ca_settle_hand_stacks_absolute'],
+            'byte-exact original settlement forwards and persists the same accepted rake and BBJ numeric amounts')
+    run(psql('live'), "CREATE FUNCTION pg_temp.check_accepted_fee(p_rake numeric,p_bbj numeric,p_post_commit_obligations jsonb,v_diamond boolean DEFAULT false) RETURNS void LANGUAGE plpgsql AS $isolated$ DECLARE p_hand_row jsonb:='{\"pot_size\":10,\"big_blind\":1,\"_accepted_post_commit_facts\":{\"contributions\":{},\"returned_uncalled\":{}}}';BEGIN " + fee_contract['guard'] + " END $isolated$; SELECT pg_temp.check_accepted_fee(0,1,'{\"rake\":null,\"bbj_contribution\":{\"amount\":1,\"big_blind\":1}}');")
+    # pg_temp is session-owned, so create and exercise each isolated validator
+    # together; no fixture function is made browser-reachable.
+    isolated = "CREATE FUNCTION pg_temp.check_accepted_fee(p_rake numeric,p_bbj numeric,p_post_commit_obligations jsonb,v_diamond boolean DEFAULT false) RETURNS void LANGUAGE plpgsql AS $isolated$ DECLARE p_hand_row jsonb:='{\"pot_size\":10,\"big_blind\":1,\"_accepted_post_commit_facts\":{\"contributions\":{},\"returned_uncalled\":{}}}';BEGIN " + fee_contract['guard'] + " END $isolated$;"
+    for rake, bbj, payload in [(0,0,'{"rake":null,"bbj_contribution":{"amount":1,"big_blind":1}}'), (0,1,'{"rake":null,"bbj_contribution":null}'), (0,1,'{"rake":null,"bbj_contribution":{"amount":2,"big_blind":1}}'), (1,0,'{"rake":null,"bbj_contribution":null}')]:
+        run(psql('live'), isolated + f"SELECT pg_temp.check_accepted_fee({rake},{bbj},'{payload}');", expect_fail='post_commit_fee_mismatch')
+    require(True, 'actual accepted-hand DB validator refuses fee presence and amount contradictions before compact receipt qualification')
     upgrade = (M / '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql').read_text()
     split = json.loads(run([shutil.which('node'), '--input-type=module', '-e',
         "import {readFileSync} from 'node:fs';import {splitConcurrentPreamble} from './scripts/ci/migration-concurrent-preamble.mjs';console.log(JSON.stringify(splitConcurrentPreamble(readFileSync(process.argv[1],'utf8'))));",
@@ -736,10 +755,16 @@ try:
     require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'failed concurrent build leaves its original INVALID catalog receipt visible')
     run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')
     require(q('live', "SELECT to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NULL AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='ca_club_acct_fact' AND column_name='bbj_gross')") == 't', 'an absent or INVALID sparse index refuses before installing fields or readers')
-    # Retain the failed old index exactly as the production recovery does.
+    # Retain both failed previous indexes as the production recovery does.
+    run(psql('live'), "CREATE INDEX CONCURRENTLY ca_club_bbj_only_commit_span_nov9 ON hand_atomic_commits ((1/(hand_number-hand_number)));", expect_fail='division by zero')
     for index in split['indexes']:
         run(psql('live'), index['statement'])
     require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'qualified replacement preserves the failed original index artifact')
+    original_accept = next(x['definition'] for x in accepted_defs if x['proname']=='fn_ca_commit_hand_settlement')
+    run(psql('live'), 'SET check_function_bodies=false;' + original_accept.replace('DECLARE', '-- qualification drift\nDECLARE', 1))
+    run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_ACCEPTED_FEE_CONTRACT_CHANGED')
+    run(psql('live'), 'SET check_function_bodies=false;' + original_accept)
+    require(True, 'changed original DB fee authority refuses before report feature installation')
     old_recon = background()
     old_recon.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_xact_id(); SELECT count(*) FROM clubs;\n\\echo RECON_SNAPSHOT\n")
     old_recon.stdin.flush()
@@ -788,7 +813,7 @@ try:
     predicate = split['indexes'][0]['statement'].split(' WHERE ', 1)[1].rstrip(';')
     plan = json.loads(q('live', "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) SELECT hand_id FROM hand_atomic_commits WHERE " + predicate +
         " AND tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange('2026-11-10 08:00Z','2026-11-11 08:00Z','[)')"))
-    require('ca_club_bbj_only_commit_span_nov9' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
+    require('ca_club_bbj_only_commit_receipt_span' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
     require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_bbj_gap_days(uuid,date,date)','EXECUTE')") == 't',
             'the sparse original-source qualification helper remains private')
     print('BBJ sparse candidate plan: ' + json.dumps(plan), flush=True)
