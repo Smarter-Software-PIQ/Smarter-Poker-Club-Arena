@@ -17,6 +17,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261118160405_tournament_table_writers_never_wait_on_the_platform_lane.sql
+      - supabase/migrations/20261118171613_tournament_and_club_lanes_fence_only_their_own_tables.sql
       - scripts/ci/fixtures/tournament-lane-isolation/**
       - scripts/ci/test-tournament-lane-isolation.py
       - .github/workflows/table-writer-lane-isolation.yml

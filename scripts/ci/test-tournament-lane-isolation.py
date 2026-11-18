@@ -29,8 +29,10 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261118160405_tournament_table_writers_never_wait_on_the_platform_lane.sql'
+MIG2 = ROOT / 'supabase/migrations/20261118171613_tournament_and_club_lanes_fence_only_their_own_tables.sql'
 FIX = json.loads((ROOT / 'scripts/ci/fixtures/tournament-lane-isolation/preimages.json').read_text())
 require_hash = 'ca2e5c85df8774e2c04b5aa4fad6b41b11d2dabe75f56f1acd6803be8e2b4e89'
+require_hash2 = 'd2185dae53729403bb3d5cde55b96ba7384e1866fecdc11faaff60178ce5e2c8'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/tournament-lane-isolation')
@@ -41,8 +43,16 @@ out.mkdir(parents=True, exist_ok=True)
 
 migration = MIG.read_text()
 mig_hash = hashlib.sha256(migration.encode()).hexdigest()
-if not args.print_post_images and mig_hash != require_hash:
-    sys.exit(f'migration bytes changed: sha256 {mig_hash} is not the qualified {require_hash}')
+migration2 = MIG2.read_text()
+mig2_hash = hashlib.sha256(migration2.encode()).hexdigest()
+if not args.print_post_images and (mig_hash != require_hash or mig2_hash != require_hash2):
+    sys.exit(f'migration bytes changed: sha256 {mig_hash} / {mig2_hash} are not the qualified pair')
+# The 30 caller substitutions are pinned to production pre- and post-images
+# computed read-only on production; their bodies are not in this cluster, so
+# the native run applies everything else in the file and leaves that block to
+# the md5 pins (the law test checks the block's shape).
+migration2_native = re.sub(r'-- @begin caller substitutions.*?-- @end caller substitutions\n', '', migration2, flags=re.S)
+assert migration2_native != migration2
 
 pg = pathlib.Path(os.environ.get('PG_BIN', '/usr/lib/postgresql/16/bin'))
 env = {k: v for k, v in os.environ.items() if not k.startswith('PG')}
@@ -119,6 +129,12 @@ CLUB = '11111111-0000-0000-0000-000000000001'
 TBL = {TA: 'aaaaaaaa-1111-0000-0000-00000000000a', TB: 'bbbbbbbb-1111-0000-0000-00000000000b',
        TC: 'cccccccc-1111-0000-0000-00000000000c'}
 CASH = 'dddddddd-1111-0000-0000-00000000000d'
+CLUB2 = '22222222-0000-0000-0000-000000000002'   # another club
+TD = 'dddddddd-0000-0000-0000-00000000000d'      # tournament D, hosted by club 2
+TS = 'eeeeeeee-0000-0000-0000-00000000000e'      # a satellite of club 1 into tournament A
+CASH2 = 'ffffffff-1111-0000-0000-00000000000f'   # a cash table of club 2
+TBL[TD] = 'dddddddd-1111-0000-0000-0000000000dd'
+TBL[TS] = 'eeeeeeee-1111-0000-0000-00000000000e'
 SEAT_B = 'bbbbbbbb-2222-0000-0000-00000000000b'
 
 ROLES = "CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;"
@@ -127,8 +143,12 @@ CREATE SCHEMA smarter_private; CREATE SCHEMA auth;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$ SELECT 'service_role'::text $$;
 CREATE TABLE public.clubs(id uuid PRIMARY KEY, union_id uuid);
 CREATE TABLE public.tournaments(id uuid PRIMARY KEY, club_id uuid, variant text, tournament_type text,
-  satellite_target_id uuid, satellite_target uuid);
-CREATE TABLE public.tables(id uuid PRIMARY KEY, tournament_id uuid, club_id uuid);
+  satellite_target_id uuid, satellite_target uuid, status text DEFAULT 'RUNNING');
+CREATE TABLE public.tables(id uuid PRIMARY KEY, tournament_id uuid, club_id uuid, status text DEFAULT 'active',
+  lifecycle text DEFAULT 'open', is_deleted boolean DEFAULT false, f06_lifecycle bigint, current_players int DEFAULT 0,
+  updated_at timestamptz DEFAULT now());
+CREATE SEQUENCE smarter_private.f06_lifecycle_seq;
+CREATE TABLE smarter_private.f06_operations(source_table_id uuid, state text);
 CREATE TABLE public.table_seats(id uuid PRIMARY KEY, table_id uuid, user_id uuid, seat_number int,
   left_at timestamptz, stack numeric, status text, joined_at timestamptz, club_id uuid);
 CREATE TABLE public.table_hole_cards(table_id uuid, hand_number int, cards text);
@@ -142,15 +162,13 @@ CREATE FUNCTION smarter_private.f06_authority(uuid, uuid) RETURNS void LANGUAGE 
 CREATE FUNCTION smarter_private.f06_authority(uuid, uuid, boolean) RETURNS void LANGUAGE sql AS $$ SELECT $$;
 CREATE FUNCTION public.fn_caller_is_engine() RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
 -- The two other finish-lane helpers the doctrine expects to name F.
-CREATE FUNCTION public.fn_ca_lock_settlement_lane_for_satellite_finish(p uuid) RETURNS void LANGUAGE plpgsql AS $$
-BEGIN PERFORM pg_advisory_xact_lock(hashtextextended('ca:tournament-finish-lane:v1', 0)); END $$;
-CREATE FUNCTION public.fn_ca_lock_settlement_lane_for_sweep_member(p uuid) RETURNS void LANGUAGE plpgsql AS $$
-BEGIN PERFORM pg_advisory_xact_lock(hashtextextended('ca:tournament-finish-lane:v1', 0)); END $$;
-INSERT INTO public.clubs VALUES ('{CLUB}', NULL);
+INSERT INTO public.clubs VALUES ('{CLUB}', NULL), ('{CLUB2}', NULL);
 INSERT INTO public.tournaments VALUES ('{TA}','{CLUB}','regular','MTT',NULL,NULL),
-  ('{TB}','{CLUB}','regular','MTT',NULL,NULL), ('{TC}','{CLUB}','regular','MTT',NULL,NULL);
+  ('{TB}','{CLUB}','regular','MTT',NULL,NULL), ('{TC}','{CLUB}','regular','MTT',NULL,NULL),
+  ('{TD}','{CLUB2}','regular','MTT',NULL,NULL), ('{TS}','{CLUB}','satellite','SATELLITE','{TA}',NULL);
 INSERT INTO public.tables VALUES ('{TBL[TA]}','{TA}','{CLUB}'), ('{TBL[TB]}','{TB}','{CLUB}'),
-  ('{TBL[TC]}','{TC}','{CLUB}'), ('{CASH}',NULL,'{CLUB}');
+  ('{TBL[TC]}','{TC}','{CLUB}'), ('{CASH}',NULL,'{CLUB}'), ('{TBL[TD]}','{TD}','{CLUB2}'),
+  ('{TBL[TS]}','{TS}','{CLUB}'), ('{CASH2}',NULL,'{CLUB2}');
 INSERT INTO public.table_seats VALUES ('{SEAT_B}','{TBL[TB]}',gen_random_uuid(),1,NULL,100,'active',now(),'{CLUB}');
 INSERT INTO smarter_private.f06_hand_permits VALUES ('{TBL[TB]}',7,'{TB}'), ('{TBL[TA]}',7,'{TA}');
 """
@@ -162,6 +180,10 @@ CREATE TRIGGER a00_f06_aborted_hand BEFORE INSERT OR UPDATE ON public.table_hole
   FOR EACH ROW EXECUTE FUNCTION smarter_private.f06_aborted_hand_guard();
 CREATE TRIGGER a00_f06_source_seat BEFORE INSERT OR UPDATE OR DELETE ON public.table_seats
   FOR EACH ROW EXECUTE FUNCTION smarter_private.f06_source_guard();
+CREATE TRIGGER a00_f06_lifecycle BEFORE INSERT OR UPDATE OR DELETE ON public.tables
+  FOR EACH ROW EXECUTE FUNCTION smarter_private.f06_table_guard();
+-- production's ACL on the one owner-only observer the doctrine excepts
+REVOKE ALL ON FUNCTION smarter_private.cancellation_lane(uuid) FROM PUBLIC;
 """
 
 
@@ -172,6 +194,9 @@ def install_preimages(db):
         live = q(f"SELECT md5(pg_get_functiondef('{f['signature']}'::regprocedure))", db)
         assert live == f['md5'], (f['signature'], live, f['md5'])
     psql(TRIGGERS, db)
+
+
+GLOBAL = "DO $g$BEGIN PERFORM public.fn_ca_lock_settlement_lane_global(); END$g$;"
 
 
 # The writer shapes production runs, each as one transaction.
@@ -195,7 +220,7 @@ def scenario_global_queued_behind_slow_authority(label):
     table's writers run. Returns their timings."""
     slow = bg(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_tournament('{TC}'); SELECT pg_sleep(6); COMMIT;")
     time.sleep(0.4)
-    glob = bg("BEGIN; SELECT public.fn_ca_lock_settlement_lane_global(); SELECT pg_sleep(0.2); COMMIT;")
+    glob = bg(f"BEGIN; {GLOBAL} SELECT pg_sleep(0.2); COMMIT;")
     wait_until_waiting(1)
     jobs = {
         'wait_lane_B': w_wait(TBL[TB]),
@@ -232,13 +257,18 @@ try:
     psql(ROLES)
     psql(SCHEMA)
     install_preimages('w')
-    check('pre-images are byte-identical to production (10 md5s)', True)
+    check(f"pre-images are byte-identical to production ({len(FIX['functions'])} md5s)", True)
 
     if args.print_post_images:
-        stripped = re.sub(r'DO \$post\$.*?END \$post\$;', '', migration, flags=re.S)
-        p = psql(stripped, check=True)
-        for f in FIX['functions']:
-            print(f['signature'], q(f"SELECT md5(pg_get_functiondef('{f['signature']}'::regprocedure))"))
+        psql(migration)
+        stripped = re.sub(r'DO \$post\$.*?END \$post\$;', '', migration2_native, flags=re.S)
+        p = psql(stripped, check=False)
+        print(p.stderr[-3000:])
+        for sig in ['public.fn_ca_lock_settlement_lane_global()', 'public.fn_ca_share_settlement_lane_for_table(uuid)',
+                    'smarter_private.f06_table_guard()', 'smarter_private.cancellation_lane(uuid)',
+                    'public.fn_ca_settlement_lane_doctrine()', 'public.fn_ca_lock_settlement_lane_for_club(uuid)',
+                    'public.fn_ca_lock_settlement_lane_for_event(uuid,boolean)']:
+            print(sig, q(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure))"))
         sys.exit(0)
 
     # ---------------- BEFORE: the defect, on the exact live bodies ----------------
@@ -305,7 +335,7 @@ try:
           f'{sA2[0]:.2f}s')
 
     # ---- The fence still holds while a global authority HOLDS the lane ----
-    gh = bg("BEGIN; SELECT public.fn_ca_lock_settlement_lane_global(); SELECT pg_sleep(2.5); COMMIT;")
+    gh = bg(f"BEGIN; {GLOBAL} SELECT pg_sleep(2.5); COMMIT;")
     time.sleep(0.4)
     d = timed(f"INSERT INTO public.table_hole_cards VALUES ('{TBL[TB]}',7,'direct');")
     check('a direct guarded write is refused while a global authority HOLDS the lane',
@@ -321,7 +351,7 @@ try:
     # ---- An authority cannot start while a writer is open (both directions) ----
     wopen = bg(f"BEGIN; SELECT smarter_private.f06_wait_table_lane('{TBL[TB]}'); SELECT pg_sleep(1.5); COMMIT;")
     time.sleep(0.3)
-    g = timed("BEGIN; SET LOCAL lock_timeout='0.5s'; SELECT public.fn_ca_lock_settlement_lane_global(); COMMIT;")
+    g = timed(f"BEGIN; SET LOCAL lock_timeout='0.5s'; {GLOBAL} COMMIT;")
     a = timed(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_tournament('{TB}'); COMMIT;")
     wopen.wait(30)
     check("B's rolling authority waits for B's open writer (T fence)", a[1] == 0 and a[0] >= 0.4, f'{a[0]:.2f}s')
@@ -342,6 +372,126 @@ try:
     check('doctrine rule 5 names a writer that takes G again',
           'table_writers_never_take_g' in p.stdout and 'f06_wait_table_lane' in p.stdout)
 
+    # =============== PART 2: 20261118171613, scoped club and event lanes ===============
+    p = psql(migration2_native, check=False)
+    check('scoped-lane migration applies (helpers, hand commit, table guard, cancellation, doctrine)',
+          p.returncode == 0, p.stderr.strip()[-400:])
+    check('doctrine answers ok with the club and event lanes',
+          q("SELECT public.fn_ca_settlement_lane_doctrine()->>'ok'") == 'true')
+
+    t = timed("SELECT public.fn_ca_lock_settlement_lane_global();")
+    check('a script can no longer take the global lane as its own top-level statement',
+          t[1] != 0 and 'GLOBAL_LANE_IS_NOT_A_SCRIPT_LOCK' in t[2], t[2][-120:])
+    t = timed(f"BEGIN; {GLOBAL} COMMIT;")
+    check('a function body still takes the global lane', t[1] == 0, t[2][-120:])
+
+    def hold(sql_lane, secs):
+        h = bg(f"BEGIN; {sql_lane} SELECT pg_sleep({secs}); COMMIT;")
+        time.sleep(0.5)
+        return h
+
+    def in_parallel(jobs):
+        res = {}
+        ths = [threading.Thread(target=lambda k=k, v=v: res.__setitem__(k, timed(v))) for k, v in jobs.items()]
+        for th in ths:
+            th.start()
+        for th in ths:
+            th.join()
+        return res
+
+    def fast(r):
+        return r[1] == 0 and r[0] < 1.0
+
+    def blocked(r):
+        return r[1] != 0 and r[0] >= 0.9
+
+    short_commit = lambda table: w_commit(table).replace("lock_timeout='4s'", "lock_timeout='1s'")
+
+    # A club operation (retirement, welcome unwind, the certification job) holds its club lane 10 s.
+    h = hold(f"SELECT public.fn_ca_lock_settlement_lane_for_club('{CLUB}');", 10)
+    r = in_parallel({
+        'other_club_cash': short_commit(CASH2), 'other_club_tournament_writer': w_wait(TBL[TD]),
+        'other_club_tournament_commit': short_commit(TBL[TD]),
+        'own_club_cash': short_commit(CASH), 'own_club_tournament_writer': w_wait(TBL[TA]),
+    })
+    h.wait(30)
+    check('a club lane held 10 s: another club\'s cash hand commits at once', fast(r['other_club_cash']), str(r['other_club_cash'][:2]))
+    check('a club lane held 10 s: another club\'s tournament writer writes at once',
+          fast(r['other_club_tournament_writer']) and fast(r['other_club_tournament_commit']),
+          f"{r['other_club_tournament_writer'][:2]} {r['other_club_tournament_commit'][:2]}")
+    check('a club lane held 10 s: its own club\'s cash hand waits for it', blocked(r['own_club_cash']), str(r['own_club_cash'][:2]))
+    check('a club lane held 10 s: its own club\'s tournament writer waits for it (bounded 4 s)',
+          r['own_club_tournament_writer'][1] != 0 and 'F06_RETRY_CANONICAL_LANE' in r['own_club_tournament_writer'][2],
+          str(r['own_club_tournament_writer'][:2]))
+
+    # One event's own authority (deal review, standalone settle) holds its event lane 10 s.
+    h = hold(f"SELECT public.fn_ca_lock_settlement_lane_for_event('{TA}');", 10)
+    r = in_parallel({'B_writer': w_wait(TBL[TB]), 'B_commit': short_commit(TBL[TB]), 'cash': short_commit(CASH),
+                     'other_club': w_wait(TBL[TD]), 'A_writer': w_wait(TBL[TA])})
+    h.wait(30)
+    check('an event lane held 10 s: other events\' writers and cash hands carry on at once',
+          all(fast(r[k]) for k in ['B_writer', 'B_commit', 'cash', 'other_club']),
+          json.dumps({k: [round(v[0], 2), v[1]] for k, v in r.items()}))
+    check('an event lane held 10 s: its own event\'s writer waits (bounded 4 s)',
+          r['A_writer'][1] != 0 and 'F06_RETRY_CANONICAL_LANE' in r['A_writer'][2], str(r['A_writer'][:2]))
+
+    # A cancellation-type authority (diamond / managed-game / retired-event void) holds the exclusive event lane.
+    h = hold(f"SELECT public.fn_ca_lock_settlement_lane_for_event('{TB}', true);", 10)
+    r = in_parallel({'A_writer': w_wait(TBL[TA]), 'cash': short_commit(CASH), 'other_club': short_commit(TBL[TD]),
+                     'B_writer': w_wait(TBL[TB])})
+    h.wait(30)
+    check('an exclusive (cancellation) event lane held 10 s: no other event\'s table or cash hand waits',
+          all(fast(r[k]) for k in ['A_writer', 'cash', 'other_club']),
+          json.dumps({k: [round(v[0], 2), v[1]] for k, v in r.items()}))
+    check('an exclusive (cancellation) event lane held 10 s: its own event\'s writer waits',
+          r['B_writer'][1] != 0, str(r['B_writer'][:2]))
+
+    # A satellite takes both events' keys in uuid order.
+    h = hold(f"SELECT public.fn_ca_lock_settlement_lane_for_event('{TS}');", 10)
+    r = in_parallel({'target_writer': w_wait(TBL[TA]), 'satellite_writer': w_wait(TBL[TS]),
+                     'B_writer': w_wait(TBL[TB]), 'cash': short_commit(CASH)})
+    h.wait(30)
+    check('a satellite lane held 10 s: the satellite and its target wait, nothing else does',
+          r['target_writer'][1] != 0 and r['satellite_writer'][1] != 0 and fast(r['B_writer']) and fast(r['cash']),
+          json.dumps({k: [round(v[0], 2), v[1]] for k, v in r.items()}))
+
+    # Re-entry and nesting rules.
+    t = timed(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_finish('{TA}'); "
+              f"SELECT public.fn_ca_lock_settlement_lane_for_event('{TA}'); {GLOBAL} COMMIT;")
+    check('inside a finish lane the event lane re-enters it', t[1] == 0, t[2][-160:])
+    t = timed(f"BEGIN; {GLOBAL} SELECT public.fn_ca_lock_settlement_lane_for_event('{TA}'); "
+              f"SELECT public.fn_ca_lock_settlement_lane_for_club('{CLUB}'); COMMIT;")
+    check('under the global lane the event and club lanes re-enter it', t[1] == 0, t[2][-160:])
+    t = timed(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_club('{CLUB}'); "
+              f"SELECT public.fn_ca_lock_settlement_lane_for_event('{TA}'); "
+              f"SELECT smarter_private.cancellation_lane('{TB}'); "
+              f"SELECT public.fn_ca_lock_settlement_lane_for_club('{CLUB}'); COMMIT;")
+    check("inside a club lane: its events' lanes and cancellations are its own", t[1] == 0, t[2][-160:])
+    t = timed(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_club('{CLUB}'); "
+              f"SELECT smarter_private.cancellation_lane('{TD}'); COMMIT;")
+    check("inside a club lane: another club's cancellation is refused",
+          t[1] != 0 and 'CANCELLATION_CLUB_AUTHORITY_INCOMPLETE' in t[2], t[2][-160:])
+    t = timed(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_club('{CLUB}'); "
+              f"SELECT public.fn_ca_lock_settlement_lane_for_event('{TD}'); COMMIT;")
+    check("inside a club lane: another club's event lane is refused", t[1] != 0 and 'outside the club lane' in t[2], t[2][-160:])
+    t = timed(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_event('{TB}', true); "
+              f"SELECT smarter_private.cancellation_lane('{TB}'); COMMIT;")
+    check('cancellation accepts the exclusive event lane of its own event', t[1] == 0, t[2][-160:])
+
+    # The table guard no longer refuses a counter-only update while a global authority queues.
+    slow = bg(f"BEGIN; SELECT public.fn_ca_lock_settlement_lane_for_tournament('{TC}'); SELECT pg_sleep(3); COMMIT;")
+    time.sleep(0.3)
+    glob = bg(f"BEGIN; {GLOBAL} COMMIT;")
+    wait_until_waiting(1)
+    c1 = timed(f"BEGIN; SELECT public.fn_ca_share_settlement_lane_for_table('{TBL[TB]}'); "
+               f"UPDATE public.tables SET current_players = current_players + 1 WHERE id = '{TBL[TB]}'; COMMIT;")
+    c2 = timed(f"UPDATE public.tables SET status = 'inactive' WHERE id = '{TBL[TB]}';")
+    slow.wait(30)
+    glob.wait(30)
+    check('the table guard lets a hand commit update its counter while a global authority queues', fast(c1), c1[2][-160:])
+    check('the table guard still refuses a lifecycle update while a global authority queues',
+          c2[1] != 0 and 'F06_RETRY_CANONICAL_LANE' in c2[2], c2[2][-120:])
+
     # ---- The migration refuses a drifted pre-image and changes nothing ----
     subprocess.run(as_owner + [str(pg / 'createdb'), '-h', str(sock), '-p', PORT, '-U', 'postgres', 'd'],
                    check=True, env=env)
@@ -356,7 +506,7 @@ try:
 
     # ---- Randomised mixed workload: no deadlock under the documented orders ----
     errors = []
-    tours = [TA, TB, TC]
+    tours = [TA, TB, TC, TD]
 
     def worker(seed):
         rnd = random.Random(seed)
@@ -368,23 +518,29 @@ try:
             elif kind < 0.45:
                 sql = f"SET lock_timeout='4s'; {w_share(t, TBL[t])}"
             elif kind < 0.60:
-                sql = w_commit(rnd.choice([TBL[t], CASH]))
+                sql = w_commit(rnd.choice([TBL[t], CASH, CASH2]))
             elif kind < 0.70:  # resume: authority lane first, then the hand lane (G s, T x, B s)
                 sql = (f"BEGIN; SET LOCAL lock_timeout='4s'; SELECT public.fn_ca_lock_settlement_lane_for_tournament('{t}'); "
                        f"SELECT public.fn_ca_share_settlement_lane_for_table('{TBL[t]}'); COMMIT;")
             elif kind < 0.82:
                 sql = (f"BEGIN; SET LOCAL lock_timeout='4s'; SELECT public.fn_ca_lock_settlement_lane_for_tournament('{t}'); "
                        f"SELECT pg_sleep({rnd.random() * 0.05:.3f}); COMMIT;")
-            elif kind < 0.92:
+            elif kind < 0.90:
                 sql = (f"BEGIN; SET LOCAL lock_timeout='4s'; SELECT public.fn_ca_lock_settlement_lane_for_finish('{t}'); "
                        f"SELECT pg_sleep({rnd.random() * 0.05:.3f}); COMMIT;")
+            elif kind < 0.95:
+                sql = (f"BEGIN; SET LOCAL lock_timeout='4s'; SELECT public.fn_ca_lock_settlement_lane_for_club('{rnd.choice([CLUB, CLUB2])}'); "
+                       f"SELECT pg_sleep({rnd.random() * 0.03:.3f}); COMMIT;")
+            elif kind < 0.975:
+                sql = (f"BEGIN; SET LOCAL lock_timeout='4s'; SELECT public.fn_ca_lock_settlement_lane_for_event('{rnd.choice(tours + [TS])}', {rnd.choice(['true', 'false'])}); "
+                       f"SELECT pg_sleep({rnd.random() * 0.03:.3f}); COMMIT;")
             else:
-                sql = ("BEGIN; SET LOCAL lock_timeout='4s'; SELECT public.fn_ca_lock_settlement_lane_global(); "
+                sql = (f"BEGIN; SET LOCAL lock_timeout='4s'; {GLOBAL} "
                        f"SELECT public.fn_ca_lock_settlement_lane_for_tournament('{t}'); "
                        f"SELECT pg_sleep({rnd.random() * 0.03:.3f}); COMMIT;")
             p = psql(sql, check=False)
             if p.returncode != 0:
-                errors.append(p.stderr.strip()[-200:])
+                errors.append(p.stderr.strip()[:400])
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(12)]
     t0 = time.monotonic()
@@ -394,8 +550,9 @@ try:
         th.join()
     log = LOG.read_text()
     deadlocks = log.count('deadlock detected')
-    timeouts = sum('F06_RETRY' in e or 'lock timeout' in e for e in errors)
-    others = [e for e in errors if not ('F06_RETRY' in e or 'lock timeout' in e)]
+    bounded = lambda e: 'F06_RETRY' in e or 'lock timeout' in e or 'settlement lane busy' in e  # all 55P03, retried
+    timeouts = sum(bounded(e) for e in errors)
+    others = [e for e in errors if not bounded(e)]
     results['mixed_workload'] = {'transactions': 480, 'seconds': round(time.monotonic() - t0, 2),
                                  'deadlocks': deadlocks, 'bounded_lock_timeouts': timeouts,
                                  'other_errors': others[:5]}
