@@ -400,6 +400,8 @@ describe('Horse League compute isolation', () => {
       a: {},
       b: { v12: false },
       mind: 'sandbox' as const,
+      // Vitest pins its own clock. The worker must price the same deals at the same hours.
+      moodClock: 'deal_seed' as const,
     };
     const direct = await runMatchup(matchup, 40, 0x5eed);
 
