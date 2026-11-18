@@ -54,6 +54,10 @@ Verdict under the declared rule: not FAIL (no card below -2 SE), not WIN (no hum
 
 Constants against the live audit CSVs (`phase2-texture-01BNteGZ/CONSTANTS-GROUNDING-20261117.md`): one player's river check rate after a called turn bet, Horse in position, is 11 of 21 (stated constant 0.60 for his non-value holdings: not contradicted); the other four constants are not grounded by that source.
 
+## League card (rebased 2026-11-18)
+
+League cards (HorseLeague.ts, declared): plo4_omaha_turn_call_realization_by_runout and plo5_omaha_turn_call_realization_by_runout: both arms carry production's live set (`OMAHA_LIVE_OPTIONS_20261118` = the 2026-11-16 live options plus omahaTurnRiverRaiseIsPriced, on since 2026-11-18 11:54Z), arm A adds omahaTurnCallRealizationByRunout. Lead decision 2026-11-18 (PR #11286): the card as merged in #11277 (86ab7637d9e) carried only `{ omahaFacingBetEv: true }` in both arms, while the evaluation above used the 32-option live package; the card now matches the live brain. No league has run on this card.
+
 ## Evidence rows
 
 - Mechanism, scope, tests: MET.

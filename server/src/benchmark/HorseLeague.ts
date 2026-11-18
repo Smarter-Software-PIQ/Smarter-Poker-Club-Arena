@@ -2211,6 +2211,16 @@ export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
 ) as HorseDecideOpts;
+/**
+ * Production's live Omaha set on 2026-11-18: the 2026-11-16 list plus
+ * omahaTurnRiverRaiseIsPriced (switched on 2026-11-18 11:54Z, inbox). The base
+ * of both arms of the 2026-11-18 batch cards whose option acts inside, or
+ * reads through, the live rules; arm A adds the one option.
+ */
+export const OMAHA_LIVE_OPTIONS_20261118: HorseDecideOpts = Object.freeze({
+  ...OMAHA_LIVE_OPTIONS_20261116,
+  omahaTurnRiverRaiseIsPriced: true,
+});
 
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
@@ -2587,24 +2597,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: {
-      ...OMAHA_LIVE_OPTIONS_20261116,
-      omahaTurnRiverRaiseIsPriced: true,
-      omahaReadIsByStreetAndTexture: true,
-    },
-    b: { ...OMAHA_LIVE_OPTIONS_20261116, omahaTurnRiverRaiseIsPriced: true },
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReadIsByStreetAndTexture: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is
   // priced beside bets of 10/20/25% of the pot with the opponent's measured
-  // response by pot share; a switches it on, b is today's brain.
+  // response by pot share. It runs after the street plan and the card-impact
+  // rule (both live), so both arms carry production's live set
+  // (OMAHA_LIVE_OPTIONS_20261118, lead decision 2026-11-18) and a adds the
+  // option.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_small_bet_is_priced`,
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: { omahaSmallBetIsPriced: true },
-    b: {},
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
@@ -2733,15 +2742,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // default OFF): facing a 3-bet or more preflop the fold, call or proposed
   // re-raise is chosen by expected value (exact-hand equity against the
   // re-raiser's measured width, measured realization, price and rake) in
-  // place of the re-raise range rules and the strong-range rule; a switches
-  // it on, b is today's brain.
+  // place of the re-raise range rules and the strong-range rule. Those rules
+  // and the re-raised-pot call cell it defers to are live, so both arms carry
+  // production's live set (OMAHA_LIVE_OPTIONS_20261118, lead decision
+  // 2026-11-18) and a adds the option.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_preflop_reraise_defence_priced`,
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: { omahaPreflopReraiseDefencePriced: true },
-    b: {},
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
@@ -2809,15 +2820,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // (HorseOmahaRunoutRealization, default OFF): inside the facing-bet EV rule,
   // a non-final turn call's realization factor is read from the hand's own
   // per-river counts against the bettor's value region and his other holdings
-  // instead of the flat 0.85 / 0.92. Both arms run the facing-bet EV rule (it
-  // is ON live); a adds the option, b is the rule as it serves.
+  // instead of the flat 0.85 / 0.92. Both arms carry production's live set
+  // (OMAHA_LIVE_OPTIONS_20261118, which runs the facing-bet EV rule; lead
+  // decision 2026-11-18); a adds the option, b is the brain as it serves.
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_turn_call_realization_by_runout`,
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: { omahaFacingBetEv: true, omahaTurnCallRealizationByRunout: true },
-    b: { omahaFacingBetEv: true },
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnCallRealizationByRunout: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
