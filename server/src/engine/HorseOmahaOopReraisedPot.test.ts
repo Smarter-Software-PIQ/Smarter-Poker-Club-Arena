@@ -772,13 +772,13 @@ describe('the preflop cell: scope and the kept hands', () => {
   });
   it('a call the class cell keeps is never folded, whatever the pricing says (review of 97de6c23913, item 1)', () => {
     // The harshest inputs the pricing accepts: out of position, two other
-    // players in, a re-raiser measured at 0.02. Realization sits at its 0.30
+    // players in on heads-up equity (the dilution), a re-raiser measured at 0.02. Realization sits at its 0.30
     // floor and, deep, the call would need more than all the equity there is
     // (1.17): no hand could pass. Every one of these has EV(call) < 0 and every
     // one is kept, with the class cell's own verdict.
     const harsh = (i: OmahaOopReraisedInput): OmahaOopReraisedInput => ({
       ...i,
-      priced: { ...pricing(false, i.stack), othersIn: 2, rate: 0.02 },
+      priced: { ...pricing(false, i.stack), othersIn: 2, headsUpDiluted: 2, rate: 0.02 },
     });
     const split = cards('AsKd9h8c5s');
     for (const [input, reason, required, ev] of [
@@ -801,6 +801,73 @@ describe('the preflop cell: scope and the kept hands', () => {
       expect(alone.evCall).toBeCloseTo(ev, 2);
       expect(alone.evCall).toBeLessThan(0);
     }
+  });
+  it('another player in for the price: the equity is taken against the re-raiser AND him, with no charge; without his band it stays heads-up with the 0.35 dilution (REALIZATION.md, 2026-11-18)', () => {
+    const input = threeBet(cards('KsKhQs9h4d'), true);
+    const headsUp = pricedAlone(input);
+    const multiway = pricedAlone({
+      ...input,
+      priced: { ...input.priced!, othersIn: 1, othersInBands: [[0.5, 1]] },
+    });
+    const diluted = pricedAlone({
+      ...input,
+      priced: { ...input.priced!, othersIn: 1, headsUpDiluted: 1 },
+    });
+    // a third hand takes a share of the pot: the multiway equity is lower
+    expect(multiway.equity).toBeLessThan(headsUp.equity);
+    expect(multiway.equityOpponents).toBe(2);
+    expect([headsUp.equityOpponents, diluted.equityOpponents]).toEqual([1, 1]);
+    // ...and nothing else is charged for him: the realization is the heads-up one
+    expect(multiway.realization).toBe(headsUp.realization);
+    expect([multiway.headsUpDiluted, diluted.headsUpDiluted]).toEqual([0, 1]);
+    // the fallback keeps the heads-up equity and charges the dilution
+    expect(diluted.equity).toBe(headsUp.equity);
+    expect(diluted.realization).toBeCloseTo(
+      headsUp.realization - Math.min(1, headsUp.sprAfter) * 0.35,
+      12
+    );
+    // deterministic for given cards
+    expect(
+      pricedAlone({
+        ...input,
+        priced: { ...input.priced!, othersIn: 1, othersInBands: [[0.5, 1]] },
+      }).equity
+    ).toBe(multiway.equity);
+    // a stronger caller range takes more of the pot
+    const strong = pricedAlone({
+      ...input,
+      priced: { ...input.priced!, othersIn: 1, othersInBands: [[0.9, 1]] },
+    });
+    expect(strong.equity).toBeLessThan(multiway.equity);
+    // pinned (the sampler is seeded by the cards)
+    expect(
+      [headsUp.equity, multiway.equity, strong.equity].map((x) => Math.round(x * 1e4) / 1e4)
+    ).toEqual([0.525, 0.345, 0.3133]);
+  });
+  it('R1 (review of 01653e47d09): a multiway sample that cannot be drawn falls back to heads-up equity with the 0.35 dilution; the class fold is still priced and receipted', () => {
+    const input = threeBet(cards('KsKhQs9h4d'), true);
+    // a caller range nothing can satisfy: the multiway sampler draws no sample and answers null
+    const impossible = { ...input.priced!, othersIn: 1, othersInBands: [[1.5, 2]] as const };
+    const fallback = pricedAlone({ ...input, priced: impossible });
+    const diluted = pricedAlone({
+      ...input,
+      priced: { ...input.priced!, othersIn: 1, headsUpDiluted: 1 },
+    });
+    expect([fallback.equityOpponents, fallback.headsUpDiluted]).toEqual([1, 1]);
+    expect(fallback).toEqual(diluted);
+    // through the cell: a class fold, priced by the fallback, with the numbers the receipt is chosen from
+    const cls = omahaOopReraisedClassCell({ ...input, priced: impossible })!;
+    const v = omahaOopReraisedCallCell({ ...input, priced: impossible })!;
+    // the class cell folds this call, and the fallback confirms the fold by its price
+    expect([cls.fold, v.fold, v.reason, Math.round(fallback.evCall * 1e4) / 1e4]).toEqual([
+      true,
+      true,
+      'priced_fold',
+      -7.7373,
+    ]);
+    // the receipt HorseLogic fires is chosen from these two numbers: heads_up_diluted, not multiway_equity
+    expect(v.pricing).toEqual(fallback);
+    expect([v.pricing!.equityOpponents, v.pricing!.headsUpDiluted]).toEqual([1, 1]);
   });
   it('without the pricing inputs: a class keep is kept as on main; a class fold cannot be confirmed, so the cell does not answer', () => {
     const keep = { ...threeBet(cards('9s8s7h6h'), true), priced: undefined };

@@ -7737,28 +7737,24 @@ function omahaReraisedLaneUntouched(gs: HorseGameStateV2): boolean {
  * the engine's own call deduction for rake. Undefined on any failure (the cell
  * then keeps what the class cell keeps and leaves the rest standing).
  *
- * POSITION FOLLOWS THE FIT; OTHERS IN KEEPS ONE KNOWN CONSERVATIVE DEVIATION
- * (finding F-02, 2026-11-18; PLO4/PLO5 cash). The realization constants were
- * fitted (lane 01BNteGZ, step1/step1.py and fit1.py) with position = hero acts
- * after the re-raiser, nothing else; the other-player charge (0.35) = players
- * who have CALLED the current price; every live player still to act (an opener
- * facing the re-raise included) at no charge: -0.09 (SE 0.13) in position,
- * 0.01 (SE 0.15) out of position.
- *   - Position: the price reads the fit's term
- *     (omahaReraisedPositionOf.ipVsRaiser). A player already in for the price
- *     who acts behind hero no longer costs the position the fit did not take;
- *     he is charged 0.35 as another player in, as the fit measured him.
- *   - Others in: a raiser of this hand still to act is STILL charged 0.35,
- *     which the fit did not measure for him. Removing that charge was built
- *     and run on the 627 journaled decisions on 2026-11-18 and failed its
- *     declared bar: 30 class folds became calls, 7 of them folds the audit
- *     judged correct (18 close, 5 questionable, none wrong). The charge stays
- *     until a realization fitted with that player in it exists. Direction:
- *     lower realization, fewer overturned folds, never worse than main.
+ * POSITION AND OTHER PLAYERS FOLLOW THE MEASUREMENTS (finding F-02 and the
+ * realization measurement of 2026-11-18, REALIZATION.md; PLO4/PLO5 cash):
+ *   - position in the price = hero acts after the re-raiser, nothing else
+ *     (omahaReraisedPositionOf.ipVsRaiser);
+ *   - othersIn = the players who have called the current price. With a
+ *     readable band for each of them (HorseMind.bandFor of his line; needs the
+ *     mind) the equity is taken against the re-raiser and all of them and no
+ *     charge follows (measured -0.03, SE 0.06). Without one the equity stays
+ *     heads-up and they are charged the old 0.35 as dilution (headsUpDiluted);
+ *   - a raiser of this hand still to act and a caller still to act carry no
+ *     charge (measured -0.09, SE 0.09 and +0.08, SE 0.08) and take no position
+ *     in the price. Before 2026-11-18 that raiser was charged 0.35 the first
+ *     fit never measured for him (review of 10150eebe3e, B1).
  * The wrapper's SCOPE (is this call examined at all) is a different question
  * and reads the wider seat order (omahaReraisedPositionOf.inPosition: last to
  * act among everyone who will see the flop). Tournaments and Lightning keep
- * the reading they had.
+ * the pricing they had (position after every player in for the price, a
+ * raiser still to act counted, 0.35 each on heads-up equity).
  */
 export function omahaReraisedCallPricingOf(
   player: SeatPlayer,
@@ -7831,6 +7827,33 @@ export function omahaReraisedCallPricingOf(
       ? mine > postflopOrder(raiser.seat, gs.dealerSeat) &&
         !live.some((p) => inFor(p) && !p.is_all_in && postflopOrder(p.seat, gs.dealerSeat) > mine)
       : position.ipVsRaiser;
+    // Other players. Tournaments and Lightning: as before (in for the price, or
+    // a raiser of this hand still to act; each 0.35 on heads-up equity). Cash:
+    // the players who have called the price; with a band for each the equity
+    // is against all of them, otherwise the heads-up dilution stays.
+    const inForPrice = live.filter((p) => inFor(p));
+    const othersIn = priorReading
+      ? live.filter((p) => inFor(p) || raisedBefore.has(p.seat)).length
+      : inForPrice.length;
+    let othersInBands: (readonly [number, number])[] | undefined;
+    if (!priorReading && inForPrice.length > 0 && opts.mind !== false) {
+      try {
+        const money =
+          HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined;
+        const bands = inForPrice.map((p) =>
+          HorseMind.bandFor(p.user_id, gs.actionHistory, bb, true, null, undefined, money)
+        );
+        if (
+          bands.every(
+            (b) => b !== null && Number.isFinite(b[0]) && Number.isFinite(b[1]) && b[1] > b[0]
+          )
+        )
+          othersInBands = bands.map((b) => [b![0], b![1]] as const);
+      } catch {
+        othersInBands = undefined;
+      }
+    }
+    const headsUpDiluted = othersInBands ? 0 : othersIn;
     const call = Math.min(toCall, stack);
     const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
     const exact = horseCallDeductionFraction(player, gs, call);
@@ -7843,7 +7866,9 @@ export function omahaReraisedCallPricingOf(
       rateSource,
       inPosition,
       ...(priorReading ? {} : { position }),
-      othersIn: live.filter((p) => inFor(p) || raisedBefore.has(p.seat)).length,
+      othersIn,
+      ...(othersInBands ? { othersInBands } : {}),
+      ...(headsUpDiluted > 0 ? { headsUpDiluted } : {}),
       raiserBehind: Number.isFinite(raiser.stack) ? Math.max(0, raiser.stack) : 0,
       rakeFraction,
       heroAlreadyRaised: raisedBefore.has(player.seat),
@@ -8059,6 +8084,11 @@ function omahaOopReraisedPotStrongRange(
           ? 'omaha_reraised_call_priced_in_position'
           : 'omaha_reraised_call_priced_out_of_position'
       );
+      // How the other players in for the price entered the price (inputs).
+      if (verdict.pricing.equityOpponents > 1)
+        noteFire('omaha_reraised_call_priced_multiway_equity');
+      else if (verdict.pricing.headsUpDiluted > 0)
+        noteFire('omaha_reraised_call_priced_heads_up_diluted');
       if (verdict.fold) noteFire('omaha_reraised_call_priced_fold');
       else noteFire('omaha_reraised_call_priced_call');
       if (verdict.pricing.heroAlreadyRaised) {

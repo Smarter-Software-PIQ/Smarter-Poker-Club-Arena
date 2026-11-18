@@ -186,26 +186,28 @@ describe('position held after the call, and the other players in', () => {
     const p = pricingOf(t, 1);
     expect([p.inPosition, p.othersIn]).toEqual([true, 1]);
   });
-  it('THE OPENER STILL TO ACT BEHIND HERO: still charged as another player in (more than the fit measured: the one conservative deviation left), and takes no position in the price', () => {
-    // Review of 10150eebe3e, B1 (23 of 236 recorded fires). The fit's 0.35 is
-    // for players who CALLED the current raise; an opener still to act carried
-    // no charge there (-0.09 / 0.01). Removing the charge was run on the 627
-    // journaled decisions (2026-11-18) and failed its declared bar (30 folds
-    // became calls, 7 of them folds the audit judged correct), so it stays.
-    // Pinned so that a change of this definition is a deliberate, evaluated change.
+  it('THE OPENER STILL TO ACT BEHIND HERO: no charge and no position taken in the price (measured -0.09, SE 0.09; before 2026-11-18 he was charged 0.35 no fit had measured)', () => {
+    // Review of 10150eebe3e, B1 (23 of 236 recorded fires), settled by the
+    // realization measurement of 2026-11-18 (12,473 calls): a raiser still to
+    // act behind carries no charge. Pinned: this definition changes only with
+    // a measurement and a rerun of the counterfactual.
     const p = pricingOf(openerBehindHero(), 1);
     expect([p.inPosition, p.othersIn, p.heroAlreadyRaised, p.heroInvested]).toEqual([
       true,
-      1,
+      0,
       false,
       2,
     ]);
-    // the scope sees him: hero is not last to act among those who will see the flop
+    expect([p.othersInBands, p.headsUpDiluted]).toEqual([undefined, undefined]);
+    // the scope still sees him: hero is not last to act among those who will see the flop
     expect([p.position?.inPosition, p.position?.raisersPendingBehind]).toEqual([false, 1]);
-    // once he has called the price he is a player in for it (0.35, as the fit
-    // measured); the price's position is the fit's, after the re-raiser (F-02)
+    // once he has called the price he is a player in for it; the price's
+    // position is still "after the re-raiser". With the mind off (no band can
+    // be read from his line) he enters as the 0.35 dilution of heads-up equity;
+    // with the mind on and a band read, through the equity instead.
     const called = pricingOf(openerBehindHero({ 6: { bet: 24 } }), 1);
     expect([called.inPosition, called.othersIn]).toEqual([true, 1]);
+    expect([called.othersInBands, called.headsUpDiluted]).toEqual([undefined, 1]);
     // folded or sitting out he is nobody
     for (const gone of [{ folded: true }, { sittingOut: true }]) {
       const q = pricingOf(openerBehindHero({ 6: gone }), 1);

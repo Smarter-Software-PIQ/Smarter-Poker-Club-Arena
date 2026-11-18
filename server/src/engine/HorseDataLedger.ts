@@ -4659,6 +4659,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_reraised_call_priced_multiway_equity',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players already in for the price and the equity taken against the re-raiser and each of them (omahaReraisedEquityAgainst; each caller range is the band read from his line), with no per-player charge (measured -0.03, SE 0.06)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_call_priced_heads_up_diluted',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players counted in the pot and the equity heads-up against the re-raiser, so each is charged the 0.35 dilution (a tournament or Lightning hand, or a player in for the price with no readable band)',
+    'V94'
+  ),
+  receipt(
     'omaha_reraised_call_in_position_caller_pending_seen',
     'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
     'finding F-02: a PLO4/PLO5 preflop call of a 3-bet or more reached the calling rule with the Horse in position against everyone who will see the flop and a caller of an earlier price behind it who has not yet answered the re-raise (the spot the rule called out of position before 2026-11-17; fired whether or not the cell then examines the call)',
