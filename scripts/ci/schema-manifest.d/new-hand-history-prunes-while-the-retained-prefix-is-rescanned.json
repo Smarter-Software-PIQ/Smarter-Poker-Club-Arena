@@ -1,0 +1,4 @@
+{
+  "_owner": "claude/alerts-retention-prune-frontier. PROMISED, not yet observed: migration 20261118061009_new_hand_history_prunes_while_the_retained_prefix_is_rescanned is installed through apply-merged-migration.yml after the protected merge, never from a branch (CLAUDE.md production DDL policy 11). One forward-only cursor row read and written only by sp_prune_hand_history (postgres, via pg_cron): the newest (created_at, id) past the retention boundary that pruning has examined.",
+  "tables": ["smarter_private.hand_history_prune_frontier"]
+}
