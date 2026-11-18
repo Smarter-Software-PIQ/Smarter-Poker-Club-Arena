@@ -201,6 +201,17 @@ export const OMAHA_CATEGORICAL_RULE_SITES: readonly OmahaCategoricalRuleSite[] =
     file: 'HorseOmahaFacingBetEv.ts',
   },
   {
+    audit: 'S1 (sites-013U37)',
+    rule: 'bare big pair out of position on the flop with the lead: the bet becomes a check by hand class',
+    legacyOptions: ['omahaBareOverpairOopFlopCheck'],
+    where: 'omahaOopCheckRules (flop branch)',
+    decidesBy: ['category', 'line'],
+    pricedBy: 'omahaFlopBetIsPriced',
+    legacyReceipts: ['omaha_bare_overpair_oop_flop_checked'],
+    sharedWith: ['omaha_priced_site_flop_bet_unpriced_kept'],
+    guard: 'omahaPricedSitesFlopBet(decision, player, gs, opts, flopSpot)',
+  },
+  {
     audit: 'S3 (sites-013U37)',
     rule: 'made-hand defence, bet half: no bet into the fresh turn card out of position, no thin river value bet',
     legacyOptions: ['omahaMadeHandDefenseVsValueLeader', 'omahaBeatenMadeHandDefense'],
@@ -269,6 +280,23 @@ export const OMAHA_OPEN_RULE_SITES: readonly OmahaOpenRuleSite[] = Object.freeze
       'factor and turn realization (WooWoo audit RC-02b, held by the PLO Strategy pickup 01BNteGY). The bet ' +
       'half of the rule is priced by omahaOopTurnBarrelIsPriced.',
   },
+  {
+    audit: 'S1b (sites-013U37)',
+    rule: 'bare big pair out of position on the flop, facing the bet after the check (the continuation): call, fold or flat by hand shape at the price',
+    legacyOptions: ['omahaBareOverpairOopFlopCheck'],
+    where: 'omahaBareOverpairFlopFacingBetRule (omahaOopCheckRules and omahaOwnerRuledFinal)',
+    decidesBy: ['category', 'line'],
+    legacyReceipts: [
+      'omaha_bare_overpair_oop_flop_check_called',
+      'omaha_bare_overpair_oop_flop_check_folded',
+      'omaha_bare_overpair_oop_flop_check_raise_flatted',
+      'omaha_bare_overpair_oop_flop_check_failsafe_flatted',
+    ],
+    why:
+      'a flop call or fold facing a bet belongs to the flop facing-bet expected-value verdict (omahaFlopFacingBetEv, ' +
+      'HorseOmahaFlopFacingBetEv.ts, held by the flopev2 build of this lane); the sites build prices only the bet half ' +
+      '(omahaFlopBetIsPriced) and does not decide a flop call.',
+  },
 ]);
 
 export type OmahaOptionClass =
@@ -314,6 +342,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'every public-state size and the check on the card-impact model'
   ),
   omahaBlockerBluffIsPriced: priced('the river bluff beside the check on the card-impact model'),
+  omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
   // priced before 2026-11-17 (the audit: "each compares priced lines")
   omahaFacingBetEv: priced('expected value of the call on the exact count'),
   omahaStreetPlan: priced('the bet and the check priced as whole lines'),
@@ -350,9 +379,8 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ploPairedBoardFold: open(
     'the flop: stack share and category (audit 1). It still decides whenever omahaFlopFacingBetEv is off (that option is default OFF and has no rule site in this register yet); on the turn and river the expected-value verdict already does'
   ),
-  omahaBareOverpairOopFlopCheck: open(
-    'the flop bet-to-check half is by hand class and position; the flop street plan (plo-wave2b-01BNteGZ) prices the flop bet'
-  ),
+  // the bet half priced by omahaFlopBetIsPriced; the continuation facing the flop bet is an open site (flop facing-bet verdict)
+  omahaBareOverpairOopFlopCheck: categorical('omahaFlopBetIsPriced'),
   // the bet half priced by omahaMadeHandBetIsPriced; the raise half by omahaTurnRiverRaiseIsPriced outermost
   omahaMadeHandDefenseVsValueLeader: categorical('omahaMadeHandBetIsPriced'),
   omahaBeatenMadeHandDefense: categorical('omahaMadeHandBetIsPriced'),

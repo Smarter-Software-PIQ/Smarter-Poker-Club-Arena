@@ -98,6 +98,13 @@ const BUILT: PricedSpot[] = [
     bet: 0,
     heroBetFlop: true,
   })),
+  // flop, nothing to call, a bare big pair with the betting lead (the bare-overpair check and its price), both positions;
+  // the owner fixture txHiARhC (hand 59833576) and its KK / QQ forms among them (sites-013U37)
+  ...['AdAhKdJd4h', 'KdKhAdJd4h', 'QdQhKdJd4h', 'AcAdKs4h2c', 'KcKdQs4h2c'].flatMap((hole) =>
+    ['8s6c9s', '9h7s3d', 'Th4c2d'].flatMap((board) =>
+      [false, true].map((inPosition) => ({ hole, board, bet: 0, inPosition }))
+    )
+  ),
   // river, nothing to call, a nut blocker with no showdown (the nut-blocker bluff), both positions (sites-013U37)
   ...[false, true].map((inPosition) => ({
     hole: 'AcAd6c5d2h',
@@ -239,7 +246,6 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
       .sort();
     expect(openRules).toEqual(
       [
-        'omahaBareOverpairOopFlopCheck',
         'omahaOnePairDiscipline',
         'omahaReraisedPotFlopContinueNeedsEquityShape',
         'ploPairedBoardFold',
@@ -249,6 +255,7 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
   it('the parts of categorical rules that still decide with the options on are exactly these (they shrink on purpose)', () => {
     expect(OMAHA_OPEN_RULE_SITES.map((x) => `${x.audit}: ${x.legacyReceipts.join(' ')}`)).toEqual([
       '10: omaha_oop_turn_check_fold_no_outs omaha_oop_turn_check_call_nut_draw omaha_oop_turn_check_raise_flatted',
+      'S1b (sites-013U37): omaha_bare_overpair_oop_flop_check_called omaha_bare_overpair_oop_flop_check_folded omaha_bare_overpair_oop_flop_check_raise_flatted omaha_bare_overpair_oop_flop_check_failsafe_flatted',
     ]);
     for (const site of OMAHA_OPEN_RULE_SITES) {
       expect(site.why.length, `audit ${site.audit}: the reason is stated`).toBeGreaterThan(40);
@@ -287,6 +294,7 @@ describe('with every priced option on, no registered categorical rule decides', 
       '10',
       '11',
       '3, 4, 5, 6',
+      'S1 (sites-013U37)',
       'S3 (sites-013U37)',
       'S5 (sites-013U37)',
       'S6 (sites-013U37)',
@@ -319,6 +327,7 @@ describe('with every priced option on, no registered categorical rule decides', 
       'omaha_priced_oop_turn_barrel_',
       'omaha_priced_paired_board_bet_',
       'omaha_priced_big_bet_',
+      'omaha_priced_site_flop_bet_',
       'omaha_priced_site_made_hand_bet_',
       'omaha_priced_site_turn_set_size_',
       'omaha_priced_site_blocker_bluff_',

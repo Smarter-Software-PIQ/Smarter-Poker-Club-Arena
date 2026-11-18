@@ -10,7 +10,11 @@ import { seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { omahaPricedBet } from './HorseOmahaPricedRules.js';
+import { omahaFlopEvCounts } from './HorseOmahaFlopFacingBetEv.js';
+import { omahaBareBigPairOnFlop, omahaHeroHasPreflopLead } from './HorseOmahaOopChecks.js';
 import {
+  omahaPricedSitesFlopBet,
+  omahaPricedSitesFlopBetEv,
   omahaPricedSitesBlockerBluffAdmits,
   omahaPricedSitesMadeHandBet,
   omahaPricedSitesOwnsBlockerBluff,
@@ -19,6 +23,7 @@ import {
 } from './HorseOmahaPricedSites.js';
 import { allSitesPriced } from './HorseOmahaPricedSites.test-support.js';
 import {
+  cards,
   LIVE,
   LIVE_OPTIONS,
   pricedSpot,
@@ -154,7 +159,15 @@ describe('each site answers by the priced comparison', () => {
 describe('whole decisions with every site on', () => {
   it('are legal, fail no rule, and equal the off decision outside the sites', () => {
     enableBrainTelemetry();
-    const spots: PricedSpot[] = [TURN_OOP, TURN_SET, RIVER_AIR, { ...TURN_OOP, inPosition: true }];
+    const spots: PricedSpot[] = [
+      TURN_OOP,
+      TURN_SET,
+      RIVER_AIR,
+      { ...TURN_OOP, inPosition: true },
+      { hole: 'AdAhKdJd4h', board: '8s6c9s', bet: 0, inPosition: true },
+      { hole: 'KdKhAdJd4h', board: '8s6c9s', bet: 0 },
+      { hole: 'QdQhKdJd4h', board: '9h7s3d', bet: 0 },
+    ];
     for (const seed of [1, 7, 42])
       for (const s of spots) {
         const run = (opts: HorseDecideOpts) => {
@@ -182,4 +195,68 @@ describe('whole decisions with every site on', () => {
           ).toEqual({ action: off.d.action, amount: off.d.amount });
       }
   }, 300000);
+});
+
+describe('omahaFlopBetIsPriced: the owner fixture txHiARhC (hand 59833576) and its KK / QQ forms', () => {
+  // PLO5 1/2 Madness: the Horse 4-bet to 148 and was called; flop 8s 6c 9s, pot 315, he checked;
+  // the Horse IN POSITION with 361.6 behind bet 252 (he check-raised with a flopped straight).
+  const FIXTURE = { board: '8s6c9s', pot: 315, bet: 252, effective: 361.6 };
+  const HANDS = { AA: 'AdAhKdJd4h', KK: 'KdKhAdJd4h', QQ: 'QdQhKdJd4h' };
+  const verdict = (hole: string, foldToBet: number) => {
+    const counts = omahaFlopEvCounts(cards(hole), cards(FIXTURE.board), [], 0.15)!;
+    expect(counts).not.toBeNull();
+    return omahaPricedSitesFlopBetEv({
+      equityTop: (x) => counts.top(x).win + counts.top(x).tie / 2,
+      pot: FIXTURE.pot,
+      bet: FIXTURE.bet,
+      effective: FIXTURE.effective,
+      inPosition: true,
+      foldToBet,
+    })!;
+  };
+  it('each is the spot (a bare big pair: no flush draw, few straight outs)', () => {
+    for (const hole of Object.values(HANDS))
+      expect(omahaBareBigPairOnFlop(cards(hole), cards(FIXTURE.board)), hole).toBe(true);
+  });
+  it('the bet is priced (both lines in chips), deterministically, and moves with his fold share only continuously', () => {
+    const rows: string[] = [];
+    for (const [name, hole] of Object.entries(HANDS)) {
+      const at = [0.3, 0.42, 0.5, 0.6].map((f) => verdict(hole, f));
+      for (const v of at) {
+        expect(Number.isFinite(v.evBet) && Number.isFinite(v.evCheck)).toBe(true);
+        expect(v.fold + v.call + v.raise).toBeCloseTo(1, 9);
+      }
+      // more folds: the bet is worth more; the check does not move
+      for (let k = 1; k < at.length; k++) {
+        expect(at[k].evBet).toBeGreaterThan(at[k - 1].evBet);
+        expect(at[k].evCheck).toBeCloseTo(at[0].evCheck, 9);
+      }
+      expect(verdict(hole, 0.42)).toEqual(at[1]);
+      rows.push(
+        `${name} ${hole}: ` +
+          at
+            .map(
+              (v) =>
+                `fold ${v.fold.toFixed(2)} bet ${v.evBet.toFixed(1)} check ${v.evCheck.toFixed(1)} (eq all ${v.equityAll.toFixed(3)} call ${v.equityCall.toFixed(3)} raise ${v.equityRaise.toFixed(3)}${v.callsRaise ? ', calls his raise' : ''})`
+            )
+            .join(' | ')
+      );
+    }
+    // eslint-disable-next-line no-console
+    console.log('[txHiARhC]\n' + rows.join('\n'));
+  });
+});
+
+describe('omahaFlopBetIsPriced: scope', () => {
+  it('off, or not the spot: null', () => {
+    const st = pricedSpot({ hole: 'AdAhKdJd4h', board: '8s6c9s', bet: 0, inPosition: true });
+    const bet: HorseDecision = { action: 'bet', amount: 100, thinkTime: 0 };
+    expect(omahaPricedSitesFlopBet(bet, st.hero as never, st.gs as never, OFF, false)).toBeNull();
+    const air = pricedSpot({ hole: '7c5d2h3s4c', board: 'KsQhJd', bet: 0, inPosition: true });
+    expect(omahaPricedSitesFlopBet(bet, air.hero as never, air.gs as never, ON, false)).toBeNull();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[flop lead in the built spot] ${omahaHeroHasPreflopLead(st.hero as never, st.gs as never)}`
+    );
+  });
 });

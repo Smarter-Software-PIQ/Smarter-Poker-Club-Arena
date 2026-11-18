@@ -474,6 +474,7 @@ import {
 } from './HorseOmahaPricedWiring.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
+  omahaPricedSitesFlopBet,
   omahaPricedSitesMadeHandBet,
   omahaPricedSitesOwnsBlockerBluff,
   omahaPricedSitesOwnsMadeHandBet,
@@ -3515,6 +3516,10 @@ export interface HorseDecideOpts {
    * price (some bet above the check) in place of the 0.28 equity line and
    * the paired-board bar. */
   omahaBlockerBluffIsPriced?: boolean;
+  /** HorseOmahaPricedSites: a bare big pair's flop bet with the betting
+   * lead is priced beside the check, heads-up, in either position (replaces
+   * the out-of-position check of omahaBareOverpairOopFlopCheck). */
+  omahaFlopBetIsPriced?: boolean;
   /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, first layer): PLO4/PLO5
    * cash, heads-up, one board, high only. Before a TURN bet facing no wager
    * the Horse prices the bet and the check as whole lines: the opponent's
@@ -9165,7 +9170,11 @@ function omahaOopCheckRules(
       return c;
     };
     if (stage === 'flop') {
-      if (!flopOn || !omahaBareOverpairOopFlopSpot(player, gs)) return decision;
+      const flopSpot = flopOn && omahaBareOverpairOopFlopSpot(player, gs);
+      // omahaFlopBetIsPriced (default off): the bare big pair's flop bet is priced beside the check.
+      const pricedFlop = omahaPricedSitesFlopBet(decision, player, gs, opts, flopSpot);
+      if (pricedFlop !== null) return pricedFlop;
+      if (!flopSpot) return decision;
       if (tele) noteFire('omaha_bare_overpair_oop_flop_checked');
       return checked();
     }

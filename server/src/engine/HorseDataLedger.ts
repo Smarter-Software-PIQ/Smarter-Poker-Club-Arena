@@ -1150,6 +1150,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopBetIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The flop bet of a bare big pair (an overpair, or queens or better with one higher card on the flop, no flush draw, fewer than eight straight outs) with the betting lead, in either position, is priced beside the check heads-up (HorseOmahaPricedSites.omahaPricedSitesFlopBetEv): he folds the weakest share of his holdings given by his fold to a bet (the priced read), raises with the strongest share (measured 0.15) and calls with the band between; the Horse equity against each band comes from the flop facing-bet sampler with its cards removal; the bet stands when it is priced at least at the check. It replaces the out-of-position check of omahaBareOverpairOopFlopCheck and prices the same hand in position (owner fixture txHiARhC, hand 59833576). Multiway and unpriceable spots keep the rule decision.',
+    'V94'
+  ),
+  flag(
     'omahaPricedMix',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Frequency mixing inside a priced rule that is on: when the two best actions of the comparison are closer than its own uncertainty (the standard error of the sampled share, plus the spread of the opponent read by its opportunity count) the lower one is taken with probability 0.5 x (1 - gap / uncertainty). The draw is the decision derived stream (read, never advanced) hashed with public state only: the street, the board, the pot, the wager, the seat and the public action count; the Horse hole cards are not read.',
     'V94'
@@ -5272,6 +5277,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_blocker_bluff_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
     'the same spot: the bet could not be priced: no bluff (the check stands)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_flop_bet_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
+    'a bare big pair flop bet with the lead is priced at least at the check and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_flop_bet_checked',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
+    'the same spot: the check is priced above the bet: the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_flop_bet_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
+    'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
     'V94'
   ),
   receipt(

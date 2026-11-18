@@ -36,6 +36,14 @@
  *    highest-valued of the public-state candidates (the card-impact sizes and
  *    the pound size itself); the check is taken only when it out-prices
  *    every size.
+ *  - omahaFlopBetIsPriced: the flop bet of a bare big pair (an overpair, or
+ *    queens or better with one higher card, no flush draw, few straight outs)
+ *    with the betting lead, in either position, is priced beside the check
+ *    heads-up: his fold share from the read, his raise share measured, the
+ *    Horse's equity against each band of his holdings (the flop facing-bet
+ *    sampler, card removal applied). Replaces the out-of-position check of
+ *    omahaBareOverpairOopFlopCheck; the same hand in position (owner fixture
+ *    txHiARhC, hand 59833576) is priced too. Multiway: not priced.
  *  - omahaBlockerBluffIsPriced: the river nut-blocker bluff admitted hands
  *    below an equity line (0.28) and, on a paired board, by a separate bar.
  *    With the option on the hand is admitted when some bet is priced above
@@ -46,6 +54,13 @@ import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire, telemetryOn } from './BrainTelemetry.js';
 import { omahaPricedInScope, omahaPricedReadOfUser } from './HorseOmahaPricedWiring.js';
+import { OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET } from './HorseOmahaBigDrawAggression.js';
+import { omahaFlopEvCounts } from './HorseOmahaFlopFacingBetEv.js';
+import {
+  omahaBareBigPairOnFlop,
+  omahaHeroHasPreflopLead,
+  omahaOpponentActsBehind,
+} from './HorseOmahaOopChecks.js';
 import {
   omahaPricedBet,
   type OmahaPricedBetVerdict,
@@ -239,5 +254,183 @@ export function omahaPricedSitesBlockerBluffAdmits(
   } catch {
     if (tele) noteFire('omaha_strategy_rule_failed');
     return false;
+  }
+}
+
+// ───────────────────── omahaFlopBetIsPriced ─────────────────────
+
+/**
+ * The share of his whole range that raises a flop bet: MEASURED, PLO4/PLO5
+ * cash with a person seated, Nov 13-17 (blockbet-013U37 measurement, inbox
+ * 2026-11-18T01:47:19Z: people raise Horse small flop bets 10 to 21 percent);
+ * the middle of that interval. It is taken from the top of his continuing
+ * range. A per-street fold-to-bet read moves the fold share; no read of his
+ * raise rate exists yet, so this share is the prior for every opponent.
+ */
+export const OMAHA_PRICED_SITES_FLOP_RAISE_SHARE = 0.15;
+/**
+ * The share of the pot a flop one-pair holding (a bare overpair is one) realizes
+ * over the turn and river with chips behind, heads-up, by position: FITTED from
+ * production (realfit-013U37/REALIZATION-FIT-20261118.md, realization-fit.json
+ * sha256 0cd708ff5f5e15c6, table "HORSE callers, all bettors", 12,430 fitted
+ * flop and turn calls with known hole cards, exact equity, hierarchical
+ * continuous shrinkage): flop.one_pair.ip.hu 0.6131 (n 530), flop.one_pair.oop.hu
+ * 0.6450 (n 688); raw flop one pair 0.62 (0.49 to 0.76). Those apply to EXACT
+ * equity; the flop sampler here is a modelled equity measured optimistic by
+ * 0.404 / 0.457 = 0.884 (flopev2 CALIB-OUTPUT, 1,992 Horse flop calls), so the
+ * factor used is the product. A called range only (the fit's limit 1). A call
+ * that puts the Horse all in realizes its whole equity.
+ */
+export const OMAHA_PRICED_SITES_FLOP_MODEL_EQUITY_SCALE = 0.404 / 0.457;
+export const OMAHA_PRICED_SITES_FLOP_REALIZATION: Readonly<Record<'ip' | 'oop', number>> =
+  Object.freeze({
+    ip: 0.6131 * OMAHA_PRICED_SITES_FLOP_MODEL_EQUITY_SCALE,
+    oop: 0.645 * OMAHA_PRICED_SITES_FLOP_MODEL_EQUITY_SCALE,
+  });
+
+export interface OmahaPricedSitesFlopInput {
+  /** the Horse's equity against the strongest `share` of his holdings on the flop (card removal applied) */
+  equityTop: (share: number) => number;
+  pot: number;
+  bet: number;
+  /** the effective stack: the most either can lose from here */
+  effective: number;
+  inPosition: boolean;
+  /** his fold to a bet (posterior mean) */
+  foldToBet: number;
+  raiseShare?: number;
+}
+export interface OmahaPricedSitesFlopVerdict {
+  evBet: number;
+  evCheck: number;
+  fold: number;
+  call: number;
+  raise: number;
+  equityAll: number;
+  equityCall: number;
+  equityRaise: number;
+  /** facing his raise: the Horse calls (true) or folds */
+  callsRaise: boolean;
+}
+
+/**
+ * Bet or check on the flop, heads-up, priced in chips of the pot now. He
+ * folds the weakest `foldToBet` of his range, raises with the strongest
+ * `raiseShare` (to the pot, at most the effective stack), and calls with the
+ * band between. Facing his raise the Horse takes the better of the fold and
+ * the call. Checking realizes the Horse's equity against his whole range.
+ */
+export function omahaPricedSitesFlopBetEv(
+  i: OmahaPricedSitesFlopInput
+): OmahaPricedSitesFlopVerdict | null {
+  const P = i.pot;
+  const eff = i.effective;
+  if (!fin(P) || !(P > 0) || !fin(eff) || !(eff > 0) || !fin(i.bet) || !(i.bet > 0)) return null;
+  const b = Math.min(i.bet, eff);
+  const allInNow = b >= eff - 0.005;
+  const f = Math.min(0.98, Math.max(0.02, fin(i.foldToBet) ? i.foldToBet : 0.5));
+  const cont = 1 - f;
+  const rz = allInNow
+    ? 0
+    : Math.min(cont, Math.max(0, i.raiseShare ?? OMAHA_PRICED_SITES_FLOP_RAISE_SHARE));
+  const real = OMAHA_PRICED_SITES_FLOP_REALIZATION[i.inPosition ? 'ip' : 'oop'];
+  const eqAll = i.equityTop(1);
+  const eqCont = i.equityTop(cont);
+  const eqRaise = rz > 0 ? i.equityTop(rz) : eqCont;
+  const eqCall = cont - rz > 1e-9 ? (cont * eqCont - rz * eqRaise) / (cont - rz) : eqCont;
+  if (![eqAll, eqCont, eqRaise, eqCall].every(fin)) return null;
+  const callReal = allInNow ? 1 : real;
+  const raiseTo = Math.min(eff, P + 3 * b);
+  const evCallRaise = eqRaise * (P + 2 * raiseTo) * (raiseTo >= eff - 0.005 ? 1 : real) - raiseTo;
+  const callsRaise = evCallRaise > -b;
+  const evFacingRaise = Math.max(-b, evCallRaise);
+  const evBet = f * P + (cont - rz) * (eqCall * (P + 2 * b) * callReal - b) + rz * evFacingRaise;
+  const evCheck = eqAll * P * real;
+  return {
+    evBet,
+    evCheck,
+    fold: f,
+    call: cont - rz,
+    raise: rz,
+    equityAll: eqAll,
+    equityCall: eqCall,
+    equityRaise: eqRaise,
+    callsRaise,
+  };
+}
+
+/** The spot: a bare big pair on the flop with the betting lead, nothing to call, a wager proposed. */
+export function omahaPricedSitesFlopBetSpot(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  try {
+    if (String(gs.stage ?? '') !== 'flop') return false;
+    const board = gs.communityCards ?? [];
+    if (board.length !== 3) return false;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('check')) return false;
+    if (!omahaBareBigPairOnFlop(player.cards, board)) return false;
+    return omahaHeroHasPreflopLead(player, gs);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * omahaFlopBetIsPriced (replaces omahaBareOverpairOopFlopCheck's check, and
+ * prices the same bare big pair in position: owner fixture txHiARhC, hand
+ * 59833576, "THIS NEEDS TO GO FOR KK AS WELL AS QQ"). `legacySpot`: the
+ * categorical rule would check this wager. Returns the priced decision; null
+ * when the option is off, out of scope, not the spot, or (in the legacy
+ * spot) not priceable, in which case the caller's rule acts.
+ */
+export function omahaPricedSitesFlopBet(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  legacySpot: boolean
+): HorseDecision | null {
+  if (opts.omahaFlopBetIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  if (!isWager(decision) || !omahaPricedSitesFlopBetSpot(player, gs)) return null;
+  const tele = telemetryOn(opts);
+  const unpriced = (): HorseDecision | null => {
+    if (tele) noteFire('omaha_priced_site_flop_bet_unpriced_kept');
+    return legacySpot ? null : decision;
+  };
+  try {
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    );
+    if (live.length !== 1 || live[0].is_all_in || !fin(live[0].stack)) return unpriced();
+    const opp = live[0];
+    const amount = amountOf(decision, player);
+    const effective = Math.min(fin(player.stack) ? player.stack : 0, opp.stack);
+    const counts = omahaFlopEvCounts(
+      player.cards,
+      gs.communityCards ?? [],
+      player.knownDeadCards ?? [],
+      OMAHA_PRICED_SITES_FLOP_RAISE_SHARE
+    );
+    if (counts === null) return unpriced();
+    const read = omahaPricedReadOfUser(opp.user_id, gs, opts);
+    const v = omahaPricedSitesFlopBetEv({
+      equityTop: (s) => {
+        const t = counts.top(s);
+        return t.win + t.tie / 2;
+      },
+      pot: fin(gs.pot) ? gs.pot : NaN,
+      bet: amount,
+      effective,
+      inPosition: !omahaOpponentActsBehind(player, gs),
+      foldToBet: read.foldToBet ?? OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET,
+    });
+    if (v === null) return unpriced();
+    if (v.evBet >= v.evCheck) {
+      if (tele) noteFire('omaha_priced_site_flop_bet_kept');
+      return decision;
+    }
+    if (tele) noteFire('omaha_priced_site_flop_bet_checked');
+    return checkedOf(decision);
+  } catch {
+    if (tele) noteFire('omaha_strategy_rule_failed');
+    return legacySpot ? null : decision;
   }
 }

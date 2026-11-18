@@ -74,7 +74,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseOmahaPricedRules.ts':
       'the default-off Omaha priced rules: the three priced comparisons (raise, call or fold on the exact count; raise or call on sampled shares; bet or check on the card-impact model), the one opponent-read interface and the mixing probability',
     'src/engine/HorseOmahaPricedSites.ts':
-      'the default-off Omaha priced sites (sites-013U37): the made-hand defence wager, the turn set pound size and the river nut-blocker bluff admission priced on the card-impact model (omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced); null outside the scope, so the caller rule acts as before',
+      'the default-off Omaha priced sites (sites-013U37): the made-hand defence wager, the turn set pound size and the river nut-blocker bluff admission priced on the card-impact model, and the bare big pair flop bet priced on sampled bands of his holdings (omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced, omahaFlopBetIsPriced); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaPricedWiring.ts':
       'the default-off Omaha priced rules: the rule sites HorseLogic calls where a categorical PLO4/PLO5 cash rule acts (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaPricedMix); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaRiverNutRaise.ts':
