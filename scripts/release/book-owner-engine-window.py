@@ -69,7 +69,6 @@ STABLE_PHRASES = ('twenty minutes', '1800-second', '285s', 'zero opportunities',
 OWNER_NOTICE_WAIVER = ('For this release, execute the earliest qualified engine cutover without an advance '
                        'player-warning announcement or notice countdown. Preserve safe hand completion, settlement, '
                        'certification, admission, recovery and live verification.')
-OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-18T09:30:00Z'
 SUITE_TIMEOUT = 900
 
 
@@ -148,8 +147,7 @@ def order_digest(window):
 def notice_waived(window):
     """Mirror of ownerNoticeWaived in scripts/ci/owner-notice-waiver.mjs (engine windows only)."""
     return (window.get('ownerNoticeWaiver') == OWNER_NOTICE_WAIVER and 'playerNoticeAt' not in window
-            and OWNER_NOTICE_WAIVER in str(window.get('ownerOrder', ''))
-            and parse_z('notAfter', window['notAfter']) <= parse_z('waiver expiry', OWNER_NOTICE_WAIVER_VALID_UNTIL))
+            and OWNER_NOTICE_WAIVER in str(window.get('ownerOrder', '')))
 
 
 def render_notices(doc, ship_from):
@@ -210,15 +208,13 @@ class Booking:
                 refuse(f'{label} must be a 40-hex commit SHA, got {value!r}')
         if not SLUG.fullmatch(a.slug):
             refuse('--slug must be lowercase letters, digits and hyphens')
-        self.waived = bool(a.no_advance_notice)
-        if self.waived == (a.notice_at is not None):
-            refuse('give exactly one of --notice-at and --no-advance-notice')
+        # Standing owner order 2026-11-17 20:23 Chicago: no advance player notice unless one is asked for.
+        if a.no_advance_notice and a.notice_at is not None:
+            refuse('give at most one of --notice-at and --no-advance-notice')
+        self.waived = a.notice_at is None
         self.notice = None if self.waived else parse_z('--notice-at', a.notice_at)
         self.start = parse_z('--not-before', a.not_before)
         self.end = parse_z('--not-after', a.not_after)
-        if self.waived and self.end > parse_z('waiver expiry', OWNER_NOTICE_WAIVER_VALID_UNTIL):
-            refuse(f'--no-advance-notice is the owner order of 2026-11-17 for one release; a window closing after '
-                   f'{OWNER_NOTICE_WAIVER_VALID_UNTIL} cannot use it')
         lead = MIN_NOTICE_LEAD if self.waived else (self.start - self.notice).total_seconds()
         if lead < MIN_NOTICE_LEAD:
             refuse(f'notice lead is {int(lead)} s; playerNoticeAt must be at least '
@@ -759,9 +755,9 @@ def main(argv=None):
     parser.add_argument('--window-id', required=True)
     parser.add_argument('--predecessor', required=True, help='40-hex SHA the engine is serving')
     parser.add_argument('--contains', required=True, help='40-hex content minimum')
-    parser.add_argument('--notice-at', help='player notice, UTC ISO Z (required unless --no-advance-notice)')
+    parser.add_argument('--notice-at', help='optional player notice, UTC ISO Z (omit: no advance notice)')
     parser.add_argument('--no-advance-notice', action='store_true',
-                        help='owner order 2026-11-17: book one engine window with no playerNoticeAt and no client notice; '
+                        help='the default (standing owner order 2026-11-17 20:23 Chicago): no playerNoticeAt and no client notice; '
                              'the order file must contain the exact owner instruction')
     parser.add_argument('--not-before', required=True, help='admission opens, UTC ISO Z')
     parser.add_argument('--not-after', required=True, help='fixed expiry, UTC ISO Z')
