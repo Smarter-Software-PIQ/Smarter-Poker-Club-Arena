@@ -166,5 +166,9 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     const cases = read('tests/e2e/support/mobileAvatarSizingCases.ts');
     expect(cases).not.toMatch(/localStorage\.removeItem\('sp-mobile-avatar-size/);
     expect(cases).toMatch(/PHONE_AVATAR_MIN_HEIGHT_PX/);
+    // The post-deploy live proof asks the same absolute question of production.
+    const live = read('tests/e2e/support/mobileLiveTableLayout.ts');
+    expect(live).toMatch(/PHONE_AVATAR_MIN_HEIGHT_PX/);
+    expect(live).not.toMatch(/\)\s*>\s*1\s*\)/);
   });
 });
