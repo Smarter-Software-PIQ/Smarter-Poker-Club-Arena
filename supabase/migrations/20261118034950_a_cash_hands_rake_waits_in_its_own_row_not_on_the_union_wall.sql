@@ -62,6 +62,16 @@
 --
 -- @live-proof: (SELECT to_regclass('public.cash_rake_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_cash_rake(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = 'c8c24d5a2c098d3189127e9e870601a3' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = '549b78dd66f1596b0942db37cef95298' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'f100348cb3e5e641017819066fa18d40' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = 'd23a4053d2578ce628381f87e9c20652' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '16dea593b5f2c2b22052c8752d9aba7c' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = 'bcd517670b65faed6e30ac80bef50e98')
 
+-- STALE PIN, DECLARED (2026-11-18, incident 075013fd). One installed function
+-- pins this migration's preimage of fn_ca_tally_balance_move:
+-- smarter_private.original_erased_cash_base_discharge(bigint,text). It refuses
+-- (original_cash_discharge_money_source_changed) whenever ANY of its 46 pins is
+-- stale, and 12 of them were already stale on production before this file
+-- (read 2026-11-18 07:40 UTC), so its behaviour is identical with or without
+-- this change. Moving the pin would certify the new tally body for that proof
+-- without its owner's requalification, so the old body is declared instead.
+-- @stale-pin-ok: b7911a245d4bf33134a9a2f474c1f410 original_erased_cash_base_discharge already refuses on 12 other stale pins; requalification belongs to its owner
+
 BEGIN;
 
 SET LOCAL lock_timeout = '3s';
