@@ -33,6 +33,8 @@ DB_CONTAINER="$NAME"
 LOG_DIR="$WORKDIR"
 STATE_DIR="$WORKDIR"
 log() { echo "[rehearsal-restore] $*" >&2; }
+# A step that fails says which one it was (a bare psql exit 3 names nothing).
+trap 'rc=$?; log "failed (exit $rc) at line $LINENO: $BASH_COMMAND"' ERR
 # This copy's own psql_db: the standby's, with this container's password.
 # The standby's definition is untouched on the Backup host.
 psql_db() { docker exec -i -e PGPASSWORD="$REHEARSAL_DB_PASSWORD" "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres "$@"; }
