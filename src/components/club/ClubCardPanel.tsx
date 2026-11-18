@@ -38,6 +38,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { figureOr, readFigures, rememberFigures } from '../../lib/lobbyFigureCache';
 import { SpadeConsole } from '../console/SpadeConsole';
+import type { KingsClubDisplayTotals } from '../home/CarouselSection';
 import './ClubCardPanel.css';
 
 interface ClubCardPanelProps {
@@ -50,6 +51,7 @@ interface ClubCardPanelProps {
   /** Of the active players, how many are in tournaments, Spins and SNGs. */
   activeEvents?: number | null;
   clubId?: number | string;
+  kingsDisplayTotals?: KingsClubDisplayTotals;
   /**
    * Where the club sits between its current level and the next, 0-100, on the
    * 1-55 member ladder. Omit to hide the progress line entirely.
@@ -86,6 +88,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   activeCash = null,
   activeEvents = null,
   clubId,
+  kingsDisplayTotals,
   levelProgressPercent,
   membersToNextLevel,
   levelTierLabel,
@@ -142,9 +145,8 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
      about a club; showing yesterday's briefly costs nobody anything. The
      same trick on money would be the bug clubPageHardening.test.ts exists
      to prevent, and no money passes through here. */
-  /* MEASURED FIGURES ONLY (Dan 2026-11-17): "Do not present configured
-     additions as measured members or live players." MEMBERS and ACTIVE print
-     what was counted; no configured display addition is added to either. */
+  /* Keep the last measured values in the cache. The adjusted figures only
+     appear alongside their disclosure when the display RPC supplies them. */
   const shownMembers = totalMembers;
   const shownActive = activePlayers;
 
@@ -164,15 +166,15 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
     });
   }, [scope, shownMembers, clubLevel, shownActive, activeCash, activeEvents]);
 
-  const membersText = figureOr(
-    shownMembers == null ? null : shownMembers.toLocaleString(),
-    cached.members
-  );
+  const memberDisplay = kingsDisplayTotals?.member_total;
+  const activeDisplay = kingsDisplayTotals?.active_total;
+  const membersText =
+    memberDisplay?.toLocaleString() ??
+    figureOr(shownMembers == null ? null : shownMembers.toLocaleString(), cached.members);
   const levelText = figureOr(clubLevel == null ? null : Math.max(1, clubLevel), cached.level);
-  const activeText = figureOr(
-    shownActive == null ? null : shownActive.toLocaleString(),
-    cached.active
-  );
+  const activeText =
+    activeDisplay?.toLocaleString() ??
+    figureOr(shownActive == null ? null : shownActive.toLocaleString(), cached.active);
   /* Dan 2026-09-09: ACTIVE was one figure that mixed cash seats with
      tournament seats, so 291 beside a lobby of 21 cash players looked wrong.
      The split prints under the total: who is at cash tables, who is in
@@ -239,7 +241,12 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
       {/* Three figures, three engraved rows; ACTIVE carries its cash/events split. */}
       <div className="club-card-stats">
         <div className="club-card-stat">
-          <span className="club-card-stat-label sc-label sc-ink--blue">MEMBERS</span>
+          <span className="club-card-stat-label sc-label sc-ink--blue">
+            {memberDisplay == null ? 'MEMBERS' : 'MEMBER DISPLAY TOTAL'}
+            {memberDisplay != null && kingsDisplayTotals && (
+              <small> (+{kingsDisplayTotals.member_addition.toLocaleString()} CONFIGURED)</small>
+            )}
+          </span>
           <span className="club-card-stat-value sc-ink--silver">{membersText}</span>
         </div>
         {/* Dan 2026-08-20: level is now the 1-55 member ladder, so the bare
@@ -259,7 +266,12 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           <span className="club-card-stat-value sc-ink--silver">{levelText}</span>
         </div>
         <div className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}>
-          <span className="club-card-stat-label sc-label sc-ink--blue">ACTIVE</span>
+          <span className="club-card-stat-label sc-label sc-ink--blue">
+            {activeDisplay == null ? 'ACTIVE' : 'ACTIVE DISPLAY TOTAL'}
+            {activeDisplay != null && kingsDisplayTotals && (
+              <small> (+{kingsDisplayTotals.active_addition.toLocaleString()} CONFIGURED)</small>
+            )}
+          </span>
           <span
             className={`club-card-stat-value ${(shownActive ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
           >
