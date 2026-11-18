@@ -24,18 +24,16 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { sliceSqlStatement } from './helpers/sourceWindow';
 
 const DIR = join(resolve(__dirname, '..'), 'supabase/migrations');
 const LAW = '20261118192000_a_refused_hand_obligation_never_holds_its_table.sql';
 const sql = readFileSync(join(DIR, LAW), 'utf8');
 
-/** The body of one CREATE OR REPLACE FUNCTION statement in a migration. */
+/** One CREATE OR REPLACE FUNCTION statement in a migration, bounded by its own end. */
 function fnBody(text: string, qualified: string): string | null {
-  const start = text.indexOf(`CREATE OR REPLACE FUNCTION ${qualified}(`);
-  if (start < 0) return null;
-  const open = text.indexOf('$function$', start);
-  const close = text.indexOf('$function$', open + 10);
-  return text.slice(start, close + 10);
+  const anchor = `CREATE OR REPLACE FUNCTION ${qualified}(`;
+  return text.includes(anchor) ? sliceSqlStatement(text, anchor) : null;
 }
 
 const MARKERS: Record<string, string[]> = {
