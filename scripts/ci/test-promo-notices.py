@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Native original FIFO meter + actual notification bridge, isolated PostgreSQL only."""
-import argparse, importlib.util, json, os, re, subprocess, tempfile, time, hashlib
+import argparse, importlib.util, json, os, re, subprocess, tempfile, time, hashlib, uuid
 from contextlib import contextmanager
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -44,6 +44,52 @@ CREATE TABLE test_promo_incidents(id uuid DEFAULT gen_random_uuid(),classificati
 CREATE FUNCTION fn_ca_raise_drift_incident(p_source text,p_classification text,p_severity text,p_dedupe_key text,p_discrepancy numeric,p_expected numeric,p_actual numeric,p_layer text,p_entity_type text,p_entity_id uuid,p_club_id uuid,p_suspected_cause text,p_metadata jsonb)
 RETURNS uuid LANGUAGE sql AS $$INSERT INTO test_promo_incidents(classification,entity_id,expected,actual) VALUES(p_classification,p_entity_id,p_expected,p_actual) RETURNING id$$;
 """
+def verify_cashout_only_notices(db,check,inputs_path):
+ migration=ROOT/'supabase/migrations/20261118004310_fee_sources_do_not_scan_promo_history_for_notices.sql'
+ sql=migration.read_text()
+ inputs=json.loads(inputs_path.read_text())
+ inputs['fee_notice_removal_sha256']=hashlib.sha256(sql.encode()).hexdigest()
+ inputs_path.write_text(json.dumps(inputs,indent=2)+'\n')
+ # Drift must refuse before losing a single producer, including the other tables.
+ db.run('ALTER TABLE public.rake_attributions DISABLE TRIGGER ca_promo_fee_notice')
+ refusal=db.run(sql,check=False)
+ check('changed fee notice binding refuses the entire migration',
+       refusal.returncode!=0 and 'promo fee notice trigger changed' in refusal.stderr,True)
+ check('refused migration preserves all three original triggers',
+       db.one("SELECT count(*) FROM pg_trigger WHERE tgfoid='public.fn_ca_promo_fee_notice()'::regprocedure"),'3')
+ db.run('ALTER TABLE public.rake_attributions ENABLE TRIGGER ca_promo_fee_notice')
+ db.run(sql)
+ proof=next(line.removeprefix('-- @live-proof: ') for line in sql.splitlines() if line.startswith('-- @live-proof: '))
+ check('no original fee source dispatches an optional promo notice',db.one('SELECT '+proof),'t')
+
+ member,charge,entitlement,accounting_id=(str(uuid.uuid4()) for _ in range(4))
+ db.run(f"INSERT INTO profiles VALUES('{member}');INSERT INTO club_members VALUES('{C}','{member}',100,'member')")
+ grant=db.one(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{member}',25,'club_promo',gen_random_uuid()::text,NULL,'promo_wallet','{A}',NULL)")
+ def cash_fee(hand,table,amount):
+  return f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{hand}','{table}',1,clock_timestamp()) ON CONFLICT(hand_id) DO NOTHING; INSERT INTO rake_attributions(id,hand_id,player_id,club_id,rake_amount) VALUES('{hand}','{hand}','{member}','{C}',{amount}) ON CONFLICT(id) DO NOTHING;"
+ # Cash and Lightning attributions reach the same relation with different
+ # accepted hand and table identities. Entry tests also retain original charge
+ # and entitlement identity, so later accounting recognition cannot count twice.
+ classic=cash_fee(str(uuid.uuid4()),str(uuid.uuid4()),25)
+ lightning=cash_fee(str(uuid.uuid4()),str(uuid.uuid4()),25)
+ tournament=f"INSERT INTO accounting_tournament_fee_sources(id,tournament_id,player_id,club_id,rake_credit) VALUES('{accounting_id}','{base.TOUR_A}','{member}','{C}',20) ON CONFLICT(id) DO NOTHING;"
+ paid=f"INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('{charge}','player_wallet','{member}','prize_liability','{base.TOUR_B}',30,'tournament_buyin','{C}') ON CONFLICT(id) DO NOTHING; INSERT INTO tournament_refund_entitlements VALUES('{entitlement}','{charge}','{base.TOUR_B}','{C}','{member}',30) ON CONFLICT(id) DO NOTHING; INSERT INTO ca_promo_event_fee_consumption_receipts(charge_ledger_id,entitlement_id,gross_fee,original_promo,charge_amount,principal,club_id,player_id) VALUES('{charge}','{entitlement}',30,0,30,0,'{C}','{member}') ON CONFLICT(charge_ledger_id) DO NOTHING;"
+ def reads():
+  return db.one("SELECT COALESCE(sum(calls),0) FROM pg_stat_user_functions WHERE funcid IN ('public.fn_ca_promo_fee_notice()'::regprocedure,'public.fn_ca_promo_play_through_state(uuid,uuid)'::regprocedure,'public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure)")
+ db.run('SELECT pg_stat_reset()')
+ for source in (classic,lightning,tournament,paid):
+  db.run(source);db.run(source)
+ check('open grant fee commits and retries make zero notice or history calls',reads(),'0')
+ check('no optional threshold notification or push follows a fee',db.one(f"SELECT count(*) FROM notifications WHERE data->>'grant_id'='{grant}' AND data->>'milestone' IN ('half','near')"),'0')
+ check('on-demand fee summary counts each cash and entry fee once',
+       db.one(f"SELECT sum(fee_credit) FROM fn_ca_promo_fee_events('{C}','{member}',(SELECT granted_at FROM ca_promo_play_through_grants WHERE id='{grant}'),'infinity')"),'100')
+ check('on-demand principal meter reaches exact original threshold',db.one(f"SELECT state FROM fn_ca_promo_play_through_state('{C}','{member}') WHERE grant_id='{grant}'"),'met_pending')
+ db.run(f"SELECT fn_ca_promo_play_through_settle('{C}','{member}');SELECT fn_ca_promo_play_through_settle('{C}','{member}')")
+ check('authoritative final transition still sends one completion notification and push',db.one(f"SELECT count(*)=1 AND count(o.related_entity_id)=1 FROM notifications n LEFT JOIN push_outbox o ON o.related_entity_id=n.id WHERE n.data->>'grant_id'='{grant}' AND n.data->>'milestone'='unlocked'"),'t')
+ db.run('SELECT pg_stat_reset()')
+ db.run(cash_fee(str(uuid.uuid4()),str(uuid.uuid4()),5))
+ check('a later fee for a terminal grant makes zero notice or history calls',reads(),'0')
+
 def main():
  p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--ticket-migration',type=Path,default=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_keep_entry_source.sql');p.add_argument('--integrity-migration',type=Path,default=ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql');p.add_argument('--profit-migration',type=Path,default=ROOT/'supabase/migrations/20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql');args=p.parse_args()
  if not args.profit_migration.exists():raise SystemExit('original profit earned transition prerequisite unavailable; provide --profit-migration')
@@ -312,6 +358,7 @@ def main():
    removed=grant()
    db.run(f"DELETE FROM profiles WHERE id='{A}'; UPDATE ca_promo_profit_gates SET unlocked_at=clock_timestamp() WHERE grant_id='{removed}'")
    check('deleted recipient preserves earned profit milestone without inventing delivery',db.one(f"SELECT notification_id IS NULL AND principal_amount=0 FROM ca_promo_notice_milestones WHERE grant_id='{removed}' AND milestone='profit_unlocked'"),'t')
+   verify_cashout_only_notices(db,check,args.output/'INPUTS.json')
 
   finally:
    (args.output/'RESULTS.json').write_text(json.dumps(results,indent=2)+'\n')
