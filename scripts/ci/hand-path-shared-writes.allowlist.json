@@ -1,0 +1,190 @@
+{
+  "_comment": "Pre-existing shared-row writes on a hand's path that cannot be removed in incident 075013fd. Read by scripts/ci/check-hand-path-shared-writes.mjs; every entry names function, kind, target, owner, reason, date (tests/a-hands-money-path-never-writes-a-shared-row.law.test.ts). This list is DEBT: remove an entry in the change that removes the write. The 14 that #11270/#11266 remove (atomic_distribute_rake, bbj_record_contribution, fn_bbj_allocate, record_insurance_transaction, the envelope's bbj-pool lock and pool row, and through them trg_union_rake_weekly and fn_bbj_contribution_drops_cached_hours) are deliberately NOT here.",
+  "measured": "2026-11-18 read-only on production kuklfnapbkmacvwxktbh: 875 functions on the path, 37 violations before #11270/#11266, 23 expected after.",
+  "entries": [
+    {
+      "function": "fn_ca_burn",
+      "kind": "row_lock",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached only through trg_allocate_lifetime_vip_diamond_spend, which fires WHEN (new.amount < 0) on diamond_transactions; the hand path gets there from poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance, which CREDITS diamonds, so a hand does not take this branch. The reader cannot evaluate trigger WHEN clauses. Remove when fn_ca_burn takes the union/club rows NOWAIT or the jackpot pay stops sharing add_diamonds_to_balance with spends.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_burn",
+      "kind": "row_lock",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached only through trg_allocate_lifetime_vip_diamond_spend, which fires WHEN (new.amount < 0) on diamond_transactions; the hand path gets there from poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance, which CREDITS diamonds, so a hand does not take this branch. The reader cannot evaluate trigger WHEN clauses. Remove when fn_ca_burn takes the union/club rows NOWAIT or the jackpot pay stops sharing add_diamonds_to_balance with spends.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_burn",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached only through trg_allocate_lifetime_vip_diamond_spend, which fires WHEN (new.amount < 0) on diamond_transactions; the hand path gets there from poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance, which CREDITS diamonds, so a hand does not take this branch. The reader cannot evaluate trigger WHEN clauses. Remove when fn_ca_burn takes the union/club rows NOWAIT or the jackpot pay stops sharing add_diamonds_to_balance with spends.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_burn",
+      "kind": "write",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached only through trg_allocate_lifetime_vip_diamond_spend, which fires WHEN (new.amount < 0) on diamond_transactions; the hand path gets there from poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance, which CREDITS diamonds, so a hand does not take this branch. The reader cannot evaluate trigger WHEN clauses. Remove when fn_ca_burn takes the union/club rows NOWAIT or the jackpot pay stops sharing add_diamonds_to_balance with spends.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_fund_overlay_on_lock",
+      "kind": "row_lock",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached from the settlement door through fn_sync_tournament_current_players (tournament_players status changes on a bust) into the BEFORE UPDATE OF status triggers on tournaments; it locks the club/union wallet only on a tournament status transition (overlay funding at lock, start readiness), not per hand. Still a tournament event inside a hand's commit (owner ruling 2026-11-17: a tournament issue must never affect other games): move it to the tournament's own lane.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_fund_overlay_on_lock",
+      "kind": "row_lock",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached from the settlement door through fn_sync_tournament_current_players (tournament_players status changes on a bust) into the BEFORE UPDATE OF status triggers on tournaments; it locks the club/union wallet only on a tournament status transition (overlay funding at lock, start readiness), not per hand. Still a tournament event inside a hand's commit (owner ruling 2026-11-17: a tournament issue must never affect other games): move it to the tournament's own lane.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_fund_overlay_on_lock",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached from the settlement door through fn_sync_tournament_current_players (tournament_players status changes on a bust) into the BEFORE UPDATE OF status triggers on tournaments; it locks the club/union wallet only on a tournament status transition (overlay funding at lock, start readiness), not per hand. Still a tournament event inside a hand's commit (owner ruling 2026-11-17: a tournament issue must never affect other games): move it to the tournament's own lane.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_fund_overlay_on_lock",
+      "kind": "write",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached from the settlement door through fn_sync_tournament_current_players (tournament_players status changes on a bust) into the BEFORE UPDATE OF status triggers on tournaments; it locks the club/union wallet only on a tournament status transition (overlay funding at lock, start readiness), not per hand. Still a tournament event inside a hand's commit (owner ruling 2026-11-17: a tournament issue must never affect other games): move it to the tournament's own lane.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_guard_tournament_start_readiness",
+      "kind": "row_lock",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached from the settlement door through fn_sync_tournament_current_players (tournament_players status changes on a bust) into the BEFORE UPDATE OF status triggers on tournaments; it locks the club/union wallet only on a tournament status transition (overlay funding at lock, start readiness), not per hand. Still a tournament event inside a hand's commit (owner ruling 2026-11-17: a tournament issue must never affect other games): move it to the tournament's own lane.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_guard_tournament_start_readiness",
+      "kind": "row_lock",
+      "target": "union_wallets",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached from the settlement door through fn_sync_tournament_current_players (tournament_players status changes on a bust) into the BEFORE UPDATE OF status triggers on tournaments; it locks the club/union wallet only on a tournament status transition (overlay funding at lock, start readiness), not per hand. Still a tournament event inside a hand's commit (owner ruling 2026-11-17: a tournament issue must never affect other games): move it to the tournament's own lane.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_apply_club_ladder",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_apply_union_ladder",
+      "kind": "write",
+      "target": "unions",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_deleted_wallet_bank_return",
+      "kind": "row_lock",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_deleted_wallet_bank_return",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_horse_split_return_late_credit",
+      "kind": "row_lock",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_ca_horse_split_return_late_credit",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_sync_club_staff_notice_group",
+      "kind": "write",
+      "target": "club_messenger_staff_notice_groups",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_refresh_club_activity_counts",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through zzzzz_require_live_seat_parent (BEFORE INSERT OR UPDATE on table_seats) into the tables triggers that fire only WHEN the table's status/club/union actually changes (trg_on_table_status_change, trg_tables_sync_club_counts_*); a hand's stack update does not change its table's status. Remove when the seat-parent guard stops writing tables.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_sync_club_table_counts",
+      "kind": "write",
+      "target": "clubs",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through zzzzz_require_live_seat_parent (BEFORE INSERT OR UPDATE on table_seats) into the tables triggers that fire only WHEN the table's status/club/union actually changes (trg_on_table_status_change, trg_tables_sync_club_counts_*); a hand's stack update does not change its table's status. Remove when the seat-parent guard stops writing tables.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "guard_member_club_standalone_game",
+      "kind": "advisory_lock",
+      "target": "club-game-ownership:",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through zzzzz_require_live_seat_parent (BEFORE INSERT OR UPDATE on table_seats) into the tables triggers that fire only WHEN the table's status/club/union actually changes (trg_on_table_status_change, trg_tables_sync_club_counts_*); a hand's stack update does not change its table's status. Remove when the seat-parent guard stops writing tables.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_spin_book_entry",
+      "kind": "row_lock",
+      "target": "spin_bonus_pools",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through trg_seat_change_syncs_seat_first_count (UPDATE OF left_at, pg_trigger_depth() < 2) when a seat LEAVES inside the settlement commit; it books the club's spin_bonus_pools row FOR UPDATE. Not per hand, but per leave on a seat-first table, inside the hand's transaction: the next candidate for the pending-row pattern of #11270.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_spin_book_entry",
+      "kind": "write",
+      "target": "spin_bonus_pools",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through trg_seat_change_syncs_seat_first_count (UPDATE OF left_at, pg_trigger_depth() < 2) when a seat LEAVES inside the settlement commit; it books the club's spin_bonus_pools row FOR UPDATE. Not per hand, but per leave on a seat-first table, inside the hand's transaction: the next candidate for the pending-row pattern of #11270.",
+      "date": "2026-11-18"
+    },
+    {
+      "function": "fn_spin_reserve_pool",
+      "kind": "write",
+      "target": "spin_bonus_pools",
+      "owner": "club-arena hand path (incident 075013fd follow-up)",
+      "reason": "Reached through trg_seat_change_syncs_seat_first_count (UPDATE OF left_at, pg_trigger_depth() < 2) when a seat LEAVES inside the settlement commit; it books the club's spin_bonus_pools row FOR UPDATE. Not per hand, but per leave on a seat-first table, inside the hand's transaction: the next candidate for the pending-row pattern of #11270.",
+      "date": "2026-11-18"
+    }
+  ]
+}

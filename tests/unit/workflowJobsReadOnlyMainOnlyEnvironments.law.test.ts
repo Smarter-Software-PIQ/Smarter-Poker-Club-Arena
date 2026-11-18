@@ -132,7 +132,7 @@ describe('no job names the retired ci-pull-request environment', () => {
 });
 
 describe('the live-catalog pull-request checks run only trusted code', () => {
-  for (const file of ['pr-engine-doors.yml', 'settlement-lane-doctrine.yml']) {
+  for (const file of ['pr-engine-doors.yml', 'settlement-lane-doctrine.yml', 'hand-path-shared-writes.yml']) {
     it(`${file} runs main's workflow and checkout under pull_request_target`, () => {
       const text = readFileSync(join(DIR, file), 'utf8');
       const wf = parse(text) as { on?: Record<string, unknown> };
