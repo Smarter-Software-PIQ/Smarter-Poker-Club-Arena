@@ -26,7 +26,7 @@
  * persona, over all 169 hand classes.
  */
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { seedFastRandom } from './HorseEval.js';
@@ -316,7 +316,7 @@ describe('off, the option changes nothing', () => {
   });
 
   it('the brain reads the option in one place, and only an explicit true passes', () => {
-    const src = readFileSync(fileURLToPath(new URL('./HorseLogic.ts', import.meta.url)), 'utf8');
+    const src = readFileSync(path.resolve(import.meta.dirname, 'HorseLogic.ts'), 'utf8');
     const reads = src.match(/opts\.huBbDefendsUnreadToPrice\b[^\n]*/g) ?? [];
     expect(reads.length).toBe(1);
     expect(reads[0]).toContain('opts.huBbDefendsUnreadToPrice === true');
