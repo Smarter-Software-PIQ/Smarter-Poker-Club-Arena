@@ -1971,10 +1971,7 @@ export class HorseFleetManager {
         const rejoinPage = await fetchAllRows<{
           id: string;
           player_id: string;
-          club_id: string;
-          variant: string;
-          sb: number | string;
-          bb: number | string;
+          game_scope: string | null;
           required_stack: number | string | null;
           barred_until: string | null;
           expires_at: string;
@@ -1982,9 +1979,7 @@ export class HorseFleetManager {
           (cursor, want) => {
             let q = supabase
               .from('cash_rejoin_constraints')
-              .select(
-                'id, player_id, club_id, variant, sb, bb, required_stack, barred_until, expires_at'
-              )
+              .select('id, player_id, game_scope, required_stack, barred_until, expires_at')
               .gt('expires_at', nowIsoForRejoin)
               .order('id', { ascending: true })
               .limit(want);
@@ -3552,8 +3547,9 @@ export class HorseFleetManager {
           // Find candidate horses:
           // 1. Not already at this table
           // 2. Not exceeding 4 max tables
-          /* The game key the door rules are written against (club, variant,
-             sb, bb), formatted once per table. See rejoinTableKey. */
+          /* The game key the door rules are written against (the cash game
+             itself, never its stakes level), formatted once per table. See
+             rejoinTableKey. */
           const constraintTableKey = rejoinTableKey(table);
           /* A Diamond Arena table (only ever present while the arena is open,
              see where `diamondTables` is read). Decides the lane tag, the
