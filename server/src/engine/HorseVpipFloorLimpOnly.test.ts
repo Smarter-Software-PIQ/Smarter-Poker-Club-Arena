@@ -13,13 +13,13 @@
  * (PRODUCTION_28372C9A). The hole cards are synthesised; none is a retained
  * hand's.
  *
- * WHICH VARIANTS THE OPTION GOVERNS is a declared table
- * (VPIP_FLOOR_LIMP_ONLY_VARIANTS, from the F-10 evaluation E1d/E3: hold'em's
- * 20% floor only). The mechanism is proved here on every variant that
- * evaluation measured, with the table set to all four for the test
- * (MEASURED_VARIANTS_PRICED), because the recorded table is PLO5 and a later
- * measurement may list more variants; the last describe runs on the declared
- * table itself and pins what ships.
+ * WHICH VARIANTS THE OPTION GOVERNS, and how each picks its limps, is a
+ * declared table (VPIP_FLOOR_LIMP_ONLY_VARIANTS: every floored cash variant;
+ * 'every' on PLO5/PLO6 and the unmeasured variants, 'priced' on PLO4 and
+ * hold'em). The first describes prove the priced mechanism on the four
+ * measured variants with the table set to 'priced' for the test
+ * (MEASURED_VARIANTS_PRICED); the last describe runs on the declared table
+ * itself and pins what ships.
  */
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -45,6 +45,7 @@ import {
   PRODUCTION_28372C9A,
   PRODUCTION_MIX,
   setLimpOnlyVariants,
+  sitting,
   withLimpOnlyVariants,
   SPOTS,
   type FloorVariant,
@@ -295,7 +296,7 @@ describe('the rule, as functions', () => {
   });
 
   it('applies to a floored cash table of a governed variant, and never to a tournament, All-In-Or-Fold, a bomb pot or Lightning', () => {
-    const t = { vpipFloor: 50, gameVariant: 'plo5' };
+    const t = { vpipFloor: 50, vpipWindowHands: 30, gameVariant: 'plo5' };
     expect(vpipFloorLimpOnlyApplies(t, { vpipFloorLimpOnly: true }, false)).toBe(true);
     expect(vpipFloorLimpOnlyApplies(t, {}, false)).toBe(false);
     expect(vpipFloorLimpOnlyApplies(t, { vpipFloorLimpOnly: false }, false)).toBe(false);
@@ -318,7 +319,7 @@ describe('the rule, as functions', () => {
     ).toBe(false);
     expect(
       vpipFloorLimpOnlyApplies(
-        { vpipFloor: 0, gameVariant: 'plo5' },
+        { vpipFloor: 0, vpipWindowHands: 30, gameVariant: 'plo5' },
         { vpipFloorLimpOnly: true },
         false
       )
@@ -326,11 +327,20 @@ describe('the rule, as functions', () => {
     // a variant the table does not list, or no variant at all: not governed
     for (const gameVariant of ['plo8', 'flo8', 'flh', 'short_deck', 'pineapple', undefined])
       expect(
-        vpipFloorLimpOnlyApplies({ vpipFloor: 50, gameVariant }, { vpipFloorLimpOnly: true }, false)
+        vpipFloorLimpOnlyApplies(
+          { vpipFloor: 50, vpipWindowHands: 30, gameVariant },
+          { vpipFloorLimpOnly: true },
+          false
+        )
+      ).toBe(false);
+    // an Action / Madness table (the sitting judged at ten hands, no warning) or an unknown window: not governed
+    for (const vpipWindowHands of [10, undefined, 0])
+      expect(
+        vpipFloorLimpOnlyApplies({ ...t, vpipWindowHands }, { vpipFloorLimpOnly: true }, false)
       ).toBe(false);
     expect(
       vpipFloorLimpOnlyApplies(
-        { vpipFloor: 50, gameVariant: 'PLO5' },
+        { vpipFloor: 50, vpipWindowHands: 30, gameVariant: 'PLO5' },
         { vpipFloorLimpOnly: true },
         false
       )
@@ -773,57 +783,158 @@ describe('the declared table: which variants the option governs (what ships)', (
     S(n).prior.some(([, a]) => a === 'pot')
   );
 
-  it("is hold'em on the priced selection and nothing else (F-10 evaluation E1d / E3)", () => {
+  const DECLARED = {
+    nlh: 'priced',
+    plo4: 'priced',
+    plo5: 'every',
+    plo6: 'every',
+    plo8: 'every',
+    flo8: 'every',
+    flh: 'every',
+    short_deck: 'every',
+    pineapple: 'every',
+  };
+
+  it('governs every floored cash variant, each with its measured selection (F-10 evaluation E1d / E1e; owner 2026-11-17 18:38)', () => {
     // A change here needs a new declared measurement: see the table's comment in HorseLogic.ts.
-    expect({ ...VPIP_FLOOR_LIMP_ONLY_VARIANTS }).toEqual({ nlh: 'priced' });
-    expect(vpipFloorLimpOnlySelectionFor('nlh')).toBe('priced');
-    for (const v of ['plo4', 'plo5', 'plo6', 'plo8', 'flo8', 'flh', 'short_deck', 'pineapple'])
-      expect([v, vpipFloorLimpOnlySelectionFor(v)]).toEqual([v, undefined]);
+    expect({ ...VPIP_FLOOR_LIMP_ONLY_VARIANTS }).toEqual(DECLARED);
+    // every variant the product floors (ca_classic_vpip_floors) is governed
+    for (const v of [
+      'nlh',
+      'plo4',
+      'plo5',
+      'plo6',
+      'plo8',
+      'flo8',
+      'flh',
+      'short_deck',
+      'pineapple',
+    ]) {
+      expect([v, vpipFloorLimpOnlySelectionFor(v)]).toEqual([
+        v,
+        DECLARED[v as keyof typeof DECLARED],
+      ]);
+      expect([
+        v,
+        vpipFloorLimpOnlyApplies(
+          { vpipFloor: 40, vpipWindowHands: 30, gameVariant: v },
+          { vpipFloorLimpOnly: true },
+          false
+        ),
+      ]).toEqual([v, true]);
+    }
     for (const v of [undefined, null, '', 'toString', 'constructor', '__proto__'])
       expect([v, vpipFloorLimpOnlySelectionFor(v)]).toEqual([v, undefined]);
   });
 
   it.each([
-    ['plo5', 50, [50, 56.7, 43.3]],
+    ['plo5', 40, [40, 46.7, 30]],
+    ['plo5', 50, [50, 56.7, 40]],
+    ['plo6', 40, [40, 46.7]],
     ['plo6', 50, [50, 56.7]],
     ['plo4', 30, [30, 36.7]],
   ] as const)(
-    '%s %s%% is left out: with the option on it decides as with it off, byte for byte, draw for draw',
+    '%s at a %s%% floor, under the line, facing a raise or a re-raise: the decision is the unfloored one on every hand (failing before: today the floor calls and raises there)',
     (variant, floor, vpips) => {
-      const holes: Record<string, string[]> = {
-        plo5: [PLO5_WEAK[0], PLO5_WEAK[2], PLO5_STRONG[0]],
-        plo6: ['Kc9d7h5s3c2d', 'AhAsKhQs9c8d'],
-        plo4: ['Kc9d7h5s', 'AhAs8h7c'],
-      };
-      let floorActsToday = 0;
-      for (const spot of [
-        'utgFirstIn',
-        'btnFirstIn',
-        'sbFirstIn',
-        'btnFacingOpenTwoCalls',
-        'sbFacingButtonOpen',
-        'bbFacingReRaise',
-      ] as const)
-        for (const hole of holes[variant])
+      let compared = 0;
+      let todayDiffers = 0;
+      for (let i = 0; i < 12; i++) {
+        const hole = deal(variant);
+        for (const name of RAISED)
           for (const vpip of vpips) {
-            const off = play(S(spot), floored(variant, floor, vpip), hole, P);
-            const on = play(S(spot), floored(variant, floor, vpip), hole, ON);
-            expect([spot, hole, vpip, on.bytes, on.next]).toEqual([
-              spot,
+            const seed = 1 + i;
+            const none = decideAt(S(name), unfloored(variant), hole, ON, seed).decision;
+            const on = decideAt(S(name), floored(variant, floor, vpip), hole, ON, seed).decision;
+            expect([name, hole, vpip, on.action, on.amount]).toEqual([
+              name,
               hole,
               vpip,
-              off.bytes,
-              off.next,
+              none.action,
+              none.amount,
             ]);
-            expect(fired(on, 'vpip_floor_limp_only_seen')).toBe(0);
-            // the comparison is not vacuous: today's floor does act in these spots
-            const none = play(S(spot), unfloored(variant), hole, P);
-            if (off.actions.join() !== none.actions.join()) floorActsToday++;
+            const today = decideAt(S(name), floored(variant, floor, vpip), hole, P, seed).decision;
+            if (today.action !== none.action) todayDiffers++;
+            compared++;
           }
-      expect(floorActsToday).toBeGreaterThan(0);
+      }
+      expect(compared).toBe(12 * RAISED.length * vpips.length);
+      expect(todayDiffers).toBeGreaterThan(0);
     },
     120_000
   );
+
+  it('the line follows the floor the table carries: PLO5 at 40% limps under 15 of 30 and stops at it; at 50%, under 18 of 30', () => {
+    for (const hole of PLO5_WEAK)
+      for (const spot of ['utgFirstIn', 'coFirstIn', 'btnFirstIn', 'btnLimped'] as const) {
+        expect(play(S(spot), unfloored('plo5'), hole, ON).actions).toEqual(all('fold'));
+        // 40% floor: 14 of 30 is one hand short and every unraised fold limps ('every'); 15 of 30 is the line
+        const short40 = play(S(spot), floored('plo5', 40, 46.7), hole, ON);
+        expect([spot, hole, short40.actions, short40.amounts]).toEqual([
+          spot,
+          hole,
+          all('call'),
+          SEEDS.map(() => 2),
+        ]);
+        expect(fired(short40, 'vpip_floor_limp_only_fold_kept')).toBe(0);
+        expect(play(S(spot), floored('plo5', 40, 50), hole, ON).actions).toEqual(all('fold'));
+        // 50% floor: the same 50% and 56.7% are under the 18 of 30 line; 60% is at it
+        expect(play(S(spot), floored('plo5', 50, 50), hole, ON).actions).toEqual(all('call'));
+        expect(play(S(spot), floored('plo5', 50, 56.7), hole, ON).actions).toEqual(all('call'));
+        expect(play(S(spot), floored('plo5', 50, 60), hole, ON).actions).toEqual(all('fold'));
+      }
+  }, 120_000);
+
+  it('a table judged the Action / Madness way (ten hands, no warning) is not governed: on decides as off, byte for byte', () => {
+    let floorActsToday = 0;
+    for (const [variant, floor, hole] of [
+      ['plo5', 50, PLO5_WEAK[0]],
+      ['plo5', 40, PLO5_WEAK[2]],
+      ['nlh', 40, '7c2d'],
+    ] as const)
+      for (const spot of [
+        'utgFirstIn',
+        'btnFirstIn',
+        'btnFacingOpenTwoCalls',
+        'bbFacingReRaise',
+      ] as const) {
+        const table: Table = {
+          variant,
+          floor,
+          window: 10,
+          ownVpip: { hands: 10, vpip: floor - 10 },
+        };
+        const off = play(S(spot), table, hole, P);
+        const on = play(S(spot), table, hole, ON);
+        expect([variant, spot, on.bytes, on.next]).toEqual([variant, spot, off.bytes, off.next]);
+        expect(fired(on, 'vpip_floor_limp_only_seen')).toBe(0);
+        if (off.actions.join() !== play(S(spot), unfloored(variant), hole, P).actions.join())
+          floorActsToday++;
+      }
+    expect(floorActsToday).toBeGreaterThan(0);
+  });
+
+  it('PLO5, PLO6 and PLO4 at or over their line: nothing changes, in any spot', () => {
+    for (const [variant, floor, vpip] of [
+      ['plo5', 40, 50],
+      ['plo5', 40, 63.3],
+      ['plo6', 40, 50],
+      ['plo4', 30, 40],
+    ] as const)
+      for (let i = 0; i < 6; i++) {
+        const hole = deal(variant);
+        for (const [name] of PRODUCTION_MIX) {
+          const none = decideAt(S(name), unfloored(variant), hole, ON, 1 + i).decision;
+          const on = decideAt(S(name), floored(variant, floor, vpip), hole, ON, 1 + i).decision;
+          expect([variant, name, hole, on.action, on.amount]).toEqual([
+            variant,
+            name,
+            hole,
+            none.action,
+            none.amount,
+          ]);
+        }
+      }
+  }, 120_000);
 
   it("hold'em 20%, under the line, facing a raise or a re-raise: the decision is the unfloored one on every hand (the floor never calls or raises in a raised pot)", () => {
     let compared = 0;
@@ -920,7 +1031,33 @@ describe('the declared table: which variants the option governs (what ships)', (
     }
   }, 120_000);
 
-  it("the selection 'every' through the decision path (measurement only; no declared variant uses it)", () => {
+  it('the sitting harness counts a limp that folds to a raise as a VPIP hand (production: deriveFlowFlags, any own preflop call)', () => {
+    // Only first-in-under-the-gun hands, every limp raised behind 89.1% of the time, 'every' selection:
+    // once judged (3 hands) the Horse is under its line and limps every fold, then folds most to the raise.
+    const r = withLimpOnlyVariants({ plo5: 'every' }, () =>
+      sitting({
+        variant: 'plo5',
+        floor: 50,
+        opts: ON,
+        hands: 29,
+        seed: 5,
+        mix: [['utgFirstIn', 1]],
+      })
+    );
+    expect(r.hands).toBe(29);
+    // it holds its line (18 of 30 = 60% of the sample so far) by limping: every limp counts, flop or no flop
+    expect(r.vpipHands).toBeGreaterThanOrEqual(17);
+    expect(r.vpipHands / r.hands).toBeGreaterThanOrEqual(0.58);
+    // and at least half of those hands were floor limps the unfloored decision folds (limp, raised, fold)
+    expect(r.floorEntries).toBeGreaterThanOrEqual(9);
+    console.log(
+      'LIMPFOLD',
+      JSON.stringify([r.vpipHands, r.floorEntries, r.floorChipsBB, r.followOnChipsBB])
+    );
+    expect(r.followOnChipsBB).toBeLessThan(r.floorEntries * 2);
+  });
+
+  it("the selection 'every' through the decision path, set for one run and restored", () => {
     withLimpOnlyVariants({ plo5: 'every' }, () => {
       // one hand short of the line: every unraised fold limps, at every seat
       for (const spot of [
@@ -951,6 +1088,6 @@ describe('the declared table: which variants the option governs (what ships)', (
       }
     });
     // and the declared table is back
-    expect({ ...VPIP_FLOOR_LIMP_ONLY_VARIANTS }).toEqual({ nlh: 'priced' });
+    expect({ ...VPIP_FLOOR_LIMP_ONLY_VARIANTS }).toEqual(DECLARED);
   });
 });
