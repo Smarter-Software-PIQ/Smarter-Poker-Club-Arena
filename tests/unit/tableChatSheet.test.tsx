@@ -184,7 +184,7 @@ describe('the collapsed chat button is untouched by the sheet', () => {
     // tests/e2e/raise-panel-covers-chat.spec.ts asserts the open raise panel
     // wins the overlap against THIS element. Moving the open sheet above the
     // action panel must not move this one.
-    expect(ruleBlock(CHAT_CSS, '.chat-collapsed')).toContain('z-index: 99');
+    expect(ruleBlock(CHAT_CSS, '.chat-collapsed')).toContain('z-index: 105');
   });
 });
 
