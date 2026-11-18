@@ -1,6 +1,6 @@
 {
   "_comment": "Pre-existing shared-row writes on a hand's path that cannot be removed in incident 075013fd. Read by scripts/ci/check-hand-path-shared-writes.mjs; every entry names function, kind, target, owner, reason, date (tests/a-hands-money-path-never-writes-a-shared-row.law.test.ts). This list is DEBT: remove an entry in the change that removes the write. The 14 that #11270/#11266 remove (atomic_distribute_rake, bbj_record_contribution, fn_bbj_allocate, record_insurance_transaction, the envelope's bbj-pool lock and pool row, and through them trg_union_rake_weekly and fn_bbj_contribution_drops_cached_hours) are deliberately NOT here.",
-  "measured": "2026-11-18 read-only on production kuklfnapbkmacvwxktbh: 875 functions on the path, 37 violations before #11270/#11266, 23 expected after. Lane H2 (20261118155729, an UPDATE OF trigger fires on a SET target only): 746 functions, 14 violations; fn_ca_fund_overlay_on_lock x4 and fn_guard_tournament_start_readiness x2 were never reachable (a hand commit never sets tournament_players.status/tournament_id or tournaments.status) and are removed.",
+  "measured": "2026-11-18 read-only on production kuklfnapbkmacvwxktbh: 875 functions on the path, 37 violations before #11270/#11266, 23 after. With the SET-target rule (20261118160106: an UPDATE OF trigger is followed only when the statement SETs one of its columns) 726 functions and 12 violations: 11 were triggers that cannot fire (fn_apply_club_ladder, fn_sync_club_staff_notice_group, fn_refresh_club_activity_counts, fn_sync_club_table_counts, guard_member_club_standalone_game, fn_ca_fund_overlay_on_lock x4, fn_guard_tournament_start_readiness x2) and are removed. 20261118161644 (lane H1, installs on merge) then removes fn_ca_horse_split_return_late_credit row_lock/write clubs and fn_ca_deleted_wallet_bank_return write clubs (proved on production texts by scripts/ci/test-hand-path-cash-lane.py); the last two lane-H1 entries go when 20261118161703 installs in the daily window. Lane H2 (#11311) re-reasoned its fn_ca_burn and spin entries (STATIC ONLY, G3 native proof).",
   "entries": [
     {
       "function": "fn_ca_burn",
@@ -35,83 +35,19 @@
       "date": "2026-11-18"
     },
     {
-      "function": "fn_apply_club_ladder",
-      "kind": "write",
-      "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
-      "date": "2026-11-18"
-    },
-    {
       "function": "fn_apply_union_ladder",
       "kind": "write",
       "target": "unions",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
+      "owner": "club-arena hand path lane H1 (incident 075013fd): remove after 20261118161703 installs",
+      "reason": "Reached only through a clubs.chip_treasury write (the deleted-wallet and horse-split bank returns, NOWAIT since 20261118161644, and fn_ca_burn) firing trg_union_totals_follow_club_counts, a STATEMENT trigger on every clubs UPDATE whose body recomputes the union ladder only when member/admin/super-agent/agent counts changed, which a bank write never does. 20261118161703 (daily-window install: it replaces a trigger on clubs) makes it a row trigger on UPDATE OF the four count columns WHEN one changed. Remove this entry once 20261118161703 is installed.",
       "date": "2026-11-18"
     },
     {
       "function": "fn_ca_deleted_wallet_bank_return",
       "kind": "row_lock",
       "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_ca_deleted_wallet_bank_return",
-      "kind": "write",
-      "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_ca_horse_split_return_late_credit",
-      "kind": "row_lock",
-      "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_ca_horse_split_return_late_credit",
-      "kind": "write",
-      "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_sync_club_staff_notice_group",
-      "kind": "write",
-      "target": "club_messenger_staff_notice_groups",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through promo_apply_playthrough's club_members UPDATE into membership triggers that fire only on a member's status/role change or WHEN the member is deleted/departed (zzzz_deleted_member_credit, zzzz_horse_split_late_credit_returns_to_bank, trg_sync_club_member_count, club_staff_notice_membership); a play-through step for an active member does not take this branch. Remove by narrowing the play-through UPDATE's column list.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_refresh_club_activity_counts",
-      "kind": "write",
-      "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through zzzzz_require_live_seat_parent (BEFORE INSERT OR UPDATE on table_seats) into the tables triggers that fire only WHEN the table's status/club/union actually changes (trg_on_table_status_change, trg_tables_sync_club_counts_*); a hand's stack update does not change its table's status. Remove when the seat-parent guard stops writing tables.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_sync_club_table_counts",
-      "kind": "write",
-      "target": "clubs",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through zzzzz_require_live_seat_parent (BEFORE INSERT OR UPDATE on table_seats) into the tables triggers that fire only WHEN the table's status/club/union actually changes (trg_on_table_status_change, trg_tables_sync_club_counts_*); a hand's stack update does not change its table's status. Remove when the seat-parent guard stops writing tables.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "guard_member_club_standalone_game",
-      "kind": "advisory_lock",
-      "target": "club-game-ownership:",
-      "owner": "club-arena hand path (incident 075013fd follow-up)",
-      "reason": "Reached through zzzzz_require_live_seat_parent (BEFORE INSERT OR UPDATE on table_seats) into the tables triggers that fire only WHEN the table's status/club/union actually changes (trg_on_table_status_change, trg_tables_sync_club_counts_*); a hand's stack update does not change its table's status. Remove when the seat-parent guard stops writing tables.",
+      "owner": "club-arena hand path lane H1 (incident 075013fd): remove after 20261118161703 installs",
+      "reason": "Since 20261118161644 the hand's member-credit trigger takes the club bank NOWAIT (fn_ca_deleted_wallet_bank_return_nowait); this entry is only the NAME edge left: fn_ca_deleted_wallet_credit also serves account deletion (profiles), whose branch calls the blocking fn_ca_deleted_wallet_bank_return (4 s wait, right for deletion). 20261118161703 (daily-window install: it repoints the profiles trigger) moves that branch to fn_ca_deleted_profile_bank_return. Remove this entry once 20261118161703 is installed.",
       "date": "2026-11-18"
     },
     {

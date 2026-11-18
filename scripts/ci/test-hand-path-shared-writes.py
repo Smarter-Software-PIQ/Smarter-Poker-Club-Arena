@@ -46,8 +46,11 @@ MIGRATIONS = ROOT / 'supabase' / 'migrations'
 R5 = ROOT / 'scripts' / 'ci' / 'test-deadlock-lock-orders-r5.py'
 MODULE = ROOT / 'scripts' / 'ci' / 'hand-path-shared-writes.mjs'
 G1_FILE = '20261118084747_a_hands_money_path_never_writes_a_shared_row.sql'
-# The reader as it stands now: an UPDATE OF trigger fires on a SET target only (lane H2).
-G1_SET_FILE = '20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql'
+# The reader as it stands: lane H2's SET-target reader (20261118155729), then
+# 20261118160106, which follows an UPDATE OF trigger only when the statement's
+# SET list assigns one of its columns.
+G1_H2_FILE = '20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql'
+G1_SET_FILE = '20261118160106_a_trigger_fires_only_on_the_columns_an_update_sets.sql'
 G2_FILE = '20261118084759_post_commit_lag_warns_before_the_cascade.sql'
 CHECKED = '20261118090000_applier_proof.sql'  # a name the applier checks
 
@@ -159,6 +162,7 @@ def production_before(db):
     run(db, 'CREATE FUNCTION fn_ca_commit_hand_settlement() RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;'
             'CREATE FUNCTION fn_ca_commit_hand_submission() RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;')
     run(db, (MIGRATIONS / G1_FILE).read_text())
+    run(db, (MIGRATIONS / G1_H2_FILE).read_text())
     run(db, (MIGRATIONS / G1_SET_FILE).read_text())
 
 
@@ -188,6 +192,7 @@ CREATE TABLE club_table_rake_totals(club_id uuid, table_id uuid, rake numeric, P
 CREATE TABLE hand_atomic_commits(hand_id uuid PRIMARY KEY, table_id uuid, stack numeric, note text);
 CREATE TABLE table_seats(id uuid PRIMARY KEY, stack numeric, left_at timestamptz);
 CREATE TABLE tables(id uuid PRIMARY KEY, club_id uuid, status text);
+CREATE TABLE members(club_id uuid, user_id uuid, status text, promo numeric, PRIMARY KEY (club_id, user_id));
 
 -- a call that writes the union's wallet: a violation, with its path
 CREATE FUNCTION fn_synth_bank_rake(u uuid) RETURNS void LANGUAGE plpgsql AS $$
@@ -265,6 +270,29 @@ BEGIN
   INSERT INTO seat_upsert VALUES (h, 0, NULL) ON CONFLICT (id) DO UPDATE SET left_at = excluded.left_at;
   UPDATE seat_unqualified_where SET stack = 0 WHERE id = h AND left_at = now();
 END $$;
+-- UPDATE OF triggers whose columns a statement names only OUTSIDE its SET list
+-- (WHERE, CASE) never fire; a column SET second in the list, or in the
+-- multi-column form, does.
+CREATE FUNCTION fn_synth_where_only_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = table_count WHERE id = NEW.club_id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_second_target_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE unions SET id = id WHERE id = NEW.club_id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_tuple_target_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET total_rake = total_rake WHERE id = NEW.club_id; RETURN NEW; END $$;
+CREATE TRIGGER t_where_only AFTER UPDATE OF club_id, user_id ON members FOR EACH ROW EXECUTE FUNCTION fn_synth_where_only_trg();
+CREATE TRIGGER t_second AFTER UPDATE OF status ON members FOR EACH ROW EXECUTE FUNCTION fn_synth_second_target_trg();
+CREATE TRIGGER t_tuple AFTER UPDATE OF status ON tables FOR EACH ROW EXECUTE FUNCTION fn_synth_tuple_target_trg();
+CREATE FUNCTION fn_synth_promo_step(h uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE members SET promo = CASE WHEN status = 'active' THEN promo + 1 ELSE promo END
+   WHERE club_id = h AND user_id = h AND status = 'active';
+END $$;
+CREATE FUNCTION fn_synth_promo_release(h uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE members SET promo = 0,
+         status = 'released' WHERE club_id = h;
+  UPDATE tables SET (club_id, status) = (club_id, 'open') WHERE id = h;
+END $$;
 -- a chain of 13 calls: the 13th is beyond the call bound
 DO $d$ BEGIN
   EXECUTE 'CREATE FUNCTION fn_synth_deep_13() RETURNS void LANGUAGE plpgsql AS $b$ BEGIN UPDATE unions SET id = id WHERE false; END $b$';
@@ -277,6 +305,7 @@ BEGIN
   PERFORM fn_synth_bank_rake(h); PERFORM fn_synth_nowait(h); PERFORM fn_synth_lock_of(h);
   PERFORM fn_synth_lock_club(h); PERFORM fn_synth_adv(h); PERFORM fn_synth_totals(h, h, h);
   PERFORM fn_ca_bank_pending_cash_rake(h);
+  PERFORM fn_synth_promo_step(h); PERFORM fn_synth_promo_release(h);
   RAISE NOTICE 'see fn_synth_literal_only(%)', h;  -- comment: fn_synth_literal_only()
   PERFORM 'fn_synth_literal_only()';
   UPDATE table_seats SET stack = stack - 1 WHERE id = h;
@@ -578,10 +607,14 @@ try:
     run('postgres', 'CREATE DATABASE synth')
     run('synth', SYNTH)
     run('synth', (MIGRATIONS / G1_FILE).read_text())
-    status, _, err = attempt('synth', guarded(G1_SET_FILE, (MIGRATIONS / G1_SET_FILE).read_text()))
-    check('G1 rules: the SET-target reader installs through the applier check', status == 0, err[-600:])
-    proof = (MIGRATIONS / G1_SET_FILE).read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
-    check('G1 rules: the SET-target reader carries its live proof', run('synth', 'SELECT ' + proof) == 't', proof)
+    old = keys(answer('synth'))
+    check('G1 rules: the first reader followed a trigger whose column was only in the WHERE clause (the false positive)',
+          'fn_synth_where_only_trg|write|clubs' in old, old)
+    for f in (G1_H2_FILE, G1_SET_FILE):
+        status, _, err = attempt('synth', guarded(f, (MIGRATIONS / f).read_text()))
+        check(f'G1 rules: the SET-target reader {f[:14]} installs through the applier check', status == 0, err[-600:])
+        proof = (MIGRATIONS / f).read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+        check(f'G1 rules: {f[:14]} carries its live proof', run('synth', 'SELECT ' + proof) == 't', proof)
     a = answer('synth')
     k = keys(a)
     paths = {f"{v['function']}|{v['kind']}|{v['target']}": v['path'] for v in a['violations']}
@@ -605,10 +638,17 @@ try:
           paths.get('fn_synth_seat_stack_trg|write|clubs') == 'fn_ca_process_hand_post_commit_obligations =T=> fn_synth_seat_stack_trg'
           and not any(x.startswith('fn_synth_seat_leave_trg|') for x in k), paths)
     leave = {x.split('|')[0] for x in k if x.startswith('fn_synth_') and x.endswith('_leave_trg|write|clubs')}
-    check('G1 rules: an UPDATE OF trigger fires on a SET target (plain, quoted, tuple, upsert, unqualified WHERE '
-          'compare kept conservatively), never on a column only a qualified WHERE compares',
+    check('G1 rules: an UPDATE OF trigger fires on a SET target (plain, quoted, tuple, upsert), never on a column '
+          'only a WHERE compares, qualified or not (20261118160106)',
           leave == {'fn_synth_set_leave_trg', 'fn_synth_quoted_leave_trg', 'fn_synth_tuple_leave_trg',
-                    'fn_synth_upsert_leave_trg', 'fn_synth_unqualified_leave_trg'}, sorted(leave))
+                    'fn_synth_upsert_leave_trg'}, sorted(leave))
+    check('G1 rules: an UPDATE OF trigger whose columns appear only in the WHERE clause or a CASE is not followed',
+          not any(x.startswith('fn_synth_where_only_trg|') for x in k), k)
+    check('G1 rules: a column SET second in the list fires its trigger',
+          paths.get('fn_synth_second_target_trg|write|unions') ==
+          'fn_ca_process_hand_post_commit_obligations -> fn_synth_promo_release =T=> fn_synth_second_target_trg', paths)
+    check('G1 rules: the multi-column SET (a, b) = ... form is matched conservatively',
+          'fn_synth_tuple_target_trg|write|clubs' in k, k)
     check('G1 rules: the call bound stops at 12 calls',
           not any(x.startswith('fn_synth_deep_13|') for x in k) and a['closure'] > 0, k)
     run('synth', 'ALTER FUNCTION fn_ca_commit_hand_submission() RENAME TO fn_ca_commit_hand_submission_old')
