@@ -332,6 +332,25 @@ def main():
   check('a wallet emptied during the grants refuses the cutoff with its original error and leaves nothing behind',[free.returncode,funded.returncode!=0 and refusal in funded.stderr,left_behind(event)],[0,True,'0:0:0:0:0.00'])
   event=cutoff_entry(0);refused=db.run(f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')",check=False)
   check('an unfunded cutoff still refuses with its original error and leaves nothing behind',[refused.returncode!=0 and refusal in refused.stderr,left_behind(event)],[True,'0:0:0:0:0.00'])
+  # Every other writer takes the union wallet before a member row: a cash hand
+  # credits its rake and then locks each player's member row. Such a hand,
+  # holding the wallet and waiting on an entrant the cutoff already granted,
+  # must end on its own timeout and never end the finish as a deadlock victim.
+  reset();event=str(uuid.uuid4());first,second=sorted([str(uuid.uuid4()),str(uuid.uuid4())])
+  db.run(f"UPDATE union_wallets SET promo_wallet=10000 WHERE union_id='{U}';INSERT INTO tournaments(id,club_id,is_free_buy,buy_in_amount,buy_in_fee) VALUES('{event}','{C}',true,0,0);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{first}','{event}','{A}','registered'),('{second}','{event}','{B}','registered');SELECT smarter_private.free_buy_ticket_redeem('{event}','{first}');SELECT smarter_private.free_buy_ticket_redeem('{event}','{second}');")
+  with ThreadPoolExecutor(max_workers=3) as pool:
+   holder=pool.submit(db.run,f"BEGIN;SELECT 1 FROM club_members WHERE user_id='{B}' FOR UPDATE;SELECT pg_sleep(600);",None,False)
+   try:
+    wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE state='active' AND query LIKE '%pg_sleep(600)%' AND pid<>pg_backend_pid())")
+    funding=pool.submit(db.run,f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')",None,False)
+    wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%fn_ca_fund_free_buy_at_cutoff_locked%' AND pid<>pg_backend_pid())")
+    hand=pool.submit(db.run,f"SET statement_timeout='5s';BEGIN;UPDATE union_wallets SET updated_at=now() WHERE union_id='{U}';SELECT 1 FROM club_members WHERE user_id='{A}' FOR UPDATE;COMMIT;",None,False)
+    wait_for("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%club_members%FOR UPDATE%' AND pid<>pg_backend_pid())")
+    time.sleep(1.5)
+   finally:
+    db.run("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(600)%' AND pid<>pg_backend_pid()")
+   funded=funding.result();played=hand.result();holder.result()
+  check('a wallet-then-member writer waiting on a granted entrant ends on its own timeout and the cutoff still funds',[funded.returncode,'deadlock detected' in funded.stderr,played.returncode!=0,left_behind(event)],[0,False,True,'1:2:2:2:9998.00'])
   db.run(f"UPDATE union_wallets SET promo_wallet={wallet} WHERE union_id='{U}'")
   reset()
   with ThreadPoolExecutor(max_workers=2) as pool:

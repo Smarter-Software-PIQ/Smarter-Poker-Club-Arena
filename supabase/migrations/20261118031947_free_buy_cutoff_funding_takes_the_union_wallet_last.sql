@@ -26,6 +26,15 @@
 --    posted before it roll back with it. A plain unlocked read of the balance
 --    ahead of the leg keeps the ordinary unfunded cutoff refusing before
 --    anything is posted, exactly where it refused before.
+--  * Lock order. Every other writer of this row takes it before a member row:
+--    a cash hand credits its rake and then locks each player's member row
+--    (promo_apply_playthrough), and promo sends and weekly pay do the same.
+--    The grants here hold the entrants' member rows first. So the debit never
+--    queues on the wallet row for as long as the 1 s deadlock check: it asks
+--    in 400 ms attempts, up to 50. A writer that holds the row while waiting
+--    on an entrant ends on its own timeout; this finish is not chosen as the
+--    deadlock victim. If the row is never free in that time the finish
+--    raises lock_not_available and rolls back whole, to be retried.
 --  * No trigger sees the order. Read on production: no chip_ledger insert
 --    trigger reads or locks union_wallets (fn_ca_ledger_tally_key reads only
 --    its id), the balance/leg agreement (zz_ca_balance_has_its_ledger_row) is
@@ -36,7 +45,7 @@
 -- already grants EXECUTE to service_role alone; the REVOKE and GRANT below
 -- restate exactly that, and the proof refuses any other outcome.
 --
--- @live-proof: md5(pg_get_functiondef('public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure))='b855340a8401580fad402978f609c1e6' AND (SELECT pg_get_userbyid(p.proowner)='postgres' AND p.prosecdef AND p.proconfig::text='{"search_path=public, pg_temp"}' AND p.proacl::text='{postgres=X/postgres,service_role=X/postgres}' FROM pg_proc p WHERE p.oid='public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure)
+-- @live-proof: md5(pg_get_functiondef('public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure))='5680bd93df014a8b15eeabb05577277c' AND (SELECT pg_get_userbyid(p.proowner)='postgres' AND p.prosecdef AND p.proconfig::text='{"search_path=public, pg_temp"}' AND p.proacl::text='{postgres=X/postgres,service_role=X/postgres}' FROM pg_proc p WHERE p.oid='public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure)
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -62,7 +71,7 @@ AS $function$
 DECLARE
  t public.tournaments%ROWTYPE;
  v_format text; v_funding jsonb; v_part numeric; v_entries integer;
- v_posted numeric; v_due numeric; k text; n integer; v_prev text;
+ v_posted numeric; v_due numeric; k text; n integer; v_prev text; v_wait text;
 BEGIN
  SELECT * INTO t FROM public.tournaments WHERE id = p_tournament_id FOR UPDATE;
  IF NOT FOUND OR coalesce(t.prize_pool_finalized, false) THEN RETURN 0; END IF;
@@ -124,9 +133,24 @@ BEGIN
      'bounty_part', 0, 'prize_part', v_due));
  v_prev := current_setting('app.ledger_autoskip_union_wallets', true);
  PERFORM set_config('app.ledger_autoskip_union_wallets', '1', true);
- UPDATE public.union_wallets SET promo_wallet = promo_wallet - v_due, updated_at = now()
-  WHERE union_id = 'fade0000-0000-0000-0000-000000000001'::uuid AND promo_wallet >= v_due;
- GET DIAGNOSTICS n = ROW_COUNT;
+ -- Every other writer takes this row before a member row; this one already
+ -- holds its entrants' member rows. So it never queues on the row for as long
+ -- as the deadlock check (1 s): it asks in short attempts, and a writer that
+ -- holds the row while waiting on an entrant ends on its own timeout instead
+ -- of ending this finish.
+ v_wait := current_setting('lock_timeout', true);
+ FOR v_try IN 1..50 LOOP
+   BEGIN
+     PERFORM set_config('lock_timeout', '400ms', true);
+     UPDATE public.union_wallets SET promo_wallet = promo_wallet - v_due, updated_at = now()
+      WHERE union_id = 'fade0000-0000-0000-0000-000000000001'::uuid AND promo_wallet >= v_due;
+     GET DIAGNOSTICS n = ROW_COUNT;
+     PERFORM set_config('lock_timeout', coalesce(v_wait, '0'), true);
+     EXIT;
+   EXCEPTION WHEN lock_not_available THEN
+     IF v_try = 50 THEN RAISE; END IF;
+   END;
+ END LOOP;
  PERFORM set_config('app.ledger_autoskip_union_wallets', coalesce(v_prev, ''), true);
  IF n <> 1 THEN RAISE EXCEPTION 'Midway promo funds cannot fund this Free Buy at its cutoff'; END IF;
  PERFORM public.fn_ca_escrow_apply(p_tournament_id, 'Free Buy cutoff funding',
@@ -143,7 +167,7 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_fund_free_buy_at_cutoff_locked(uuid) TO s
 DO $proof$
 BEGIN
  IF md5(pg_get_functiondef('public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure))
-    <> 'b855340a8401580fad402978f609c1e6' THEN
+    <> '5680bd93df014a8b15eeabb05577277c' THEN
   RAISE EXCEPTION 'Free Buy cutoff funding postimage is not the qualified one';
  END IF;
  IF current_setting('ca.free_buy_cutoff_owner_before', true) IS DISTINCT FROM
