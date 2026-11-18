@@ -126,6 +126,51 @@ describe('one chain helper per table per process', () => {
     expect(postCommitChainHelpersInFlight()).toBe(0);
   });
 
+  it("a joiner does not wait on a walk that is not bound to end within its own budget", async () => {
+    const { db } = fakeTable(4);
+    db.hand1Delay = 200;
+    let joinedAt = 0;
+    let joinerDoneAt = 0;
+    const [, joiner] = await Promise.all([
+      // The worker's walk: no budget, so not bound to end at any time.
+      processHandPostCommitObligations(hand(3)),
+      new Promise((r) => setTimeout(r, 5)).then(async () => {
+        joinedAt = Date.now();
+        const out = await processHandPostCommitObligations(hand(4), { waitAtMostMs: 20 });
+        joinerDoneAt = Date.now();
+        return out;
+      }),
+    ]);
+    // The joiner came back with its own queued answer at once, never walking.
+    expect(joiner).toMatchObject({ ok: false, reason: 'predecessor_pending' });
+    expect(joinerDoneAt - joinedAt).toBeLessThan(100);
+    expect(db.scans).toBe(1);
+  });
+
+  it('a joiner waits on a walk bound to end within its budget', async () => {
+    const { db, applied } = fakeTable(4);
+    db.hand1Delay = 30;
+    const [walker, joiner] = await Promise.all([
+      processHandPostCommitObligations(hand(3), { waitAtMostMs: 1_000 }),
+      new Promise((r) => setTimeout(r, 5)).then(() =>
+        processHandPostCommitObligations(hand(4), { waitAtMostMs: 5_000 })
+      ),
+    ]);
+    expect(walker.ok).toBe(true);
+    expect(joiner.ok === true || joiner.reason === 'predecessor_pending').toBe(true);
+    expect(applied.slice(0, 3)).toEqual([hand(1), hand(2), hand(3)]);
+    expect(db.scans).toBe(1);
+  });
+
+  it('a walker whose host lost its lease stops walking', async () => {
+    const { db, applied } = fakeTable(5);
+    const answer = await processHandPostCommitObligations(hand(5), { shouldContinue: () => false });
+    expect(answer).toMatchObject({ ok: false, reason: 'predecessor_pending' });
+    expect(applied).toEqual([]);
+    expect(db.rpcs).toBe(1);
+    expect(postCommitChainHelpersInFlight()).toBe(0);
+  });
+
   it('table_busy is retryable and never starts a walk', async () => {
     const { db } = fakeTable(1);
     db.heldByAnotherSession = true;

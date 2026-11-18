@@ -4,7 +4,7 @@
  * Incident 075013fd, 2026-11-18 (LightningHandHost.post_commit_obligations_pending,
  * money_integrity). One slow envelope at a Lightning host table made every
  * later hand of the table queue on pg_advisory_xact_lock('hand-post-commit:')
- * with no lock_timeout until the 8 s statement timeout, only to be told under
+ * with no bound of its own until the 8 s statement timeout, only to be told under
  * the lock that an earlier envelope was still open. Every caller then walked
  * the same predecessor chain, and every host filed its own critical alert:
  * 8,303 statement timeouts, 38 million RPC calls, post-commit lag up to
@@ -44,8 +44,8 @@ const SWITCH = '20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lo
 const BANK_SWITCH = '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql';
 const CANDIDATE = '20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql';
 const ENVELOPE = 'fn_ca_process_hand_post_commit_obligations';
-const PRE = '11f769218554c9585f92ee2c5745e61f';
-const POST = '342387f93ce2c61dd0a754a1c0290a67';
+const PRE = 'd41bfee494141a366d72d3649a0208e5';
+const POST = 'a21cdfe2e75c296b554f30ca4b8f454c';
 
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -65,6 +65,7 @@ const candidate = read('supabase', 'migrations', CANDIDATE);
 let preimage = fixture.functions[ENVELOPE].definition;
 for (const [sql, tag] of [
   [sw, 'env0'],
+  [bankSwitch, 'env0'],
   [bankSwitch, 'env1'],
   [bankSwitch, 'env2'],
 ] as const) {
@@ -72,7 +73,7 @@ for (const [sql, tag] of [
   preimage = preimage.replace(dollar(sql, `o${tag}`), dollar(sql, `n${tag}`));
 }
 let postimage = preimage;
-for (let i = 1; i <= 8; i++) {
+for (let i = 1; i <= 7; i++) {
   const old = dollar(candidate, `o${i}`);
   expect(postimage.split(old).length, `anchor ${i} occurs exactly once`).toBe(2);
   postimage = postimage.replace(old, dollar(candidate, `n${i}`));
@@ -121,7 +122,9 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
     expect(body).toMatch(
       /WHILE NOT pg_try_advisory_xact_lock\(v_mutex_key\) LOOP\s+IF clock_timestamp\(\) - v_mutex_started >= interval '250 milliseconds' THEN\s+RETURN jsonb_build_object\(\s+'ok', false,\s+'reason', 'table_busy'/
     );
-    expect(postimage).toMatch(/^ SET lock_timeout TO '1s'$/m);
+    // No function-level setting: callers' and callees' own lock_timeout stand.
+    expect(postimage).not.toMatch(/^ SET lock_timeout/m);
+    expect(postimage.match(/^ SET /gm)).toEqual([' SET ']);
     expect(body).toMatch(
       /EXCEPTION WHEN lock_not_available THEN\s+RETURN jsonb_build_object\(\s+'ok', false,\s+'reason', 'obligation_lock_busy',\s+'retryable', true/
     );
@@ -134,24 +137,30 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
   });
 
   it('bounds only the locks it names, and never inside a callee that swallows errors', () => {
-    const rowLock = at(/WHERE c\.hand_id = p_hand_id\s+FOR UPDATE;/);
-    const after = body.slice(rowLock);
-    // Right after the hand row: callees keep the wait they always had.
-    expect(after).toMatch(/^WHERE c\.hand_id = p_hand_id\s+FOR UPDATE;\s+PERFORM set_config\('lock_timeout', '0', true\);/);
-    // promo_apply_playthrough's rows, in its own order, bounded, then unbounded for the call.
-    expect(after).toMatch(
-      /PERFORM set_config\('lock_timeout', '1s', true\);\s+PERFORM 1\s+FROM public\.player_stats s[\s\S]*?FOR UPDATE;\s+PERFORM 1\s+FROM public\.club_members m[\s\S]*?FOR UPDATE;\s+PERFORM set_config\('lock_timeout', '0', true\);\s+v_promo_result := public\.promo_apply_playthrough\(/
+    expect(body).toMatch(/v_caller_lock_timeout text := current_setting\('lock_timeout'\);/);
+    const block = body.slice(at('pg_try_advisory_xact_lock(v_mutex_key)'));
+    const BOUND = "set_config('lock_timeout', '1s', true)";
+    const BACK = "set_config('lock_timeout', v_caller_lock_timeout, true)";
+    // The hand row, bounded, then the caller's value again.
+    expect(block).toMatch(
+      /PERFORM set_config\('lock_timeout', '1s', true\);\s+SELECT c\.\* INTO v_commit\s+FROM public\.hand_atomic_commits c\s+WHERE c\.hand_id = p_hand_id\s+FOR UPDATE;\s+PERFORM set_config\('lock_timeout', v_caller_lock_timeout, true\);/
     );
-    expect(after).toMatch(
-      /PERFORM set_config\('lock_timeout', '1s', true\);\s+SELECT a\.\* INTO v_addon\s+FROM public\.table_pending_addons a[\s\S]*?FOR UPDATE;\s+PERFORM set_config\('lock_timeout', '0', true\);/
+    // promo_apply_playthrough's rows, in its own order, bounded; the call itself is not.
+    expect(block).toMatch(
+      /PERFORM set_config\('lock_timeout', '1s', true\);\s+PERFORM 1\s+FROM public\.player_stats s[\s\S]*?FOR UPDATE;\s+PERFORM 1\s+FROM public\.club_members m[\s\S]*?FOR UPDATE;\s+PERFORM set_config\('lock_timeout', v_caller_lock_timeout, true\);\s+v_promo_result := public\.promo_apply_playthrough\(/
     );
-    // Every '1s' is closed by a '0' before any callee runs.
-    const sets = [...after.matchAll(/set_config\('lock_timeout', '(0|1s)', true\)/g)].map((m) => m[1]);
-    expect(sets).toEqual(['0', '1s', '0', '1s', '0']);
+    expect(block).toMatch(
+      /PERFORM set_config\('lock_timeout', '1s', true\);\s+SELECT a\.\* INTO v_addon\s+FROM public\.table_pending_addons a[\s\S]*?FOR UPDATE;\s+PERFORM set_config\('lock_timeout', v_caller_lock_timeout, true\);/
+    );
+    // Every bound is closed before anything else runs; no other value is ever set.
+    const sets = [...block.matchAll(/set_config\('lock_timeout', ([^,]+), true\)/g)].map((m) => m[1]);
+    expect(sets).toEqual(["'1s'", 'v_caller_lock_timeout', "'1s'", 'v_caller_lock_timeout', "'1s'", 'v_caller_lock_timeout']);
+    expect(body.match(/set_config\('lock_timeout'/g)).toHaveLength(6);
     for (const callee of ['promo_apply_playthrough', 'resolve_pending_addon', 'fn_union_pnl_prove_posthand_escrow']) {
-      const i = after.indexOf(`public.${callee}(`);
-      const last = after.slice(0, i).match(/set_config\('lock_timeout', '(0|1s)', true\)/g)!.pop();
-      expect(last, `${callee} runs with lock_timeout 0`).toBe("set_config('lock_timeout', '0', true)");
+      const before = block.slice(0, block.indexOf(`public.${callee}(`));
+      expect(before.lastIndexOf(BACK), `${callee} runs with the caller's lock_timeout`).toBeGreaterThan(
+        before.lastIndexOf(BOUND)
+      );
     }
   });
 
@@ -213,7 +222,8 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
     expect(harness).toContain("check('AFTER: zero statement timeouts', timeouts == 0");
     expect(harness).toContain("check('AFTER: draining applies every hand exactly once'");
     expect(harness).toContain("check('AFTER: the stat is not dropped: nothing written while held, written once after'");
-    expect(harness).toContain("check('AFTER: the callee runs with no bounded wait of its own (nothing to swallow)'");
+    expect(harness).toContain("check('AFTER: the callee runs with the caller\\'s own lock_timeout (nothing shortened to swallow)'");
+    expect(harness).toContain("check('AFTER: a caller holding the table mutex (fn_project_hand_side_effects) gets obligation_lock_busy and a usable transaction'");
     const workflow = read('.github', 'workflows', 'post-commit-envelope-convoy.yml');
     for (const f of [SWITCH, BANK_SWITCH, CANDIDATE]) expect(workflow).toContain(`supabase/migrations/${f}`);
     expect(workflow).toContain('python3 scripts/ci/test-post-commit-envelope-convoy-postgres.py');

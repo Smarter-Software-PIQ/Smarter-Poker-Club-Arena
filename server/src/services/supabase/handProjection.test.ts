@@ -448,6 +448,32 @@ describe('the accepted-hand projection worker', () => {
     }
   });
 
+  for (const reason of ['table_busy', 'obligation_lock_busy'])
+    it(`defers the envelope's queued answer ${reason} instead of failing it (20261118073646)`, async () => {
+      vi.useFakeTimers();
+      try {
+        outboxReplies.push(
+          { data: [{ hand_id: 'h-402', hand_number: 402 }], error: null },
+          { data: [{ hand_id: 'h-402', hand_number: 402 }], error: null }
+        );
+        projectionReplies.push(
+          { data: { ok: false, reason, retryable: true }, error: null },
+          { data: { ok: true, hand_id: 'h-402' }, error: null }
+        );
+        await expect(worker.wakeHandProjection()).resolves.toMatchObject({
+          deferred: 1,
+          failed: 0,
+        });
+        // No failure receipt, no semantic-refusal report: only the projection RPC ran.
+        expect(rpcCalls.map((c) => c.fn)).toEqual(['fn_project_hand_side_effects']);
+        expect(mockReportError).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(250);
+        await vi.waitFor(() => expect(rpcCalls).toHaveLength(2));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
   it('cancels the exact retry generation and joins active work on stop', async () => {
     vi.useFakeTimers();
     try {

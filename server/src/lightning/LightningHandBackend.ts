@@ -164,7 +164,10 @@ export interface LightningHandBackend {
    * answers (nothing written, retry); any other reason is a refusal. Since
    * 20261118073646 a queued answer names the table's oldest open envelope.
    */
-  postCommit(handHistoryId: string): Promise<LightningPostCommitOutcome>;
+  postCommit(
+    handHistoryId: string,
+    options?: { waitAtMostMs?: number; shouldContinue?: () => boolean }
+  ): Promise<LightningPostCommitOutcome>;
   /**
    * The table's oldest open post-commit envelope, read once when a stalled
    * drain files its alert (the stall episode's key). Optional: null or absent
@@ -465,8 +468,8 @@ export function createSupabaseLightningHandBackend(): LightningHandBackend {
       };
     },
 
-    async postCommit(handHistoryId) {
-      const out = await processHandPostCommitObligations(handHistoryId);
+    async postCommit(handHistoryId, options) {
+      const out = await processHandPostCommitObligations(handHistoryId, options);
       if (out.ok === true) return { ok: true };
       const oldest =
         isUuid(out.oldest_pending_hand_id) && Number.isSafeInteger(out.oldest_pending_hand_number)

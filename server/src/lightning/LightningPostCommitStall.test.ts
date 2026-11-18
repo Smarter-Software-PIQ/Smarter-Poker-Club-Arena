@@ -34,8 +34,9 @@ const { mulberry32 } = await import('../engine/HandFuzzer.js');
 const kit = await import('../testing/lightningHostTestKit.js');
 const {
   PostCommitStallEpisodes,
+  POST_COMMIT_STALL_EPISODE_QUIET_MS,
   classifyPostCommitAnswer,
-  isTransientPostCommitError,
+  classifyPostCommitError,
   oldestPendingAgeMs,
 } = await import('./LightningPostCommitStall.js');
 const { buildHost, formedHand, flush, playOut, uid } = kit;
@@ -134,16 +135,57 @@ describe('the herd: many hands behind one slow predecessor', () => {
     });
   });
 
-  it('a new oldest hand is a new episode; the one that applied closed its own', () => {
+  it('a slowly draining backlog is one episode however often its oldest hand advances', async () => {
     const stalls = new PostCommitStallEpisodes();
-    expect(stalls.open('T', 'h1', 0)).toBe(true);
-    expect(stalls.open('T', 'h1', 1)).toBe(false);
-    expect(stalls.open('U', 'h1', 2)).toBe(true);
-    stalls.close('T', 'h9');
-    expect(stalls.open('T', 'h1', 3)).toBe(false);
-    stalls.close('T', 'h1');
-    expect(stalls.open('T', 'h1', 4)).toBe(true);
-    expect(stalls.open('T', 'h2', 5)).toBe(true);
+    const { clock, deps } = sharedClock(Date.parse('2026-11-18T05:10:00.000Z'));
+    // Each host stalls behind the then-oldest hand; the backlog drains one
+    // hand per host, so the oldest advances twelve times.
+    let head = 1;
+    for (let i = 0; i < 12; i++) {
+      const oldest = { handId: uid(100 + head), handNumber: 1000 + head, committedAt: COMMITTED };
+      await runHost(
+        200 + i,
+        async () => ({ ok: false, reason: 'predecessor_pending', oldest }),
+        { ...deps, postCommitBudgetMs: 1_000, postCommitStalls: stalls }
+      );
+      head++;
+    }
+    expect(alerts.raised).toHaveLength(1);
+    const episode = stalls.episode(kit.HOST_TABLE)!;
+    expect(episode).toMatchObject({
+      firstOldestHandId: uid(101),
+      currentOldestHandId: uid(112),
+      stalledHands: 12,
+    });
+    expect(alerts.raised[0].details).toMatchObject({
+      first_seen_oldest_hand_id: uid(101),
+      stalled_hands: 1,
+    });
+    // A hand that applies without ever being queued ends it: the next stall pages again.
+    await runHost(300, async () => ({ ok: true }), { ...deps, postCommitStalls: stalls });
+    expect(stalls.episode(kit.HOST_TABLE)).toBeNull();
+    await runHost(
+      301,
+      async () => ({ ok: false, reason: 'table_busy', oldest: { handId: uid(150), handNumber: 1050, committedAt: COMMITTED } }),
+      { ...deps, postCommitBudgetMs: 1_000, postCommitStalls: stalls }
+    );
+    expect(alerts.raised).toHaveLength(2);
+    expect(clock.nowMs).toBeGreaterThan(0);
+  });
+
+  it('a hand that applied after queueing does not end the episode; quiet time does', () => {
+    const stalls = new PostCommitStallEpisodes();
+    expect(stalls.stalled('T', 'h1', 10, 0).opened).toBe(true);
+    expect(stalls.stalled('T', 'h2', 50, 1).opened).toBe(false);
+    stalls.applied('T', true);
+    expect(stalls.stalled('T', 'h3', 20, 2)).toMatchObject({
+      opened: false,
+      episode: { firstOldestHandId: 'h1', currentOldestHandId: 'h3', stalledHands: 3, maxOldestAgeMs: 50 },
+    });
+    expect(stalls.stalled('U', 'h1', null, 3).opened).toBe(true);
+    expect(stalls.stalled('T', 'h4', null, 3 + POST_COMMIT_STALL_EPISODE_QUIET_MS).opened).toBe(true);
+    stalls.applied('T', false);
+    expect(stalls.episode('T')).toBeNull();
   });
 });
 
@@ -179,7 +221,23 @@ describe('a queued hand is retried; a refused hand is alerted at once', () => {
     expect(stalls.size).toBe(0);
   });
 
-  it('a non-transient error alerts at once too', async () => {
+  it('a burst of overload errors across many hands is one stall, not a page per hand', async () => {
+    const stalls = new PostCommitStallEpisodes();
+    const { deps } = sharedClock(9_000_000);
+    const errors = ['deadlock detected (40P01)', 'sorry, too many clients already', 'Connection terminated unexpectedly', 'upstream returned 522'];
+    for (let i = 0; i < 8; i++)
+      await runHost(
+        400 + i,
+        async () => {
+          throw new Error(`post-commit obligations RPC failed: ${errors[i % errors.length]}`);
+        },
+        { ...deps, postCommitBudgetMs: 1_000, postCommitStalls: stalls }
+      );
+    expect(alerts.raised).toHaveLength(1);
+    expect(alerts.raised[0].details.outcome).toBe('stalled');
+  });
+
+  it('the envelope refusing its own payload alerts at once', async () => {
     const t = await runHost(
       62,
       async () => {
@@ -194,24 +252,38 @@ describe('a queued hand is retried; a refused hand is alerted at once', () => {
 });
 
 describe('classification', () => {
-  it('names the three queued answers and nothing else', () => {
+  it('only a closed list of answers is definite; every other answer is queued', () => {
     expect(classifyPostCommitAnswer({ ok: true })).toBe('applied');
-    for (const reason of ['predecessor_pending', 'table_busy', 'obligation_lock_busy'])
+    for (const reason of ['predecessor_pending', 'table_busy', 'obligation_lock_busy', 'refused', 'something_new', undefined])
       expect(classifyPostCommitAnswer({ ok: false, reason })).toBe('queued');
-    for (const reason of ['not_found', 'legacy_no_obligations', 'refused', undefined])
+    for (const reason of ['not_found', 'legacy_no_obligations'])
       expect(classifyPostCommitAnswer({ ok: false, reason })).toBe('failed');
   });
-  it('treats timeouts, transport doubt and the lane retry as transient', () => {
+  it('overload and transport errors are queued; only the envelope refusing its payload is definite', () => {
     for (const m of [
       'canceling statement due to statement timeout',
-      'supabase_timeout',
+      'deadlock detected (40P01)',
+      'could not serialize access due to concurrent update (40001)',
+      'sorry, too many clients already (53300)',
+      'remaining connection slots are reserved for non-replication superuser connections',
+      'Connection terminated unexpectedly',
+      'upstream returned 522',
+      'post-commit predecessor scan failed: timeout',
       'TypeError: fetch failed',
       'F06_RETRY_CANONICAL_LANE',
-      'ECONNRESET',
+      'a message nobody has seen before',
     ])
-      expect(isTransientPostCommitError(m)).toBe(true);
-    for (const m of ['post-commit obligation payload hash mismatch', 'invalid rake obligation for hand x'])
-      expect(isTransientPostCommitError(m)).toBe(false);
+      expect(classifyPostCommitError(m)).toBe('queued');
+    for (const m of [
+      'post-commit obligation payload hash mismatch for hand x',
+      'invalid rake obligation for hand x',
+      'invalid time-bank audit payload for hand x',
+      'diamond_hand_has_chip_obligations',
+      'pending add-on "a" does not belong to table t (hand h)',
+      'BBJ contribution requires a stable hand identity and positive whole-cent amount',
+      'promo obligation refused for hand x: {}',
+    ])
+      expect(classifyPostCommitError(m)).toBe('failed');
   });
   it('ages the oldest hand from its commit time', () => {
     expect(oldestPendingAgeMs({ handId: 'h', handNumber: 1, committedAt: COMMITTED }, Date.parse(COMMITTED) + 6_410_000)).toBe(6_410_000);

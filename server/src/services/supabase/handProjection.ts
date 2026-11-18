@@ -116,6 +116,7 @@ export type HandPostCommitResult = {
   oldest_pending_committed_at?: string;
 };
 
+import { isQueuedPostCommitReason } from './postCommitReasons.js';
 export { POST_COMMIT_QUEUED_REASONS, isQueuedPostCommitReason } from './postCommitReasons.js';
 
 /**
@@ -127,7 +128,7 @@ export { POST_COMMIT_QUEUED_REASONS, isQueuedPostCommitReason } from './postComm
  * 075013fd). Now the first caller walks the chain; every other caller for
  * the same table awaits that walk and then asks only for its own hand.
  */
-const chainHelpers = new Map<string, Promise<boolean>>();
+const chainHelpers = new Map<string, { walk: Promise<boolean>; endsByMs: number }>();
 
 /** Tables with a chain walk in flight in this process (tests and /health). */
 export function postCommitChainHelpersInFlight(): number {
@@ -143,9 +144,29 @@ export function postCommitChainHelpersInFlight(): number {
  * database row lock and completed receipt make concurrent live/worker calls
  * converge exactly once.
  */
+export interface HandPostCommitOptions {
+  /**
+   * This caller's remaining budget. Its own chain walk stops at it, and it
+   * joins another caller's walk only if that walk is bound to end within it;
+   * otherwise it gets its own queued answer back at once and retries on its
+   * own schedule (no timer races the walk). Unset: no bound.
+   */
+  waitAtMostMs?: number;
+  /**
+   * Asked before each predecessor this caller's own walk applies; false stops
+   * the walk (a Lightning host that lost its lease). Joiners then get their
+   * own queued answer back.
+   */
+  shouldContinue?: () => boolean;
+}
+
 export async function processHandPostCommitObligations(
-  handId: string
+  handId: string,
+  options: HandPostCommitOptions = {}
 ): Promise<HandPostCommitResult> {
+  const started = Date.now();
+  const remainingMs = () =>
+    options.waitAtMostMs === undefined ? undefined : options.waitAtMostMs - (Date.now() - started);
   const apply = async (id: string): Promise<HandPostCommitResult> => {
     const { data, error } = await supabase.rpc('fn_ca_process_hand_post_commit_obligations', {
       p_hand_id: id,
@@ -224,7 +245,13 @@ export async function processHandPostCommitObligations(
   // advanced the table; otherwise the oldest envelope still owns the barrier
   // and its own refusal stands. Another hand's success is never this hand's.
   const inFlight = chainHelpers.get(tableId!);
-  if (inFlight) return (await inFlight) ? apply(handId) : initial;
+  if (inFlight) {
+    const left = remainingMs();
+    if (left !== undefined && inFlight.endsByMs > Date.now() + left) return initial;
+    return (await inFlight.walk) ? apply(handId) : initial;
+  }
+  const left0 = remainingMs();
+  const endsByMs = left0 === undefined ? Infinity : Date.now() + left0;
 
   let walkError: unknown = null;
   const walk: Promise<boolean> = (async () => {
@@ -240,6 +267,11 @@ export async function processHandPostCommitObligations(
     if (earlierError)
       throw new Error(`post-commit predecessor scan failed: ${describeError(earlierError)}`);
     for (const predecessor of earlier ?? []) {
+      // A caller whose budget is spent or whose host lost its lease stops
+      // walking; the oldest open envelope keeps its barrier either way.
+      if (options.shouldContinue?.() === false) return false;
+      const left = remainingMs();
+      if (left !== undefined && left <= 0) return false;
       const result = await apply(predecessor.hand_id);
       // The oldest unresolved dependency still owns the barrier on any doubt
       // (a busy answer included): stop at it.
@@ -251,9 +283,9 @@ export async function processHandPostCommitObligations(
     return false;
   });
   const registered = walk.finally(() => {
-    if (chainHelpers.get(tableId!) === registered) chainHelpers.delete(tableId!);
+    if (chainHelpers.get(tableId!)?.walk === registered) chainHelpers.delete(tableId!);
   });
-  chainHelpers.set(tableId!, registered);
+  chainHelpers.set(tableId!, { walk: registered, endsByMs });
   const helped = await registered;
   if (walkError) throw walkError;
   // Return the requested hand's refusal, not another hand's success receipt.
@@ -548,9 +580,11 @@ async function projectChain(
         // before this RPC acquired it.  No projection was skipped.
         summary.alreadyCompleted++;
         drainResultCounts.already_completed++;
-      } else if (result.reason === 'predecessor_pending') {
-        // Preserve the row. The predecessor is owned by its own retry or by
-        // another process; the causal retry armed for this pass comes back.
+      } else if (isQueuedPostCommitReason(result.reason)) {
+        // Preserve the row. predecessor_pending: the predecessor is owned by
+        // its own retry or by another process. table_busy /
+        // obligation_lock_busy (20261118073646): the envelope wrote nothing
+        // and asks for a retry. The causal retry armed for this pass comes back.
         summary.deferred++;
         drainResultCounts.deferred++;
         blockedTables.add(key);

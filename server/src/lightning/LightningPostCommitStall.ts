@@ -12,16 +12,27 @@
  * So the drain classifies every answer:
  *
  *   applied   ok === true.
- *   queued    predecessor_pending, table_busy, obligation_lock_busy (the
- *             envelope wrote nothing and says retry), or a thrown error that
- *             is a timeout or transport doubt, or F06_RETRY_CANONICAL_LANE.
- *             Retried within the budget; owned by the chain helper
- *             (processHandPostCommitObligations single flight).
- *   failed    anything else: a definite refusal. Alerted at once, per hand,
- *             exactly as before.
+ *   failed    a CLOSED LIST of definite refusals: the envelope does not
+ *             exist or carries no obligations (not_found,
+ *             legacy_no_obligations), or the envelope itself refused its
+ *             payload (hash mismatch, an invalid obligation, a chip
+ *             obligation on a diamond hand, a missing receipt). Retrying
+ *             cannot change these. Alerted at once, per hand.
+ *   queued    EVERYTHING ELSE: predecessor_pending, table_busy,
+ *             obligation_lock_busy, and any error that is not on the list
+ *             (timeouts, deadlocks, serialization failures, connection
+ *             exhaustion, gateway errors, a failed predecessor scan). Under
+ *             overload those are exactly what every hand sees at once, so
+ *             they are retried within the budget and join the table's stall
+ *             episode rather than paging per hand.
  *
- * and when the budget is spent while queued, it files ONE alert per episode,
- * keyed on the table and its oldest open hand, carrying that hand and its age.
+ * When the budget is spent while queued, the hand reports to the table's
+ * stall episode. A table has at most one open episode: the first stalled
+ * hand opens it and files the ONE alert (the oldest open hand, its age);
+ * later stalls only update it (current oldest, stalled hands, max age), even
+ * as a slowly draining backlog advances its oldest hand. The episode closes
+ * when a hand of the table applies without ever being queued (nothing older
+ * was pending), or after EPISODE_QUIET_MS with no stall reported.
  * The outbox row stays authoritative; the projection worker is the successor.
  */
 import { isQueuedPostCommitReason } from '../services/supabase/postCommitReasons.js';
@@ -29,54 +40,119 @@ import type { LightningOldestPendingPostCommit } from './LightningHandBackend.js
 
 export type PostCommitAnswerKind = 'applied' | 'queued' | 'failed';
 
-/**
- * A thrown error that says "the outcome is not known yet" rather than "no":
- * a statement or transport timeout, a dropped connection, a gateway answer,
- * or the tournament lane's explicit retry request.
- */
-const TRANSIENT_ERROR =
-  /statement timeout|canceling statement|57014|timed? ?out|timeout|F06_RETRY_CANONICAL_LANE|55P03|lock_not_available|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|socket hang up|network|\b50[234]\b/i;
+/** Answers the envelope gives for a hand that will never apply by retrying. */
+export const POST_COMMIT_DEFINITE_REASONS: ReadonlySet<string> = new Set([
+  'not_found',
+  'legacy_no_obligations',
+]);
 
-export function isTransientPostCommitError(message: string): boolean {
-  return TRANSIENT_ERROR.test(message);
+/**
+ * The envelope's own refusals of its payload (RAISE EXCEPTION texts in
+ * fn_ca_process_hand_post_commit_obligations and its validations). Retrying
+ * the same immutable payload raises the same refusal.
+ */
+const DEFINITE_ERROR = new RegExp(
+  [
+    'payload hash mismatch',
+    'invalid (rake|BBJ contribution|promo|insurance|pending-add-on|time-bank audit) (obligation|payload)',
+    'diamond_hand_has_chip_obligations',
+    'rake hand number exceeds downstream integer contract',
+    'BBJ obligation club not found',
+    'requires a stable hand identity',
+    'promo obligation refused for hand',
+    'pending add-on \\S+ (is not frozen|does not belong)',
+    'produced no receipt for hand',
+    'incomplete resolution receipt',
+    'completion receipt was lost',
+    'posthand_escrow_(original_proof_unknown|refusal_receipt_lost)',
+  ].join('|'),
+  'i'
+);
+
+export function isDefinitePostCommitError(message: string): boolean {
+  return DEFINITE_ERROR.test(message);
 }
 
 export function classifyPostCommitAnswer(
   answer: { ok?: boolean; reason?: string } | null | undefined
 ): PostCommitAnswerKind {
   if (answer?.ok === true) return 'applied';
-  return isQueuedPostCommitReason(answer?.reason) ? 'queued' : 'failed';
+  if (isQueuedPostCommitReason(answer?.reason)) return 'queued';
+  return typeof answer?.reason === 'string' && POST_COMMIT_DEFINITE_REASONS.has(answer.reason)
+    ? 'failed'
+    : 'queued';
 }
 
-/** Episodes older than this are forgotten (memory bound, not a re-alert timer). */
-export const POST_COMMIT_STALL_EPISODE_TTL_MS = 6 * 60 * 60 * 1000;
+export function classifyPostCommitError(message: string): PostCommitAnswerKind {
+  return isDefinitePostCommitError(message) ? 'failed' : 'queued';
+}
+
+/** An episode with no stall reported for this long is over. */
+export const POST_COMMIT_STALL_EPISODE_QUIET_MS = 15 * 60 * 1000;
 
 export interface PostCommitStallEpisode {
   tableId: string;
-  oldestHandId: string;
+  /** The oldest open hand when the episode opened (its alert names it). */
+  firstOldestHandId: string;
+  currentOldestHandId: string;
+  stalledHands: number;
+  maxOldestAgeMs: number | null;
   openedAtMs: number;
+  lastStallAtMs: number;
 }
 
 /**
- * Which stall episodes have already been alerted, per table. A table has at
- * most one open episode; a new oldest open hand is a new episode.
+ * The open stall episode of each table. One per table, whatever its oldest
+ * hand: a backlog that drains slowly advances its oldest hand many times and
+ * is still one episode.
  */
 export class PostCommitStallEpisodes {
   private readonly byTable = new Map<string, PostCommitStallEpisode>();
 
-  /** True exactly once per (table, oldest open hand): the caller files the alert. */
-  open(tableId: string, oldestHandId: string, nowMs: number): boolean {
+  /**
+   * A hand of `tableId` spent its budget queued behind `oldestHandId`. True
+   * when this opens the table's episode: the caller files the one alert.
+   */
+  stalled(
+    tableId: string,
+    oldestHandId: string,
+    oldestAgeMs: number | null,
+    nowMs: number
+  ): { opened: boolean; episode: PostCommitStallEpisode } {
     this.prune(nowMs);
     const current = this.byTable.get(tableId);
-    if (current && current.oldestHandId === oldestHandId) return false;
-    this.byTable.set(tableId, { tableId, oldestHandId, openedAtMs: nowMs });
-    return true;
+    if (current) {
+      current.currentOldestHandId = oldestHandId;
+      current.stalledHands += 1;
+      current.lastStallAtMs = nowMs;
+      if (oldestAgeMs !== null)
+        current.maxOldestAgeMs = Math.max(current.maxOldestAgeMs ?? 0, oldestAgeMs);
+      return { opened: false, episode: { ...current } };
+    }
+    const episode: PostCommitStallEpisode = {
+      tableId,
+      firstOldestHandId: oldestHandId,
+      currentOldestHandId: oldestHandId,
+      stalledHands: 1,
+      maxOldestAgeMs: oldestAgeMs,
+      openedAtMs: nowMs,
+      lastStallAtMs: nowMs,
+    };
+    this.byTable.set(tableId, episode);
+    return { opened: true, episode: { ...episode } };
   }
 
-  /** The table's oldest open hand applied: its episode is over. */
-  close(tableId: string, handId: string): void {
-    const current = this.byTable.get(tableId);
-    if (current && current.oldestHandId === handId) this.byTable.delete(tableId);
+  /**
+   * A hand of `tableId` applied. Only a hand that was never queued proves
+   * nothing older was pending at the table; that ends the episode.
+   */
+  applied(tableId: string, wasQueued: boolean): void {
+    if (!wasQueued) this.byTable.delete(tableId);
+  }
+
+  episode(tableId: string): PostCommitStallEpisode | null {
+    const e = this.byTable.get(tableId);
+    return e ? { ...e } : null;
   }
 
   get size(): number {
@@ -85,7 +161,8 @@ export class PostCommitStallEpisodes {
 
   private prune(nowMs: number): void {
     for (const [table, episode] of this.byTable)
-      if (nowMs - episode.openedAtMs > POST_COMMIT_STALL_EPISODE_TTL_MS) this.byTable.delete(table);
+      if (nowMs - episode.lastStallAtMs > POST_COMMIT_STALL_EPISODE_QUIET_MS)
+        this.byTable.delete(table);
   }
 }
 

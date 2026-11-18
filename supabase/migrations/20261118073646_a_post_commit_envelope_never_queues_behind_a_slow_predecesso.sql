@@ -7,18 +7,20 @@
 -- 075013fd, 2026-11-18, LightningHandHost.post_commit_obligations_pending).
 --
 -- Layers on 20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b
--- (#11266), which layers on 20261118035606 (#11256): the live definition must
--- be #11266's postimage (md5 11f769218554c9585f92ee2c5745e61f) or this file
--- refuses to install. Land order: #11256, #11266, this.
+-- (#11266), which layers on 20261118035606 (#11256, re-landed as #11270): the live definition must
+-- be #11266's postimage (md5 d41bfee494141a366d72d3649a0208e5) or this file
+-- refuses to install. Land order: #11270 (#11256 re-land), #11266, this.
 --
 -- Stale pins (scripts/ci/migration-stale-pins.mjs): read on production
 -- 2026-11-18, no function in public or smarter_private carries any md5 of this
--- envelope (8b81e8bb..., da123635..., 11f76921...) in its source, and neither
+-- envelope (8b81e8bb..., da123635..., 11f76921..., d41bfee4...) in its source, and neither
 -- #11256 nor #11266 installs one. Nothing to move.
 --
 -- WHAT WENT WRONG. fn_ca_process_hand_post_commit_obligations took the
 -- tournament lane, then pg_advisory_xact_lock('hand-post-commit:<table>') with
--- no lock_timeout (the database default is 0), then FOR UPDATE on its hand row,
+-- no bound of its own (only the caller's: the authenticator role's 8 s
+-- lock_timeout over PostgREST, none for a postgres-role caller, whose
+-- statement_timeout is 2 min), then FOR UPDATE on its hand row,
 -- and only THEN asked whether an earlier hand of the table was still pending.
 -- A Lightning host table commits many hands at once (a fast fold frees its
 -- players before the post-commit step), so when one envelope ran slowly every
@@ -40,19 +42,20 @@
 --   2. The per-table mutex is a try-lock loop bounded at 250 ms. A busy table
 --      answers {ok:false, reason:'table_busy', retryable:true} instead of
 --      queueing for the statement timeout.
---   3. Every lock the envelope names itself is waited for at most 1 s (the
---      function-level lock_timeout, restored on exit): its hand row, each
+--   3. Every lock the envelope names itself is waited for at most 1 s
+--      (lock_timeout '1s' around that statement, then the caller's own value
+--      again, read at entry; no function-level setting): its hand row, each
 --      pending add-on row, and, before promo_apply_playthrough runs, that
 --      player's player_stats and club_members rows (in the callee's own
 --      order). A refused lock answers {ok:false,
 --      reason:'obligation_lock_busy', retryable:true}. The envelope body runs
 --      in its own block, so a refusal rolls back every write it made: no
 --      receipt is written, the caller retries, exactly once holds.
---      Inside callees the wait is NOT bounded (lock_timeout 0 there, the
---      statement timeout still applies): promo_apply_playthrough wraps its
---      player_stats upsert in EXCEPTION WHEN OTHERS THEN NULL, and a bounded
---      wait there would be swallowed and silently drop the write. The rows it
---      locks are already held by then, so it does not wait on them. The
+--      Callees run with the caller's own lock_timeout, exactly as before (not
+--      shortened): promo_apply_playthrough wraps its player_stats upsert in
+--      EXCEPTION WHEN OTHERS THEN NULL, and a shorter wait there would be
+--      swallowed and silently drop the write. The rows it locks are already
+--      held by then, so it does not wait on them. The
 --      tournament lane (f06_wait_table_lane) keeps its own 4 s bound and its
 --      own F06_RETRY_CANONICAL_LANE answer.
 --
@@ -60,10 +63,18 @@
 -- the per-table mutex and only after the locked re-check finds no open
 -- predecessor. The completion receipt is unchanged.
 --
+-- NOT CHANGED HERE: fn_project_hand_side_effects still takes the same
+-- per-table mutex with a blocking wait before it calls this envelope. Its
+-- waiters are the projection worker's chains, one per table per process (not
+-- one per hand), and while it holds the mutex the Lightning hosts' calls now
+-- answer table_busy at 250 ms instead of queueing behind it. It is also
+-- rewritten by #11270 and #11266 part 1 in this same chain; bounding it is a
+-- follow-up once those land, not another moving pin here.
+--
 -- Law: tests/a-post-commit-envelope-never-queues-behind-a-slow-predecessor.law.test.ts
 -- Proof on real PostgreSQL: scripts/ci/test-post-commit-envelope-convoy-postgres.py
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = '342387f93ce2c61dd0a754a1c0290a67')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = 'a21cdfe2e75c296b554f30ca4b8f454c')
 
 BEGIN;
 
@@ -73,10 +84,9 @@ SET LOCAL statement_timeout = '60s';
 -- The pinned-text substitution (the form 20261118035606 uses): the live
 -- definition must be the pinned preimage, each anchor must occur exactly once,
 -- the result must be the derived postimage before and after it is executed,
--- and owner, SECURITY DEFINER and grants must not move. Settings move by
--- exactly the one entry this file adds (lock_timeout=1s).
+-- and owner, SECURITY DEFINER, settings and grants must not move.
 CREATE FUNCTION pg_temp.ca_convoy_subst(p_sig text, p_before text, p_after text,
-                                        p_old text[], p_new text[], p_cfg_added text)
+                                        p_old text[], p_new text[])
 RETURNS void LANGUAGE plpgsql AS $h$
 DECLARE
   v_def text; v_new text; v_n integer; i integer;
@@ -116,29 +126,26 @@ BEGIN
                     AND p.proacl::text IS NOT DISTINCT FROM v_acl
                     AND pg_get_userbyid(p.proowner) = v_owner
                     AND p.prosecdef = v_secdef
-                    AND p.proconfig IS NOT DISTINCT FROM (v_cfg || p_cfg_added)) THEN
+                    AND p.proconfig IS NOT DISTINCT FROM v_cfg) THEN
     RAISE EXCEPTION '%: owner, security, settings or grants moved', p_sig;
   END IF;
 END $h$;
 
 SELECT pg_temp.ca_convoy_subst(
   'public.fn_ca_process_hand_post_commit_obligations(uuid)',
-  '11f769218554c9585f92ee2c5745e61f', '342387f93ce2c61dd0a754a1c0290a67',
+  'd41bfee494141a366d72d3649a0208e5', 'a21cdfe2e75c296b554f30ca4b8f454c',
   ARRAY[
-$o1$ SET search_path TO 'public', 'extensions', 'pg_temp'
-AS $function$
-$o1$,
-$o2$  v_result jsonb;
+$o1$  v_result jsonb;
 BEGIN
-$o2$,
-$o3$  SELECT c.table_id INTO v_table_id
+$o1$,
+$o2$  SELECT c.table_id INTO v_table_id
     FROM public.hand_atomic_commits c
    WHERE c.hand_id = p_hand_id;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'not_found', 'hand_id', p_hand_id);
   END IF;
-$o3$,
-$o4$  PERFORM pg_advisory_xact_lock(
+$o2$,
+$o3$  PERFORM pg_advisory_xact_lock(
     hashtextextended('hand-post-commit:' || v_table_id::text, 0)
   );
 
@@ -146,8 +153,8 @@ $o4$  PERFORM pg_advisory_xact_lock(
     FROM public.hand_atomic_commits c
    WHERE c.hand_id = p_hand_id
    FOR UPDATE;
-$o4$,
-$o5$  IF EXISTS (
+$o3$,
+$o4$  IF EXISTS (
     SELECT 1
       FROM public.hand_atomic_commits earlier
      WHERE earlier.table_id = v_commit.table_id
@@ -161,30 +168,26 @@ $o5$  IF EXISTS (
       'hand_id', p_hand_id
     );
   END IF;
-$o5$,
-$o6$  RETURN v_result;
+$o4$,
+$o5$  RETURN v_result;
 END;
 $function$
-$o6$,
-$o7$    v_promo_result := public.promo_apply_playthrough(
+$o5$,
+$o6$    v_promo_result := public.promo_apply_playthrough(
       (v_item->>'club_id')::uuid,
       (v_item->>'user_id')::uuid,
       (v_item->>'wagered')::numeric
     );
-$o7$,
-$o8$      SELECT a.* INTO v_addon
+$o6$,
+$o7$      SELECT a.* INTO v_addon
         FROM public.table_pending_addons a
        WHERE a.id = (v_item #>> '{}')::uuid
          AND a.table_id = v_commit.table_id
        FOR UPDATE;
-$o8$
+$o7$
   ],
   ARRAY[
-$n1$ SET search_path TO 'public', 'extensions', 'pg_temp'
- SET lock_timeout TO '1s'
-AS $function$
-$n1$,
-$n2$  v_result jsonb;
+$n1$  v_result jsonb;
   v_peek_hand_number bigint;
   v_peek_committed_at timestamptz;
   v_peek_has_payload boolean;
@@ -193,9 +196,10 @@ $n2$  v_result jsonb;
   v_oldest record;
   v_mutex_key bigint;
   v_mutex_started timestamptz;
+  v_caller_lock_timeout text := current_setting('lock_timeout');
 BEGIN
-$n2$,
-$n3$  /* A POST-COMMIT ENVELOPE NEVER QUEUES BEHIND A SLOW PREDECESSOR
+$n1$,
+$n2$  /* A POST-COMMIT ENVELOPE NEVER QUEUES BEHIND A SLOW PREDECESSOR
      (20261118, incident 075013fd). Read the scope and the two answers that
      need no lock BEFORE any lock: a completed receipt is immutable once
      committed, and an open earlier envelope means this hand cannot run yet.
@@ -241,8 +245,8 @@ $n3$  /* A POST-COMMIT ENVELOPE NEVER QUEUES BEHIND A SLOW PREDECESSOR
       );
     END IF;
   END IF;
-$n3$,
-$n4$  /* The per-table mutex, waited for at most 250 ms. A table whose head
+$n2$,
+$n3$  /* The per-table mutex, waited for at most 250 ms. A table whose head
      envelope is running answers table_busy (retryable) instead of holding a
      connection until the statement timeout. Re-entered at once when the
      caller already holds it (fn_project_hand_side_effects). */
@@ -266,23 +270,26 @@ $n4$  /* The per-table mutex, waited for at most 250 ms. A table whose head
     PERFORM pg_sleep(0.025);
   END LOOP;
 
-  /* The envelope body runs in its own block. Every lock it waits for is
-     bounded by this function's lock_timeout (1 s); a refused lock rolls back
-     everything the block wrote (no receipt) and answers obligation_lock_busy,
-     so the caller retries and the obligations still apply exactly once. */
+  /* The envelope body runs in its own block. A lock this function names is
+     waited for at most 1 s; a refused lock rolls back everything the block
+     wrote (no receipt) and answers obligation_lock_busy, so the caller
+     retries and the obligations still apply exactly once. */
   BEGIN
+  /* The bounded wait applies only where this function names the rows
+     itself: lock_timeout '1s' around each such statement, then back to the
+     caller's own value (v_caller_lock_timeout, read at entry). Callees keep
+     the wait they always had: promo_apply_playthrough swallows any error from
+     its player_stats upsert (EXCEPTION WHEN OTHERS THEN NULL), so a shorter
+     wait inside a callee could silently drop a write. On a refused lock the
+     block's rollback restores the caller's value too. */
+  PERFORM set_config('lock_timeout', '1s', true);
   SELECT c.* INTO v_commit
     FROM public.hand_atomic_commits c
    WHERE c.hand_id = p_hand_id
    FOR UPDATE;
-  /* From here the bounded wait applies only where this function names the
-     rows itself (lock_timeout '1s' around each such statement below).
-     Callees keep the wait they always had: promo_apply_playthrough swallows
-     any error from its player_stats upsert (EXCEPTION WHEN OTHERS THEN
-     NULL), so a bounded wait inside a callee could silently drop a write. */
-  PERFORM set_config('lock_timeout', '0', true);
-$n4$,
-$n5$  SELECT e.hand_id, e.hand_number, e.committed_at INTO v_oldest
+  PERFORM set_config('lock_timeout', v_caller_lock_timeout, true);
+$n3$,
+$n4$  SELECT e.hand_id, e.hand_number, e.committed_at INTO v_oldest
     FROM public.hand_atomic_commits e
    WHERE e.table_id = v_commit.table_id
      AND e.hand_number < v_commit.hand_number
@@ -303,8 +310,8 @@ $n5$  SELECT e.hand_id, e.hand_number, e.committed_at INTO v_oldest
       'oldest_pending_committed_at', v_oldest.committed_at
     );
   END IF;
-$n5$,
-$n6$  RETURN v_result;
+$n4$,
+$n5$  RETURN v_result;
   EXCEPTION WHEN lock_not_available THEN
     RETURN jsonb_build_object(
       'ok', false,
@@ -321,8 +328,8 @@ $n6$  RETURN v_result;
   END;
 END;
 $function$
-$n6$,
-$n7$    /* The rows promo_apply_playthrough locks, in its own order (player_stats,
+$n5$,
+$n6$    /* The rows promo_apply_playthrough locks, in its own order (player_stats,
        then club_members), taken here with the bounded wait: a held row
        answers obligation_lock_busy before the callee runs, and the callee
        then finds them already held, so nothing it would swallow can wait. */
@@ -337,23 +344,22 @@ $n7$    /* The rows promo_apply_playthrough locks, in its own order (player_stat
      WHERE m.club_id = (v_item->>'club_id')::uuid
        AND m.user_id = (v_item->>'user_id')::uuid
        FOR UPDATE;
-    PERFORM set_config('lock_timeout', '0', true);
+    PERFORM set_config('lock_timeout', v_caller_lock_timeout, true);
     v_promo_result := public.promo_apply_playthrough(
       (v_item->>'club_id')::uuid,
       (v_item->>'user_id')::uuid,
       (v_item->>'wagered')::numeric
     );
-$n7$,
-$n8$      PERFORM set_config('lock_timeout', '1s', true);
+$n6$,
+$n7$      PERFORM set_config('lock_timeout', '1s', true);
       SELECT a.* INTO v_addon
         FROM public.table_pending_addons a
        WHERE a.id = (v_item #>> '{}')::uuid
          AND a.table_id = v_commit.table_id
        FOR UPDATE;
-      PERFORM set_config('lock_timeout', '0', true);
-$n8$
-  ],
-  'lock_timeout=1s'
+      PERFORM set_config('lock_timeout', v_caller_lock_timeout, true);
+$n7$
+  ]
 );
 
 COMMIT;

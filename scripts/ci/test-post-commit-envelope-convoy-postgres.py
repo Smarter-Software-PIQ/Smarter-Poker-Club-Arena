@@ -6,7 +6,7 @@ envelope ran slowly, every later hand of the table queued on the per-table
 advisory lock until the statement timeout, only to learn under the lock that
 an earlier envelope was still open. This proof rebuilds the envelope exactly as
 production will hold it before the candidate (the 20261118071736 postimage,
-md5 11f769218554c9585f92ee2c5745e61f: the production text in
+md5 d41bfee494141a366d72d3649a0208e5: the production text in
 scripts/ci/fixtures/cash-rake-pending/live-definitions.json through
 20261118035606 and 20261118071736), then:
 
@@ -21,7 +21,10 @@ scripts/ci/fixtures/cash-rake-pending/live-definitions.json through
           (which promo_apply_playthrough's upsert would swallow an error on)
           answers obligation_lock_busy too and its stat is never dropped; the
           caller's
-          lock_timeout is restored; a caller already holding the table mutex
+          lock_timeout is restored and callees run with it (never shortened);
+          a caller holding the table mutex as fn_project_hand_side_effects does
+          gets obligation_lock_busy in a usable transaction; a caller already
+          holding the table mutex
           re-enters; and draining the table afterwards applies every hand
           exactly once, in hand order.
 
@@ -46,8 +49,8 @@ SWITCH = MIGRATIONS / '20261118035606_a_cash_hand_never_waits_on_a_tournament_wa
 BANK_SWITCH = MIGRATIONS / '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql'
 CANDIDATE = MIGRATIONS / '20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql'
 SIG = 'public.fn_ca_process_hand_post_commit_obligations(uuid)'
-PRE = '11f769218554c9585f92ee2c5745e61f'
-POST = '342387f93ce2c61dd0a754a1c0290a67'
+PRE = 'd41bfee494141a366d72d3649a0208e5'
+POST = 'a21cdfe2e75c296b554f30ca4b8f454c'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/post-commit-envelope-convoy')
@@ -112,7 +115,7 @@ def check(name, passed, detail=None):
 def postimage_before():
     live = json.loads(FIXTURE.read_text())['functions']['fn_ca_process_hand_post_commit_obligations']['definition']
     text = live
-    for path, tags in ((SWITCH, ('env0',)), (BANK_SWITCH, ('env1', 'env2'))):
+    for path, tags in ((SWITCH, ('env0',)), (BANK_SWITCH, ('env0', 'env1', 'env2'))):
         sql = path.read_text()
         for tag in tags:
             old, new = sql.split(f'$o{tag}$')[1], sql.split(f'$n{tag}$')[1]
@@ -222,7 +225,7 @@ SELECT '{T}', {1000 + n}, '{hand_id(n)}', now() - interval '{count - n} seconds'
         f"INSERT INTO public.slow_promo VALUES ('{user(slow_hand)}', {SLOW_SECONDS});")
 
 
-def call(n, timeout=SUCCESSOR_TIMEOUT, pre=''):
+def call(n, timeout=SUCCESSOR_TIMEOUT, pre=" SET lock_timeout = '7s';"):
     return attempt(f"SET statement_timeout = '{timeout}';{pre}\n"
                    f"SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(n)}')::text;\n")
 
@@ -269,7 +272,7 @@ def drain(count):
     return receipts, order, wagered
 
 
-def held_member_row(timeout, row='club_members'):
+def held_member_row(timeout, row='club_members', sql=None):
     """Another transaction holds one of hand 2's player rows; hand 1 has completed."""
     seed(2, slow_hand=99)
     check('setup: hand 1 completes', reason(call(1, '8s')) == 'ok')
@@ -279,7 +282,7 @@ def held_member_row(timeout, row='club_members'):
                        "SELECT pg_sleep(6);\nCOMMIT;\n")
     holder.stdin.flush()
     time.sleep(0.4)
-    answer = call(2, timeout, pre=" SET lock_timeout = '7s';")
+    answer = attempt(sql) if sql else call(2, timeout, pre=" SET lock_timeout = '7s';")
     holder.stdin.close()
     holder.wait(timeout=60)
     return answer
@@ -313,7 +316,7 @@ try:
     run(CANDIDATE.read_text())
     check('the migration reproduces the pinned postimage', md5() == POST, md5())
     cfg = run(f"SELECT array_to_string(proconfig, ',') FROM pg_proc WHERE oid = '{SIG}'::regprocedure")
-    check('the only new setting is lock_timeout=1s', cfg == 'search_path=public, extensions, pg_temp,lock_timeout=1s', cfg)
+    check('the function settings are unchanged (no function-level lock_timeout)', cfg == 'search_path=public, extensions, pg_temp', cfg)
     try:
         run(CANDIDATE.read_text())
         check('a second install is refused (preimage pin)', False)
@@ -342,7 +345,7 @@ try:
     check('AFTER: completion order is hand order', order == 't', order)
     check('AFTER: every wager applied once', wagered == str(n * (n + 1) // 2), wagered)
     callee_wait = run('SELECT string_agg(DISTINCT lock_timeout, \',\') FROM public.promo_receipts')
-    check('AFTER: the callee runs with no bounded wait of its own (nothing to swallow)', callee_wait == '0', callee_wait)
+    check('AFTER: the callee runs with the caller\'s own lock_timeout (nothing shortened to swallow)', callee_wait == '7s', callee_wait)
 
     after_held = held_member_row(SUCCESSOR_TIMEOUT)
     body = json.loads(after_held[1]) if after_held[0] == 0 and after_held[1] else {}
@@ -366,6 +369,19 @@ try:
           and reason(call(2, '8s')) == 'ok'
           and run(f"SELECT total_losses FROM public.player_stats WHERE user_id = '{user(2)}'") == '2'
           and run(f"SELECT count(*) FROM public.promo_receipts WHERE user_id = '{user(2)}'") == '1')
+    # fn_project_hand_side_effects takes the table mutex itself (blocking), then
+    # calls the envelope and hands any non-ok answer back to the projection
+    # worker, which must read it as deferred. The answer must be the typed
+    # one and the caller's transaction must stay usable.
+    projection = held_member_row(SUCCESSOR_TIMEOUT, sql=(
+        f"SET statement_timeout = '{SUCCESSOR_TIMEOUT}'; BEGIN; "
+        f"SELECT pg_advisory_xact_lock(hashtextextended('hand-post-commit:{T}', 0)) IS NULL; "
+        f"SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(2)}')->>'reason'; "
+        "SELECT 'usable'; COMMIT;"))
+    check('AFTER: a caller holding the table mutex (fn_project_hand_side_effects) gets obligation_lock_busy and a usable transaction',
+          projection[0] == 0 and projection[1].splitlines()[-2:] == ['obligation_lock_busy', 'usable'], projection)
+    check('AFTER: and wrote nothing',
+          run(f"SELECT count(*) FROM public.promo_receipts WHERE user_id = '{user(2)}'") == '0')
     restored = run(f"SET lock_timeout = '7s'; SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(2)}') IS NOT NULL; SHOW lock_timeout;")
     check("AFTER: the caller's lock_timeout is restored", restored.splitlines()[-1] == '7s', restored)
     seed(1, slow_hand=99)

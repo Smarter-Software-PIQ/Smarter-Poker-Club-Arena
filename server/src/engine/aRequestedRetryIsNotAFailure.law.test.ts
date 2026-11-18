@@ -13,7 +13,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isRequestedLaneRetry, shouldReportPostCommitAttempt } from './postCommitRetryReport.js';
+import {
+  isQueuedPostCommitRefusal,
+  isRequestedLaneRetry,
+  shouldReportPostCommitAttempt,
+} from './postCommitRetryReport.js';
 
 const lane = new Error('post-commit obligations RPC failed: F06_RETRY_CANONICAL_LANE (55P03)');
 
@@ -31,6 +35,17 @@ describe('a requested retry is not a failure', () => {
     expect(shouldReportPostCommitAttempt(2, lane)).toBe(false);
     expect(shouldReportPostCommitAttempt(10, lane)).toBe(true);
     expect(shouldReportPostCommitAttempt(20, lane)).toBe(true);
+  });
+
+  it("is quiet on the first attempt of the envelope's queued answers (20261118073646)", () => {
+    for (const reason of ['predecessor_pending', 'table_busy', 'obligation_lock_busy']) {
+      const queued = new Error(`post-commit obligations refused (${reason})`);
+      expect(isQueuedPostCommitRefusal(queued)).toBe(true);
+      expect(shouldReportPostCommitAttempt(1, queued)).toBe(false);
+      expect(shouldReportPostCommitAttempt(10, queued)).toBe(true);
+    }
+    expect(isQueuedPostCommitRefusal(new Error('post-commit obligations refused (not_found)'))).toBe(false);
+    expect(shouldReportPostCommitAttempt(1, new Error('post-commit obligations refused (not_found)'))).toBe(true);
   });
 
   it('still reports every other first failure and every tenth attempt', () => {
