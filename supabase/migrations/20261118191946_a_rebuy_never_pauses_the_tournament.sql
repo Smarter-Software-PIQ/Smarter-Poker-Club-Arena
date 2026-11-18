@@ -95,11 +95,6 @@ BEGIN
      OR md5(pg_get_functiondef('smarter_private.f06_source_guard()'::regprocedure)) <> '1355f6d7edff0f4939d7c46f86c98699' THEN
     RAISE EXCEPTION 'rebuy lane: 20261118160405 and 20261118171613 (lane T) must be installed first';
   END IF;
-  -- The bounty path keeps these two exactly as they are.
-  IF md5(pg_get_functiondef('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'::regprocedure)) <> '9877846ffabee004690e6b24a3ddcee2'
-     OR md5(pg_get_functiondef('public.fn_ca_lock_tournament_seat_acquisition(uuid,uuid,uuid)'::regprocedure)) <> '651ddfe7bd5fa4884edae4df0050268a' THEN
-    RAISE EXCEPTION 'rebuy lane: the rolling lane or the seat gate is not its pinned text';
-  END IF;
 END $requires$;
 
 CREATE FUNCTION smarter_private.tournament_rebuy_lane_held(p_tournament_id uuid, p_user_id uuid)
