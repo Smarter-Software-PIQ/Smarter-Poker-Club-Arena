@@ -334,6 +334,12 @@ BEGIN
  RETURN jsonb_build_object('version',1,'manifest_id',v_id,'funding_provenance_complete',v_complete,'issues',v_issues);
 END $function$;
 
+-- Both redefined engine functions keep production's exact grants: service_role only.
+REVOKE ALL ON FUNCTION public.fn_cash_earning_club(uuid, uuid, uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_earning_club(uuid, uuid, uuid, uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_cash_capture_hand_manifest(uuid, bigint, jsonb, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_capture_hand_manifest(uuid, bigint, jsonb, text, uuid) TO service_role;
+
 CREATE OR REPLACE FUNCTION smarter_private.fn_cash_rake_provenance_law_guard()
  RETURNS event_trigger
  LANGUAGE plpgsql
