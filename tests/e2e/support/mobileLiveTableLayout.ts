@@ -1,11 +1,22 @@
 import { TABLE_ART_MAX_COVER_MS } from '../../../src/hooks/useTableArt';
 import { AVATAR_CROWN_TOP } from '../../../src/components/table/avatarCrownBounds';
+import {
+  NINE_SEAT_PHONE_RAIL_BUST,
+  PHONE_AVATAR_MIN_HEIGHT_PX,
+} from '../../../src/components/table/mobileAvatarSize';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 /** A resize clears paint while decoded art and protected rows settle. Two
- * animation frames can still be that baseline, not the published result. */
+ * animation frames can still be that baseline, not the published result.
+ *
+ * Dan 2026-11-18: the proof is ABSOLUTE. For a week every check here asked
+ * only "bigger than 1x", which the CSS base alone satisfies, so a deploy that
+ * lost the whole enlargement still certified. Every character portrait the
+ * table painted must reach the approved height for its ring
+ * (src/components/table/mobileAvatarSize.ts), measured in layout px so the
+ * same floor holds at every phone width. */
 export async function waitForMobileAvatarGrowth(page: Page) {
   await expect
     .poll(
@@ -13,29 +24,62 @@ export async function waitForMobileAvatarGrowth(page: Page) {
         page
           .locator('.table-page:visible')
           .first()
-          .evaluate((table) => {
+          .evaluate((table, floors) => {
+            const page = table as HTMLElement;
             const supported =
               matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)')
                 .matches &&
-              ['6', '9'].includes((table as HTMLElement).dataset.seats || '') &&
-              (table as HTMLElement).dataset.killEnabled === 'false' &&
-              [2, 3, 4, 5, 6].includes(Number((table as HTMLElement).dataset.holeCardCount));
-            if (!supported) return true;
-            return Array.from(table.querySelectorAll<HTMLElement>('.seat__avatar')).some(
-              (avatar) =>
-                Boolean(avatar.style.getPropertyValue('--sp-mobile-art-scale')) &&
-                Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) *
-                  (parseFloat(getComputedStyle(avatar).getPropertyValue('--sp-bust-scale')) || 1) >
-                  1
-            );
-          }),
+              ['6', '9'].includes(page.dataset.seats || '') &&
+              page.dataset.killEnabled === 'false' &&
+              [2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount));
+            if (!supported) return 'unsupported';
+            const scaler = page.querySelector<HTMLElement>('.table-scaler');
+            const ratio =
+              scaler && scaler.offsetWidth
+                ? scaler.getBoundingClientRect().width / scaler.offsetWidth
+                : 1;
+            const nine = page.dataset.seats === '9';
+            const watching = page.dataset.hero === 'false';
+            const painted = Array.from(
+              page.querySelectorAll<HTMLElement>('.seat:not(.seat--empty) .seat__avatar--bust')
+            ).filter((avatar) => avatar.style.getPropertyValue('--sp-mobile-art-scale'));
+            if (!painted.length) return 'no painted portrait';
+            const short: string[] = [];
+            for (const avatar of painted) {
+              const image = avatar.querySelector<HTMLElement>('.seat__avatar-img');
+              if (!image) continue;
+              const hero = Boolean(avatar.closest('.seat--hero'));
+              const floor = nine
+                ? hero
+                  ? floors.nineSeatHero
+                  : floors.nineSeatOpponent
+                : watching
+                  ? floors.sixSeatSpectator
+                  : floors.sixSeat;
+              // A full-ring chair whose own art is too wide for the rail beside
+              // the board takes its own smaller rail size by design; its floor
+              // scales with it. Every other chair takes the approved size.
+              const ownRail = parseFloat(
+                avatar.closest<HTMLElement>('.seat-wrapper')?.style.getPropertyValue(
+                  '--sp-seat-rail-bust'
+                ) ?? ''
+              );
+              const allowance = nine && ownRail > 0 ? ownRail / floors.nineSeatRailBust : 1;
+              const height = image.getBoundingClientRect().height / ratio;
+              if (height + 0.5 < floor * allowance)
+                short.push(
+                  `${avatar.closest<HTMLElement>('.seat')?.dataset.seatNum ?? '?'}:${height.toFixed(1)}<${(floor * allowance).toFixed(1)}`
+                );
+            }
+            return short.length ? `below the approved size: ${short.join(' ')}` : 'ok';
+          }, { ...PHONE_AVATAR_MIN_HEIGHT_PX, nineSeatRailBust: NINE_SEAT_PHONE_RAIL_BUST }),
       {
         timeout: 15_000,
         message:
-          'Supported live cash table must actually enlarge avatar artwork after layout settles',
+          'Supported live table must paint every character portrait at the approved phone size',
       }
     )
-    .toBe(true);
+    .toMatch(/^(ok|unsupported)$/);
 }
 
 /** JSON reporter bodies are embedded, so retain files for the release artifact too. */
