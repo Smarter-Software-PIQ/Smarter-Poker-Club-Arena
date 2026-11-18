@@ -1,0 +1,3078 @@
+{
+  "checks": [
+    {
+      "name": "bbj: the rebuilt definition is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "bbj: the live sweep deadlocks with the hand path",
+      "passed": true,
+      "detail": {
+        "deadlocks": 1,
+        "hand": [
+          3,
+          "",
+          "ERROR:  deadlock detected\nDETAIL:  Process 16353 waits for ShareLock on transaction 778; blocked by process 16355.\nProcess 16355 waits for ShareLock on transaction 776; blocked by process 16353.\nHINT:  See server log for query details.\nCONTEXT:  while locking tuple (0,1) in relation \"bbj_pools\""
+        ],
+        "sweep": [
+          0,
+          "{\"errors\": 0, \"success\": true, \"to_club\": 0, \"to_union\": 1, \"pools_swept\": 1, \"total_swept\": 37.25}",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "bbj: the migration reproduces the postimage derived on production",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "bbj: after the fix the same interleaving does not deadlock",
+      "passed": true,
+      "detail": {
+        "deadlocks": 0,
+        "hand": [
+          0,
+          "b0000000-0000-0000-0000-000000000001\nhand-done",
+          ""
+        ],
+        "sweep": [
+          0,
+          "{\"errors\": 0, \"success\": true, \"to_club\": 0, \"to_union\": 0, \"pools_swept\": 0, \"total_swept\": 0, \"busy_retry_next_run\": 1}",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "bbj: the busy pool is left for the next run, not counted as an error",
+      "passed": true,
+      "detail": {
+        "errors": 0,
+        "success": true,
+        "to_club": 0,
+        "to_union": 0,
+        "pools_swept": 0,
+        "total_swept": 0,
+        "busy_retry_next_run": 1
+      }
+    },
+    {
+      "name": "bbj: the promo slice is still in the pool",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "bbj: the next run sweeps exactly the same amount to the same wallet",
+      "passed": true,
+      "detail": {
+        "next": {
+          "errors": 0,
+          "success": true,
+          "to_club": 0,
+          "to_union": 1,
+          "pools_swept": 1,
+          "total_swept": 37.25,
+          "busy_retry_next_run": 0
+        },
+        "money": "37.25|0|37.25|1"
+      }
+    },
+    {
+      "name": "proj: the rebuilt definition is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "proj: the live projection deadlocks between its passes",
+      "passed": true,
+      "detail": {
+        "deadlocks": 1,
+        "s1": [
+          3,
+          "",
+          "ERROR:  deadlock detected\nDETAIL:  Process 16383 waits for ShareLock on transaction 796; blocked by process 16385.\nProcess 16385 waits for ShareLock on transaction 795; blocked by process 16383.\nHINT:  See server log for query details.\nCONTEXT:  while inserting index tuple (0,1) in relation \"player_stats\"\nSQL statement \"INSERT INTO player_stats AS ps(user_id, club_id, hands_dealt)\n  SELECT DISTINCT (pl->>'userId')::uuid, 'a0000000-0000-0000-0000-000000000001'::uuid, 1\n    FROM hand_history h, jsonb_array_elements(h.players) pl WHERE h.id = p_hand_id\n   ORDER BY 1\n  ON CONFLICT (user_id, club_id) DO UPDATE SET hands_dealt = ps.hands_dealt + 1, updated_at = now()\"\nPL/pgSQL function fn_project_hand_side_effects_after_post_commit_20260908(uuid) line 5 at SQL statement\nPL/pgSQL function fn_project_hand_side_effects(uuid) line 82 at RETURN"
+        ],
+        "s2": [
+          0,
+          "{\"ok\": true, \"hand_id\": \"d1000000-0000-0000-0000-000000000002\"}",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "proj: the migration reproduces the postimage derived on production",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "proj: after the fix two hands sharing players do not deadlock",
+      "passed": true,
+      "detail": {
+        "deadlocks": 0,
+        "s1": [
+          0,
+          "{\"ok\": true, \"hand_id\": \"d2000000-0000-0000-0000-000000000001\"}",
+          ""
+        ],
+        "s2": [
+          0,
+          "{\"ok\": true, \"hand_id\": \"d2000000-0000-0000-0000-000000000002\"}",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "proj: both hands wrote every pass exactly once",
+      "passed": true,
+      "detail": "10000000-0000-0000-0000-00000000000a:2:1,20000000-0000-0000-0000-00000000000b:2:1"
+    },
+    {
+      "name": "cash boundary: exact installed projection preimage",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash boundary: statistics row is held",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash boundary: old projection failure rolls back the rake credit",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash boundary: financial receipt commits with statistics still blocked",
+      "passed": true,
+      "detail": {
+        "ok": false,
+        "detail": "post_commit_completed_in_this_transaction",
+        "reason": "predecessor_pending",
+        "hand_id": "d3000000-0000-0000-0000-000000000001",
+        "projection_applied": false
+      }
+    },
+    {
+      "name": "cash boundary: another table can take the wallet before statistics finish",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash boundary: a separate statistics rollback leaves the credit intact",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash boundary: continuation projects once and never recredits",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: the wallet row is held",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: BEFORE, the hand envelope waits on the held wallet row and gives up",
+      "passed": true,
+      "detail": " '{}'::jsonb),\n        NULLIF(v_rake->>'tournament_id', '')::uuid,\n        COALESCE(v_rake->'returned_uncalled', '{}'::jsonb),\n        COALESCE(NULLIF(v_rake->>'method', ''), 'WEIGHTED_CONTRIBUTED')\n      )\"\nPL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 120 at SQL statement"
+    },
+    {
+      "name": "cash rake: BEFORE, uncontended envelope banks the rake",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000002",
+        "insurance": 0,
+        "time_banks": 0,
+        "hand_number": 201,
+        "pending_addons": 0,
+        "bbj_contribution": false,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "cash rake: BEFORE, the hand projects",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000002"
+      }
+    },
+    {
+      "name": "cash rake: BEFORE, uncontended envelope banks the rake",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000001",
+        "insurance": 0,
+        "time_banks": 0,
+        "hand_number": 101,
+        "pending_addons": 0,
+        "bbj_contribution": false,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "cash rake: BEFORE, the hand projects",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "name": "cash rake: BEFORE, uncontended envelope banks the rake",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000003",
+        "insurance": 0,
+        "time_banks": 0,
+        "hand_number": 102,
+        "pending_addons": 0,
+        "bbj_contribution": false,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "cash rake: BEFORE, the hand projects",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000003"
+      }
+    },
+    {
+      "name": "cash rake: the reference run banked every hand exactly once",
+      "passed": true,
+      "detail": {
+        "felt": 995.38,
+        "legs": [
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            "club_accumulator",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            1.25
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            "union_rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            1.25
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            "club_accumulator",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            0.37
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            "union_rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            0.37
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            "club_accumulator",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            3.0
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            "union_rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            3.0
+          ]
+        ],
+        "alerts": 0,
+        "ledger": [
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "union_wallet",
+            true,
+            "union_wallets.rake_wallet",
+            1.25,
+            "rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.rake_wallet delta 1.25",
+            null,
+            null,
+            100.37,
+            101.62
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "union_wallet",
+            true,
+            "union_wallets.rake_wallet",
+            3.0,
+            "rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.rake_wallet delta 3.00",
+            null,
+            null,
+            101.62,
+            104.62
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a2",
+            null,
+            "union_wallet",
+            true,
+            "union_wallets.rake_wallet",
+            0.37,
+            "rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.rake_wallet delta 0.37",
+            null,
+            null,
+            100,
+            100.37
+          ]
+        ],
+        "outbox": 0,
+        "wallet": [
+          104.62,
+          104.62,
+          1000,
+          0
+        ],
+        "findings": 0,
+        "envelopes": [
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            true,
+            {
+              "ok": true,
+              "rake": true,
+              "insurance": 0,
+              "time_banks": 0,
+              "hand_number": 101,
+              "pending_addons": 0,
+              "bbj_contribution": false,
+              "already_completed": false,
+              "promo_playthrough": 0
+            }
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            true,
+            {
+              "ok": true,
+              "rake": true,
+              "insurance": 0,
+              "time_banks": 0,
+              "hand_number": 201,
+              "pending_addons": 0,
+              "bbj_contribution": false,
+              "already_completed": false,
+              "promo_playthrough": 0
+            }
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            true,
+            {
+              "ok": true,
+              "rake": true,
+              "insurance": 0,
+              "time_banks": 0,
+              "hand_number": 102,
+              "pending_addons": 0,
+              "bbj_contribution": false,
+              "already_completed": false,
+              "promo_playthrough": 0
+            }
+          ]
+        ],
+        "attributions": [
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            "10000000-0000-0000-0000-00000000000a",
+            0.63,
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            12.5,
+            0,
+            12.5,
+            0.5,
+            0.63,
+            0.0,
+            "WEIGHTED_CONTRIBUTED",
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            "20000000-0000-0000-0000-00000000000b",
+            0.62,
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            12.5,
+            0,
+            12.5,
+            0.5,
+            0.62,
+            0.0,
+            "WEIGHTED_CONTRIBUTED",
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            "10000000-0000-0000-0000-00000000000a",
+            0.12,
+            "c0000000-0000-0000-0000-0000000000a2",
+            "a0000000-0000-0000-0000-0000000000c1",
+            2.4,
+            0,
+            2.4,
+            0.32432432,
+            0.12,
+            0.0,
+            "WEIGHTED_CONTRIBUTED",
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            "20000000-0000-0000-0000-00000000000b",
+            0.25,
+            "c0000000-0000-0000-0000-0000000000a2",
+            "a0000000-0000-0000-0000-0000000000c1",
+            5.0,
+            0,
+            5.0,
+            0.67567568,
+            0.25,
+            0.0,
+            "WEIGHTED_CONTRIBUTED",
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            "10000000-0000-0000-0000-00000000000a",
+            2.0,
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            60.0,
+            0,
+            60.0,
+            0.66666667,
+            2.0,
+            0.0,
+            "WEIGHTED_CONTRIBUTED",
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            "20000000-0000-0000-0000-00000000000b",
+            1.0,
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            30.0,
+            0,
+            30.0,
+            0.33333333,
+            1.0,
+            0.0,
+            "WEIGHTED_CONTRIBUTED",
+            true
+          ]
+        ],
+        "rake_records": [
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            1.25,
+            0,
+            25.0,
+            2,
+            {
+              "10000000-0000-0000-0000-00000000000a": 12.5,
+              "20000000-0000-0000-0000-00000000000b": 12.5
+            },
+            false,
+            "atomic_distribute_rake",
+            {
+              "union_id": "fade0000-0000-0000-0000-000000000001",
+              "is_private": false,
+              "hand_number": 101,
+              "accounting_source_version": 2
+            },
+            "WEIGHTED_CONTRIBUTED",
+            {}
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            "c0000000-0000-0000-0000-0000000000a2",
+            "a0000000-0000-0000-0000-0000000000c1",
+            0.37,
+            0,
+            7.4,
+            2,
+            {
+              "10000000-0000-0000-0000-00000000000a": 2.4,
+              "20000000-0000-0000-0000-00000000000b": 5.0
+            },
+            false,
+            "atomic_distribute_rake",
+            {
+              "union_id": "fade0000-0000-0000-0000-000000000001",
+              "is_private": false,
+              "hand_number": 201,
+              "accounting_source_version": 2
+            },
+            "WEIGHTED_CONTRIBUTED",
+            {}
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            3.0,
+            0,
+            90.0,
+            2,
+            {
+              "10000000-0000-0000-0000-00000000000a": 60.0,
+              "20000000-0000-0000-0000-00000000000b": 30.0
+            },
+            false,
+            "atomic_distribute_rake",
+            {
+              "union_id": "fade0000-0000-0000-0000-000000000001",
+              "is_private": false,
+              "hand_number": 102,
+              "accounting_source_version": 2
+            },
+            "WEIGHTED_CONTRIBUTED",
+            {}
+          ]
+        ],
+        "table_totals": [
+          [
+            "a0000000-0000-0000-0000-0000000000c1",
+            "c0000000-0000-0000-0000-0000000000a1",
+            4.25,
+            0,
+            2
+          ],
+          [
+            "a0000000-0000-0000-0000-0000000000c1",
+            "c0000000-0000-0000-0000-0000000000a2",
+            0.37,
+            0,
+            1
+          ]
+        ],
+        "bank_receipts": [
+          [
+            "d0000000-0000-0000-0000-000000000001",
+            "fade0000-0000-0000-0000-000000000001",
+            "a0000000-0000-0000-0000-0000000000c1",
+            1.25,
+            null,
+            true,
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000002",
+            "fade0000-0000-0000-0000-000000000001",
+            "a0000000-0000-0000-0000-0000000000c1",
+            0.37,
+            null,
+            true,
+            true
+          ],
+          [
+            "d0000000-0000-0000-0000-000000000003",
+            "fade0000-0000-0000-0000-000000000001",
+            "a0000000-0000-0000-0000-0000000000c1",
+            3.0,
+            null,
+            true,
+            true
+          ]
+        ],
+        "club_transactions": [
+          [
+            "a0000000-0000-0000-0000-0000000000c1",
+            "rake_in",
+            1.25,
+            50,
+            "d0000000-0000-0000-0000-000000000001",
+            "Rake collected (hand #101, BBJ contribution 0)"
+          ],
+          [
+            "a0000000-0000-0000-0000-0000000000c1",
+            "rake_in",
+            0.37,
+            50,
+            "d0000000-0000-0000-0000-000000000002",
+            "Rake collected (hand #201, BBJ contribution 0)"
+          ],
+          [
+            "a0000000-0000-0000-0000-0000000000c1",
+            "rake_in",
+            3.0,
+            50,
+            "d0000000-0000-0000-0000-000000000003",
+            "Rake collected (hand #102, BBJ contribution 0)"
+          ]
+        ],
+        "ledger_rake_total": 4.62,
+        "union_transactions": [
+          [
+            "fade0000-0000-0000-0000-000000000001",
+            "a0000000-0000-0000-0000-0000000000c1",
+            1.25,
+            "rake",
+            "rake_wallet",
+            "credit",
+            101.62,
+            "Cash game rake: hand #101 (Harness Club)",
+            "d0000000-0000-0000-0000-000000000001"
+          ],
+          [
+            "fade0000-0000-0000-0000-000000000001",
+            "a0000000-0000-0000-0000-0000000000c1",
+            0.37,
+            "rake",
+            "rake_wallet",
+            "credit",
+            100.37,
+            "Cash game rake: hand #201 (Harness Club)",
+            "d0000000-0000-0000-0000-000000000002"
+          ],
+          [
+            "fade0000-0000-0000-0000-000000000001",
+            "a0000000-0000-0000-0000-0000000000c1",
+            3.0,
+            "rake",
+            "rake_wallet",
+            "credit",
+            104.62,
+            "Cash game rake: hand #102 (Harness Club)",
+            "d0000000-0000-0000-0000-000000000003"
+          ]
+        ]
+      }
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 reproduces the postimage of fn_ca_tally_balance_move",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 reproduces the postimage of fn_ca_supply_snapshot",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 reproduces the postimage of fn_ca_account_balance",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 reproduces the postimage of fn_rake_bbj_invariants",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 reproduces the postimage of fn_project_hand_side_effects",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 reproduces the postimage of trg_finish_hand_post_commit_obligations",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 refuses a second run",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: the guard redefinitions are declared",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: part 1 alone changes nothing (the envelope still banks, no row is stored)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: the switch reproduces the postimage derived from production",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: the wallet row is held",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: AFTER, the hand envelope completes while the wallet row is held",
+      "passed": true,
+      "detail": {
+        "status": 0,
+        "seconds": 0.019744846999856236,
+        "error": "",
+        "result": {
+          "ok": true,
+          "rake": true,
+          "hand_id": "d0000000-0000-0000-0000-000000000001",
+          "insurance": 0,
+          "time_banks": 0,
+          "hand_number": 101,
+          "pending_addons": 0,
+          "bbj_contribution": false,
+          "already_completed": false,
+          "promo_playthrough": 0
+        }
+      }
+    },
+    {
+      "name": "cash rake: the rake is stored on the felt, not banked, and nothing else moved",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: the continuation does not wait for the held wallet either, and keeps the obligation",
+      "passed": true,
+      "detail": {
+        "ok": false,
+        "detail": "cash_rake_pending",
+        "reason": "predecessor_pending",
+        "hand_id": "d0000000-0000-0000-0000-000000000001",
+        "cash_rake": {
+          "status": "busy",
+          "hand_id": "d0000000-0000-0000-0000-000000000001"
+        },
+        "projection_applied": false
+      }
+    },
+    {
+      "name": "cash rake: the next hand at the same table is not delayed either",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000003",
+        "insurance": 0,
+        "time_banks": 0,
+        "hand_number": 102,
+        "pending_addons": 0,
+        "bbj_contribution": false,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "cash rake: the outbox row cannot leave while its rake is pending",
+      "passed": true,
+      "detail": "ERROR:  hand rake remains pending for d0000000-0000-0000-0000-000000000001: {\"status\": \"busy\", \"hand_id\": \"d0000000-0000-0000-0000-000000000001\"}\nCONTEXT:  PL/pgSQL function trg_finish_hand_post_commit_obligations() line 16 at RAISE\n"
+    },
+    {
+      "name": "cash rake: once the wallet is free the continuation banks the stored rake and ends its pass",
+      "passed": true,
+      "detail": {
+        "ok": false,
+        "detail": "cash_rake_banked_in_this_transaction",
+        "reason": "predecessor_pending",
+        "hand_id": "d0000000-0000-0000-0000-000000000001",
+        "cash_rake": {
+          "route": "union_rake_wallet",
+          "amount": 1.25,
+          "status": "banked",
+          "applied": true,
+          "hand_id": "d0000000-0000-0000-0000-000000000001",
+          "union_id": "fade0000-0000-0000-0000-000000000001",
+          "recovered": false,
+          "rake_record_id": "c276aeba-360e-49ea-8df3-acec23000e47",
+          "already_processed": false
+        },
+        "projection_applied": false
+      }
+    },
+    {
+      "name": "cash rake: the wallet is free again before statistics run",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: banking is once per hand",
+      "passed": true,
+      "detail": {
+        "status": "absent",
+        "hand_id": "d0000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "name": "cash rake: the next pass projects the hand",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "name": "cash rake: once the wallet is free the continuation banks the stored rake and ends its pass",
+      "passed": true,
+      "detail": {
+        "ok": false,
+        "detail": "cash_rake_banked_in_this_transaction",
+        "reason": "predecessor_pending",
+        "hand_id": "d0000000-0000-0000-0000-000000000003",
+        "cash_rake": {
+          "route": "union_rake_wallet",
+          "amount": 3.0,
+          "status": "banked",
+          "applied": true,
+          "hand_id": "d0000000-0000-0000-0000-000000000003",
+          "union_id": "fade0000-0000-0000-0000-000000000001",
+          "recovered": false,
+          "rake_record_id": "4aa75644-40b4-4e05-9547-001f83dcc68f",
+          "already_processed": false
+        },
+        "projection_applied": false
+      }
+    },
+    {
+      "name": "cash rake: the wallet is free again before statistics run",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: banking is once per hand",
+      "passed": true,
+      "detail": {
+        "status": "absent",
+        "hand_id": "d0000000-0000-0000-0000-000000000003"
+      }
+    },
+    {
+      "name": "cash rake: the next pass projects the hand",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "hand_id": "d0000000-0000-0000-0000-000000000003"
+      }
+    },
+    {
+      "name": "cash rake: nothing is left pending",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: wallet, ledger, union transactions, bank receipts and every other row equal the uncontended reference exactly",
+      "passed": true,
+      "detail": {}
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: the reference carries only the insurance repair",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: the pool lock, the pool row and the wallet row are held",
+      "passed": true,
+      "detail": [
+        "",
+        "1",
+        "held"
+      ]
+    },
+    {
+      "name": "hand bank: BEFORE, with #11256 installed the BBJ hand envelope waits on the held pool and gives up",
+      "passed": true,
+      "detail": "OR:  canceling statement due to lock timeout\nCONTEXT:  SQL statement \"SELECT pg_advisory_xact_lock(hashtextextended(\n      'bbj-pool:' || COALESCE(v_union_id::text, 'club:' || (v_bbj->>'club_id')),\n      0\n    ))\"\nPL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 160 at PERFORM"
+    },
+    {
+      "name": "hand bank: BEFORE, the uncontended envelope banks drop and insurance",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "e0000000-0000-0000-0000-000000000002",
+        "insurance": 0,
+        "time_banks": 0,
+        "hand_number": 401,
+        "pending_addons": 0,
+        "bbj_contribution": true,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "hand bank: BEFORE, the hand projects",
+      "passed": true,
+      "detail": [
+        {
+          "ok": false,
+          "detail": "cash_rake_banked_in_this_transaction",
+          "reason": "predecessor_pending",
+          "hand_id": "e0000000-0000-0000-0000-000000000002",
+          "cash_rake": {
+            "route": "union_rake_wallet",
+            "amount": 0.37,
+            "status": "banked",
+            "applied": true,
+            "hand_id": "e0000000-0000-0000-0000-000000000002",
+            "union_id": "fade0000-0000-0000-0000-000000000001",
+            "recovered": false,
+            "rake_record_id": "bf951b0e-47e3-477b-928c-be3ddc1d129c",
+            "already_processed": false
+          },
+          "projection_applied": false
+        },
+        {
+          "ok": true,
+          "hand_id": "e0000000-0000-0000-0000-000000000002"
+        }
+      ]
+    },
+    {
+      "name": "hand bank: BEFORE, the uncontended envelope banks drop and insurance",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "e0000000-0000-0000-0000-000000000001",
+        "insurance": 1,
+        "time_banks": 0,
+        "hand_number": 301,
+        "pending_addons": 0,
+        "bbj_contribution": true,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "hand bank: BEFORE, the hand projects",
+      "passed": true,
+      "detail": [
+        {
+          "ok": false,
+          "detail": "cash_rake_banked_in_this_transaction",
+          "reason": "predecessor_pending",
+          "hand_id": "e0000000-0000-0000-0000-000000000001",
+          "cash_rake": {
+            "route": "union_rake_wallet",
+            "amount": 1.25,
+            "status": "banked",
+            "applied": true,
+            "hand_id": "e0000000-0000-0000-0000-000000000001",
+            "union_id": "fade0000-0000-0000-0000-000000000001",
+            "recovered": false,
+            "rake_record_id": "0e196379-5ad8-4de6-9477-d6d1420bbcb3",
+            "already_processed": false
+          },
+          "projection_applied": false
+        },
+        {
+          "ok": true,
+          "hand_id": "e0000000-0000-0000-0000-000000000001"
+        }
+      ]
+    },
+    {
+      "name": "hand bank: BEFORE, the uncontended envelope banks drop and insurance",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "e0000000-0000-0000-0000-000000000003",
+        "insurance": 1,
+        "time_banks": 0,
+        "hand_number": 302,
+        "pending_addons": 0,
+        "bbj_contribution": true,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "hand bank: BEFORE, the hand projects",
+      "passed": true,
+      "detail": [
+        {
+          "ok": false,
+          "detail": "cash_rake_banked_in_this_transaction",
+          "reason": "predecessor_pending",
+          "hand_id": "e0000000-0000-0000-0000-000000000003",
+          "cash_rake": {
+            "route": "union_rake_wallet",
+            "amount": 3.0,
+            "status": "banked",
+            "applied": true,
+            "hand_id": "e0000000-0000-0000-0000-000000000003",
+            "union_id": "fade0000-0000-0000-0000-000000000001",
+            "recovered": false,
+            "rake_record_id": "f1ac50a7-6d41-4c1b-a43d-3a56f546c5ac",
+            "already_processed": false
+          },
+          "projection_applied": false
+        },
+        {
+          "ok": true,
+          "hand_id": "e0000000-0000-0000-0000-000000000003"
+        }
+      ]
+    },
+    {
+      "name": "hand bank: the reference run banked every drop and leg exactly once",
+      "passed": true,
+      "detail": {
+        "felt": 995.68,
+        "pool": [
+          0.09,
+          0.34,
+          1.27,
+          1.7,
+          1.7,
+          3
+        ],
+        "pools": 1,
+        "alerts": 0,
+        "ledger": [
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "bbj_pool",
+            "bbj_pools.backup_balance",
+            0.1,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.backup_balance delta 0.10"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "bbj_pool",
+            "bbj_pools.backup_balance",
+            0.2,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.backup_balance delta 0.20"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "bbj_pool",
+            "bbj_pools.main_balance",
+            0.03,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.main_balance delta 0.03"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "bbj_pool",
+            "bbj_pools.main_balance",
+            0.05,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.main_balance delta 0.05"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "bbj_pool",
+            "bbj_pools.promo_balance",
+            0.37,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.promo_balance delta 0.37"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "bbj_pool",
+            "bbj_pools.promo_balance",
+            0.75,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.promo_balance delta 0.75"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "union_wallet",
+            "union_wallets.insurance_wallet",
+            2.0,
+            "insurance",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.insurance_wallet delta 2.00"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "union_wallet",
+            "union_wallets.rake_wallet",
+            1.25,
+            "rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.rake_wallet delta 1.25"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a1",
+            null,
+            "union_wallet",
+            "union_wallets.rake_wallet",
+            3.0,
+            "rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.rake_wallet delta 3.00"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a2",
+            null,
+            "bbj_pool",
+            "bbj_pools.backup_balance",
+            0.04,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.backup_balance delta 0.04"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a2",
+            null,
+            "bbj_pool",
+            "bbj_pools.main_balance",
+            0.01,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.main_balance delta 0.01"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a2",
+            null,
+            "bbj_pool",
+            "bbj_pools.promo_balance",
+            0.15,
+            "bbj_contribution",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered bbj_pools.promo_balance delta 0.15"
+          ],
+          [
+            "table_stack",
+            "c0000000-0000-0000-0000-0000000000a2",
+            null,
+            "union_wallet",
+            "union_wallets.rake_wallet",
+            0.37,
+            "rake",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.rake_wallet delta 0.37"
+          ],
+          [
+            "union_wallet",
+            "the union wallet row",
+            "union_wallets.insurance_wallet",
+            "table_stack",
+            null,
+            4.0,
+            "insurance",
+            null,
+            "fade0000-0000-0000-0000-000000000001",
+            "auto-ledgered union_wallets.insurance_wallet delta -4.00"
+          ]
+        ],
+        "outbox": 0,
+        "wallet": [
+          104.62,
+          104.62,
+          1000,
+          0,
+          8.0
+        ],
+        "findings": 0,
+        "envelopes": [
+          [
+            "e0000000-0000-0000-0000-000000000001",
+            true,
+            {
+              "ok": true,
+              "rake": true,
+              "insurance": 1,
+              "time_banks": 0,
+              "hand_number": 301,
+              "pending_addons": 0,
+              "bbj_contribution": true,
+              "already_completed": false,
+              "promo_playthrough": 0
+            }
+          ],
+          [
+            "e0000000-0000-0000-0000-000000000002",
+            true,
+            {
+              "ok": true,
+              "rake": true,
+              "insurance": 0,
+              "time_banks": 0,
+              "hand_number": 401,
+              "pending_addons": 0,
+              "bbj_contribution": true,
+              "already_completed": false,
+              "promo_playthrough": 0
+            }
+          ],
+          [
+            "e0000000-0000-0000-0000-000000000003",
+            true,
+            {
+              "ok": true,
+              "rake": true,
+              "insurance": 1,
+              "time_banks": 0,
+              "hand_number": 302,
+              "pending_addons": 0,
+              "bbj_contribution": true,
+              "already_completed": false,
+              "promo_playthrough": 0
+            }
+          ]
+        ],
+        "insurance": [
+          [
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            301,
+            "10000000-0000-0000-0000-00000000000a",
+            20.0,
+            2.0,
+            10.0,
+            0.0,
+            false,
+            -2.0,
+            "union",
+            "fade0000-0000-0000-0000-000000000001",
+            "insurance"
+          ],
+          [
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            "fade0000-0000-0000-0000-000000000001",
+            302,
+            "10000000-0000-0000-0000-00000000000a",
+            20.0,
+            1.0,
+            10.0,
+            5.0,
+            true,
+            4.0,
+            "union",
+            "fade0000-0000-0000-0000-000000000001",
+            "insurance"
+          ]
+        ],
+        "alloc_state": [
+          [
+            "b0000000-0000-0000-0000-0000000000b1",
+            -0.005,
+            0.0
+          ]
+        ],
+        "rake_records": [
+          [
+            "e0000000-0000-0000-0000-000000000001",
+            1.25,
+            0.5
+          ],
+          [
+            "e0000000-0000-0000-0000-000000000002",
+            0.37,
+            0.2
+          ],
+          [
+            "e0000000-0000-0000-0000-000000000003",
+            3.0,
+            1.0
+          ]
+        ],
+        "contributions": [
+          [
+            "b0000000-0000-0000-0000-0000000000b1",
+            "e0000000-0000-0000-0000-000000000001",
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            301,
+            0.5,
+            0.5,
+            0.03,
+            0.1,
+            0.37
+          ],
+          [
+            "b0000000-0000-0000-0000-0000000000b1",
+            "e0000000-0000-0000-0000-000000000002",
+            "c0000000-0000-0000-0000-0000000000a2",
+            "a0000000-0000-0000-0000-0000000000c1",
+            401,
+            0.2,
+            0.5,
+            0.01,
+            0.04,
+            0.15
+          ],
+          [
+            "b0000000-0000-0000-0000-0000000000b1",
+            "e0000000-0000-0000-0000-000000000003",
+            "c0000000-0000-0000-0000-0000000000a1",
+            "a0000000-0000-0000-0000-0000000000c1",
+            302,
+            1.0,
+            0.5,
+            0.05,
+            0.2,
+            0.75
+          ]
+        ],
+        "ledger_totals": {
+          "rake": 4.62,
+          "insurance": 6.0,
+          "bbj_contribution": 1.7
+        }
+      }
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_ca_tally_balance_move",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_ca_supply_snapshot",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_ca_account_balance",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_rake_bbj_invariants",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_project_hand_side_effects",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of trg_finish_hand_post_commit_obligations",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_post_commit_stranded_watchdog",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of fn_union_debit_wallet_zd3core",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 reproduces the postimage of record_insurance_transaction",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 refuses a second run",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: part 1 alone changes nothing (the envelope still banks the drop, no row is stored)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: the switch reproduces the postimage derived from production",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: the pool lock, the pool row and the wallet row are held",
+      "passed": true,
+      "detail": [
+        "",
+        "1",
+        "held"
+      ]
+    },
+    {
+      "name": "hand bank: AFTER, the BBJ hand envelope completes while the pool and the wallet are held",
+      "passed": true,
+      "detail": {
+        "status": 0,
+        "seconds": 0.032301265000114654,
+        "error": "",
+        "result": {
+          "ok": true,
+          "rake": true,
+          "hand_id": "e0000000-0000-0000-0000-000000000001",
+          "insurance": 1,
+          "time_banks": 0,
+          "hand_number": 301,
+          "pending_addons": 0,
+          "bbj_contribution": true,
+          "already_completed": false,
+          "promo_playthrough": 0
+        }
+      }
+    },
+    {
+      "name": "hand bank: the drop and the insurance leg are stored on the felt, not banked",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: the continuation does not wait for the held pool or bank either, and keeps the obligations",
+      "passed": true,
+      "detail": {
+        "ok": false,
+        "detail": "cash_rake_pending",
+        "reason": "predecessor_pending",
+        "hand_id": "e0000000-0000-0000-0000-000000000001",
+        "cash_rake": {
+          "status": "busy",
+          "hand_id": "e0000000-0000-0000-0000-000000000001"
+        },
+        "hand_bank": {
+          "items": [
+            {
+              "item": "",
+              "kind": "bbj_contribution",
+              "status": "busy"
+            },
+            {
+              "item": "10000000-0000-0000-0000-00000000000a",
+              "kind": "insurance",
+              "status": "busy"
+            }
+          ],
+          "status": "busy",
+          "hand_id": "e0000000-0000-0000-0000-000000000001"
+        },
+        "projection_applied": false
+      }
+    },
+    {
+      "name": "hand bank: a held pool or bank reads busy, never refused",
+      "passed": true,
+      "detail": {
+        "items": [
+          {
+            "item": "",
+            "kind": "bbj_contribution",
+            "status": "busy"
+          },
+          {
+            "item": "10000000-0000-0000-0000-00000000000a",
+            "kind": "insurance",
+            "status": "busy"
+          }
+        ],
+        "status": "busy",
+        "hand_id": "e0000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "name": "hand bank: the next hand at the same table is not delayed either",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "e0000000-0000-0000-0000-000000000003",
+        "insurance": 1,
+        "time_banks": 0,
+        "hand_number": 302,
+        "pending_addons": 0,
+        "bbj_contribution": true,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "hand bank: the outbox row cannot leave while its obligations are pending",
+      "passed": true,
+      "detail": "ERROR:  hand rake remains pending for e0000000-0000-0000-0000-000000000001: {\"status\": \"busy\", \"hand_id\": \"e0000000-0000-0000-0000-000000000001\"}\nCONTEXT:  PL/pgSQL function trg_finish_hand_post_commit_obligations() line 16 at RAISE\n"
+    },
+    {
+      "name": "hand bank: within the grace the stranded watchdog stays quiet",
+      "passed": true,
+      "detail": {
+        "oldest": null,
+        "stranded": 0,
+        "pending_oldest": null,
+        "pending_obligations": 0
+      }
+    },
+    {
+      "name": "hand bank: a stored rake, drop or leg past the grace pages CRITICAL with its attempts and last error",
+      "passed": true,
+      "detail": {
+        "watchdog": {
+          "oldest": null,
+          "stranded": 0,
+          "pending_oldest": "2026-11-18T07:37:18.854259-06:00",
+          "pending_obligations": 6
+        },
+        "alert": {
+          "context": {
+            "oldest": null,
+            "sample": [],
+            "stranded": 0,
+            "pending_oldest": "2026-11-18T07:37:18.854259-06:00",
+            "pending_sample": [
+              {
+                "hand_id": "e0000000-0000-0000-0000-000000000001",
+                "attempts": 0,
+                "table_id": "c0000000-0000-0000-0000-0000000000a1",
+                "stored_at": "2026-11-18T07:37:18.854259-06:00",
+                "last_error": null,
+                "obligation": "rake",
+                "hand_number": 301
+              },
+              {
+                "hand_id": "e0000000-0000-0000-0000-000000000001",
+                "attempts": 0,
+                "table_id": "c0000000-0000-0000-0000-0000000000a1",
+                "stored_at": "2026-11-18T07:37:18.857329-06:00",
+                "last_error": null,
+                "obligation": "bbj_contribution",
+                "hand_number": 301
+              },
+              {
+                "hand_id": "e0000000-0000-0000-0000-000000000001",
+                "attempts": 0,
+                "table_id": "c0000000-0000-0000-0000-0000000000a1",
+                "stored_at": "2026-11-18T07:37:18.860246-06:00",
+                "last_error": null,
+                "obligation": "insurance",
+                "hand_number": 301
+              },
+              {
+                "hand_id": "e0000000-0000-0000-0000-000000000003",
+                "attempts": 0,
+                "table_id": "c0000000-0000-0000-0000-0000000000a1",
+                "stored_at": "2026-11-18T07:37:18.966986-06:00",
+                "last_error": null,
+                "obligation": "rake",
+                "hand_number": 302
+              },
+              {
+                "hand_id": "e0000000-0000-0000-0000-000000000003",
+                "attempts": 0,
+                "table_id": "c0000000-0000-0000-0000-0000000000a1",
+                "stored_at": "2026-11-18T07:37:18.969644-06:00",
+                "last_error": null,
+                "obligation": "bbj_contribution",
+                "hand_number": 302
+              },
+              {
+                "hand_id": "e0000000-0000-0000-0000-000000000003",
+                "attempts": 0,
+                "table_id": "c0000000-0000-0000-0000-0000000000a1",
+                "stored_at": "2026-11-18T07:37:18.972435-06:00",
+                "last_error": null,
+                "obligation": "insurance",
+                "hand_number": 302
+              }
+            ],
+            "pending_obligations": 6
+          },
+          "severity": "critical"
+        }
+      }
+    },
+    {
+      "name": "hand bank: while held, what is stored is exactly what the receipts released",
+      "passed": true,
+      "detail": "3.75"
+    },
+    {
+      "name": "hand bank: a stored insurance payout is reserved at the wallet's debit door",
+      "passed": true,
+      "detail": {
+        "error": "insufficient balance",
+        "wallet": "insurance_wallet",
+        "balance": 10,
+        "success": false,
+        "requested": 7,
+        "reserved_for_pending_payouts": 4.0
+      }
+    },
+    {
+      "name": "hand bank: once the pool and bank are free the continuation banks them and the hand projects",
+      "passed": true,
+      "detail": [
+        {
+          "ok": false,
+          "detail": "cash_rake_banked_in_this_transaction",
+          "reason": "predecessor_pending",
+          "hand_id": "e0000000-0000-0000-0000-000000000001",
+          "cash_rake": {
+            "route": "union_rake_wallet",
+            "amount": 1.25,
+            "status": "banked",
+            "applied": true,
+            "hand_id": "e0000000-0000-0000-0000-000000000001",
+            "union_id": "fade0000-0000-0000-0000-000000000001",
+            "recovered": false,
+            "rake_record_id": "a66f24be-2718-4b9e-8ac0-4cdf716b4f72",
+            "already_processed": false
+          },
+          "hand_bank": {
+            "items": [
+              {
+                "item": "",
+                "kind": "bbj_contribution",
+                "amount": 0.5,
+                "status": "banked",
+                "receipt": "4c0c4d91-9e83-4c5b-bb0a-bcf44bd29166"
+              },
+              {
+                "item": "10000000-0000-0000-0000-00000000000a",
+                "kind": "insurance",
+                "amount": 2.0,
+                "status": "banked",
+                "receipt": "cf359f41-359a-4319-a551-07dc041c389c"
+              }
+            ],
+            "status": "banked",
+            "hand_id": "e0000000-0000-0000-0000-000000000001"
+          },
+          "projection_applied": false
+        },
+        {
+          "ok": true,
+          "hand_id": "e0000000-0000-0000-0000-000000000001"
+        }
+      ]
+    },
+    {
+      "name": "hand bank: banking is once per obligation",
+      "passed": true,
+      "detail": {
+        "items": [],
+        "status": "absent",
+        "hand_id": "e0000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "name": "hand bank: once the pool and bank are free the continuation banks them and the hand projects",
+      "passed": true,
+      "detail": [
+        {
+          "ok": false,
+          "detail": "cash_rake_banked_in_this_transaction",
+          "reason": "predecessor_pending",
+          "hand_id": "e0000000-0000-0000-0000-000000000003",
+          "cash_rake": {
+            "route": "union_rake_wallet",
+            "amount": 3.0,
+            "status": "banked",
+            "applied": true,
+            "hand_id": "e0000000-0000-0000-0000-000000000003",
+            "union_id": "fade0000-0000-0000-0000-000000000001",
+            "recovered": false,
+            "rake_record_id": "0ffd9b9b-fa92-43ea-b88e-a0c10d9eeccb",
+            "already_processed": false
+          },
+          "hand_bank": {
+            "items": [
+              {
+                "item": "",
+                "kind": "bbj_contribution",
+                "amount": 1.0,
+                "status": "banked",
+                "receipt": "bb7c23be-3285-48ec-8377-d125b61b98cf"
+              },
+              {
+                "item": "10000000-0000-0000-0000-00000000000a",
+                "kind": "insurance",
+                "amount": -4.0,
+                "status": "banked",
+                "receipt": "beed801f-ed51-4af5-8f33-8d5f3b1e5aaf"
+              }
+            ],
+            "status": "banked",
+            "hand_id": "e0000000-0000-0000-0000-000000000003"
+          },
+          "projection_applied": false
+        },
+        {
+          "ok": true,
+          "hand_id": "e0000000-0000-0000-0000-000000000003"
+        }
+      ]
+    },
+    {
+      "name": "hand bank: banking is once per obligation",
+      "passed": true,
+      "detail": {
+        "items": [],
+        "status": "absent",
+        "hand_id": "e0000000-0000-0000-0000-000000000003"
+      }
+    },
+    {
+      "name": "hand bank: the stranded alert resolves once nothing is left",
+      "passed": true,
+      "detail": {
+        "oldest": null,
+        "stranded": 0,
+        "pending_oldest": null,
+        "pending_obligations": 0
+      }
+    },
+    {
+      "name": "hand bank: nothing is left pending",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: pool, allocator, contributions, insurance receipts, wallet, ledger and every other row equal the uncontended reference exactly",
+      "passed": true,
+      "detail": {}
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: on the production text a covered insurance payout is refused by the CHECK on the proposed INSERT row (the defect part 1 repairs)",
+      "passed": true,
+      "detail": "t')::numeric, 0),\n        COALESCE((v_item->>'payout')::numeric, 0),\n        COALESCE((v_item->>'player_won')::boolean, false),\n        COALESCE(NULLIF(v_item->>'kind', ''), 'insurance')::varchar\n      ) r\"\nPL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 249 at SQL statement\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses a drop that is not whole cents",
+      "passed": true,
+      "detail": "ERROR:  BBJ contribution requires a stable hand identity and positive whole-cent amount\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 180 at RAISE\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses two legs for one player (the receipt identity)",
+      "passed": true,
+      "detail": "ERROR:  Insurance identity reused with a different payment payload\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 302 at RAISE\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses equity above 100",
+      "passed": true,
+      "detail": "ERROR:  Invalid insurance payment identity or amounts\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 254 at RAISE\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses a negative amount",
+      "passed": true,
+      "detail": "ERROR:  Invalid insurance payment identity or amounts\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 254 at RAISE\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses an unknown kind",
+      "passed": true,
+      "detail": "ERROR:  Invalid insurance payment identity or amounts\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 254 at RAISE\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses a table of another club",
+      "passed": true,
+      "detail": "ERROR:  Insurance table does not belong to supplied club\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 262 at RAISE\n"
+    },
+    {
+      "name": "hand bank: the envelope still refuses a payout the bank cannot cover",
+      "passed": true,
+      "detail": "ERROR:  insurance payout exceeds the union insurance bank for hand f0000000-0000-0000-0000-000000000006 (union_wallets_insurance_wallet_nonneg)\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 290 at RAISE\n"
+    },
+    {
+      "name": "hand bank: nothing malformed was stored",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: after part 1 the same covered payout is stored and banks",
+      "passed": true,
+      "detail": [
+        "{\"ok\": true, \"rake\": true, \"hand_id\": \"f0000000-0000-0000-0000-0000000000aa\", \"insurance\": 1, \"time_banks\": 0, \"hand_number\": 700, \"pending_addons\": 0, \"bbj_contribution\": true, \"already_completed\": false, \"promo_playthrough\": 0}\nbanked\n6.00\n",
+        ""
+      ]
+    },
+    {
+      "name": "hand bank: UNION LAW, a drop banks to the union of the game at hand time even if the club left it while the drop waited",
+      "passed": true,
+      "detail": [
+        "{\"ok\": true, \"rake\": true, \"hand_id\": \"f0000000-0000-0000-0000-0000000000bb\", \"insurance\": 0, \"time_banks\": 0, \"hand_number\": 701, \"pending_addons\": 0, \"bbj_contribution\": true, \"already_completed\": false, \"promo_playthrough\": 0}\nbanked\ntrue\n",
+        ""
+      ]
+    },
+    {
+      "name": "hand bank: a standalone club's drop whose pool was retired on joining a union is refused by name, never banked to a new orphan pool",
+      "passed": true,
+      "detail": [
+        "true\nrefused|bbj_club_pool_closed_on_union_join: club a0000000-0000-0000-0000-0000000000c1's pool was retired into its chip_treasury (fn_close_club_wallets_on_union_join) while drop of hand f0000000-0000-0000-0000-0000000000bc waited\n0\n",
+        ""
+      ]
+    },
+    {
+      "name": "hand bank: the same leg repeated is one receipt, as the call returned it before",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "f0000000-0000-0000-0000-0000000000ff",
+        "insurance": 2,
+        "time_banks": 0,
+        "hand_number": 600,
+        "pending_addons": 0,
+        "bbj_contribution": true,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank race: the repaired insurance function is installed",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank race: the union has no bank row yet",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank race: the first session holds its new bank row",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank race: the second session waits for the first one's row",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank race: two first insurance legs for a union with no bank row merge, as the old upsert did",
+      "passed": true,
+      "detail": {
+        "first": [
+          0,
+          "",
+          ""
+        ],
+        "second": [
+          0,
+          "leg:true",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "hand bank race: a payout the bank row cannot cover is still refused by the CHECK",
+      "passed": true,
+      "detail": "rance_wallet = COALESCE(union_wallets.insurance_wallet, 0) + v_bank_delta,\n             updated_at = NOW()\n       WHERE union_id = v_bank_entity\"\nPL/pgSQL function record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying) line 91 at SQL statement\n"
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank insurance: the operator debit holds the bank",
+      "passed": true,
+      "detail": {
+        "amount": 10,
+        "wallet": "insurance_wallet",
+        "success": true,
+        "balance_after": 0,
+        "balance_before": 10
+      }
+    },
+    {
+      "name": "hand bank insurance: the envelope never waits for the bank, it is told busy",
+      "passed": true,
+      "detail": "ERROR:  insurance bank fade0000-0000-0000-0000-000000000001 is busy deciding another payout or debit (hand f1000000-0000-0000-0000-000000000001)\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 279 at RAISE\n"
+    },
+    {
+      "name": "hand bank insurance: debit first, then the payout is refused at the envelope (nothing stored to fail later)",
+      "passed": true,
+      "detail": "ERROR:  insurance payout exceeds the union insurance bank for hand f1000000-0000-0000-0000-000000000001 (union_wallets_insurance_wallet_nonneg)\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 290 at RAISE\n"
+    },
+    {
+      "name": "hand bank insurance: the refused hand is a stranded envelope, as before #11256 (the watchdog pages it)",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank insurance: the envelope stores the payout and holds the bank decision",
+      "passed": true,
+      "detail": {
+        "ok": true,
+        "rake": true,
+        "hand_id": "f1000000-0000-0000-0000-000000000002",
+        "insurance": 1,
+        "time_banks": 0,
+        "hand_number": 802,
+        "pending_addons": 0,
+        "bbj_contribution": true,
+        "already_completed": false,
+        "promo_playthrough": 0
+      }
+    },
+    {
+      "name": "hand bank insurance: the operator debit waits for the envelope deciding the same bank",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank insurance: payout first, then the debit sees it reserved and is refused",
+      "passed": true,
+      "detail": {
+        "out": "{\"error\": \"insufficient balance\", \"wallet\": \"insurance_wallet\", \"balance\": 10, \"success\": false, \"requested\": 10, \"reserved_for_pending_payouts\": 8.00}",
+        "err": ""
+      }
+    },
+    {
+      "name": "hand bank insurance: the stored payout banks",
+      "passed": true,
+      "detail": {
+        "items": [
+          {
+            "item": "",
+            "kind": "bbj_contribution",
+            "amount": 0.5,
+            "status": "banked",
+            "receipt": "6f0b9ef2-3d29-4e9d-b620-83474b1b642d"
+          },
+          {
+            "item": "10000000-0000-0000-0000-00000000000a",
+            "kind": "insurance",
+            "amount": -8.0,
+            "status": "banked",
+            "receipt": "a982b20f-2183-4d65-8ad6-b826cee854a6"
+          }
+        ],
+        "status": "banked",
+        "hand_id": "f1000000-0000-0000-0000-000000000002"
+      }
+    },
+    {
+      "name": "cash rake: atomic_distribute_rake is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_allocate_rake_credits is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_account_balance is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_autoledger is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_balance_has_its_ledger_row is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_felt_counts_table is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_add is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_ledger_tally_key is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_process_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_supply_snapshot is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_balance_move is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_ca_tally_ledger_leg is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_caller_is_engine is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_lock_cash_bank_accounting_week is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_rake_bbj_invariants is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_union_week_start is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: fn_project_hand_side_effects is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "cash rake: trg_finish_hand_post_commit_obligations is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: bbj_record_contribution is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_bbj_allocate is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: record_insurance_transaction is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_post_commit_stranded_watchdog is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank: fn_union_debit_wallet_zd3core is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank insurance: table 1 stores its payout",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "hand bank insurance: table 2 is told busy at once, not made to wait",
+      "passed": true,
+      "detail": "ERROR:  insurance bank fade0000-0000-0000-0000-000000000001 is busy deciding another payout or debit (hand f1000000-0000-0000-0000-000000000004)\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 279 at RAISE\n"
+    },
+    {
+      "name": "hand bank insurance: table 2 is refused at its envelope, the bank is never overcommitted",
+      "passed": true,
+      "detail": "ERROR:  insurance payout exceeds the union insurance bank for hand f1000000-0000-0000-0000-000000000004 (union_wallets_insurance_wallet_nonneg)\nCONTEXT:  PL/pgSQL function fn_ca_process_hand_post_commit_obligations(uuid) line 290 at RAISE\n"
+    },
+    {
+      "name": "hand bank insurance: the one stored payout banks, and none of these runs deadlocked",
+      "passed": true,
+      "detail": {
+        "items": [
+          {
+            "item": "",
+            "kind": "bbj_contribution",
+            "amount": 0.5,
+            "status": "banked",
+            "receipt": "8e617ced-f09a-4743-b53f-0ad74d72b94c"
+          },
+          {
+            "item": "10000000-0000-0000-0000-00000000000a",
+            "kind": "insurance",
+            "amount": -8.0,
+            "status": "banked",
+            "receipt": "9d12fad0-946a-42dc-a9a1-fce847d6a3c1"
+          }
+        ],
+        "status": "banked",
+        "hand_id": "f1000000-0000-0000-0000-000000000003"
+      }
+    },
+    {
+      "name": "sat: the rebuilt definition is the production text",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "sat: the live board deadlocks with a feeder registration",
+      "passed": true,
+      "detail": {
+        "deadlocks": 1,
+        "reg": [
+          3,
+          "c0000000-0000-0000-0000-0000000000f1",
+          "ERROR:  deadlock detected\nDETAIL:  Process 19847 waits for ShareLock on transaction 2570; blocked by process 19849.\nProcess 19849 waits for ShareLock on transaction 2569; blocked by process 19847.\nHINT:  See server log for query details.\nCONTEXT:  while locking tuple (0,1) in relation \"tournaments\"\nSQL statement \"SELECT 1 FROM ONLY \"public\".\"tournaments\" x WHERE \"id\" OPERATOR(pg_catalog.=) $1 FOR KEY SHARE OF x\""
+        ],
+        "board": [
+          0,
+          "existing_active",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "sat: the migration reproduces the postimage derived on production",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "sat: after the fix the registration commits and the board answers",
+      "passed": true,
+      "detail": {
+        "deadlocks": 0,
+        "reg": [
+          0,
+          "c0000000-0000-0000-0000-0000000000f1\nregistration-done",
+          ""
+        ],
+        "board": [
+          0,
+          "existing_active",
+          ""
+        ]
+      }
+    },
+    {
+      "name": "sat: the board still refuses a writer to the target while it decides",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "production_mutations": false,
+  "passed": true
+}

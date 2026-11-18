@@ -517,6 +517,9 @@ CREATE TABLE ca_ledger_invariant_findings(txid xid8, account_key text, balance_d
 CREATE TABLE ca_declared_money_triggers(table_name text, trigger_name text, declared_at timestamptz DEFAULT now(),
   note text, PRIMARY KEY (table_name, trigger_name));
 CREATE TABLE guard_redefinitions(proname text, ref text);
+-- Production's money-RPC registry (fn_ca_money_rpc_registry_guard): a
+-- migration registers a balance-writing function before it creates it.
+CREATE TABLE ca_money_rpc_registry(proname text PRIMARY KEY, status text, notes text);
 CREATE TABLE union_pnl_cash_outcomes(table_id uuid, hand_number bigint, evidence jsonb);
 
 CREATE FUNCTION fn_ca_ledger_refusal_record(jsonb) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
