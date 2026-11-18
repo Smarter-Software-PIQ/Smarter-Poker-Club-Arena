@@ -8,12 +8,12 @@
 --
 -- Layers on 20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b
 -- (#11266), which layers on 20261118035606 (#11256, re-landed as #11270): the live definition must
--- be #11266's postimage (md5 d41bfee494141a366d72d3649a0208e5) or this file
+-- be #11266's postimage (md5 7a796358fa28fda910e0f28ded72ff79) or this file
 -- refuses to install. Land order: #11270 (#11256 re-land), #11266, this.
 --
 -- Stale pins (scripts/ci/migration-stale-pins.mjs): read on production
 -- 2026-11-18, no function in public or smarter_private carries any md5 of this
--- envelope (8b81e8bb..., da123635..., 11f76921..., d41bfee4...) in its source, and neither
+-- envelope (8b81e8bb..., da123635..., 11f76921..., d41bfee4..., 7a796358...) in its source, and neither
 -- #11256 nor #11266 installs one. Nothing to move.
 --
 -- WHAT WENT WRONG. fn_ca_process_hand_post_commit_obligations took the
@@ -50,7 +50,9 @@
 --      order). A refused lock answers {ok:false,
 --      reason:'obligation_lock_busy', retryable:true}. The envelope body runs
 --      in its own block, so a refusal rolls back every write it made: no
---      receipt is written, the caller retries, exactly once holds.
+--      receipt is written, the caller retries, exactly once holds. The same
+--      handler answers #11266's insurance-bank try-lock refusal (55P03,
+--      'insurance bank ... is busy'), so a busy bank is a retry too.
 --      Callees run with the caller's own lock_timeout, exactly as before (not
 --      shortened): promo_apply_playthrough wraps its player_stats upsert in
 --      EXCEPTION WHEN OTHERS THEN NULL, and a shorter wait there would be
@@ -74,7 +76,7 @@
 -- Law: tests/a-post-commit-envelope-never-queues-behind-a-slow-predecessor.law.test.ts
 -- Proof on real PostgreSQL: scripts/ci/test-post-commit-envelope-convoy-postgres.py
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = 'a21cdfe2e75c296b554f30ca4b8f454c')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = 'dcd62bfc0a5ebae397a0f4c993a988eb')
 
 BEGIN;
 
@@ -133,7 +135,7 @@ END $h$;
 
 SELECT pg_temp.ca_convoy_subst(
   'public.fn_ca_process_hand_post_commit_obligations(uuid)',
-  'd41bfee494141a366d72d3649a0208e5', 'a21cdfe2e75c296b554f30ca4b8f454c',
+  '7a796358fa28fda910e0f28ded72ff79', 'dcd62bfc0a5ebae397a0f4c993a988eb',
   ARRAY[
 $o1$  v_result jsonb;
 BEGIN

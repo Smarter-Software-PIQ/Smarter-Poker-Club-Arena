@@ -44,8 +44,8 @@ const SWITCH = '20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lo
 const BANK_SWITCH = '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql';
 const CANDIDATE = '20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql';
 const ENVELOPE = 'fn_ca_process_hand_post_commit_obligations';
-const PRE = 'd41bfee494141a366d72d3649a0208e5';
-const POST = 'a21cdfe2e75c296b554f30ca4b8f454c';
+const PRE = '7a796358fa28fda910e0f28ded72ff79';
+const POST = 'dcd62bfc0a5ebae397a0f4c993a988eb';
 
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -164,6 +164,18 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
     }
   });
 
+  it("#11266's insurance-bank try-lock refusal is answered as obligation_lock_busy", () => {
+    const busy = postimage.search(/RAISE EXCEPTION 'insurance bank % is busy deciding another payout or debit \(hand %\)',\s+v_insurance_union, p_hand_id USING ERRCODE = '55P03';/);
+    const block = postimage.indexOf('BEGIN\n  /* The bounded wait applies only where this function names the rows');
+    const handler = postimage.indexOf('EXCEPTION WHEN lock_not_available THEN');
+    expect(busy).toBeGreaterThan(-1);
+    expect(block).toBeGreaterThan(-1);
+    expect(block).toBeLessThan(busy);
+    expect(busy).toBeLessThan(handler);
+    const stall = read('server', 'src', 'lightning', 'LightningPostCommitStall.ts');
+    expect(stall).not.toMatch(/insurance bank/i);
+  });
+
   it('keeps the closed callee list of 20261118071736', () => {
     const callees = [
       ...new Set(
@@ -193,14 +205,21 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
     for (const r of retryable) expect(reasons).toContain(`'${r}'`);
   });
 
-  it('one chain helper per table per process, and one stalled alert per episode', () => {
+  it('one chain helper per table per process, and one stalled alert per table episode', () => {
     const projection = read('server', 'src', 'services', 'supabase', 'handProjection.ts');
-    expect(projection).toMatch(/const chainHelpers = new Map<string, Promise<boolean>>\(\);/);
-    expect(projection).toMatch(/const inFlight = chainHelpers\.get\(tableId!\);\s+if \(inFlight\) return/);
+    expect(projection).toMatch(/const chainHelpers = new Map<string, \{ walk: Promise<boolean>; endsByMs: number \}>\(\);/);
+    expect(projection).toMatch(/const inFlight = chainHelpers\.get\(tableId!\);\s+if \(inFlight\) \{/);
+    // The projection worker defers every queued answer instead of failing it.
+    expect(projection).toMatch(/\} else if \(isQueuedPostCommitReason\(result\.reason\)\) \{\s+\/\/ Preserve the row\./);
     const host = read('server', 'src', 'lightning', 'LightningHandHost.ts');
     const drain = host.slice(host.indexOf('private async drainPostCommit('), host.indexOf('private filePostCommitAlert('));
-    expect(drain).toMatch(/if \(!stalls\.open\(this\.hostTableId, oldestHandId, this\.now\(\)\)\) \{[\s\S]*?return false;\s+\}\s+this\.filePostCommitAlert\(handHistoryId, attempt, lastError, \{\s+kind: 'stalled'/);
+    expect(drain).toMatch(/const \{ opened, episode \} = stalls\.stalled\(this\.hostTableId, oldestHandId, ageMs, this\.now\(\)\);\s+if \(!opened\) \{[\s\S]*?return false;\s+\}\s+this\.filePostCommitAlert\(handHistoryId, attempt, lastError, \{\s+kind: 'stalled'/);
     expect(drain).toMatch(/if \(kind === 'failed'\) failure = lastReason;/);
+    expect(drain).toMatch(/if \(classifyPostCommitError\(lastReason\) === 'failed'\) failure = lastReason;/);
+    // Definite is a closed list; everything else is queued.
+    const stall = read('server', 'src', 'lightning', 'LightningPostCommitStall.ts');
+    expect(stall).toMatch(/POST_COMMIT_DEFINITE_REASONS: ReadonlySet<string> = new Set\(\[\s+'not_found',\s+'legacy_no_obligations',\s+\]\)/);
+    expect(stall).toMatch(/return isDefinitePostCommitError\(message\) \? 'failed' : 'queued';/);
   });
 
   it('no later migration puts a blocking table mutex back into the envelope', () => {

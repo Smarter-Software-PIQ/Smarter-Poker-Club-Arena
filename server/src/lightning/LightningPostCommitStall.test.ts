@@ -272,6 +272,9 @@ describe('classification', () => {
       'TypeError: fetch failed',
       'F06_RETRY_CANONICAL_LANE',
       'a message nobody has seen before',
+      // #11266: the insurance bank try-lock is busy (55P03): a retry, never a refusal.
+      'insurance bank 00000000-0000-0000-0000-000000000001 is busy deciding another payout or debit (hand h)',
+      'insurance payout exceeds the union insurance bank for hand h (union_wallets_insurance_wallet_nonneg)',
     ])
       expect(classifyPostCommitError(m)).toBe('queued');
     for (const m of [
@@ -282,6 +285,8 @@ describe('classification', () => {
       'pending add-on "a" does not belong to table t (hand h)',
       'BBJ contribution requires a stable hand identity and positive whole-cent amount',
       'promo obligation refused for hand x: {}',
+      'Invalid insurance payment identity or amounts',
+      'Insurance identity reused with a different payment payload',
     ])
       expect(classifyPostCommitError(m)).toBe('failed');
   });

@@ -65,6 +65,9 @@ const DEFINITE_ERROR = new RegExp(
     'incomplete resolution receipt',
     'completion receipt was lost',
     'posthand_escrow_(original_proof_unknown|refusal_receipt_lost)',
+    'Invalid insurance payment identity or amounts',
+    'Insurance table does not belong to supplied club',
+    'Insurance identity reused with a different payment payload',
   ].join('|'),
   'i'
 );

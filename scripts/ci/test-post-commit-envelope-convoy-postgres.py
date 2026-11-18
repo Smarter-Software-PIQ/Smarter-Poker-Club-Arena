@@ -6,7 +6,7 @@ envelope ran slowly, every later hand of the table queued on the per-table
 advisory lock until the statement timeout, only to learn under the lock that
 an earlier envelope was still open. This proof rebuilds the envelope exactly as
 production will hold it before the candidate (the 20261118071736 postimage,
-md5 d41bfee494141a366d72d3649a0208e5: the production text in
+md5 7a796358fa28fda910e0f28ded72ff79: the production text in
 scripts/ci/fixtures/cash-rake-pending/live-definitions.json through
 20261118035606 and 20261118071736), then:
 
@@ -23,7 +23,9 @@ scripts/ci/fixtures/cash-rake-pending/live-definitions.json through
           caller's
           lock_timeout is restored and callees run with it (never shortened);
           a caller holding the table mutex as fn_project_hand_side_effects does
-          gets obligation_lock_busy in a usable transaction; a caller already
+          gets obligation_lock_busy in a usable transaction; #11266's busy
+          insurance bank (55P03) answers obligation_lock_busy and stores one leg
+          once free; a caller already
           holding the table mutex
           re-enters; and draining the table afterwards applies every hand
           exactly once, in hand order.
@@ -49,8 +51,8 @@ SWITCH = MIGRATIONS / '20261118035606_a_cash_hand_never_waits_on_a_tournament_wa
 BANK_SWITCH = MIGRATIONS / '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql'
 CANDIDATE = MIGRATIONS / '20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql'
 SIG = 'public.fn_ca_process_hand_post_commit_obligations(uuid)'
-PRE = 'd41bfee494141a366d72d3649a0208e5'
-POST = 'a21cdfe2e75c296b554f30ca4b8f454c'
+PRE = '7a796358fa28fda910e0f28ded72ff79'
+POST = 'dcd62bfc0a5ebae397a0f4c993a988eb'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/post-commit-envelope-convoy')
@@ -75,6 +77,7 @@ results = {'checks': [], 'production_mutations': False}
 
 T = 'c0000000-0000-0000-0000-0000000000a1'
 CLUB = 'a0000000-0000-0000-0000-000000000001'
+UNION = 'b0000000-0000-0000-0000-000000000001'
 U = '10000000-0000-0000-0000-00000000000a'
 SLOW_SECONDS = 3
 SUCCESSOR_TIMEOUT = '2s'
@@ -149,7 +152,12 @@ CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
 CREATE SCHEMA extensions; CREATE SCHEMA smarter_private;
 CREATE EXTENSION pgcrypto SCHEMA extensions;
 CREATE TABLE public.clubs(id uuid PRIMARY KEY, union_id uuid, asset text DEFAULT 'chips');
-CREATE TABLE public.tables(id uuid PRIMARY KEY, club_id uuid REFERENCES public.clubs(id), tournament_id uuid);
+CREATE TABLE public.tables(id uuid PRIMARY KEY, club_id uuid REFERENCES public.clubs(id), tournament_id uuid,
+  union_id uuid, is_private boolean DEFAULT false);
+-- #11266's insurance step: the union bank row it reads and the stored legs.
+CREATE TABLE public.union_wallets(union_id uuid PRIMARY KEY, insurance_wallet numeric NOT NULL DEFAULT 0);
+CREATE TABLE public.hand_bank_obligation_pending(hand_id uuid, kind text, item_key text, table_id uuid,
+  hand_number bigint, union_id uuid, felt_amount numeric, obligation jsonb, PRIMARY KEY (hand_id, kind, item_key));
 CREATE TABLE public.hand_atomic_commits(
   table_id uuid NOT NULL, hand_number bigint NOT NULL, hand_id uuid NOT NULL UNIQUE,
   payload_hash text NOT NULL DEFAULT '', stack_result jsonb NOT NULL DEFAULT '{{}}',
@@ -194,7 +202,8 @@ BEGIN
   IF s IS NOT NULL THEN PERFORM pg_sleep(s); END IF;
   RETURN jsonb_build_object('ok', true);
 END $$;
-INSERT INTO public.clubs(id) VALUES ('{CLUB}');
+INSERT INTO public.clubs(id, union_id) VALUES ('{CLUB}', '{UNION}');
+INSERT INTO public.union_wallets(union_id, insurance_wallet) VALUES ('{UNION}', 100);
 INSERT INTO public.tables(id, club_id) VALUES ('{T}', '{CLUB}');
 """
 
@@ -286,6 +295,35 @@ def held_member_row(timeout, row='club_members', sql=None):
     holder.stdin.close()
     holder.wait(timeout=60)
     return answer
+
+
+def insurance_bank_busy():
+    """#11266: a net insurance payout TRIES the union's 'insurance-bank:' lock
+    and raises 55P03 when another session holds it. The envelope must answer
+    obligation_lock_busy (retry), store nothing, and apply once when free."""
+    run('TRUNCATE public.hand_atomic_commits, public.hand_bank_obligation_pending;')
+    run(f"""
+WITH p AS (SELECT jsonb_build_object(
+    'rake', null, 'bbj_contribution', null, 'pending_addons', null, 'time_banks', '[]'::jsonb,
+    'promo_playthrough', '[]'::jsonb,
+    'insurance', jsonb_build_array(jsonb_build_object('club_id', '{CLUB}', 'player_id', '{user(1)}',
+        'premium', 0, 'payout', 5, 'insured_amount', 10, 'equity_percent', 50, 'kind', 'insurance'))) AS v)
+INSERT INTO public.hand_atomic_commits(table_id, hand_number, hand_id, post_commit_payload, post_commit_payload_hash)
+SELECT '{T}', 5001, '{hand_id(1)}', p.v, encode(extensions.digest(convert_to(p.v::text, 'UTF8'), 'sha256'), 'hex') FROM p;""")
+    holder = subprocess.Popen(list(map(str, psql())), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, env=env)
+    holder.stdin.write(f"SELECT pg_advisory_lock(hashtextextended('insurance-bank:{UNION}', 0));\n"
+                       "SELECT pg_sleep(3);\n")
+    holder.stdin.flush()
+    time.sleep(0.4)
+    busy = call(1, SUCCESSOR_TIMEOUT)
+    holder.stdin.close()
+    holder.wait(timeout=60)
+    stored_while_busy = run('SELECT count(*) FROM public.hand_bank_obligation_pending')
+    after = call(1, '8s')
+    again = call(1, '8s')
+    stored = run("SELECT count(*), sum(felt_amount) FROM public.hand_bank_obligation_pending WHERE kind = 'insurance'")
+    return busy, stored_while_busy, after, again, stored
 
 
 try:
@@ -382,6 +420,12 @@ try:
           projection[0] == 0 and projection[1].splitlines()[-2:] == ['obligation_lock_busy', 'usable'], projection)
     check('AFTER: and wrote nothing',
           run(f"SELECT count(*) FROM public.promo_receipts WHERE user_id = '{user(2)}'") == '0')
+    busy, stored_while_busy, ins_after, ins_again, ins_stored = insurance_bank_busy()
+    check("AFTER: #11266's busy insurance bank (55P03) answers obligation_lock_busy, not an error",
+          reason(busy) == 'obligation_lock_busy' and 'insurance bank' in json.loads(busy[1]).get('detail', ''), busy)
+    check('AFTER: and stores no leg while busy, then exactly one once free',
+          stored_while_busy == '0' and reason(ins_after) == 'ok' and reason(ins_again) == 'ok'
+          and ins_stored == '1|-5.00', {'while_busy': stored_while_busy, 'stored': ins_stored, 'after': ins_after})
     restored = run(f"SET lock_timeout = '7s'; SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(2)}') IS NOT NULL; SHOW lock_timeout;")
     check("AFTER: the caller's lock_timeout is restored", restored.splitlines()[-1] == '7s', restored)
     seed(1, slow_hand=99)
