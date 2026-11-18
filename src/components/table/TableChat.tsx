@@ -215,6 +215,7 @@ export function TableChat({
   const [inputValue, setInputValue] = useState('');
   const [newMessageIds, setNewMessageIds] = useState<Set<string>>(new Set());
   const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [isCoolingDown, setIsCoolingDown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   /* `inputRef` used to live here, attached to the compose box and read by
@@ -224,6 +225,7 @@ export function TableChat({
   const panelRef = useRef<HTMLDivElement>(null);
   const previousMessagesLengthRef = useRef(0);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentRef = useRef<number>(0);
 
   // Auto-scroll to bottom on new messages and track which are new
@@ -310,22 +312,17 @@ export function TableChat({
   const sendText = useCallback(
     (raw: string): boolean => {
       const text = raw.trim();
-      if (!text || isDisabled) return false;
+      if (!text || isDisabled || isCoolingDown) return false;
       const now = Date.now();
-      /* SEND_COOLDOWN_MS, not the 300 this was.
-         There are TWO rate limiters on this path and they disagreed. This one
-         cleared the input at 300ms; `useTableChat.handleSendChatMessage` then
-         refused anything inside 1000ms and returned in silence. So a player
-         typing two quick messages had the second one taken out of the box and
-         thrown away, with no message, no toast and no way to get the text back.
-         Matching the hook's window means the refusal happens HERE, before the
-         input is cleared, so the text stays where the player can send it again. */
       if (now - lastSentRef.current < SEND_COOLDOWN_MS) return false;
       lastSentRef.current = now;
+      setIsCoolingDown(true);
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = setTimeout(() => setIsCoolingDown(false), SEND_COOLDOWN_MS);
       onSendMessage(text);
       return true;
     },
-    [isDisabled, onSendMessage]
+    [isDisabled, isCoolingDown, onSendMessage]
   );
 
   // Handle send from the compose box
@@ -606,11 +603,12 @@ export function TableChat({
           <button
             className="table-chat__send"
             onClick={handleSend}
-            disabled={!inputValue.trim() || isDisabled}
-            aria-label="Send Message"
-            title="Send"
+            disabled={!inputValue.trim() || isDisabled || isCoolingDown}
+            aria-label={isCoolingDown ? 'Sending...' : 'Send Message'}
+            aria-busy={isCoolingDown}
+            title={isCoolingDown ? 'Sending...' : 'Send'}
           >
-            &#10148;
+            {isCoolingDown ? '...' : String.fromCharCode(10148)}
           </button>
         </div>
       </div>
