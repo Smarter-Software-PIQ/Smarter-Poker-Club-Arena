@@ -18,8 +18,13 @@ omahaOopReraisedPotStrongRange, the cold 4-bet rule) becomes one priced decision
   the evidence); a 4-bet narrows it. The Horse's cards are never dealt to him (card removal). Sampled with a seed taken
   from the cards; no draw from the brain's random stream.
 - Realization R: measured on 2,023 recorded calls of a person's 3-bet or 4-bet (all-in adjusted, after rake): falls
-  with the stack-to-pot ratio after the call, far more out of position, 0.35 lower for each other player in the pot,
-  a small bounded hand-shape term; 1 when the call is all in.
+  with the stack-to-pot ratio after the call, far more out of position; out of position the depth costs less the
+  stronger the call against the range it faces (slope 3.8 per unit of equity around 0.52: fit 8.42, SE 6.23, shrunk by
+  the positive-part James-Stein factor; in position the fit cannot tell the slope from zero, 0); 0.275 lower for the
+  first other player already in for the price, nothing more for a second (fit 0.246, SE 0.258, shrunk to zero the same
+  way; in position the recorded calls realized 0.91 / 0.67 / 0.60 with none / one / two in); players still to act are
+  not players in the pot (no cost in position, 0.14 out of position); a small bounded hand-shape term; 1 when the call
+  is all in.
 - Rake: the table's configuration (percentage, cap, player-count cap; none on timed rake).
 - No hand class, position or bet size decides on its own inside this rule.
 - One owner per cell (coordination inbox 2026-11-18 00:06Z, PLO Strategy lead and WooWoo audit lane): a call that the
@@ -70,7 +75,7 @@ equities from the independent Step 1 evaluator).
 6. Scope: PLO4/PLO5 cash only; PLO6, Hi-Lo, multi-board, bomb pots, all-in-or-fold and tournaments excluded by gate
    (tests).
 7. Visibility: the four receipts in HorseDataLedger.ts.
-8. Limits: the realization is a fit with wide standard errors (out of position depth cost 0.73, SE 0.54); later streets
+8. Limits: the realization is a fit with wide standard errors (out of position depth cost 0.71, SE 0.54); later streets
    after the call are played by the existing brain and are not changed here; the league field is development-grade.
 
 ## Evaluation
@@ -105,5 +110,28 @@ the re-raised-pot call cell. With that cell live the option now stands aside whe
 live switch list it changes fewer decisions than the replay and the two "live options in both arms" rows show (of the
 eight fixture hands the cell owns five on both seeds and one on one seed). The figures still describe the rule where it
 answers alone. Neither the league nor the replay was repeated for the narrower scope.
+
+## Replay of the realization correction (2026-11-18, PLO Strategy successor 013U37bXeyipeVLdczYpsQG1)
+
+Three corrections to R, each from the same 2,023 recorded calls (fit script preflop-01BNteGZ/step1-fit3.py): players
+still to act split from players already in (a raiser still to act had been charged as a player in, 0.35: cold callers
+in position folded where the recorded calls made +11.7 bb, SE 6.6, n 144); the second player already in shrunk to no
+extra cost; the out-of-position depth cost falling with equity. Replay of the 7,768 real decisions with the live switch
+list, two seeds (evidence preflop-01BNteGZ/replay-20261118/): unset and false byte-identical 15,536 of 15,536; no
+receipt refusal; no rule failure. One owner per cell: where the re-raised-pot call cell judged (2,834 runs) the option's
+decision is byte-identical to off in 2,824; in the other 10 (five nodes, both seeds) the cell's own receipts did not
+fire: they are in-position calls that a re-raise range rule made of a proposed re-raise, and the option kept the
+re-raise. Calls the option removes, as played and against folding: 3 (11 with the first correction alone; +9.95 bb, SE
+37.6), none in the audited window. Re-raises it turns into folds: 4 (14 with the first correction alone), the aces of #59801362 seat 4 (audited
+correct 4-bet) no longer among them.
+
+Joined BY DECISION NODE (hand, seat, preflop, amount to call) to the WooWoo 48-hour audit (1,494 of the replayed nodes
+join): 1,194 unchanged, 76 fixed, 224 newly wrong. 160 of the newly wrong are folds in position, nobody else in for the
+price and players still to act, audited correct (mostly "Preserve folding ... to 3-bets"), that the option calls; the
+recorded calls of that cell made +10.8 bb each (SE 6.5, n 80) but were chosen by the Horses, so they do not price the
+hands the Horses folded. One audited-wrong fold that the off decision now re-raises the option folds (#59721834 seat 2,
+out of position at a ratio of 8.2, equity 0.51 against the range at a 0.33 price); the recorded out-of-position calls
+at that depth and equity realized 0.38 (n 386, -5 to -6 bb against folding), so the price stands. Against the audit
+the value row is NOT MET.
 
 The option stays OFF.

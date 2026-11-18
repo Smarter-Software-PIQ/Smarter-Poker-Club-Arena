@@ -126,17 +126,12 @@ export function omahaPreflopReraiseDefenceSpot(
   const inFor = (p: SeatPlayer): boolean =>
     Number.isFinite(p.bet) &&
     ((p.bet ?? 0) >= price - 0.005 || (p.is_all_in === true && (p.bet ?? 0) > bb + 0.005));
-  // A raiser of this hand still to act is in the pot as far as the call is concerned.
-  const raisedBefore = new Set(
-    history
-      .filter(
-        (a) =>
-          a.stage === 'preflop' &&
-          (a.action === 'raise' || a.action === 'all_in' || a.action === 'bet')
-      )
-      .map((a) => a.seat)
-  );
-  const othersIn = live.filter((p) => inFor(p) || raisedBefore.has(p.seat)).length;
+  // In for the price: he has called the re-raise (or is all in). Still to act: live, not in for
+  // the price. The realization fit measured the two apart (HorseOmahaPreflopReraiseDefence.ts,
+  // REALIZATION_OTHER_IN_COST / REALIZATION_BEHIND_COST): an opener a cold caller leaves behind
+  // is still to act, not in the pot.
+  const othersIn = live.filter((p) => inFor(p)).length;
+  const playersBehind = live.filter((p) => !inFor(p) && !p.is_all_in).length;
   const mine = order(player.seat, gs.dealerSeat);
   // In position: after the re-raiser and after every other player already in for the raise.
   const inPosition =
@@ -161,6 +156,7 @@ export function omahaPreflopReraiseDefenceSpot(
       raiserBehind: Number.isFinite(raiser.stack) ? Math.max(0, raiser.stack) : 0,
       inPosition,
       othersIn,
+      playersBehind,
       bigBlind: bb,
       rake: (size: number) => omahaPreflopDefenceRake(size, bb, rakeConfig, dealt),
     },

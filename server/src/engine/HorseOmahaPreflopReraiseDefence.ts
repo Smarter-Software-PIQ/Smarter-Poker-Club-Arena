@@ -40,12 +40,13 @@
  *  - REALIZATION R: the share of its equity a call gets back, measured on
  *    recorded calls (all-in adjusted, after rake): it falls as the
  *    stack-to-pot ratio after the call grows, far more out of position than
- *    in position, and with every other player in the pot (a player already in
- *    for the raise, or a raiser of this hand still to act), and moves a
+ *    in position; with every other player already in for the price; out of
+ *    position with every player still to act behind the call; and it moves a
  *    little with the hand's shape (nut suits, connection, pair quality, dead
- *    cards). At a ratio of zero (the call is all in) it is 1. Players still
- *    to act who have not raised carry no charge: the recorded calls show none
- *    (-0.09, SE 0.13 in position; 0.01, SE 0.15 out of position).
+ *    cards). At a ratio of zero (the call is all in) it is 1. A player still
+ *    to act, a raiser of this hand included, is not a player in the pot: in
+ *    position the recorded calls show no cost for him (-0.005, SE 0.124), out
+ *    of position 0.14 (SE 0.146).
  *  - RAKE: the table's rake on the pot after the call (percentage and cap).
  *  - RE-RAISE: f is the re-raiser's measured fold rate to a re-raise (same
  *    interface); when he continues, his range is the top (1 - f) of it and
@@ -84,11 +85,13 @@ export const RANGE_WIDTH_MAX = 0.55;
 export const RANGE_WIDTH_SCALE = 0.09;
 
 /**
- * Realization, heads-up: R = 1 - DEPTH_COST x spr / (spr + DEPTH_HALF), spr
- * the stack-to-pot ratio after the call. Least squares on 2,023 recorded
- * calls of a person's 3-bet or 4-bet (30 days to 2026-11-17, all-in adjusted,
- * after rake, the engine's own equity): in position 0.16 (SE 0.31), out of
- * position 0.73 (SE 0.54); the halves are set, not fitted.
+ * Realization: R = 1 - DEPTH_COST x spr / (spr + DEPTH_HALF) - the player
+ * terms + the shape term, spr the stack-to-pot ratio after the call. One least
+ * squares fit on 2,023 recorded calls of a person's 3-bet or 4-bet (30 days to
+ * 2026-11-17, all-in adjusted, after rake, the engine's own equity; evidence
+ * preflop-01BNteGZ/step1/fit1.py, 300 bootstrap resamples): depth in position
+ * 0.15 (SE 0.37), out of position 0.71 (SE 0.54); the halves are set, not
+ * fitted.
  */
 export const REALIZATION_DEPTH_COST: Readonly<Record<'ip' | 'oop', number>> = {
   ip: 0.15,
@@ -96,11 +99,51 @@ export const REALIZATION_DEPTH_COST: Readonly<Record<'ip' | 'oop', number>> = {
 };
 export const REALIZATION_DEPTH_HALF: Readonly<Record<'ip' | 'oop', number>> = { ip: 2, oop: 5 };
 /**
- * Taken off R for every other player in the pot, at most two counted: a
- * player already in for the raise, or a raiser of this hand still to act.
- * The same fit: 0.35 (SE 0.11).
+ * Taken off R for the first other player ALREADY IN for the price faced (he
+ * has called the re-raise or is all in), and for a second one. The fit with
+ * the two apart (same 2,023 calls, depth x equity term in; step1-fit3 in the
+ * 013U37 evidence): first 0.275 (SE 0.178), second 0.246 (SE 0.258). The
+ * second cannot be told from zero (|z| < 1) and is shrunk to it by the same
+ * positive-part James-Stein factor as the equity slope. The recorded calls
+ * agree: in position R pooled 0.91 with none in (n 811), 0.67 with one
+ * (n 228), 0.60 with two (n 40, +11.7 bb SE 12.7 against folding); a linear
+ * 0.29 per player put the last at 0.35 and folded calls closing the action
+ * at a 0.19 price (#59726623 seat 2, audited wrong as a fold, F-13).
  */
-export const REALIZATION_OTHER_IN_COST = 0.35;
+export const REALIZATION_OTHER_IN_COST = 0.275;
+export const REALIZATION_SECOND_IN_COST = 0;
+/**
+ * Taken off R for every player STILL TO ACT behind the call (live, not in
+ * for the price; the opener a cold caller leaves behind is one), at most two
+ * counted. The same fit measures them apart from the players already in: in
+ * position -0.005 (SE 0.124), no cost; out of position 0.14 (SE 0.146). The
+ * recorded calls made in position with a player still to act earned +3 to +12
+ * bb each relative to folding in every depth band (n 148 to 185): a player
+ * who may still fold is not a player in the pot. (Until 2026-11-18 a raiser
+ * still to act was charged the already-in cost, 0.35 then: cold callers in
+ * position folded 95% where the recorded calls made +11.7 bb, SE 6.6, n 144.)
+ */
+export const REALIZATION_BEHIND_COST: Readonly<Record<'ip' | 'oop', number>> = { ip: 0, oop: 0.14 };
+/**
+ * Depth costs less the stronger the call is against the range it faces: the
+ * depth term is REALIZATION_DEPTH_COST - REALIZATION_DEPTH_EQUITY_SLOPE x
+ * (equity - REALIZATION_EQUITY_CENTRE). The same least-squares fit with a
+ * depth x equity term per side, centred on the calls' mean equity 0.52
+ * (2,023 calls, 300 bootstrap resamples; preflop-01BNteGZ/step1/fitdata.json,
+ * fit3.py in the 013U37 evidence): out of position 8.42 (SE 6.23), in
+ * position 1.14 (SE 5.19). Each is shrunk toward zero by the positive-part
+ * James-Stein factor max(0, 1 - SE^2/coef^2): out of position 8.42 x 0.45 =
+ * 3.8, in position 0 (|z| < 1). The recorded out-of-position calls at a
+ * ratio of 3 or more show it: equity 0.58 or more realized 1.14 of it (n 78,
+ * +14.4 bb SE 8.8 against folding), equity 0.45 to 0.58 0.38 (n 386). Without
+ * it the depth cost of an average call folded aces double-suited out of
+ * position to a 3-bet (#59801362 seat 4: equity 0.64 at a 0.39 price, R 0.46).
+ */
+export const REALIZATION_DEPTH_EQUITY_SLOPE: Readonly<Record<'ip' | 'oop', number>> = {
+  ip: 0,
+  oop: 3.8,
+};
+export const REALIZATION_EQUITY_CENTRE = 0.52;
 /**
  * The hand-shape term is omahaPreflopDefenceShape times this weight. The fit
  * gives 0.47 with a standard error of 5.2: the recorded calls cannot measure
@@ -145,8 +188,10 @@ export interface OmahaPreflopDefenceSpot {
   raiserBehind: number;
   /** the Horse acts after the re-raiser on every later street */
   inPosition: boolean;
-  /** other players in the pot, the re-raiser apart: already in for the current bet, or a raiser of this hand still to act */
+  /** other players already in for the current bet (called it, or all in), the re-raiser apart */
   othersIn: number;
+  /** live players still to act behind the call (not in for the price, not all in); 0 when absent */
+  playersBehind?: number;
   bigBlind: number;
   /** rake taken on a pot of the given size, in chips */
   rake: (pot: number) => number;
@@ -253,12 +298,18 @@ export function omahaPreflopDefenceShape(hole: readonly Card[]): number {
   return clamp(term, REALIZATION_SHAPE_MIN, REALIZATION_SHAPE_MAX);
 }
 
-/** The realization of a call: position, depth after the call, players, hand shape. */
+/**
+ * The realization of a call: position, depth after the call (costing less the
+ * stronger the call against the range it faces), players in and players still
+ * to act, hand shape. `equity` absent: the calls' mean equity.
+ */
 export function omahaPreflopDefenceRealization(
   inPosition: boolean,
   sprAfter: number,
   othersIn: number,
-  shape: number
+  shape: number,
+  playersBehind = 0,
+  equity: number = REALIZATION_EQUITY_CENTRE
 ): number {
   const spr = Number.isFinite(sprAfter) ? Math.max(0, sprAfter) : 0;
   if (spr <= 1e-9) return 1;
@@ -266,10 +317,16 @@ export function omahaPreflopDefenceRealization(
   const depth = spr / (spr + REALIZATION_DEPTH_HALF[side]);
   // The player and shape terms fade with the depth as well: a call that is nearly all in has nothing left to be played off.
   const fade = Math.min(1, spr);
+  const eq = Number.isFinite(equity) ? clamp(equity, 0, 1) : REALIZATION_EQUITY_CENTRE;
   const r =
     1 -
-    REALIZATION_DEPTH_COST[side] * depth -
-    fade * REALIZATION_OTHER_IN_COST * Math.min(2, Math.max(0, othersIn)) +
+    (REALIZATION_DEPTH_COST[side] -
+      REALIZATION_DEPTH_EQUITY_SLOPE[side] * (eq - REALIZATION_EQUITY_CENTRE)) *
+      depth -
+    fade *
+      (REALIZATION_OTHER_IN_COST * Math.min(1, Math.max(0, othersIn)) +
+        REALIZATION_SECOND_IN_COST * Math.min(1, Math.max(0, othersIn - 1))) -
+    fade * REALIZATION_BEHIND_COST[side] * Math.min(2, Math.max(0, playersBehind)) +
     fade * REALIZATION_SHAPE_WEIGHT * shape;
   return clamp(r, REALIZATION_MIN, REALIZATION_MAX);
 }
@@ -354,7 +411,9 @@ export function omahaPreflopDefenceVerdict(
     spot.inPosition,
     sprAfter,
     spot.othersIn,
-    shape
+    shape,
+    spot.playersBehind ?? 0,
+    equity
   );
   const evCall = realization * equity * Math.max(0, potAfter - spot.rake(potAfter)) - call;
 
@@ -372,7 +431,14 @@ export function omahaPreflopDefenceVerdict(
       const spr2 =
         Math.max(0, Math.min(spot.stack - effRisk, Math.max(0, spot.raiserBehind) - hisCall)) /
         pot2;
-      const r2 = omahaPreflopDefenceRealization(spot.inPosition, spr2, spot.othersIn, shape);
+      const r2 = omahaPreflopDefenceRealization(
+        spot.inPosition,
+        spr2,
+        spot.othersIn,
+        shape,
+        spot.playersBehind ?? 0,
+        equity2
+      );
       evRaise =
         fold * spot.pot +
         (1 - fold) * (r2 * equity2 * Math.max(0, pot2 - spot.rake(pot2)) - effRisk);

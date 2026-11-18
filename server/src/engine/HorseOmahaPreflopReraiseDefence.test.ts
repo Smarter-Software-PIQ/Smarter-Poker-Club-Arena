@@ -34,6 +34,7 @@ import {
   omahaPreflopDefenceRealization,
   omahaPreflopDefenceShape,
   omahaPreflopDefenceVerdict,
+  REALIZATION_EQUITY_CENTRE,
   REALIZATION_MAX,
   REALIZATION_MIN,
   REALIZATION_SHAPE_MAX,
@@ -73,6 +74,73 @@ const spot = (over: Partial<OmahaPreflopDefenceSpot> = {}): OmahaPreflopDefenceS
 const read = (rate: number, foldToReraise = 0.45) => ({ rate, opportunities: 15, foldToReraise });
 
 describe('the pieces', () => {
+  it('depth costs less the stronger the call: continuous in equity out of position, none in position, the centre when absent', () => {
+    for (const spr of [1, 3, 8, 20]) {
+      expect(omahaPreflopDefenceRealization(false, spr, 0, 0, 0, REALIZATION_EQUITY_CENTRE)).toBe(
+        omahaPreflopDefenceRealization(false, spr, 0, 0)
+      );
+      // in position the fit cannot tell the slope from zero
+      expect(omahaPreflopDefenceRealization(true, spr, 0, 0, 0, 0.7)).toBe(
+        omahaPreflopDefenceRealization(true, spr, 0, 0, 0, 0.4)
+      );
+      let last = -Infinity;
+      for (let e = 0.3; e <= 0.8 + 1e-9; e += 0.01) {
+        const r = omahaPreflopDefenceRealization(false, spr, 0, 0, 0, e);
+        expect(r).toBeGreaterThanOrEqual(last);
+        if (last > -Infinity) expect(r - last).toBeLessThan(0.05); // no step
+        expect(r).toBeGreaterThanOrEqual(REALIZATION_MIN);
+        expect(r).toBeLessThanOrEqual(REALIZATION_MAX);
+        last = r;
+      }
+    }
+    expect(omahaPreflopDefenceRealization(false, 0, 0, 0, 0, 0.1)).toBe(1);
+  });
+
+  it('#59726623 seat 2: closing the action in position with two players in at a 0.19 price is a call', () => {
+    // Th 6c 8c 6s Ah, PLO5 1/2: 36 to call into 152, 587.40 behind, two players already in,
+    // nobody to act. Audited wrong as a fold (F-13); a linear 0.29 per player in put R at 0.35.
+    const hole = cards('Th6c8c6sAh');
+    const s = spot({
+      call: 36,
+      pot: 152,
+      stack: 587.4,
+      raiserBehind: 1309.8,
+      inPosition: true,
+      othersIn: 2,
+    });
+    const v = omahaPreflopDefenceVerdict(s, hole, [], read(0.305), null)!;
+    expect(v.action).toBe('call');
+    // the second player in costs no more than the first, and never adds realization
+    for (const spr of [1, 3, 8]) {
+      const one = omahaPreflopDefenceRealization(true, spr, 1, 0);
+      expect(omahaPreflopDefenceRealization(true, spr, 2, 0)).toBeLessThanOrEqual(one);
+      expect(omahaPreflopDefenceRealization(true, spr, 0, 0) - one).toBeGreaterThan(0);
+    }
+  });
+
+  it('#59801362 seat 4: aces double-suited out of position facing a 3-bet is not a fold', () => {
+    // 5h As Td Ks Ad, PLO5 2/4, 27 to call into 42, 574.80 behind, the 3-bettor covers,
+    // one player still to act; the replay measured equity 0.64 against his range at a 0.39
+    // price. The depth cost of an average call (R 0.46) folded it; the audit: correct 4-bet.
+    const hole = cards('5hAsTdKsAd');
+    const s = spot({
+      call: 27,
+      pot: 42,
+      stack: 574.8,
+      raiserBehind: 5154.95,
+      inPosition: false,
+      playersBehind: 1,
+    });
+    const v = omahaPreflopDefenceVerdict(s, hole, [], read(0.305), null)!;
+    expect(v.equity).toBeGreaterThan(0.58);
+    expect(v.action).not.toBe('fold');
+    const r = omahaPreflopDefenceVerdict(s, hole, [], read(0.305), { risk: 88 })!;
+    expect(r.action).not.toBe('fold');
+    // the same spot with a hand far behind his range still folds: priced, not a class pass
+    const weak = omahaPreflopDefenceVerdict(s, cards('2c3d7h8s9c'), [], read(0.305), null)!;
+    expect(weak.action).toBe('fold');
+  });
+
   it('the range width grows continuously with the measured rate and a 4-bet narrows it', () => {
     let last = 0;
     for (let r = 0; r <= 0.6; r += 0.02) {
@@ -100,6 +168,23 @@ describe('the pieces', () => {
       expect(omahaPreflopDefenceRealization(true, spr, 1, 0)).toBeLessThan(a);
       ip = a;
       oop = b;
+    }
+    // A player still to act (the opener a cold caller leaves behind) is not a player in the pot:
+    // no cost in position, a smaller one than a player already in out of position (the fit of
+    // 2,023 recorded calls: -0.005 SE 0.124 in position, 0.14 SE 0.146 out of position, against
+    // 0.275 SE 0.178 for the first player already in).
+    for (const spr of [1, 3, 8]) {
+      expect(omahaPreflopDefenceRealization(true, spr, 0, 0, 1)).toBe(
+        omahaPreflopDefenceRealization(true, spr, 0, 0)
+      );
+      expect(omahaPreflopDefenceRealization(true, spr, 0, 0, 2)).toBeGreaterThan(
+        omahaPreflopDefenceRealization(true, spr, 1, 0)
+      );
+      const oopNone = omahaPreflopDefenceRealization(false, spr, 0, 0);
+      const oopBehind = omahaPreflopDefenceRealization(false, spr, 0, 0, 1);
+      const oopIn = omahaPreflopDefenceRealization(false, spr, 1, 0);
+      expect(oopBehind).toBeLessThan(oopNone);
+      expect(oopBehind).toBeGreaterThan(oopIn);
     }
     for (const spr of [0.3, 3, 30])
       for (const others of [0, 1, 2, 5])
@@ -341,6 +426,44 @@ describe('the rule', () => {
       } as never)
     ).toBeNull();
     expect(omahaPreflopReraiseDefenceSpot(hero, { ...gs, stage: 'flop' } as never)).toBeNull();
+  });
+
+  it('a cold caller in position: the opener still to act is a player behind, not a player in the pot', () => {
+    // seat 4 opens to 7, seat 5 (the re-raiser) makes it 22, the button (seat 6) is asked cold;
+    // the opener has not answered the 3-bet
+    const { hero, gs } = threeBet('9h8h7c6cQd');
+    const cold = {
+      ...gs,
+      pot: 32,
+      currentBet: 22,
+      toCall: 22,
+      players: gs.players.map((p) =>
+        p.seat === 4
+          ? { ...p, is_folded: false, bet: 7 }
+          : p.seat === 5
+            ? { ...p, is_folded: false, bet: 22 }
+            : p.seat === 6
+              ? { ...p, bet: 0 }
+              : p.seat === 2
+                ? { ...p, is_folded: true, bet: 2 }
+                : p
+      ),
+      actionHistory: [
+        ...gs.actionHistory!.slice(0, 3),
+        { ...gs.actionHistory![3]!, action: 'raise', amount: 7, isFullRaise: true },
+        { ...gs.actionHistory![4]!, action: 'raise', amount: 22, isFullRaise: true },
+      ],
+    } as unknown as HorseGameStateV2;
+    const f = omahaPreflopReraiseDefenceSpot(hero, cold)!;
+    expect(f.raiserSeat).toBe(5);
+    expect(f.spot).toMatchObject({ preflopRaises: 2, inPosition: true, othersIn: 0 });
+    expect(f.spot.playersBehind).toBeGreaterThanOrEqual(1);
+    // once the opener has called the 3-bet he is in the pot
+    const called = {
+      ...cold,
+      players: cold.players.map((p) => (p.seat === 4 ? { ...p, bet: 22 } : p)),
+    } as unknown as HorseGameStateV2;
+    expect(omahaPreflopReraiseDefenceSpot(hero, called)!.spot).toMatchObject({ othersIn: 1 });
   });
 
   it('one read interface: the population mean with the mind off or no row, his pooled read when known', () => {

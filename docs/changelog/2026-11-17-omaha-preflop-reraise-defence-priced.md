@@ -33,3 +33,12 @@ both arms +0.32 (1.72), -0.82 (2.79). The option acts (152 changed answers in 1,
 7,768 real decisions: unset and false identical; 1,409 fixed and 177 newly wrong against Step 1's yardstick. The
 option stays off. These figures were measured with the option answering before the re-raised-pot call cell; with that
 cell live the option now changes fewer decisions (one owner per cell), and neither run was repeated.
+
+## Realization correction (2026-11-18)
+
+A player still to act is no longer charged as a player in the pot; a second player already in adds no cost beyond the
+first (the fit cannot tell it from zero); out of position the depth cost falls with the call's equity against the
+range (shrunk fit). Replay of the 7,768 real decisions: off identical; the option now removes 3 real calls (was 11) and
+turns 4 proposed re-raises into folds (was 14; the audited-correct aces 4-bet of #59801362 among the ones fixed).
+Against the WooWoo 48-hour audit joined by decision node: 76 fixed, 224 newly wrong (160 of them in-position folds
+with players still to act that the option calls). The option stays off-only.
