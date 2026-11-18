@@ -21,4 +21,9 @@ HorseOmahaPricedKindPrior.test.ts (new): kind detection; each kind's table; ever
 
 ## Evaluation
 
-Protocol written before the runs: archive priced2-013U37/PASS-BAR.md (replay on the audited decisions; league for omahaTurnRiverRaiseIsPriced alone and all nine; omahaPricedMix retried last). The v2 single-family verdicts were measured on the #11212 source and are not carried over. Results are recorded in the option authority files when they exist.
+Protocol written before the runs: archive priced2-013U37/PASS-BAR.md (replay on the audited decisions; league for omahaTurnRiverRaiseIsPriced alone and all nine; omahaPricedMix retried last). The v2 single-family verdicts were measured on the #11212 source and are not carried over. Replay (priced2-013U37/REPLAY.md): bar met for omahaTurnRiverRaiseIsPriced and all nine (newly wrong <= fixed on all four sets, 0 illegal, 0 refused).
+
+League, configuration 0 (omahaTurnRiverRaiseIsPriced alone): FAIL (Horse-only PLO4 -1.84 +/- 0.88; field pooled +0.25 +/- 1.64). It is registered off-only (ploFailed) by this change; migration 20261118040156_horse_option_switch_omaha_priced_kind_prior.sql is the regenerated follow-up (44 off-only).
+Configuration 1 (all nine): incomplete when SSD1 dropped off the Mac; field pooled -5.30 +/- 2.56, Horse-only +0.81 +/- 1.12 (partial). The Horse-only loss is gone; the field loss remains: never on together.
+omahaPricedMix retry (configuration 2): not run.
+Per-session rows of these runs were lost with SSD1 (priced2-013U37/eval/RUN1-LOST-SSD1.md).

@@ -41,6 +41,10 @@ Every opponent figure a priced comparison reads now comes from his own KIND's pr
 
 Also: the bet-rate factor is his rate over his KIND's reference rate (`omahaPricedBluffReferenceRatio`, the one owner) raised to his kind's MEASURED elasticity (Horse -0.10, person 0.38, from -0.2 +/- 1.0 over 113 Horse bettors and +0.72 +/- 0.95 over 10 persons, each shrunk toward 0 with a unit prior); the stated exponent 1.5 applies only to a seat whose kind the decision does not know.
 
+### All nine families on, 2026-11-18 source (priced2-013U37/PASS-BAR.md configuration 1)
+
+Incomplete when SSD1 dropped off the Mac (F5 77 of 80 sessions, M4 14 of 16, M5 12 of 16), aggregates as printed: field F4 -5.60 +/- 3.47, F5 -5.00 +/- 3.78, pooled -5.30 +/- 2.56; Horse-only M4 +0.09 +/- 1.84, M5 +1.53 +/- 1.28, pooled +0.81 +/- 1.12. Not a verdict (partial). Read: the Horse-only loss of v2/v3 (-7.8) is gone with the kind priors; the human-like field loss is not. The families stay never-on-together.
+
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
