@@ -3437,10 +3437,10 @@ export interface HorseDecideOpts {
   omahaVpipFloorByLimp?: boolean;
   /** Owner 2026-11-17 14:34 Chicago (finding F-10): "Table VPIP must limp
    * fold for a bb. smh nothing else if there vpip drops." With this on, on
-   * a floored cash table of a variant listed in VPIP_FLOOR_LIMP_ONLY_VARIANTS
-   * (declared from the F-10 measurement: today hold'em's 20% floor only; on
-   * every other variant the option changes nothing, because limping alone
-   * was measured not to hold those floors; not tournaments, All-In-Or-Fold,
+   * every floored cash table (VPIP_FLOOR_LIMP_ONLY_VARIANTS lists every
+   * variant with its measured selection of limps; a Horse the limp cannot
+   * keep over the floor is evicted and replaced, owner 2026-11-17 18:38;
+   * not tournaments, All-In-Or-Fold,
    * bomb pots, straddled hands or Lightning), the table's VPIP floor no
    * longer reaches a decision through the style tightness (vpipFloorMul), the
    * call-down (vpipFloorCallDown) or omahaVpipFloorByLimp: every decision is
@@ -5323,8 +5323,8 @@ export function vpipFloorCallDown(
  * for a bb. smh nothing else if there vpip drops."
  *
  * With the option on, on a floored cash table of a governed variant
- * (VPIP_FLOOR_LIMP_ONLY_VARIANTS, a declared and measured table: today the
- * 20% hold'em floor only; every other variant keeps today's floor), the
+ * (VPIP_FLOOR_LIMP_ONLY_VARIANTS: every floored cash variant, each with its
+ * measured selection of limps), the
  * floor reaches no bar, no call
  * and no raise: the decision is the unfloored one (vpipFloorMul,
  * vpipFloorCallDown and omahaVpipFloorByLimp stand aside). The floor's one
@@ -5366,42 +5366,45 @@ export type VpipFloorLimpOnlyReceipt =
 export type VpipFloorLimpOnlySelection = 'every' | 'priced';
 
 /**
- * THE VARIANTS vpipFloorLimpOnly GOVERNS, AND HOW. Declared, and derived from
- * the F-10 evaluation of 2026-11-17/18 (audit archive repairs/F-10:
- * EVAL-DECLARATION-E1D.md, EVAL-RESULTS-E1D.md; summary in
- * docs/horse-option-authority.d/vpipFloorLimpOnly.md). A variant is listed
- * only when a limp-only floor was measured on it and evicted no more than the
- * declared bar allows against today's floor, both for one Horse on the
- * production spot mix (E1d) and for a full table of Horses (E3). A variant
- * not listed keeps today's floor with the option on, exactly as with it off.
+ * THE VARIANTS vpipFloorLimpOnly GOVERNS, AND HOW IT PICKS ITS LIMPS. Every
+ * floored cash variant is governed. Owner 2026-11-17 18:38 Chicago, after the
+ * floors of PLO5 and PLO6 went to 40%: "its fine, with a 30 hand grace period,
+ * horses should be close to 40% with limp folds in the range. and if they
+ * aren't the get booted and replaced with a new horse." So a Horse the limp
+ * cannot keep over the floor is evicted and replaced; the floor never buys a
+ * call of a raise to prevent it. (An earlier table left out the variants
+ * where a limp-only floor evicts; that ruling retired it.)
  *
- * Measured (8 sittings of up to 300 hands; today's floor evicted 0 of 8 on
- * every table):
- *   nlh  20%: 0 of 8 sittings evicted under either selection, 0 evictions at
- *             the full table; 'priced' ships (0.6% of judged windows under).
- *   plo4 30%: 2 of 8 evicted under either selection (bar: at most 1); 0 at
- *             the full table. The two measurements disagree: left out.
- *   plo5 50%: 8 of 8 evicted under either selection; 44 ('every') and 81
- *             ('priced') evictions at the full table. Left out.
- *   plo6 50%: 8 of 8; 117 and 152. Left out.
- *   plo8, flo8, flh, short_deck, pineapple: not measured. Left out.
- * Why the 50% tables cannot be held: on the production spot mix 57.4% of a
- * Horse's first preflop decisions face a raise, where the ruling gives the
- * floor nothing and the Horse's own decision continues 15.5% (PLO5) or 16.2%
- * (PLO6) of the time; limping every unraised hand therefore reaches at most
- * 50.7% / 51.2% VPIP, against a 50% floor judged on 30 hands and a 60% line.
- * The owner changes neither the floor, the window, the grace nor the buffer.
- *
- * 'every' is listed for no variant: it is the selection E1d measured (the
- * ruling read literally) and stays so the measurement can be repeated
- * (HorseVpipFloorLimpOnly.test-support.ts sets this table for one run).
- * HorseVpipFloorLimpOnly.test.ts pins this table; changing it needs a new
- * declared measurement.
+ * The selection per variant is the measured one (audit archive repairs/F-10:
+ * EVAL-RESULTS-E1D.md, EVAL-RESULTS-E1E.md; 8 sittings of up to 300 hands per
+ * arm, one Horse on the production spot mix and a full table of six Horses):
+ *   plo5, plo6: 'every'. 'priced' evicts about twice as often at a full table
+ *     (40% floor: PLO5 8 against 17 evictions in 2,400 table hands, PLO6 23
+ *     against 48; 50% floor: 44 against 81 and 117 against 152) and no less
+ *     often for one Horse (5 against 6 of 8 sittings at 40%), for 2 to 3 big
+ *     blinds per 100 hands more floor chips (PLO5 40%: 18.9 against 17.5).
+ *   plo4 (30%), nlh (20%): 'priced'. The same evictions under either
+ *     selection (PLO4 2 of 8 and 0 at the table; NLH 0 and 0) for fewer floor
+ *     chips (14.4 against 15.9; 7.3 against 8.4 big blinds per 100 hands).
+ *   plo8, flo8, flh, short_deck, pineapple: 'every'. Not measured; the limp's
+ *     pricing model (vpipFloorLimpEv) was not checked on hi-lo, fixed-limit,
+ *     short-deck or pineapple, so the ruling is applied as written.
+ * The table's floor is read from the table (gs.vpipFloor), never assumed, and
+ * only a table judged the Classic way is governed (vpipFloorLimpOnlyApplies).
+ * HorseVpipFloorLimpOnly.test.ts pins this table.
  */
 export const VPIP_FLOOR_LIMP_ONLY_VARIANTS: Readonly<
   Partial<Record<string, VpipFloorLimpOnlySelection>>
 > = {
   nlh: 'priced',
+  plo4: 'priced',
+  plo5: 'every',
+  plo6: 'every',
+  plo8: 'every',
+  flo8: 'every',
+  flh: 'every',
+  short_deck: 'every',
+  pineapple: 'every',
 };
 
 /** The selection vpipFloorLimpOnly uses on this variant; undefined = not governed. */
@@ -5418,6 +5421,7 @@ export function vpipFloorLimpOnlySelectionFor(
 export function vpipFloorLimpOnlyApplies(
   gs: {
     vpipFloor?: number;
+    vpipWindowHands?: number;
     gameVariant?: string;
     allInOrFold?: boolean;
     bombPot?: boolean;
@@ -5433,6 +5437,11 @@ export function vpipFloorLimpOnlyApplies(
     gs.bombPot !== true &&
     gs.publicMemoryDomain?.speed !== 'lightning' &&
     Number(gs.vpipFloor ?? 0) > 0 &&
+    // Only the Classic way of judging (a rolling window of more than ten dealt
+    // hands, with a warning and a grace): that is what was measured. An Action
+    // or Madness table judges the sitting at ten hands and evicts on the spot,
+    // on floors up to 70; limping tops out near 51%, so there today's floor stands.
+    validVpipWindow(gs.vpipWindowHands) > VPIP_JUDGED_OVER_HANDS &&
     vpipFloorLimpOnlySelectionFor(gs.gameVariant) !== undefined
   );
 }
