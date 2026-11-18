@@ -8666,8 +8666,10 @@ function omahaBigBetCallFold(
   if (omahaPricedOwnsBigBetCalls(player, gs, opts)) {
     const cell = omahaBigBetCallFoldCells(decision, player, gs, { ...opts, telemetry: false });
     if (cell === decision) return decision;
+    // Unpriceable (null): the cells decide as with the option off (fall closed).
     return (
-      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ?? decision
+      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ??
+      omahaBigBetCallFoldCells(decision, player, gs, opts)
     );
   }
   return omahaBigBetCallFoldCells(decision, player, gs, opts);

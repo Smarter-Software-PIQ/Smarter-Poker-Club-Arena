@@ -59,10 +59,12 @@ import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStr
 import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
 import {
-  OMAHA_PRICED_MEASURED_BLUFF,
+  omahaOpponentKindOf,
   omahaPricedBluffFactor,
-  omahaPricedBluffReferenceRatio,
+  omahaPricedKindPrior,
+  omahaPricedLegacyBluffReferenceRatio,
   omahaPricedFacingRange,
+  type OmahaOpponentKind,
   omahaPricedModeNow,
   omahaPricedRealizationCap,
 } from './HorseOmahaPricedMode.js';
@@ -169,6 +171,9 @@ export interface OmahaFacingBetEvRead {
   betCheckedToRatio: number | null;
   /** his bet-when-checked-to posterior mean itself, when the priced read supplies it (omahaBluffShareFromBetRate) */
   betCheckedTo?: number | null;
+  /** who he is (HorseOmahaPricedMode.omahaOpponentKindOf), when the priced read supplies it; with a kind,
+   *  betCheckedToRatio is his rate over his KIND's reference (omahaPricedBluffReferenceRatio) */
+  kind?: OmahaOpponentKind | null;
   /** isPostflopManiac on his measured read */
   postflopManiac: boolean;
   /** measured postflop value leader (bets <= mean when checked to, folds >= mean, calls rivers <= mean) */
@@ -195,12 +200,20 @@ export function omahaEvBluffShare(
   let q = prior;
   // omahaBluffShareFromBetRate (default off): his bet rate beside the population moves the prior
   // continuously; the value-leader and maniac labels do not act (HorseOmahaPricedMode).
-  // His rate is read against the rate the prior in force was measured at (omahaPricedBluffReferenceRatio):
-  // the measured prior of the continuous range already holds a person's bluffs at a person's rate.
+  // His rate is read against his KIND's reference rate (HorseOmahaPricedMode.omahaPricedBluffReferenceRatio,
+  // computed once by the priced read) with his kind's measured elasticity; the prior itself is his kind's
+  // (omahaFacingBetEvSpot). A read with no kind keeps the merged reference (omahaPricedLegacyBluffReferenceRatio).
   if (omahaPricedModeNow().bluffShareFromBetRate)
-    q *= omahaPricedBluffFactor(
-      omahaPricedBluffReferenceRatio(read?.betCheckedTo, read?.betCheckedToRatio, street)
-    );
+    q *=
+      read?.kind === 'person' || read?.kind === 'horse'
+        ? omahaPricedBluffFactor(read.betCheckedToRatio, read.kind)
+        : omahaPricedBluffFactor(
+            omahaPricedLegacyBluffReferenceRatio(
+              read?.betCheckedTo,
+              read?.betCheckedToRatio,
+              street
+            )
+          );
   else if (read?.measured) {
     let k = 1;
     if (read.betCheckedToRatio !== null && Number.isFinite(read.betCheckedToRatio))
@@ -1326,8 +1339,14 @@ export function omahaFacingBetEvSpot(
         others: callers + behind,
         behindShare: Math.max(0, leftBehind) / (winnable + paid),
         value: OMAHA_EV_VALUE_SHARE[street],
-        // the measured prior (OMAHA_PRICED_MEASURED_BLUFF), not the stepped table
-        bluff: OMAHA_PRICED_MEASURED_BLUFF[street],
+        // the measured prior of the bettor's KIND (a person's bluffs for a person, a Horse's for a
+        // Horse: HorseOmahaPricedMode.omahaPricedKindPrior), not the stepped table
+        bluff: omahaPricedKindPrior(
+          omahaOpponentKindOf(
+            gs,
+            (gs.players ?? []).find((p) => p.seat === faced.bettorSeat)?.user_id
+          )
+        ).bluff[street],
         lineAggressor: OMAHA_EV_LINE_AGGRESSOR,
         lineCaller: OMAHA_EV_LINE_CALLER,
       });

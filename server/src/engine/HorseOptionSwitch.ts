@@ -533,6 +533,10 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'human-like field PLO5 -2.18 bb/100 (SE 1.02, z -2.14); pooled field -1.56 (SE 0.73), Horse-only -0.47 (SE 0.68)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
   ),
+  omahaTurnRiverRaiseIsPriced: ploFailed(
+    'Horse-only PLO4 -1.84 bb/100 (SE 0.88, z -2.09) on the opponent-kind source (priced2, fad0d304ffd), field pooled +0.25 +/- 1.64: FAIL under the declared bar',
+    '2026-11-18 priced2 league (priced2-013U37/PASS-BAR.md configuration 0, eval/RUN1-LOST-SSD1.md)'
+  ),
   omahaPricedMix: ploFailed(
     'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
