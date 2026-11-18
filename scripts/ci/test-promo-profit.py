@@ -123,6 +123,14 @@ def main():
       AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
     FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
   """,'t')
+  runfile(ROOT/'supabase/migrations/20261118024233_compare_member_and_clock_windows_before_reading_original_cas.sql')
+  for member_rows,window_rows in ((0,0),(300,0),(1308,2000),(16385,0)):
+   db.run(f"\\set historical_rows {member_rows}\n\\set window_rows {window_rows}\n"+original_cases)
+  check('member and clock routing preserves the private original reader',"""
+    SELECT md5(pg_get_functiondef(oid))='cadf29b87340d1d1d6884ac91f0a6b48' AND prosecdef
+      AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
+    FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
+  """,'t')
   check('both actual cash refund owners consume exact bust and terminal loss basis',"SELECT count(*) FROM pg_proc WHERE proname IN('fn_ca_promo_return_principal','fn_ca_promo_return_spent_event_fee') AND prosrc LIKE '%JOIN public.ca_promo_original_entry_loss_basis fs%'",'2')
   check('terminal loss basis preserves exact lot identity without duplicate rows',"SELECT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION%' AND NOT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION ALL%'",'t')
 
