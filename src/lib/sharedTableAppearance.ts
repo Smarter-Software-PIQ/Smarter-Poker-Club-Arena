@@ -90,11 +90,31 @@ export function readSharedTableAppearance(value: unknown): SharedTableAppearance
   };
 }
 
+/**
+ * The avatar a shared hand may carry. Every kind a profile can hold today
+ * (measured on production 2026-11-18): the library art (`/avatars/...`, with
+ * or without the smarter.poker origin), a generated portrait in the project's
+ * public `custom-avatars` bucket, and a small inline SVG portrait. The library
+ * pattern alone dropped the last two, so those players were drawn without art
+ * on every replay. Anything else is refused: a link must not point a
+ * recipient's browser at an arbitrary host.
+ */
+const CUSTOM_AVATAR =
+  /^https:\/\/kuklfnapbkmacvwxktbh\.supabase\.co\/storage\/v1\/object\/public\/custom-avatars\/[A-Za-z0-9_\-/]{1,200}\.(png|webp|jpe?g)$/;
+const INLINE_SVG_MAX = 1200;
+
 export function sharedAvatar(value: unknown): string | undefined {
   if (typeof value !== 'string') return;
   const path = value.replace(/^https:\/\/smarter\.poker(?=\/avatars\/)/, '');
   if (/^\/avatars\/(free|vip|table)\/[a-z0-9_-]{1,160}(?:@2x)?\.(png|webp)$/i.test(path))
     return path;
+  if (CUSTOM_AVATAR.test(value) && !value.includes('..')) return value;
+  if (
+    value.length <= INLINE_SVG_MAX &&
+    value.startsWith('data:image/svg+xml,') &&
+    !/[<>"'\s]/.test(value.slice('data:image/svg+xml,'.length))
+  )
+    return value;
 }
 
 interface ObservedSeat {

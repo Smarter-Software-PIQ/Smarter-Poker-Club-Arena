@@ -1141,6 +1141,14 @@ class HandHistoryServiceClass {
       replayInputFromRow(row, {
         discardedCards,
         privateHoleCards,
+        /* The seat art travels on the model, so the replay, the Previous Hand
+           sheet and every shared link drawn from this record show it. */
+        avatars: Object.fromEntries(
+          jsonbPlayers.map((p: any) => [
+            String(p?.userId || ''),
+            profileMap.get(String(p?.userId || ''))?.avatar_url ?? null,
+          ])
+        ),
       })
     );
     /* The model resolves the button the same way (`replayInputFromRow`); the
