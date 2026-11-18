@@ -71,11 +71,16 @@ describe("the owner's Free Buy pause holds every start", () => {
   });
 
   it('the gate defers with the refusal the serving engine handles quietly', () => {
-    const defers = code(mig.slice(mig.indexOf('CREATE FUNCTION public.fn_ca_free_buy_start_pause_defers')));
+    const defers = code(
+      mig.slice(mig.indexOf('CREATE FUNCTION public.fn_ca_free_buy_start_pause_defers'))
+    );
     expect(defers).toMatch(/'reason', 'platform_frozen'/);
     expect(defers).toMatch(/start_time = v_until/);
     expect(defers).toMatch(/interval '30 minutes'/);
-    const engine = readFileSync(join(root, 'server/src/tournament/TournamentManagerBase.ts'), 'utf8');
+    const engine = readFileSync(
+      join(root, 'server/src/tournament/TournamentManagerBase.ts'),
+      'utf8'
+    );
     const begin = sliceMethod(engine, 'private async beginTournamentLaunch(');
     const frozen = sliceBlockAfter(begin, "if (result.reason === 'platform_frozen')");
     expect(frozen).toMatch(/console\.log\([\s\S]*?return null;/);
@@ -83,7 +88,9 @@ describe("the owner's Free Buy pause holds every start", () => {
   });
 
   it('identifies Free Buys by kind, treats horses as players and moves no money', () => {
-    const paused = code(sliceSqlStatement(mig, 'CREATE FUNCTION public.fn_ca_free_buy_start_paused('));
+    const paused = code(
+      sliceSqlStatement(mig, 'CREATE FUNCTION public.fn_ca_free_buy_start_paused(')
+    );
     expect(paused).toMatch(/t\.free_buy IS TRUE/);
     const gate = code(
       mig.slice(
@@ -101,9 +108,13 @@ describe("the owner's Free Buy pause holds every start", () => {
     expect(mig).toMatch(
       /REVOKE ALL ON FUNCTION public\.fn_ca_owner_set_free_buy_start_pause\(boolean, text, text\)\s+FROM PUBLIC, anon, authenticated, service_role;/
     );
-    expect(mig).not.toMatch(/GRANT EXECUTE ON FUNCTION public\.fn_ca_owner_set_free_buy_start_pause/);
+    expect(mig).not.toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.fn_ca_owner_set_free_buy_start_pause/
+    );
     expect(mig).toMatch(/INSERT INTO public\.ca_free_buy_start_pause_audit/);
-    expect(mig).toMatch(/SELECT public\.fn_ca_owner_set_free_buy_start_pause\(\s*true,\s*'Owner hold \(Dan, 2026-11-17 21:30/);
+    expect(mig).toMatch(
+      /SELECT public\.fn_ca_owner_set_free_buy_start_pause\(\s*true,\s*'Owner hold \(Dan, 2026-11-17 21:30/
+    );
   });
 
   it('has no cron and no repair job behind it', () => {
