@@ -1,20 +1,28 @@
 /**
- * A MIGRATION'S PINS ARE CHECKED AGAINST PRODUCTION BEFORE IT MERGES
+ * A MIGRATION PASSES PRODUCTION'S DDL GUARDS BEFORE IT MERGES
  * (2026-11-18, incident 075013fd).
  *
- * #11256 passed every check and merged; production's applier then refused its
- * 20261118034950 with 55000 migration_left_a_stale_pin, because the installed
- * smarter_private.original_erased_cash_base_discharge pinned the md5 of
- * fn_ca_tally_balance_move's body, which the file changes. The guard ran only
- * inside the applier, after merge, so the refusal surfaced at install, in an
- * engine release window, and cost a revert (#11260) and a re-land (#11270).
+ * Two merged pull requests passed every check and were refused at install by
+ * guards that run only on production:
+ *   #11256 20261118034950: 55000 migration_left_a_stale_pin, the applier's
+ *     in-transaction guard (smarter_private.original_erased_cash_base_discharge
+ *     pins the fn_ca_tally_balance_move body the file rewrites). Revert #11260,
+ *     re-land #11270.
+ *   #11266 20261118071728: 42501 from event trigger ab_ca_money_rpc_registered
+ *     (fn_ca_money_rpc_registry_guard): fn_ca_bank_pending_hand_obligations
+ *     writes balance columns and is not in ca_money_rpc_registry. Fixed by
+ *     #11288.
  *
- * The pull-request gate is the `pins` job of
+ * The pull-request gate is the `guards` job of
  * window-migrations-install-before-merge.yml
- * (scripts/ci/migration-pins-before-merge.mjs). This law pins its shape and
- * its static reading; tests/unit/aMigrationsPinsAreCheckedBeforeMerge.pg.test.ts
- * is the native proof that both halves refuse #11256's original file when the
- * pin exists and pass the re-landed one.
+ * (scripts/ci/migration-guards-before-merge.mjs): production's event
+ * triggers and the rows they read are put back on the throwaway copy of
+ * production's schema, and every changed migration is installed there through
+ * the applier's own stale-pin guard; when a file cannot install on an empty
+ * schema, production's own classifiers decide statically. This law pins its
+ * shape and its static reading;
+ * tests/unit/aMigrationPassesProductionsDdlGuardsBeforeMerge.pg.test.ts is the
+ * native proof that both originals fail and both fixed files pass.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -24,19 +32,28 @@ import {
   identityArgs,
   loadCatalog,
   pinRehearsalSQL,
-  planPinCheck,
+  planGuardCheck,
+  armSQL,
+  classifyExact,
+  functionBodies,
+  registryInserts,
+  staticGuardFindings,
+  NOT_REHEARSED,
   regprocedureKey,
   scanMigration,
   signatureKey,
   staticPinFindings,
   statementText,
   verdict,
-} from '../scripts/ci/migration-pins-before-merge.mjs';
+} from '../scripts/ci/migration-guards-before-merge.mjs';
 import {
+  CAPTURES,
   CATALOG_SQL_CATALOG_PATH,
   CATALOG_SQL_PUBLIC_PATH,
+  EVENT_TRIGGERS_SQL,
+  GUARD_TABLES,
   PINS_SQL,
-} from '../scripts/ci/migration-pins-capture.mjs';
+} from '../scripts/ci/migration-guards-capture.mjs';
 
 const ROOT = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -97,12 +114,23 @@ describe("a migration's pins are checked against production before it merges", (
     ]);
   });
 
-  it('the exact half governs: an install that passes the guard passes, a 55000 refusal fails', () => {
+  it('the exact half governs: an install that passes passes, a guard refusal fails, and the static half decides only when it cannot install', () => {
     const stale = {
       stale: [{ signature: 'x', md5: h('a'), how: '', pinner: 'p', verdict: 'stale' }],
     } as any;
     expect(verdict({ outcome: 'installed' }, stale).fail).toBe(false);
-    expect(verdict({ outcome: 'stale-pin', detail: 'd' }, { stale: [] } as any).fail).toBe(true);
+    expect(
+      verdict({ outcome: 'guard-refused', guard: 'g', detail: 'd' }, { stale: [] } as any).fail
+    ).toBe(true);
+    expect(
+      verdict(
+        { outcome: 'not-installable' },
+        { stale: [] } as any,
+        {
+          findings: [{ guard: 'g', fn: 'f', reason: 'r' }],
+        } as any
+      ).fail
+    ).toBe(true);
   });
 
   it('reads what a migration changes from statements, not from the bodies it installs', () => {
@@ -148,9 +176,9 @@ COMMIT;`;
     );
   });
 
-  it('checks only what the applier will run: guarded, uninstalled, not superseded, changed by the branch', () => {
+  it('checks only what the applier will run: uninstalled, not superseded, changed by the branch', () => {
     const f = (name: string, sql = 'BEGIN;\nSELECT 1;\nCOMMIT;\n') => ({ name, sql });
-    const plan = planPinCheck(
+    const plan = planGuardCheck(
       [
         f('20261107000000_old.sql'),
         f('20261118000000_installed.sql'),
@@ -166,9 +194,9 @@ COMMIT;`;
         '20261118000002_replaced.sql',
       ])
     );
-    expect(plan.checked).toEqual(['20261118000001_mine.sql']);
+    // Production's event triggers fire on every file; only the stale-pin guard has a floor.
+    expect(plan.checked).toEqual(['20261107000000_old.sql', '20261118000001_mine.sql']);
     expect(plan.skipped.map((s) => s.name)).toEqual([
-      '20261107000000_old.sql',
       '20261118000000_installed.sql',
       '20261118000002_replaced.sql',
     ]);
@@ -183,11 +211,127 @@ COMMIT;`;
   });
 
   it("the capture's questions are read-only and ask every schema for pins, as the guard does", () => {
-    for (const q of [CATALOG_SQL_CATALOG_PATH, CATALOG_SQL_PUBLIC_PATH, PINS_SQL])
+    for (const q of [
+      CATALOG_SQL_CATALOG_PATH,
+      CATALOG_SQL_PUBLIC_PATH,
+      PINS_SQL,
+      EVENT_TRIGGERS_SQL,
+    ])
       expect(q).not.toMatch(/\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|GRANT)\b/i);
     expect(CATALOG_SQL_CATALOG_PATH).toContain('SET search_path = pg_catalog');
     expect(CATALOG_SQL_PUBLIC_PATH).toContain('SET search_path = public');
     expect(PINS_SQL).not.toContain('nspname');
+    expect(GUARD_TABLES).toEqual([
+      'public.ca_money_rpc_registry',
+      'smarter_private.function_body_lineage',
+    ]);
+    for (const t of GUARD_TABLES)
+      expect(Object.values(CAPTURES).map(([q]) => q)).toContain(`COPY ${t} TO STDOUT;`);
+  });
+
+  it("re-creates every production event trigger on the copy except the wall-clock guard and Supabase's own", () => {
+    const tsv = [
+      'ab_ca_money_rpc_registered\tddl_command_end\tpublic.fn_ca_money_rpc_registry_guard()\tpublic\tCREATE FUNCTION',
+      'ca_break_window_refuses_ddl\tddl_command_end\tpublic.fn_ca_break_window_ddl_guard()\tpublic\t',
+      'ca_superseded_function_body_is_refused\tddl_command_end\tsmarter_private.fn_ca_function_lineage_on_create()\tsmarter_private\tCREATE FUNCTION|CREATE PROCEDURE',
+      'pgrst_ddl_watch\tddl_command_end\textensions.pgrst_ddl_watch()\textensions\t',
+    ].join('\n');
+    const arm = armSQL(tsv, {
+      'public.ca_money_rpc_registry': 'fn_x\tapproved\t\\N\t2026-11-18\n',
+    });
+    expect(arm.armed.map((a) => a.name)).toEqual([
+      'ab_ca_money_rpc_registered',
+      'ca_superseded_function_body_is_refused',
+    ]);
+    expect(arm.skipped.map((a) => a.name)).toEqual([
+      'ca_break_window_refuses_ddl',
+      'pgrst_ddl_watch',
+    ]);
+    expect(Object.keys(NOT_REHEARSED)).toEqual([
+      'ca_break_window_refuses_ddl',
+      'ca_break_window_refuses_drops',
+    ]);
+    expect(arm.triggerSql).toContain(
+      "CREATE EVENT TRIGGER ca_superseded_function_body_is_refused ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION', 'CREATE PROCEDURE') EXECUTE FUNCTION smarter_private.fn_ca_function_lineage_on_create();"
+    );
+    expect(arm.loadSql).toContain('COPY public.ca_money_rpc_registry FROM STDIN;\nfn_x\tapproved');
+    expect(() => armSQL('x; DROP\tddl_command_end\tpublic.f()\tpublic\t', {})).toThrow(/malformed/);
+  });
+
+  it("a refusal is a guard's when psql's CONTEXT names an armed guard function", () => {
+    const out =
+      'ERROR:  REFUSED: fn_x writes balance columns and is not in ca_money_rpc_registry\nCONTEXT:  PL/pgSQL function fn_ca_money_rpc_registry_guard() line 27 at RAISE\n';
+    expect(classifyExact(3, out, ['public.fn_ca_money_rpc_registry_guard()'])).toMatchObject({
+      outcome: 'guard-refused',
+      guard: 'fn_ca_money_rpc_registry_guard',
+    });
+    expect(
+      classifyExact(3, 'ERROR:  relation "public.x" does not exist\n', [
+        'public.fn_ca_money_rpc_registry_guard()',
+      ]).outcome
+    ).toBe('not-installable');
+    expect(
+      classifyExact(
+        3,
+        'ERROR:  migration_left_a_stale_pin: f() (old md5 x) is still pinned by g()\n'
+      ).outcome
+    ).toBe('guard-refused');
+  });
+
+  it('reads the bodies a file creates and where it registers them, as the money-RPC guard needs', () => {
+    const sql = `BEGIN;
+CREATE FUNCTION public.pay(p uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $fn$ BEGIN UPDATE club_wallets SET chip_balance = 1; END $fn$;
+INSERT INTO public.ca_money_rpc_registry (proname, status, notes) VALUES ('pay', 'approved', 'x'), ('other', 'system', 'y');
+CREATE OR REPLACE FUNCTION public.later() RETURNS void LANGUAGE sql AS $$ SELECT 1 $$;
+COMMIT;`;
+    const fns = functionBodies(sql);
+    expect(fns.map((f) => [f.kind, f.key])).toEqual([
+      ['FUNCTION', 'public.pay(uuid)'],
+      ['FUNCTION', 'public.later()'],
+    ]);
+    expect(fns[0].body).toBe(' BEGIN UPDATE club_wallets SET chip_balance = 1; END ');
+    expect(registryInserts(sql).map((r) => r.proname)).toEqual(['pay', 'other']);
+    // The classifier said "writes balances" for pay; the row comes AFTER its CREATE: refused, as production refuses.
+    const found = staticGuardFindings(sql, fns, '0\ttrue\tfalse\tfalse\n1\tfalse\tfalse\tfalse\n');
+    expect(found.findings).toEqual([
+      expect.objectContaining({
+        fn: 'public.pay(uuid)',
+        reason: expect.stringContaining('only AFTER its CREATE FUNCTION'),
+      }),
+    ]);
+    // Registered first, or already registered on production: passes.
+    const first = sql
+      .replace(/INSERT INTO[^;]*;\n/, '')
+      .replace(
+        'BEGIN;\n',
+        "BEGIN;\nINSERT INTO public.ca_money_rpc_registry (proname, status) VALUES ('pay', 'approved');\n"
+      );
+    expect(
+      staticGuardFindings(
+        first,
+        functionBodies(first),
+        '0\ttrue\tfalse\tfalse\n1\tfalse\tfalse\tfalse\n'
+      ).findings
+    ).toEqual([]);
+    expect(
+      staticGuardFindings(sql, fns, '0\ttrue\ttrue\tfalse\n1\tfalse\tfalse\tfalse\n').findings
+    ).toEqual([]);
+    // A body production recorded as superseded is refused unless the file allows the rollback.
+    expect(
+      staticGuardFindings(sql, fns, '0\tfalse\tfalse\tfalse\n1\tfalse\tfalse\ttrue\n').findings[0]
+        .guard
+    ).toContain('fn_ca_function_lineage_on_create');
+    const allowed = sql.replace(
+      'BEGIN;',
+      "BEGIN;\nSET LOCAL ca.allow_function_rollback = 'public.later';"
+    );
+    expect(
+      staticGuardFindings(
+        allowed,
+        functionBodies(allowed),
+        '0\tfalse\tfalse\tfalse\n1\tfalse\tfalse\ttrue\n'
+      ).findings
+    ).toEqual([]);
   });
 
   it('runs on every same-repository pull request: credentials only in the default-branch capture, the branch SQL only in a secretless job', () => {
@@ -195,16 +339,16 @@ COMMIT;`;
       read('.github/workflows/window-migrations-install-before-merge.yml')
     ) as Record<string, any>;
     expect(Object.keys(wf.on)).toEqual(['pull_request_target']);
-    const { capture, pins } = wf.jobs;
-    const step = capture.steps.find((s: any) => /md5s and pins/.test(s.name ?? ''));
+    const { capture, guards: pins } = wf.jobs;
+    const step = capture.steps.find((s: any) => /DDL guards read/.test(s.name ?? ''));
     expect(step.env).toEqual({ DATABASE_URL: '${{ secrets.DATABASE_URL }}' });
     expect(step.run).toContain('default_transaction_read_only=on');
-    expect(step.run).toContain('node scripts/ci/migration-pins-capture.mjs');
+    expect(step.run).toContain('node scripts/ci/migration-guards-capture.mjs');
     expect(capture.steps[0].with['sparse-checkout']).toContain(
-      'scripts/ci/migration-pins-capture.mjs'
+      'scripts/ci/migration-guards-capture.mjs'
     );
     expect(JSON.stringify(capture)).not.toContain('head.sha');
-    expect(pins.name).toBe('Migration pins move before merge');
+    expect(pins.name).toBe("Production's DDL guards pass before merge");
     expect(pins.environment).toBeUndefined();
     expect(JSON.stringify(pins)).not.toContain('secrets.');
     expect(pins.permissions).toEqual({ contents: 'read' });
@@ -212,7 +356,7 @@ COMMIT;`;
     // An unreadable capture is UNKNOWN, never a pass.
     expect(JSON.stringify(pins)).toContain("needs.capture.result != 'success'");
     expect(JSON.stringify(pins)).toContain(
-      'node scripts/ci/migration-pins-before-merge.mjs rehearse'
+      'node scripts/ci/migration-guards-before-merge.mjs rehearse'
     );
     const checkout = pins.steps.find((s: any) =>
       String(s.uses ?? '').startsWith('actions/checkout')

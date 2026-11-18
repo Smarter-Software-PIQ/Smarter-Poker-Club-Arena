@@ -25,10 +25,11 @@
 #             sends only to that throwaway database.
 # The archive lives one day as a private artifact of this run.
 #
-#   pins      no environment, no secret: the same restore, then every migration
-#             the branch adds or changes through the applier's own stale-pin
-#             guard, with a static fallback against production's captured
-#             md5s and pins (2026-11-18, incident 075013fd; see the job).
+#   guards    no environment, no secret: the same restore with production's
+#             event triggers and the rows they read put back, then every
+#             migration the branch adds or changes through them and the
+#             applier's own stale-pin guard, with a static fallback on
+#             production's own classifiers (2026-11-18, incident 075013fd).
 #
 # NOT A SCHEDULE, NOT A WATCHER: one answer per pull-request event. It repairs
 # and installs nothing in production.
@@ -96,7 +97,7 @@ jobs:
             scripts/dr
             scripts/ci/ubuntu-apt-mirror.py
             scripts/verification-harness/leaderboard-native-function-batch.mjs
-            scripts/ci/migration-pins-capture.mjs
+            scripts/ci/migration-guards-capture.mjs
           sparse-checkout-cone-mode: false
       - name: Build the Backup engine's batched read-only export client
         run: |
@@ -123,29 +124,31 @@ jobs:
             --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
             -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
             -f "$RUNNER_TEMP/out/schema.dump"
-      # The pin pre-check's three read-only questions (constant SQL from the
-      # default branch; about 0.4 s on production 2026-11-18): every function's
-      # body md5 in both forms the applier's stale-pin guard takes, and every
-      # hex run in every installed function's source.
-      - name: Read the installed functions' md5s and pins (read-only)
+      # What production's DDL guards read (constant SQL from the default
+      # branch, read-only; about 0.5 s on production 2026-11-18): every
+      # function's body md5 in both forms the applier's stale-pin guard takes,
+      # every hex run in every installed source, the enabled event triggers,
+      # and the rows those triggers consult (migration-guards-capture.mjs).
+      - name: Read what production's DDL guards read (read-only)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          for q in catalog-catalog-path:pins-catalog catalog-public-path:pins-public pins:pins-hex; do
-            node scripts/ci/migration-pins-capture.mjs "${q%%:*}" \
+          node scripts/ci/migration-guards-capture.mjs list | while read -r name file; do
+            node scripts/ci/migration-guards-capture.mjs sql "$name" \
               | PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15s' \
                 /usr/lib/postgresql/17/bin/psql "$DATABASE_URL" -X -q -A -t -F $'\t' -v ON_ERROR_STOP=1 \
-                > "$RUNNER_TEMP/out/${q##*:}.tsv"
+                > "$RUNNER_TEMP/out/$file"
           done
-          [ "$(wc -l < "$RUNNER_TEMP/out/pins-catalog.tsv")" -gt 100 ]
+          [ "$(wc -l < "$RUNNER_TEMP/out/guards-catalog.tsv")" -gt 100 ]
+          [ -s "$RUNNER_TEMP/out/guards-event-triggers.tsv" ]
       - uses: actions/upload-artifact@v4
         with:
           name: window-rehearsal-schema
           path: |
             ${{ runner.temp }}/out/schema.dump
             ${{ runner.temp }}/out/installed.txt
-            ${{ runner.temp }}/out/pins-*.tsv
+            ${{ runner.temp }}/out/guards-*
           if-no-files-found: error
           retention-days: 1
 
@@ -213,21 +216,23 @@ jobs:
           retention-days: 7
 
   # ───────────────────────────────────────────────────────────────────────────
-  # A MIGRATION'S PINS ARE CHECKED AGAINST PRODUCTION BEFORE IT MERGES
-  # (2026-11-18, incident 075013fd). #11256 merged green and production's
-  # applier refused 20261118034950 with 55000 migration_left_a_stale_pin: an
-  # installed function pinned the md5 of a body the file changed, and the
-  # stale-pin guard only ever ran inside the applier, after merge. This job
-  # runs the applier's own guard (migration-stale-pins.mjs) on every migration
-  # the branch adds or changes, in its own throwaway copy of production's
-  # schema, and falls back to a static reading against production's captured
-  # md5s and pins when the file cannot install on an empty schema
-  # (scripts/ci/migration-pins-before-merge.mjs). Same trust shape as
-  # `rehearse`: no environment, no secret; the branch's files are data sent
-  # only to the throwaway database.
+  # A MIGRATION PASSES PRODUCTION'S DDL GUARDS BEFORE IT MERGES (2026-11-18,
+  # incident 075013fd). Two merged files passed every check and were refused at
+  # install by guards that exist only on production: #11256's 20261118034950
+  # by the applier's stale-pin guard (55000) and #11266's 20261118071728 by
+  # the event trigger ab_ca_money_rpc_registered (42501). A schema-only
+  # archive taken with -n carries neither the event triggers nor the rows they
+  # read, so the window rehearsal could not see them. This job restores its own
+  # copy, loads the guards' rows, re-creates production's event triggers
+  # (except the wall-clock break-window guard), and installs every migration
+  # the branch adds or changes through the applier's own stale-pin guard; a
+  # file that cannot install on an empty schema is judged by production's own
+  # classifiers instead (scripts/ci/migration-guards-before-merge.mjs). Same
+  # trust shape as `rehearse`: no environment, no secret; the branch's files
+  # are data sent only to the throwaway database.
   # ───────────────────────────────────────────────────────────────────────────
-  pins:
-    name: Migration pins move before merge
+  guards:
+    name: Production's DDL guards pass before merge
     needs: [scope, capture]
     if: always() && needs.scope.result == 'success'
     runs-on: ubuntu-latest
@@ -237,11 +242,11 @@ jobs:
     steps:
       - name: Nothing to check
         if: needs.scope.outputs.rehearse != 'true'
-        run: echo "This pull request adds or changes no migration; no pin to check."
+        run: echo "This pull request adds or changes no migration; nothing for production's DDL guards to judge."
       - name: The capture must have succeeded
         if: needs.scope.outputs.rehearse == 'true' && needs.capture.result != 'success'
         run: |
-          echo "::error::Production's schema and pins could not be captured (${{ needs.capture.result }}); the pin check is UNKNOWN, not passed. Re-run this workflow."
+          echo "::error::Production's schema and DDL guards could not be captured (${{ needs.capture.result }}); the guard check is UNKNOWN, not passed. Re-run this workflow."
           exit 1
       - name: Checkout the default branch (check tooling only)
         if: needs.scope.outputs.rehearse == 'true'
@@ -271,21 +276,22 @@ jobs:
           done < "$RUNNER_TEMP/in/changed.txt"
       - name: Restore production's schema into a throwaway database
         if: needs.scope.outputs.rehearse == 'true'
-        run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" pin-rehearsal-db
-      - name: Every changed migration moves the pins on what it changes
+        run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" guard-rehearsal-db
+      - name: Every changed migration passes production's DDL guards
         if: needs.scope.outputs.rehearse == 'true'
         env:
-          REHEARSAL_PSQL: docker exec -i pin-rehearsal-db psql -U postgres -d postgres
+          REHEARSAL_PSQL: docker exec -i guard-rehearsal-db psql -U postgres -d postgres
+          REHEARSAL_ADMIN_PSQL: docker exec -i guard-rehearsal-db psql -U supabase_admin -d postgres
           MIG_DIR: ${{ runner.temp }}/mig
           INSTALLED: ${{ runner.temp }}/in/installed.txt
           CHANGED: ${{ runner.temp }}/in/changed.txt
           CAPTURE_DIR: ${{ runner.temp }}/in
-          EVIDENCE: ${{ runner.temp }}/pin-evidence
-        run: node scripts/ci/migration-pins-before-merge.mjs rehearse
+          EVIDENCE: ${{ runner.temp }}/guard-evidence
+        run: node scripts/ci/migration-guards-before-merge.mjs rehearse
       - uses: actions/upload-artifact@v4
         if: always() && needs.scope.outputs.rehearse == 'true'
         with:
-          name: migration-pins-evidence
-          path: ${{ runner.temp }}/pin-evidence
+          name: migration-guards-evidence
+          path: ${{ runner.temp }}/guard-evidence
           if-no-files-found: ignore
           retention-days: 7
