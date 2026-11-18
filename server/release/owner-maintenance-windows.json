@@ -1503,6 +1503,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "95014b05db7bc249a2dae27e0ccd9e07b79eaefdadf0aca9b448d2371c0e2594"
       }
+    },
+    {
+      "id": "2026-11-18-owner-no-notice-engine-1205z",
+      "ownerOrder": "Dan on November 18, 2026 ordered the next engine cutover moved to the 06:00 to 07:00 Chicago hour and put one session in charge of it: 01:28 Chicago, in Claude session_013U37bXeyipeVLdczYpsQG1, \"SO PUSH THE 4AM BACK TO 6-7AM AND DON'T EVEN RUN A 4AM CUT OVER. MAKE SURE THATS FULLY IMPLEMENTED\"; 02:10 Chicago, in Claude session_013U37bYh22Ztp82s3uVfYNq, \"STOP POSTING TO THE CUSTODIAN, AND YOU TAKE CHARGE OF THIS, SINCE YOU HAVE A FULL GRASP ON EVERYTHING THAT NEEDS TO BE DONE. STOP DEPENDING ON THE CUSTODIAN AND JUST GET SHIT DONE\". His standing order of November 17, 2026 20:23 Chicago, in Claude session_013U37bXHqyZLdEaYvRi6Tk2, removes the player announcement from every engine cutover: \"REMOVE THE ANNOUNCEMENT, I NEVER ASKED FOR IT, AND DON'T WANT IT APART OF ANY FUTURE ENGINE CUT OVER REQUIREMENTS EVER AGAIN!\". His no-notice instruction of 11:05 Chicago the same day applies, verbatim: \"For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.\" It does not authorize interrupting an active hand, bypassing settlement, forcing an uncertified replacement or weakening recovery safeguards. This is a new window for the release that follows 17022c8462688472c1d2c1f397093984550f196e (#11260); it is prepared before that release seals and is to be merged only once 17022c8462688472c1d2c1f397093984550f196e is the serving engine, and discarded otherwise. One fresh SINGLE-USE engine activation of exact serving 17022c8462688472c1d2c1f397093984550f196e, containing at minimum protected main 74957366e69f905f277a1f3f29ded181bc624e39 (#11268). No playerNoticeAt is recorded and no client notice is published; no notice time is invented. The serving engine's own recovery window still announces the last hand internally, lets every table finish its hand and settle, and only then freezes. Operational execution preserves the exact current-schema Backup with the full 1800-second soak and both-direction seated-player rehearsal, immutable image qualification, original Stage and receiver custody, durable drain and freeze, the full 285s admission and rollback reserve, seal, thaw, live gameplay and post-seal Backup. The fixed expiry is not extended; this is one operation, never an automatic retry, renewal, new-start hold or second publisher. This booking does not itself switch any strategy option on or off: horsePlayStyles, Pillar 2, R7/R8, leak maps and held-out packs remain disabled; zero opportunities remain explicit evidence gaps. Release-control inputs and ordinary migration installation are held only from booking merge until this operation seals, is abandoned or expires, then the maintained resume route reconciles every missed ordinary migration.",
+      "contains": "74957366e69f905f277a1f3f29ded181bc624e39",
+      "ownerNoticeWaiver": "For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.",
+      "notBefore": "2026-11-18T12:05:30Z",
+      "notAfter": "2026-11-18T15:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "a9f8204b92f019d9480391e9ffbb1c9758451da5837bec198b4381ba6bf7245a"
+      }
     }
   ],
   "databaseWindows": [

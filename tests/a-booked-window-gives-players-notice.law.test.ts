@@ -700,3 +700,14 @@ it('books the 2026-11-18-owner-no-notice-engine-0705z engine window on the owner
   expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-18T07:05:30Z', '2026-11-18T09:20:00Z']);
   expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
 });
+
+it('books the 2026-11-18-owner-no-notice-engine-1205z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-18-owner-no-notice-engine-1205z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-18T12:05:30Z', '2026-11-18T15:00:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
+});

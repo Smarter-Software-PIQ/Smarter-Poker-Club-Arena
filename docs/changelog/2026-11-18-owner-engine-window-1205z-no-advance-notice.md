@@ -1,0 +1,3 @@
+# Owner engine window 12:05 UTC, no advance notice
+
+The owner ordered the next engine cutover moved to the 06:00 to 07:00 Chicago hour (November 18, 2026, 01:28 Chicago) and put Claude session_013U37bYh22Ztp82s3uVfYNq in charge of it (02:10 Chicago). This booking opens window 2026-11-18-owner-no-notice-engine-1205z, admission 12:05:30 UTC November 18 through fixed 15:00 UTC November 18 (06:05:30-09:00 Chicago): one single-use engine activation of serving 17022c84626, containing at minimum 74957366e69. No player notice is shown before the freeze, under the standing owner order of November 17, 2026 20:23 Chicago; the engine still finishes every hand and settles before freezing.
