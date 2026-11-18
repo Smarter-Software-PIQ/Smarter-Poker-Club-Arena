@@ -462,7 +462,6 @@ export function TableChat({
       <button
         className="chat-collapsed"
         onClick={onToggleCollapse}
-        disabled={isDisabled}
         aria-label={
           unreadCount > 0
             ? `Open Table Chat, ${unreadCount.toLocaleString()} Unread`
