@@ -19,6 +19,21 @@ export function measuredPloPreference(record: PloPerformance | undefined): numbe
   return record.bb100 * (record.hands / (record.hands + 5_000));
 }
 
+/**
+ * The cluster's ruleset profile for a table row. A caller may hand it over
+ * flattened, or leave the embedded relation as PostgREST returned it - an
+ * array, or an object when the planner collapses it. A shape this does not
+ * recognise reads as "no profile" rather than throwing, because an unreadable
+ * cluster must mean "not Madness", never a crash in the seating loop.
+ */
+function rulesProfileOf(table: { rules_profile?: unknown; cluster?: unknown }): string | null {
+  if (typeof table.rules_profile === 'string') return table.rules_profile;
+  const row = Array.isArray(table.cluster) ? table.cluster[0] : table.cluster;
+  if (!row || typeof row !== 'object') return null;
+  const value = (row as { rules_profile?: unknown }).rules_profile;
+  return typeof value === 'string' ? value : null;
+}
+
 export function orderMadnessCandidates<T extends { h: { id: string }; w: number }>(
   candidates: readonly T[],
   table: {
@@ -27,32 +42,35 @@ export function orderMadnessCandidates<T extends { h: { id: string }; w: number 
     big_blind_ante_enabled?: unknown;
     nit_game?: unknown;
     maintain_percent_min?: unknown;
+    /** cash_games.ruleset_snapshot->>'rules_profile', flattened by a caller. */
+    rules_profile?: unknown;
+    /** or the embedded cluster row, as PostgREST returns it. */
+    cluster?: unknown;
   },
   performance: ReadonlyMap<string, PloPerformance>
 ): T[] {
+  // MADNESS IS A RULESET, NOT A FLOOR VALUE (2026-11-17).
+  //
+  // This used to end in `Number(table.maintain_percent_min) === 50`, because 50
+  // was the floor fn_cash_game_floor_from_template pinned for the
+  // madness_without_lightning profile and nothing else carried it. Dan brought
+  // every PLO table to 40 on 2026-11-17 (20261118004324 for Classic,
+  // 20261118025205 for Madness), so that number identifies nothing now.
+  //
+  // Dropping the floor clause and keeping the rest would have been worse than
+  // useless: Lightning and Action plo5 tables also run a bomb pot, the
+  // big-blind ante and the nit game, so the check would have started calling
+  // them Madness and ordering their horses by measured PLO performance.
+  //
+  // So the test is the ruleset itself, the one the trigger keys on. It is
+  // unique: Classic plo5 runs no bomb pot, and Lightning/Action run with
+  // lightning_enabled. A floor can move again without touching this.
+  // The plo5 scope is kept deliberately: this ordering was built for the PLO5
+  // Madness field and measured against it. A future plo6 cluster carrying the
+  // same profile does not silently inherit it.
   const madness =
     String(table.game_variant ?? '').toLowerCase() === 'plo5' &&
-    table.bomb_pot_enabled === true &&
-    table.big_blind_ante_enabled === true &&
-    table.nit_game === true &&
-    // 50 IS THE MADNESS PIN, NOT A THRESHOLD (2026-11-17).
-    //
-    // This is an identity test for the Madness ruleset, not "a high floor".
-    // fn_cash_game_floor_from_template pins vpip_floor to 50 for the
-    // madness_without_lightning profile, explicitly, before the GREATEST that
-    // raises a Classic floor from ca_classic_vpip_floors - so 50 is the value
-    // only that profile carries.
-    //
-    // It used to be ambiguous: Classic plo5/plo6 also sat at 50, so this read
-    // true for tables that were never Madness. Dan lowered the Classic PLO
-    // floor to 40 on 2026-11-17 (migration 20261118004324), which is what makes
-    // the check exact rather than coincidental.
-    //
-    // Do not turn this into a >= comparison and do not move the number. That
-    // migration and 20261024200548's @live-proof both assert the cluster still
-    // reads exactly 50, and widening this would start ordering horses by
-    // measured PLO performance at tables that are not Madness.
-    Number(table.maintain_percent_min) === 50;
+    rulesProfileOf(table) === 'madness_without_lightning';
   return candidates
     .map((candidate) => ({
       candidate,
