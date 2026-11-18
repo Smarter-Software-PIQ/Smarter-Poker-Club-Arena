@@ -21,7 +21,14 @@ import {
 import { HorseMind } from './HorseMind.js';
 import { replayProfiles, stateAt, type ComplaintFixture } from './HorseComplaintReplay.js';
 import type { Card, CardRank, CardSuit, HorseDecision } from '../types.js';
-import RECORDED from './HorseOmahaUnderpair.fixture.json';
+import { readFileSync } from 'node:fs';
+
+// Test data, read from disk rather than imported: a non-test module that
+// imports JSON must be listed in tsconfig.emit.json (engine-build-resource-proof),
+// and this file is test support, not engine runtime.
+const RECORDED: unknown = JSON.parse(
+  readFileSync(new URL('./HorseOmahaUnderpair.fixture.json', import.meta.url), 'utf8')
+);
 
 export type FloorVariant = 'plo4' | 'plo5' | 'plo6' | 'nlh';
 export const HOLE_COUNT: Record<FloorVariant, number> = { nlh: 2, plo4: 4, plo5: 5, plo6: 6 };
