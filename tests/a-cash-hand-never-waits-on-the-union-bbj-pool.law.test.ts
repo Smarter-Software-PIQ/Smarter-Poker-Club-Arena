@@ -35,7 +35,13 @@
  *      that cannot bank pages CRITICAL through fn_post_commit_stranded_watchdog
  *      after ten minutes, for cash_rake_pending and this table alike;
  *   8. a stored insurance payout is reserved at insurance_wallet's spend door;
- *      the banker re-reads the club's union.
+ *      the envelope, the door and the banker decide a union's insurance
+ *      payouts one at a time on its 'insurance-bank:' lock (the envelope
+ *      and the banker only ever try it);
+ *   9. UNION LAW: a drop and an insurance leg bank to the union the envelope
+ *      read at hand time, as rake does; a standalone club's drop whose pool
+ *      closed on a union join, or a leg whose table would now bank elsewhere,
+ *      is refused by name and pages.
  *
  * JACKPOT TIMING, compared with before. A drop stored while a jackpot payout
  * (or any other holder) has the pool lands in the pool after that holder
@@ -58,7 +64,7 @@ const SWITCH = '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_
 const ENVELOPE = 'fn_ca_process_hand_post_commit_obligations';
 const LIVE = '8b81e8bb218cacb235832285e4fbbb24';
 const PRE = 'da123635a0f1cdb035bd9b518ebf07f0';
-const POST = 'd41bfee494141a366d72d3649a0208e5';
+const POST = '7a796358fa28fda910e0f28ded72ff79';
 
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -146,10 +152,26 @@ describe("a cash hand never waits on the union's BBJ pool or insurance bank", ()
   });
 
   it('a stored payout is reserved at the wallet spend door, and a covered payout can be paid', () => {
+    // The door decides under the union's insurance-bank lock, taken after its
+    // wallet row (the envelope never waits for that row) and before it sums.
     expect(code(dollar(part1, 'ndoor1'))).toMatch(
-      /IF v_wallet_column = 'insurance_wallet' THEN[\s\S]*bp\.felt_amount < 0;[\s\S]*IF v_before - v_reserved < p_amount THEN/
+      /IF v_wallet_column = 'insurance_wallet' THEN\s+PERFORM pg_advisory_xact_lock\(hashtextextended\('insurance-bank:' \|\| p_union_id::text, 0\)\);\s+SELECT COALESCE\(sum\(-bp\.felt_amount\), 0\) INTO v_reserved[\s\S]*bp\.felt_amount < 0;[\s\S]*IF v_before - v_reserved < p_amount THEN/
     );
-    expect(part1).toContain("'2b51a9540e5ed24961aed8434a8ffdd8', '09f80760439fe2e2883dcbc95ad00bf5'");
+    // The envelope tries the same lock for a net payout BEFORE it reads the
+    // cover, and is told busy instead of waiting (it holds player rows).
+    const leg = code(dollar(sw, 'nenv2'));
+    const tryBank = leg.search(
+      /IF v_insurance_delta < 0 AND v_insurance_union IS NOT NULL\s+AND NOT pg_try_advisory_xact_lock\(hashtextextended\('insurance-bank:' \|\| v_insurance_union::text, 0\)\) THEN\s+RAISE EXCEPTION[\s\S]*?ERRCODE = '55P03';/
+    );
+    const cover = leg.search(/AND COALESCE\(\(SELECT w\.insurance_wallet FROM public\.union_wallets w/);
+    expect(tryBank).toBeGreaterThan(-1);
+    expect(cover).toBeGreaterThan(tryBank);
+    expect(leg).not.toMatch(/pg_advisory_xact_lock\s*\(/);
+    expect(read('scripts', 'ci', 'test-deadlock-lock-orders-r5.py')).toContain(
+      'table 2 is refused at its envelope, the bank is never overcommitted'
+    );
+    expect(part1).not.toMatch(/can always bank/);
+    expect(part1).toContain("'2b51a9540e5ed24961aed8434a8ffdd8', 'c0f1ac2ac14a3790e563b8aec961d297'");
     // The proposed INSERT row of an upsert is CHECKed before the conflict is
     // found: the bank row is updated first.
     expect(code(dollar(part1, 'oins0'))).toMatch(/ON CONFLICT \(union_id\) DO UPDATE/);
@@ -213,11 +235,14 @@ describe("a cash hand never waits on the union's BBJ pool or insurance bank", ()
     expect(banker).not.toMatch(/pg_advisory_xact_lock\s*\(/);
     expect(banker).toMatch(/FOR UPDATE SKIP LOCKED/);
     expect(banker).toMatch(/WHEN lock_not_available THEN\s+v_state := 'busy';/);
-    // The club's union is read when the drop banks, not taken from the row.
+    // UNION LAW: the drop banks to the union stored at hand time, never one read later.
+    expect(banker).toMatch(/v_union := p\.union_id;\s+IF NOT pg_try_advisory_xact_lock\(hashtextextended\(\s+'bbj-pool:' \|\| COALESCE\(v_union::text/);
+    expect(banker).toMatch(/bbj_club_pool_closed_on_union_join/);
+    expect(banker).toMatch(/IF v_union IS DISTINCT FROM p\.union_id THEN\s+RAISE EXCEPTION 'insurance_bank_union_changed/);
+    // A net payout is banked under the union's insurance-bank lock, tried, never waited for.
     expect(banker).toMatch(
-      /SELECT c\.union_id INTO v_union FROM public\.clubs c\s+WHERE c\.id = \(p\.obligation->>'club_id'\)::uuid;[\s\S]*'bbj-pool:' \|\| COALESCE\(v_union::text/
+      /IF p\.felt_amount < 0 AND v_union IS NOT NULL\s+AND NOT pg_try_advisory_xact_lock\(hashtextextended\('insurance-bank:' \|\| v_union::text, 0\)\) THEN/
     );
-    expect(banker).not.toMatch(/\bp\.union_id/);
     // The called BBJ functions are the production text, unchanged by this work.
     for (const name of ['bbj_record_contribution', 'fn_bbj_allocate']) {
       const f = bankFixture.functions[name];

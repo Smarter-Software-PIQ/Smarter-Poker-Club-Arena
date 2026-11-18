@@ -88,11 +88,19 @@
 --      hand; a payout the bank cannot cover net of stored payouts.
 --   7. A stored insurance payout is reserved. fn_union_debit_wallet_zd3core,
 --      the one spend door of union_wallets.insurance_wallet, treats stored
---      payouts for the union as spent, so the leg can always bank under
---      union_wallets_insurance_wallet_nonneg.
---   8. The banker re-reads the club's union when it banks a drop, so a club
---      that joined or left a union while its drop waited banks it where it
---      plays now.
+--      payouts for the union as spent, and the envelope's coverage check,
+--      the door and the banker serialise on the union's 'insurance-bank:'
+--      advisory lock, so no debit decided after a payout was stored can spend
+--      what that payout needs. A stored payout can still fail to bank if
+--      money leaves insurance_wallet by a path other than the door (none on
+--      production, read 2026-11-18); it then pages through the watchdog.
+--   8. UNION LAW: a drop and an insurance leg bank to the union the envelope
+--      read at hand time (stored in the row), as rake does. A standalone
+--      club's drop whose pool was retired by fn_close_club_wallets_on_union_join
+--      while it waited is refused by name (bbj_club_pool_closed_on_union_join)
+--      and pages, rather than opening an orphan pool; an insurance leg whose
+--      table would now bank elsewhere is refused by name
+--      (insurance_bank_union_changed).
 --   9. record_insurance_transaction updates the union bank row before it
 --      would insert one, so a net payout is judged against the wallet's real
 --      balance, not refused by the CHECK on a proposed new row (see below).
@@ -100,7 +108,7 @@
 -- bbj_record_contribution and fn_bbj_allocate are not changed.
 -- record_insurance_transaction changes in one statement only (9 below).
 --
--- @live-proof: (SELECT to_regclass('public.hand_bank_obligation_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_hand_obligations(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = '710154d55d4cb9fb1d425f3df13087c4' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = 'c14f15b5933a8ee0e24f1f918bdc6d6f' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'abe021e4c5a42b02f3b4c00c8bd1ffc9' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = '2a8c79452ced863cfb15364d1e62a40c' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '39d043cda727119e0a6d883a3fb25d50' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = '2d9d0d7cab537e608da36be3319e347e' AND md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure)) = 'a16ceda2073f0dbb3cd28feb841106e9' AND md5(pg_get_functiondef('public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)'::regprocedure)) = '09f80760439fe2e2883dcbc95ad00bf5' AND md5(pg_get_functiondef('public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)'::regprocedure)) = '6724ca97c0afc65959b02f24caffa106')
+-- @live-proof: (SELECT to_regclass('public.hand_bank_obligation_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_hand_obligations(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = '710154d55d4cb9fb1d425f3df13087c4' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = 'c14f15b5933a8ee0e24f1f918bdc6d6f' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'abe021e4c5a42b02f3b4c00c8bd1ffc9' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = '2a8c79452ced863cfb15364d1e62a40c' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '39d043cda727119e0a6d883a3fb25d50' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = '2d9d0d7cab537e608da36be3319e347e' AND md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure)) = 'a16ceda2073f0dbb3cd28feb841106e9' AND md5(pg_get_functiondef('public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)'::regprocedure)) = 'c0f1ac2ac14a3790e563b8aec961d297' AND md5(pg_get_functiondef('public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)'::regprocedure)) = '6724ca97c0afc65959b02f24caffa106')
 
 BEGIN;
 
@@ -287,16 +295,11 @@ BEGIN
 
       IF p.kind = 'bbj_contribution' THEN
         /* NEVER WAIT FOR THE UNION'S POOL. The same advisory key and the same
-           pool choice the envelope made (one active pool per union, else per
-           club), each refused at once if anyone holds it. The club's union is
-           read NOW, as the envelope read it at its own run: a club that joined
-           or left a union while its drop waited banks it to the pool it plays
-           under today, never to a closed or orphaned club pool. */
-        SELECT c.union_id INTO v_union FROM public.clubs c
-         WHERE c.id = (p.obligation->>'club_id')::uuid;
-        IF NOT FOUND THEN
-          RAISE EXCEPTION 'BBJ obligation club not found for hand %', p_hand_id;
-        END IF;
+           pool choice the envelope made, each refused at once if anyone holds
+           it. The drop banks to the union the envelope read at hand time
+           (UNION LAW: money follows the union of the game when the hand was
+           played, as rake does), never to one read later. */
+        v_union := p.union_id;
         IF NOT pg_try_advisory_xact_lock(hashtextextended(
              'bbj-pool:' || COALESCE(v_union::text, 'club:' || (p.obligation->>'club_id')), 0)) THEN
           RAISE EXCEPTION 'bbj pool lock held' USING ERRCODE = '55P03';
@@ -310,6 +313,20 @@ BEGIN
            ORDER BY bp.created_at, bp.id
            LIMIT 1
            FOR UPDATE NOWAIT;
+          /* A standalone club whose pool was closed because it joined a union
+             while this drop waited. fn_close_club_wallets_on_union_join paid
+             that pool's balance into the club's chip_treasury and retired the
+             pool; there is no receipt shape for a drop paid straight into a
+             treasury, so this drop is refused by name (it pages through
+             fn_post_commit_stranded_watchdog) instead of opening an orphan
+             pool the club no longer plays under. */
+          IF v_pool_id IS NULL AND EXISTS (
+               SELECT 1 FROM public.bbj_pools bp
+                WHERE bp.club_id = (p.obligation->>'club_id')::uuid
+                  AND bp.union_id IS NULL AND bp.status = 'retired') THEN
+            RAISE EXCEPTION 'bbj_club_pool_closed_on_union_join: club %''s pool was retired into its chip_treasury (fn_close_club_wallets_on_union_join) while drop of hand % waited',
+              p.obligation->>'club_id', p_hand_id USING ERRCODE = '55000';
+          END IF;
         ELSE
           SELECT bp.id INTO v_pool_id
             FROM public.bbj_pools bp
@@ -346,19 +363,31 @@ BEGIN
           RAISE EXCEPTION 'BBJ contribution produced no receipt for hand %', p_hand_id;
         END IF;
       ELSE
-        /* NEVER WAIT FOR THE INSURANCE BANK. The bank row is the one
-           record_insurance_transaction would write, chosen the same way; it is
+        /* NEVER WAIT FOR THE INSURANCE BANK. The bank is the one the envelope
+           stored (the union of the game at hand time); record_insurance_transaction
+           chooses it again from the table and club, and a leg whose bank would
+           now differ is refused by name rather than paid from another bank.
+           A net payout takes the union's 'insurance-bank:' lock by try, as
+           the envelope and the debit door serialise on it; the bank row is
            taken NOWAIT, only when the leg moves it. */
+        SELECT t.club_id, t.union_id, COALESCE(t.is_private, false)
+          INTO v_club, v_union, v_private
+          FROM public.tables t WHERE t.id = p.table_id;
+        IF v_private THEN
+          v_union := NULL;
+        ELSIF v_union IS NULL THEN
+          SELECT c.union_id INTO v_union FROM public.clubs c
+           WHERE c.id = (p.obligation->>'club_id')::uuid;
+        END IF;
+        IF v_union IS DISTINCT FROM p.union_id THEN
+          RAISE EXCEPTION 'insurance_bank_union_changed: hand % stored union %, the table now banks with %',
+            p_hand_id, p.union_id, v_union USING ERRCODE = '55000';
+        END IF;
+        IF p.felt_amount < 0 AND v_union IS NOT NULL
+           AND NOT pg_try_advisory_xact_lock(hashtextextended('insurance-bank:' || v_union::text, 0)) THEN
+          RAISE EXCEPTION 'insurance bank lock held' USING ERRCODE = '55P03';
+        END IF;
         IF p.felt_amount <> 0 THEN
-          SELECT t.club_id, t.union_id, COALESCE(t.is_private, false)
-            INTO v_club, v_union, v_private
-            FROM public.tables t WHERE t.id = p.table_id;
-          IF v_private THEN
-            v_union := NULL;
-          ELSIF v_union IS NULL THEN
-            SELECT c.union_id INTO v_union FROM public.clubs c
-             WHERE c.id = (p.obligation->>'club_id')::uuid;
-          END IF;
           IF v_union IS NOT NULL THEN
             PERFORM 1 FROM public.union_wallets w
               WHERE w.union_id = v_union FOR NO KEY UPDATE NOWAIT;
@@ -682,10 +711,12 @@ $nwatch4$]
    designs: a reservation read at the one door, instead of a reserve column
    every reader of insurance_wallet would have to learn. The envelope refuses
    a payout the wallet cannot cover net of the same reservation, as the
-   wallet's CHECK refused it in the envelope before. */
+   wallet's CHECK refused it in the envelope before. The envelope, this door
+   and the banker serialise that decision on the union's 'insurance-bank:'
+   advisory lock (see the door's comment for the order). */
 SELECT pg_temp.ca_bank_subst(
   'public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)',
-  '2b51a9540e5ed24961aed8434a8ffdd8', '09f80760439fe2e2883dcbc95ad00bf5',
+  '2b51a9540e5ed24961aed8434a8ffdd8', 'c0f1ac2ac14a3790e563b8aec961d297',
   ARRAY[$odoor0$  v_cp text;
 BEGIN
 $odoor0$,
@@ -701,8 +732,15 @@ $odoor1$],
 BEGIN
 $ndoor0$,
         $ndoor1$  /* 20261118071728: insurance payouts stored by completed hands and not
-     yet banked are already owed from this wallet. */
+     yet banked are already owed from this wallet. The union's
+     'insurance-bank:' lock makes this sum and the envelope's coverage check
+     one decision at a time: an envelope deciding a payout holds it until it
+     commits (it only ever tries for it, and holds no wallet row), so the
+     payouts it stores are committed and counted here before this debit can
+     be decided. Taken after the wallet row: the envelope never waits for
+     that row, so the order cannot close a cycle. */
   IF v_wallet_column = 'insurance_wallet' THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('insurance-bank:' || p_union_id::text, 0));
     SELECT COALESCE(sum(-bp.felt_amount), 0) INTO v_reserved
       FROM public.hand_bank_obligation_pending bp
      WHERE bp.kind = 'insurance' AND bp.union_id = p_union_id AND bp.felt_amount < 0;

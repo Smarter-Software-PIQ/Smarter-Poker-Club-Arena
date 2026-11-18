@@ -40,7 +40,7 @@
 --
 -- It refuses to install unless part 1 is installed.
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = 'd41bfee494141a366d72d3649a0208e5')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = '7a796358fa28fda910e0f28ded72ff79')
 
 BEGIN;
 
@@ -113,7 +113,7 @@ END $m$;
 
 SELECT pg_temp.ca_bank_subst(
   'public.fn_ca_process_hand_post_commit_obligations(uuid)',
-  'da123635a0f1cdb035bd9b518ebf07f0', 'd41bfee494141a366d72d3649a0208e5',
+  'da123635a0f1cdb035bd9b518ebf07f0', '7a796358fa28fda910e0f28ded72ff79',
   ARRAY[$oenv0$  v_insurance_id uuid;
 $oenv0$,
         $oenv1$    PERFORM pg_advisory_xact_lock(hashtextextended(
@@ -232,9 +232,10 @@ $nenv1$,
        identity is (table, hand, player) whatever the kind: a second leg for
        the same player is the identity reuse it refuses unless it is the same
        payment), and a payout the bank cannot cover. The bank is chosen as the
-       call chooses it; the cover is read without a lock and net of the
-       payouts already stored for that union, which its debit door reserves
-       (20261118071728). */
+       call chooses it and stored with the leg (the union of the game at hand
+       time, as for rake); the cover is read net of the payouts already stored
+       for that union, under the union's 'insurance-bank:' lock (below), which
+       its debit door and the banker take too (20261118071728). */
     PERFORM COALESCE((v_item->>'insured_amount')::numeric, 0),
             COALESCE((v_item->>'player_won')::boolean, false),
             v_commit.hand_number::integer;
@@ -257,6 +258,22 @@ $nenv1$,
     END IF;
     v_insurance_delta := round(COALESCE((v_item->>'premium')::numeric, 0), 2)
                        - round(COALESCE((v_item->>'payout')::numeric, 0), 2);
+    /* ONE COVERAGE DECISION AT A TIME PER UNION BANK (20261118071736). A net
+       payout is checked against insurance_wallet net of the payouts already
+       stored, and the bank's debit door (fn_union_debit_wallet_zd3core) and
+       the banker take the same 'insurance-bank:' lock, so no two of them
+       decide on the same balance. The envelope only TRIES it: it already
+       holds this table's hand locks and, from promo play-through, players'
+       club_members rows, and another envelope holding the bank lock goes on
+       to credit add-on refunds to players' rows, so a waiting lock here could
+       close a cycle. Busy fails this envelope with lock_not_available; the
+       hand's continuation runs it again and then decides on the committed
+       balance. Taken only for a net payout to a union bank. */
+    IF v_insurance_delta < 0 AND v_insurance_union IS NOT NULL
+       AND NOT pg_try_advisory_xact_lock(hashtextextended('insurance-bank:' || v_insurance_union::text, 0)) THEN
+      RAISE EXCEPTION 'insurance bank % is busy deciding another payout or debit (hand %)',
+        v_insurance_union, p_hand_id USING ERRCODE = '55P03';
+    END IF;
     IF v_insurance_delta < 0 AND v_insurance_union IS NOT NULL
        AND COALESCE((SELECT w.insurance_wallet FROM public.union_wallets w
                       WHERE w.union_id = v_insurance_union), 0)

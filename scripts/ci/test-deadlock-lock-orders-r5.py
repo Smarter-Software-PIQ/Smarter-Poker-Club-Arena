@@ -799,11 +799,11 @@ BANK_POST = {
     'fn_rake_bbj_invariants': '2a8c79452ced863cfb15364d1e62a40c',
     'fn_project_hand_side_effects': '39d043cda727119e0a6d883a3fb25d50',
     'trg_finish_hand_post_commit_obligations': '2d9d0d7cab537e608da36be3319e347e',
-    'fn_ca_process_hand_post_commit_obligations': 'd41bfee494141a366d72d3649a0208e5',
+    'fn_ca_process_hand_post_commit_obligations': '7a796358fa28fda910e0f28ded72ff79',
 }
 BANK_POST_EXTRA = {
     'fn_post_commit_stranded_watchdog': 'a16ceda2073f0dbb3cd28feb841106e9',
-    'fn_union_debit_wallet_zd3core': '09f80760439fe2e2883dcbc95ad00bf5',
+    'fn_union_debit_wallet_zd3core': 'c0f1ac2ac14a3790e563b8aec961d297',
     'record_insurance_transaction': '6724ca97c0afc65959b02f24caffa106',
 }
 
@@ -1210,12 +1210,29 @@ def prove_bad_obligations_still_fail_the_envelope():
                              + f"\nSELECT public.fn_ca_process_hand_post_commit_obligations('{moved[0]}');"
                              + f"\nUPDATE clubs SET union_id = NULL WHERE id = '{RC}';"
                              + f"\nSELECT public.fn_ca_bank_pending_hand_obligations('{moved[0]}')->>'status';"
-                             + f"\nSELECT (p.club_id = '{RC}')::text || '|' || (p.union_id IS NULL)::text FROM bbj_contributions b"
+                             + f"\nSELECT (p.id = '{BANK_POOL}')::text FROM bbj_contributions b"
                              + f" JOIN bbj_pools p ON p.id = b.pool_id WHERE b.hand_id = '{moved[0]}';\nROLLBACK;\n")
-    check('hand bank: the banker reads the club\'s union when it banks: a club that left its union while the drop '
-          'waited banks it to its own pool, never to the union it left',
-          r.returncode == 0 and r.stdout.strip().splitlines()[-2:] == ['banked', 'true|true'],
+    check('hand bank: UNION LAW, a drop banks to the union of the game at hand time even if the club left it '
+          'while the drop waited',
+          r.returncode == 0 and r.stdout.strip().splitlines()[-2:] == ['banked', 'true'],
           (r.stdout[-300:], r.stderr[-300:]))
+    closed = ('f0000000-0000-0000-0000-0000000000bc', RT2, 702, '1.00', '0.50', '20.00', {RP1: 10.0, RP2: 10.0}, [])
+    r = subprocess.run(list(map(str, psql('bankbad'))), text=True, capture_output=True, env=env,
+                       input=f"BEGIN;\nUPDATE clubs SET union_id = NULL WHERE id = '{RC}';\n"
+                             + f"INSERT INTO bbj_pools(club_id, status) VALUES ('{RC}', 'active');\n"
+                             + bank_accept_sql(closed)
+                             + f"\nSELECT public.fn_ca_process_hand_post_commit_obligations('{closed[0]}')->>'ok';"
+                             # the club joins the union: its pool is retired into its treasury
+                             + f"\nUPDATE bbj_pools SET status = 'retired' WHERE club_id = '{RC}';"
+                             + f"\nUPDATE clubs SET union_id = '{RU}' WHERE id = '{RC}';"
+                             + f"\nSELECT b->>'status', b->'items'->0->>'error' FROM "
+                             + f"public.fn_ca_bank_pending_hand_obligations('{closed[0]}') b;"
+                             + "\nSELECT count(*) FROM bbj_pools WHERE status = 'active' AND club_id IS NOT NULL;\nROLLBACK;\n")
+    lines = r.stdout.strip().splitlines()
+    check('hand bank: a standalone club\'s drop whose pool was retired on joining a union is refused by name, '
+          'never banked to a new orphan pool',
+          r.returncode == 0 and lines[-3] == 'true' and lines[-2].startswith('refused|bbj_club_pool_closed_on_union_join')
+          and lines[-1] == '0', (r.stdout[-400:], r.stderr[-300:]))
     check('hand bank: the same leg repeated is one receipt, as the call returned it before',
           ok.get('ok') is True and run('bankbad', "SELECT count(*) FROM hand_bank_obligation_pending "
                                                   "WHERE kind = 'insurance'") == '1', ok)
@@ -1274,6 +1291,118 @@ COMMIT;""")
                                    + "', 20, 0, 10, 99999, true, 'insurance');\nROLLBACK;\n")
     check('hand bank race: a payout the bank row cannot cover is still refused by the CHECK',
           refused.returncode != 0 and 'union_wallets_insurance_wallet_nonneg' in refused.stderr, refused.stderr[-300:])
+
+
+INS_STUBS = """
+ALTER TABLE union_wallet_transactions ADD COLUMN period_id uuid, ADD COLUMN created_by uuid;
+CREATE FUNCTION fn_ca_union_wallet_ledger_shape(p_tx_type text, OUT category text, OUT counterparty text)
+LANGUAGE sql AS $$ SELECT 'withdrawal'::text, 'system_mint'::text $$;
+CREATE FUNCTION fn_ca_declare_ledger(p_category text, p_counterparty text) RETURNS void LANGUAGE sql AS $$
+  SELECT set_config('app.ledger_category', p_category, true), set_config('app.ledger_counterparty', p_counterparty, true);
+  SELECT NULL::void $$;
+"""
+
+
+def insurance_database(db):
+    fixture = json.loads(RAKE_FIXTURE.read_text())
+    extra = json.loads(BANK_FIXTURE.read_text())
+    bank_database(db, fixture, extra)
+    run(db, (MIGRATIONS / BANK_PART1).read_text())
+    run(db, (MIGRATIONS / BANK_SWITCH).read_text())
+    run(db, INS_STUBS)
+
+
+def payout_hand(n, table, number):
+    # A net payout of 8.00 from the union's insurance bank (which holds 10.00).
+    return ('f1000000-0000-0000-0000-00000000000' + str(n), table, number, '1.00', '0.50', '20.00',
+            {RP1: 10.0, RP2: 10.0}, [('0.00', '8.00')])
+
+
+ENVELOPE_SQL = "SELECT public.fn_ca_process_hand_post_commit_obligations('{}')"
+DEBIT_SQL = (f"SELECT public.fn_union_debit_wallet_zd3core('{RU}', 'insurance', 10, 'withdrawal', NULL, NULL, "
+             "'operator debit', NULL)")
+
+
+def prove_insurance_payouts_never_overcommit_the_bank():
+    """The envelope's coverage check, the bank's debit door and the banker
+    decide one at a time per union ('insurance-bank:' lock). A payout that
+    loses the race is refused AT THE ENVELOPE, never stored to fail later."""
+    deadlocks_before = deadlocks()
+    # 1. The operator's debit decides first; the envelope finds it busy, then refuses on the committed balance.
+    insurance_database('insdoor')
+    h = payout_hand(1, RT1, 801)
+    bank_accept('insdoor', h)
+    door = spawn('insdoor', 'BEGIN;\n' + DEBIT_SQL + ";\n")
+    first = json.loads(door.stdout.readline())
+    check('hand bank insurance: the operator debit holds the bank', first.get('success') is True, first)
+    started = time.monotonic()
+    busy = subprocess.run(list(map(str, psql('insdoor'))), text=True, capture_output=True, env=env,
+                          input=ENVELOPE_SQL.format(h[0]) + ';')
+    check('hand bank insurance: the envelope never waits for the bank, it is told busy',
+          busy.returncode != 0 and 'is busy deciding another payout or debit' in busy.stderr
+          and time.monotonic() - started < 1.0, busy.stderr[-300:])
+    send(door, 'COMMIT;\n')
+    finish(door)
+    again = subprocess.run(list(map(str, psql('insdoor'))), text=True, capture_output=True, env=env,
+                           input=ENVELOPE_SQL.format(h[0]) + ';')
+    check('hand bank insurance: debit first, then the payout is refused at the envelope (nothing stored to fail later)',
+          again.returncode != 0 and 'exceeds the union insurance bank' in again.stderr
+          and run('insdoor', 'SELECT count(*) FROM hand_bank_obligation_pending') == '0'
+          and run('insdoor', f"SELECT round(insurance_wallet, 2) FROM union_wallets WHERE union_id = '{RU}'") == '0.00',
+          again.stderr[-300:])
+    check('hand bank insurance: the refused hand is a stranded envelope, as before #11256 (the watchdog pages it)',
+          run('insdoor', f"SELECT post_commit_completed_at IS NULL FROM hand_atomic_commits WHERE hand_id = '{h[0]}'")
+          == 't')
+
+    # 2. The envelope decides first; the operator debit waits for it and then sees the stored payout reserved.
+    insurance_database('insenv')
+    h = payout_hand(2, RT1, 802)
+    bank_accept('insenv', h)
+    env1 = spawn('insenv', 'BEGIN;\n' + ENVELOPE_SQL.format(h[0]) + ";\n")
+    stored = json.loads(env1.stdout.readline())
+    check('hand bank insurance: the envelope stores the payout and holds the bank decision',
+          stored.get('ok') is True and stored.get('insurance') == 1, stored)
+    debit = spawn('insenv', DEBIT_SQL + ';\n')
+    time.sleep(1.0)
+    check('hand bank insurance: the operator debit waits for the envelope deciding the same bank',
+          debit.poll() is None)
+    send(env1, 'COMMIT;\n')
+    finish(env1)
+    status, out, err = finish(debit)
+    refused = json.loads(out) if status == 0 and out else {}
+    check('hand bank insurance: payout first, then the debit sees it reserved and is refused',
+          refused.get('success') is False and refused.get('error') == 'insufficient balance'
+          and float(refused.get('reserved_for_pending_payouts', 0)) == 8.0, {'out': out, 'err': err[-300:]})
+    banked = json.loads(run('insenv', f"SELECT public.fn_ca_bank_pending_hand_obligations('{h[0]}')"))
+    check('hand bank insurance: the stored payout banks',
+          banked.get('status') == 'banked'
+          and run('insenv', f"SELECT round(insurance_wallet, 2) FROM union_wallets WHERE union_id = '{RU}'") == '2.00', banked)
+
+    # 3. Two tables each pay 8.00 against a 10.00 bank: the second is refused at its envelope.
+    insurance_database('instwo')
+    ha, hb = payout_hand(3, RT1, 803), payout_hand(4, RT2, 804)
+    bank_accept('instwo', ha)
+    bank_accept('instwo', hb)
+    env_a = spawn('instwo', 'BEGIN;\n' + ENVELOPE_SQL.format(ha[0]) + ";\n")
+    check('hand bank insurance: table 1 stores its payout', json.loads(env_a.stdout.readline()).get('ok') is True)
+    started = time.monotonic()
+    busy = subprocess.run(list(map(str, psql('instwo'))), text=True, capture_output=True, env=env,
+                          input=ENVELOPE_SQL.format(hb[0]) + ';')
+    check('hand bank insurance: table 2 is told busy at once, not made to wait',
+          busy.returncode != 0 and 'is busy deciding' in busy.stderr and time.monotonic() - started < 1.0,
+          busy.stderr[-300:])
+    send(env_a, 'COMMIT;\n')
+    finish(env_a)
+    again = subprocess.run(list(map(str, psql('instwo'))), text=True, capture_output=True, env=env,
+                           input=ENVELOPE_SQL.format(hb[0]) + ';')
+    check('hand bank insurance: table 2 is refused at its envelope, the bank is never overcommitted',
+          again.returncode != 0 and 'exceeds the union insurance bank' in again.stderr
+          and run('instwo', "SELECT count(*), round(sum(felt_amount), 2) FROM hand_bank_obligation_pending WHERE kind = 'insurance'") == '1|-8.00',
+          again.stderr[-300:])
+    banked = json.loads(run('instwo', f"SELECT public.fn_ca_bank_pending_hand_obligations('{ha[0]}')"))
+    check('hand bank insurance: the one stored payout banks, and none of these runs deadlocked',
+          banked.get('status') == 'banked' and deadlocks() == deadlocks_before
+          and run('instwo', f"SELECT round(insurance_wallet, 2) FROM union_wallets WHERE union_id = '{RU}'") == '2.00', banked)
 
 
 try:
@@ -1338,6 +1467,7 @@ try:
     prove_hand_bank_never_waits_on_the_union_pool()
     prove_bad_obligations_still_fail_the_envelope()
     prove_first_insurance_legs_still_merge()
+    prove_insurance_payouts_never_overcommit_the_bank()
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')
