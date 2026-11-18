@@ -1,4 +1,7 @@
-import { hasPromoWithdrawalRestriction } from '../utils/promoPlayThroughVisibility';
+import {
+  hasPromoRestrictionDetails,
+  hasPromoWithdrawalRestriction,
+} from '../utils/promoPlayThroughVisibility';
 import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
 import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
 import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
@@ -2084,6 +2087,10 @@ export default function ClubMembersPage() {
                     ? undefined
                     : (promoProgress.members?.[member.user_id] ?? null)
                 }
+                onCheckPromo={member.can_view_financials ? promoProgress.checkMember : undefined}
+                promoRequested={promoProgress.requestedIds.includes(member.user_id)}
+                promoLoading={promoProgress.loading}
+                promoError={promoProgress.error}
                 position={virtual.startIndex + index + 1}
                 total={filteredTotal}
                 query={debouncedSearch}
@@ -2137,6 +2144,10 @@ function highlight(value: string, query: string) {
 export const MemberRow = memo(function MemberRow({
   member,
   promo,
+  onCheckPromo,
+  promoRequested,
+  promoLoading,
+  promoError,
   position,
   total,
   query,
@@ -2169,6 +2180,10 @@ export const MemberRow = memo(function MemberRow({
   secondaryWinLossLabel?: string;
   member: RosterMember;
   promo?: PromoPlayThroughSummary | null;
+  onCheckPromo?: (userId: string) => void;
+  promoRequested?: boolean;
+  promoLoading?: boolean;
+  promoError?: boolean;
   position: number;
   total: number;
   query: string;
@@ -2250,7 +2265,32 @@ export const MemberRow = memo(function MemberRow({
                 {highlight(member.upline_name, query)}
               </span>
             )}
-            {member.can_view_financials && <PromoPlayThroughInline summary={promo} />}
+            {member.can_view_financials && (
+              <>
+                {promo && <PromoPlayThroughInline summary={promo} />}
+                {onCheckPromo && (
+                  <button
+                    type="button"
+                    className="promo-progress__retry member-row__promo-check"
+                    onClick={() => onCheckPromo(member.user_id)}
+                    disabled={promoRequested && promoLoading}
+                  >
+                    {promoRequested
+                      ? promoLoading
+                        ? 'Reading Promo Progress...'
+                        : 'Refresh Promo Progress'
+                      : 'Check Promo Progress'}
+                  </button>
+                )}
+                {promoRequested &&
+                  !promoLoading &&
+                  (promoError ? (
+                    <span role="status">Promo Progress Is Unavailable.</span>
+                  ) : !promo || !hasPromoRestrictionDetails(promo) ? (
+                    <span role="status">No Current Promo Restrictions.</span>
+                  ) : null)}
+              </>
+            )}
           </span>
           <span className="member-subline">
             {(!simpleMode || member.role !== 'player') && (
