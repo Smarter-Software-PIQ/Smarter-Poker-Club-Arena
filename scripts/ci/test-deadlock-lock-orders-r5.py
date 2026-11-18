@@ -413,6 +413,381 @@ COMMIT;
     return deadlocks() - before, r, b
 
 
+
+# ---- cash rake pending (20261118034950 + 20261118035606) --------------------
+RAKE_FIXTURE = ROOT / 'scripts/ci/fixtures/cash-rake-pending/live-definitions.json'
+RAKE_PART1 = '20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql'
+RAKE_SWITCH = '20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql'
+RAKE_POST = {
+    'fn_ca_tally_balance_move': 'c8c24d5a2c098d3189127e9e870601a3',
+    'fn_ca_supply_snapshot': '549b78dd66f1596b0942db37cef95298',
+    'fn_ca_account_balance': 'f100348cb3e5e641017819066fa18d40',
+    'fn_rake_bbj_invariants': 'd23a4053d2578ce628381f87e9c20652',
+    'fn_project_hand_side_effects': '16dea593b5f2c2b22052c8752d9aba7c',
+    'trg_finish_hand_post_commit_obligations': 'bcd517670b65faed6e30ac80bef50e98',
+    'fn_ca_process_hand_post_commit_obligations': 'da123635a0f1cdb035bd9b518ebf07f0',
+}
+RU = 'fade0000-0000-0000-0000-000000000001'
+RC = 'a0000000-0000-0000-0000-0000000000c1'
+RT1 = 'c0000000-0000-0000-0000-0000000000a1'
+RT2 = 'c0000000-0000-0000-0000-0000000000a2'
+RP1 = '10000000-0000-0000-0000-00000000000a'
+RP2 = '20000000-0000-0000-0000-00000000000b'
+# hand id, table, hand number, rake, pot, contributions
+RAKE_HANDS = [
+    ('d0000000-0000-0000-0000-000000000001', RT1, 101, '1.25', '25.00', {RP1: 12.5, RP2: 12.5}),
+    ('d0000000-0000-0000-0000-000000000002', RT2, 201, '0.37', '7.40', {RP1: 2.4, RP2: 5.0}),
+    ('d0000000-0000-0000-0000-000000000003', RT1, 102, '3.00', '90.00', {RP1: 60.0, RP2: 30.0}),
+]
+
+# The tables and helpers the real functions touch, with production's column
+# names. Money triggers are the real ones: the autoledger, both tally triggers
+# and the deferred ledger invariant, in refuse mode as on production.
+RAKE_SCHEMA = f"""
+CREATE SCHEMA auth; CREATE SCHEMA extensions; CREATE SCHEMA smarter_private;
+CREATE EXTENSION pgcrypto SCHEMA extensions;
+CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT 'service_role'::text$$;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$SELECT NULL::uuid$$;
+CREATE FUNCTION smarter_private.f06_wait_table_lane(uuid) RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;
+CREATE TABLE unions(id uuid PRIMARY KEY);
+CREATE TABLE clubs(id uuid PRIMARY KEY, name text, union_id uuid, asset text NOT NULL DEFAULT 'chips');
+CREATE TABLE tournaments(id uuid PRIMARY KEY, is_private boolean, union_id uuid);
+CREATE TABLE tables(id uuid PRIMARY KEY, club_id uuid, union_id uuid, is_private boolean DEFAULT false,
+  tournament_id uuid);
+CREATE TABLE table_seats(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), table_id uuid, user_id uuid,
+  stack numeric, left_at timestamptz);
+CREATE TABLE hand_history(id uuid PRIMARY KEY, table_id uuid, hand_number bigint, players jsonb,
+  created_at timestamptz DEFAULT now());
+CREATE TABLE hand_atomic_commits(table_id uuid NOT NULL, hand_number bigint NOT NULL, hand_id uuid PRIMARY KEY,
+  payload_hash text NOT NULL, stack_result jsonb NOT NULL, committed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  post_commit_payload jsonb, post_commit_request_hash text, post_commit_payload_hash text,
+  post_commit_completed_at timestamptz, post_commit_result jsonb);
+CREATE TABLE hand_projection_outbox(hand_id uuid PRIMARY KEY, table_id uuid, hand_number bigint);
+CREATE TABLE table_pending_addons(id uuid PRIMARY KEY, table_id uuid, amount numeric, resolved_at timestamptz,
+  applied_to_stack numeric, refunded numeric);
+CREATE TABLE rake_records(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hand_id uuid, table_id uuid, club_id uuid,
+  rake_amount numeric NOT NULL DEFAULT 0, bbj_contribution numeric DEFAULT 0, pot_size numeric, num_players integer,
+  created_at timestamptz DEFAULT now(), player_contributions jsonb, is_tournament boolean NOT NULL DEFAULT false,
+  tournament_id uuid, source text DEFAULT 'cash_game', metadata jsonb, rake_method text NOT NULL DEFAULT 'DEALT_EQUAL',
+  returned_uncalled jsonb);
+CREATE UNIQUE INDEX uq_rake_records_hand_id ON rake_records(hand_id) WHERE hand_id IS NOT NULL;
+CREATE TABLE rake_attributions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hand_id uuid NOT NULL,
+  player_id uuid NOT NULL, rake_amount numeric NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+  rake_record_id uuid, table_id uuid, club_id uuid, gross_contribution numeric,
+  returned_uncalled numeric NOT NULL DEFAULT 0, eligible_contribution numeric, contribution_weight numeric,
+  weighted_rake_credit numeric, bbj_attributed_contribution numeric NOT NULL DEFAULT 0, rake_method text,
+  UNIQUE (hand_id, player_id));
+CREATE TABLE rake_distribution_legs(leg_key uuid NOT NULL, leg text NOT NULL, club_id uuid, union_id uuid,
+  amount numeric, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (leg_key, leg));
+CREATE TABLE club_table_rake_totals(club_id uuid NOT NULL, table_id uuid NOT NULL,
+  rake_collected numeric NOT NULL DEFAULT 0, bbj_contribution numeric NOT NULL DEFAULT 0, hands bigint NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (club_id, table_id));
+CREATE TABLE club_wallets(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), club_id uuid NOT NULL UNIQUE,
+  chip_balance numeric NOT NULL DEFAULT 0);
+CREATE TABLE club_wallet_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), club_id uuid NOT NULL,
+  type text NOT NULL, amount numeric NOT NULL, balance_after numeric NOT NULL, related_id uuid, reason text,
+  created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE union_wallets(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), union_id uuid NOT NULL UNIQUE,
+  chip_balance numeric NOT NULL DEFAULT 0, rake_wallet numeric DEFAULT 0, bbj_wallet numeric DEFAULT 0,
+  promo_wallet numeric DEFAULT 0, insurance_wallet numeric DEFAULT 0, total_rake_collected numeric DEFAULT 0,
+  total_settlements numeric DEFAULT 0, updated_at timestamptz DEFAULT now(), created_at timestamptz DEFAULT now(),
+  spin_reserve_wallet numeric NOT NULL DEFAULT 0);
+CREATE TABLE union_wallet_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), union_id uuid NOT NULL,
+  wallet text NOT NULL, direction text NOT NULL, amount numeric NOT NULL, balance_after numeric, tx_type text NOT NULL,
+  club_id uuid, notes text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE accounting_cash_bank_receipts(rake_record_id uuid NOT NULL REFERENCES rake_records(id), union_id uuid,
+  club_id uuid NOT NULL, union_transaction_id uuid REFERENCES union_wallet_transactions(id), club_ledger_id uuid,
+  banked_at timestamptz NOT NULL, amount numeric NOT NULL);
+CREATE TABLE chip_ledger(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), performed_by uuid, from_type text NOT NULL,
+  from_entity_id uuid, from_label text, to_type text NOT NULL, to_entity_id uuid, to_label text, amount numeric NOT NULL,
+  category text NOT NULL DEFAULT 'transfer', description text, club_id uuid, union_id uuid, table_id uuid, hand_id uuid,
+  tournament_id uuid, created_at timestamptz NOT NULL DEFAULT now(), pre_from_balance numeric, post_from_balance numeric,
+  pre_to_balance numeric, post_to_balance numeric, status text NOT NULL DEFAULT 'posted', metadata jsonb);
+CREATE TABLE financial_alerts(id bigserial PRIMARY KEY, severity text, source text, message text, context jsonb);
+CREATE TABLE accounting_routed_settlement_runs(period_start timestamptz, period_end timestamptz, union_id uuid,
+  standalone_club_id uuid);
+CREATE TABLE union_rakeback_log(union_id uuid, period_start timestamptz, period_end timestamptz);
+CREATE TABLE ca_ledger_invariant_mode(mode text NOT NULL);
+INSERT INTO ca_ledger_invariant_mode VALUES ('refuse');
+CREATE TABLE ca_ledger_invariant_store_mode(store text PRIMARY KEY, mode text NOT NULL);
+CREATE TABLE ca_ledger_invariant_findings(txid xid8, account_key text, balance_delta numeric, ledger_net numeric,
+  mode text, actor_service text, db_role text, statement text, found_at timestamptz DEFAULT now(),
+  PRIMARY KEY (txid, account_key));
+CREATE TABLE ca_declared_money_triggers(table_name text, trigger_name text, declared_at timestamptz DEFAULT now(),
+  note text, PRIMARY KEY (table_name, trigger_name));
+CREATE TABLE guard_redefinitions(proname text, ref text);
+CREATE TABLE union_pnl_cash_outcomes(table_id uuid, hand_number bigint, evidence jsonb);
+
+CREATE FUNCTION fn_ca_ledger_refusal_record(jsonb) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
+CREATE FUNCTION fn_ca_declare_guard_redefinition(p_proname text, p_ref text) RETURNS text LANGUAGE sql
+  AS $$ INSERT INTO guard_redefinitions VALUES (p_proname, p_ref) RETURNING p_proname $$;
+CREATE FUNCTION fn_ca_refuse_replica_money_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$;
+CREATE FUNCTION fn_ca_block_browser_money_table() RETURNS trigger LANGUAGE plpgsql
+  AS $$ BEGIN RETURN COALESCE(NEW, OLD); END $$;
+CREATE FUNCTION fn_cash_earning_club(uuid, uuid, uuid, p_club uuid, uuid) RETURNS uuid LANGUAGE sql
+  AS $$ SELECT p_club $$;
+CREATE FUNCTION fn_project_hand_side_effects_after_post_commit_20260908(p_hand_id uuid) RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+  DELETE FROM hand_projection_outbox WHERE hand_id = p_hand_id;
+  RETURN jsonb_build_object('ok', true, 'hand_id', p_hand_id);
+END $$;
+
+INSERT INTO unions VALUES ('{RU}');
+INSERT INTO clubs(id, name, union_id) VALUES ('{RC}', 'Harness Club', '{RU}');
+INSERT INTO tables(id, club_id, union_id) VALUES ('{RT1}', '{RC}', '{RU}'), ('{RT2}', '{RC}', '{RU}');
+INSERT INTO club_wallets(club_id, chip_balance) VALUES ('{RC}', 50);
+"""
+
+# Attached after the real functions exist. Seeding balances happens with the
+# triggers in place and a declared mint, so the opening state is journalled.
+RAKE_TRIGGERS = f"""
+CREATE TRIGGER trg_ca_autoledger AFTER INSERT OR UPDATE OF chip_balance, rake_wallet, bbj_wallet, promo_wallet,
+  insurance_wallet, spin_reserve_wallet ON union_wallets FOR EACH ROW EXECUTE FUNCTION fn_ca_autoledger(
+  'chip_balance=union_bank', 'rake_wallet=union_wallet', 'bbj_wallet=union_wallet', 'promo_wallet=union_wallet',
+  'insurance_wallet=union_wallet', 'spin_reserve_wallet=union_wallet');
+CREATE TRIGGER zy_ca_tally_balance_move AFTER INSERT OR DELETE OR UPDATE OF chip_balance, rake_wallet, bbj_wallet,
+  promo_wallet, insurance_wallet, spin_reserve_wallet, union_id ON union_wallets
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_tally_balance_move();
+CREATE CONSTRAINT TRIGGER zz_ca_balance_has_its_ledger_row AFTER INSERT OR DELETE OR UPDATE OF chip_balance,
+  rake_wallet, bbj_wallet, promo_wallet, insurance_wallet, spin_reserve_wallet, union_id ON union_wallets
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_ca_balance_has_its_ledger_row();
+CREATE TRIGGER zy_ca_tally_ledger_leg AFTER INSERT ON chip_ledger
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_tally_ledger_leg();
+CREATE CONSTRAINT TRIGGER zz_ca_ledger_row_has_its_balance AFTER INSERT ON chip_ledger
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_ca_balance_has_its_ledger_row();
+CREATE TRIGGER zy_ca_tally_balance_move AFTER INSERT OR UPDATE OF post_commit_payload, post_commit_completed_at,
+  stack_result, table_id OR DELETE ON hand_atomic_commits FOR EACH ROW EXECUTE FUNCTION fn_ca_tally_balance_move();
+CREATE CONSTRAINT TRIGGER zz_ca_balance_has_its_ledger_row AFTER INSERT OR UPDATE OF post_commit_payload,
+  post_commit_completed_at, stack_result, table_id OR DELETE ON hand_atomic_commits
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_ca_balance_has_its_ledger_row();
+CREATE TRIGGER zy_ca_tally_balance_move AFTER INSERT OR DELETE OR UPDATE OF stack, left_at, table_id ON table_seats
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_tally_balance_move();
+CREATE CONSTRAINT TRIGGER zz_ca_balance_has_its_ledger_row AFTER INSERT OR DELETE OR UPDATE OF stack, left_at,
+  table_id ON table_seats DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_ca_balance_has_its_ledger_row();
+CREATE TRIGGER a0_finish_hand_post_commit_obligations BEFORE DELETE ON hand_projection_outbox
+  FOR EACH ROW EXECUTE FUNCTION trg_finish_hand_post_commit_obligations();
+
+BEGIN;
+SELECT set_config('app.ledger_category', 'mint', true), set_config('app.ledger_counterparty', 'system_mint', true);
+INSERT INTO union_wallets(union_id, rake_wallet, promo_wallet, total_rake_collected) VALUES ('{RU}', 100, 1000, 100);
+INSERT INTO chip_ledger(from_type, to_type, to_entity_id, amount, category, table_id)
+VALUES ('system_mint', 'table_stack', '{RT1}', 500, 'mint', '{RT1}'),
+       ('system_mint', 'table_stack', '{RT2}', 500, 'mint', '{RT2}');
+INSERT INTO table_seats(table_id, user_id, stack) VALUES ('{RT1}', '{RP1}', 500), ('{RT2}', '{RP1}', 500);
+COMMIT;
+"""
+
+
+def rake_accept(db, hand):
+    """The accepted-hand transaction: the seats pay the rake, the receipt
+    carries it as felt, the outbox row is the continuation."""
+    hand_id, table, number, rake, pot, contributions = hand
+    payload = json.dumps({
+        'time_banks': [], 'bbj_contribution': None, 'promo_playthrough': [], 'insurance': [], 'pending_addons': None,
+        'rake': {'amount': float(rake), 'club_id': RC, 'bbj': 0, 'pot': pot, 'num_players': 2,
+                 'contributions': contributions, 'returned_uncalled': {}, 'method': 'WEIGHTED_CONTRIBUTED'}})
+    run(db, f"""
+BEGIN;
+INSERT INTO hand_history(id, table_id, hand_number, players)
+VALUES ('{hand_id}', '{table}', {number}, '[{{"userId":"{RP1}"}},{{"userId":"{RP2}"}}]');
+UPDATE table_seats SET stack = stack - {rake} WHERE table_id = '{table}';
+INSERT INTO hand_atomic_commits(table_id, hand_number, hand_id, payload_hash, stack_result, post_commit_payload,
+  post_commit_payload_hash)
+SELECT '{table}', {number}, '{hand_id}', 'h', jsonb_build_object('rake', {rake}, 'bbj', 0, 'inflow', 0), p,
+       encode(extensions.digest(convert_to(p::text, 'UTF8'), 'sha256'), 'hex')
+  FROM (SELECT $j${payload}$j$::jsonb AS p) x;
+INSERT INTO hand_projection_outbox VALUES ('{hand_id}', '{table}', {number});
+COMMIT;
+""")
+
+
+RAKE_BOOKS = f"""
+SELECT jsonb_build_object(
+ 'wallet', (SELECT jsonb_build_array(rake_wallet, total_rake_collected, promo_wallet, chip_balance)
+              FROM union_wallets WHERE union_id = '{RU}'),
+ 'rake_records', (SELECT jsonb_agg(jsonb_build_array(hand_id, table_id, club_id, rake_amount, bbj_contribution,
+     pot_size, num_players, player_contributions, is_tournament, source, metadata, rake_method, returned_uncalled)
+     ORDER BY hand_id) FROM rake_records),
+ 'attributions', (SELECT jsonb_agg(jsonb_build_array(hand_id, player_id, rake_amount, table_id, club_id,
+     gross_contribution, returned_uncalled, eligible_contribution, contribution_weight, weighted_rake_credit,
+     bbj_attributed_contribution, rake_method, rake_record_id IS NOT NULL) ORDER BY hand_id, player_id)
+     FROM rake_attributions),
+ 'legs', (SELECT jsonb_agg(jsonb_build_array(leg_key, leg, club_id, union_id, amount) ORDER BY leg_key, leg)
+     FROM rake_distribution_legs),
+ 'table_totals', (SELECT jsonb_agg(jsonb_build_array(club_id, table_id, rake_collected, bbj_contribution, hands)
+     ORDER BY table_id) FROM club_table_rake_totals),
+ 'club_transactions', (SELECT jsonb_agg(jsonb_build_array(club_id, type, amount, balance_after, related_id, reason)
+     ORDER BY related_id) FROM club_wallet_transactions),
+ 'union_transactions', (SELECT jsonb_agg(jsonb_build_array(t.union_id, t.club_id, t.amount, t.tx_type, t.wallet,
+     t.direction, t.balance_after, t.notes, r.hand_id) ORDER BY r.hand_id)
+     FROM union_wallet_transactions t
+     JOIN accounting_cash_bank_receipts b ON b.union_transaction_id = t.id
+     JOIN rake_records r ON r.id = b.rake_record_id),
+ 'bank_receipts', (SELECT jsonb_agg(jsonb_build_array(r.hand_id, b.union_id, b.club_id, b.amount, b.club_ledger_id,
+     b.banked_at = t.created_at, b.banked_at = r.created_at) ORDER BY r.hand_id)
+     FROM accounting_cash_bank_receipts b
+     JOIN rake_records r ON r.id = b.rake_record_id
+     LEFT JOIN union_wallet_transactions t ON t.id = b.union_transaction_id),
+ 'ledger', (SELECT jsonb_agg(x ORDER BY x) FROM (SELECT jsonb_build_array(from_type, from_entity_id, from_label,
+     to_type, to_entity_id = (SELECT id FROM union_wallets WHERE union_id = '{RU}'), to_label, amount, category,
+     club_id, union_id, description, pre_from_balance, post_from_balance,
+     pre_to_balance, post_to_balance) AS x
+     FROM chip_ledger WHERE category = 'rake') l),
+ 'ledger_rake_total', (SELECT sum(amount) FROM chip_ledger WHERE category = 'rake'),
+ 'envelopes', (SELECT jsonb_agg(jsonb_build_array(hand_id, post_commit_completed_at IS NOT NULL,
+     post_commit_result - 'hand_id') ORDER BY hand_id) FROM hand_atomic_commits),
+ 'outbox', (SELECT count(*) FROM hand_projection_outbox),
+ 'felt', (SELECT sum(stack) FROM table_seats),
+ 'alerts', (SELECT count(*) FROM financial_alerts),
+ 'findings', (SELECT count(*) FROM ca_ledger_invariant_findings))::text
+"""
+
+
+def rake_database(db, fixture):
+    run('postgres', f'CREATE DATABASE {db}')
+    run(db, RAKE_SCHEMA)
+    for name, f in fixture['functions'].items():
+        # Bodies are the production text; the readers reference tables this
+        # proof does not build, and are only replaced here, never run.
+        run(db, 'SET check_function_bodies = off;\n' + f['definition'] + ';')
+        run(db, f"REVOKE ALL ON FUNCTION {f['signature']} FROM PUBLIC;")
+        for grantee in re.findall(r'(\w+)=X/', f['acl'] or ''):
+            run(db, f"GRANT EXECUTE ON FUNCTION {f['signature']} TO {grantee};")
+        check(f"cash rake: {name} is the production text", md5(db, f['signature']) == f['md5'])
+    run(db, RAKE_TRIGGERS)
+
+
+def rake_hold_wallet(db):
+    """A long transaction that has touched the union's wallet row, as the
+    tournament settlement did (it debits promo_wallet early and stays open)."""
+    holder = spawn(db, f"BEGIN; SELECT 'held' FROM union_wallets WHERE union_id = '{RU}' FOR NO KEY UPDATE;\n")
+    check('cash rake: the wallet row is held', holder.stdout.readline().strip() == 'held')
+    return holder
+
+
+def prove_cash_rake_never_waits_on_the_union_wallet():
+    fixture = json.loads(RAKE_FIXTURE.read_text())
+    envelope = "SELECT public.fn_ca_process_hand_post_commit_obligations('{}')"
+    project = "SELECT public.fn_project_hand_side_effects('{}')"
+    h1, h2, h3 = RAKE_HANDS
+
+    # BEFORE: the installed functions. A held wallet row stops the envelope.
+    rake_database('rakepre', fixture)
+    for hand in RAKE_HANDS:
+        rake_accept('rakepre', hand)
+    holder = rake_hold_wallet('rakepre')
+    try:
+        waiting = spawn('rakepre', "SET lock_timeout = '1500ms';\n" + envelope.format(h1[0]) + ';\n')
+        status, _, error = finish(waiting)
+        check('cash rake: BEFORE, the hand envelope waits on the held wallet row and gives up',
+              status != 0 and 'lock timeout' in error
+              and run('rakepre', 'SELECT count(*) FROM hand_atomic_commits WHERE post_commit_completed_at IS NOT NULL') == '0',
+              error[-300:])
+    finally:
+        send(holder, 'ROLLBACK;\n')
+        finish(holder)
+    # The uncontended run on the installed functions is the reference books.
+    for hand in (h2, h1, h3):  # the order the AFTER run banks in
+        result = json.loads(run('rakepre', envelope.format(hand[0])))
+        check('cash rake: BEFORE, uncontended envelope banks the rake', result.get('ok') is True and result.get('rake') is True, result)
+        while True:
+            projected = json.loads(run('rakepre', project.format(hand[0])))
+            if projected.get('reason') != 'predecessor_pending':
+                break
+        check('cash rake: BEFORE, the hand projects', projected.get('ok') is True, projected)
+    reference = json.loads(run('rakepre', RAKE_BOOKS))
+    check('cash rake: the reference run banked every hand exactly once',
+          reference['wallet'][0] == 104.62 and reference['wallet'][1] == 104.62 and reference['ledger_rake_total'] == 4.62
+          and len(reference['rake_records']) == 3 and len(reference['union_transactions']) == 3
+          and all(row[5] and row[6] for row in reference['bank_receipts'])
+          and reference['outbox'] == 0 and reference['findings'] == 0, reference)
+
+    # AFTER: both migrations, exactly as written.
+    rake_database('rakepost', fixture)
+    run('rakepost', (MIGRATIONS / RAKE_PART1).read_text())
+    for name in list(RAKE_POST)[:6]:
+        check(f'cash rake: part 1 reproduces the postimage of {name}',
+              md5('rakepost', fixture['functions'][name]['signature']) == RAKE_POST[name])
+    refused = subprocess.run(list(map(str, psql('rakepost'))), input=(MIGRATIONS / RAKE_PART1).read_text(),
+                             text=True, capture_output=True, env=env)
+    check('cash rake: part 1 refuses a second run', refused.returncode != 0)
+    check('cash rake: the guard redefinitions are declared',
+          run('rakepost', "SELECT string_agg(proname, ',' ORDER BY proname) FROM guard_redefinitions")
+          == 'fn_ca_supply_snapshot,fn_ca_tally_balance_move')
+    for hand in RAKE_HANDS:
+        rake_accept('rakepost', hand)
+
+    # Part 1 alone is inert: the envelope still banks, nothing is stored.
+    inert = json.loads(run('rakepost', envelope.format(h2[0])))
+    check('cash rake: part 1 alone changes nothing (the envelope still banks, no row is stored)',
+          inert.get('ok') is True and run('rakepost', 'SELECT count(*) FROM cash_rake_pending') == '0'
+          and run('rakepost', f"SELECT rake_wallet FROM union_wallets WHERE union_id = '{RU}'") == '100.37')
+    while json.loads(run('rakepost', project.format(h2[0]))).get('reason') == 'predecessor_pending':
+        pass
+
+    run('rakepost', (MIGRATIONS / RAKE_SWITCH).read_text())
+    check('cash rake: the switch reproduces the postimage derived from production',
+          md5('rakepost', fixture['functions']['fn_ca_process_hand_post_commit_obligations']['signature'])
+          == RAKE_POST['fn_ca_process_hand_post_commit_obligations'])
+
+    holder = rake_hold_wallet('rakepost')
+    try:
+        started = time.monotonic()
+        held = spawn('rakepost', "SET lock_timeout = '1500ms';\n" + envelope.format(h1[0]) + ';\n')
+        status, output, error = finish(held)
+        elapsed = time.monotonic() - started
+        result = json.loads(output) if status == 0 and output else {}
+        check('cash rake: AFTER, the hand envelope completes while the wallet row is held',
+              status == 0 and result.get('ok') is True and result.get('rake') is True and elapsed < 1.0,
+              {'status': status, 'seconds': elapsed, 'error': error[-300:], 'result': result})
+        check('cash rake: the rake is stored on the felt, not banked, and nothing else moved',
+              run('rakepost', "SELECT string_agg(hand_id || ':' || amount, ',') FROM cash_rake_pending")
+              == f'{h1[0]}:1.25'
+              and run('rakepost', f"SELECT count(*) FROM rake_records WHERE hand_id = '{h1[0]}'") == '0')
+        started = time.monotonic()
+        busy = json.loads(run('rakepost', project.format(h1[0])))
+        check('cash rake: the continuation does not wait for the held wallet either, and keeps the obligation',
+              busy.get('ok') is False and busy.get('reason') == 'predecessor_pending'
+              and busy.get('detail') == 'cash_rake_pending' and busy['cash_rake']['status'] == 'busy'
+              and time.monotonic() - started < 1.0
+              and run('rakepost', 'SELECT count(*) FROM cash_rake_pending') == '1'
+              and run('rakepost', 'SELECT count(*) FROM hand_projection_outbox') == '2', busy)
+        started = time.monotonic()
+        nxt = json.loads(run('rakepost', "SET lock_timeout = '1500ms'; " + envelope.format(h3[0])))
+        check('cash rake: the next hand at the same table is not delayed either',
+              nxt.get('ok') is True and time.monotonic() - started < 1.0
+              and run('rakepost', 'SELECT count(*), sum(amount) FROM cash_rake_pending') == '2|4.25', nxt)
+        guarded = subprocess.run(list(map(str, psql('rakepost'))), text=True, capture_output=True, env=env,
+                                 input=f"DELETE FROM hand_projection_outbox WHERE hand_id = '{h1[0]}';")
+        check('cash rake: the outbox row cannot leave while its rake is pending',
+              guarded.returncode != 0 and 'hand rake remains pending' in guarded.stderr
+              and run('rakepost', 'SELECT count(*) FROM hand_projection_outbox') == '2', guarded.stderr[-300:])
+    finally:
+        send(holder, 'ROLLBACK;\n')
+        finish(holder)
+
+    for hand in (h1, h3):
+        banked = json.loads(run('rakepost', project.format(hand[0])))
+        check('cash rake: once the wallet is free the continuation banks the stored rake and ends its pass',
+              banked.get('reason') == 'predecessor_pending'
+              and banked.get('detail') == 'cash_rake_banked_in_this_transaction'
+              and banked['cash_rake']['status'] == 'banked' and banked['cash_rake']['applied'] is True, banked)
+        check('cash rake: the wallet is free again before statistics run',
+              run('rakepost', f"SELECT 1 FROM union_wallets WHERE union_id = '{RU}' FOR NO KEY UPDATE NOWAIT") == '1')
+        again = json.loads(run('rakepost', f"SELECT public.fn_ca_bank_pending_cash_rake('{hand[0]}')"))
+        check('cash rake: banking is once per hand', again.get('status') == 'absent', again)
+        projected = json.loads(run('rakepost', project.format(hand[0])))
+        check('cash rake: the next pass projects the hand', projected.get('ok') is True, projected)
+    after = json.loads(run('rakepost', RAKE_BOOKS))
+    check('cash rake: nothing is left pending', run('rakepost', 'SELECT count(*) FROM cash_rake_pending') == '0')
+    differing = sorted(k for k in reference if reference[k] != after[k])
+    check('cash rake: wallet, ledger, union transactions, bank receipts and every other row equal the '
+          'uncontended reference exactly', not differing,
+          {k: {'reference': reference[k], 'after': after[k]} for k in differing})
+
+
 try:
     command(as_owner + [pg / 'initdb', '-D', cluster / 'data', '-A', 'trust', '-U', 'postgres'])
     command(as_owner + [pg / 'pg_ctl', '-D', cluster / 'data', '-o',
@@ -467,6 +842,9 @@ try:
     check('proj: both hands wrote every pass exactly once', stats == f'{A}:2:1,{B}:2:1', stats)
 
     prove_projection_transaction_boundary('proj')
+
+    # ---- cash rake pending ---------------------------------------------
+    prove_cash_rake_never_waits_on_the_union_wallet()
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')
