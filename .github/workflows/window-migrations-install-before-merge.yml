@@ -87,6 +87,7 @@ jobs:
           sparse-checkout: |
             .github/pgdg
             .github/actions/install-postgres-17
+            scripts/ci/build_pg17_isolationtester.py
             scripts/dr
             scripts/ci/ubuntu-apt-mirror.py
             scripts/verification-harness/leaderboard-native-function-batch.mjs
