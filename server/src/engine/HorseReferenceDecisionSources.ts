@@ -69,6 +69,12 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the exact six-card count used by the Omaha facing-bet EV rule (PLO6 lane 2026-11-16): the barred-pair graph counted as an independence polynomial, equal to the walk it replaces on every tested hand; read only while a six-card hand is counted',
     'src/engine/HorsePlo6PricingPort.ts':
       'the PLO6 arms of the Omaha facing-bet EV and river medium-bet rules (PLO6 lane 2026-11-16, reached only with omahaStrategyInPlo6 on, default off and off-only): six cards on the river only, the measured river fold test stands over the EV call, and the medium-bet call uses the six-card beaten-share bars',
+    'src/engine/HorseOmahaPricedMode.ts':
+      'the default-off Omaha priced rules (owner 2026-11-17 11:49, no blanket rules): the mode of one decision and the continuous size inputs of the facing-bet range (omahaFacingBetRangeIsContinuous, omahaBluffShareFromBetRate); off outside a PLO4/PLO5 cash decision whose option is on',
+    'src/engine/HorseOmahaPricedRules.ts':
+      'the default-off Omaha priced rules: the three priced comparisons (raise, call or fold on the exact count; raise or call on sampled shares; bet or check on the card-impact model), the one opponent-read interface and the mixing probability',
+    'src/engine/HorseOmahaPricedWiring.ts':
+      'the default-off Omaha priced rules: the rule sites HorseLogic calls where a categorical PLO4/PLO5 cash rule acts (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaPricedMix); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaRiverNutRaise.ts':
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaReraisedPot.ts':

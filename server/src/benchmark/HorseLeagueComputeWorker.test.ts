@@ -16,6 +16,8 @@ import {
 } from './HorseLeagueComputeWorkerClient.js';
 import { runTournamentLeague } from './HorseTournamentLeague.js';
 import { runMatchup } from './HorseLeague.js';
+import { HORSE_MOOD_TEST_CLOCK_KEY } from '../engine/HorseLogic.js';
+import { PINNED_HORSE_MOOD_CLOCK_MS } from '../testing/theHorseMoodHourIsPinned.js';
 
 class FakeWorker extends EventEmitter {
   readonly sent: HorseLeagueComputeRequest[] = [];
@@ -380,7 +382,15 @@ describe('Horse League compute isolation', () => {
     // checked-out dist/ directory.
     const workerEntry = new URL('./HorseLeagueComputeWorker.ts', import.meta.url).href;
     const tsxApi = pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href;
+    // The suite pins the Horse mood hour on this thread's globalThis
+    // (src/testing/theHorseMoodHourIsPinned.ts). A worker has its own
+    // globalThis and read the wall clock, so the worker's result equalled the
+    // direct one only in the hours whose moods happened to change no decision
+    // of these 80 hands (it passed at 23:50Z and failed from 00:10Z on
+    // 2026-11-18 on the same commit, and on main). Both sides of the
+    // comparison play the same pinned hour.
     const bootstrap =
+      `globalThis[${JSON.stringify(HORSE_MOOD_TEST_CLOCK_KEY)}] = ${PINNED_HORSE_MOOD_CLOCK_MS};` +
       `import { register } from ${JSON.stringify(tsxApi)};` +
       `register(); await import(${JSON.stringify(workerEntry)});`;
     const worker = new Worker(new URL(`data:text/javascript,${encodeURIComponent(bootstrap)}`), {
@@ -400,6 +410,8 @@ describe('Horse League compute isolation', () => {
       a: {},
       b: { v12: false },
       mind: 'sandbox' as const,
+      // Vitest pins its own clock. The worker must price the same deals at the same hours.
+      moodClock: 'deal_seed' as const,
     };
     const direct = await runMatchup(matchup, 40, 0x5eed);
 

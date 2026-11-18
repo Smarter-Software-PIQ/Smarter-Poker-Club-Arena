@@ -2056,6 +2056,63 @@ async function runHumanFieldMatchup(
 // V12.2: the two `mind: 'sandbox'` matchups run with the full HorseMind live
 // against isolated state (see runInSandbox) — the gap that used to force v12
 // to be validated only by seeded equity-shift tests in HorseEval is closed.
+/**
+ * The Horse options production switched on on 2026-11-16 (archive
+ * plo-handoff-review-01a1cbbd/activation-0106z/ON-LIST.txt): the base of both
+ * arms of the Omaha priced-rule cards, whose options act where these are on.
+ */
+export const OMAHA_LIVE_OPTIONS_20261116: HorseDecideOpts = Object.freeze({
+  horseActionTimeIsPublicOnly: true,
+  omahaBareOverpairOopFlopCheck: true,
+  omahaBigBetIsPotShare: true,
+  omahaBigDrawAggression: true,
+  omahaBluffCatcherFoldVsValueLeader: true,
+  omahaCardImpact: true,
+  omahaEliteContinuesVsMeasuredWideThreeBettor: true,
+  omahaFacingBetEv: true,
+  omahaMadeHandDefenseVsValueLeader: true,
+  omahaManiacReRaiseWidthMeasured: true,
+  omahaNoCallColdFourBetWithoutPremium: true,
+  omahaNoDrawRaiseOutOfPosition: true,
+  omahaOopReraisedPotStrongRange: true,
+  omahaOopTurnCheckAfterFlopCall: true,
+  omahaOverpairNoOopBarrelVsValueLeader: true,
+  omahaPairedBoardFoldRespectsPrice: true,
+  omahaPairedRiverNoThinLeadVsValueLeader: true,
+  omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true,
+  omahaPressureNeedsPostflopAggression: true,
+  omahaReraiseRangeEarlyPosition: true,
+  omahaReraiseRangeOutOfPosition: true,
+  omahaReraisedPotFlopContinueNeedsEquityShape: true,
+  omahaRiverMediumBetStrongHandCalls: true,
+  omahaRiverNutBlockerBluffReachable: true,
+  omahaStrategyInTournaments: true,
+  omahaStreetPlan: true,
+  omahaStrongHandSlowplayMix: true,
+  omahaStrongHandValue: true,
+  omahaTurnBetNeedsRiverPlan: true,
+  omahaTurnRiverRaiseNeedsNuts: true,
+  omahaUnderpairNoMultiwayFlopContinue: true,
+  omahaVpipFloorByLimp: true,
+});
+/** The priced rule families (option, card name) and all of them on. */
+export const OMAHA_PRICED_FAMILY_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaTurnRiverRaiseIsPriced', 'turn_river_raise_is_priced'],
+  ['omahaDrawRaiseIsPriced', 'draw_raise_is_priced'],
+  ['omahaOopTurnBarrelIsPriced', 'oop_turn_barrel_is_priced'],
+  ['omahaPairedBoardBetIsPriced', 'paired_board_bet_is_priced'],
+  ['omahaBluffShareFromBetRate', 'bluff_share_from_bet_rate'],
+  ['omahaFacingBetRangeIsContinuous', 'facing_bet_range_is_continuous'],
+  ['omahaPressureIsPriced', 'pressure_is_priced'],
+  ['omahaBigBetCallsArePriced', 'big_bet_calls_are_priced'],
+  ['omahaUnderpairMultiwayIsPriced', 'underpair_multiway_is_priced'],
+];
+export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
+  Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
+) as HorseDecideOpts;
+
 export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'v11_leak_fixes', a: {}, b: { v11: false } },
   { name: 'v10_strategy', a: {}, b: { v10: false } },
@@ -2623,6 +2680,34 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTurnRiverRaiseNeedsNuts: true },
     b: {},
   })),
+  // 2026-11-17 THE OMAHA PRICED RULES (owner 11:49: "there should not be any
+  // blanket rules ... they must all be done by math"; HorseOmahaPricedRules,
+  // ten default-OFF options). Each option replaces one family of categorical
+  // PLO4/PLO5 cash rules with a priced comparison, and acts where the rule it
+  // replaces is on: so BOTH arms carry the options production switched on on
+  // 2026-11-16 (OMAHA_LIVE_OPTIONS_20261116), and arm A adds the one priced
+  // option. The mixing card has every priced family on in both arms and
+  // omahaPricedMix in arm A. The mirror's memory learning is on (the league
+  // default), so the reads the comparisons price on are each opponent's own.
+  // The cards only measure; every default is unchanged.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    ...OMAHA_PRICED_FAMILY_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+    })),
+    {
+      name: `${variant}_omaha_priced_mix`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, omahaPricedMix: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
+    },
+  ]),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with
   // the river planned, and the river following the plan. a switches it on,
