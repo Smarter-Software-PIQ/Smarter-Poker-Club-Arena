@@ -52,3 +52,17 @@ The v1 arithmetic FAILED its declared efficacy bar (repairs/CHECKED-TO-BET/LANE-
 - Precedence unchanged: omahaOwnerRuledFinal still re-checks a priced bet where an owner-ruled check, the made-hand defence or the street plan checks (REDESIGN-PLAN asks for an integrator ruling; this lane made none).
 - No option-switch migration on this branch (the integrator regenerates one whitelist follow-up for the batch); the v1 text above that names migration 20261118015651 is superseded.
   Evaluation: declared v2 (repairs/CHECKED-TO-BET/EVAL-DECLARATION-v2.md, sha256 4be1edb155f1...; amendment 1 sha256 734ae2dbd3df..., both before any run). Result: see the section added after the run.
+
+## v2 evaluation result (2026-11-18 ~09:45Z; declared v2 + amendment 1 before the run; raw output archive repairs/CHECKED-TO-BET/v2/EVAL-v2-RESULTS.txt)
+
+Verdict: **FAIL** (bars 4 and 7 fail; every other bar passes). The option stays OFF.
+Candidate 22490fcc781; 2,000 journaled decisions (1,345 river + 655 turn; the same 48-h window as v1, disjoint in time from the fit window).
+
+1. Off identity: 0 of 2,000 differ: PASS.
+2. Scope: 41 changes, all river check -> bet (35 heads-up, 5 three-way, 1 five-way); 0 out of scope; RNG unchanged on every unchanged decision: PASS.
+3. Preserve: 73 nuts-receipt decisions unchanged; no control bet/raise/call/fold changed: PASS.
+4. Adverse cell (every checker calls 70% over 40 opportunities): 129 bets at 206 spots, **6 not value bets**: FAIL. All six are heads-up thin bets whose calibrated equity against the calling range is just under one half, carried by 16-32% folds (EV over the check +8 to +33 chips, each above its error).
+5. Calibration (the input that failed in v1): persons n 99, mean(calibrated share - result) -0.001 (SE 0.052); Horses n 56, +0.059 (SE 0.071): PASS.
+6. Value (model response, cards in hindsight): 41 of 41 changes, mean +40.5 chips (SE 6.2): PASS. Reported beside it: if a checker who holds the winner always calls, the mean is -4.4 (SE 10.5): the gain rests on the model's fold share being independent of who holds the winner.
+7. Reach: 72 heads-up river checked-to control checks have a positive v2 edge; **35 became bets** (bar: half = 36): FAIL. Of the 37 others, 29 are inside the error and 8 were re-checked by a rule that outranks the pricing rules (precedence unchanged).
+   Reported: 33 of the 41 changes are bluffs/merges, 8 value bets; reviewer verdicts on the 41 changed checks: correct 29, acceptable_close 12 (kappa 0.29, not gated).

@@ -31,3 +31,5 @@ The v1 arithmetic FAILED its declared efficacy bar (repairs/CHECKED-TO-BET/LANE-
 - Precedence unchanged: omahaOwnerRuledFinal still re-checks a priced bet where an owner-ruled check, the made-hand defence or the street plan checks (REDESIGN-PLAN asks for an integrator ruling; this lane made none).
 - No option-switch migration on this branch (the integrator regenerates one whitelist follow-up for the batch); the v1 text above that names migration 20261118015651 is superseded.
   Evaluation: declared v2 (repairs/CHECKED-TO-BET/EVAL-DECLARATION-v2.md, sha256 4be1edb155f1...; amendment 1 sha256 734ae2dbd3df..., both before any run). Result: see the section added after the run.
+
+v2 evaluation: FAIL (adverse cell 6 non-value bets; reach 35 of 72, bar 36). Calibration, value, scope, identity and preserve bars pass. The option stays OFF.
