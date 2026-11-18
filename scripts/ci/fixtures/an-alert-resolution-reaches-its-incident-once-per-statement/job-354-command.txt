@@ -1,0 +1,4 @@
+SELECT CASE WHEN pg_try_advisory_lock(hashtext('ca-resolve-settled-alerts'))
+                THEN (SELECT public.fn_resolve_settled_financial_alerts(true, 5000))::text
+                     || ' unreachable_landed=' || public.fn_ca_resolve_landed_unreachable_hand_alerts()::text
+                ELSE 'busy' END
