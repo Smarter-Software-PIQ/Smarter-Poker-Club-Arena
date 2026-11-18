@@ -42,28 +42,19 @@ import {
   pinRehearsalSQL,
   staticPinFindings,
 } from '../../scripts/ci/migration-guards-before-merge.mjs';
+import { cases } from '../../scripts/ci/ddl-guard-cases.mjs';
 
 const ROOT = resolve(__dirname, '../..');
 const MIG = join(ROOT, 'supabase/migrations');
 const RAKE = '20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql';
 const RAKE_SWITCH = '20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql';
 const BANK = '20261118071728_a_hands_bbj_drop_and_insurance_wait_in_their_own_rows_not_on.sql';
-const RAKE_RELANDED = readFileSync(join(MIG, RAKE), 'utf8');
-const RAKE_ORIGINAL = RAKE_RELANDED.replace(
-  /-- STALE PIN, DECLARED[\s\S]*?\n-- @stale-pin-ok:[^\n]*\n\n/,
-  ''
-);
-/** #11288's change, byte for byte: the registry row above the CREATE FUNCTION. */
-const BANK_FIX_BLOCK =
-  "-- A function that can move money is registered before it exists\n-- (fn_ca_money_rpc_registry_guard). Production refused this file without it\n-- on 2026-11-18 13:30 UTC (42501); nothing installed.\nINSERT INTO public.ca_money_rpc_registry (proname, status, notes) VALUES\n  ('fn_ca_bank_pending_hand_obligations', 'approved',\n   'Incident 075013fd: banks a hand''s stored BBJ drop and insurance legs (hand_bank_obligation_pending) through the same bbj_record_contribution / record_insurance_transaction calls the envelope used to make, argument for argument. Engine-only (fn_caller_is_engine). Never waits on a shared row: try-lock on the union pool key and insurance-bank key, pool and wallet rows NOWAIT, 250 ms budget. Journaled by the callees; the pending row is deleted in the same transaction and the felt tally (zy_ca_tally_balance_move / zz_ca_balance_has_its_ledger_row) proves the movement. Inserts a bbj_pools row only where the envelope would have.');\n\n";
-const CREATE_BANKER = 'CREATE FUNCTION public.fn_ca_bank_pending_hand_obligations(';
-const bankOnMain = readFileSync(join(MIG, BANK), 'utf8');
-/** #11266's merged file (main's until #11288 lands; main's without #11288's block after). */
-const BANK_ORIGINAL = bankOnMain.replace(BANK_FIX_BLOCK, '');
-/** #11288's head (182a8e64), or main's file once it has landed. */
-const BANK_FIXED = bankOnMain.includes(BANK_FIX_BLOCK)
-  ? bankOnMain
-  : BANK_ORIGINAL.replace(CREATE_BANKER, BANK_FIX_BLOCK + CREATE_BANKER);
+const CASES = cases(ROOT);
+const RAKE_RELANDED = CASES['rake-relanded'].sql;
+const RAKE_ORIGINAL = CASES['rake-original'].sql;
+/** #11266's merged file and #11288's head (scripts/ci/ddl-guard-cases.mjs). */
+const BANK_ORIGINAL = CASES['bank-original'].sql;
+const BANK_FIXED = CASES['bank-fixed'].sql;
 const TALLY_BEFORE = 'b7911a245d4bf33134a9a2f474c1f410';
 const PINNER = 'smarter_private.original_erased_cash_base_discharge(bigint,text)';
 const GUARDS = JSON.parse(

@@ -1,0 +1,153 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# THE DDL-GUARD GATE IS TESTED ON PRODUCTION'S REAL SCHEMA BEFORE ITS OWN CHANGES MERGE
+#
+# window-migrations-install-before-merge.yml is pull_request_target: it always
+# runs MAIN's workflow and MAIN's scripts (that is what keeps the production
+# credential away from pull-request code). So a change to the gate's own
+# tooling (the restore, the window rehearsal, the DDL-guard check, their
+# fixtures) is never exercised by the gate on its own pull request; on
+# 2026-11-18 the restore failed on every pull request for an hour with
+# "fe_sendauth: no password supplied" and nothing before merge could have
+# shown it (incident 075013fd).
+#
+# This runs the BRANCH's tooling (pull_request, no environment, no secret,
+# read-only token) on the schema archive main's trusted capture job last took
+# read-only (artifact window-rehearsal-schema of the newest successful
+# capture): the restore, the window rehearsal of that run's own changed files,
+# and the DDL-guard check on each of the incident's cases
+# (scripts/ci/ddl-guard-cases.mjs), asserting the outcome production's guards
+# gave each file. It reads nothing from production itself; where the capture
+# needs the credential (event triggers, registry rows), it uses the snapshot in
+# scripts/ci/fixtures/production-ddl-guards.
+#
+# NOT A SCHEDULE: it runs when the gate's tooling changes, and on main after.
+# ─────────────────────────────────────────────────────────────────────────────
+name: DDL Guards Self-Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/migration-guards-*.mjs'
+      - 'scripts/ci/ddl-guard-cases.mjs'
+      - 'scripts/ci/test-ddl-guards-on-production-schema.sh'
+      - 'scripts/ci/restore-schema-for-rehearsal.sh'
+      - 'scripts/ci/rehearse-window-queue.sh'
+      - 'scripts/ci/window-queue-rehearsal.mjs'
+      - 'scripts/ci/migration-stale-pins.mjs'
+      - 'scripts/ci/fixtures/production-ddl-guards/**'
+      - 'server/standby/standby-engine.sh'
+      - '.github/workflows/window-migrations-install-before-merge.yml'
+      - '.github/workflows/ddl-guards-self-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/ci/migration-guards-*.mjs'
+      - 'scripts/ci/ddl-guard-cases.mjs'
+      - 'scripts/ci/test-ddl-guards-on-production-schema.sh'
+      - 'scripts/ci/restore-schema-for-rehearsal.sh'
+      - 'scripts/ci/rehearse-window-queue.sh'
+      - 'scripts/ci/window-queue-rehearsal.mjs'
+      - 'scripts/ci/migration-stale-pins.mjs'
+      - 'scripts/ci/fixtures/production-ddl-guards/**'
+      - 'server/standby/standby-engine.sh'
+      - '.github/workflows/window-migrations-install-before-merge.yml'
+      - '.github/workflows/ddl-guards-self-test.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ddl-guards-self-test-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  locate:
+    name: Find main's newest read-only schema capture
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - name: Newest run whose capture succeeded and whose archive is still kept
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for run in $(gh api "repos/$REPO/actions/workflows/window-migrations-install-before-merge.yml/runs?per_page=50" --jq '.workflow_runs[].id'); do
+            captured=$(gh api "repos/$REPO/actions/runs/$run/jobs" --jq '[.jobs[] | select(.name == "Capture production'"'"'s schema (read-only)" and .conclusion == "success")] | length')
+            [ "$captured" = 1 ] || continue
+            kept=$(gh api "repos/$REPO/actions/runs/$run/artifacts" --jq '[.artifacts[] | select(.name == "window-rehearsal-schema" and .expired == false)] | length')
+            [ "$kept" = 1 ] || continue
+            echo "run_id=$run" >> "$GITHUB_OUTPUT"
+            echo "Using the capture of run $run."
+            exit 0
+          done
+          echo "::error::No successful capture with a kept archive in the last 50 runs: the self-test is UNKNOWN, not passed."
+          exit 1
+
+  window-rehearsal:
+    name: Restore and window rehearsal on production's schema (branch tooling)
+    needs: locate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: window-rehearsal-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/in
+          run-id: ${{ needs.locate.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Restore production's schema into a throwaway database
+        run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db
+      - name: Install the queue in the installer's order (that capture's own changed files)
+        env:
+          REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
+          MIG_DIR: ${{ github.workspace }}/supabase/migrations
+          INSTALLED: ${{ runner.temp }}/in/installed.txt
+          EVIDENCE: ${{ runner.temp }}/evidence
+        run: |
+          set -euo pipefail
+          touch "$RUNNER_TEMP/in/changed.txt"
+          CHANGED="$RUNNER_TEMP/in/changed.txt" bash scripts/ci/rehearse-window-queue.sh
+
+  guards:
+    name: DDL guards on production's schema (${{ matrix.case }})
+    needs: locate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          [
+            rake-original,
+            rake-relanded,
+            bank-original,
+            bank-fixed,
+            money-unregistered,
+            money-registered,
+          ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: window-rehearsal-schema
+          path: ${{ runner.temp }}/in
+          run-id: ${{ needs.locate.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: The check gives this case the outcome production's guards gave it
+        env:
+          SCHEMA_DUMP: ${{ runner.temp }}/in/schema.dump
+          INSTALLED: ${{ runner.temp }}/in/installed.txt
+          CASE: ${{ matrix.case }}
+        run: bash scripts/ci/test-ddl-guards-on-production-schema.sh

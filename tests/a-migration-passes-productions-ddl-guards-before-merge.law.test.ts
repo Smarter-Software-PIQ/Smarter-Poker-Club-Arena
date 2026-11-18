@@ -363,4 +363,40 @@ COMMIT;`;
     );
     expect(checkout.with.ref).toBe('${{ github.event.repository.default_branch }}');
   });
+
+  it('the rehearsal copy is reached as supabase_admin with its password, and a refused copy says why', () => {
+    const sh = read('scripts/ci/restore-schema-for-rehearsal.sh');
+    expect(sh).toContain('psql_db() { docker exec -i -e PGPASSWORD="$REHEARSAL_DB_PASSWORD"');
+    expect(sh).toContain('-e POSTGRES_PASSWORD="$REHEARSAL_DB_PASSWORD"');
+    expect(sh).not.toMatch(/-U supabase_admin[^\n]*2>\/dev\/null/);
+    expect(sh).toContain('last answer: $answer');
+    for (const line of sh.split('\n').filter((l) => /docker exec[^\n]*-U supabase_admin/.test(l)))
+      expect(line).toContain('PGPASSWORD');
+    // The standby keeps its own definition on the Backup host.
+    expect(read('server/standby/standby-engine.sh')).toContain(
+      'psql_db() { docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres "$@"; }'
+    );
+  });
+
+  it("the gate's own tooling is tested on production's schema by its branch, with no secret", () => {
+    const wf = parse(read('.github/workflows/ddl-guards-self-test.yml')) as Record<string, any>;
+    expect(Object.keys(wf.on)).toEqual(['pull_request', 'push']);
+    expect(wf.permissions).toEqual({ contents: 'read', actions: 'read' });
+    expect(JSON.stringify(wf)).not.toContain('secrets.');
+    for (const job of Object.values<any>(wf.jobs)) expect(job.environment).toBeUndefined();
+    expect(wf.jobs.guards.strategy.matrix.case).toEqual([
+      'rake-original',
+      'rake-relanded',
+      'bank-original',
+      'bank-fixed',
+      'money-unregistered',
+      'money-registered',
+    ]);
+    for (const p of [
+      'scripts/ci/restore-schema-for-rehearsal.sh',
+      'scripts/ci/fixtures/production-ddl-guards/**',
+      '.github/workflows/window-migrations-install-before-merge.yml',
+    ])
+      expect(wf.on.pull_request.paths).toContain(p);
+  });
 });
