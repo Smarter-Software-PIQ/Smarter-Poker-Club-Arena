@@ -71,6 +71,14 @@ import { cashRakeScope } from '../config/cashRakePolicy.js';
 
  */
 import { createHash } from 'node:crypto';
+import {
+  PostCommitStallEpisodes,
+  classifyPostCommitAnswer,
+  classifyPostCommitError,
+  oldestPendingAgeMs,
+  processPostCommitStallEpisodes,
+  type PostCommitStallEpisode,
+} from './LightningPostCommitStall.js';
 import { HandController } from '../engine/HandController.js';
 import { PreciseActionTimer } from '../engine/PreciseActionTimer.js';
 import {
@@ -140,6 +148,7 @@ import type {
 } from '../types.js';
 import type {
   LightningFoldType,
+  LightningOldestPendingPostCommit,
   LightningHandBackend,
   LightningHostRules,
   LightningParticipant,
@@ -471,6 +480,8 @@ export interface LightningHandHostDeps {
   jackpot?: Pick<LightningJackpotDeps, 'payMain' | 'payMini'>;
   /** How long the post-commit drain may keep trying while the lease is held. */
   postCommitBudgetMs?: number;
+  /** Which post-commit stall episodes are alerted (the process registry otherwise). */
+  postCommitStalls?: PostCommitStallEpisodes;
   /**
    * The settlement COMMITTED: the database has released this hand's pool
    * reservations, the players this boundary frees are released here, and the
@@ -3640,59 +3651,150 @@ export class LightningHandHost {
   }
 
   /**
-   * The physical engine's bounded post-commit drain: `ok !== true` is a
-   * failure (predecessor_pending is common with several hands on one front
-   * table), retried with backoff while the host lease is held, up to the
-   * budget, then for a short handover once it is not. Giving up files the
-   * critical financial alert the physical engine files; the outbox row stays
-   * authoritative and the projection worker finishes it.
+   * The bounded post-commit drain (LightningPostCommitStall says why).
+   *
+   * Applied: done. A DEFINITE refusal (a closed list: the envelope is missing
+   * or refused its own payload) is alerted at once for this hand. Anything
+   * else is QUEUED (behind the table's oldest open envelope, which the chain
+   * helper owns, or behind an overloaded database): retried with backoff while
+   * the host lease is held, up to the budget, then for a short handover once
+   * it is not. A budget spent while queued reports to the table's stall
+   * episode; only the hand that opens the episode files the alert. The outbox
+   * row stays authoritative and the projection worker finishes it.
    */
   private async drainPostCommit(handHistoryId: string): Promise<boolean> {
     const started = this.now();
     const budget = this.deps.postCommitBudgetMs ?? POST_COMMIT_BUDGET_MS;
+    const stalls = this.deps.postCommitStalls ?? processPostCommitStallEpisodes;
     let handoverEnds: number | null = null;
     let attempt = 0;
+    let lastReason = 'unknown';
     let lastError: unknown = null;
+    let oldest: LightningOldestPendingPostCommit | null = null;
+    let wasQueued = false;
+    let limit = started + budget;
     for (;;) {
       attempt++;
+      let failure: string | null = null;
       try {
-        const out = await this.deps.backend.postCommit(handHistoryId);
-        if (out?.ok === true) return true;
-        throw new Error(`post-commit obligations refused (${out?.reason ?? 'unknown'})`);
+        const out = await this.deps.backend.postCommit(handHistoryId, {
+          // The single-flight chain walk never holds this hand past its budget,
+          // and stops when this host is no longer the table's holder.
+          waitAtMostMs: Math.max(0, limit - this.now()),
+          shouldContinue: () => Boolean(this.deps.leaseFor(this.hostTableId)),
+        });
+        const kind = classifyPostCommitAnswer(out);
+        if (kind === 'applied') {
+          stalls.applied(this.hostTableId, wasQueued);
+          return true;
+        }
+        lastReason = out?.reason ?? 'unknown';
+        lastError = new Error(`post-commit obligations refused (${lastReason})`);
+        if (out?.oldest) oldest = out.oldest;
+        if (kind === 'failed') failure = lastReason;
       } catch (err) {
         lastError = err;
-        if (attempt === 1 || attempt % 10 === 0)
-          this.logger.warn(
-            `[LightningHost:${this.instanceId}] post-commit obligations pending (attempt ${attempt}): ${describeError(err)}`
-          );
+        lastReason = describeError(err);
+        if (classifyPostCommitError(lastReason) === 'failed') failure = lastReason;
       }
+      if (failure !== null) {
+        this.filePostCommitAlert(handHistoryId, attempt, lastError, {
+          kind: 'refused',
+          reason: failure,
+        });
+        return false;
+      }
+      wasQueued = true;
+      if (attempt === 1 || attempt % 10 === 0)
+        this.logger.warn(
+          `[LightningHost:${this.instanceId}] post-commit obligations queued (attempt ${attempt}): ${lastReason}`
+        );
       const now = this.now();
       if (!this.deps.leaseFor(this.hostTableId) && handoverEnds === null)
         handoverEnds = now + POST_COMMIT_HANDOVER_MS;
-      const limit = Math.min(started + budget, handoverEnds ?? Infinity);
+      limit = Math.min(started + budget, handoverEnds ?? Infinity);
       if (now >= limit) break;
       const backoffMs = Math.min(150 * 2 ** Math.min(attempt - 1, 5), 5_000);
       await this.sleep(Math.min(backoffMs, Math.max(0, limit - now)));
     }
-    void raiseFinancialAlert(
-      'critical',
-      'LightningHandHost.post_commit_obligations_pending',
-      `Lightning hand ${this.hostTableId}#${this.handNumber} committed, but its host gave up its durable post-commit envelope after ${attempt} attempt(s); the outbox row remains authoritative and the projection worker is its successor`,
-      {
-        table_id: this.hostTableId,
-        hand_number: this.handNumber,
-        hand_id: handHistoryId,
-        lightning_hand_id: this.handId,
-        attempts: attempt,
-        error: describeError(lastError),
-      }
-    ).catch((alertError) =>
+    // Queued past the budget. Name the table's oldest open hand, read fresh
+    // when the backend can (an envelope older than 20261118073646 does not
+    // name it); unknown means this hand.
+    try {
+      const fresh = await this.deps.backend.oldestPendingPostCommit?.(this.hostTableId);
+      if (fresh) oldest = fresh;
+    } catch {
+      /* the last answer's oldest (or this hand) still names it */
+    }
+    const oldestHandId = oldest?.handId ?? handHistoryId;
+    const ageMs = oldestPendingAgeMs(oldest, this.now());
+    const { opened, episode } = stalls.stalled(this.hostTableId, oldestHandId, ageMs, this.now());
+    if (!opened) {
+      this.logger.warn(
+        `[LightningHost:${this.instanceId}] post-commit still queued behind ${oldestHandId} after ${attempt} attempt(s); ` +
+          `the table's stall is already alerted (${episode.stalledHands} stalled hand(s) since ${episode.firstOldestHandId})`
+      );
+      return false;
+    }
+    this.filePostCommitAlert(handHistoryId, attempt, lastError, {
+      kind: 'stalled',
+      reason: lastReason,
+      oldest: oldest ?? null,
+      oldestHandId,
+      episode,
+    });
+    return false;
+  }
+
+  private filePostCommitAlert(
+    handHistoryId: string,
+    attempts: number,
+    lastError: unknown,
+    why:
+      | { kind: 'refused'; reason: string }
+      | {
+          kind: 'stalled';
+          reason: string;
+          oldest: LightningOldestPendingPostCommit | null;
+          oldestHandId: string;
+          episode: PostCommitStallEpisode;
+        }
+  ): void {
+    const ageMs = why.kind === 'stalled' ? oldestPendingAgeMs(why.oldest, this.now()) : null;
+    const message =
+      why.kind === 'stalled'
+        ? `Lightning host table ${this.hostTableId} is stalled behind post-commit envelope ${why.oldestHandId}` +
+          (ageMs !== null ? ` (open ${Math.round(ageMs / 1000)} s)` : '') +
+          `; hand #${this.handNumber} waited ${attempts} attempt(s). One alert per table stall episode; ` +
+          'the outbox row remains authoritative and the projection worker is its successor'
+        : `Lightning hand ${this.hostTableId}#${this.handNumber} committed, but its post-commit envelope was refused (${why.reason}); the outbox row remains authoritative and the projection worker is its successor`;
+    void raiseFinancialAlert('critical', 'LightningHandHost.post_commit_obligations_pending', message, {
+      table_id: this.hostTableId,
+      hand_number: this.handNumber,
+      hand_id: handHistoryId,
+      lightning_hand_id: this.handId,
+      attempts,
+      error: describeError(lastError),
+      outcome: why.kind,
+      last_reason: why.reason,
+      ...(why.kind === 'stalled'
+        ? {
+            episode_key: `${this.hostTableId}:${why.episode.firstOldestHandId}`,
+            first_seen_oldest_hand_id: why.episode.firstOldestHandId,
+            oldest_pending_hand_id: why.oldestHandId,
+            oldest_pending_hand_number: why.oldest?.handNumber ?? null,
+            oldest_pending_committed_at: why.oldest?.committedAt ?? null,
+            oldest_pending_age_ms: ageMs,
+            stalled_hands: why.episode.stalledHands,
+            oldest_pending_max_age_ms: why.episode.maxOldestAgeMs,
+          }
+        : {}),
+    }).catch((alertError) =>
       this.logger.error(
         `[LightningHost:${this.instanceId}] post-commit alert not filed`,
         alertError
       )
     );
-    return false;
   }
 
   /**

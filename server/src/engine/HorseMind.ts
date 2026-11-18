@@ -37,6 +37,7 @@ import {
   type StreetReadCounters,
 } from './HorseOmahaStreetRead.js';
 import { omahaReadByStreetNow, type OmahaReadByStreetMeans } from './HorseOmahaReadByStreetMode.js';
+import { copyReraiseResponse, type ReraiseResponseCounters } from './HorseOmahaReraiseResponse.js';
 import {
   respectWinner,
   isProvenWinner,
@@ -872,6 +873,13 @@ export interface HorseMindSandbox {
    *  in a process-wide map. Answered by HorseMind.omahaStreetReadOf; NO DECISION READS IT YET. Absent when the read
    *  carried none. */
   pooledStreetRead?: Map<string, StreetReadCounters>;
+  /** HOW A RE-RAISER ANSWERS BEING RE-RAISED (2026-11-18, HorseOmahaReraiseResponse): for each pooled EXACT row in
+   *  `exploit` (opponentMemoryKey) of an Omaha game that carries a well-formed record
+   *  (horse_exact_profiles.reraise_response), a detached copy of it. Set by the observer reads for Omaha rows only.
+   *  Travels with the decision's own state and its read frame (v19), never in a process-wide map. Answered by
+   *  HorseMind.omahaReraiseResponseOf; read only by the default-OFF option omahaReraisedCallVsRaisePriced. Absent
+   *  when the read carried none. */
+  pooledReraiseResponse?: Map<string, ReraiseResponseCounters>;
 }
 
 /** What HorseMind.omahaStreetReadOf answers for one opponent: his carried counters and, per street, the label a
@@ -1367,6 +1375,8 @@ export class HorseMind {
   private static pooledProfileIncomplete: Map<string, true> | null = null;
   /** The sandbox's street reads (HorseMindSandbox.pooledStreetRead) while one is installed; null outside it. */
   private static pooledStreetRead: Map<string, StreetReadCounters> | null = null;
+  /** The sandbox's re-raise response records (HorseMindSandbox.pooledReraiseResponse) while one is installed. */
+  private static pooledReraiseResponse: Map<string, ReraiseResponseCounters> | null = null;
   private static decisionVariant: string | null = null;
   /** The betting structure of the decision in flight, as the game state
    *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
@@ -2927,6 +2937,25 @@ export class HorseMind {
     };
   }
 
+  /**
+   * HOW A RE-RAISER ANSWERS BEING RE-RAISED (2026-11-18, HorseOmahaReraiseResponse): the record the decision in
+   * flight carries for one opponent (a detached copy of horse_exact_profiles.reraise_response as the pooled public
+   * row brought it into this decision's own state, HorseMindSandbox.pooledReraiseResponse). Null outside an Omaha
+   * decision and when the decision carried no record for him: unknown stays unknown, and the caller prices him on
+   * the population envelope. Public actions only. Pure: no fires, no writes, no random draws.
+   */
+  static omahaReraiseResponseOf(userId: string): ReraiseResponseCounters | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant) return null;
+    const size = scope.split(':')[1] as MemorySize;
+    const row = this.pooledReraiseResponse?.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    return row ? copyReraiseResponse(row) : null;
+  }
+
   static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
     const scope = this.decisionScope;
     if (!scope || !scope.startsWith('omaha:')) return null;
@@ -3823,6 +3852,10 @@ export class HorseMind {
             const rowStreet = row ? this.pooledStreetRead?.get(key) : undefined;
             if (rowStreet)
               (view.pooledStreetRead ??= new Map()).set(key, copyStreetRead(rowStreet));
+            // And the same re-raise response record (exact rows only; donors never carry one).
+            const rowReraise = row ? this.pooledReraiseResponse?.get(key) : undefined;
+            if (rowReraise)
+              (view.pooledReraiseResponse ??= new Map()).set(key, copyReraiseResponse(rowReraise));
             // And the same completeness cap (exact row).
             if (row && this.pooledProfileIncomplete?.has(key))
               (view.pooledProfileIncomplete ??= new Map()).set(key, true);
@@ -3911,6 +3944,7 @@ export class HorseMind {
       pooledShownRiver: this.pooledShownRiver,
       pooledProfileIncomplete: this.pooledProfileIncomplete,
       pooledStreetRead: this.pooledStreetRead,
+      pooledReraiseResponse: this.pooledReraiseResponse,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
@@ -3918,6 +3952,7 @@ export class HorseMind {
     this.pooledShownRiver = sandbox.pooledShownRiver ?? null;
     this.pooledProfileIncomplete = sandbox.pooledProfileIncomplete ?? null;
     this.pooledStreetRead = sandbox.pooledStreetRead ?? null;
+    this.pooledReraiseResponse = sandbox.pooledReraiseResponse ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3958,6 +3993,7 @@ export class HorseMind {
       this.pooledShownRiver = live.pooledShownRiver;
       this.pooledProfileIncomplete = live.pooledProfileIncomplete;
       this.pooledStreetRead = live.pooledStreetRead;
+      this.pooledReraiseResponse = live.pooledReraiseResponse;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

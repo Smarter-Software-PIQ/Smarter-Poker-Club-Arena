@@ -30,6 +30,10 @@ The measured response is unconditional on the board and the hand; only its shape
 
 Not run. Bar: blockbet-013U37/PASS-BAR.md (replay on audited decisions, then one paired league evaluation).
 
+## League card (rebased 2026-11-18)
+
+League cards (HorseLeague.ts, declared): plo4_omaha_small_bet_is_priced and plo5_omaha_small_bet_is_priced: both arms carry production's live set (`OMAHA_LIVE_OPTIONS_20261118` = the 2026-11-16 live options plus omahaTurnRiverRaiseIsPriced, on since 2026-11-18 11:54Z), arm A adds omahaSmallBetIsPriced. Lead decision 2026-11-18 (PR #11286): the card as merged in #11277 (86ab7637d9e) was `{ omahaSmallBetIsPriced: true }` against `{}`; the option acts after the street plan and the card-impact rule, which are live, so the bare base measured it in a brain production does not serve. No league has run on this card.
+
 ## Evidence rows
 
 None. Switch-on needs a WIN under the bar, a reviewed head and an evidence row.

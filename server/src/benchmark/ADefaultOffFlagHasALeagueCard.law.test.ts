@@ -30,7 +30,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HORSE_DATA_LEDGER } from '../engine/HorseDataLedger.js';
-import { LEAGUE_MATCHUPS, UNMEASURABLE_MATCHUPS } from './HorseLeague.js';
+import {
+  LEAGUE_MATCHUPS,
+  OMAHA_PRICED_FAMILY_CARDS,
+  OMAHA_PRICED_SITE_CARDS,
+  UNMEASURABLE_MATCHUPS,
+} from './HorseLeague.js';
 
 /** Undealt on 2026-11-12 (main 08dcfa90). Owned by other lanes; listed, not fixed, here. */
 const UNDEALT_WHEN_WRITTEN = new Set([
@@ -198,6 +203,45 @@ describe('a default-off Horse flag has a league card', () => {
       expect(UNDEALT_OWNERS[k]?.shippedIn.length ?? 0).toBeGreaterThan(0);
     }
     expect(UNDEALT_OWNERS.v55OmahaRiverTripsFlat.lane).toBe('PLO Strategy');
+  });
+
+  it('a card for an option that only re-routes a read carries a consumer of that read in both arms', () => {
+    // 2026-11-18: plo4/plo5_omaha_read_is_by_street_and_texture dealt the option against {} / {}, where
+    // nothing consumes the read it re-routes; a 1,000-session evaluation measured 0 divergent pairs.
+    // Each option below changes no decision by itself, only an input other options read, so a card
+    // for it is a card only when at least one of those consumers is on in BOTH arms.
+    const pricedFamilies = OMAHA_PRICED_FAMILY_CARDS.map(([option]) => option as string);
+    const pricedSites = OMAHA_PRICED_SITE_CARDS.map(([option]) => option as string);
+    const valueLeaderReaders = (arm: Record<string, unknown>) =>
+      Object.keys(arm).filter((k) => /VsValueLeader$/.test(k));
+    const consumers: Record<string, (arm: Record<string, unknown>) => string[]> = {
+      // HorseOmahaReadByStreetRule: the value-leader label, omahaFacingBetEv's bettor read, the
+      // priced families' street cells.
+      omahaReadIsByStreetAndTexture: (arm) => [
+        ...valueLeaderReaders(arm),
+        'omahaFacingBetEv',
+        ...pricedFamilies,
+      ],
+      // HorseOmahaPricedMode / HorseOmahaPricedSites: the priors of a priced comparison.
+      omahaPricedPriorsByOpponentKind: () => [...pricedFamilies, ...pricedSites],
+      // HorseOmahaPricedWiring.raiseVerdictOf: the priced raise count.
+      omahaRaiseEvCountsLossesOnce: () => pricedFamilies,
+      // HorseLogic.omahaFacingBetEvCount: the facing-bet EV's realization.
+      omahaTurnCallRealizationByRunout: () => ['omahaFacingBetEv'],
+    };
+    for (const [option, consumersOf] of Object.entries(consumers)) {
+      const cards = LEAGUE_MATCHUPS.filter((m) => switchedOnInOneArm([m]).has(option));
+      expect(cards.length, `${option} has no card`).toBeGreaterThan(0);
+      for (const m of cards) {
+        const a = (m.a ?? {}) as Record<string, unknown>;
+        const b = (m.b ?? {}) as Record<string, unknown>;
+        const shared = consumersOf({ ...a, ...b }).filter((k) => on(a[k]) && on(b[k]));
+        expect(
+          shared,
+          `${m.name}: no consumer of ${option} is on in both arms (inert card)`
+        ).not.toEqual([]);
+      }
+    }
   });
 
   it('the heads-up flags this law was written for are switched on by a card', () => {

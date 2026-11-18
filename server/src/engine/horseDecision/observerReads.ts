@@ -10,6 +10,12 @@ import {
   validStreetRead,
   type StreetReadCounters,
 } from '../HorseOmahaStreetRead.js';
+import {
+  copyReraiseResponse,
+  reraiseResponseCarriedFor,
+  validReraiseResponse,
+  type ReraiseResponseCounters,
+} from '../HorseOmahaReraiseResponse.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
@@ -678,6 +684,19 @@ export class HorseObserverReads {
             opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
             copyStreetRead(row.street_counters)
           );
+    // HOW A RE-RAISER ANSWERS BEING RE-RAISED (2026-11-18). Each pooled exact row of an Omaha game that carries a
+    // well-formed record (horse_exact_profiles.reraise_response) brings a detached copy of it into the decision's own
+    // state, beside its counters: the same row the pooled read already chose by availability. Donor rows never carry
+    // one and a Hold'em row carries nothing, so a Hold'em decision's state and read frame are exactly what they were.
+    // Read only by the default-OFF option omahaReraisedCallVsRaisePriced (HorseMind.omahaReraiseResponseOf).
+    const pooledReraiseResponse = new Map<string, ReraiseResponseCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (reraiseResponseCarriedFor(row.variant) && validReraiseResponse(row.reraise_response))
+          pooledReraiseResponse.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyReraiseResponse(row.reraise_response)
+          );
     // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
     // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
     // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
@@ -704,6 +723,7 @@ export class HorseObserverReads {
                   ...(pooledShownRiver.size ? { pooledShownRiver } : {}),
                   ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
                   ...(pooledStreetRead.size ? { pooledStreetRead } : {}),
+                  ...(pooledReraiseResponse.size ? { pooledReraiseResponse } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),
