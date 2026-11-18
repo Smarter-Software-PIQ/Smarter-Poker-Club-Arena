@@ -126,6 +126,27 @@ def main():
   check('both actual cash refund owners consume exact bust and terminal loss basis',"SELECT count(*) FROM pg_proc WHERE proname IN('fn_ca_promo_return_principal','fn_ca_promo_return_spent_event_fee') AND prosrc LIKE '%JOIN public.ca_promo_original_entry_loss_basis fs%'",'2')
   check('terminal loss basis preserves exact lot identity without duplicate rows',"SELECT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION%' AND NOT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION ALL%'",'t')
 
+  exit_case=ROOT/'tests/fixtures/promo-profit-requested-cashout/native.sql'
+  track(exit_case)
+  def check_wallet_exit(fixed):
+   for wallet_club,after_balance in ((C,70),(base.OTHER_CLUB,20)):
+    params=dict(source_club=C,wallet_club=wallet_club,member=A,table=T,after_balance=after_balance,fixed=str(fixed).lower())
+    setup=''.join(f"\\set {key} '{value}'\n" for key,value in params.items())
+    db.run(setup+exit_case.read_text())
+  acl_query="SELECT coalesce(proacl::text,'') FROM pg_proc WHERE oid='public.fn_ca_promo_play_through_on_exit()'::regprocedure"
+  original_exit_acl=db.one(acl_query)
+  check_wallet_exit(False)
+  runfile(ROOT/'supabase/migrations/20261118005327_promo_external_wallet_exit_settles_earned_source_before_cash.sql')
+  check_wallet_exit(True)
+  check('wallet exit retains its original visibility and reviewed source', """
+   SELECT md5(pg_get_functiondef(oid))='8a850f705e213a7bb89bbf9ce64357c0' AND prosecdef AND
+     proowner='postgres'::regrole AND NOT has_function_privilege('anon',oid,'execute')
+     AND NOT has_function_privilege('authenticated',oid,'execute')
+   FROM pg_proc WHERE oid='public.fn_ca_promo_play_through_on_exit()'::regprocedure
+  """,'t')
+
+  check('wallet exit preserves the original role grants',acl_query,original_exit_acl)
+
   def gift(amount):
    key=str(uuid.uuid4())
    db.run(f"UPDATE club_members SET chip_balance=10000 WHERE club_id='{C}' AND user_id='{A}';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',{amount},'club_promo','{key}',NULL,'promo_wallet','{C}',NULL)")
