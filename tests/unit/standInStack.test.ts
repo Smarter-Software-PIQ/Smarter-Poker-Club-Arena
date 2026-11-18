@@ -63,6 +63,9 @@ describe('the stand-in for a seated player who is not in the hand', () => {
     expect(page).not.toContain('heroRowStack ?? pendingSeatStackRef.current ?? 0');
     // A player first seen through presence.
     expect(page).not.toContain('stack: existing?.stack ?? 0,');
+    // ...and never inherits the previous occupant's chips.
+    expect(page).toContain('...standInStack({ rowStack: null }),');
+    expect(page).not.toContain('existing?.stack');
   });
 
   it('the seat draws its loading mark, not a number, while the balance is pending', () => {

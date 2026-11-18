@@ -23745,9 +23745,11 @@ function LiveTablePage({
                 // FIX: Preserve existing avatar from DB — don't overwrite with empty presence avatar
                 avatar:
                   p.avatar || existing?.avatar || (p.userId === userId ? heroAvatarUrl : '') || '',
-                // Presence knows who sat down, not what they hold. Unknown
-                // is pending, never 0 (Dan 2026-11-18, lib/standInStack).
-                ...standInStack({ rowStack: existing?.stackPending ? null : existing?.stack }),
+                // Presence knows who sat down, not what they hold, and
+                // `existing` here is always somebody else (or nobody), whose
+                // chips are not this player's. Unknown is pending, never 0
+                // and never the last occupant's stack (Dan 2026-11-18).
+                ...standInStack({ rowStack: null }),
                 status: existing?.status ?? 'active',
                 isHero: p.userId === userId,
                 showCards: existing?.showCards ?? false,
