@@ -141,6 +141,13 @@ describe('position held after the call, and the other players in', () => {
       opportunities: 0,
       rateSource: 'population',
       inPosition: true,
+      position: {
+        ipVsRaiser: true,
+        inForBehind: 0,
+        raisersPendingBehind: 0,
+        callersPendingBehind: 0,
+        inPosition: true,
+      },
       othersIn: 0,
       raiserBehind: 176,
       rakeFraction: 0.1,
@@ -153,14 +160,20 @@ describe('position held after the call, and the other players in', () => {
     const p = pricingOf(t, 5);
     expect([p.inPosition, p.othersIn, p.heroAlreadyRaised]).toEqual([false, 0, true]);
   });
-  it('a caller already in for the price who acts after hero: out of position, one other player in', () => {
+  it('a caller already in for the price who acts after hero: one other player in (0.35), and the position the fit took, after the re-raiser, is kept (F-02)', () => {
     const t = table(
       4,
       [...others(3), [4, 'raise', 7], ...others(5), [6, 'call', 7], [1, 'raise', 24], ...others(2)],
       { 6: { bet: 24 } }
     );
     const p = pricingOf(t, 1);
-    expect([p.inPosition, p.othersIn]).toEqual([false, 1]);
+    expect([p.inPosition, p.othersIn]).toEqual([true, 1]);
+    // the scope's wider reading (last to act among those who see the flop) still says no
+    expect([p.position?.ipVsRaiser, p.position?.inPosition, p.position?.inForBehind]).toEqual([
+      true,
+      false,
+      1,
+    ]);
   });
   it('a caller already in for the price who acts before hero: in position, one other player in', () => {
     const t = table(4, [
@@ -173,24 +186,28 @@ describe('position held after the call, and the other players in', () => {
     const p = pricingOf(t, 1);
     expect([p.inPosition, p.othersIn]).toEqual([true, 1]);
   });
-  it('THE OPENER STILL TO ACT BEHIND HERO: counted as another player in, not as position lost (charged more than the fit measured: a known conservative deviation)', () => {
-    // Review of 10150eebe3e, B1 (23 of 236 recorded fires). The opener has not
-    // paid the price: hero is priced in position and the opener is charged as
-    // another player in (0.35). The fit did NOT measure that: its 0.35 is for
-    // players who called the current raise, and an opener still to act carried
-    // no charge there (-0.09 / 0.01). The engine therefore under-rescues in
-    // this layout (never worse than main: the pricing only overturns). Pinned
-    // so that a change of this definition is a deliberate, evaluated change.
+  it('THE OPENER STILL TO ACT BEHIND HERO: no charge and no position taken in the price (measured -0.09, SE 0.09; before 2026-11-18 he was charged 0.35 no fit had measured)', () => {
+    // Review of 10150eebe3e, B1 (23 of 236 recorded fires), settled by the
+    // realization measurement of 2026-11-18 (12,473 calls): a raiser still to
+    // act behind carries no charge. Pinned: this definition changes only with
+    // a measurement and a rerun of the counterfactual.
     const p = pricingOf(openerBehindHero(), 1);
     expect([p.inPosition, p.othersIn, p.heroAlreadyRaised, p.heroInvested]).toEqual([
       true,
-      1,
+      0,
       false,
       2,
     ]);
-    // once he has called the price he is in for it, behind hero: out of position
+    expect([p.othersInBands, p.headsUpDiluted]).toEqual([undefined, undefined]);
+    // the scope still sees him: hero is not last to act among those who will see the flop
+    expect([p.position?.inPosition, p.position?.raisersPendingBehind]).toEqual([false, 1]);
+    // once he has called the price he is a player in for it; the price's
+    // position is still "after the re-raiser". With the mind off (no band can
+    // be read from his line) he enters as the 0.35 dilution of heads-up equity;
+    // with the mind on and a band read, through the equity instead.
     const called = pricingOf(openerBehindHero({ 6: { bet: 24 } }), 1);
-    expect([called.inPosition, called.othersIn]).toEqual([false, 1]);
+    expect([called.inPosition, called.othersIn]).toEqual([true, 1]);
+    expect([called.othersInBands, called.headsUpDiluted]).toEqual([undefined, 1]);
     // folded or sitting out he is nobody
     for (const gone of [{ folded: true }, { sittingOut: true }]) {
       const q = pricingOf(openerBehindHero({ 6: gone }), 1);

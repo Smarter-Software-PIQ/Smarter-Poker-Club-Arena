@@ -27,10 +27,16 @@
  *    receipt validator;
  *  - ONE OWNER PER CELL (inbox 2026-11-18 00:06Z): with the live switch list
  *    the call cell of HorseOmahaOopReraisedPot (the live implementation, WooWoo
- *    audit lane) judges six of the eight calls. There the option does not
- *    answer: the decision is byte-identical to the option off, the cell's
- *    receipts are counted once and none of this option's fires. On the two it
- *    does not judge, the option answers and the cell's receipts stay silent;
+ *    audit lane) judges four of the eight calls (59830020 on seed 42 only).
+ *    There the option does not answer: the decision is byte-identical to the
+ *    option off, the cell's receipts are counted once and none of this
+ *    option's fires. Where it does not judge, the option answers; a call the
+ *    option makes answers to the cell only where that call is in the cell's
+ *    scope (out of position by seat order, or facing a 4-bet or more). The two
+ *    in-position 3-bet calls with two callers of the open still to act behind
+ *    (59799408, 59793017) are out of it since finding F-02 (position from seat
+ *    order: a caller who has not answered the 3-bet is not a player in the
+ *    pot), so there the option's call stands and the cell stays silent;
  *  - the equity the verdict prices is within 0.07 of the independent figure.
  */
 import { readFileSync } from 'node:fs';
@@ -148,12 +154,21 @@ const CELL_NOT_LIVE = {
  * The seeds (of 1 and 42) on which the cell judges each hand's call under the live list (measured by
  * this test, pinned). 59830020: on seed 1 the reference brain folds before any rule, so no call
  * reaches the cell and the option answers; on seed 42 it calls and the cell folds the call.
+ * 59799408 and 59793017: none since finding F-02 (re-raised-pot position from seat order). The Horse
+ * opened, acts after the 3-bettor (small blind) and the two players behind it have called the open but
+ * not answered the 3-bet: in position against every player in the pot, so outside the cell's scope (an
+ * in-position 3-bet call). Until F-02 the wrapper counted those two un-acted callers as players in and
+ * the cell judged (receipts omaha_oop_reraised_call_kept + omaha_reraised_call_priced_call, the call
+ * priced in position at EV +24.35 / +22.36 chips). A caller still to act costs a call in position
+ * nothing by both measurements: this option's own fit, REALIZATION_BEHIND_COST.ip (-0.005, SE 0.124,
+ * 2,023 calls), and F-02's (-0.09, SE 0.13). The decision is the same call (46 / 45 chips) on both
+ * seeds before and after; this option now answers it: call, EV +22.25 / +21.42 chips, R 0.916 / 0.914.
  */
 const CELL_JUDGES_LIVE: Readonly<Record<number, readonly number[]>> = {
   51520556: [1, 42],
   59819475: [1, 42],
-  59799408: [1, 42],
-  59793017: [1, 42],
+  59799408: [],
+  59793017: [],
   59853239: [1, 42],
   59830020: [42],
   59800400: [],
@@ -162,6 +177,12 @@ const CELL_JUDGES_LIVE: Readonly<Record<number, readonly number[]>> = {
 
 /** Today by seed where it is not one answer: 59830020's reference brain folds before any rule on seed 1
  *  and calls on seed 42 (the call cell then prices the call and keeps it). */
+/**
+ * The option's calls outside the cell's scope (in position against every player in the pot, facing a
+ * 3-bet): the cell does not judge them (see CELL_JUDGES_LIVE), so the option's call stands as made.
+ */
+const CALL_OUTSIDE_CELL_SCOPE: ReadonlySet<number> = new Set([59799408, 59793017]);
+
 const TODAY_BY_SEED: Readonly<Record<number, Readonly<Record<number, 'fold' | 'call' | 'raise'>>>> =
   {
     59830020: { 1: 'fold', 42: 'call' },
@@ -293,7 +314,16 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
           const cell = on.fires
             .filter((f) => CELL_RECEIPTS.includes(f.feature))
             .map((f) => f.feature);
-          if (priced === 'call') {
+          if (priced === 'call' && CALL_OUTSIDE_CELL_SCOPE.has(h.handNumber)) {
+            // an in-position call of a 3-bet is not the cell's: nobody judges the option's call,
+            // which is the call the brain makes with the option off (same bytes)
+            expect(cell).toEqual([]);
+            expect(kind(on.d.action)).toBe('call');
+            expect(bytes(on.d)).toBe(bytes(off.d));
+            expect(on.fires.map((f) => f.feature)).toContain(
+              'omaha_reraised_call_in_position_caller_pending_seen'
+            );
+          } else if (priced === 'call') {
             // ONE OWNER PER CELL, seam b (review R1 B1b): the call it makes is a call of a 3-bet or
             // more, so it answers to the live call cell (its option is on in the live list): the cell
             // judges it once, and the decision is the cell's verdict on that call

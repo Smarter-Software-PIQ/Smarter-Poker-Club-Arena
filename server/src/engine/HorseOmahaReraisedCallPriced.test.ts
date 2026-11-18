@@ -42,6 +42,9 @@ const pricingOf = (c: Case): OmahaReraisedCallPricing => ({
   rateSource: 'measured',
   inPosition: c.inPosition,
   othersIn: c.othersIn,
+  // The fixture's equity is heads-up against the re-raiser (as the replay of
+  // 2026-11-17 computed it), so its other players carry the heads-up dilution.
+  ...(c.othersIn > 0 ? { headsUpDiluted: c.othersIn } : {}),
   raiserBehind: c.raiserBehind,
   rakeFraction: c.rakeFraction,
   heroAlreadyRaised: c.heroAlreadyRaised,
@@ -64,16 +67,53 @@ describe('recorded spots (anonymised): the verdict is the sign of EV(call)', () 
       });
       expect(flipped.evCall).toBe(v.evCall);
     });
+  it('2026-11-18 (REALIZATION.md): the same spots with the other players uncharged, as a raiser still to act now is: four preserve folds become calls (reported, not tuned)', () => {
+    // The fixture does not record whether its other players had called the
+    // price or were raisers still to act. Priced as the second kind (no charge,
+    // measured -0.09, SE 0.09), these are the verdicts. PR = the reviewer judged
+    // the recorded fold correct: PR-1, PR-4, PR-5 and PR-7 are calls on this
+    // arithmetic. The journal counterfactual of the same change overturns 42
+    // class folds, 7 of them folds the audit judged correct.
+    const uncharged = Object.fromEntries(
+      (fixture as { cases: Case[] }).cases
+        .filter((c) => c.othersIn > 0)
+        .map((c) => {
+          const { headsUpDiluted: _dropped, ...p } = pricingOf(c);
+          void _dropped;
+          const v = omahaReraisedCallEv(c.equity, c.width, c.call, c.pot, c.stack, p);
+          return [c.id, v.evCall < 0 ? 'fold' : 'call'];
+        })
+    );
+    expect(uncharged).toEqual({
+      'PR-1': 'call',
+      'PR-3': 'fold',
+      'PR-4': 'call',
+      'PR-5': 'call',
+      'PR-6': 'fold',
+      'PR-7': 'call',
+    });
+  });
 });
 
 describe('the pieces', () => {
-  it('realization: an all-in call realizes everything; depth costs more out of position; each other player costs', () => {
+  it('realization: an all-in call realizes everything; depth costs more out of position; another player costs nothing on equity taken against him (measured -0.03, SE 0.06) and 0.35 as dilution of heads-up equity', () => {
     expect(omahaReraisedCallRealization(false, 0, 2)).toBe(1);
+    expect(omahaReraisedCallRealization(false, 0, 2, 2)).toBe(1);
+    expect(omahaReraisedCallRealization(true, 2, 0)).toBeCloseTo(1 - 0.15 * (2 / 4), 12);
+    expect(omahaReraisedCallRealization(false, 5, 0)).toBeCloseTo(1 - 0.7 * (5 / 10), 12);
+    expect(omahaReraisedCallRealization(true, 2, 1, 1)).toBeCloseTo(1 - 0.075 - 0.35, 12);
+    expect(omahaReraisedCallRealization(true, 0.5, 2, 2)).toBeCloseTo(
+      1 - 0.15 * 0.2 - 0.5 * 0.7,
+      12
+    );
     for (const spr of [0.5, 1, 2, 5, 10]) {
       expect(omahaReraisedCallRealization(true, spr, 0)).toBeGreaterThan(
         omahaReraisedCallRealization(false, spr, 0)
       );
-      expect(omahaReraisedCallRealization(true, spr, 1)).toBeLessThan(
+      expect(omahaReraisedCallRealization(true, spr, 1)).toBe(
+        omahaReraisedCallRealization(true, spr, 0)
+      );
+      expect(omahaReraisedCallRealization(true, spr, 1, 1)).toBeLessThan(
         omahaReraisedCallRealization(true, spr, 0)
       );
     }

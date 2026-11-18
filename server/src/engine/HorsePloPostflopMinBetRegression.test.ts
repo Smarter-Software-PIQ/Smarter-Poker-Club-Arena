@@ -506,6 +506,14 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       opportunities: 0,
       rateSource: 'population',
       inPosition: false,
+      // F-02: the seat-order facts the scope and the price read
+      position: {
+        ipVsRaiser: false,
+        inForBehind: 0,
+        raisersPendingBehind: 0,
+        callersPendingBehind: 0,
+        inPosition: false,
+      },
       othersIn: 0,
       raiserBehind: 900,
       rakeFraction: 0,

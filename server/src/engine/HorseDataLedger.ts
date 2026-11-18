@@ -4647,6 +4647,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_reraised_call_priced_in_position',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'finding F-02: a class fold was priced (either verdict) with the Horse in position as the realization fit defines it: it acts after the re-raiser (omahaReraisedPositionOf.ipVsRaiser, seat order only)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_call_priced_out_of_position',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'finding F-02: a class fold was priced (either verdict) with the Horse out of position as the realization fit defines it: it acts before the re-raiser',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_call_priced_multiway_equity',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players already in for the price and the equity taken against the re-raiser and each of them (omahaReraisedEquityAgainst; each caller range is the band read from his line), with no per-player charge (measured -0.03, SE 0.06)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_call_priced_heads_up_diluted',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'realization measurement 2026-11-18: a class fold was priced (either verdict) with other players counted in the pot and the equity heads-up against the re-raiser, so each is charged the 0.35 dilution (a tournament or Lightning hand, or a player in for the price with no readable band)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_call_in_position_caller_pending_seen',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'finding F-02: a PLO4/PLO5 preflop call of a 3-bet or more reached the calling rule with the Horse in position against everyone who will see the flop and a caller of an earlier price behind it who has not yet answered the re-raise (the spot the rule called out of position before 2026-11-17; fired whether or not the cell then examines the call)',
+    'V94'
+  ),
+  receipt(
     'omaha_reraised_call_priced_call_after_own_raise',
     'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
     'the subset of omaha_reraised_call_priced_call in which the Horse had raised earlier in the hand preflop (an input to the price only)',
