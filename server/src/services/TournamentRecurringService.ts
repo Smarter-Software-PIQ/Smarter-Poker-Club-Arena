@@ -415,6 +415,14 @@ import { secureRandomInt } from '../engine/CryptoRandom.js';
 import { HorseEntryRefusalBackoff, databaseDidNotAnswer } from './horseEntryRefusalBackoff.js';
 import { horseEntryCapRefusalContext } from './horseEntryCapRefusalContext.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
+import { isRestDayFor, tagBook } from './StableHandTags.js';
+import {
+  callHorsesFromCash,
+  overlayCashCallList,
+  recordOverlayCoverPool,
+} from './horseOverlayCover.js';
+import { chicagoNow } from './StableHandController.js';
+import { controllerEnabled } from './StableHand.js';
 
 /**
  * THE ONE MAP FROM A CONFIG'S VARIANT KEY TO THE `tournaments.game_type` VALUE.
@@ -6717,6 +6725,10 @@ export class TournamentRecurringService {
       redeemTickets?: boolean;
       /** A human is seated in this seat-first game: first claim on the pool. */
       forHuman?: boolean;
+      /** A guaranteed event is short of its guarantee (owner 2026-11-13):
+       *  every horse is on call, whatever its shift or rest day, and horses
+       *  at the game limit are asked to free a cash seat. See horseOverlayCover. */
+      overlayCover?: boolean;
     } = {}
   ): Promise<number> {
     const pass = opts.pass;
@@ -7287,7 +7299,8 @@ export class TournamentRecurringService {
             opts.allLanes === true,
             pass,
             opts.redeemTickets === true,
-            targetPlayers
+            targetPlayers,
+            opts.overlayCover === true
           );
         }
 
@@ -7374,13 +7387,49 @@ export class TournamentRecurringService {
     };
   }
 
+  /**
+   * How many horses this event's club can draw on right now, for the hourly
+   * supply check (HorseOverlayGuard.checkGuaranteeSupplyOnce). Null when any
+   * read is incomplete: unknown supply is never reported as zero.
+   */
+  async horseSupplyFor(tournamentId: string): Promise<{ fleet: number; free: number } | null> {
+    try {
+      const load = await this.horseLoadMap();
+      if (!load) return null;
+      const page = await fetchAllRows<{ id: string }>(
+        (cursor, want) => {
+          let q = supabase
+            .from('profiles')
+            .select('id')
+            .eq('is_horse', true)
+            .eq('horse_status', 'available')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor) q = q.gt('id', cursor);
+          return q;
+        },
+        { label: 'TournamentRecurring.horseSupplyFor', maxRows: 50_000 }
+      );
+      if (!page.complete) return null;
+      const members = await this.clubMemberIdsForTournament(tournamentId);
+      if (!members) return null;
+      const fleet = page.rows.filter((h) => members.has(h.id));
+      const free = fleet.filter((h) => !TournamentRecurringService.atCapacity(load, h.id)).length;
+      return { fleet: fleet.length, free };
+    } catch (err) {
+      reportError(err, 'TournamentRecurring.horse_supply_read_failed');
+      return null;
+    }
+  }
+
   private async registerHorses(
     tournamentId: string,
     count: number,
     allLanes = false,
     pass?: HorseTopUpPass,
     redeemTickets = false,
-    targetLiveEntries?: number
+    targetLiveEntries?: number,
+    overlayCover = false
   ): Promise<number> {
     const generation = this.lifecycleGeneration;
     try {
@@ -7490,6 +7539,7 @@ export class TournamentRecurringService {
          registered into the SAME tournament twice - the bug the comment above
          calls "the one that actually matters". Pages instead, so the guard
          cannot be defeated by a big enough field. */
+      const enteredIds = new Set<string>();
       const ENTRANT_PAGE = 1000;
       for (let page = 0; ; page++) {
         if (page > 10_000) {
@@ -7518,7 +7568,10 @@ export class TournamentRecurringService {
         if (entrantErr || !alreadyIn) return 0;
         for (const r of alreadyIn) {
           const id = (r as { user_id?: string }).user_id;
-          if (id) busyIds.add(id);
+          if (id) {
+            busyIds.add(id);
+            enteredIds.add(id);
+          }
         }
         if (alreadyIn.length < ENTRANT_PAGE) break;
       }
@@ -7664,10 +7717,27 @@ export class TournamentRecurringService {
        * Shark holds 584 horse members, JAQK 580, Midway 323, Deep Stack 416.
        */
       const clubMemberIds = await this.clubMemberIdsForTournament(tournamentId, pass);
+      /* A HORSE'S DAY OFF (owner 2026-11-12, HorseWorkSchedule): no new
+         registration on its rest day. An unreadable tag book fails open. */
+      const restBook = controllerEnabled() ? await tagBook.load().catch(() => null) : null;
+      const restWeekday = chicagoNow().weekday;
 
+      /* OVERLAY COVER (owner 2026-11-13): "ANY AND ALL HORSES SHOULD BE
+         ACTIVATED AT ALL TIMES, REGUARDLESS OF TIME OFF OR DAY OFF IF THERE IS
+         EVER AN OVERLAY THAT NEEDS TO BE FILLED". The rest day, the activity
+         window and the bankroll temperament are waived for this ask; the club,
+         the game limit and the wallet's own reserve at the door still hold. */
+      const atLimitNotEntered: string[] = [];
       const eligible = poolAll.filter((h) => {
         if (busyIds.has(h.id)) {
           busyDropped++;
+          if (
+            overlayCover &&
+            TournamentRecurringService.atCapacity(load, h.id) &&
+            (!clubMemberIds || clubMemberIds.has(h.id)) &&
+            !enteredIds.has(h.id)
+          )
+            atLimitNotEntered.push(h.id);
           return false;
         }
         // Not a member of the club hosting this event: not a candidate.
@@ -7677,6 +7747,13 @@ export class TournamentRecurringService {
         }
         // The ticket is the lane: its value is already committed to this
         // tournament contract and must reach the atomic ticket-first door.
+        // Its day off holds even with a ticket in hand (owner 2026-11-12): the
+        // ticket keeps its value for a day it works.
+        if (overlayCover) return true;
+        if (isRestDayFor(restBook?.states.get(h.id), restWeekday)) {
+          laneDropped++;
+          return false;
+        }
         if (ticketHintIds.has(h.id)) return true;
         // The full scheduled fleet is eligible, regardless of historical lane.
         const ok = isActiveNow(h.id, new Date().getUTCHours());
@@ -7712,6 +7789,7 @@ export class TournamentRecurringService {
        * floor on 2026-08-31.
        */
       const freerollRecoveryPriority = new Set<string>();
+      let cannotPay = 0;
       let pool = eligible;
       try {
         const { data: t } = await supabase
@@ -7777,6 +7855,11 @@ export class TournamentRecurringService {
                 if (ticketHintIds.has(h.id)) return true;
                 const roll = rolls.get(h.id);
                 if (roll === undefined) return true; // unread -> fail open
+                // Overlay cover asks only that the wallet can pay this entry.
+                if (overlayCover) {
+                  if (roll < cost) cannotPay++;
+                  return roll >= cost;
+                }
                 return canEnterTournament(roll, cost, bankrollPolicyFor(h.id));
               });
               if (pool.length < before) {
@@ -7825,6 +7908,25 @@ export class TournamentRecurringService {
 
       // Ticket holders first. Slicing the ordinary rotated pool before this
       // partition was the count-truncation half of the stranding bug.
+      /* Not enough free horses to cover the guarantee: horses at the game
+         limit are asked to give up one cash seat (horseOverlayCover), so the
+         next cycle finds them free. Nobody is unseated here. */
+      if (overlayCover)
+        recordOverlayCoverPool(tournamentId, {
+          asked: count,
+          free: pool.length,
+          atLimit: atLimitNotEntered.length,
+          cannotPay,
+        });
+      if (overlayCover && pool.length < count && atLimitNotEntered.length > 0) {
+        const called = callHorsesFromCash(
+          overlayCashCallList(atLimitNotEntered, count - pool.length)
+        );
+        console.log(
+          `[TournamentRecurring] overlay cover for ${tournamentId.slice(0, 8)}: ${pool.length} free horse(s) ` +
+            `for ${count} entries - asked ${called} at the game limit to free a cash seat`
+        );
+      }
       const ticketPool = pool.filter((horse) => ticketHintIds.has(horse.id));
       const walletPool = pool.filter((horse) => !ticketHintIds.has(horse.id));
       /* THE QUEUE ROTATES PER EVENT, NOT ONLY PER HOUR (2026-09-11). This was

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useFitText } from '../lobby/game-cards/useFitText';
 import { lateRegEndMs } from '../lobby/lateRegWindow';
+import { lateRegCountdown, type LateRegCountdown } from '../lobby/lateRegCountdown';
 import type { LobbyTournamentRow } from '../lobby/lobbyEntries';
 import { tournamentService } from '../../services/TournamentService';
 import { tournamentEntryWindowOpen } from '../../utils/tournamentEntryWindow';
@@ -24,9 +25,39 @@ import './TournamentLateRegCallToAction.css';
  * and the tap takes the player to the tournament's own page, which owns the
  * real registration flow (buy-in sheet, tickets, Diamonds, refusals).
  *
- * The deadline is `lateRegEndMs`, the same projection every lobby card uses:
- * the level window's end or the configured clock, whichever comes first. Once
- * the window is closed nothing is offered and the page prints "Spectating".
+ * ───────────────────────────────────────────────────────────────────────────
+ * THE CLOCK COMPARTMENT COUNTS (Dan 2026-11-10)
+ *
+ * Dan, with a screenshot of the Nightly 10K's holder reading "Reg Closes In /
+ * Open" under a running level: "THE 'REGISTRATION CLOSES IN' BUTTON ISN'T
+ * WORKING OR FUNCTIONAL. IT SHOULD HAVE THE COUNT DOWN CLOCK INSIDE OF IT."
+ *
+ * It was not a dead button. `lateRegEndMs` is the STRICT deadline and answers
+ * null for an ADD-ON event until the engine stamps `addon_period_ends_at`,
+ * which it does only when the add-on window actually opens - that is, after
+ * the entry levels are already over. For the whole of the registration window,
+ * the one time the clock is worth reading, the strict projection had nothing
+ * to give and this compartment printed the bare word "Open".
+ *
+ * Every add-on event was affected: the Nightly 10K in the screenshot carries
+ * `add_on_available = true` with `addon_period_ends_at = null`.
+ *
+ * `lateRegCountdown` (../lobby/lateRegCountdown) is the projection Dan already
+ * ruled on for the lobby card on 2026-11-06 ("FIX IT SO IT ALWAYS SHOWS THE
+ * COUNT DOWN"): it walks the level window forward through the breaks and the
+ * daily freeze and adds the engine's fixed 60-second add-on minute
+ * (TournamentManagerBase.addOnBreakDurationMs), then counts to the stamped end
+ * once there is one. This holder reads it the same way `mttPhaseText` does -
+ * the countdown first, the strict deadline as the fallback - so one event
+ * cannot count down in the lobby and read "Open" at its own table.
+ *
+ * WHAT STILL DECIDES WHETHER THE OFFER IS SHOWN. Only
+ * `tournamentEntryWindowOpen`, the mirror of
+ * fn_tournament_late_registration_open. A countdown is an ESTIMATE: a level
+ * clock that stalls, or a drain that runs past the projected minute, must
+ * never retract an entry the database is still admitting. So an elapsed
+ * estimate drops the clock back to the open-with-nothing-to-count wording and
+ * leaves the button exactly where it is.
  */
 export interface TournamentLateRegCallToActionProps {
   tournamentId: string;
@@ -51,19 +82,46 @@ export function fmtLateRegClock(totalSeconds: number): string {
   return h > 0 ? `${h}:${tail}` : tail;
 }
 
+/**
+ * The deadline this holder counts to, or null when the row supports none.
+ *
+ * The same order the lobby card uses (`mttPhaseText`): the countdown
+ * projection first, the strict deadline behind it, and a target only ever in
+ * the future - an elapsed estimate is nothing to count, never a close.
+ */
+export function lateRegCallToActionTarget(
+  row: LateRegRow | null,
+  nowMs: number
+): LateRegCountdown | null {
+  if (!row) return null;
+  const countdown = lateRegCountdown(row, nowMs);
+  if (countdown) return countdown;
+  const strict = lateRegEndMs(row);
+  return strict !== null && strict > nowMs ? { endMs: strict, phase: 'late_reg' } : null;
+}
+
 /** Copy for the shell, or null when nothing should be offered. Pure for tests. */
 export function lateRegCallToActionCopy(
   row: LateRegRow | null,
   nowMs: number
 ): { eyebrow: string; title: string } | null {
   if (!row) return null;
+  // The database predicate is the only thing that may withdraw the offer.
   if (!tournamentEntryWindowOpen(row, nowMs)) return null;
-  const endsAt = lateRegEndMs(row);
   const title = 'Tap Here To Enter';
-  if (endsAt === null) return { eyebrow: 'Late Registration Is Open', title };
-  const left = (endsAt - nowMs) / 1000;
-  if (left <= 0) return null;
-  return { eyebrow: `${fmtLateRegClock(left)} Left Before Registration Closes`, title };
+  const target = lateRegCallToActionTarget(row, nowMs);
+  if (target === null) {
+    return {
+      eyebrow:
+        row.add_on_available === true ? 'The Add-On Is Starting' : 'Late Registration Is Open',
+      title,
+    };
+  }
+  const closes = target.phase === 'add_on' ? 'The Add-On Closes' : 'Registration Closes';
+  return {
+    eyebrow: `${fmtLateRegClock((target.endMs - nowMs) / 1000)} Left Before ${closes}`,
+    title,
+  };
 }
 
 export function TournamentLateRegCallToAction({
@@ -120,8 +178,19 @@ export function TournamentLateRegCallToAction({
 
   const eyebrow = copy?.eyebrow ?? '';
   const title = copy?.title ?? '';
-  const deadline = row ? lateRegEndMs(row) : null;
-  const clock = deadline === null ? 'Open' : fmtLateRegClock((deadline - nowMs) / 1000);
+  const target = lateRegCallToActionTarget(row, nowMs);
+  /* An add-on event whose entry levels are over and whose hands are still
+     draining: the minute opens when the last hand finishes, so there is no
+     honest second to print until the engine stamps it. */
+  const addOnStarting = target === null && row?.add_on_available === true;
+  const clockLabel =
+    target?.phase === 'add_on' ? 'Add-On Ends In' : addOnStarting ? 'Add-On' : 'Reg Closes In';
+  const clock =
+    target !== null
+      ? fmtLateRegClock((target.endMs - nowMs) / 1000)
+      : addOnStarting
+        ? 'Starting'
+        : 'Open';
   const clockRef = useFitText<HTMLSpanElement>(clock, 1, 0.35);
   const titleRef = useFitText<HTMLSpanElement>(title, 1, 0.5);
 
@@ -141,7 +210,7 @@ export function TournamentLateRegCallToAction({
       aria-label={`${eyebrow}. ${title}`}
     >
       <span className="tournament-entry-holder__clock" aria-hidden="true">
-        <span className="tournament-entry-holder__label">Reg Closes In</span>
+        <span className="tournament-entry-holder__label">{clockLabel}</span>
         <span className="tournament-entry-holder__clock-line">
           <span ref={clockRef} className="tournament-entry-holder__time">
             {clock}

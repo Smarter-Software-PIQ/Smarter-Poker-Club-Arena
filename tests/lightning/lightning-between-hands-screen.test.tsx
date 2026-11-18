@@ -110,10 +110,15 @@ describe('1. the Lightning notices are felt-level, so they show between hands', 
   });
 
   it('"Next Hand..." and "Lightning Is Ending" are one layer inside the felt surface', () => {
-    const surface = PAGE.indexOf('<div className="table-surface">');
+    expect(read('src/components/table/TableFelt.tsx')).toMatch(
+      /className="table-surface">\s*\{children\}/
+    );
+    const surface = PAGE.indexOf('<TableFelt');
+    const surfaceEnd = PAGE.indexOf('</TableFelt>', surface);
     const layer = PAGE.indexOf('className="lightning-felt-notices"');
     const board = PAGE.indexOf('<div className="community-area">');
     expect(surface).toBeGreaterThan(-1);
+    expect(surfaceEnd).toBeGreaterThan(board);
     expect(layer).toBeGreaterThan(surface);
     expect(layer).toBeLessThan(board);
     const block = sliceEnclosingBlock(PAGE, 'className="lightning-felt-notices"');
@@ -387,7 +392,7 @@ describe('6. Lightning urgency is said in blue, teal and silver', () => {
 describe('7. "Next Hand..." after 1.2 s, fading in and out, in the same words', () => {
   it('waits 1200 ms and says exactly "Next Hand..."', () => {
     expect(LIGHTNING_NEXT_HAND_NOTICE_MS).toBe(1200);
-    expect(LIGHTNING_NEXT_HAND_TEXT).toBe('Next Hand...');
+    expect(LIGHTNING_NEXT_HAND_TEXT).toBe('Waiting For The Next Hand...');
   });
 
   it('a completed winner waits for the next deal even while its last snapshot retains the hand', async () => {
@@ -410,7 +415,7 @@ describe('7. "Next Hand..." after 1.2 s, fading in and out, in the same words', 
       await vi.advanceTimersByTimeAsync(1);
     });
     const notice = screen.getByTestId('lightning-next-hand');
-    expect(notice.textContent).toBe('Next Hand...');
+    expect(notice.textContent).toBe('Waiting For The Next Hand...');
 
     // The next hand has its own completion identity; its full fade is kept.
     rerender(<LightningNextHand handInProgress handComplete={false} />);
@@ -438,7 +443,7 @@ describe('7. "Next Hand..." after 1.2 s, fading in and out, in the same words', 
       await vi.advanceTimersByTimeAsync(LIGHTNING_NEXT_HAND_NOTICE_MS + 10);
     });
     const line = screen.getByTestId('lightning-next-hand');
-    expect(line.textContent).toBe('Next Hand...');
+    expect(line.textContent).toBe('Waiting For The Next Hand...');
     expect(line.getAttribute('data-leaving')).toBeNull();
 
     // The deal: the same line stays for the fade, marked leaving.
@@ -446,7 +451,7 @@ describe('7. "Next Hand..." after 1.2 s, fading in and out, in the same words', 
     const leaving = screen.getByTestId('lightning-next-hand');
     expect(leaving).toBe(line);
     expect(leaving.getAttribute('data-leaving')).toBe('true');
-    expect(leaving.textContent).toBe('Next Hand...');
+    expect(leaving.textContent).toBe('Waiting For The Next Hand...');
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LIGHTNING_NEXT_HAND_FADE_MS + 10);
@@ -461,6 +466,19 @@ describe('7. "Next Hand..." after 1.2 s, fading in and out, in the same words', 
       await vi.advanceTimersByTimeAsync(LIGHTNING_NEXT_HAND_NOTICE_MS - 200);
     });
     rerender(<LightningNextHand handInProgress />);
+    expect(screen.queryByTestId('lightning-next-hand')).toBeNull();
+  });
+
+  it('keeps a verified long wait on the same line as cards are dealt and defers to the reconnect banner', async () => {
+    vi.useFakeTimers();
+    const view = render(<LightningNextHand handInProgress={false} />);
+    await act(async () => vi.advanceTimersByTimeAsync(LIGHTNING_NEXT_HAND_NOTICE_MS + 1));
+    const line = screen.getByTestId('lightning-next-hand');
+    view.rerender(<LightningNextHand handInProgress dealing />);
+    expect(line.textContent).toBe('Dealing Cards...');
+    view.rerender(<LightningNextHand handInProgress={false} eligible={false} />);
+    expect(screen.queryByTestId('lightning-next-hand')).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
     expect(screen.queryByTestId('lightning-next-hand')).toBeNull();
   });
 

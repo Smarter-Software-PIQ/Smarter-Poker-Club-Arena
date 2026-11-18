@@ -342,5 +342,67 @@ INSERT INTO operational_alert_events(id,alertname,severity,received_at,investiga
         assert 'ORIGINAL_SLOT_DIGEST_PREIMAGE_CHANGED' in sql(slot_migration.read_text().replace('CREATE FUNCTION public.fn_sp_original_alert_proof','CREATE OR REPLACE FUNCTION public.fn_sp_original_alert_proof'),check=False).stderr
         print(sql("SELECT jsonb_object_agg(proname,md5(pg_get_functiondef(oid))) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('fn_sp_original_alert_proof','fn_sp_daily_digest')").stdout.strip())
         print('PASS: exact current digest preimage, original two completed Midway slots including zero-cash bounty PKO, aggregate/per-type shared original-ID proof, historical is reviewed not verified, missing/foreign/wrong-slot/cancelled/open-escrow/bad-receipt/malformed negatives, source rows and digest metadata unchanged, replay refusal')
+        # Local runtime resolution deliveries are not another failure. Exercise
+        # the actual current producer subqueries and full attention function.
+        sql("ALTER TABLE operational_alert_events ADD COLUMN IF NOT EXISTS source text, ADD COLUMN IF NOT EXISTS status text;")
+        current=json.loads((root/'tests/fixtures/local-runtime-digest-preimages.json').read_text())
+        for row in current:
+            sql(row['definition'])
+        sql("CREATE OR REPLACE FUNCTION fn_sp_midway_free_buy_watch() RETURNS jsonb LANGUAGE sql AS $$ SELECT '[]'::jsonb $$;")
+        sql("TRUNCATE operational_alert_events; TRUNCATE sp_daily_metrics;")
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) SELECT n,'local.tours-runtime','LocalScraperRuntimeFailure','firing','critical', '2026-11-13 12:00Z','{}'::jsonb FROM generate_series(1,2)n;")
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) SELECT n,'local.tours-runtime','LocalScraperRuntimeFailure','firing','critical', '2026-11-14 12:00Z','{}'::jsonb FROM generate_series(3,4)n;")
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) SELECT n,'local.tours-runtime','LocalScraperRuntimeFailure','resolved','critical', '2026-11-14 12:10Z',jsonb_build_object('resolves','old-key-'||n) FROM generate_series(5,13)n;")
+        def runtime_counts():
+            body=sql("SELECT pg_get_functiondef('fn_sp_daily_metrics_compute(date)'::regprocedure);").stdout
+            piece=body[body.index("    'alerts_new'"):body.index("    'alerts_fixed'")].rstrip().rstrip(',')
+            return json.loads(sql("SELECT jsonb_build_object("+piece+") FROM (SELECT '2026-11-14 06:00Z'::timestamptz s,'2026-11-15 06:00Z'::timestamptz e) observed_window;").stdout)
+        def rising(count):
+            data=json.dumps({'health':{'alert_names':{'LocalScraperRuntimeFailure':count}}})
+            return [x for x in json.loads(sql("SELECT fn_sp_digest_attention('2026-11-14','"+data+"'::jsonb)").stdout) if x['rule']=='critical_alert_rising']
+        assert runtime_counts()['alert_names']['LocalScraperRuntimeFailure']==11
+        assert rising(11), 'reproduce nine resolution deliveries becoming a false spike'
+        original_rows=sql('SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM operational_alert_events e;').stdout
+        migration=root/'supabase/migrations/20261115140604_local_runtime_resolution_deliveries_are_not_new_failures.sql'
+        sql(migration.read_text())
+        counts=runtime_counts()
+        assert counts['alert_names']['LocalScraperRuntimeFailure']==2
+        assert counts['alerts_new']['critical']==2
+        assert not rising(2), 'same two failures as yesterday, not eleven'
+        legacy=rising(11)
+        assert len(legacy[0]['detail']['source_events'][0]['event_ids'])==11, 'immutable old metrics retain their original11-member proof cohort'
+        assert legacy[0]['detail']['source_events'][0]['expected_count']==11
+        assert original_rows==sql('SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM operational_alert_events e;').stdout
+        assert 'LOCAL_RUNTIME_DIGEST_PREIMAGE_CHANGED' in sql(migration.read_text(),check=False).stderr
+        # Resolved-in-place originals, unknown sources/payloads and unrelated
+        # producers stay counted. Only the explicit typed local delivery drops.
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) VALUES (20,'local.series-runtime','LocalScraperRuntimeFailure','resolved','critical','2026-11-14 12:20Z','{}'),(21,'other','Other','resolved','critical','2026-11-14 12:20Z','{\"resolves\":\"key\"}'),(22,NULL,'Unknown','firing','critical','2026-11-14 12:20Z',NULL);")
+        assert runtime_counts()['alerts_new']['critical']==5
+        print('PASS: local runtime failures11->2, resolution-only deliveries excluded, in-place original/other producer/NULL evidence retained, history untouched, exact preimage/replay refusal')
+        # Tracking statements are owner-approved funded-wallet shortfalls,
+        # not spendable borrowing. Run the actual whole attention function.
+        sql("CREATE TABLE credit_invoices(id uuid,agent_id uuid,created_at timestamptz,period_start timestamptz,period_end timestamptz,debt_owed numeric);CREATE TABLE agent_credit_weekly_basis(agent_id uuid,period_start timestamptz,period_end timestamptz,credit_line numeric,agent_wallet_before_rakeback numeric,amount_owed numeric);CREATE TABLE agent_credit_tracking_policy(singleton boolean,activated_at timestamptz);")
+        sql("INSERT INTO agent_credit_tracking_policy VALUES(true,'2026-10-30T08:08:31Z');INSERT INTO credit_invoices VALUES('01000000-0000-0000-0000-000000000001','02000000-0000-0000-0000-000000000001','2026-11-14T12:00Z','2026-11-07T08:00Z','2026-11-14T08:00Z',35);INSERT INTO agent_credit_weekly_basis VALUES('02000000-0000-0000-0000-000000000001','2026-11-07T08:00Z','2026-11-14T08:00Z',500,465,35);")
+        def invoice_attention(count=1):
+            return [x for x in json.loads(sql("SELECT fn_sp_digest_attention('2026-11-14','{\"agents\":{\"agent_credit_invoices\":"+str(count)+"}}'::jsonb)").stdout) if x['rule']=='agent_on_credit']
+        assert invoice_attention(), 'reproduce legitimate funded statement reported as forbidden borrowing'
+        before_rows=sql('SELECT jsonb_agg(to_jsonb(i)) FROM credit_invoices i').stdout
+        metadata=sql("SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid='fn_sp_digest_attention(date,jsonb)'::regprocedure").stdout
+        tracking=root/'supabase/migrations/20261117173834_digest_distinguishes_funded_credit_tracking_statements.sql'
+        sql(tracking.read_text())
+        assert invoice_attention()==[]
+        assert invoice_attention(2)[0]['title']=='Agent Invoice Tracking Evidence Is Incomplete'
+        for mutation,restore in [
+            ("UPDATE agent_credit_weekly_basis SET amount_owed=34","UPDATE agent_credit_weekly_basis SET amount_owed=35"),
+            ("UPDATE agent_credit_weekly_basis SET period_end='2026-11-13T08:00Z'","UPDATE agent_credit_weekly_basis SET period_end='2026-11-14T08:00Z'"),
+            ("UPDATE agent_credit_tracking_policy SET activated_at='2026-11-15T08:00Z'","UPDATE agent_credit_tracking_policy SET activated_at='2026-10-30T08:08:31Z'"),
+            ("UPDATE credit_invoices SET debt_owed=36","UPDATE credit_invoices SET debt_owed=35"),
+        ]:
+            sql(mutation);assert invoice_attention(), mutation;sql(restore)
+        assert not invoice_attention()
+        sql(tracking.read_text());assert not invoice_attention(), 'idempotent installation'
+        assert before_rows==sql('SELECT jsonb_agg(to_jsonb(i)) FROM credit_invoices i').stdout
+        assert metadata==sql("SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid='fn_sp_digest_attention(date,jsonb)'::regprocedure").stdout
+        print('PASS: funded tracking statement no longer cries borrowed credit; original amount/period/policy/missing evidence still warn; invoices and function authority unchanged; migration replay safe')
     finally:
         run('pg_ctl', '-D', str(scratch/'data'), '-m', 'immediate', 'stop')

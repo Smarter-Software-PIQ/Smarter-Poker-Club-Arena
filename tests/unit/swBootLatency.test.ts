@@ -84,10 +84,10 @@ describe('service worker scope covers the URL the World Hub links to', () => {
 describe('entry selects current HTML before the page appears', () => {
   it('uses a bounded network read and keeps an offline cache fallback', () => {
     expect(sw).toContain('const SHELL_NETWORK_TIMEOUT_MS = 8000');
-    expect(sw).toContain("fetch(event.request, { cache: 'no-cache' })");
-    expect(sw).toContain('if (fresh?.ok) return fresh;');
-    expect(sw).toContain('if (cached) return cached;');
-    expect(sw.indexOf('if (fresh?.ok)')).toBeLessThan(sw.indexOf('if (cached) return cached;'));
+    expect(sw).toContain("fetch(event.request, { cache: 'no-cache', signal: controller.signal })");
+    expect(sw).toContain('if (fresh?.ok)');
+    expect(sw).toContain('if (cached || lookup.cached)');
+    expect(sw.indexOf('if (fresh?.ok)')).toBeLessThan(sw.indexOf('if (cached || lookup.cached)'));
     expect(sw).toContain("lookupCachedResponse(CACHE_NAME, '/hub/club-arena/offline.html')");
   });
 

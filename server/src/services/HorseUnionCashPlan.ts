@@ -1,9 +1,13 @@
+import { createHash } from 'node:crypto';
 import { ploContinuationFor, type PloLightningDemand } from './PloLightningDemand.js';
 import { secondTablePicked } from './HorseBehavior.js';
 import plan from './horseUnionCashPlan.json' with { type: 'json' };
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 
-/** Maintained cash floor, November 4 owner direction. One Main 1 per game.
+/** Maintained cash floor. One primary per game; selected games grow to two or three tables.
+ * November 11 relaunch (owner): every plan game is scheduled around the clock
+ * with no restriction on how many games are open at once, the 1/2 Holdem and
+ * PLO games run full time again, and the weekly target is tripled.
  * No fee, wallet, human admission, tournament or Diamond policy changes.
  * A target is a forecast, not a hard ceiling on human-generated rake.
  */
@@ -17,6 +21,128 @@ export const LIGHTNING_HORSE_SEEDED: ReadonlySet<string> = new Set(
     (game) => game.id
   ) ?? []
 );
+/**
+ * A SEEDED LIGHTNING GAME STARTS FIRST (Dan 2026-11-13 14:56 Chicago).
+ *
+ * "THE 1/2 HORSES NEED TO BE PLAYING THE 1/2 LIGHTNING FOR HOLDEM AND PLO AND
+ * WE NEED TO GET THE .50/1.00 LIGHTNING RUNNING FOR HOLDEM AND PLO."
+ *
+ * Being allowed to sit is not the same as being seated. The seeding walk
+ * ranks an occupied Main 1 ahead of an empty one and every feeder last, and
+ * since the player curve became a seat ceiling the walk stops when the host
+ * is at it. Measured 15:10 Chicago: Lightning PLO4 .50/1 held one table, a
+ * feeder, so it stood behind every other chair on the floor, and the four
+ * seeded Main 1 tables stood behind every occupied Main 1.
+ *
+ * Until a horse-seeded Lightning game holds its pool target, ONE of its
+ * tables that still has a free chair (the fullest, then a Main before a
+ * feeder, then the lowest id) is seated ahead of the ordinary order, beside an
+ * opening feeder. One table at a time, so the game fills ring by ring rather
+ * than as several thin feeders. The seat ceiling, the work schedule, bankroll,
+ * the database's 70-90 second Lightning arrival pace
+ * (fn_lightning_horse_admit_paced) and every other admission rule still apply.
+ *
+ * TWO RINGS, NOT ONE (Dan 2026-11-17, "Fill each to 10-12"). A pool of one
+ * ring cannot fast fold: with six players one hand is dealt at a time, and a
+ * folder waits for that hand to end before four are idle. Measured on Lightning
+ * PLO4 .25/.50 (705270cd): idle_to_match p95 20.9 s with 6 in the pool, 4.6 s
+ * with 17, 2.6 s with 41. Every seeded game is a six-max game, so twelve is
+ * two full rings: two hands in the air whose folders regroup with each other.
+ * Ten or eleven would leave the second ring short-handed. Kept for every
+ * seeded game; it means fewer free horses for Classic, which the owner chose.
+ */
+export const LIGHTNING_SEEDED_POOL_PLAYERS = 12;
+/** @deprecated the one-ring target before 2026-11-17; now the pool target. */
+export const LIGHTNING_STARTER_PLAYERS = LIGHTNING_SEEDED_POOL_PLAYERS;
+/**
+ * The seat target of a seeded Lightning game's starter table: as many of the
+ * game's missing players as its free chairs hold. Only ever raises a target;
+ * how fast those chairs fill is still the arrival pace's decision.
+ */
+export function lightningStarterSeatTarget(
+  currentCount: number,
+  maxPlayers: number,
+  gameTotal: number
+): number {
+  const missing = Math.max(0, LIGHTNING_SEEDED_POOL_PLAYERS - Math.max(0, gameTotal));
+  return Math.max(0, Math.min(maxPlayers, currentCount + missing));
+}
+export function lightningStarterTables(
+  tables: ReadonlyArray<CashPlanTable>,
+  seatedAt: (tableId: string) => number,
+  seeded: ReadonlySet<string> = LIGHTNING_HORSE_SEEDED
+): ReadonlySet<string> {
+  return new Set(lightningStarterGameSeats(tables, seatedAt, seeded).keys());
+}
+
+/**
+ * EVERY SEEDED LIGHTNING GAME GETS ITS TURN (2026-11-14).
+ *
+ * The starter tables were ranked among themselves by the ordinary cluster
+ * rank, which puts every feeder after every Main. Lightning PLO4 .50/1 had
+ * only a feeder open, so whenever the seat ceiling left a few chairs, the
+ * four other starters took them first: it sat at 0 players from 00:27 to
+ * 08:05 Chicago on 2026-11-14 while the others dealt. Among starters, the
+ * game with the fewest players goes first (then the table id), whatever the
+ * table's role. The ceiling and every admission rule still decide how many.
+ */
+export function compareLightningStarters(
+  a: { id: string },
+  b: { id: string },
+  starters: ReadonlyMap<string, number>
+): number {
+  const ga = starters.get(String(a.id));
+  const gb = starters.get(String(b.id));
+  if (ga === undefined && gb === undefined) return 0;
+  if (ga === undefined) return 1;
+  if (gb === undefined) return -1;
+  return ga - gb || String(a.id).localeCompare(String(b.id));
+}
+
+/** Starter table id -> players its game already holds. */
+export function lightningStarterGameSeats(
+  tables: ReadonlyArray<CashPlanTable>,
+  seatedAt: (tableId: string) => number,
+  seeded: ReadonlySet<string> = LIGHTNING_HORSE_SEEDED
+): ReadonlyMap<string, number> {
+  const count = (t: CashPlanTable): number => {
+    const n = seatedAt(String(t.id ?? ''));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const byGame = new Map<string, CashPlanTable[]>();
+  for (const t of tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string') continue;
+    if (!seeded.has(t.cluster_id)) continue;
+    if (t.lifecycle === 'closed' || t.lifecycle === 'breaking') continue;
+    const list = byGame.get(t.cluster_id) ?? [];
+    list.push(t);
+    byGame.set(t.cluster_id, list);
+  }
+  /* A table with no free chair cannot take the next horse: the fullest table
+     is passed over once it is full, so the game's next ring (its feeder)
+     becomes the starter. An unread size is treated as having room. */
+  const hasRoom = (t: CashPlanTable): boolean => {
+    const max = Number(t.max_players);
+    return !(Number.isFinite(max) && max > 0) || count(t) < max;
+  };
+  const out = new Map<string, number>();
+  for (const list of byGame.values()) {
+    const total = list.reduce((sum, t) => sum + count(t), 0);
+    if (total >= LIGHTNING_SEEDED_POOL_PLAYERS) continue;
+    const first = list
+      .filter(hasRoom)
+      .sort(
+        (a, b) =>
+          count(b) - count(a) ||
+          Number(a.role !== 'main') - Number(b.role !== 'main') ||
+          Number(a.main_index ?? 999) - Number(b.main_index ?? 999) ||
+          String(a.id).localeCompare(String(b.id))
+      )[0];
+    if (first) out.set(String(first.id), total);
+  }
+  return out;
+}
+
 const chicagoClock = new Intl.DateTimeFormat('en-US', {
   timeZone: plan.timeZone,
   weekday: 'short',
@@ -37,6 +163,8 @@ export type CashPlanTable = {
   small_blind?: unknown;
   big_blind?: unknown;
   lifecycle?: unknown;
+  last_human_seen_at?: unknown;
+  max_players?: unknown;
 };
 
 /** Main numbering is not unique in the database. Select one stable chair
@@ -98,6 +226,72 @@ export function playingHumansAtCashTable(
   ).length;
 }
 
+/** A GAME DOES NOT BREAK RIGHT AWAY AFTER A HUMAN LEAVES (Dan 2026-11-11:
+ * "GAMES SHOULD NEVER BREAK RIGHT AWAY AFTER A HUMAN LEAVES... 20-30 MINUTE
+ * MINIMUM TIME TO BREAK A GAME"). The plan remembers, per table, when it last
+ * saw a playing human; for that table's own 20-30 minute dwell after the last
+ * one leaves, the higher-stakes human exception stays granted, so the horses
+ * play on and the fleet keeps seating instead of the table emptying on the
+ * cycle after a departure. Deterministic per table so the floor does not
+ * break every game on one clock. The memory is in-process: a restart forgets
+ * it, which only shortens the dwell across a deploy, never play itself. */
+export const HUMAN_DEPARTURE_DWELL_MIN_MINUTES = 20;
+export const HUMAN_DEPARTURE_DWELL_MAX_MINUTES = 30;
+const lastPlayingHumanSeenMs = new Map<string, number>();
+
+export function humanDepartureDwellMinutes(tableId: string): number {
+  const hex = createHash('md5').update(`${tableId}:human_departure_dwell`).digest('hex');
+  const span = HUMAN_DEPARTURE_DWELL_MAX_MINUTES - HUMAN_DEPARTURE_DWELL_MIN_MINUTES + 1;
+  return HUMAN_DEPARTURE_DWELL_MIN_MINUTES + (parseInt(hex.slice(0, 8), 16) % span);
+}
+
+export function notePlayingHumansSeen(tableId: string, nowMs: number): void {
+  if (!tableId || !Number.isFinite(nowMs)) return;
+  const prior = lastPlayingHumanSeenMs.get(tableId);
+  if (prior === undefined || nowMs > prior) lastPlayingHumanSeenMs.set(tableId, nowMs);
+  if (lastPlayingHumanSeenMs.size > 5000) {
+    for (const [id, seen] of lastPlayingHumanSeenMs) {
+      if (nowMs - seen > 6 * 3_600_000) lastPlayingHumanSeenMs.delete(id);
+    }
+  }
+}
+
+/** The engine's memory OR the table row's own durable stamp
+ * (tables.last_human_seen_at, written by the seat-event trigger), whichever
+ * is later - so a restart, reconnect or table transfer cannot erase or
+ * shorten the dwell. */
+export function lastPlayingHumanSeenMsFor(table: CashPlanTable): number | null {
+  const mem = lastPlayingHumanSeenMs.get(String(table.id ?? ''));
+  const raw = table.last_human_seen_at;
+  const persisted =
+    typeof raw === 'string' ? Date.parse(raw) : raw instanceof Date ? raw.getTime() : NaN;
+  const best = Math.max(
+    mem ?? Number.NEGATIVE_INFINITY,
+    Number.isFinite(persisted) ? persisted : Number.NEGATIVE_INFINITY
+  );
+  return Number.isFinite(best) ? best : null;
+}
+
+export function minutesSinceLastPlayingHumanFor(
+  table: CashPlanTable,
+  nowMs: number
+): number | null {
+  const seen = lastPlayingHumanSeenMsFor(table);
+  return seen === null || !Number.isFinite(nowMs) ? null : (nowMs - seen) / 60000;
+}
+
+export function withinHumanDepartureDwellFor(table: CashPlanTable, nowMs: number): boolean {
+  const minutes = minutesSinceLastPlayingHumanFor(table, nowMs);
+  return (
+    minutes !== null && minutes >= 0 && minutes < humanDepartureDwellMinutes(String(table.id ?? ''))
+  );
+}
+
+/** Tests only: the dwell memory is module state. */
+export function resetHumanPresenceMemoryForTest(): void {
+  lastPlayingHumanSeenMs.clear();
+}
+
 /** LIGHTNING GAMES ALWAYS RUN (Dan 2026-11-05): "lightning tables must always
  * run, they are feeder games until enough players are playing, then they turn
  * to lightning games ONLY WHEN THERE IS ENOUGH PLAYERS. there should never be
@@ -121,7 +315,7 @@ export function horseUnionCashTableAllowed(
   if (table.tournament_id != null || table.is_spins === true) return true;
   /* A GAME'S SECOND TABLE (Dan 2026-11-06: "THERE SHOULD BE SOME GAMES WITH
      TWO TABLES RUNNING"). The cluster tick opens it only when every seat of a
-     game is taken and allows at most two tables per game; it inherits its
+     game is taken and allows up to three tables per Classic game; it inherits its
      Main 1's answer, computed by horseCashPlanSecondTables. Forbidden variants
      and the stake ceiling still apply. */
   if (
@@ -156,8 +350,14 @@ export function horseUnionCashTableAllowed(
     if (LIGHTNING_HORSE_SEEDED.has(gameId)) return true;
     return lightningHumanGames !== null && lightningHumanGames.has(gameId);
   }
+  const tableKey = String(table.id ?? '');
+  if (Number.isFinite(playingHumans) && playingHumans > 0) notePlayingHumansSeen(tableKey, nowMs);
   const higherStakes = Number(table.small_blind) > 0.5 || Number(table.big_blind) > 1;
   if (higherStakes && Number.isFinite(playingHumans) && playingHumans > 0) return true;
+  // The human exception outlives the last playing human by this table's own
+  // 20-30 minute dwell (Dan 2026-11-11): a game never breaks right away
+  // after a human leaves.
+  if (higherStakes && withinHumanDepartureDwellFor(table, nowMs)) return true;
   const gameId = String(table.cluster_id ?? '');
   const game = games.get(gameId);
   // Named game and Main 1 prevent the fleet multiplying a slot into feeders
@@ -174,51 +374,66 @@ export function horseUnionCashTableAllowed(
   );
 }
 
-/**
- * The second table of each game whose Main 1 horses may sit at (Dan
- * 2026-11-06). At most ONE per game - a feeder or a Main 2, live or opening,
- * lowest id - so the fleet can never multiply a slot past the two tables the
- * cluster tick allows. `primaryAllowed` is the caller's own answer for the
- * game's Main 1, so the second table follows it exactly, and only while the
- * game is picked for a second table (secondTablePicked).
- */
+/** Secondary tables inherit their primary's admission policy.
+ *
+ * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11): every live
+ * or opening secondary table (feeder, Main 2 and up) of a game is admitted
+ * whenever its Main 1 is, Classic and Lightning alike; the second/third-table
+ * picks were the retired rake throttle and migration 20261112154904 removes
+ * every count cap from the tick. How many tables exist is the tick's OPEN rule
+ * (demand) alone. Only while the Lightning set is unknown (null) is the
+ * previous single pick-gated secondary kept, so an unread pool is never fed
+ * blind. Stable
+ * main/feeder ordering prevents duplicate rows multiplying the allowance. */
 export function horseCashPlanSecondTables(
   tables: ReadonlyArray<CashPlanTable>,
   primaryTables: ReadonlySet<string>,
   primaryAllowed: (primary: CashPlanTable) => boolean,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  lightningGames: ReadonlySet<string> | null = new Set()
 ): ReadonlySet<string> {
   const primaryByGame = new Map<string, CashPlanTable>();
   for (const t of tables) {
     if (typeof t.id === 'string' && primaryTables.has(t.id) && typeof t.cluster_id === 'string')
       primaryByGame.set(t.cluster_id, t);
   }
-  const chosen = new Map<string, string>();
+  const chosen = new Map<string, CashPlanTable[]>();
   for (const t of tables) {
     if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string') continue;
     if (primaryTables.has(t.id)) continue;
     if (t.lifecycle !== 'live' && t.lifecycle !== 'opening') continue;
-    if (!(t.role === 'feeder' || (t.role === 'main' && Number(t.main_index) === 2))) continue;
-    const current = chosen.get(t.cluster_id);
-    if (current === undefined || t.id < current) chosen.set(t.cluster_id, t.id);
+    if (!(t.role === 'feeder' || (t.role === 'main' && Number(t.main_index) >= 2))) continue;
+    const current = chosen.get(t.cluster_id) ?? [];
+    current.push(t);
+    chosen.set(t.cluster_id, current);
   }
   const out = new Set<string>();
-  for (const [gameId, tableId] of chosen) {
+  for (const [gameId, candidates] of chosen) {
     const primary = primaryByGame.get(gameId);
-    // Only while the game is picked for two tables (the tick's own rule,
-    // HorseBehavior.secondTablePicked); once it is not, the second table's
-    // horses leave through the rotator and must-move empties the rest.
+    if (!primary || !primaryAllowed(primary)) continue;
+    const known = lightningGames !== null;
+    // Keep established mains ahead of their feeder, with stable tie breaking.
+    candidates.sort(
+      (a, b) =>
+        Number(a.role !== 'main') - Number(b.role !== 'main') ||
+        Number(a.main_index ?? 0) - Number(b.main_index ?? 0) ||
+        String(a.id).localeCompare(String(b.id))
+    );
+    if (known) {
+      for (const table of candidates) out.add(String(table.id));
+      continue;
+    }
+    // Lightning set unread: only while the game is picked for a second table
+    // (HorseBehavior.secondTablePicked), the conservative pre-relaunch rule.
     if (
-      primary &&
       secondTablePicked(
         gameId,
         nowMs,
         Number(primary.big_blind) || null,
         typeof primary.game_variant === 'string' ? primary.game_variant : null
-      ) &&
-      primaryAllowed(primary)
+      )
     )
-      out.add(tableId);
+      out.add(String(candidates[0].id));
   }
   return out;
 }

@@ -255,8 +255,39 @@ it('a late clear/call cannot stop the real turn handler folding the leaver', asy
   e.setPreAction(HUMAN, 'auto_call');
   e.handController.getState().currentPlayerSeat = 1;
   await e.handleTurnChange({ type: 'TURN_CHANGE', seat: 1 }, e.seatedPlayers);
-  expect(e.handController.performAction).toHaveBeenCalledWith(1, 'fold', undefined, 'pre_action');
+  // FORCED-ACTION COUNTING (2026-11-15): the leaver's fold is the engine's, so it is recorded 'forced' and no
+  // learner counts it as a voluntary fold (it was 'pre_action' and counted).
+  expect(e.handController.performAction).toHaveBeenCalledWith(
+    1,
+    'fold',
+    undefined,
+    'forced',
+    undefined
+  );
   expect(live[0].is_folded).toBe(true);
+});
+
+it('a fold the player armed himself, without leaving, stays a pre-action (counted as his choice)', async () => {
+  const live: LivePlayer[] = [
+    { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+    { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+  ];
+  const e = makeEngine(live, 3);
+  e.lifecycleCanMutate = () => true;
+  e.actionClockSeconds = () => 15;
+  e.weeklyPayoutContinuation = (p: any) => p;
+  e.sleepHand = async () => {};
+  e.markProgress = vi.fn();
+  e.setPreAction(HUMAN, 'auto_fold');
+  e.handController.getState().currentPlayerSeat = 1;
+  await e.handleTurnChange({ type: 'TURN_CHANGE', seat: 1 }, e.seatedPlayers);
+  expect(e.handController.performAction).toHaveBeenCalledWith(
+    1,
+    'fold',
+    0,
+    'pre_action',
+    undefined
+  );
 });
 
 it('validated leave input cannot be overwritten while departure acknowledgement is pending', async () => {

@@ -66,7 +66,12 @@ const gate = (overrides: Record<string, string> = {}) => {
     .replaceAll('needs.publication-floor.result', JSON.stringify(values.floor))
     .replaceAll('needs.client-tests.result', JSON.stringify(values.client))
     .replaceAll('needs.build-and-store.result', JSON.stringify(values.build))
-    .replaceAll('needs.build-record-gateway.result', JSON.stringify(values.gateway));
+    .replaceAll('needs.build-record-gateway.result', JSON.stringify(values.gateway))
+    // A person's push or dispatch; the job-token refusal is pinned in its own law.
+    .replaceAll('github.triggering_actor', JSON.stringify('Smarter-Poker'))
+    .replaceAll('github.actor', JSON.stringify('Smarter-Poker'))
+    .replaceAll('github.run_attempt', JSON.stringify('1'))
+    .replaceAll('github.event_name', JSON.stringify('push'));
   return Function('always', `return (${expr})`)(() => true);
 };
 
@@ -133,6 +138,13 @@ describe('one publication transaction follows parallel preparation', () => {
       }
       delete body.if;
       delete body.needs;
+      // Moved 2026-11-11 (secrets leave repository scope ahead of the merge
+      // queue): every secret-reading publication job reads them from the
+      // main-only ci-main environment. Normalize back to the reviewed snapshot.
+      if (JSON.stringify(job).includes('secrets.')) {
+        expect(body.environment).toBe('ci-main');
+        delete body.environment;
+      } else expect(body.environment).toBeUndefined();
       // These independent gateway jobs retain their original snapshots too.
       if (
         [

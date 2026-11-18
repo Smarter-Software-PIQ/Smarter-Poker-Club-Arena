@@ -9,7 +9,15 @@ import { describe, expect, it, vi } from 'vitest';
 // and still a real bound, so a genuinely hung child still fails the suite.
 // File-scoped on purpose: no global testTimeout, no --no-file-parallelism.
 vi.setConfig({ testTimeout: 90_000 });
-import { readFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import {
+  readFileSync,
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -1242,14 +1250,16 @@ describe('required CI owns native fixture verification', () => {
   });
 
   it('checkout and classification use the event base/head, with no mutable PR listing', () => {
-    expect(ci.jobs.changes.steps[0].with.ref).toBe('${{ github.event.pull_request.head.sha }}');
+    expect(ci.jobs.changes.steps[0].with.ref).toBe(
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
+    );
     expect(ci.jobs.changes.steps[0].with['fetch-depth']).toBe(0);
     expect(ci.jobs.changes.steps[0].with['persist-credentials']).toBe(false);
     expect(ci.jobs.changes.steps[1].env.CI_BASE_SHA).toBe(
-      '${{ github.event.pull_request.base.sha }}'
+      '${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}'
     );
     expect(ci.jobs.changes.steps[1].env.CI_HEAD_SHA).toBe(
-      '${{ github.event.pull_request.head.sha }}'
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
     );
     expect(ci.jobs.changes.steps[1].run).toBe('node scripts/ci/classify-ci-changes.mjs');
   });
@@ -1257,10 +1267,16 @@ describe('required CI owns native fixture verification', () => {
   it('binds the required result to compilation and the native dependency without serializing compilation', () => {
     expect(ci.jobs.typecheck.name).toBe('TypeScript Check');
     expect(ci.jobs.typecheck.needs).toEqual(['typecheck_compile', 'changes', 'fixture_native']);
-    expect(ci.jobs.typecheck.if).toBe("always() && github.event_name == 'pull_request'");
+    expect(ci.jobs.typecheck.if).toBe(
+      "always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
     expect(ci.jobs.typecheck_compile.needs).toBeUndefined();
-    expect(ci.jobs.typecheck_compile.if).toBe("github.event_name == 'pull_request'");
-    expect(ci.jobs.typecheck.steps[0].with.ref).toBe('${{ github.event.pull_request.head.sha }}');
+    expect(ci.jobs.typecheck_compile.if).toBe(
+      "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
+    expect(ci.jobs.typecheck.steps[0].with.ref).toBe(
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
+    );
     expect(ci.jobs.typecheck.steps[0].with['persist-credentials']).toBe(false);
     expect(ci.jobs.typecheck['timeout-minutes']).toBe(4);
     expect(ci.jobs.typecheck.steps[0].with.filter).toBe('blob:none');
@@ -1272,6 +1288,46 @@ describe('required CI owns native fixture verification', () => {
     expect(ci.jobs.typecheck.steps.at(-1).env.NATIVE_RESULT).toBe(
       '${{ needs.fixture_native.result }}'
     );
+  });
+
+  it('admits the ordinary mode for a same-repository PR and for a main merge group only', () => {
+    const head = 'c'.repeat(40);
+    const admit = new Function('inputs', 'github', `return (${native.jobs['native-smoke'].if});`);
+    const inputs = { connected_ui_observations: false, source_sha: head };
+    const group = {
+      event_name: 'merge_group',
+      repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+      event: { merge_group: { base_ref: 'refs/heads/main', head_sha: head } },
+    };
+    expect(admit(inputs, group)).toBe(true);
+    for (const changed of [
+      { event: { merge_group: { base_ref: 'refs/heads/release', head_sha: head } } },
+      { event: { merge_group: { base_ref: 'refs/heads/main', head_sha: 'd'.repeat(40) } } },
+      { repository: 'another/repo' },
+      { event_name: 'push' },
+      { event_name: 'workflow_run' },
+    ])
+      expect(admit(inputs, { ...group, ...changed })).toBe(false);
+    expect(admit({ ...inputs, connected_ui_observations: true }, group)).toBe(false);
+    const pr = {
+      event_name: 'pull_request',
+      repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+      event: {
+        pull_request: {
+          head: { repo: { full_name: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' } },
+        },
+      },
+    };
+    expect(admit(inputs, pr)).toBe(true);
+    expect(
+      admit(inputs, {
+        ...pr,
+        event: { pull_request: { head: { repo: { full_name: 'fork/repo' } } } },
+      })
+    ).toBe(false);
+    // The caller passes no secrets to this mode, so admitting a merge group
+    // exposes nothing a same-repository PR does not already run with.
+    expect(ci.jobs.fixture_native.secrets).toBeUndefined();
   });
 
   it('admits the connected mode only for its exact protected manual caller and keeps credentials capture-step-only', () => {
@@ -1369,7 +1425,7 @@ describe('required CI owns native fixture verification', () => {
       './.github/workflows/component-fixture-native-smoke.yml'
     );
     expect(ci.jobs.fixture_native.with.source_sha).toBe(
-      '${{ github.event.pull_request.head.sha }}'
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
     );
     expect(ci.jobs.fixture_native.if).toContain("needs.changes.outputs.fixture != 'false'");
     // `!cancelled()`, not `always()`: still evaluated when the classifier did
@@ -1407,7 +1463,7 @@ describe('required CI owns native fixture verification', () => {
       '${{ needs.fixture_native.outputs.source_sha }}'
     );
     expect(ci.jobs.typecheck.steps.at(-1).env.SOURCE_SHA).toBe(
-      '${{ github.event.pull_request.head.sha }}'
+      '${{ (github.event.pull_request.head.sha || github.event.merge_group.head_sha) }}'
     );
   });
 });
@@ -1856,6 +1912,33 @@ describe('Horse League priority fixture stays in the existing server verificatio
 });
 
 describe('native PG17 isolation tool is built by the existing accounting job', () => {
+  it('reads the authoritative version without creating build output or checking a server', () => {
+    const box = mkdtempSync(join(tmpdir(), 'pg-version-only-'));
+    const output = join(box, 'must-not-exist');
+    try {
+      const version = execFileSync(
+        'python3',
+        ['-B', 'scripts/ci/build_pg17_isolationtester.py', '--print-version', '--output', output],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          env: { ...process.env, PG_BIN: '/nonexistent' },
+        }
+      );
+      const manifest = JSON.parse(
+        readFileSync('scripts/ci/probes/class4-hand-outcome/manifest.json', 'utf8')
+      );
+      expect(version.trim()).toMatch(/^17\.[0-9]+$/);
+      expect(readFileSync('scripts/ci/build_pg17_isolationtester.py', 'utf8')).toContain(
+        `VERSION = '${version.trim()}'`
+      );
+      expect(JSON.stringify(manifest)).toContain(`"sourceVersion":"${version.trim()}"`);
+      expect(existsSync(output)).toBe(false);
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
+  });
+
   it('tool source changes require the accounting and contract suites', () => {
     const flags = classifyChangedPaths(['scripts/ci/build_pg17_isolationtester.py']);
     expect(flags.server).toBe(true);
@@ -2253,11 +2336,15 @@ describe('restored provider accounting qualification', () => {
     );
     expect(install.env.PG_CI_SHARD).toBe('${{ matrix.shard }}');
     expect(install.run).toContain(
-      'PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}"'
+      'PG_PACKAGES="${pg_ci_server_packages[*]} ${pg_ci_build_packages[*]-}"'
     );
     expect(install.run).toContain('bash .github/actions/install-postgres-17/install.sh');
     const temp = mkdtempSync(join(tmpdir(), 'pg-shard-readiness-'));
     try {
+      const versionBin = join(temp, 'version-tools');
+      mkdirSync(versionBin);
+      const versionReader = '#!/bin/sh\n[ "$3" = --print-version ] || exit 1\nprintf "17.11\\n"\n';
+      writeFileSync(join(versionBin, 'python3'), versionReader, { mode: 0o755 });
       for (const path of [
         'lib/postgresql/17/bin/postgres',
         'lib/postgresql/17/bin/initdb',
@@ -2282,7 +2369,7 @@ describe('restored provider accounting qualification', () => {
           ['-c', prefix + '\nprintf "INSTALL:%s" "${pg_ci_build_packages[*]-}"'],
           {
             encoding: 'utf8',
-            env: { ...process.env, PATH: '', PG_CI_SHARD: String(shard) },
+            env: { ...process.env, PATH: versionBin, PG_CI_SHARD: String(shard) },
           }
         );
         if (shard >= 5)
@@ -2292,10 +2379,10 @@ describe('restored provider accounting qualification', () => {
             'INSTALL:build-essential bison flex perl bzip2 pkg-config libcurl4-openssl-dev'
           );
         else if (shard === 1)
-          expect(output).toBe('INSTALL:postgresql-server-dev-17 build-essential');
+          expect(output).toBe('INSTALL:postgresql-server-dev-17=17.11-* build-essential');
         else
           expect(output).toBe(
-            'INSTALL:postgresql-server-dev-17 build-essential bison flex perl bzip2 patch' +
+            'INSTALL:postgresql-server-dev-17=17.11-* build-essential bison flex perl bzip2 patch' +
               (shard === 4 ? ' pkg-config libssl-dev libzstd-dev' : '')
           );
       }
@@ -2307,6 +2394,7 @@ describe('restored provider accounting qualification', () => {
       ).toThrow();
       const toolBin = join(temp, 'build-tools');
       mkdirSync(toolBin);
+      writeFileSync(join(toolBin, 'python3'), versionReader, { mode: 0o755 });
       for (const name of [
         'cc',
         'make',
@@ -2314,6 +2402,8 @@ describe('restored provider accounting qualification', () => {
         'flex',
         'perl',
         'bzip2',
+        'tar',
+        'patch',
         'pkg-config',
         'curl-config',
       ])
@@ -2328,6 +2418,37 @@ describe('restored provider accounting qualification', () => {
           }
         )
       ).toBe('');
+      const versioned = ['postgres', 'psql', 'pg_config'];
+      for (const binary of versioned) {
+        const file = join(temp, 'lib/postgresql/17/bin', binary);
+        writeFileSync(file, '#!/bin/sh\nprintf "PostgreSQL 17.11\\n"\n', { mode: 0o755 });
+      }
+      mkdirSync(join(temp, 'include/postgresql/17/server'), { recursive: true });
+      writeFileSync(join(temp, 'include/postgresql/17/server/postgres.h'), '');
+      for (const shard of [1, 3, 4]) {
+        const run = () =>
+          execFileSync(
+            '/bin/bash',
+            [
+              '-c',
+              prefix +
+                '\nprintf "INSTALL:%s|%s" "${pg_ci_server_packages[*]}" "${pg_ci_build_packages[*]}"',
+            ],
+            {
+              encoding: 'utf8',
+              env: { ...process.env, PATH: toolBin, PG_CI_SHARD: String(shard) },
+            }
+          );
+        expect(run()).toBe('');
+        for (const binary of versioned) {
+          const file = join(temp, 'lib/postgresql/17/bin', binary);
+          writeFileSync(file, '#!/bin/sh\nprintf "PostgreSQL 17.12\\n"\n', { mode: 0o755 });
+          expect(run()).toContain(
+            'INSTALL:postgresql-17=17.11-* postgresql-client-17=17.11-* postgresql-17-cron|postgresql-server-dev-17=17.11-*'
+          );
+          writeFileSync(file, '#!/bin/sh\nprintf "PostgreSQL 17.11\\n"\n', { mode: 0o755 });
+        }
+      }
       for (const binary of ['createdb', 'pg_dump']) {
         const path = join(temp, 'lib/postgresql/17/bin', binary);
         rmSync(path);
@@ -2363,7 +2484,7 @@ describe('restored provider accounting qualification', () => {
     );
     expect(install.run).toContain('-f /usr/share/postgresql/17/extension/pg_cron.control &&');
     expect(install.run).toContain('-f /usr/lib/postgresql/17/lib/pg_cron.so ]]; then exit 0; fi');
-    expect(install.run).toContain('PG_PACKAGES="postgresql-17 postgresql-17-cron');
+    expect(install.run).toContain('PG_PACKAGES="${pg_ci_server_packages[*]}');
     expect(install.run).toContain('bash .github/actions/install-postgres-17/install.sh');
     // The shared installer creates no default cluster and installs exactly PG_PACKAGES.
     const shared = readFileSync('.github/actions/install-postgres-17/install.sh', 'utf8');
@@ -2450,7 +2571,9 @@ it('the actual replay condition executes for missing output and non-instruction 
   expect(classifier.env.CI_HEAD_SHA).toBe('${{ github.sha }}');
   expect(classifier['continue-on-error']).toBeUndefined();
   expect(ci.jobs.typecheck_compile.needs).toBeUndefined();
-  expect(ci.jobs.typecheck_compile.if).toBe("github.event_name == 'pull_request'");
+  expect(ci.jobs.typecheck_compile.if).toBe(
+    "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+  );
 });
 
 it('paid terminal qualification uses the actual engine rule manifest', async () => {

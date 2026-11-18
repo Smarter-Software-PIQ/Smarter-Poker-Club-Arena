@@ -42,6 +42,7 @@ export interface RITConfig {
    * feature off across the whole platform.
    */
   mode?: RunItMode;
+  /** Legacy input; configure enforces the owner's ten-second decision window. */
   autoDeclineTimeout: number;
   maxRuns: 2 | 3;
   /** FIX 96: Timeout for chooser to pick runs (phase 1) */
@@ -72,6 +73,9 @@ export interface RITState {
    * with the DEFAULT run count, silently discarding the chooser's pick.
    */
   chooserDecided: boolean;
+  /** Consent may be complete before the ten-second decision window closes. */
+  decisionWindowClosed: boolean;
+  deadlineTs: number;
   board1: string[];
   board2: string[];
   board3: string[];
@@ -161,7 +165,8 @@ export class RunItTwiceEngine {
   }
 
   configure(tableId: string, config: RITConfig): void {
-    this.tableConfigs.set(tableId, config);
+    // Owner rule: every optional 1x/2x/3x decision gets one ten-second window.
+    this.tableConfigs.set(tableId, { ...config, autoDeclineTimeout: 10 });
   }
 
   /**
@@ -182,10 +187,8 @@ export class RunItTwiceEngine {
   }
 
   /**
-   * POKERBROS PARITY 2026-08-26: the offer window in seconds, as configured.
-   * The wire events (`rit_offer`, `rit_chooser_decided`) used to hardcode 10
-   * while the engine's own expiry read the config — two clocks for one
-   * countdown. Everything now reads this.
+   * The optional decision window in seconds. Configuration is normalized
+   * to ten seconds at the owner; the scheduler and wire use this same value.
    */
   offerTimeoutSeconds(tableId: string): number {
     return this.tableConfigs.get(tableId)?.autoDeclineTimeout || 10;
@@ -252,6 +255,8 @@ export class RunItTwiceEngine {
       maxRuns: runs,
       chosenRuns: runs,
       chooserDecided: true,
+      decisionWindowClosed: true,
+      deadlineTs: 0,
       board1: [],
       board2: [],
       board3: [],
@@ -303,6 +308,8 @@ export class RunItTwiceEngine {
       maxRuns: config.maxRuns || 2,
       chosenRuns: config.maxRuns || 2,
       chooserDecided: false,
+      decisionWindowClosed: false,
+      deadlineTs: Date.now() + this.offerTimeoutSeconds(tableId) * 1000,
       board1: [],
       board2: [],
       board3: [],
@@ -312,9 +319,13 @@ export class RunItTwiceEngine {
     this.scheduler.schedule({
       tableId,
       eventId: RunItTwiceEngine.OFFER_EVENT_ID,
-      deadlineMs: Date.now() + (config.autoDeclineTimeout || 10) * 1000,
+      deadlineMs: state.deadlineTs,
       callback: () => {
-        if (state.status === 'offered') {
+        if (this.activeOffers.get(tableId) !== state) return;
+        state.decisionWindowClosed = true;
+        if (state.status === 'accepted') {
+          this.emitEvent({ type: 'RIT_ACCEPTED', tableId, handId: state.handId });
+        } else if (state.status === 'offered') {
           // 'timeout', not 'player': nobody declined here, the window closed.
           // The host forwards THIS case to the wire (see
           // ServerTableEngineRunout.wireRunItTwiceEvents) — a player decline
@@ -371,13 +382,9 @@ export class RunItTwiceEngine {
     const everyoneAccepted = state.allPlayerIds.every((id) => state.acceptedBy.has(id));
     if (!everyoneAccepted) return false;
     state.status = 'accepted';
-    // Phase 1.2 PR-G-real: cancel pending expiry deadline.
-    this.scheduler.cancel(state.tableId, RunItTwiceEngine.OFFER_EVENT_ID);
-    this.emitEvent({
-      type: 'RIT_ACCEPTED',
-      tableId: state.tableId,
-      handId: state.handId,
-    });
+    // Record unanimous consent now, but only the original deadline may
+    // announce completion and release the runout. No/Run Once can end early.
+    // Keep the scheduler entry so weekly pauses preserve the remaining time.
     return true;
   }
 
@@ -466,6 +473,20 @@ export class RunItTwiceEngine {
     });
 
     this.clearOffer(tableId);
+  }
+
+  /** The original offer deadline, shared by the wire and the scheduler. */
+  offerDeadlineTs(tableId: string): number {
+    return this.activeOffers.get(tableId)?.deadlineTs ?? 0;
+  }
+
+  /** Accepted answers do not shorten the decision clock. */
+  isDecisionPending(tableId: string): boolean {
+    const state = this.activeOffers.get(tableId);
+    return (
+      !!state &&
+      (state.status === 'offered' || (state.status === 'accepted' && !state.decisionWindowClosed))
+    );
   }
 
   isActive(tableId: string): boolean {

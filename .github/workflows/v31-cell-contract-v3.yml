@@ -1,0 +1,45 @@
+name: V31 cell contract v3 registers only valid v3 cells and changes nothing for v2
+
+# Native proof of migration 20261113143100 (on top of 20261110213931 and
+# 20261112185251) against a throwaway PostgreSQL 17 cluster (never
+# production): scripts/ci/test-v31-cell-contract-v3.py, with its mutation
+# checks. It re-runs the whole range-provenance scenario with this migration
+# installed. No timer (CLAUDE.md 10.85): pull_request only, scoped to the
+# paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261113143100_v31_cell_contract_v3_the_registration_accepts_v3_cells_dorma.sql
+      - supabase/migrations/20261112185251_v31_a_registered_cell_declares_its_range_provenance_and_the_.sql
+      - supabase/migrations/20261110213931_v31_a_round_is_registered_and_its_composition_is_enforced.sql
+      - scripts/ci/test-v31-cell-contract-v3.py
+      - scripts/ci/test-v31-range-provenance.py
+      - scripts/ci/test-v31-round-registration.py
+      - scripts/ci/fixtures/v31-range-provenance/**
+      - scripts/ci/fixtures/v31-round-registration/**
+      - scripts/ci/fixtures/v31-evaluation-contract-v3/00-schema.sql
+      - .github/workflows/v31-cell-contract-v3.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v31-cell-contract-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v31-cell-contract-v3:
+    name: V31 registration accepts cell contract v3 and keeps every v2 answer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: Native proof and mutation checks
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          python3 scripts/ci/test-v31-cell-contract-v3.py --mutations

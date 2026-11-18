@@ -235,11 +235,14 @@ export function gtoPostflopCount(): number {
   return store.size;
 }
 
+const textureClassCache = new Map<string, string | null>();
+
 /** Test seam. */
 export function _clearGtoPostflop(): void {
   store = new Map<string, Record<string, Record<string, number>>>();
   storeRevision = null;
   storeIdentity = null;
+  textureClassCache.clear();
 }
 
 const RANKV: Record<string, number> = {
@@ -275,6 +278,7 @@ export function textureClass(board: Card[]): string | null {
   const n = Math.min(board.length, 5);
   if (board.length > 5) return null;
 
+  let cacheKey = '';
   const ranks: number[] = [];
   const suits: string[] = [];
   for (let i = 0; i < n; i++) {
@@ -282,7 +286,19 @@ export function textureClass(board: Card[]): string | null {
     if (!r || !board[i]?.suit) return null;
     ranks.push(r);
     suits.push(board[i].suit);
+    cacheKey += `${board[i].rank}${board[i].suit[0]}`;
   }
+  const cached = textureClassCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const remember = (val: string | null): string | null => {
+    if (textureClassCache.size >= 256) {
+      const oldest = textureClassCache.keys().next().value;
+      if (oldest !== undefined) textureClassCache.delete(oldest);
+    }
+    textureClassCache.set(cacheKey, val);
+    return val;
+  };
 
   const hi = Math.max(...ranks);
   const high = hi === 14 ? 'A' : hi >= 12 ? 'B' : hi >= 9 ? 'M' : 'L';
@@ -308,7 +324,7 @@ export function textureClass(board: Card[]): string | null {
       }
     }
 
-    return high + suitkind + (paired ? 'p' : 'u') + (conn ? 'c' : 'd');
+    return remember(high + suitkind + (paired ? 'p' : 'u') + (conn ? 'c' : 'd'));
   }
 
   // ── 4/5 cards: mirror of fn_gto_texture_class_any ──
@@ -335,7 +351,7 @@ export function textureClass(board: Card[]): string | null {
     if (c >= 3) conn = true;
   }
 
-  return high + suitkind + (paired ? 'p' : 'u') + (conn ? 'c' : 'd');
+  return remember(high + suitkind + (paired ? 'p' : 'u') + (conn ? 'c' : 'd'));
 }
 
 /** Snap a live depth onto the aggregation's buckets. */

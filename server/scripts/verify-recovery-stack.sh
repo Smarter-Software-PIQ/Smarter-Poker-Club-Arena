@@ -196,7 +196,15 @@ if echo "$BODY" | grep -q '"liveness":"ok"'; then
 else
   bad "liveness is NOT ok — one or more tables are stalled"
 fi
-VER=$(echo "$BODY" | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+# Only the top-level "version" names the engine build. Nested objects (the
+# horse upgrade manifests) carry their own "version" keys, so a text grep
+# would concatenate every one of them and fail a healthy engine.
+VER=$(printf '%s' "$BODY" | python3 -c 'import json,sys
+try:
+    v=json.load(sys.stdin).get("version")
+except Exception:
+    v=None
+print(v if isinstance(v,str) else "")' 2>/dev/null || echo "")
 if [ -n "$DESIRED_SHA" ] && [ "$VER" = "${DESIRED_SHA:0:8}" ]; then
   ok "engine reports the exact sealed desired build ($VER)"
 else

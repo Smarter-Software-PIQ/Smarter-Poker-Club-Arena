@@ -72,6 +72,8 @@ export interface LightningSimOptions {
    */
   conversionSeating: boolean;
   positionFairness: boolean;
+  /** The thin pool's four-handed rule (20261110214134; false = five or six only). */
+  fourHanded: boolean;
   /** The candidate's knobs (m2): P5 thin-band weight (null = half the medium) and diversity scale. */
   candidateThinWeight: number | null;
   candidateDiversityScale: number;
@@ -100,6 +102,7 @@ export const LIGHTNING_SIM_DEFAULTS: Readonly<LightningSimOptions> = Object.free
   firstEntryRule: 'big_blind',
   conversionSeating: true,
   positionFairness: true,
+  fourHanded: true,
   candidateThinWeight: null,
   candidateDiversityScale: 1,
   maxSimHours: 2_000,
@@ -126,6 +129,8 @@ export interface LightningSimResult {
   repeat_group_rate: number | null;
   instance_utilization: number | null;
   avg_instance_size: number | null;
+  /** Hands formed at each table size (4, 5 and 6 under the live rule). */
+  table_sizes: Record<number, number>;
   conversions: number;
   conversions_per_hour: number;
   players_seen: number;
@@ -194,6 +199,7 @@ export function runLightningMatcherSim(partial: Partial<LightningSimOptions>): L
     instanceMax: o.instanceMax,
     firstEntryRule: o.firstEntryRule,
     positionFairness: o.positionFairness,
+    fourHanded: o.fourHanded,
     candidate: { thinWeight: o.candidateThinWeight, diversityScale: o.candidateDiversityScale },
   };
   const dt = Math.max(100, o.passIntervalMs);
@@ -239,6 +245,7 @@ export function runLightningMatcherSim(partial: Partial<LightningSimOptions>): L
   const bbGaps: number[] = [];
   const positions: Record<string, number> = { bb: 0, sb: 0, utg: 0, mp: 0, hj: 0, co: 0, btn: 0 };
   let seats = 0;
+  const tableSizes: Record<number, number> = {};
   let repeatOpp = 0;
   let oppPairs = 0;
   let repeatGroups = 0;
@@ -301,16 +308,26 @@ export function runLightningMatcherSim(partial: Partial<LightningSimOptions>): L
     // 3. The pass: the pool as the matcher sees it.
     const pool: LightningPoolPlayer[] = [];
     for (const p of players.values()) {
-      if (p.status === 'idle' || p.status === 'sitting_out' || p.status === 'disconnected') {
+      // Every open-pool player, as fn_lightning_player_legality lists them:
+      // those still in a hand are listed too, not legal (IN_HAND), so the
+      // plan sees the Cluster's whole pool (the thin-pool test, 20261110).
+      if (
+        p.status === 'idle' ||
+        p.status === 'in_hand' ||
+        p.status === 'sitting_out' ||
+        p.status === 'disconnected'
+      ) {
         pool.push({
           playerId: p.id,
           legal: p.status === 'idle',
           reasonCode:
             p.status === 'idle'
               ? null
-              : p.status === 'sitting_out'
-                ? 'SITTING_OUT'
-                : 'DISCONNECTED',
+              : p.status === 'in_hand'
+                ? 'IN_HAND'
+                : p.status === 'sitting_out'
+                  ? 'SITTING_OUT'
+                  : 'DISCONNECTED',
           idleSinceMs: p.idleSinceMs,
           enteredAtMs: p.enteredAtMs,
           // One session per synthetic player: the pool entry, the slot's
@@ -335,6 +352,7 @@ export function runLightningMatcherSim(partial: Partial<LightningSimOptions>): L
       hands++;
       const members = g.players;
       const size = members.length;
+      tableSizes[size] = (tableSizes[size] ?? 0) + 1;
       const key = [...members].sort().join(',');
       if (recentSets.includes(key)) repeatGroups++;
       const handEnd = nowMs + uniform(20_000, 60_000);
@@ -430,6 +448,7 @@ export function runLightningMatcherSim(partial: Partial<LightningSimOptions>): L
     repeat_group_rate: r4(hands === 0 ? null : repeatGroups / hands),
     instance_utilization: r4(hands === 0 ? null : seats / hands / o.instanceMax),
     avg_instance_size: r2(hands === 0 ? null : seats / hands),
+    table_sizes: tableSizes,
     conversions,
     conversions_per_hour: r2(simHours === 0 ? 0 : conversions / simHours) ?? 0,
     players_seen: nextId,

@@ -197,6 +197,13 @@ export interface HoldemPremiumInput {
   openRaiseTo?: () => number | null;
   /** Same card-blind cash sizing as the ordinary 3-bet and squeeze paths. */
   threeBetRaiseTo?: (callers: number) => number | null;
+  /**
+   * Owner-authorized early-position limp-reraise trap (2026-11-10): when true,
+   * an intentional unopened first-in 1bb trap limp with QQ/KK/AA
+   * (`v87_ep_limp_trap`) stands unchanged, while facing any raise behind
+   * (`read.raises >= 1`) still triggers a mandatory limp-3-bet.
+   */
+  epLimpTrap?: boolean;
 }
 
 export interface HoldemPremiumVerdict<D extends HoldemPremiumDecision = HoldemPremiumDecision> {
@@ -669,6 +676,16 @@ function premiumRaise(
   const bb = finite(i.bigBlind);
   const passive = decision.action === 'call' || decision.action === 'check';
   if (!passive || !isPremium(h)) return null;
+  if (
+    i.epLimpTrap === true &&
+    read.raises === 0 &&
+    read.callersSinceLastRaise === 0 &&
+    decision.action === 'call' &&
+    h.pair &&
+    h.hi >= 12
+  ) {
+    return null;
+  }
   if (!isTopPremium(h) && read.raises >= 3) return null;
   let to: number;
   if (read.raises === 0) {

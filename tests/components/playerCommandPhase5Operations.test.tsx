@@ -338,7 +338,7 @@ it.each(['search', 'filter', 'sort'])(
     });
     render(tree());
     await ready();
-    expect(rosterOperations()).toHaveTextContent('1 Loaded Of 100 Matching Players.');
+    expect(rosterOperations()).toHaveTextContent('1 Loaded Of 100 Matching Players');
     f.page.mockReturnValue(pendingRead);
     if (kind === 'search') {
       fireEvent.change(screen.getByRole('searchbox', { name: 'Search Club Members' }), {
@@ -354,16 +354,16 @@ it.each(['search', 'filter', 'sort'])(
         }
       );
     }
-    expect(rosterOperations()).not.toHaveTextContent('1 Loaded Of 100 Matching Players.');
+    expect(rosterOperations()).not.toHaveTextContent('1 Loaded Of 100 Matching Players');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
-    expect(rosterOperations()).not.toHaveTextContent('1 Loaded Of 100 Matching Players.');
+    expect(rosterOperations()).not.toHaveTextContent('1 Loaded Of 100 Matching Players');
     expect(rosterOperations()).toHaveTextContent(/Previously Verified|Not Yet Verified/);
     await act(async () => {
       rejectRead(new Error('Current Filter Read Failed'));
     });
-    expect(rosterOperations()).not.toHaveTextContent('1 Loaded Of 100 Matching Players.');
+    expect(rosterOperations()).not.toHaveTextContent('1 Loaded Of 100 Matching Players');
     expect(rosterOperations()).toHaveTextContent(/Previously Verified|Not Yet Verified/);
     expect(f.export).not.toHaveBeenCalled();
   }

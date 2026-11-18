@@ -358,6 +358,9 @@ export function describeChipTransaction(
             : 'Promo Wallet';
       const source =
         type === 'club_promo_send' ? 'The Club Promo Wallet' : `${possessive(from)} Promo Wallet`;
+      // A promo funded cashier ticket (fn_cashier_promo_ticket_send).
+      if (meta.destination === 'tournament_ticket')
+        return `${actor} Sent ${amount} From ${source} To ${possessive(to)} Tournament Ticket`;
       return `${actor} Sent ${amount} From ${source} To ${possessive(to)} ${dest}`;
     }
     case 'peer_transfer':
@@ -404,7 +407,58 @@ export function describeChipTransaction(
 export function walletRoute(row: ChipTransactionLike): string | null {
   const shown = presentChipTransaction(row);
   const type = String(shown.transaction_type ?? '');
+  const meta = shown.metadata ?? {};
+  if (meta.history_source === 'movement') {
+    const accountName = (value: unknown): string => {
+      if (typeof value !== 'string') return 'Unrecorded Wallet';
+      return (
+        (
+          {
+            player_wallet: 'Player Wallet',
+            agent_wallet: 'Agent Wallet',
+            promo_wallet: 'Promo Wallet',
+            club_treasury: 'Club Bank',
+            union_wallet: 'Union Wallet',
+            table_stack: 'Table Stack',
+            prize_liability: 'Prize Pool',
+            escrow: 'Held Cash-Out',
+          } as Record<string, string>
+        )[value] ??
+        value
+          .split('_')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ')
+      );
+    };
+    return `${accountName(meta.source)} To ${accountName(meta.destination)}`;
+  }
   switch (type) {
+    case 'tournament_ticket_issue':
+      // The cashier debits the issuer and records the remaining Player Wallet balance.
+      // Satellite awards share this type but come from a tournament payout.
+      return typeof meta.issuer_id === 'string' &&
+        meta.issuer_id.trim() !== '' &&
+        typeof meta.issuer_balance_after === 'number' &&
+        meta.source_satellite_id == null &&
+        meta.payout_id == null
+        ? 'Player Wallet To Tournament Ticket'
+        : null;
+    case 'promo_disbursement':
+      if (meta.source_kind !== 'union') return null;
+      if (meta.target_kind === 'player') return 'Union Promo Wallet To Player Wallet';
+      if (meta.target_kind === 'club') {
+        if (meta.lands_as === 'ordinary_chips') return 'Union Promo Wallet To Club Bank';
+        if (meta.lands_as === 'club_promo_wallet') return 'Union Promo Wallet To Club Promo Wallet';
+      }
+      return 'Union Promo Wallet To Unrecorded Destination';
+    case 'union_promo_send':
+      if (meta.destination === 'player_wallet') return 'Union Promo Wallet To Player Wallet';
+      if (meta.destination === 'promo_float') return 'Union Promo Wallet To Promo Wallet';
+      return 'Union Promo Wallet To Unrecorded Destination';
+    case 'union_promo_to_club':
+      return meta.destination === 'club_promo_wallet'
+        ? 'Union Promo Wallet To Club Promo Wallet'
+        : 'Union Promo Wallet To Unrecorded Destination';
     case 'cashout_request_escrow':
       return 'Player Wallet To Held Cash-Out';
     case 'cashout_approved':
@@ -417,7 +471,6 @@ export function walletRoute(row: ChipTransactionLike): string | null {
       break;
   }
   if (!WALLET_MOVE_TYPES.has(type)) return null;
-  const meta = (shown.metadata ?? {}) as Record<string, unknown>;
   const dest = walletName(meta.destination, 'Player Wallet');
   switch (type) {
     case 'agent_wallet_self_stake':
@@ -434,7 +487,8 @@ export function walletRoute(row: ChipTransactionLike): string | null {
           : meta.destination === 'player_wallet'
             ? 'Player Wallet'
             : 'Promo Wallet';
-      return `${type === 'club_promo_send' ? 'Club Promo Wallet' : 'Promo Wallet'} To ${dest}`;
+      const source = type === 'club_promo_send' ? 'Club Promo Wallet' : 'Promo Wallet';
+      return `${source} To ${meta.destination === 'tournament_ticket' ? 'Tournament Ticket' : dest}`;
     }
     case 'peer_transfer':
       return meta.source === 'player_wallet' && meta.destination
@@ -448,6 +502,116 @@ export function walletRoute(row: ChipTransactionLike): string | null {
       return `${walletName(meta.source ?? meta.destination, 'Player Wallet')} To ${walletName(meta.source ? meta.destination : null, 'Agent Wallet')}`;
     case 'admin_removal':
       return `${walletName(meta.source, 'Player Wallet')} To Club Bank`;
+    default:
+      return null;
+  }
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  A HISTORY ROW READS LIKE A BANK STATEMENT (Dan 2026-11-13)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * "THE TRANSACTION DESCRIPTIONS CAN BE MASSIVELY IMPROVED. THERE SHOULD BE
+ * -400 WHEN A PLAYER CASHES OUT, AND A SLEW OF OTHER IMPROVEMENTS."
+ *
+ * The sign. A row the viewer is a side of keeps the Full Statement's rule
+ * (ledgerDirection): in is +, out is -. A row read from the club book, which
+ * the viewer is not a side of, used to print a bare figure, so a player's
+ * cash-out of 400 read "400" beside an accepted "+400". Those rows now carry
+ * the sign of the member whose wallet moved:
+ *   a cash-out request        - (chips left the player's wallet)
+ *   a cancelled, withdrawn or
+ *   expired cash-out          + (chips went back to the player's wallet)
+ *   a claim back, reversal or
+ *   removal                   - (chips were taken from the member named)
+ * A send between two other members moves chips both ways, so it stays
+ * unsigned and its title says who sent to whom. Display only: the totals and
+ * the statement still sum by ledgerDirection.
+ */
+export type LedgerSign = '+' | '-' | '';
+
+export function ledgerDisplaySign(
+  row: ChipTransactionLike,
+  viewer: string | null | undefined
+): LedgerSign {
+  const direction = ledgerDirection(row, viewer);
+  if (direction === 'in') return '+';
+  if (direction === 'out') return '-';
+  switch (String(presentChipTransaction(row).transaction_type ?? '')) {
+    case 'cashout_request_escrow':
+    case 'agent_wallet_claim_back':
+    case 'club_bank_claim':
+    case 'club_bank_reversal':
+    case 'admin_removal':
+      return '-';
+    case 'cashout_denied':
+    case 'cashout_cancelled':
+    case 'cashout_expired_refund':
+      return '+';
+    default:
+      return '';
+  }
+}
+
+/**
+ * The bold line of a history row: who did what, in words, from the viewer's
+ * side. Replaces "Transfer Probyourmom To Probyourmom" (a member moving chips
+ * between their own wallets) and "Transfer Burls To Woowoo" with what
+ * happened. Cash-out legs keep cashoutRowTitle. Null for kinds this does not
+ * know, so the caller keeps its own To / From line.
+ */
+export function ledgerRowTitle(
+  row: ChipTransactionLike,
+  fromName: string | null | undefined,
+  toName: string | null | undefined,
+  viewer: string | null | undefined
+): string | null {
+  const shown = presentChipTransaction(row);
+  const cashout = cashoutRowTitle(shown, fromName, toName, viewer);
+  if (cashout) return cashout;
+  const type = String(shown.transaction_type ?? '');
+  const from = shown.from_user_id ?? null;
+  const to = shown.to_user_id ?? null;
+  const fromIsMe = !!viewer && from === viewer;
+  const toIsMe = !!viewer && to === viewer;
+  const fromN = fromName && fromName.trim() ? fromName : 'A Member';
+  const toN = toName && toName.trim() ? toName : 'A Member';
+  const meta = (shown.metadata ?? {}) as Record<string, unknown>;
+  switch (type) {
+    case 'agent_wallet_self_stake':
+      return fromIsMe
+        ? 'You Moved Chips To Your Player Wallet'
+        : `${fromN} Moved Chips To Their Player Wallet`;
+    case 'agent_wallet_send':
+    case 'promo_wallet_send':
+    case 'club_promo_send':
+    case 'peer_transfer': {
+      const ticket = meta.destination === 'tournament_ticket';
+      if (from && from === to)
+        return fromIsMe
+          ? 'You Moved Chips Between Your Wallets'
+          : `${fromN} Moved Chips Between Their Wallets`;
+      if (fromIsMe) return `${ticket ? 'Ticket ' : ''}Sent To ${toN}`;
+      if (toIsMe) return `${ticket ? 'Ticket ' : ''}Received From ${fromN}`;
+      return `${fromN} Sent ${ticket ? 'A Ticket ' : ''}To ${toN}`;
+    }
+    case 'club_bank_send': {
+      return toIsMe ? 'Club Bank Paid You' : `Club Bank Paid ${toN}`;
+    }
+    case 'agent_wallet_claim_back':
+    case 'club_bank_claim':
+      if (toIsMe) return `Claimed Back From ${fromN}`;
+      if (fromIsMe) return `${toN} Claimed Back Your Chips`;
+      return `${toN} Claimed Back From ${fromN}`;
+    case 'club_bank_reversal':
+      if (toIsMe) return `Reversed Your Send To ${fromN}`;
+      if (fromIsMe) return `${toN} Reversed A Send To You`;
+      return `${toN} Reversed A Send To ${fromN}`;
+    case 'admin_removal':
+      if (toIsMe) return `Removed Chips From ${fromN}`;
+      if (fromIsMe) return `${toN} Removed Chips From You`;
+      return `${toN} Removed Chips From ${fromN}`;
     default:
       return null;
   }

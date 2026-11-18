@@ -85,7 +85,7 @@ const FEATURES = [
   },
   {
     title: 'Unions And Diamond Arena',
-    body: 'Link Clubs Into Unions For Shared Player Pools, And Play Diamond Denominated Games Inside The Same Arena.',
+    body: 'Link Clubs Into Unions For Shared Player Pools. Diamond Arena Membership Is Automatic, But Funded Diamond Games Are Not Open For Play Yet.',
   },
 ];
 

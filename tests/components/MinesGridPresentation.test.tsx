@@ -103,14 +103,15 @@ describe('tiles turn over', () => {
     const gem = screen.getByRole('button', { name: 'Tile 7, Gem' });
     expect(gem).toHaveAttribute('data-flip', 'true');
     expect(gem).toHaveAttribute('data-cascade', 'false');
-    expect(gem.querySelector('img[data-daily-diamond="true"]')).toHaveAttribute(
+    expect(gem.querySelector('img[data-cut-diamond="true"]')).toHaveAttribute(
       'src',
-      expect.stringContaining('images/daily-bonus/blue-diamond-v1.webp')
+      expect.stringContaining('mines-cut-sapphire-v2.webp')
     );
     const sealed = screen.getByRole('button', { name: 'Tile 8' });
     expect(sealed).toHaveAttribute('data-flip', 'false');
     expect(sealed).toHaveAttribute('data-revealed', 'false');
     expect(sealed).toBeEnabled();
+    expect(sealed.querySelector('[data-cut-diamond]')).toBeNull();
   });
   it('cascades the whole board from the mine that ended it, blasting that mine', () => {
     const onSettled = vi.fn();

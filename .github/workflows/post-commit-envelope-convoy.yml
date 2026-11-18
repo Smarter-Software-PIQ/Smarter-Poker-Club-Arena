@@ -1,0 +1,50 @@
+name: Post-commit envelope convoy
+
+# Migration 20261118073646 (incident 075013fd): one slow hand envelope at a
+# Lightning host table no longer queues every later hand of the table on the
+# per-table lock until the statement timeout. Runs
+# scripts/ci/test-post-commit-envelope-convoy-postgres.py against a throwaway
+# PostgreSQL 17 cluster, never production: the envelope rebuilt from the
+# production text (20261118071736 postimage) must time its successors out in
+# the convoy interleaving, and after the migration the same interleaving must
+# finish with zero statement timeouts and every hand applied exactly once, in
+# hand order. No timer (CLAUDE.md 10.85): pull_request only, scoped to the
+# paths it proves.
+on:
+  pull_request:
+    paths:
+      - supabase/migrations/20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql
+      - supabase/migrations/20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql
+      - supabase/migrations/20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql
+      - scripts/ci/fixtures/cash-rake-pending/**
+      - scripts/ci/test-post-commit-envelope-convoy-postgres.py
+      - .github/workflows/post-commit-envelope-convoy.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-commit-envelope-convoy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  post-commit-envelope-convoy:
+    name: A post-commit envelope never queues behind a slow predecessor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: A post-commit envelope never queues behind a slow predecessor
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-post-commit-envelope-convoy-postgres.py --output artifacts/post-commit-envelope-convoy
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-commit-envelope-convoy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/post-commit-envelope-convoy/*.json
+          retention-days: 7
+          if-no-files-found: warn

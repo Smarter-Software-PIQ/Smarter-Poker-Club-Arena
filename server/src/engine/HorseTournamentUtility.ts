@@ -26,7 +26,7 @@ import type {
   SeatPlayer,
 } from '../types.js';
 import { mdfFold } from './HorseEvEngine.js';
-import { createIcmEquityEstimator, type IcmMethod } from './IcmModel.js';
+import { createIcmEquityEstimator, pairwiseBubbleFactor, type IcmMethod } from './IcmModel.js';
 import { calculateContestablePot, calculatePots } from './PokerEngine.js';
 import { prepareJointPots, settleJointScores } from './multiway/JointPotDistribution.js';
 import {
@@ -134,6 +134,13 @@ export interface TournamentUtilityInput {
   settlement?: { chipUnit: 1; dealerSeat: number; splitLow: boolean };
   /** Internal deadline for an optional shadow evaluation. Never from live worker input. */
   withinBudget?: () => boolean;
+  /** Asymmetric cover-ICM response elasticity & preflop realization confidence (default true). */
+  v86AsymmetricIcmAndPreflop?: boolean;
+  /** OPTION tournamentUtilityStackScaledMargin (HorseDecideOpts, 2026-11-15, default OFF; only an explicit true
+   *  engages): the equity-uncertainty margin of a candidate is the equity standard error times the candidate's own
+   *  utility sensitivity to hero's showdown share (never more than the whole-pool margin it replaces), not the
+   *  standard error times the whole payout pool. Absent, every margin is what it was. */
+  stackScaledMargin?: boolean;
   /** Explicit Phase 8 counterfactual. Absent preserves Phase 7 exactly. */
   continuation?: {
     dealerSeat: number;
@@ -155,6 +162,17 @@ export interface TournamentUtilityInput {
   minRaiseTo: number | null;
   maxRaiseTo: number | null;
   bettingStructure: 'no_limit' | 'pot_limit' | 'fixed_limit';
+  /**
+   * The menu offers the all-in button and no sized bet or raise, and the
+   * controller executes that button as a wager of the whole stack: the hero
+   * holds more than the call and less than the minimum bet or raise. Only the
+   * caller can know it (the same pot-limit or fixed-limit menu is also what a
+   * capped street or a seat that may not reopen shows, where the button is a
+   * call), so it is set from the controller's own rule and never inferred
+   * here. Absent, a pot-limit or fixed-limit menu with no ceiling builds no
+   * jam, exactly as before. No-limit never reads it.
+   */
+  shortAllInWagers?: true;
   baseline: HorseDecision;
   /** Structural-cap-calibrated equity target; samples retain outcome shape. */
   heroEquity: number;
@@ -190,7 +208,8 @@ export type TournamentUtilityUnavailableReason =
   | 'candidate_settlement'
   | 'recovery_option'
   | 'operation_budget'
-  | 'baseline_not_modeled';
+  | 'baseline_not_modeled'
+  | 'chip_value_not_modeled';
 
 export interface TournamentUtilityEvaluation {
   result: {
@@ -339,6 +358,7 @@ export function buildTournamentActionCandidates(
     | 'pot'
     | 'currentBet'
     | 'bettingStructure'
+    | 'shortAllInWagers'
     | 'baseline'
   > & {
     settlement?: { chipUnit: 0.01 | 1 };
@@ -459,6 +479,9 @@ export function buildTournamentActionCandidates(
   // above the street ceiling as a bet or raise TO that ceiling, and as a call
   // where no wager is legal, so the jam is built at its executed raise-to and
   // every consumer that commits `investment` prices what the table does.
+  // With no ceiling on the menu at all (the sized wager is withheld because
+  // the stack is below the minimum), the button is the whole stack only where
+  // the caller says the controller executes it so (`shortAllInWagers`).
   const ceilingTo = typeof maxTo === 'number' && Number.isFinite(maxTo) ? maxTo : null;
   const jamIsRaise =
     legal.has('all_in') &&
@@ -467,7 +490,8 @@ export function buildTournamentActionCandidates(
       (input.bettingStructure === 'pot_limit' &&
         ceilingTo !== null &&
         hero.bet + hero.stack <= ceilingTo + EPS) ||
-      (input.bettingStructure === 'fixed_limit' && ceilingTo !== null));
+      (input.bettingStructure === 'fixed_limit' && ceilingTo !== null) ||
+      (ceilingTo === null && input.shortAllInWagers === true));
   if (jamIsRaise) {
     const jamTo = executedAllInTo(hero, input.bettingStructure, ceilingTo);
     uniqueCandidate(
@@ -603,6 +627,20 @@ function validateInput(input: TournamentUtilityInput): boolean {
     (input.maxRaiseTo !== null && !wholeNonNegative(input.maxRaiseTo)) ||
     (input.minRaiseTo === null) !== (input.maxRaiseTo === null) ||
     (input.minRaiseTo !== null && input.maxRaiseTo !== null && input.minRaiseTo > input.maxRaiseTo)
+  ) {
+    return false;
+  }
+  // The short all-in is a claim about one menu shape only: the button, no
+  // sized wager and chips beyond the call.
+  if (
+    input.shortAllInWagers !== undefined &&
+    (input.shortAllInWagers !== true ||
+      input.minRaiseTo !== null ||
+      input.maxRaiseTo !== null ||
+      !input.legalActions.includes('all_in') ||
+      input.legalActions.includes('bet') ||
+      input.legalActions.includes('raise') ||
+      !(input.hero.stack > input.toCall + EPS))
   ) {
     return false;
   }
@@ -791,11 +829,25 @@ function currencyToPoolPct(input: TournamentUtilityInput, amountCents: number): 
   return 0;
 }
 
-function payoutPoolWeight(input: TournamentUtilityInput): number {
-  const prize = Math.max(0, input.context.prizePoolCents);
-  const bounty = Math.max(0, input.context.bountyPoolCents);
+/**
+ * The share of what the event awards that is paid by finishing place:
+ * prize / (prize + bounty), or 1 - bountyFactor when neither pool is known.
+ * Exported so the short-stack push/fold tables (HorseLogic payJumpBubbleFactor)
+ * weight a bubble factor by the same number this arbiter weights payouts by.
+ */
+export function payoutWeightOfPools(pools: {
+  prizePoolCents?: number | null;
+  bountyPoolCents?: number | null;
+  bountyFactor?: number | null;
+}): number {
+  const prize = Math.max(0, Number(pools.prizePoolCents) || 0);
+  const bounty = Math.max(0, Number(pools.bountyPoolCents) || 0);
   if (prize + bounty > 0) return prize / (prize + bounty);
-  return 1 - clamp(input.context.bountyFactor, 0, 1);
+  return 1 - clamp(Number(pools.bountyFactor) || 0, 0, 1);
+}
+
+function payoutPoolWeight(input: TournamentUtilityInput): number {
+  return payoutWeightOfPools(input.context);
 }
 
 function targetBountyCents(input: TournamentUtilityInput, userId: string): number {
@@ -825,6 +877,7 @@ function ownBountyCents(input: TournamentUtilityInput): number {
 
 function responseFoldProbability(
   input: TournamentUtilityInput,
+  field: FieldState,
   candidate: ActionCandidate,
   opponent: SeatPlayer,
   evidence: TournamentUtilityOpponentEvidence | undefined,
@@ -845,7 +898,52 @@ function responseFoldProbability(
   // committed. A short stack cannot defend side pots it can never win, and
   // its own not-yet-paid call must not appear twice in the price denominator.
   const potFacing = calculateContestablePot(seats, opponent.user_id, facing);
-  const base = mdfFold(Math.max(1, potFacing), facing, evidence?.foldMul ?? 1);
+  let foldMul = evidence?.foldMul ?? 1;
+  if (input.v86AsymmetricIcmAndPreflop !== false) {
+    const heroTotal = Math.max(0, input.hero.stack) + Math.max(0, input.hero.bet);
+    const oppTotal = Math.max(0, opponent.stack) + Math.max(0, opponent.bet);
+    const oppFieldIdx = field.localIndex.get(opponent.user_id);
+    // Asymmetric cover pressure: when hero covers a medium stack on a pay-jump
+    // or satellite bubble, the covered opponent's survival bubble factor raises
+    // their required continuing equity (higher fold frequency).
+    if (
+      oppFieldIdx !== undefined &&
+      field.heroIndex >= 0 &&
+      heroTotal > oppTotal * 1.05 &&
+      field.stacks.length <= 10 &&
+      (input.context.payoutPct.length >= 2 ||
+        (input.context.satellite && input.context.satelliteSeats >= 1))
+    ) {
+      const effectivePayouts =
+        input.context.satellite && input.context.satelliteSeats >= 1
+          ? Array.from({ length: Math.max(1, input.context.satelliteSeats) }, () => 1)
+          : input.context.payoutPct;
+      const oppBF = pairwiseBubbleFactor(
+        field.stacks,
+        effectivePayouts,
+        oppFieldIdx,
+        field.heroIndex,
+        facing
+      );
+      if (oppBF > 1.08) {
+        foldMul *= 1 + Math.min(0.28, (oppBF - 1.08) * 0.22);
+      }
+    } else if (
+      oppTotal > heroTotal * 1.05 &&
+      candidate.investment >= input.hero.stack - EPS &&
+      (input.context.isBounty ||
+        input.context.isPko ||
+        (input.context.isMysteryBounty && input.context.mysteryBountyStage === 'active'))
+    ) {
+      // Covering bounty hunter calls wider when hero is all-in with a live head.
+      const ownHead = ownBountyCents(input);
+      if (ownHead > 0) {
+        const bountyPull = clamp(input.context.bountyFactor * 0.28, 0.04, 0.22);
+        foldMul *= 1 - bountyPull;
+      }
+    }
+  }
+  const base = mdfFold(Math.max(1, potFacing), facing, foldMul);
   // The opening/action-history range remains the prior, but the hand sampled
   // from that range now drives the actual response. This makes a continuing
   // range strictly stronger as price rises instead of letting premium and air
@@ -1001,7 +1099,7 @@ function settleSample(args: {
       sample.boards.length;
     const folds =
       responseDraw(args.sampleIndex, opponent.user_id) <
-      responseFoldProbability(input, candidate, opponent, evidence, sampledStrength, seats);
+      responseFoldProbability(input, field, candidate, opponent, evidence, sampledStrength, seats);
     if (folds) {
       opponent.is_folded = true;
       continue;
@@ -1457,6 +1555,10 @@ function evaluateCandidate(args: {
   let futureForcedPaid = 0;
   const methods = new Set<IcmMethod>();
   const vectors = new Set<string>();
+  // tournamentUtilityStackScaledMargin: weighted moments of (hero's showdown share, utility) over the calibrated
+  // samples, the sensitivity of this candidate's utility to hero's equity. Accumulated only with the option on.
+  const stackScaled = args.input.stackScaledMargin === true;
+  const tilt = { w: 0, s: 0, u: 0, su: 0, ss: 0, low: Infinity, high: -Infinity };
   // The blind-level bounds are fixed for the whole action. A rollout is
   // identified by its sample, its level's (smallBlind, bigBlind, ante,
   // anteType) and its settled local stacks; equal level fields share one
@@ -1645,6 +1747,16 @@ function evaluateCandidate(args: {
     addMoment(bountyMoment, bounty, weight);
     addMoment(optionMoment, option.value, weight);
     addMoment(utilityMoment, utility, weight);
+    if (stackScaled) {
+      const share = heroShareInSample(args.input, args.input.showdownSamples[index]!);
+      tilt.w += weight;
+      tilt.s += weight * share;
+      tilt.u += weight * utility;
+      tilt.su += weight * share * utility;
+      tilt.ss += weight * share * share;
+      tilt.low = Math.min(tilt.low, utility);
+      tilt.high = Math.max(tilt.high, utility);
+    }
     bust += weight * (branch.heroBusted ? 1 : 0);
     heroWin += weight * (branch.heroWon ? 1 : 0);
     bountyWin += weight * (branch.wonBounty ? 1 : 0);
@@ -1662,12 +1774,36 @@ function evaluateCandidate(args: {
 
   const variance = Math.max(0, utilityMoment.square - utilityMoment.sum ** 2);
   const standardError = Math.sqrt(variance / Math.max(1, args.effectiveSamples));
-  const equityUncertainty =
-    args.candidate.kind === 'fold'
-      ? 0
-      : Math.max(0, args.input.equityStandardError) * 100 * args.payoutWeight;
+  const wholePoolUncertainty =
+    Math.max(0, args.input.equityStandardError) * 100 * args.payoutWeight;
+  let equityUncertainty = args.candidate.kind === 'fold' ? 0 : wholePoolUncertainty;
+  if (stackScaled && args.candidate.kind !== 'fold' && tilt.w > 0 && tilt.high >= tilt.low) {
+    // What a point of hero's equity moves in THIS candidate's utility: the regression slope of utility on hero's
+    // showdown share, bounded by the utility span, and never wider than the whole-pool margin it replaces.
+    const span = tilt.high - tilt.low;
+    const meanShare = tilt.s / tilt.w;
+    const varShare = tilt.ss / tilt.w - meanShare * meanShare;
+    const covariance = tilt.su / tilt.w - meanShare * (tilt.u / tilt.w);
+    const slope = varShare > 1e-9 ? Math.min(span, Math.abs(covariance) / varShare) : span;
+    equityUncertainty = Math.min(
+      wholePoolUncertainty,
+      Math.max(0, args.input.equityStandardError) * slope
+    );
+  }
+  const isTerminal = terminalForHero(args.input, args.candidate);
+  const preflopNonTerminalSlack =
+    args.input.v86AsymmetricIcmAndPreflop !== false &&
+    args.input.street === 'preflop' &&
+    !isTerminal &&
+    !args.input.continuation
+      ? Math.max(0, 1 - args.candidate.investment / Math.max(1, args.input.hero.stack)) *
+        0.22 *
+        Math.max(standardError, equityUncertainty, icmError)
+      : 0;
   const confidenceHalfWidth =
-    icmError + CONFIDENCE_Z_999 * Math.max(standardError, equityUncertainty);
+    icmError +
+    preflopNonTerminalSlack +
+    CONFIDENCE_Z_999 * Math.max(standardError, equityUncertainty);
   const ledger: HorseTournamentUtilityCandidateLedger = {
     id: args.candidate.id,
     action: args.candidate.action,
@@ -1793,6 +1929,19 @@ function evaluateWithWorkspace(
   }
 
   const payoutWeight = payoutPoolWeight(input);
+  // A bounty event with no payout pool leaves chips without a modeled worth:
+  // payout is weighted by zero and only the head won or lost in this hand is
+  // counted. A stack that covers the table then scores every all-in as a free
+  // shot at a head and every fold as nothing, so the arbiter turned folds of
+  // 34o at 115 big blinds into all-ins (HVH2D-TRN-001, direction 2). Until
+  // chips are valued as future head equity, the reference action stands.
+  // The test is the weight itself, not the event type: whatever the event
+  // awards (cash places, satellite tickets, which are paid out of the prize
+  // pool), a payout weight of zero means this model would value all of it at
+  // nothing, so it has no justified valuation to offer.
+  if (payoutWeight <= 0) {
+    return { result: null, unavailableReason: 'chip_value_not_modeled' };
+  }
   const boundedFuture = Boolean(input.continuation?.futureHands);
   const localIndices = [...field.localIndex.values()].sort((a, b) => a - b);
   const localSet = new Set(localIndices);
@@ -1923,16 +2072,43 @@ function evaluateWithWorkspace(
     }
     return right.ledger.chipEv - left.ledger.chipEv;
   });
-  let selected = ranked[0].ledger;
   const baselineCandidate = evaluated.find((result) =>
     sameDecision(result.ledger, input.baseline)
   )?.ledger;
   if (!baselineCandidate) {
     return { result: null, unavailableReason: 'baseline_not_modeled' };
   }
+  const minSizedPostflopBet =
+    input.street !== 'preflop' &&
+    input.bettingStructure !== 'fixed_limit' &&
+    typeof input.maxRaiseTo === 'number' &&
+    Number.isFinite(input.maxRaiseTo) &&
+    typeof input.minRaiseTo === 'number' &&
+    Number.isFinite(input.minRaiseTo) &&
+    input.maxRaiseTo > input.minRaiseTo + EPS &&
+    Number.isFinite(input.pot) &&
+    input.pot > 0
+      ? Math.min(input.maxRaiseTo, Math.max(input.minRaiseTo, input.pot * 0.25))
+      : null;
+  const nonTinyRanked =
+    minSizedPostflopBet === null
+      ? ranked
+      : ranked.filter(
+          (item) =>
+            sameDecision(item.ledger, input.baseline) ||
+            item.ledger.action !== 'bet' ||
+            item.ledger.amount === null ||
+            item.ledger.amount >= minSizedPostflopBet - EPS
+        );
+  let selected = (nonTinyRanked[0] ?? ranked[0]).ledger;
   let baselineRetainedForUncertainty = false;
   let baselineRetainedForContinuation = false;
-  if (!sameDecision(selected, input.baseline) && !selected.terminalForHero && !input.continuation) {
+  if (
+    !sameDecision(selected, input.baseline) &&
+    !selected.terminalForHero &&
+    !input.continuation &&
+    !(input.v86AsymmetricIcmAndPreflop !== false && input.street === 'preflop')
+  ) {
     selected = baselineCandidate;
     baselineRetainedForContinuation = true;
   } else if (!sameDecision(selected, input.baseline)) {

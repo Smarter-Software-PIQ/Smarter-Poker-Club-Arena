@@ -737,4 +737,96 @@ describe('A premium open is sized like every other open (V74, Dan 2026-10-31 / 2
     expect(d.action).toBe('raise');
     expect(d.amount).toBeCloseTo(0.3, 9);
   });
+
+  it('owner-authorized EP limp-reraise trap (epLimpTrap) preserves an unopened first-in QQ/KK/AA 1bb trap limp and 100% limp-reraises facing any iso-raise behind', () => {
+    for (const hand of ['Qs Qh', 'Kc Kd', 'As Ah']) {
+      const s = unopenedCash(hand);
+      // 1. Intentional unopened EP trap-limp stands unchanged when epLimpTrap is true.
+      const unopenedTrap = holdemPremiumAggressionVerdict(
+        { action: 'call', amount: 0.1, thinkTime: 1 },
+        {
+          gameVariant: 'nlh',
+          bettingStructure: 'no_limit',
+          stage: 'preflop',
+          multiBoard: false,
+          board: [],
+          hero: s.hero,
+          players: s.gs.players,
+          pot: 0.15,
+          currentBet: 0.1,
+          bigBlind: 0.1,
+          toCall: 0.1,
+          legalActions: ['fold', 'call', 'raise', 'all_in'],
+          minRaiseTo: 0.2,
+          maxRaiseTo: 10,
+          chipUnit: 0.01,
+          actionHistory: s.gs.actionHistory as never,
+          epLimpTrap: true,
+        }
+      );
+      expect(unopenedTrap).toBeNull();
+
+      // 2. Without epLimpTrap, the exact same unopened call still raises (Rule 2 intact).
+      const accidentalLimp = holdemPremiumAggressionVerdict(
+        { action: 'call', amount: 0.1, thinkTime: 1 },
+        {
+          gameVariant: 'nlh',
+          bettingStructure: 'no_limit',
+          stage: 'preflop',
+          multiBoard: false,
+          board: [],
+          hero: s.hero,
+          players: s.gs.players,
+          pot: 0.15,
+          currentBet: 0.1,
+          bigBlind: 0.1,
+          toCall: 0.1,
+          legalActions: ['fold', 'call', 'raise', 'all_in'],
+          minRaiseTo: 0.2,
+          maxRaiseTo: 10,
+          chipUnit: 0.01,
+          actionHistory: s.gs.actionHistory as never,
+        }
+      );
+      expect(accidentalLimp?.rule).toBe('premium_preflop_raise');
+      expect(accidentalLimp?.decision.action).toBe('raise');
+
+      // 3. Facing an iso-raise behind after hero trap-limped, epLimpTrap: true STILL 100% limp-3-bets.
+      const facingIso = holdemPremiumAggressionVerdict(
+        { action: 'call', amount: 0.3, thinkTime: 1 },
+        {
+          gameVariant: 'nlh',
+          bettingStructure: 'no_limit',
+          stage: 'preflop',
+          multiBoard: false,
+          board: [],
+          hero: { ...s.hero, bet: 0.1, stack: 9.9 },
+          players: s.gs.players.map((p) =>
+            p.seat === 3
+              ? { ...p, bet: 0.1, stack: 9.9 }
+              : p.seat === 5
+                ? { ...p, bet: 0.4, stack: 9.6 }
+                : p
+          ),
+          pot: 0.65,
+          currentBet: 0.4,
+          bigBlind: 0.1,
+          toCall: 0.3,
+          legalActions: ['fold', 'call', 'raise', 'all_in'],
+          minRaiseTo: 0.7,
+          maxRaiseTo: 10,
+          chipUnit: 0.01,
+          actionHistory: [
+            ...(s.gs.actionHistory as never[]),
+            { stage: 'preflop', seat: 3, userId: 'p3', action: 'call', amount: 0.1 },
+            { stage: 'preflop', seat: 5, userId: 'p5', action: 'raise', amount: 0.4 },
+          ],
+          epLimpTrap: true,
+        }
+      );
+      expect(facingIso?.rule).toBe('premium_preflop_raise');
+      expect(facingIso?.decision.action).toBe('raise');
+      expect(facingIso?.decision.amount).toBeGreaterThanOrEqual(1.2 - 1e-9);
+    }
+  });
 });

@@ -12,7 +12,7 @@ vi.mock('../services/supabase.js', () => ({
 }));
 vi.mock('./LightningTopUp.js', () => ({ requestLightningTopUp: f.request }));
 import { requestLightningHorseTopUps } from './LightningHorseTopUp.js';
-import { horseCashTopUpStyle } from '../services/HorseTopUpStyle.js';
+import { horseCashTopUpStyle, horseSitsWithAutoTopUp } from '../services/HorseTopUpStyle.js';
 const horse = Array.from({ length: 100 }, (_, i) => `horse-${i}`).find(
   (id) => horseCashTopUpStyle(id, 'plo5') === 'auto_top_up'
 )!;
@@ -94,6 +94,26 @@ describe('a Lightning horse supplies the same original intent', () => {
     await requestLightningHorseTopUps(boundary);
     await requestLightningHorseTopUps({ ...boundary, horsePlayers: undefined });
     expect(f.request).not.toHaveBeenCalled();
+  });
+
+  it('does not top up a nonselected 1/2 horse even if its old seat flag is still on', async () => {
+    const excluded = Array.from({ length: 100 }, (_, i) => `excluded-${i}`).find(
+      (id) => !horseSitsWithAutoTopUp(id, 'plo5', { small_blind: 1, big_blind: 2 })
+    )!;
+    f.own.mockReturnValue({
+      autoTopUp: true,
+      stack: 250,
+      table: {
+        game_variant: 'plo5',
+        small_blind: 1,
+        big_blind: 2,
+        max_buy_in: 400,
+        tournament_id: null,
+      },
+    });
+    await requestLightningHorseTopUps({ ...boundary, horsePlayers: [{ playerId: excluded }] });
+    expect(f.request).not.toHaveBeenCalled();
+    expect(f.wallet).not.toHaveBeenCalled();
   });
 
   it.each(['nlh', 'plo4', 'plo5', 'plo6', 'plo8'])(

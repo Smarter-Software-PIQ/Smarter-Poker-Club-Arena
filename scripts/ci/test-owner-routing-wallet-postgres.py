@@ -347,9 +347,53 @@ try:
          + a(f"{ENSURE('D')}={WAL('D','ST')}.id AND {WAL('D','ST')}.status='wallet_only'", 'the new owner gets their own routing wallet')
          + a("NOT public.is_club_agent(orw_u('D'),orw_u('OD')) AND NOT public.is_club_agent(orw_u('D'),orw_u('ST'))", 'neither is an agent'))
 
+    # ── The three files after this one, whole, on the production definitions they pin ──────────────
+    # 20261109231855 (funding cascade), 20261110053814 (preparation shard) and 20261111132447 (one transfer per
+    # edge, players' share reserved). Their targets are loaded byte-exact from the real-runner fixture (production,
+    # read 2026-11-09; the round 2, finalize and validator definitions re-read unchanged 2026-11-11); only the
+    # wallet guard below is exercised here, through the installed Club Bank send and claim-back.
+    RUNNER = json.loads((R / 'scripts/ci/fixtures/rakeback-cascade-real-runner/production-functions.json').read_text())
+    PRE = {'smarter_private.weekly_payout_fund_agent_shortfalls(': '018a0fcbad1fabcf1b5427b9fa454028', 'public.fn_settle_accounting_rakeback_stage(': '21409a0d24523597e10b5da44c252840',
+           'smarter_private.rakeback_wallet_payout_complete(': '0f5fbe00efb06f9a49dcfae37d5830cc', 'smarter_private.split_rakeback_payout_complete(': '516cd5a271fd21f4b2fe6f98e503dc75',
+           'smarter_private.weekly_prep_shard(': 'c2188f253dab440846951fe852f44584', 'public.fn_settle_accounting_commission_stage(': 'ce1a9dd4344c7987918dcf8a82427ef5',
+           'smarter_private.weekly_payout_finalize(': '5b83618b59f043376c87361c986adca8', 'smarter_private.zero_standalone_foreign_commissions_proven(': '69099f3bac93cb29fad83cb82cb1fe4a'}
+    for pre, md in PRE.items():
+        k, v = next((k, v) for k, v in RUNNER.items() if k.startswith(pre))
+        assert v['md5'] == md, (k, v['md5'])
+        q('SET check_function_bodies=off;\n' + v['def'].rstrip() + ';')
+    for ver in ('20261109231855', '20261110053814', '20261111132447'):
+        text = next((R / 'supabase/migrations').glob(ver + '_*.sql')).read_text()
+        q('SET check_function_bodies=off;\n' + text)
+        assert all(q('SELECT ' + l.split(': ', 1)[1] + ';').stdout.strip() == 't' for l in text.splitlines() if l.startswith('-- @live-proof: ')), ver
+    case('the-cascade-files-install-whole-after-the-wallet-file',
+         a("(SELECT count(*)=1 FROM pg_trigger WHERE tgrelid='public.agents'::regclass AND tgname='zzzzz_agent_wallet_keeps_weekly_reserve')", 'the reserve guard is on the agents table')
+         + a("md5(pg_get_functiondef('smarter_private.rakeback_wallet_payout_complete(uuid,bigint)'::regprocedure))='c2b4cfdbc811adfae751d47fd5b298e6' AND md5(pg_get_functiondef('smarter_private.split_rakeback_payout_complete(uuid,bigint)'::regprocedure))='47519877eefe45ac6ab39f6519bfb0e8'", 'the validators are what production runs today'))
+    RESERVE = lambda c, u, amt: (f"INSERT INTO smarter_private.weekly_payout_wallet_reserves(period_id,club_id,user_id,scope_kind,scope_id,period_start,period_end,reserved,remaining,set_by) "
+                                 f"VALUES(gen_random_uuid(),{U(c)},{U(u)},'union',{U('U')},'2026-11-09 08:00+00','2026-11-16 08:00+00',{amt},{amt},'round2');")
+    REFUSED = 'agent_wallet_weekly_rakeback_reserved: agent '
+    # Round 2 funded the owner wallet and reserved what its players are owed (here 200.00 of 250.00) until round 3.
+    case('a-claim-back-of-the-reserved-part-of-an-owner-wallet-is-refused',
+         FUND + SETTLED + RESERVE('D', 'OD', '200.00') + f"SELECT {CLAIM('D','OD','250.00','op-r1')};", REFUSED)
+    case('the-unreserved-part-of-an-owner-wallet-is-still-returned',
+         FUND + SETTLED + RESERVE('D', 'OD', '200.00') + f"CREATE TEMP TABLE c AS SELECT {CLAIM('D','OD','50.00','op-r2')} j;"
+         + a("(SELECT j->>'success' FROM c)='true'", 'the installed claim-back moved the unreserved 50.00')
+         + a(f"{WAL('D','OD')}.agent_wallet_balance=200 AND {BANK('D')}=9800", 'the reserved 200.00 stays for the players'))
+    case('suspension-with-a-reserve-is-not-blocked-and-releases-nothing',
+         FUND + SETTLED + RESERVE('D', 'OD', '200.00') + f"UPDATE public.agents SET status='suspended' WHERE club_id={U('D')} AND user_id={U('OD')};"
+         + f"SELECT {CLAIM('D','OD','50.01','op-r3')};", 'at most 50.00 can leave this wallet')
+    case('after-an-ownership-transfer-the-reserve-still-holds',
+         FUND + f"UPDATE public.clubs SET owner_id={U('ST')},updated_at=now() WHERE id={U('D')};"
+         f"UPDATE public.club_members SET role='admin',updated_at=now() WHERE club_id={U('D')} AND user_id={U('OD')};"
+         f"UPDATE public.club_members SET role='owner',updated_at=now() WHERE club_id={U('D')} AND user_id={U('ST')};"
+         + SETTLED + RESERVE('D', 'OD', '200.00') + "SELECT orw_as('ST');" + f"SELECT {CLAIM('D','OD','250.00','op-r4')};", REFUSED)
+    case('a-released-reserve-returns-the-whole-wallet-as-before',
+         FUND + SETTLED + RESERVE('D', 'OD', '200.00') + "UPDATE smarter_private.weekly_payout_wallet_reserves SET remaining=0,released_at=now();"
+         + a(f"({CLAIM('D','OD','250.00','op-r5')})->>'success'='true'", 'after round 3 released it, the claim-back returns everything')
+         + a(f"{WAL('D','OD')}.agent_wallet_balance=0 AND {BANK('D')}=10000", 'wallet empty, bank whole'))
+
     if A.output:
         A.output.parent.mkdir(parents=True, exist_ok=True)
-        A.output.write_text(json.dumps({'status': 'passed', 'migration': MIG.name, 'cases': results}, indent=2) + '\n')
+        A.output.write_text(json.dumps({'status': 'passed', 'migration': MIG.name, 'later_migrations': ['20261109231855', '20261110053814', '20261111132447'], 'cases': results}, indent=2) + '\n')
     print(json.dumps({'status': 'passed', 'cases': len(results)}))
 finally:
     if started:

@@ -154,6 +154,8 @@ Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles re
 
 **Database checks use the workflow's identity, never a copied key (2026-11-08).** Run a read-only check against production through its workflow, whose database identity is the repository secret (the V31 pre-screen: `Explicit V31 Offline Qualification`, `operation: prescreen`). Never reveal an API key through the Supabase CLI (`projects api-keys`) or the Management API (`?reveal=true`), never source a `.env` file, and never write a key to a new file. An agent did all three to run a local check (`.agent/audits/2026-11-08-SECURITY-INCIDENT-prescreen-credential-copy.md`).
 
+**Never print another process's command line or environment (2026-11-10).** Do not run `pgrep -fl`, `pgrep -a`, `ps e`, `ps eww`, `ps -o args` / `ps aux` without filtering, `env`, `printenv`, `set` or `cat /proc/*/environ` on the Mac, the engine hosts or a runner: other agents' and tools' processes carry tokens in their arguments, and the output lands in your transcript. To check whether a process runs, print only its pid and executable name (`pgrep -x <name>`, `ps -axo pid=,comm=`). A thin-pool agent's `pgrep -fl` put other processes' credentials into its session transcript (`.agent/audits/2026-11-10-SECURITY-INCIDENT-process-listing-credential-exposure.md`).
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
@@ -831,6 +833,61 @@ tests and restored only the hairline. If a request about the profile image
 seems to call for showing the ring, it does not - preserve the disc under the current product rule unless the assigned change explicitly changes that requirement. "NO BOXES OVER HEADER ICONS" is about focus rings on icons; the disc is
 its one deliberate exception. The World Hub and Club Commander headers carry
 the identical rule (`GLOBAL_HEADER_PROFILE_FRAME_LAW.md` in that repo).
+
+---
+
+## 10.7c PHONE AVATARS NEVER SHRINK (Dan, 2026-11-18, BINDING)
+
+**Dan, verbatim: "I KEEP FIXING IT AND MAKING IT SO THE AVATARS ARE AS LARGE
+AS THEY CAN BE WITHOUT OVERLAPPING ANYTHING OR HIDING ANYTHING, AND THEN IT
+KEEPS REGRESSING BACK TO THE SMALLER VERSIONS."** Between 2026-11-12 and
+11-16 that happened more than a dozen times. No single change did it; four
+mechanisms each shrank the portraits and every check passed.
+
+### The approved sizes are a file, not a solver's output
+
+`src/components/table/mobileAvatarSize.ts` holds the sizes a phone table
+(600px layout width) draws its portraits at: six-max 2.1, watched six-max 2.3,
+full-ring rail 1.7, and the minimum rendered heights. `SeatSlot.css` must carry
+the same numbers. `tests/mobile-avatars-never-ratchet-smaller.law.test.ts`
+refuses a lower value, and the browser cases
+(`tests/e2e/support/mobileAvatarSizingCases.ts`) and the post-deploy live proof
+(`mobileLiveTableLayout.ts`) assert the rendered heights in layout px. **If a
+feature needs room, make room around the portrait. A smaller portrait is a
+failing build.** Raising a size is welcome and takes the measured sweep: every
+guard case green, no new overlap; record the new number in all three places in
+one commit.
+
+### The four things you may not build again (each one shipped)
+
+1. **A stored size.** No `localStorage`, cookie, profile column or module-level
+   cache of a portrait size, and no "size record" that only moves one way.
+   `sp-mobile-avatar-size-v1/v2/v3` capped every table of a game type on a
+   phone at the smallest size ever fitted, and no deploy could undo it. The
+   law forbids storage reads and writes in `mobileAvatarEnlargement.ts` and the
+   retired keys are deleted on load.
+2. **A ring-wide value that starts from its own last value.** The nine-seat
+   rail (`--sp-nine-rail-bust`) multiplied itself by a factor capped at 1 on
+   every pass, so one wide portrait shrank nine chairs for the session. A size
+   is computed from the approved base and the current table every pass; a
+   too-wide portrait limits only its own chair (`--sp-seat-rail-bust`).
+3. **A size chosen from a moment of play.** The first fit is LOCKED for the
+   session (Dan: "they need to stay the same size 1000% of the time"), so it
+   may only read permanent geometry. Wagers on the felt, the chair the puck
+   sits beside and a hand tabled at showdown are not inputs; the marker solver
+   keeps them clear of the portrait, not the other way round.
+4. **A relative test.** "Zoom times bust scale > 1" passed when the
+   enlargement was lost entirely, because the CSS base alone is above 1. Every
+   check asserts an absolute height, and none may clear device state first.
+
+### How it regressed, so you recognise the shape
+
+Every shrink arrived inside a correct fix for something else: #10796 moved
+chairs onto the rail and dropped the base from 2.1 to 1.7 "because the fitter
+can grow it"; #11085 then removed the fitter's growth to fix a 7px
+seated/observer mismatch. Each PR was green. If your change makes a portrait
+smaller anywhere, the law will say so; the answer is to find room, not to edit
+the number. `docs/changelog/2026-11-18-phone-avatars-never-shrink.md`.
 
 ---
 

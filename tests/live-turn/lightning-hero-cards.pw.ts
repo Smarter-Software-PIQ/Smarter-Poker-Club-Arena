@@ -11,6 +11,9 @@
  * a live hand shows no cards at all there, because deliveries that arrive
  * before the page knows its player were discarded and nothing asked again.
  */
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
+import { tapLightningFold, verifyLightningFoldFrames } from '../e2e/support/lightningFoldFrames';
+import { writeFile } from 'node:fs/promises';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
 
@@ -36,10 +39,11 @@ const HAND_THREE: Card[] = [
   { rank: 'J', suit: 'c' },
 ];
 
+const heroName = 'LightningFixturePlayer';
 const villain = (n: number) => `0bb0ffee-0000-4000-8000-00000000006${n}`;
 
 /** A Lightning hand as the engine publishes it to one room. */
-function snapshot(hand: number, heroSeat: number) {
+function snapshot(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh') {
   const seats = [1, 2, 3, 4, 5, 6];
   let v = 0;
   const players = seats.map((seat) => {
@@ -48,7 +52,7 @@ function snapshot(hand: number, heroSeat: number) {
     return {
       seat,
       user_id: id,
-      username: hero ? 'Fixture' : `Villain${v}`,
+      username: hero ? heroName : `Villain${v}`,
       avatar_url: '',
       equipped_frame: '',
       equipped_aura: '',
@@ -82,34 +86,35 @@ function snapshot(hand: number, heroSeat: number) {
       name: 'NLH 0.25/0.50 Lightning Games',
       small_blind: 0.25,
       big_blind: 0.5,
-      variant: 'nlh',
-      fast_fold_available: false,
+      variant,
+      fast_fold_available: !decisionAt,
+      fold_on_turn: true,
     },
     hand_number: hand,
     pot: 0.75,
     community_cards: [],
     community_cards2: [],
     community_cards3: [],
-    hand_variant: 'nlh',
+    hand_variant: variant,
     ante: 0,
     ante_mode: null,
     current_bet: 0.5,
-    current_player: null,
+    current_player: decisionAt ? PLAYER : villain(1),
     dealer_seat: 6,
     stage: 'preflop',
     winner_ids: [],
     winners: [],
     min_raise: 0.5,
     last_raise: 0.5,
-    betting_structure: 'no_limit',
-    action_context: null,
-    turn_start_time_ms: 0,
-    turn_duration_ms: 0,
+    betting_structure: variant === 'plo5' ? 'pot_limit' : 'no_limit',
+    action_context: decisionAt ? `hand-${hand}:preflop:hero` : null,
+    turn_start_time_ms: decisionAt,
+    turn_duration_ms: decisionAt ? 30_000 : 0,
     server_time_ms: Date.now(),
     discard_deadline_ms: null,
     discard_deadlines: {},
     discard_duration_ms: 0,
-    turn_deadline_ms: 0,
+    turn_deadline_ms: decisionAt ? decisionAt + 30_000 : 0,
     time_bank_active: false,
     disconnect_states: {},
     max_seats: 6,
@@ -131,7 +136,7 @@ class LightningEngine {
   private sockets = new Set<WebSocketRoute>();
   private seq = 0;
   private eventSeq = 0;
-  private state: ReturnType<typeof snapshot> | null = null;
+  private state: Record<string, unknown> | null = null;
   /** What a RESYNC re-sends, as rePushHoleCards does; null withholds it. */
   private heroCards: { hand: number; seat: number; cards: Card[] } | null = null;
   private pinger: ReturnType<typeof setInterval> | null = null;
@@ -231,7 +236,7 @@ class LightningEngine {
     this.heroCards = { hand, seat, cards };
   }
 
-  handStarted(hand: number): void {
+  handEvent(hand: number, type: string): void {
     this.eventSeq += 1;
     this.all({
       type: 'EVENT',
@@ -239,7 +244,7 @@ class LightningEngine {
       seq: this.eventSeq,
       ts: Date.now(),
       payload: {
-        type: 'hand_started',
+        type,
         table_id: ROOM,
         hand_number: hand,
         dealer_seat: 6,
@@ -248,9 +253,44 @@ class LightningEngine {
     });
   }
 
-  publish(hand: number, heroSeat: number): void {
+  handStarted(hand: number): void {
+    this.handEvent(hand, 'hand_started');
+  }
+
+  waitingAfterFold(hand: number, seat: number): void {
+    const last = snapshot(hand, seat);
+    this.heroCards = null;
+    this.state = {
+      ...last,
+      stage: 'waiting',
+      hand_id: null,
+      players: [],
+      pot: 0,
+      current_bet: 0,
+      current_player: null,
+      dealer_seat: 0,
+      lightning: {
+        ...last.lightning,
+        hand_id: null,
+        fast_fold_available: false,
+        player_balance: { user_id: PLAYER, stack: 100 },
+      },
+    };
+    this.all({ type: 'SNAPSHOT', tableId: ROOM, seq: ++this.seq, state: this.state });
+  }
+
+  publish(
+    hand: number,
+    heroSeat: number,
+    decisionAt = 0,
+    variant = 'nlh',
+    board: Card[] = []
+  ): void {
     this.seq += 1;
-    this.state = snapshot(hand, heroSeat);
+    this.state = {
+      ...snapshot(hand, heroSeat, decisionAt, variant),
+      ...(board.length ? { stage: 'flop', community_cards: board } : {}),
+    };
     this.all({ type: 'SNAPSHOT', tableId: ROOM, seq: this.seq, state: this.state });
   }
 }
@@ -258,13 +298,14 @@ class LightningEngine {
 function backend() {
   const profile = {
     id: PLAYER,
-    username: 'fixture',
-    alias: 'Fixture',
+    username: heroName,
+    alias: heroName,
     full_name: 'Live Turn Fixture',
     role: 'user',
     diamonds: 0,
     diamond_balance: 0,
-    club_arena_tos_accepted_at: '2026-09-01T00:00:00Z',
+    club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+    club_arena_tos_revision: TERMS_REVISION,
     avatar_url: '/hub/club-arena/default-avatar.png',
     arena_avatar_url: '/hub/club-arena/default-avatar.png',
   };
@@ -440,6 +481,139 @@ for (const muted of [true, false]) {
     }
   });
 }
+
+test('PLO5 decision survives a delayed start with every visible frame and card hit target recorded', async ({
+  page,
+}, testInfo) => {
+  const engine = await openRoom(page, { muted: true });
+  try {
+    await firstHand(page, engine);
+    const name = page.locator('.seat--hero .seat__name');
+    await expect
+      .poll(() =>
+        name
+          .locator('.seat__name-text')
+          .evaluate((label) => Number(getComputedStyle(label).getPropertyValue('--fit')) || 1)
+      )
+      .toBeLessThan(1);
+    const nameLine = await name.evaluate((label) => ({
+      reserved: label.getBoundingClientRect().height,
+      normal: parseFloat(getComputedStyle(label).lineHeight),
+    }));
+    expect(
+      Math.abs(nameLine.reserved - nameLine.normal),
+      'the fitted name reserves the full hero line'
+    ).toBeLessThanOrEqual(1);
+    const five = [
+      ...HAND_TWO,
+      { rank: '10', suit: 'd' },
+      { rank: '9', suit: 'h' },
+      { rank: '8', suit: 's' },
+    ];
+    await tapLightningFold(page, ROOM, '4a4d0000-0000-4000-8000-000000000101');
+    engine.waitingAfterFold(101, 6);
+    await expect(page.locator('.pre-action-btn.fold')).toHaveCount(0);
+    engine.handStarted(101);
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+
+    await page.evaluate(() => document.documentElement.style.setProperty('--animation-speed', '3'));
+    engine.handStarted(102);
+    engine.publish(102, 1, 0, 'plo5');
+    engine.deal(102, 1, five);
+    await expect(page.locator('.deal-animation__card')).toHaveCount(30);
+    await expect(page.locator('.deal-animation')).toHaveCount(0);
+    const decisionAt = Date.now();
+    engine.publish(102, 1, decisionAt, 'plo5');
+    const picks = page.locator('.seat--hero .seat__cards--hero .seat__card-pick');
+    await expect(picks).toHaveCount(5);
+    const actions = page.locator('.action-panel--active button:enabled').first();
+    await expect(actions).toBeVisible();
+    await expect(page.locator('.table-art-cover')).toBeHidden({ timeout: 15_000 });
+    const geometry = await picks.evaluateAll((nodes) =>
+      nodes.map((node, index) => {
+        const rect = node.getBoundingClientRect();
+        const exposed = nodes[index + 1]
+          ? nodes[index + 1].getBoundingClientRect().left - rect.left
+          : rect.width;
+        const hit = document.elementFromPoint(rect.left + exposed / 2, rect.top + rect.height / 2);
+        return {
+          width: rect.width,
+          height: rect.height,
+          right: rect.right,
+          viewport: innerWidth,
+          exposed,
+          hit: hit?.closest('.seat__card-pick') === node,
+        };
+      })
+    );
+    for (const card of geometry) {
+      expect(card.hit).toBe(true);
+      expect(card.right).toBeLessThanOrEqual(card.viewport);
+      expect(card.exposed).toBeGreaterThanOrEqual(card.width * 0.45 - 1);
+    }
+    engine.handStarted(101);
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+    engine.handStarted(102);
+    await page.waitForTimeout(250);
+    const receipt = await verifyLightningFoldFrames(page, 102, decisionAt, 30_000, [
+      'Ten Of Diamonds',
+      'Nine Of Hearts',
+      'Eight Of Spades',
+      'Seven Of Clubs',
+      'Two Of Hearts',
+    ]);
+    const framePath = testInfo.outputPath('decision-frames.json');
+    await writeFile(framePath, JSON.stringify({ geometry, ...receipt }));
+    await testInfo.attach('decision-frames', { path: framePath, contentType: 'application/json' });
+    const frameImage = testInfo.outputPath('plo5-active.png');
+    await page.screenshot({ path: frameImage });
+    await testInfo.attach('plo5-active', { path: frameImage, contentType: 'image/png' });
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('a prior hand award timer cannot clear the next flop or withhold its controls after a snapshot-first start', async ({
+  page,
+}) => {
+  const engine = await openRoom(page, { muted: true });
+  try {
+    await firstHand(page, engine);
+    engine.handEvent(101, 'hand_complete');
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+    engine.publish(102, 1, Date.now(), 'nlh', [
+      { rank: '3', suit: 'c' },
+      { rank: '4', suit: 'h' },
+      { rank: '5', suit: 's' },
+    ]);
+    engine.deal(102, 1, HAND_TWO);
+    const flop = page.locator('.community-cards__card img.card-image__img');
+    await expect(flop).toHaveCount(3);
+    await expect(page.getByRole('button', { name: 'Fold', exact: true })).toBeVisible();
+    engine.handStarted(102);
+    // The existing uncontested award hold has now run to its original completion.
+    await page.waitForTimeout(5000);
+    await expect(flop).toHaveCount(3);
+    await expect(page.getByRole('button', { name: 'Fold', exact: true })).toBeVisible();
+  } finally {
+    engine.dispose();
+  }
+});
 
 test('a lost delivery is asked for again, once is enough, and the asking stops', async ({
   page,

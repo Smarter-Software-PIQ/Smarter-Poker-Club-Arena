@@ -157,7 +157,7 @@ def execute_retained_case(binding, review, evidence, pg_bin, temp_parent, regres
     env=dict(binding.operation.child_env)
     ledger={'runid':runid,'current_accounting_ci':binding.operation.identity,'current_case_attempt':dict(review),
             'status':'ATTEMPTED_OUTCOME_UNCERTAIN','helper_choice':'original_current_capture',
-            'no_remote_dsn':True,'current_capture_pg':'17.6','local_pg':'17.11',
+            'no_remote_dsn':True,'current_capture_pg':'17.6','local_pg':'17.12',
             'runtime':binding.operation.runtime,'historical_authority_reused':False,
             'schema_fixture_integrity_sha256':config['schema_fixture_integrity_sha256'],
             'seed_sha256':digest(seed_path),'driver_sha256':digest(schema_fixture/'sequence_driver.py'),
@@ -218,7 +218,7 @@ def execute_retained_case(binding, review, evidence, pg_bin, temp_parent, regres
         sock.mkdir(mode=0o700)
         env.update(PGHOST=str(sock),PGPORT='55472',PGUSER='postgres',PGDATABASE='postgres',PGCONNECT_TIMEOUT='5',PGAPPNAME='bbj-ci-'+review['case_attempt_id'],PGTZ='UTC')
         version=command([BIN/'postgres','--version']).stdout
-        if not re.search(r'\(PostgreSQL\) 17\.11(?:\s|$)',version): raise RuntimeError('Unpinned PostgreSQL binary')
+        if not re.search(r'\(PostgreSQL\) 17\.12(?:\s|$)',version): raise RuntimeError('Unpinned PostgreSQL binary')
         command([BIN/'initdb','-D',data,'-U','postgres','--auth-local=trust','--auth-host=reject','--encoding=UTF8','--no-locale'])
         with (data/'postgresql.conf').open('a') as f:
             f.write("\nlisten_addresses=''\nport=55472\n"+
@@ -238,7 +238,7 @@ def execute_retained_case(binding, review, evidence, pg_bin, temp_parent, regres
         extension.validate_physical(base_physical_raw,base_physical)
         runtime_minor=json.loads(command(psql+['-d','fixture_base','-A','-t','-c',
             "SELECT to_jsonb(current_setting('server_version_num')::integer)"]).stdout)
-        if runtime_minor != 170011: raise RuntimeError('Actual server must be PostgreSQL17.11')
+        if runtime_minor != 170012: raise RuntimeError('Actual server must be PostgreSQL17.12')
         ledger['actual_server_version_num']=runtime_minor
         ledger['physical_identity']=base_physical_raw
         def owned_connect(database,label,events,expected):

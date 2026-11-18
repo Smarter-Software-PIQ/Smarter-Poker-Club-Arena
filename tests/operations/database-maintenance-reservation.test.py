@@ -17,6 +17,15 @@ seal = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(seal)
 
 
+# Immutable qualified SQL source of the reviewed reserved exact-seven operation.
+PROMO_HISTORICAL_SOURCE = 'ef1d921b635318263b66445c33fce425a415bae1'
+
+
+def historical_promo_source(path):
+    return subprocess.check_output(['git', '-C', str(ROOT), 'show',
+        PROMO_HISTORICAL_SOURCE + ':' + path])
+
+
 class DatabaseReservation(unittest.TestCase):
     def setUp(self):
         # Git hooks export GIT_DIR/INDEX/WORK_TREE. A native fixture must never
@@ -283,6 +292,95 @@ class DatabasePairReservation(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()),altered)
 
 
+class PromoDatabaseReservation(unittest.TestCase):
+    setUp = DatabaseReservation.setUp
+    tearDown = DatabaseReservation.tearDown
+    restore_environment = DatabaseReservation.restore_environment
+    git = DatabaseReservation.git
+    publish_window = DatabaseReservation.publish_window
+    assert_no_pair_reservation = DatabasePairReservation.assert_no_pair_reservation
+
+    def prepare_promo(self):
+        anchor = seal.PROMO_DATABASE_WINDOW_ANCHOR
+        raw = subprocess.check_output(['git', '-C', str(ROOT), 'cat-file', 'commit', anchor])
+        imported = subprocess.check_output(['git', '-C', str(self.repo), 'hash-object', '-w', '-t',
+            'commit', '--stdin'], input=raw).decode().strip()
+        self.assertEqual(imported, anchor)
+        (self.repo/'.git/shallow').write_text(anchor+'\n')
+        tree = self.git('rev-parse', 'HEAD^{tree}').strip()
+        self.serving = subprocess.check_output(['git', '-C', str(self.repo), 'commit-tree', tree,
+            '-p', anchor], input=b'disposable serving descendant\n').decode().strip()
+        self.git('update-ref', 'refs/heads/main', self.serving)
+        self.state['desired']['sha'] = self.serving
+        self.state['highWaterSha'] = self.serving
+        seal.write_state(self.state); self.before = seal.STATE_FILE.read_bytes()
+        self.window.update(id=seal.PROMO_DATABASE_WINDOW_ID, contains=anchor,
+            notBefore=seal.PROMO_DATABASE_WINDOW_BOUNDS[0], notAfter=seal.PROMO_DATABASE_WINDOW_BOUNDS[1],
+            migrations=[f for f, _ in seal.PROMO_DATABASE_MIGRATIONS])
+        # The reviewed exact-seven operation retains its qualified SQL forever.
+        # Later qualified corrections to uninstalled files must not change its
+        # replay/tamper fixture or the immutable production authority hashes.
+        for file, expected in seal.PROMO_DATABASE_MIGRATIONS:
+            data = historical_promo_source('supabase/migrations/' + file)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
+            (self.repo/'supabase/migrations'/file).write_bytes(data)
+        self.publish_window()
+
+    def reserve_promo(self, at='2026-11-17T12:50:00+00:00', run='100-1'):
+        from unittest.mock import patch
+        with patch.object(seal.time, 'time', return_value=datetime.fromisoformat(at).timestamp()):
+            return seal.reserve_database_window({'runId':run, 'controlSha':self.control,
+                'servingSha':self.serving, 'windowId':self.window['id']}, str(self.repo))
+
+    def test_exact_seven_protected_bytes_replay_and_shared_custody(self):
+        self.prepare_promo(); first=self.reserve_promo()
+        self.assertEqual(self.reserve_promo(), first)
+        self.assertEqual(first['type'], 'database-maintenance-promo/v1')
+        self.assertEqual(first['migrations'], [{'migration':f, 'migrationSHA256':h}
+            for f,h in seal.PROMO_DATABASE_MIGRATIONS])
+        self.assertEqual(first['endsAt']-first['announcedAt'], 420000)
+        self.assertNotIn('migration', first)
+        self.assertEqual(seal.STATE_FILE.read_bytes(), self.before)
+        self.assertEqual(len(seal.AUDIT_FILE.read_text().splitlines()), 1)
+        with self.assertRaises(SystemExit): self.reserve_promo(run='200-1')
+        with self.assertRaises(SystemExit):
+            self.reserve_promo(at='2026-11-17T12:51:00+00:00',run='200-1')
+        self.assertEqual(self.reserve_promo(), first)
+
+    def test_exact_authority_and_order_fail_closed_before_journal(self):
+        self.prepare_promo(); original=copy.deepcopy(self.window)
+        for key,value in [('id','unreviewed-promo'),('contains',self.serving),
+                ('notBefore','2026-11-17T12:49:00Z'),('notAfter','2026-11-17T13:01:00Z'),
+                ('migrations',list(reversed(original['migrations']))),
+                ('migrations',original['migrations'][:-1]),
+                ('migrations',original['migrations']+[original['migrations'][0]]),
+                ('migrations',original['migrations'][:-1]+[original['migrations'][0]])]:
+            with self.subTest(key=key,value=value):
+                self.window=copy.deepcopy(original);self.window[key]=value;self.publish_window()
+                with self.assertRaises(SystemExit):self.reserve_promo()
+                self.assert_no_pair_reservation()
+
+    def test_each_qualified_file_hash_is_enforced_before_journal(self):
+        self.prepare_promo()
+        for file,_ in seal.PROMO_DATABASE_MIGRATIONS:
+            with self.subTest(file=file):
+                p=self.repo/'supabase/migrations'/file; data=p.read_bytes()
+                p.write_bytes(data+b'-- unqualified change\n'); self.publish_window()
+                with self.assertRaises(SystemExit):self.reserve_promo()
+                self.assert_no_pair_reservation();p.write_bytes(data)
+
+    def test_expiry_and_unknown_receipt_are_not_extended_or_replaced(self):
+        self.prepare_promo()
+        for at in ['2026-11-17T12:49:59+00:00','2026-11-17T12:53:01+00:00','2026-11-17T13:00:00+00:00']:
+            with self.subTest(at=at):
+                with self.assertRaises(SystemExit):self.reserve_promo(at)
+                self.assert_no_pair_reservation()
+        first=self.reserve_promo();path=seal.STATE_DIR/'engine-recovery-window-100-1.json'
+        altered=copy.deepcopy(first);altered['migrations'].reverse();seal.write_json_atomic(path,altered)
+        with self.assertRaises(SystemExit):self.reserve_promo()
+        self.assertEqual(json.loads(path.read_text()),altered)
+
+
 CONTROLLER_SPEC = importlib.util.spec_from_file_location('db_controller', ROOT/'scripts/ci/database-maintenance-window.py')
 controller = importlib.util.module_from_spec(CONTROLLER_SPEC)
 CONTROLLER_SPEC.loader.exec_module(controller)
@@ -511,6 +609,46 @@ class PairTerminalBinding(unittest.TestCase):
                 with self.assertRaises(ValueError):controller.validate_pair_terminal(receipt,expected)
             self.assertIsNone(controller.expected_pair_binding('native-db'))
             controller.validate_pair_terminal({},None)
+        finally:os.chdir(old)
+
+
+class PromoTerminalBinding(unittest.TestCase):
+    def test_protected_source_binding_queue_order_and_unchanged_budgets(self):
+        self.assertEqual(controller.PROMO_DATABASE_MIGRATIONS,seal.PROMO_DATABASE_MIGRATIONS)
+        self.assertEqual(controller.PROMO_DATABASE_WINDOW_ID,seal.PROMO_DATABASE_WINDOW_ID)
+        self.assertEqual(controller.PROMO_DATABASE_WINDOW_ANCHOR,seal.PROMO_DATABASE_WINDOW_ANCHOR)
+        self.assertEqual(controller.PROMO_DATABASE_WINDOW_BOUNDS,seal.PROMO_DATABASE_WINDOW_BOUNDS)
+        # Use the installer's actual relation-group ordering, not a second sorting rule.
+        js = """import fs from 'node:fs';
+import {orderWindowQueue,windowLocks,TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,
+WINDOW_STATEMENT_TIMEOUT_MS,START_RESERVE_SECONDS,COMMIT_RESERVE_SECONDS} from './scripts/ci/maintenance-window-migrations.mjs';
+const files=JSON.parse(process.argv[1]);console.log(JSON.stringify({files:orderWindowQueue(files.map(file=>({file,
+locks:windowLocks(fs.readFileSync('supabase/migrations/'+file,'utf8'))}))).map(x=>x.file),
+budgets:[TRANSACTION_BUDGET_SECONDS,WINDOW_LOCK_TIMEOUT_MS,WINDOW_STATEMENT_TIMEOUT_MS,START_RESERVE_SECONDS,COMMIT_RESERVE_SECONDS]}));"""
+        result=json.loads(subprocess.check_output(['node','--input-type=module','-e',js,
+            json.dumps([f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])],cwd=ROOT))
+        self.assertEqual(result['files'],[f for f,_ in seal.PROMO_DATABASE_MIGRATIONS])
+        self.assertEqual(result['budgets'],[8,1000,5000,150,100])
+        self.assertEqual(len(result['files'])*result['budgets'][0],56)
+        historical=tempfile.TemporaryDirectory(prefix='promo-consumed-binding-')
+        self.addCleanup(historical.cleanup)
+        source=Path(historical.name)
+        for path in ['server/release/owner-maintenance-windows.json'] + [
+                'supabase/migrations/'+file for file,_ in seal.PROMO_DATABASE_MIGRATIONS]:
+            target=source/path; target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes((ROOT/path).read_bytes() if path.endswith('owner-maintenance-windows.json') else historical_promo_source(path))
+        for file,expected_hash in seal.PROMO_DATABASE_MIGRATIONS:
+            self.assertEqual(hashlib.sha256((source/'supabase/migrations'/file).read_bytes()).hexdigest(),expected_hash)
+        old=os.getcwd()
+        try:
+            os.chdir(source)
+            expected=controller.expected_pair_binding(seal.PROMO_DATABASE_WINDOW_ID)
+            controller.validate_pair_terminal(copy.deepcopy(expected),expected)
+            for mutate in [lambda r:r['migrations'].reverse(),lambda r:r['migrations'].pop(),
+                    lambda r:r['migrations'][0].update(migrationSHA256='0'*64),
+                    lambda r:r.update(type='database-maintenance/v1'),lambda r:r.update(migration='ambiguous')]:
+                receipt=copy.deepcopy(expected);mutate(receipt)
+                with self.assertRaises(ValueError):controller.validate_pair_terminal(receipt,expected)
         finally:os.chdir(old)
 
 

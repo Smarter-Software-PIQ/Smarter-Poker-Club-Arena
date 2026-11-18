@@ -1,0 +1,190 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# A WINDOW MIGRATION INSTALLS AGAINST PRODUCTION'S SCHEMA BEFORE IT MERGES
+#
+# Owner instruction, 11:04 Chicago 2026-11-17: everything the 04:00 cutover
+# needs must be present before it, and the daily route must run by itself.
+# "-- @install-window: daily-maintenance" files install only inside the 04:00
+# break, and on 2026-11-13, 2026-11-14 and 2026-11-17 their defects were first
+# found there (2026-11-17: all seven queued files refused, the first with
+# "function public.fn_ca_promo_integrity_immutable() does not exist").
+#
+# On every pull request that adds or changes a migration, this installs the
+# whole queue - production's uninstalled ordinary migrations, then every
+# uninstalled window file (main's and this branch's) in the installer's own
+# order - into a throwaway database restored from production's schema. A
+# window file this branch adds or changes that does not install fails here.
+#
+# TRUSTED BY CONSTRUCTION. Two jobs:
+#   capture   pull_request_target, DEFAULT BRANCH code only, environment
+#             ci-main: a read-only schema-only export (the Backup engine's own
+#             client and flags) and the installed version list. Nothing from
+#             the branch is read or executed here.
+#   rehearse  no environment, no secret, read-only token: restores the archive
+#             into a local supabase/postgres container and installs the queue.
+#             The branch's migration files are DATA it fetches by name and
+#             sends only to that throwaway database.
+# The archive lives one day as a private artifact of this run.
+#
+# NOT A SCHEDULE, NOT A WATCHER: one answer per pull-request event. It repairs
+# and installs nothing in production.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Window Migrations Install Before Merge
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: window-rehearsal-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Which migrations this pull request changes
+    if: github.event.pull_request.head.repo.full_name == github.repository && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rehearse: ${{ steps.files.outputs.rehearse }}
+    steps:
+      - name: List the migration files this pull request adds or modifies
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | select(.status != "removed") | .filename' \
+            | grep -E '^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$' > changed.txt || true
+          if [ -s changed.txt ]; then echo "rehearse=true" >> "$GITHUB_OUTPUT"; else echo "rehearse=false" >> "$GITHUB_OUTPUT"; fi
+          cat changed.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: window-rehearsal-changed
+          path: changed.txt
+          if-no-files-found: ignore
+          retention-days: 1
+
+  capture:
+    name: Capture production's schema (read-only)
+    needs: scope
+    if: needs.scope.outputs.rehearse == 'true' && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 25
+    steps:
+      - name: Checkout the default branch (never the pull request head)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/pgdg
+            .github/actions/install-postgres-17
+            scripts/ci/build_pg17_isolationtester.py
+            scripts/dr
+            scripts/ci/ubuntu-apt-mirror.py
+            scripts/verification-harness/leaderboard-native-function-batch.mjs
+          sparse-checkout-cone-mode: false
+      - name: Build the Backup engine's batched read-only export client
+        run: |
+          set -euo pipefail
+          PG_PACKAGES="postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config" \
+            bash .github/actions/install-postgres-17/install.sh
+          python3 scripts/dr/build-native-export-client.py --scratch "$RUNNER_TEMP" --pg-bin /usr/lib/postgresql/17/bin > client.log 2>&1 || true
+          PG_DUMP=$(find "$RUNNER_TEMP" -path '*src/bin/pg_dump/pg_dump' -type f -perm -u+x | head -1)
+          [ -n "$PG_DUMP" ] || { tail -40 client.log; exit 1; }
+          echo "PG_DUMP=$PG_DUMP" >> "$GITHUB_ENV"
+          echo "PG_LIB=$(dirname "$(dirname "$(dirname "$PG_DUMP")")")/interfaces/libpq" >> "$GITHUB_ENV"
+      - name: Export the schema and the installed versions (read-only, short reads)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/out"
+          PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15s' \
+            /usr/lib/postgresql/17/bin/psql "$DATABASE_URL" -X -Atq \
+            -c 'select version from supabase_migrations.schema_migrations order by 1' > "$RUNNER_TEMP/out/installed.txt"
+          [ "$(grep -cE '^[0-9]{14}$' "$RUNNER_TEMP/out/installed.txt")" -gt 100 ]
+          # Same flags and bound as the Backup engine's nightly export.
+          PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
+            --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
+            -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
+            -f "$RUNNER_TEMP/out/schema.dump"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: window-rehearsal-schema
+          path: |
+            ${{ runner.temp }}/out/schema.dump
+            ${{ runner.temp }}/out/installed.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  rehearse:
+    name: Window migrations install against production's schema
+    needs: [scope, capture]
+    if: always() && needs.scope.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Nothing to rehearse
+        if: needs.scope.outputs.rehearse != 'true'
+        run: echo "This pull request adds or changes no migration; nothing to rehearse."
+      - name: The capture must have succeeded
+        if: needs.scope.outputs.rehearse == 'true' && needs.capture.result != 'success'
+        run: |
+          echo "::error::Production's schema could not be captured (${{ needs.capture.result }}); the rehearsal is UNKNOWN, not passed. Re-run this workflow."
+          exit 1
+      - name: Checkout the default branch (rehearsal tooling only)
+        if: needs.scope.outputs.rehearse == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.scope.outputs.rehearse == 'true'
+        with:
+          pattern: window-rehearsal-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/in
+      - name: Overlay the pull request's migration files (data only)
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mig"
+          cp supabase/migrations/*.sql "$RUNNER_TEMP/mig/"
+          while IFS= read -r path; do
+            [[ "$path" =~ ^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$ ]] || continue
+            gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/$path?ref=$HEAD_SHA" > "$RUNNER_TEMP/mig/${path#supabase/migrations/}"
+          done < "$RUNNER_TEMP/in/changed.txt"
+      - name: Restore production's schema into a throwaway database
+        if: needs.scope.outputs.rehearse == 'true'
+        run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db
+      - name: Install the queue in the installer's order
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
+          MIG_DIR: ${{ runner.temp }}/mig
+          INSTALLED: ${{ runner.temp }}/in/installed.txt
+          CHANGED: ${{ runner.temp }}/in/changed.txt
+          EVIDENCE: ${{ runner.temp }}/evidence
+        run: bash scripts/ci/rehearse-window-queue.sh
+      - uses: actions/upload-artifact@v4
+        if: always() && needs.scope.outputs.rehearse == 'true'
+        with:
+          name: window-rehearsal-evidence
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: ignore
+          retention-days: 7

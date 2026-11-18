@@ -48,7 +48,8 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ThrowEvent } from '../../services/ThrowableService';
 import { throwableSoundService } from '../../services/ThrowableSoundService';
-import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
+import { TableAnimationClock } from './tableAnimationClock';
+import { prefersReducedMotion } from '../../utils/animationSpeed';
 import type { ThrowableSpec } from '../../throwables/spec';
 import { THROWABLE_GRAMMAR, throwableLandingMs } from '../../throwables/spec';
 import type { ThrowableRig } from '../../throwables/rig';
@@ -115,6 +116,7 @@ export function ThrowablePlayer({
   const fromPos =
     seatPositions.get(event.fromSeat) || (toPos ? { x: toPos.x, y: toPos.y + 240 } : undefined);
 
+  const getAnimationSpeed = React.useContext(TableAnimationClock);
   const speed = useMemo(() => getAnimationSpeed(), []);
   const reduced = useMemo(() => prefersReducedMotion(), []);
   const [phase, setPhase] = useState<Phase>(() =>
@@ -270,7 +272,12 @@ export function ThrowablePlayer({
           style={{ left: anchorX, top: anchorY } as React.CSSProperties}
           data-motion="keep"
         >
-          <Payload uid={`${uid}q`} targetAvatar={targetAvatar} throwId={event.id} />
+          <Payload
+            uid={`${uid}q`}
+            targetAvatar={targetAvatar}
+            throwId={event.id}
+            particleSeed={event.particleSeed}
+          />
         </div>
       )}
     </div>

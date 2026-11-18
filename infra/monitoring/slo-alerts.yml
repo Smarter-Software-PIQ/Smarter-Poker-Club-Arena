@@ -49,14 +49,20 @@ groups:
           runbook: "docs/changelog/2026-09-11-fifteen-rules-were-watching-thirteen-metrics-that-did-not-exist.md"
 
       # ── DEALING: the platform deals hands ───────────────────────────────
-      # ~33,500 hands an hour is the floor this estate runs at. A collapse to
-      # near zero while the engine is up and tables are seated is invisible to
-      # every availability check.
+      # No completed hands despite live dealing capacity is a liveness failure.
+      # The old September estate floor (<1 hand/sec) paged on healthy smaller
+      # fleets: 2026-11-11 05:03 UTC, 48 tracked tables, 0.592982 hands/sec,
+      # worst progress age 15.316 seconds, no stalled tables. Active tables
+      # counts historical timing samples, not current capacity. Zero over the
+      # five-minute rate window, sustained for ten minutes, means no dealing.
+      # EngineFleetThroughputCollapsed / HorseFleetThroughputRelativeDrop keep
+      # their capacity/relative slow-dealing coverage; SLOTableHasStalled keeps
+      # the individual-table objective. tests/monitoring/slo-no-hands.test.yml.
       - alert: SLOHandsAreNotBeingDealt
         expr: |
-          sp:hands_dealt:rate5m < 1
-          and poker_active_tables > 0
-          unless max_over_time(poker_maintenance_break_active[6m]) == 1
+          sp:hands_dealt:rate5m == 0
+          and poker_dealable_tables > 0
+          unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
           # An owner floor park holding half the cash floor or more is a stop
           # somebody scheduled (2026-10-15: park 3d9c1ba1, share 1.0, paged
           # four of these rules). 0.5: this rule pages at half the healthy floor
@@ -71,7 +77,7 @@ groups:
           objective: dealing
         annotations:
           summary: "{{ $value }} hands/sec with tables still seated"
-          description: "Tables exist and are seated, and almost nothing is being dealt. The engine is up - this is not an availability failure, which is exactly why it needs its own objective."
+          description: "Live tables are able to deal, but no completed hands have been observed over the five-minute rate window for ten minutes. Check committed hands and table liveness; separate throughput alerts cover slow dealing."
           runbook: "docs/changelog/2026-09-11-fifteen-rules-were-watching-thirteen-metrics-that-did-not-exist.md"
 
       # A single table wedged for a quarter of an hour is a table of players

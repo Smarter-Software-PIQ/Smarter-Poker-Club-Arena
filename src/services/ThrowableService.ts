@@ -90,6 +90,7 @@ export interface Throwable {
 }
 
 export interface ThrowEvent {
+  particleSeed?: number;
   id: string;
   fromSeat: number;
   toSeat: number;
@@ -1390,6 +1391,31 @@ class ThrowableServiceClass {
       return { success: false, error: 'Could Not Send Reaction', retrySameRequest: true };
     } catch {
       return { success: false, error: 'Could Not Send Reaction', retrySameRequest: true };
+    }
+  }
+
+  /**
+   * Record who a charged throw was aimed at (Dan 2026-11-13: "record who gets
+   * hit"). One row per receipt in public.throw_targets, resolved server-side
+   * to whoever sits in the target seat, horse or human. Runs after the charge
+   * and the broadcast and never affects either: the throw already played, so
+   * a failed record is reported to the caller as false and nothing retries.
+   */
+  async recordThrowTarget(
+    requestId: string | undefined,
+    tableId: string,
+    targetSeat: number
+  ): Promise<boolean> {
+    if (!requestId || !tableId || !Number.isInteger(targetSeat)) return false;
+    try {
+      const { data, error } = await supabase.rpc('fn_record_throw_target', {
+        p_request_id: requestId,
+        p_table_id: tableId,
+        p_target_seat: targetSeat,
+      });
+      return !error && (data as { success?: unknown } | null)?.success === true;
+    } catch {
+      return false;
     }
   }
 

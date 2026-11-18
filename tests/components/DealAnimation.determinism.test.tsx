@@ -234,6 +234,31 @@ describe('a second hand on the same mounted instance', () => {
 });
 
 describe('the deal always fits between two hands', () => {
+  it('deals five rounds to every PLO5 seat within the serving two-round clock budget', () => {
+    document.documentElement.style.setProperty('--animation-speed', '3');
+    try {
+      const onComplete = vi.fn();
+      const { container } = render(
+        <DealAnimation
+          active
+          activeSeats={SIX}
+          dealerSeatIndex={1}
+          seatPositions={POS}
+          cardsPerSeat={5}
+          onComplete={onComplete}
+        />
+      );
+      expect(dealCards(container)).toHaveLength(30);
+      // Six seats at the serving engine's normal speed: 11 x 80 + 320 + 100.
+      act(() => {
+        vi.advanceTimersByTime(1300);
+      });
+      expect(onComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      document.documentElement.style.removeProperty('--animation-speed');
+    }
+  });
+
   it('a nine-handed deal completes inside the engine inter-hand gap', () => {
     const onComplete = vi.fn();
     render(

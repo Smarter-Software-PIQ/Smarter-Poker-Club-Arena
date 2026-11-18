@@ -36,6 +36,7 @@ P.add_argument('--derive-pins',action='store_true',help='author aid: print the p
 A=P.parse_args()
 R=Path(__file__).resolve().parents[2]; F=R/'scripts/ci/fixtures/rakeback-cascade'
 MIG=next((R/'supabase/migrations').glob('20261109231855_*.sql'))
+MIG_G=next((R/'supabase/migrations').glob('20261111132447_*.sql'))
 PROD={ # signature -> production md5 (2026-11-09)
  'public.fn_settle_accounting_rakeback_stage(text,uuid,timestamptz,timestamptz)':'21409a0d24523597e10b5da44c252840',
  'smarter_private.rakeback_wallet_payout_complete(uuid,bigint)':'0f5fbe00efb06f9a49dcfae37d5830cc',
@@ -46,9 +47,16 @@ PROD={ # signature -> production md5 (2026-11-09)
  'smarter_private.rakeback_payer_plan(jsonb,numeric)':'02296e698ad2377afa9dc4ee18315d68',
  'smarter_private.rakeback_certificate_payers(bigint)':'89b7297462b6cd4ba6bf145c7d5fa261',
  'smarter_private.rakeback_wallet_plan(jsonb,numeric)':'48f1c18a1e83272bad0d0b1e1371ce42',
- 'smarter_private.rakeback_certificate_wallets(bigint)':'984721591c0295a6ca5c5552ec7bfae0'}
+ 'smarter_private.rakeback_certificate_wallets(bigint)':'984721591c0295a6ca5c5552ec7bfae0',
+ # loaded only so 20261111132447 installs on exactly what it pins (round 2 is still the stand-in rc_rounds_1_2); unchanged on production 2026-11-11
+ 'public.fn_settle_accounting_commission_stage(text,uuid,timestamptz,timestamptz)':'ce1a9dd4344c7987918dcf8a82427ef5',
+ 'smarter_private.weekly_payout_finalize(uuid)':'5b83618b59f043376c87361c986adca8',
+ 'smarter_private.zero_standalone_foreign_commissions_proven(uuid,timestamptz,timestamptz)':'69099f3bac93cb29fad83cb82cb1fe4a'}
+# what production runs today (read 2026-11-11, both cascade files installed there 10:40Z): the fixture after 20261109231855 must equal it
+INSTALLED={list(PROD)[3]:'dddb67b5024a01bb4f2dadc0ba1009f2',list(PROD)[0]:'db6ba33eed8762b2534d349024e4219f',list(PROD)[1]:'c2b4cfdbc811adfae751d47fd5b298e6',list(PROD)[2]:'47519877eefe45ac6ab39f6519bfb0e8'}
 ORDER=['public.fn_union_week_start','public.fn_resolve_accounting_routing_scope','smarter_private.rakeback_payer_plan','smarter_private.rakeback_certificate_payers','smarter_private.rakeback_wallet_plan',
- 'smarter_private.rakeback_certificate_wallets','smarter_private.rakeback_wallet_payout_complete','smarter_private.split_rakeback_payout_complete','smarter_private.weekly_payout_fund_agent_shortfalls','public.fn_settle_accounting_rakeback_stage']
+ 'smarter_private.rakeback_certificate_wallets','smarter_private.rakeback_wallet_payout_complete','smarter_private.split_rakeback_payout_complete','smarter_private.weekly_payout_fund_agent_shortfalls','public.fn_settle_accounting_rakeback_stage',
+ 'public.fn_settle_accounting_commission_stage','smarter_private.weekly_payout_finalize','smarter_private.zero_standalone_foreign_commissions_proven']
 E={k:v for k,v in os.environ.items() if not k.startswith('PG')};E.update(LC_ALL='C',LANG='C',PGTZ='UTC')
 A.scratch.mkdir(parents=True,exist_ok=True)
 W=Path(tempfile.mkdtemp(prefix='cascade-funding-',dir=A.scratch));DATA=W/'data';started=False;results=[]
@@ -123,6 +131,19 @@ try:
     assert q("SELECT ("+FUND('UL')+")->'edges';").stdout.strip()=='[]','a settled week is never funded'
     assert q("SELECT md5(string_agg(l::text,'|' ORDER BY id)) FROM chip_ledger l;").stdout.strip()==legs_before,'settled legs changed'
     results.append({'case':'legacy-paid-week-validates-unchanged-and-is-never-funded','passed':True,'expected_refusal':None}); print('PASS legacy-paid-week',flush=True)
+    # ---- 20261111132447 (one transfer per edge, players' share reserved), whole, on what production runs today ----
+    for sig,md in INSTALLED.items():
+        assert q(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure));").stdout.strip()==md,('after 20261109231855 the fixture must equal production today',sig)
+    mig_g=MIG_G.read_text(); assert 'PENDING_' not in mig_g
+    q('SET check_function_bodies=off;\n'+mig_g)
+    gproof=[l.split(': ',1)[1] for l in mig_g.splitlines() if l.startswith('-- @live-proof: ')]
+    assert len(gproof)==6 and all(q('SELECT '+x+';').stdout.strip()=='t' for x in gproof),'a live proof of 20261111132447 is false after install'
+    gre=q('SET check_function_bodies=off;\n'+mig_g,check=False)
+    assert gre.returncode and 'rakeback_gross_fund_preimage_changed' in gre.stderr,'a second install must refuse'
+    assert q(LEGACY+';').stdout.strip()==legacy_before,'a settled payout validates differently after 20261111132447'
+    assert q("SELECT ("+R3('UL')+")->>'duplicate';").stdout.strip()=='true' and q("SELECT ("+FUND('UL')+")->'edges';").stdout.strip()=='[]'
+    assert q("SELECT md5(string_agg(l::text,'|' ORDER BY id)) FROM chip_ledger l;").stdout.strip()==legs_before and q("SELECT count(*) FROM smarter_private.weekly_payout_wallet_reserves;").stdout.strip()=='0'
+    results.append({'case':'gross-transfer-file-installs-whole-and-the-settled-week-is-unchanged','passed':True,'expected_refusal':None}); print('PASS gross-transfer install, settled week unchanged',flush=True)
 
     PAID_ALL=ok("(SELECT bool_and(status='paid') FROM rakeback_periods WHERE club_id<>rc_u('E'))","every period paid")
     NOMARK=ok("NOT EXISTS(SELECT 1 FROM chip_ledger WHERE metadata ? 'cascade_route')","no owner-wallet marker")
@@ -233,6 +254,7 @@ try:
       ok(f"({FUND()})->'edges'='[]'::jsonb","after round 3 nothing is pending, nothing is funded")+CONSERVED)
     UNDO_CHILD=("DELETE FROM settlement_invoices WHERE source_ledger_id IN(SELECT id FROM chip_ledger WHERE idempotency_key=smarter_private.rakeback_cascade_key(rc_u('C'),'2026-10-05',rc_u('S'),rc_u('A')));"
       "DELETE FROM chip_ledger WHERE idempotency_key=smarter_private.rakeback_cascade_key(rc_u('C'),'2026-10-05',rc_u('S'),rc_u('A'));"
+      "DELETE FROM smarter_private.weekly_payout_wallet_reserves;"  # the real step reserves after its last leg, in the same transaction: a half-committed step has none
       "UPDATE agents SET agent_wallet_balance=agent_wallet_balance-30 WHERE user_id=rc_u('A');UPDATE agents SET agent_wallet_balance=agent_wallet_balance+30 WHERE user_id=rc_u('S');")
     case('partial-failure-then-resume-completes-without-duplication',
       chain('C',[('S',0.10),('A',0.20)],pct=0.50)+PREP+f"SELECT {FUND()};"+UNDO_CHILD+ok("rc_wallet('C','S')=38 AND rc_wallet('C','A')=20","state as if only the bank leg had committed")+
@@ -247,6 +269,36 @@ try:
     case('frozen-agent-as-payer-is-funded-and-pays-like-round-3-today',
       chain('C',[('A',0.20)],pct=0.70)+PREP+"UPDATE agents SET status='frozen' WHERE user_id=rc_u('A');"+f"SELECT {FUND()};"+ok("rc_leg('C',NULL,'A')=50","frozen payer funded: round 3 pays from the wallet row whatever its status")+
       f"SELECT {R3()};"+ok("rc_chips('C','P')=70 AND rc_wallet('C','A')=0 AND (SELECT status='frozen' FROM agents WHERE user_id=rc_u('A'))","paid, status untouched")+CONSERVED)
+    RES=lambda who,amt:ok(f"(SELECT sum(remaining) FROM smarter_private.weekly_payout_wallet_reserves WHERE user_id=rc_u('{who}'))={amt}",f"{who} reserves {amt}")
+    RELEASED=ok("NOT EXISTS(SELECT 1 FROM smarter_private.weekly_payout_wallet_reserves WHERE remaining>0 OR released_at IS NULL) AND EXISTS(SELECT 1 FROM smarter_private.weekly_payout_wallet_reserves)","round 3 released every reserve")
+    REFUSED='agent_wallet_weekly_rakeback_reserved: agent '
+    case('reserve-is-owed-not-only-pass-through-and-round-3-releases-it',
+      chain('C',[('S',0.10),('A',0.20)],pct=0.50)+PREP+f"SELECT {FUND()};"+RES('A',50)+ok("NOT EXISTS(SELECT 1 FROM smarter_private.weekly_payout_wallet_reserves WHERE user_id=rc_u('S'))","S pays no player, so reserves nothing")+
+      ok("(SELECT set_by='funding' AND reserved=50 FROM smarter_private.weekly_payout_wallet_reserves)","set by the funding step for a scope round 2 did not carry")+f"SELECT {R3()};"+RELEASED+ok("rc_chips('C','P')=50 AND rc_wallet('C','A')=0","paid")+CONSERVED)
+    case('a-debit-of-the-reserved-part-is-refused-with-the-specific-error',
+      chain('C',[('A',0.20)],pct=0.70)+PREP+f"SELECT {FUND()};"+RES('A',70)+"UPDATE agents SET agent_wallet_balance=agent_wallet_balance-0.01 WHERE user_id=rc_u('A');",REFUSED+q("SELECT md5('rc:A')::uuid;").stdout.strip())
+    case('own-commission-covering-the-player-is-reserved-too-and-the-surplus-still-moves',
+      chain('C',[('A',0.30)],pct=0.10)+PREP+f"SELECT {FUND()};"+ok("rc_wallet('C','A')=30","A holds its 30 commission")+RES('A',10)+
+      "UPDATE agents SET agent_wallet_balance=agent_wallet_balance-20 WHERE user_id=rc_u('A');UPDATE clubs SET chip_treasury=chip_treasury+20 WHERE id=rc_u('C');"+ok("rc_wallet('C','A')=10","the unreserved 20 left the wallet")+
+      f"SELECT {R3()};"+RELEASED+ok("rc_chips('C','P')=10 AND rc_wallet('C','A')=0","the reserved 10 paid the player"))
+    case('own-commission-reserve-refuses-the-reserved-part',
+      chain('C',[('A',0.30)],pct=0.10)+PREP+f"SELECT {FUND()};"+"UPDATE agents SET agent_wallet_balance=agent_wallet_balance-20.01 WHERE user_id=rc_u('A');",'at most 20.00 can leave this wallet')
+    case('a-frozen-payer-keeps-its-players-share-reserved',
+      chain('C',[('A',0.20)],pct=0.70)+PREP+f"SELECT {FUND()};"+"UPDATE agents SET status='frozen' WHERE user_id=rc_u('A');UPDATE agents SET agent_wallet_balance=0 WHERE user_id=rc_u('A');",REFUSED)
+    case('deleting-a-reserving-wallet-is-refused',
+      chain('C',[('A',0.20)],pct=0.70)+PREP+f"SELECT {FUND()};"+"DELETE FROM agents WHERE user_id=rc_u('A');",REFUSED)
+    CARRY=("UPDATE chip_ledger SET amount=amount+30,metadata=COALESCE(metadata,'{}'::jsonb)||jsonb_build_object('commission_amount',amount,'rakeback_funding',30,'rakeback_funding_key',smarter_private.rakeback_cascade_key(rc_u('C'),'2026-10-05',NULL,rc_u('S')),'rakeback_funding_version','rakeback-funding-v1') "
+      "WHERE category='commission' AND to_entity_id=rc_u('S') AND club_id=rc_u('C');UPDATE clubs SET chip_treasury=chip_treasury-30 WHERE id=rc_u('C');UPDATE agents SET agent_wallet_balance=agent_wallet_balance+30 WHERE user_id=rc_u('S');")
+    case('an-edge-round-2-carried-in-its-commission-leg-is-not-funded-again',
+      chain('C',[('S',0.10),('A',0.20)],pct=0.50)+PREP+CARRY+f"CREATE TEMP TABLE rc_f AS SELECT {FUND()} j;"+
+      ok("(SELECT string_agg(e->>'state',',' ORDER BY (e->>'tier')::int) FROM rc_f,jsonb_array_elements(j->'edges')e)='already_funded,to_send'","bank -> S was carried by the round 2 leg; only S -> A is sent")+
+      ok("rc_leg('C',NULL,'S') IS NULL AND rc_leg('C','S','A')=30","no second leg on the carried edge")+
+      ok("(SELECT (c->>'commission_from_bank')::numeric+(c->>'funding_from_bank')::numeric<=90 AND (c->>'funding_from_bank')::numeric=30 FROM rc_f,jsonb_array_elements(j->'clubs')c)","affordability counts the carried 30 once, as funding")+
+      f"SELECT {R3()};"+ok("rc_chips('C','P')=50 AND rc_wallet('C','A')=0","paid")+RELEASED+CONSERVED)
+    case('a-carried-split-smaller-than-the-plan-is-refused',
+      chain('C',[('S',0.10),('A',0.20)],pct=0.50)+PREP+CARRY.replace("'rakeback_funding',30","'rakeback_funding',29").replace("amount+30","amount+29")+f"SELECT {FUND()};",'rakeback_cascade_funded_amount_changed')
+    case('a-week-round-2-carried-has-nothing-left-to-send',
+      chain('C',[('S',0.10),('A',0.20)],pct=0.50)+PREP+"INSERT INTO accounting_routed_settlement_runs(union_id,period_start,period_end,round_no,result) VALUES(rc_u('U'),'2026-10-05 07:00+00','2026-10-12 07:00+00',2,'{\"rakeback_cascade\":{\"version\":\"rakeback-funding-v1\"}}');"+f"SELECT {FUND()};",'rakeback_cascade_round2_left_edge_unfunded')
     case('horse-and-human-are-not-told-apart',
       "SELECT "+ok("NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE (p.proname LIKE 'rakeback_cascade%' OR p.proname='weekly_payout_fund_agent_shortfalls') AND pg_get_functiondef(p.oid) ILIKE '%is_horse%')","no is_horse in the cascade")[7:])
     out={'status':'passed','migration':MIG.name,'cases':len(results),'results':results,'tier_reconciliation_five_tiers':json.loads(recon)}

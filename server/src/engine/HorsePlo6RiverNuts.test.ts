@@ -285,7 +285,10 @@ describe('V59 PLO6 unpaired-board river discipline', () => {
     // The V15 river gate (2026-11-07, v15RiverNoNearLock) turns the river
     // raise of a flush with a live higher flush rank on an unpaired board
     // (this jack-high flush) into a call ahead of V59, so V59's own effect
-    // is measured with that rule held off in both arms.
+    // is measured with that rule held off in both arms. So is the 2026-11-14
+    // rule that only the nuts raise an Omaha river bet (omahaRiverNutRaiseOnly),
+    // which makes the same call ahead of V59 too.
+    const held = { v15RiverNoNearLock: false, omahaRiverNutRaiseOnly: false };
     let raisedOff = 0;
     for (const seed of SEEDS) {
       const off = facingRiverBet(
@@ -293,10 +296,10 @@ describe('V59 PLO6 unpaired-board river discipline', () => {
         HEARTS,
         'plo6',
         seed,
-        { v59Plo6RiverUnpaired: false, v15RiverNoNearLock: false },
+        { v59Plo6RiverUnpaired: false, ...held },
         40
       );
-      const on = facingRiverBet(jackFlush, HEARTS, 'plo6', seed, { v15RiverNoNearLock: false }, 40);
+      const on = facingRiverBet(jackFlush, HEARTS, 'plo6', seed, held, 40);
       if (off.action === 'raise' || off.action === 'all_in') {
         raisedOff++;
         expect(on.action).toBe('call');

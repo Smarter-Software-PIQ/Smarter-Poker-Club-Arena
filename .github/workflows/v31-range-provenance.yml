@@ -1,0 +1,42 @@
+name: V31 range provenance is declared and the data must agree
+
+# Native proof of migration 20261112185251 (on top of 20261110213931, the
+# round registration it extends) against a throwaway PostgreSQL 17 cluster
+# (never production): scripts/ci/test-v31-range-provenance.py, with its
+# mutation checks. No timer (CLAUDE.md 10.85): pull_request only, scoped to
+# the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261112185251_v31_a_registered_cell_declares_its_range_provenance_and_the_.sql
+      - supabase/migrations/20261110213931_v31_a_round_is_registered_and_its_composition_is_enforced.sql
+      - scripts/ci/test-v31-range-provenance.py
+      - scripts/ci/test-v31-round-registration.py
+      - scripts/ci/fixtures/v31-range-provenance/**
+      - scripts/ci/fixtures/v31-round-registration/**
+      - scripts/ci/fixtures/v31-evaluation-contract-v3/00-schema.sql
+      - .github/workflows/v31-range-provenance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v31-range-provenance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v31-range-provenance:
+    name: V31 seal refuses a range construction the solved data does not show
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: Native proof and mutation checks
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          python3 scripts/ci/test-v31-range-provenance.py --mutations

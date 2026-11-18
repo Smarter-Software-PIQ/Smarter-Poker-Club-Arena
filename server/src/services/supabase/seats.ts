@@ -78,7 +78,7 @@ export interface SeatCashoutReceipt {
 }
 
 /** A receipt must prove the exact occupancy this request was authorized for. */
-function confirmedCashout(data: unknown, scope: CashoutScope): SeatCashoutReceipt {
+export function confirmedCashout(data: unknown, scope: CashoutScope): SeatCashoutReceipt {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error('Cash-out receipt missing; departure unconfirmed');
   }
@@ -108,14 +108,19 @@ export async function getSeatCashoutReceipt(
   userId: string,
   tableId: string,
   seatNumber: number,
-  occupancyId: string
+  occupancyId: string,
+  poolSessionId?: string
 ): Promise<SeatCashoutReceipt | null> {
-  const { data, error } = await supabase.rpc('fn_get_seat_cashout_receipt', {
-    p_user_id: userId,
-    p_table_id: tableId,
-    p_seat_number: seatNumber,
-    p_occupancy_id: occupancyId,
-  });
+  const { data, error } = await supabase.rpc(
+    poolSessionId ? 'fn_get_lightning_room_cashout_receipt' : 'fn_get_seat_cashout_receipt',
+    {
+      ...(poolSessionId ? { p_pool_session_id: poolSessionId } : {}),
+      p_user_id: userId,
+      p_table_id: tableId,
+      p_seat_number: seatNumber,
+      p_occupancy_id: occupancyId,
+    }
+  );
   if (error) throw new Error(String(error.message || 'Cashout outcome lookup failed'));
   return data === null
     ? null
@@ -147,6 +152,48 @@ export interface AdminDepartureAuthority {
   actorId: string;
   clubId: string;
   reason: string;
+}
+
+export async function legacyLightningLeaveRequiresReload(
+  userId: string,
+  tableId: string,
+  occupancyId: string
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('fn_lightning_legacy_leave_requires_reload', {
+    p_user_id: userId,
+    p_table_id: tableId,
+    p_occupancy_id: occupancyId,
+  });
+  if (error || typeof data !== 'boolean')
+    throw new Error(error?.message ?? 'Could not verify original seat');
+  return data;
+}
+
+/** Commit a human's Lightning-room decision before dispatching the anchor's leave. */
+export async function requestLightningRoomDeparture(
+  poolSessionId: string,
+  userId: string,
+  tableId: string,
+  seatNumber: number,
+  occupancyId: string,
+  confirmed: boolean
+): Promise<{ ok: boolean; reason?: string; blind_off?: boolean; hands_remaining?: number }> {
+  const { data, error } = await supabase.rpc('fn_lightning_request_room_departure', {
+    p_pool_session_id: poolSessionId,
+    p_user_id: userId,
+    p_table_id: tableId,
+    p_seat_number: seatNumber,
+    p_occupancy_id: occupancyId,
+    p_confirm_hand_count: confirmed,
+  });
+  if (
+    error ||
+    !data ||
+    typeof data.ok !== 'boolean' ||
+    (data.ok ? typeof data.blind_off !== 'boolean' : typeof data.reason !== 'string')
+  )
+    throw new Error(error?.message ?? 'Lightning departure unconfirmed');
+  return data;
 }
 
 export async function requestSeatDeparture(
@@ -471,7 +518,15 @@ export async function processLeavePending(
    * in a live Lightning hand, so the caller can retry THOSE seats on its next
    * pass without re-sweeping seats the stay clock is holding.
    */
-  onLightningDeferred?: (userId: string, occupancyId: string) => void
+  onLightningDeferred?: (userId: string, occupancyId: string) => void,
+  /**
+   * A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). Settlement runs
+   * while the hand is still being presented; a seat this answers true for is
+   * left exactly as it is (still leave_pending, nothing paid, not reported
+   * departed) and is cashed out by the next-hand sweep once the pot has
+   * landed. Absent everywhere except settlement.
+   */
+  holdSeat?: (userId: string, occupancyId: string) => boolean
 ): Promise<Array<{ userId: string; occupancyId: string }>> {
   /* Deliberately does NOT select `stack`. This query only ENUMERATES which
      seats asked to leave; the amount comes from the locked read inside
@@ -519,6 +574,7 @@ export async function processLeavePending(
 
   const cashedOut: Array<{ userId: string; occupancyId: string }> = [];
   for (const seat of pendingSeats) {
+    if (holdSeat?.(seat.user_id, seat.occupancy_id)) continue;
     const out: { lockedMs: number | null; failed: boolean; lightning: boolean } = {
       lockedMs: null,
       failed: false,

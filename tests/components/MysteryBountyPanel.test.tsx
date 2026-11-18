@@ -160,6 +160,47 @@ describe('MysteryBountyPanel', () => {
     ).toBeInTheDocument();
   });
 
+  /* Dan 2026-11-13: "ONCE THE PRIZE POOL IS 'FINALIZED' (AFTER THE ADD ON
+     PERIOD) ALL MYSTERY BOUNTY PRIZES SHOULD BE SHOWN... DO NOT WAIT UNTIL
+     PLAYERS ARE ITM TO REVEAL MYSTERY BOUNTY PRIZES." */
+  it('lists every sealed prize after entry closes, before the money', () => {
+    renderPanel(
+      makeData({
+        inventory: parseInventory({
+          ...INVENTORY,
+          stage: 'pending',
+          activation: 'at_the_money',
+          activated_players: null,
+          sealed_at: '2026-11-14T05:42:00Z',
+          tiers: INVENTORY.tiers.map((t) => ({ ...t, awarded: 0, remaining: t.original })),
+        }),
+        awards: [],
+        awardsTotal: 0,
+        leaderboard: [],
+      })
+    );
+    expect(screen.getByTestId('mystery-prizes-set')).toHaveTextContent(
+      /^Prizes Set At Entry Close, .+\. They Open When The Mystery Phase Starts$/
+    );
+    expect(screen.queryByText('Not Drawn Yet')).not.toBeInTheDocument();
+    expect(screen.getByText('36 Of 36')).toBeInTheDocument();
+    const headline = screen.getByText('Top Mystery Bounty').parentElement!;
+    expect(headline).toHaveTextContent('5,000');
+    expect(headline).toHaveTextContent('36 Mystery Bounties Drawn From A 13,000 Chip Pool');
+  });
+
+  it('does not claim the prizes are set before entry closes', () => {
+    renderPanel(
+      makeData({
+        inventory: parseInventory({ ...INVENTORY, stage: 'pending', tiers: [] }),
+        awards: [],
+        leaderboard: [],
+      })
+    );
+    expect(screen.queryByTestId('mystery-prizes-set')).not.toBeInTheDocument();
+    expect(screen.getByText('Not Drawn Yet')).toBeInTheDocument();
+  });
+
   // ── Sections 31, 32, 33, 47: the ladder ──────────────────────────────────
 
   it('shows the whole ladder with the original count per tier (sections 31, 32)', () => {

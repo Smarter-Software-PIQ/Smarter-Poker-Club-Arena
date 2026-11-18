@@ -25,8 +25,13 @@
  * shove for two of them. Hi-lo and multi-board pots are out of scope: half a
  * pot or one board of three is a different question.
  */
-import type { Card, SeatPlayer } from '../types.js';
-import { scoreOmahaHiPartial } from './HorseEval.js';
+import type { ActionRecord, Card, SeatPlayer } from '../types.js';
+import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+} from './HorseOmahaStrategyGame.js';
 
 export const PLO_PAIRED_BOARD_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
 const FULL_HOUSE = 7;
@@ -43,6 +48,7 @@ export interface PairedBoardFoldInput {
   currentBet: number;
   toCall?: number;
   pot: number;
+  v86MultiStreetUnblocked?: boolean;
 }
 
 export function boardIsPaired(board: Card[]): boolean {
@@ -84,7 +90,197 @@ export function ploPairedBoardMustFold(i: PairedBoardFoldInput): boolean {
       p.is_all_in &&
       (p.bet || 0) > (i.hero.bet || 0)
   );
+  const unblocked86 = i.v86MultiStreetUnblocked !== false;
+  // Short-stack all-in exception: a tiny fractional jam (`< 12%` of hero's stack
+  // needing `< 20%` equity) is a pure pot-odds call, not a stack commitment.
+  if (unblocked86 && bettorAllIn && toCall < stack * 0.12 && requiredEquity < 0.2) return false;
+  // Non-all-in flop/turn trips + live Nut Flush Draw redraw (`category === 4`):
+  // hero has both full-house/quads redraws AND nut-flush redraws when not facing a shove.
+  if (unblocked86 && !bettorAllIn && i.board.length < 5 && category === 4 && toCall < stack * 0.4) {
+    try {
+      if (omahaDrawQuality(hole, i.board, false).nutFlushDraw) return false;
+    } catch {
+      // fall through to standard commitment check
+    }
+  }
   return bettorAllIn || toCall >= stack * COMMIT_STACK_SHARE || toCall >= stack - 0.005;
+}
+
+/**
+ * THE PAIRED-BOARD FOLD RESPECTS THE PRICE (lane owner 2026-11-15, hand
+ * 59521326; option omahaPairedBoardFoldRespectsPrice, default OFF).
+ *
+ * In that hand a Horse that had put 700 of 1,224 in with the nut straight
+ * faced an all-in on a paired river for its last 524 into 1,939, a price of
+ * 0.213. Its own range model read 0.50 to 0.58 and the reference decision
+ * was a call; the fold above overrode it.
+ *
+ * With the option on, in PLO4/PLO5 cash only, the fold above stands aside,
+ * and the reference decision stands (it may still be a fold), when BOTH hold:
+ *  (a) the call price, the call over the pot after the call (the part of an
+ *      all-in the Horse cannot match is not counted), is at most 0.25; and
+ *  (b) the Horse holds a straight or a flush (two pair, trips and one pair do
+ *      not qualify), OR the call is for the rest of the effective stack
+ *      (it leaves the Horse all in, or the bettor is all in) of which the
+ *      Horse has already put in at least 60% this hand.
+ * Everything else folds exactly as before.
+ */
+export const PAIRED_FOLD_RESPECTED_MAX_PRICE = 0.25;
+export const PAIRED_FOLD_RESPECTED_INVESTED_SHARE = 0.6;
+export const PAIRED_FOLD_RESPECTED_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+const STRAIGHT = 5;
+
+export interface PairedBoardFoldPriceInput {
+  gameVariant: string | undefined;
+  board: Card[];
+  hero: Pick<SeatPlayer, 'cards' | 'stack' | 'bet' | 'user_id' | 'totalInvested'>;
+  players: Array<Pick<SeatPlayer, 'user_id' | 'is_folded' | 'is_all_in' | 'bet'>>;
+  currentBet: number;
+  toCall?: number;
+  pot: number;
+  /**
+   * omahaStrategyInTournaments: the engine's tournament survival premium
+   * (icmRisk); the price exception then asks price + icmRisk x sqrt(stack
+   * share of the call) to be within its bar. 0 or absent: cash, unchanged.
+   */
+  icmRisk?: number;
+  stage?: string;
+  heroSeat?: number;
+  actionHistory?: readonly ActionRecord[];
+}
+
+/**
+ * Hand #59730132: true when a defender who only called earlier postflop
+ * street(s) donk-leads >= 40% of the pot on a paired river directly into the
+ * turn aggressor before the aggressor has checked. Such a lead is polarized to
+ * full houses / quads rather than thin flush/straight value, so the 0.25 price
+ * exception does not bypass ploPairedBoardMustFold.
+ */
+function isPairedRiverDonkIntoTurnAggressor(i: PairedBoardFoldPriceInput): boolean {
+  if (i.stage !== 'river' || !Array.isArray(i.actionHistory) || typeof i.heroSeat !== 'number')
+    return false;
+  if (i.board.length !== 5 || new Set(i.board.map((c) => c.rank)).size >= 5) return false;
+  const heroBet = i.hero.bet || 0;
+  const owed = Number.isFinite(i.toCall)
+    ? Math.max(0, i.toCall as number)
+    : Math.max(0, (i.currentBet || 0) - heroBet);
+  const potBefore = Math.max(0, (i.pot || 0) - (i.currentBet || 0));
+  if (!(potBefore > 0) || owed / potBefore < 0.4 - 1e-9) return false;
+
+  let riverBettorSeat: number | null = null;
+  let riverWagers = 0;
+  let heroCheckedRiver = false;
+  for (const a of i.actionHistory) {
+    if (String(a.stage) !== 'river') continue;
+    if (a.seat === i.heroSeat && a.action === 'check') heroCheckedRiver = true;
+    if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') {
+      riverWagers++;
+      if (riverBettorSeat === null) riverBettorSeat = a.seat;
+    }
+  }
+  if (
+    heroCheckedRiver ||
+    riverWagers !== 1 ||
+    riverBettorSeat === null ||
+    riverBettorSeat === i.heroSeat
+  )
+    return false;
+
+  const streetLine = (st: string, seat: number): { aggr: boolean; called: boolean } => {
+    let level = 0;
+    let aggr = false;
+    let called = false;
+    const totals = new Map<number, number>();
+    for (const a of i.actionHistory!) {
+      if (String(a.stage) !== st) continue;
+      const prev = totals.get(a.seat) ?? 0;
+      const amt = Number.isFinite(a.amount) ? Math.max(0, a.amount) : 0;
+      if (a.action === 'call') {
+        totals.set(a.seat, prev + amt);
+        if (a.seat === seat && amt > 0) called = true;
+      } else if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') {
+        const now = Math.max(prev, amt);
+        totals.set(a.seat, now);
+        if (now > level + 0.005) {
+          level = now;
+          if (a.seat === seat) aggr = true;
+        } else if (a.seat === seat && now > prev) called = true;
+      }
+    }
+    return { aggr, called };
+  };
+
+  if (!streetLine('turn', i.heroSeat).aggr) return false;
+  const flopB = streetLine('flop', riverBettorSeat);
+  const turnB = streetLine('turn', riverBettorSeat);
+  if (flopB.aggr || turnB.aggr) return false;
+  return flopB.called || turnB.called;
+}
+
+/** The call price the exception reads: the call over the pot after it, uncalled excess removed. */
+export function ploPairedBoardCallPrice(i: PairedBoardFoldPriceInput): number | null {
+  const stack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
+  const toCall = Number.isFinite(i.toCall)
+    ? Math.max(0, i.toCall as number)
+    : Math.max(0, (i.currentBet || 0) - (i.hero.bet || 0));
+  const call = Math.min(toCall, stack);
+  if (!(call > 0.005)) return null;
+  const pot = Number.isFinite(i.pot) ? Math.max(0, i.pot) : 0;
+  const livePot = Math.max(0, pot - (toCall - call));
+  return call / (livePot + call);
+}
+
+/** True when the paired-board fold stands aside for the price (the caller checks the fold itself, cash and the option). */
+export function ploPairedBoardFoldRespectsPrice(i: PairedBoardFoldPriceInput): boolean {
+  try {
+    if (!omahaStrategyGameInScope(PAIRED_FOLD_RESPECTED_VARIANTS, i)) return false;
+    const price0 = ploPairedBoardCallPrice(i);
+    if (price0 === null) return false;
+    const risk =
+      Number.isFinite(i.icmRisk) && (i.icmRisk as number) > 0 ? (i.icmRisk as number) : 0;
+    const heroStack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
+    const owed = Number.isFinite(i.toCall)
+      ? Math.max(0, i.toCall as number)
+      : Math.max(0, (i.currentBet || 0) - (i.hero.bet || 0));
+    const callChips = Math.min(owed, heroStack);
+    const price =
+      price0 +
+      (risk > 0 && heroStack > 0 ? risk * Math.sqrt(Math.min(1, callChips / heroStack)) : 0);
+    if (price > omahaStrategyConstant('pairedFoldRespectedMaxPrice', i) + 1e-9) return false;
+    const hole = i.hero.cards;
+    if (!Array.isArray(hole) || hole.length < 4) return false;
+    if (isPairedRiverDonkIntoTurnAggressor(i)) return false;
+    const category = Math.floor(scoreOmahaHiPartial(hole, i.board) / 0x100000);
+    if (category >= STRAIGHT) return true;
+    // PLO6 (reached only with omahaStrategyInPlo6 on; PLO6 lane SPEC-A 3.15,
+    // adapt): arm (a) only. The committed-stack arm below would call off a
+    // stack on a paired board with two pair or trips, the call the owner's
+    // PLO6 ruling names; in six-card games it needs a straight or better
+    // too, which is arm (a).
+    if (omahaStrategyHoleCount(i) === 6) return false;
+    const stack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
+    const toCall = Number.isFinite(i.toCall)
+      ? Math.max(0, i.toCall as number)
+      : Math.max(0, (i.currentBet || 0) - (i.hero.bet || 0));
+    const call = Math.min(toCall, stack);
+    const bettorAllIn = i.players.some(
+      (p) =>
+        p.user_id !== i.hero.user_id &&
+        !p.is_folded &&
+        p.is_all_in &&
+        (p.bet || 0) > (i.hero.bet || 0)
+    );
+    if (!(call >= stack - 0.005 || bettorAllIn)) return false;
+    const invested = Number.isFinite(i.hero.totalInvested)
+      ? Math.max(0, i.hero.totalInvested as number)
+      : 0;
+    return (
+      invested / (invested + call) >=
+      omahaStrategyConstant('pairedFoldRespectedInvestedShare', i) - 1e-9
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

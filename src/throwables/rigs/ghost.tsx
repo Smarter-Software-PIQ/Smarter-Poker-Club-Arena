@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { AvatarCopy } from '../AvatarCopy';
 import { preloadThrowableCues } from '../cues';
@@ -25,8 +26,9 @@ export const spec: ThrowableSpec = {
   ],
   // A bespoke ghost voice remains part of the sound acceptance work.
   audio: [
-    { at: 800, sample: 'whoosh_low', gain: 0.5 },
-    { at: 1600, sample: 'whoosh_low', gain: 0.4 },
+    { at: 267, sample: 'whoosh_low', gain: 0.22 },
+    { at: 800, sample: 'ghost_wail', gain: 0.84 },
+    { at: 1900, sample: 'sigh_soft', gain: 0.38 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -65,23 +67,31 @@ function Payload({ targetAvatar }: RigProps) {
       </g>
       <g className="thr-ghost__pass">
         <g className="thr-ghost__right">
-          <AtlasSprite
-            src="ghost"
-            rect={[627, 0, 627, 627]}
-            x={-60}
-            y={-65}
-            width={120}
-            height={130}
+          <PerformancePose
+            src="ghost-acting"
+            row={0}
+            rows={2}
+            x={-60.0}
+            y={-60.0}
+            width={120.0}
+            height={120.0}
+            duration={780}
+            delay={230}
+            repeats={2}
           />
         </g>
         <g className="thr-ghost__left">
-          <AtlasSprite
-            src="ghost"
-            rect={[0, 627, 627, 627]}
-            x={-60}
-            y={-65}
-            width={120}
-            height={130}
+          <PerformancePose
+            src="ghost-acting"
+            row={1}
+            rows={2}
+            x={-60.0}
+            y={-60.0}
+            width={120.0}
+            height={120.0}
+            duration={700}
+            delay={1130}
+            repeats={2}
           />
         </g>
       </g>

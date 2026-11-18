@@ -228,6 +228,10 @@ describe('the applier uses that rule and waits out a refusal that releases', () 
     const queue = Number(/deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \)\)/.exec(run)?.[1]);
     expect(queue).toBeGreaterThanOrEqual(12 * 60);
     expect(run).toContain(`still active after ${queue}s`);
-    expect(job['timeout-minutes'] * 60).toBeGreaterThanOrEqual(queue + 12 * 60 + 5 * 60);
+    expect(job['timeout-minutes']).toBe(
+      "${{ (inputs.migration || github.event.client_payload.migration) == '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql' && 75 || 35 }}"
+    );
+    expect(35 * 60).toBeGreaterThanOrEqual(queue + 12 * 60 + 5 * 60);
+    expect(75 * 60).toBeGreaterThanOrEqual(queue + 12 * 60 + 42 * 60 + 5 * 60);
   });
 });

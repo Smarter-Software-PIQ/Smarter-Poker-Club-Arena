@@ -7,6 +7,7 @@ import { isDeadSessionRefusal } from '../../src/lib/deadSessionRefusal';
 import {
   createCashBuyInJournal,
   executeCashBuyIn,
+  isCashBuyInStorageFailure,
   sameCashBuyInIntent,
 } from '../../src/services/CashBuyInRecovery';
 
@@ -72,6 +73,7 @@ function fixture() {
     },
     retryAccountBalance: vi.fn(),
     requestEngineSnapshot: vi.fn(),
+    sendSeatArrival: vi.fn().mockResolvedValue(true),
     pendingSeatStackRef: ref(0),
     heroRowStack: 528.7,
     setHeroRowStack: (stack: number | null) => {
@@ -97,6 +99,9 @@ function fixture() {
     cashBuyInRefusalText,
     cashBuyInSeatConflictText,
     isDeadSessionRefusal,
+    isCashBuyInStorageFailure,
+    clearLightningEntryIntent: vi.fn(),
+    cashoutMinBuyIn: 0,
     askToSignInAgain: vi.fn(),
     applyBalanceDelta: vi.fn(),
     totalBuyInRef: ref(0),
@@ -141,6 +146,8 @@ describe('cash buy-in callback recovery', () => {
     await f.handler(400, false);
     expect(f.d.heroRowStack).toBe(null);
     expect(f.d.pendingSeatStackRef.current).toBe(400);
+    // Dan 2026-11-17: every viewer's felt is told the chair is committed now.
+    expect(f.d.sendSeatArrival).toHaveBeenCalledWith(f.d.tableId, 'seated');
     expect(f.d.setLightningAnchorFunding).toHaveBeenCalledWith({
       tableId: f.d.tableId,
       userId: f.d.userId,
@@ -182,6 +189,24 @@ describe('cash buy-in callback recovery', () => {
     expect(f.d.supabase.rpc).not.toHaveBeenCalled();
     await f.handler(100, false);
     expect(f.d.supabase.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  /* WHYTEGOLD502, 2026-11-14: fifteen refusals in one evening, every one of
+     them his own phone failing to save the request, every one worded as a
+     purchase in doubt. */
+  it('says the device could not save the request, and that nothing was sent', async () => {
+    const f = fixture();
+    f.d.cashBuyInJournal = {
+      reserve: vi.fn().mockRejectedValue(new Error('The Buy-In Could Not Be Safely Saved In Time')),
+    };
+    // An older unresolved request does not turn a save failure into "unable to confirm".
+    f.d.cashBuyInPendingRef.current = { payload: {} };
+    expect(await f.handler(100, false)).toBe(false);
+    expect(f.d.supabase.rpc).not.toHaveBeenCalled();
+    expect(f.d.toast.error).toHaveBeenCalledWith(
+      'This Device Could Not Save Your Buy-In Request. Nothing Was Sent. Please Try Again.'
+    );
+    expect(f.d.buyInProcessingRef.current).toBe(false);
   });
 
   it('keeps the confirmed seat when the engine notification throws', async () => {
@@ -252,6 +277,7 @@ describe('cash buy-in callback recovery', () => {
     expect(f.d.setSelectedSeat).not.toHaveBeenCalledWith(null);
     expect(f.state().heroSeat).toBe(0);
     expect(f.d.applyBalanceDelta).not.toHaveBeenCalled();
+    expect(f.d.sendSeatArrival).not.toHaveBeenCalled();
     expect(f.d.buyInIdempotencyKeyRef.current).toBeNull();
     expect(f.d.buyInProcessingRef.current).toBe(false);
     expect(f.d.toast.error).toHaveBeenCalled();

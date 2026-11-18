@@ -1,0 +1,11 @@
+{
+  "_owner": "agent/claude/union-invoice-views-show-the-week-and-who-pays. Migration 20261115011424_union_invoice_views_show_the_week_and_who_pays adds the private Messenger body builder for union square-ups and credit notes and its exact-figure and Chicago-week helpers; ca_union_statement_board, fn_deliver_accounting_invoice and fn_union_issue_weekly_invoices are patched in place.",
+  "tables": [],
+  "functions": [
+    "smarter_private.union_statement_figure",
+    "smarter_private.union_statement_amount",
+    "smarter_private.union_statement_instant",
+    "smarter_private.union_statement_week",
+    "smarter_private.union_weekly_invoice_body"
+  ]
+}

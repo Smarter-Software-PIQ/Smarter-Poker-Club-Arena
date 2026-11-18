@@ -56,6 +56,10 @@ vi.mock('../../src/utils/clubIdResolver', () => ({
 vi.mock('../../src/services/PushNotificationService', () => ({
   pushNotificationService: { sendToUser: vi.fn() },
 }));
+vi.mock('../../src/services/PromoPlayThroughService', () => ({
+  readMyPromoPlayThrough: vi.fn(),
+}));
+import { readMyPromoPlayThrough } from '../../src/services/PromoPlayThroughService';
 import {
   cashoutService,
   captureCashoutAccountGuard,
@@ -726,13 +730,24 @@ describe('existing reads and separately scoped wallet paths', () => {
   it('reads the scoped queue and maps names without a second read', async () => {
     signIn(ID.agent);
     rpc.mockResolvedValueOnce({
-      data: [{ ...cashoutV2Receipt().request, player_name: 'Dana', amount: 250 }],
+      data: [
+        {
+          ...cashoutV2Receipt().request,
+          player_name: 'Dana',
+          amount: 250,
+          can_decide: true,
+          can_escalate: true,
+          is_escalated: false,
+          notice_id: null,
+          approval_destination: 'agent_wallet',
+        },
+      ],
       error: null,
     } as never);
     const [row] = await cashoutService.getAgentPendingCashouts(ID.agent, ID.club);
     expect(row.playerName).toBe('Dana');
     expect(row.amount).toBe(250);
-    expect(rpc).toHaveBeenCalledExactlyOnceWith('fn_cashout_queue', {
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('fn_cashout_queue_v2', {
       p_club_id: ID.club,
       p_status: 'pending',
     });
@@ -872,7 +887,15 @@ describe('a refusal the server rolled back is definitive, not unknown (S-01)', (
 describe('request read scope and unavailable data', () => {
   it('canonicalizes an uppercase resolved club in both scoped queue readers', async () => {
     const club = 'b1000000-0000-4000-8000-000000000004';
-    const row = { ...cashoutV2Receipt().request, club_id: club };
+    const row = {
+      ...cashoutV2Receipt().request,
+      club_id: club,
+      can_decide: true,
+      can_escalate: true,
+      is_escalated: false,
+      notice_id: null,
+      approval_destination: 'agent_wallet',
+    };
     state.read = { data: [row], error: null };
     await expect(
       cashoutService.getPlayerCashouts(ID.player, club.toUpperCase(), 'pending')
@@ -887,7 +910,7 @@ describe('request read scope and unavailable data', () => {
     ).resolves.toEqual([
       expect.objectContaining({ clubId: club, playerId: ID.player, status: 'pending' }),
     ]);
-    expect(rpc).toHaveBeenCalledExactlyOnceWith('fn_cashout_queue', {
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('fn_cashout_queue_v2', {
       p_club_id: club,
       p_status: 'pending',
     });
@@ -953,7 +976,14 @@ describe('request read scope and unavailable data', () => {
   );
   it('does not invent update time for a legacy queue row', async () => {
     signIn(ID.agent);
-    const row: any = { ...cashoutV2Receipt().request };
+    const row: any = {
+      ...cashoutV2Receipt().request,
+      is_escalated: false,
+      can_decide: true,
+      can_escalate: true,
+      notice_id: null,
+      approval_destination: 'agent_wallet',
+    };
     delete row.updated_at;
     rpc.mockResolvedValueOnce({ data: [row], error: null } as never);
     const [request] = await cashoutService.getAgentPendingCashouts(ID.agent, ID.club);
@@ -976,4 +1006,230 @@ describe('request read scope and unavailable data', () => {
   });
   // 2026-10-09 (S-11): the throw-only expireStale stub was deleted; see the
   // 'no longer exposes a money wrapper' case above.
+});
+
+describe('promo cashout refusals preserve atomic outcomes and current figures', () => {
+  it.each(['promo_play_through_locked', 'promo_winnings_play_through_locked'])(
+    'explains the exact rollback hint %s with fresh authoritative figures',
+    async (hint) => {
+      rpc.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'P0001', message: 'Guard Refused', hint },
+      } as never);
+      vi.mocked(readMyPromoPlayThrough).mockResolvedValueOnce({
+        cashable: 18.5,
+        fee_remaining: 175,
+        profit_fee_remaining: 75,
+      } as never);
+      const error = await request().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(CashoutRefusedError);
+      expect(error).toMatchObject({ definitive: true, operationId: ID.operation, token: hint });
+      expect(error.message).toContain('Withdrawable Balance: 18.50 Chips');
+      expect(error.message).toContain('175.00 More Chips In Fees To Reach Four Times');
+      expect(error.message).toContain('75.00 More Chips In Fees To Reach Two Times');
+      expect(readMyPromoPlayThrough).toHaveBeenLastCalledWith(ID.club);
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(masterBus.emit).not.toHaveBeenCalled();
+    }
+  );
+  it('keeps unrecognized P0001 and hint lookalikes unknown', async () => {
+    for (const hint of ['other_failure', 'promo_play_through_locked_extra', null]) {
+      rpc.mockResolvedValueOnce({
+        data: null,
+        error: { code: 'P0001', message: 'promo_play_through_locked', hint },
+      } as never);
+      await expect(request()).rejects.toBeInstanceOf(CashoutOutcomeUnknownError);
+    }
+    expect(readMyPromoPlayThrough).not.toHaveBeenCalled();
+  });
+  it('retains the definitive rollback when the details read fails without inventing balances', async () => {
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', hint: 'promo_play_through_locked' },
+    } as never);
+    vi.mocked(readMyPromoPlayThrough).mockRejectedValueOnce(new Error('Offline'));
+    const error = await request().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CashoutRefusedError);
+    expect(error.message).toContain('Current Figures Are Unavailable');
+    expect(error.message).not.toContain('Withdrawable Balance:');
+  });
+  it('does not read promo details after the original view retires during lazy loading', async () => {
+    let live = true;
+    rpc.mockReturnValueOnce({
+      then(resolve: (value: unknown) => void) {
+        resolve({ data: null, error: { code: 'P0001', hint: 'promo_play_through_locked' } });
+        // The hold response is observed while current. Retire the view before
+        // the dynamically loaded details reader resumes in its next microtask.
+        queueMicrotask(() => {
+          live = false;
+        });
+      },
+    } as never);
+    const error = await request(250, () => live).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CashoutOutcomeUnknownError);
+    expect(readMyPromoPlayThrough).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(masterBus.emit).not.toHaveBeenCalled();
+  });
+  it('retires delayed refusal details when the original view changes', async () => {
+    const pending = deferred<any>();
+    let live = true;
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', hint: 'promo_play_through_locked' },
+    } as never);
+    vi.mocked(readMyPromoPlayThrough).mockReturnValueOnce(pending.promise);
+    const result = request(250, () => live).catch((caught: unknown) => caught);
+    await vi.waitFor(() => expect(readMyPromoPlayThrough).toHaveBeenCalled());
+    live = false;
+    pending.resolve({ cashable: 50, fee_remaining: 10, profit_fee_remaining: 0 });
+    expect((await result).message).not.toContain('Withdrawable Balance:');
+    expect(masterBus.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('Notice Board delivery and club-bank approval receipts', () => {
+  const bankReceipt = () => {
+    const base = cashoutV2Receipt('approval');
+    const cashier = {
+      ...base.cashier,
+      actor_role: 'admin',
+      ledger_to_type: 'club_treasury',
+      ledger_to_entity_id: ID.club,
+      approval_destination: 'club_bank',
+    };
+    return { ...base, ...cashier, cashier, club_bank_after: base.actor_wallet_after };
+  };
+  it('accepts a matching manager club-bank receipt without treating it as an agent-wallet transfer', async () => {
+    signIn(ID.agent);
+    rpc.mockResolvedValueOnce({ data: bankReceipt(), error: null } as never);
+    await expect(act('approval')).resolves.toBe(true);
+  });
+  it.each([
+    'wrong-club',
+    'agent-role',
+    'missing-bank-balance',
+    'different-bank-balance',
+    'missing-destination',
+  ])('refuses a malformed bank receipt: %s', async (fault) => {
+    signIn(ID.agent);
+    const receipt: any = bankReceipt();
+    if (fault === 'wrong-club')
+      receipt.ledger_to_entity_id = receipt.cashier.ledger_to_entity_id = ID.otherClub;
+    if (fault === 'agent-role') receipt.actor_role = receipt.cashier.actor_role = 'agent';
+    if (fault === 'missing-bank-balance') delete receipt.club_bank_after;
+    if (fault === 'different-bank-balance') receipt.club_bank_after = '999.00';
+    if (fault === 'missing-destination') delete receipt.cashier.approval_destination;
+    rpc.mockResolvedValueOnce({ data: receipt, error: null } as never);
+    await expect(act('approval')).rejects.toBeInstanceOf(CashoutOutcomeUnknownError);
+  });
+  it('rejects an oversized note before any money request and preserves an accepted multiline note', async () => {
+    await expect(
+      cashoutService.requestCashout(
+        ID.player,
+        ID.club,
+        250,
+        'x'.repeat(2001),
+        ID.operation,
+        current
+      )
+    ).rejects.toThrow('2,000');
+    expect(rpc).not.toHaveBeenCalled();
+    const note = 'Call Before Payment\n' + 'x'.repeat(300);
+    accept('hold', { note });
+    const row = await cashoutService.requestCashout(
+      ID.player,
+      ID.club,
+      250,
+      note,
+      ID.operation,
+      current
+    );
+    expect(row.playerNote).toBe(note);
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_note: note });
+  });
+  it('fails closed on queue rows with missing or inconsistent authority', async () => {
+    signIn(ID.agent);
+    rpc.mockResolvedValueOnce({ data: [cashoutV2Receipt().request], error: null } as never);
+    await expect(cashoutService.getAgentPendingCashouts(ID.agent, ID.club)).rejects.toThrow(
+      'Permissions'
+    );
+  });
+});
+
+describe('Notice Board escalation identity', () => {
+  const pending = {
+    id: ID.cashout,
+    clubId: ID.club,
+    playerId: ID.player,
+    agentId: ID.agent,
+    amount: 250,
+    status: 'pending' as const,
+    createdAt: '2026-09-15T00:00:00Z',
+  };
+  const card = {
+    success: true,
+    contract_version: 1,
+    replayed: false,
+    actor_user_id: ID.agent,
+    cashout_id: ID.cashout,
+    club_id: ID.club,
+    amount: '250.00',
+    is_escalated: true,
+    notice_id: ID.event,
+  };
+  it('retries the original request with the same operation after an uncertain response', async () => {
+    signIn(ID.agent);
+    rpc.mockRejectedValueOnce(new Error('Connection Lost'));
+    await expect(cashoutService.escalateCashout(pending, ID.agent, current)).rejects.toThrow(
+      'Connection Lost'
+    );
+    rpc.mockImplementationOnce(
+      async (_name, args: any) => ({ data: { ...card, op_id: args.p_op_id }, error: null }) as never
+    );
+    await expect(cashoutService.escalateCashout(pending, ID.agent, current)).resolves.toBe(
+      ID.event
+    );
+    const calls = rpc.mock.calls.filter((call) => call[0] === 'fn_cashout_escalate_v2');
+    expect(calls).toHaveLength(2);
+    expect(calls[0][1]).toEqual(calls[1][1]);
+    expect(calls[0][1]).toMatchObject({
+      p_cashout_id: ID.cashout,
+      p_club_id: ID.club,
+      p_expected_actor_id: ID.agent,
+    });
+  });
+  it('refuses a mismatched response without advertising delivery', async () => {
+    signIn(ID.agent);
+    rpc.mockResolvedValueOnce({ data: { ...card, amount: 251 }, error: null } as never);
+    await expect(cashoutService.escalateCashout(pending, ID.agent, current)).rejects.toThrow(
+      'Not Confirmed'
+    );
+  });
+  it.each([
+    ['success', false],
+    ['contract_version', 2],
+    ['replayed', undefined],
+    ['op_id', ID.event],
+    ['actor_user_id', ID.player],
+  ])('refuses an unbound escalation envelope: %s', async (field, value) => {
+    signIn(ID.agent);
+    rpc.mockImplementationOnce(
+      async (_name, args: any) =>
+        ({
+          data: { ...card, op_id: args.p_op_id, [field]: value },
+          error: null,
+        }) as never
+    );
+    await expect(cashoutService.escalateCashout(pending, ID.agent, current)).rejects.toThrow(
+      'Not Confirmed'
+    );
+  });
+  it('does not dispatch an obsolete account or view', async () => {
+    signIn(ID.agent);
+    await expect(cashoutService.escalateCashout(pending, ID.agent, () => false)).rejects.toThrow(
+      'Refresh'
+    );
+    expect(rpc).not.toHaveBeenCalled();
+  });
 });

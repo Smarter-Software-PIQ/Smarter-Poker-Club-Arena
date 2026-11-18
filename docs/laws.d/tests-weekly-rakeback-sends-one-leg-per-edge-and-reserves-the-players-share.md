@@ -1,0 +1,3 @@
+# tests/weekly-rakeback-sends-one-leg-per-edge-and-reserves-the-players-share.law.test.ts
+
+Weekly rakeback round 2 sends one transfer per hierarchy edge carrying the edge's commission and its pass-through funding (the split recorded on the leg, commission alone in agent_commission_settlements), and the funding step refuses to send a second leg for a week round 2 carried. What each paying agent wallet owes its players is reserved from round 2 until round 3 pays them: one BEFORE trigger on public.agents refuses any debit or delete below the reserve with agent_wallet_weekly_rakeback_reserved and has no bypass setting, round 3 lowers the reserve before it debits, and finalize refuses a run that left one. Keeps the four PostgreSQL 17 harnesses that execute it.

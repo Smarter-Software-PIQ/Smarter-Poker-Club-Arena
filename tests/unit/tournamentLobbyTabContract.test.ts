@@ -262,11 +262,11 @@ describe('chips and chipsCompact', () => {
    * compact formatter (`utils/format.compactChips`), so the pin moves with the
    * behaviour, in the same commit.
    */
-  it('shortens a big stack without losing the sense of it', () => {
-    expect(chipsCompact(1250)).toBe('1.2K');
-    expect(chipsCompact(5000)).toBe('5K');
-    expect(chipsCompact(447000)).toBe('447K');
-    expect(chipsCompact(2500000)).toBe('2.5M');
+  it('prints a big stack exactly, never abbreviated (Dan 2026-11-13)', () => {
+    expect(chipsCompact(1250)).toBe('1,250');
+    expect(chipsCompact(5000)).toBe('5,000');
+    expect(chipsCompact(447000)).toBe('447,000');
+    expect(chipsCompact(2500000)).toBe('2,500,000');
     expect(chipsCompact(999)).toBe('999');
   });
 });

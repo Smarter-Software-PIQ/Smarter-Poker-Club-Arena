@@ -59,7 +59,8 @@ describe('real bank expiry callbacks share the two-unanswered-turn ladder', () =
           1,
           'fold',
           undefined,
-          'forced'
+          'forced',
+          undefined
         );
         expect(e.disconnectEngine.getState(TABLE, 'u').consecutiveTimeouts).toBe(strike);
         expect(e.disconnectEngine.isSittingOut(TABLE, 'u')).toBe(strike === 2);

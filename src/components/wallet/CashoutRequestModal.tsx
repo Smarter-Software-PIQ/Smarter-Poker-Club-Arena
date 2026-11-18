@@ -1,5 +1,6 @@
 import { formatCashierAmountInput, cashierAmountInputValue } from '../../utils/cashierAmount';
 import { formatWalletChips } from '../../utils/format';
+import { CASHOUT_NOTE_LIMIT } from '../../utils/cashoutNote';
 import { CASHOUT_AMOUNT_LIMIT, validateCashoutAmount } from '../../utils/cashoutAmount';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -9,7 +10,7 @@ import { CASHOUT_AMOUNT_LIMIT, validateCashoutAmount } from '../../utils/cashout
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { cashoutService, CashoutRequest } from '../../services/CashoutService';
+import { cashoutService, CashoutRefusedError, CashoutRequest } from '../../services/CashoutService';
 import {
   outcomeNeedsReceiptCheck,
   CashoutReceiptChecks,
@@ -29,11 +30,13 @@ import {
 } from '../../hooks/usePreparedCashoutOperations';
 import { formatRelativeShort } from '@/lib/date';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { PromoPlayThroughProgress } from './PromoPlayThroughProgress';
 import './CashoutRequestModal.css';
 import { reportError } from '../../utils/errorReporter';
 import { fireVibration } from '../../utils/vibrationGate';
 
 import { safeErrorMessage } from '../../utils/safeErrorMessage';
+import { useOptionalToast } from '../common/Toast';
 import { titleCase } from '../../utils/titleCase';
 
 /**
@@ -135,6 +138,7 @@ interface CashoutRequestModalProps {
 
 export default function CashoutRequestModal(props: CashoutRequestModalProps) {
   const key = useCashoutScopeKey(props.playerId, JSON.stringify([props.clubId, props.isOpen]));
+  if (!props.isOpen) return null;
   return <CashoutRequestContent key={key} {...props} />;
 }
 
@@ -146,6 +150,7 @@ function CashoutRequestContent({
   currentBalance,
   onComplete,
 }: CashoutRequestModalProps) {
+  const toast = useOptionalToast();
   const balanceAvailable =
     currentBalance !== null && Number.isFinite(currentBalance) && currentBalance >= 0;
   const isCurrent = useCashoutScope(playerId, JSON.stringify([clubId, isOpen]));
@@ -212,15 +217,7 @@ function CashoutRequestContent({
   }, [playerId, clubId, isCurrent]);
 
   const preparedAmount = validateCashoutAmount(amount);
-  const requestFormError = !amount
-    ? null
-    : !preparedAmount.ok
-      ? preparedAmount.error
-      : !balanceAvailable || currentBalance === null
-        ? 'Your Club Balance Is Unavailable. Refresh Before Requesting A Cashout.'
-        : preparedAmount.amount > currentBalance
-          ? 'That Is More Than Your Available Balance'
-          : null;
+  const requestFormError = !amount ? null : !preparedAmount.ok ? preparedAmount.error : null;
   const requests = usePreparedCashoutOperations(
     isOpen && preparedAmount.ok
       ? [
@@ -376,7 +373,6 @@ function CashoutRequestContent({
       setError(validation.error);
       return;
     }
-    const cashoutAmount = validation.amount;
     submitLockRef.current = true;
     setIsSubmitting(true);
     setError(null);
@@ -388,12 +384,8 @@ function CashoutRequestContent({
       start = accepted;
       const recovery = await recoverCashoutOperation(accepted);
       assertCashoutStartCurrent(start);
-      if (!recovery.found) {
-        if (!balanceAvailable || currentBalance === null)
-          throw new Error('Your Club Balance Is Unavailable. Refresh Before Requesting A Cashout.');
-        if (cashoutAmount > currentBalance)
-          throw new Error('That Is More Than Your Available Balance');
-      }
+      // The locked RPC owns the current balance and promo restrictions.
+      // A cached display must never refuse an otherwise eligible request.
       const result = recovery.found ? recovery.result : await runCashoutOperation(accepted);
       assertCashoutStartCurrent(start);
       setSuccessText(
@@ -414,8 +406,14 @@ function CashoutRequestContent({
         autoCloseTimer.current = null;
       }, 2000);
     } catch (err) {
-      if (isCurrent() && (!start || isCashoutStartCurrent(start)))
-        setError(safeErrorMessage(err, 'Refresh To Check The Cashout Outcome'));
+      if (isCurrent() && (!start || isCashoutStartCurrent(start))) {
+        const promoRefusal = err instanceof CashoutRefusedError && err.code === 'P0001';
+        const message = promoRefusal
+          ? err.message
+          : safeErrorMessage(err, 'Refresh To Check The Cashout Outcome');
+        setError(message);
+        if (promoRefusal) toast?.warning(message, 15000);
+      }
     } finally {
       submitLockRef.current = false;
       if (isCurrent()) {
@@ -561,6 +559,7 @@ function CashoutRequestContent({
         >
           {/* The receipt checks print unstyled markup; this hook types it on
               the glass (display: contents, so it adds no box and no gap). */}
+          <PromoPlayThroughProgress clubId={clubId} cashoutRequested />
           <div className="cro-receipts">
             <CashoutReceiptChecks checks={receiptChecks} />
           </div>
@@ -569,7 +568,7 @@ function CashoutRequestContent({
               never abbreviated: it is the ceiling the request is measured by.
               An unreadable balance says so; it never prints as zero. */}
           <div className="cro-row">
-            <span className="sc-label sc-ink--blue">Available Balance</span>
+            <span className="sc-label sc-ink--blue">Balance</span>
             <strong className={`cro-value ${balanceAvailable ? 'sc-ink--silver' : 'sc-ink--red'}`}>
               {balanceAvailable ? `${formatWalletChips(currentBalance)} Chips` : 'Unavailable'}
             </strong>
@@ -648,11 +647,7 @@ function CashoutRequestContent({
                     value={formatCashierAmountInput(amount)}
                     onChange={(e) => editAmount(cashierAmountInputValue(e.target.value))}
                     disabled={isSubmitting}
-                    max={
-                      balanceAvailable
-                        ? Math.min(currentBalance!, CASHOUT_AMOUNT_LIMIT)
-                        : CASHOUT_AMOUNT_LIMIT
-                    }
+                    max={CASHOUT_AMOUNT_LIMIT}
                     min={0.01}
                     step={0.01}
                     inputMode="decimal"
@@ -665,10 +660,11 @@ function CashoutRequestContent({
 
               <div className="cro-field">
                 <label className="sc-label sc-ink--blue" htmlFor="cashout-note">
-                  Note (Optional)
+                  Note For Agent (Optional)
                 </label>
                 <textarea
                   id="cashout-note"
+                  maxLength={CASHOUT_NOTE_LIMIT}
                   className="cro-input cro-textarea"
                   placeholder="Any Message For Your Agent..."
                   value={note}

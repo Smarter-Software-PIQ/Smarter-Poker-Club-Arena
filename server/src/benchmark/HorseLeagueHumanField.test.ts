@@ -43,6 +43,7 @@ import {
   HUMAN_FIELD_NAME_PREFIX,
   HUMAN_FIELD_VARIANTS,
   LEAGUE_MATCHUPS,
+  UNMEASURABLE_MATCHUPS,
   leagueResultConfig,
   playHand,
   runLeague,
@@ -75,6 +76,41 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_full_vs_v2_legacy', 'full_vs_v2_legacy'],
   // 2026-11-07: heads-up, against the hu_wide_sb_aggressor_v1 persona.
   ['human_hu_bb_defends_to_price', 'hu_bb_defends_to_price'],
+  // 2026-11-12 (HU-NLH-001): the same persona at 40bb, the band V85 leaves alone.
+  ['human_hu_bb_defends_to_price_40bb', 'hu_bb_defends_to_price_40bb'],
+  // 2026-11-12 (HU-AUDIT-002): the default-off flag no card had dealt.
+  ['human_hu_commit_under_pot', 'hu_commit_under_pot'],
+];
+
+/** Human-field cards with no mirror twin: the heads-up exploiter cards
+ *  (2026-11-12, HU-NLH-001). No Horse plays these lines, so there is no
+ *  mirror to twin; each card names its persona. */
+const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
+  ['human_hu_bb_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  ['human_hu_bb_defends_vs_threebet_40bb', 'hu_three_bet_every_hand_v1'],
+  ['human_hu_bb_defends_vs_small_stab_40bb', 'hu_small_stab_every_street_v1'],
+  ['human_hu_v7_preflop_vs_limper_40bb', 'hu_limp_every_button_v1'],
+  // 2026-11-13 (HU-EVAL-014): the min-raiser again, with memory learning off.
+  ['human_hu_bb_defends_vs_minraise_40bb_reads_off', 'hu_minraise_every_button_v1'],
+  // 2026-11-14 (HU-NLH-010, HU-NLH-011): the two default-off defence options.
+  // 2026-11-15: the opener card faces the wide persona; against the every-hand
+  // 3-bettor it was inert and is retired (UNMEASURABLE_MATCHUPS).
+  ['human_hu_opener_defends_vs_wide_40bb', 'hu_wide_sb_aggressor_v1'],
+  ['human_hu_limp_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  // 2026-11-15 (HU-NLH-001d): the unread big blind option, memory learning off.
+  ['human_hu_bb_defends_unread_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  // 2026-11-15 (D6): the default-off steal against a heads-up nit big blind.
+  ['human_hu_sb_steals_vs_nit_40bb', 'hu_nit_big_blind_v1'],
+];
+
+/** Persona cards whose arms must be seen to diverge here (2026-11-15). The
+ *  opener defence card ran inert on the nightly of 2026-11-15 (0 of 12,000
+ *  pairs) because no test dealt a persona card and looked. */
+const PERSONA_CARDS_THAT_MUST_DIVERGE = [
+  'human_hu_opener_defends_vs_wide_40bb',
+  'human_hu_limp_defends_vs_minraise_40bb',
+  'human_hu_bb_defends_unread_vs_minraise_40bb',
+  'human_hu_sb_steals_vs_nit_40bb',
 ];
 
 afterEach(() => {
@@ -249,8 +285,15 @@ describe(
   { timeout: 300_000 },
   () => {
     it('each human card is the human twin of a mirror card: same arms, NLH, named human_*', () => {
-      const cards = humanCards();
+      const personaNames = new Set(EXPECTED_PERSONA_CARDS.map(([n]) => n));
+      const cards = humanCards().filter((m) => !personaNames.has(m.name));
       expect(cards.map((m) => m.name)).toEqual(EXPECTED_HUMAN_CARDS.map(([n]) => n));
+      for (const [name, persona] of EXPECTED_PERSONA_CARDS) {
+        const c = LEAGUE_MATCHUPS.find((m) => m.name === name);
+        expect(c, `${name} left the card`).toBeDefined();
+        expect(c!.humanPersona).toBe(persona);
+        expect(c!.seats).toBe(2);
+      }
       const byName = new Map(LEAGUE_MATCHUPS.map((m) => [m.name, m]));
       for (const [human, mirror] of EXPECTED_HUMAN_CARDS) {
         const h = byName.get(human)!;
@@ -270,6 +313,39 @@ describe(
       for (const m of LEAGUE_MATCHUPS) {
         expect(m.name.startsWith(HUMAN_FIELD_NAME_PREFIX)).toBe(m.opponentPopulation === HUMAN);
       }
+    });
+
+    it.each(PERSONA_CARDS_THAT_MUST_DIVERGE)(
+      '%s: the option acts against its persona (the card is not inert)',
+      async (name) => {
+        const card = LEAGUE_MATCHUPS.find((m) => m.name === name)!;
+        expect(card, `${name} left the card`).toBeDefined();
+        // Measured 2026-11-15 at this seed and size (deterministic for a
+        // strategy build; raw outputs in the heads-up evidence folder
+        // round2/cards/probes): the opener card diverged in 40 of 1,500 pairs,
+        // the limp card in 209, the unread big blind card in 330 and the D6
+        // steal card in 106. A floor of
+        // 10 keeps a wide margin and still fails a card that has gone nearly
+        // inert (the retired every-hand card diverged 1 of 4,000 with reads on).
+        const r = await runMatchup(card, 1500, 4242);
+        expect(r.hands).toBe(3000);
+        expect(r.divergentPairs).toBeGreaterThanOrEqual(10);
+        expect(r.inert).toBe(false);
+        expect(r.stderr).toBeGreaterThan(0);
+        expect(r.illegalActions).toBe(0);
+        expect(r.truncatedStreets).toBe(0);
+      }
+    );
+
+    it('the every-hand 3-bettor opener card is retired with its reason, not dealt', () => {
+      const name = 'human_hu_opener_defends_vs_threebet_40bb';
+      expect(LEAGUE_MATCHUPS.some((m) => m.name === name)).toBe(false);
+      const refused = UNMEASURABLE_MATCHUPS.find((m) => m.name === name);
+      expect(refused, `${name} must be refused, not deleted`).toBeDefined();
+      expect(refused!.a).toEqual({ huOpenerDefendsToPrice: true });
+      expect(refused!.b).toEqual({});
+      expect(refused!.reason).toContain('hu_three_bet_every_hand_v1');
+      expect(refused!.reason).toContain('0 of 12,000 pairs');
     });
 
     it.each(EXPECTED_HUMAN_CARDS.map(([n]) => n))(
@@ -467,7 +543,11 @@ describe('the nightly runner sends the human cards and records their field', () 
       expect(sent!.opponentPopulation).toBe(HUMAN);
       const row = upserts.find((u) => u.matchup === card.name)!;
       expect(row, `${card.name} was not written`).toBeDefined();
-      const persona = card.humanPersona ? { humanPersona: card.humanPersona } : {};
+      const persona = {
+        ...(card.humanPersona ? { humanPersona: card.humanPersona } : {}),
+        // 2026-11-13: a reads-off card says so in its row; no other card carries the key.
+        ...(card.memoryLearning ? { memoryLearning: card.memoryLearning } : {}),
+      };
       expect(row.config_a).toEqual({ ...card.a, opponentPopulation: HUMAN, ...persona });
       expect(row.config_b).toEqual({ ...card.b, opponentPopulation: HUMAN, ...persona });
       expect(row.config_a).toEqual(leagueResultConfig(card, 'a'));

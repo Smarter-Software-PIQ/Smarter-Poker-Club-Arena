@@ -22,6 +22,7 @@ import { supabase } from '../../lib/supabase';
 import { masterBus } from '../../core/MasterBus';
 import './TournamentClock.css';
 import { reportError } from '../../utils/errorReporter';
+import { exactChips } from '../../utils/format';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -191,7 +192,8 @@ const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
           (sum: number, r: { chips?: number }) => sum + (Number(r.chips) || 0),
           0
         );
-        averageStack = playersRemaining > 0 ? Math.round(totalChips / playersRemaining) : 0;
+        // Whole chips, truncated, never rounded up (Dan 2026-11-14).
+        averageStack = playersRemaining > 0 ? Math.trunc(totalChips / playersRemaining) : 0;
       }
 
       /**
@@ -447,14 +449,8 @@ const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
   useMasterBusSubscription('TOURNAMENT_BREAK_END', handleBreakEnd);
   useMasterBusSubscription('BREAK_END', handleBreakEnd);
 
-  // ── Format chip count with K/M abbreviations ──
-  const formatChips = (n: number | null): string => {
-    if (n === null) return '-';
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 10_000) return `${(n / 1000).toFixed(0)}K`;
-    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-    return n.toString();
-  };
+  // ── Chip count, exact: never K/M (Dan 2026-11-13) ──
+  const formatChips = (n: number | null): string => (n === null ? '-' : exactChips(n));
 
   // ── Timer urgency class ──
   const timerClass =

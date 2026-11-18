@@ -71,7 +71,12 @@ export function createPlugin({
                 if (claims.role !== 'anon')
                   throw new Error('only receive-only public client keys are supported');
               }
-              if ((await statPath('/Volumes/SmarterWork')).dev === (await statPath('/')).dev)
+              // The journal must live on the external work volume, never on the
+              // startup disk. Measure the state directory itself: macOS can leave
+              // /Volumes/SmarterWork as a startup-disk folder (with the work volume
+              // mounted below it or as "SmarterWork 1") after a disconnect, and a
+              // check on that folder alone refused a correctly mounted journal.
+              if ((await statPath(directory)).dev === (await statPath('/')).dev)
                 throw new Error('external work volume is not mounted');
               const { stdout: capabilityOutput } = await executeCommand(
                 '/usr/bin/security',

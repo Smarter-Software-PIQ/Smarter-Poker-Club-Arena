@@ -1,8 +1,20 @@
+import { captureChip, type SharedChip } from '../lib/sharedChipFlights';
+import { seatPaint, type SeatPaint, type SeatPaintEvent } from '../lib/sharedSeatPresentation';
+import type { SeatSlotProps } from '../components/table/SeatSlot';
+import { throwSeed, type SharedThrow } from '../lib/sharedThrows';
+import { useActionControllerSettings } from '../hooks/useActionControllerSettings';
+import { lightningJackpotAward } from '../lightning/lightningJackpotAward';
+import { lightningSeatKey } from '../lightning/lightningSeatKey';
 import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
+import { nextBustRebuyClock } from '../utils/bustRebuyDeadline';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
-import { autoTopUpRequest, type AutoTopUpRequest } from '../utils/autoTopUpRequest';
+import {
+  autoTopUpRequest,
+  quietAutoTopUpRefusal,
+  type AutoTopUpRequest,
+} from '../utils/autoTopUpRequest';
 import { tournamentTableLabel } from '../utils/tournamentTableLabel';
 import { tournamentTypeLabel } from '../utils/tournamentTypeLabel';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -14,9 +26,22 @@ import {
   insuranceOfferEquity,
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
-import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
+import {
+  fetchStoppedLightningAnchor,
+  rememberLightningLeaveAnchor,
+  rememberedLightningLeaveAnchor,
+} from '../lightning/lightningLeaveAnchor';
+import { useLightningFinalDeal } from '../lightning/useLightningFinalDeal';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
-import { LightningLeaveControl } from '../components/lightning/LightningLeaveControl';
+import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
+import {
+  LightningFeederLeaveControl,
+  LightningLeaveControl,
+} from '../components/lightning/LightningLeaveControl';
+import {
+  lightningLeaveWaitsForHand,
+  useLightningLeaveAfterHand,
+} from '../lightning/lightningLeaveNextHand';
 import { useSeatArrivals } from '../components/table/seatArrival';
 import {
   usePreActionBoundary,
@@ -118,6 +143,7 @@ import { TournamentLateRegCallToAction } from '../components/table/TournamentLat
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   startTransition,
@@ -171,6 +197,7 @@ import { hubMarketplaceDestination } from '../utils/hubMarketplace';
 import { cachedAuthUserId, hydrateIdentity, persistIdentity } from '../lib/cachedIdentity';
 import { formatGameTitle, formatTournamentTitle } from '../utils/formatGameTitle';
 import { customCashGameName } from '../utils/customCashGameName';
+import { totalBuyIn } from '../utils/buyIn';
 import { tournamentTabBuyInLabel } from '../lib/tournamentTabLabel';
 import {
   accessRefusalFromClose,
@@ -188,7 +215,8 @@ import { useHeldValue } from '../hooks/useHeldValue';
 import { useVIPStatus } from '../hooks/useVIP';
 import { CommunityCards } from '../components/table/CommunityCards';
 import { DealerButton } from '../components/table/DealerButton';
-import { DealAnimation } from '../components/table/DealAnimation';
+import type { SharedDeal } from '../lib/sharedDeal';
+import { DealAnimation, type DealFrame } from '../components/table/DealAnimation';
 import { ActionClockWarning } from '../components/table/ActionClockReadouts';
 import type { SeatPlayer, Card, LastAction, PositionBadge } from '../components/table/SeatSlot';
 import type { SidePot } from '../components/table/PotDisplay';
@@ -220,8 +248,11 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
  * table_id values working.
  */
 
+import { boardStreet, type SharedBoardTiming } from '../lib/sharedBoardTiming';
+import { captureTableGeometry } from '../lib/sharedTableGeometry';
+import { TableScene } from '../components/table/TableScene';
+import TableFelt from '../components/table/TableFelt';
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
-import { useButtonImage } from '../hooks/useButtonImage';
 
 import {
   cashAutoTopUpTarget,
@@ -232,6 +263,7 @@ import {
 import {
   cashBuyInJournal,
   executeCashBuyIn,
+  isCashBuyInStorageFailure,
   sameCashBuyInIntent,
   type CashBuyInAttempt,
 } from '../services/CashBuyInRecovery';
@@ -330,6 +362,10 @@ import { shouldAnnounceBbjHit } from '../lib/bbjHitOnce';
 import { money } from '../utils/handFormat';
 import { type InsuranceOffer } from '../components/table/InsuranceModal';
 import { ThrowAnimationContainer } from '../components/table/ThrowAnimation';
+import type { ThrowEvent } from '../services/ThrowableService';
+/* Stable identity: a fresh `[]` in the JSX would be a new prop every render
+   and defeat ThrowAnimationContainer's memoization while reactions are off. */
+const EMPTY_THROW_EVENTS: ThrowEvent[] = [];
 import { useTableEnvironment } from '../hooks/useTableEnvironment';
 import { useTabKeepAlive, workerTimeout, cancelWorkerTimeout } from '../hooks/useTabKeepAlive';
 import { STORAGE_KEYS } from '../lib/storage';
@@ -419,8 +455,11 @@ import {
 } from '../components/table/tableGeometry';
 import PreActionBar from '../components/table/PreActionBar';
 import LightningNextHand from '../components/table/LightningNextHand';
-import LightningEndingNotice from '../components/table/LightningEndingNotice';
+import LightningEndingNotice, {
+  useLightningClusterStatus,
+} from '../components/table/LightningEndingNotice';
 import LightningStartingNotice from '../components/table/LightningStartingNotice';
+import LightningStartTicker from '../components/table/LightningStartTicker';
 import LightningJoining from '../components/table/LightningJoining';
 import LightningEndedNotice from '../components/table/LightningEndedNotice';
 import { lightningReturnPath, useLightningReversion } from '../lightning/lightningReversion';
@@ -457,9 +496,11 @@ import {
   lightningFoldAvailability,
   isLightningIdleSnapshot,
   lightningSnapshotClearsBoard,
+  isPreviousLightningSettlement,
   lightningStartingOnTable,
   lightningHandOnFelt,
   lightningHandId,
+  lightningDecisionKey,
   lightningHandKey,
   lightningSnapshotPatch,
   lightningTableSeed,
@@ -505,13 +546,15 @@ import {
   lightningDecisions as pendingLightningDecisions,
 } from '../lightning/lightningDecisionQueue';
 import { scheduleLightningRenderAck } from '../lightning/lightningRenderAck';
+import { markLightningJoinRoom } from '../lightning/lightningJoinTiming';
+import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 // The ShareHand COMPONENT is rendered by TableModalsLayer, not here — the
 // default import this line used to carry was unused. TablePage builds the
 // payload, so it needs the types.
 import type { ShareableHand, ShareableAction } from '../components/table/ShareHand';
 import { shareBoardPrefix, shareExtraBoards, visibleShareCards } from '../lib/liveShareCards';
+import { rememberObservedTable } from '../lib/sharedTableAppearance';
 import { toShareVariant } from '../lib/shareHandModel';
-import TableMenu from '../components/table/TableMenu';
 
 /**
  * The engine's verb -> the verb a share link carries. ONE TABLE, and a verb
@@ -540,17 +583,6 @@ const LIVE_SHARE_VERB: Record<string, ShareableAction['action']> = {
   uncalled: 'RETURN',
   discard: 'DISCARD',
 };
-import {
-  SitOutIcon,
-  RebuyIcon,
-  AddOnIcon,
-  HandHistoryIcon,
-  LeaderboardIcon,
-  SessionStatsIcon,
-  SettingsIcon,
-  HelpIcon,
-  LeaveTableIcon,
-} from '../components/table/TableMenuIcons';
 import { useToast } from '../components/common/Toast';
 import { isVibrationPreferred, setVibrationAllowed } from '../utils/vibrationGate';
 import SeatKnockoutLayer, {
@@ -616,6 +648,7 @@ import GameServerAPI, {
   sendHeartbeat,
   resetEngineCircuitBreaker,
   sendAwayBeacon,
+  sendSeatArrival,
   setPreAction as serverSetPreAction,
   setSitOut,
   showHand as serverShowHand,
@@ -683,9 +716,16 @@ import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
 import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
-import { useCountdownStarted, useHandsAddedByDouble } from '../hooks/useHeroHandCount';
+import {
+  useBigWinRestarted,
+  useCountdownResumed,
+  useCountdownStarted,
+  useHandsAddedByDouble,
+} from '../hooks/useHeroHandCount';
 import {
   blindOffLeaveText,
+  bigWinStartedText,
+  countdownResumedText,
   charlesRuleText,
   countdownStartedText,
   fetchMyHandsOwed,
@@ -701,7 +741,10 @@ import {
   tournamentDockClosed as readTournamentDockClosed,
   setTournamentDockClosed,
 } from '../lib/tournamentDockStore';
-import { PreviousHandCard } from '../components/table/PreviousHandCard';
+import {
+  LightningPreviousHandReview,
+  PreviousHandCard,
+} from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
 import { reportClientWarning, reportError } from '../utils/errorReporter';
 import {
@@ -759,6 +802,7 @@ import {
 import { formatPopupText } from '../utils/popupStyle';
 import {
   MYSTERY_BOUNTIES_LIVE_TEXT,
+  MYSTERY_BOUNTY_PRIZES_SET_TEXT,
   claimMysteryLiveAnnouncement,
   mysteryChestsLiveFromRow,
   mysteryChestsOnlyFromRow,
@@ -1074,6 +1118,10 @@ import {
   TABLE_BACKGROUND_POSITION,
   TABLE_BACKGROUND_REPEAT,
 } from '../lib/tableTheme';
+import {
+  usePreviousLightningDeal,
+  type PreviousLightningDeal,
+} from '../lightning/usePreviousLightningDeal';
 import { adaptServiceHandToPanel, panelHandToShareable } from '../lib/handHistoryAdapter';
 import {
   HAND_HISTORY_PAGE,
@@ -1234,6 +1282,12 @@ interface TablePageProps {
     handNumber?: number;
     buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
+    standUpNextBB?: boolean;
+    straddleAvailable?: boolean;
+    straddleEnabled?: boolean;
+    straddleBusy?: boolean;
+    heroSeated?: boolean;
+    leaveNextHandQueued?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
      * tab previews the hero's hole cards AT THAT TABLE. Reported as ONE
@@ -1332,6 +1386,8 @@ interface TablePageProps {
     /** `seatCanAddFunds` for this seat, so the tab bar's hamburger can drop
      *  its Top Up items at a seat where they would do nothing (B12). */
     canAddFunds?: boolean;
+    seatChangeEnabled?: boolean;
+    seatChangeOffInLightning?: boolean;
   }) => void;
   /** Whether this table is part of a multi-table session (hides own header if tab bar is shown) */
   isMultiTable?: boolean;
@@ -1650,7 +1706,6 @@ function LiveTablePage({
 }: TablePageProps = {}) {
   const followingPlayerRef = useRef(followingPlayer);
   followingPlayerRef.current = followingPlayer;
-  const addScreenIcon = useButtonImage('icon-addscreen');
   const { tableId: routeTableId } = useParams<{ tableId: string }>();
   const requestedTableId = embeddedTableId || routeTableId;
   // Every table effect receives a database ID or no scope. A URL segment
@@ -1926,6 +1981,8 @@ function LiveTablePage({
   /* Chests only (Dan 2026-10-22): no head is advertised before the money. */
   const [mysteryChestsOnly, setMysteryChestsOnly] = useState(false);
   const mysteryLiveAnnouncedRef = useRef<Set<string>>(new Set());
+  /** Events whose "Prizes Are Set" popup this table has already raised. */
+  const mysteryPrizesSetAnnouncedRef = useRef<Set<string>>(new Set());
   /* The bounty re-read the load effect publishes; the seat-list effect calls it
      when the set of seated players changes (utils/mysteryBountyTable rule 3). */
   const bountyMapRefreshRef = useRef<(() => Promise<void>) | null>(null);
@@ -2615,7 +2672,13 @@ function LiveTablePage({
      the engine's seat payload reports them (undefined: not reported), and the
      full-screen confirmation's count while it is open. */
   const [heroHandsOwedEngine, setHeroHandsOwedEngine] = useState<
-    { owed: number | null; required: number | null } | undefined
+    | {
+        owed: number | null;
+        required: number | null;
+        reason?: 'hit_run' | 'big_win' | 'both' | null;
+        bigWinBb?: number | null;
+      }
+    | undefined
   >(undefined);
   /* The hands owed as last read, for leave doors declared before the count's
      own hook (the menu, the header back arrow, the felt's leave item). */
@@ -2882,6 +2945,17 @@ function LiveTablePage({
   const lightningCheckFoldArmRef = useRef<string | null>(null);
   /** The hand that was last live on this felt: an idle snapshot has no key. */
   const lightningLiveHandKeyRef = useRef<string | null>(null);
+  const [selectedLightningReview, setSelectedLightningReview] = useState<{
+    deal: PreviousLightningDeal;
+    receipt?: { archiveId: string | null };
+  } | null>(null);
+  const reviewRoom = lightningObserver ? null : lightningRoom?.poolSessionId;
+  useEffect(() => setSelectedLightningReview(null), [reviewRoom, userId]);
+  const reviewedLightningDeal = usePreviousLightningDeal(
+    reviewRoom,
+    userId,
+    engineSnapshot as LightningSnapshotFields | null
+  );
   const [lightningExitTick, setLightningExitTick] = useState(0);
   const [lightningExitMs, setLightningExitMs] = useState(0);
   // Phase 1.1 PR-3: apply authoritative engine snapshot to tableState when
@@ -3001,7 +3075,12 @@ function LiveTablePage({
     setHeroHandsOwedEngine(
       mapped.heroHandsOwed === undefined
         ? undefined
-        : { owed: mapped.heroHandsOwed, required: mapped.heroHandsRequired ?? null }
+        : {
+            owed: mapped.heroHandsOwed,
+            required: mapped.heroHandsRequired ?? null,
+            reason: mapped.heroHandsReason ?? null,
+            bigWinBb: mapped.heroBigWinBb ?? null,
+          }
     );
 
     // Dan 2026-08-24: Total Buy In restoration on refresh/seat-first.
@@ -3055,7 +3134,7 @@ function LiveTablePage({
               (card) => `${card!.rank}${card!.suit}`
             );
           }
-          const prevRow = prev.players[i];
+          const prevRow = previousHeroRow(prev.players, i, sp.id);
           sp = {
             ...sp,
             holeCards: heroDisplayHoleCards(
@@ -3700,6 +3779,7 @@ function LiveTablePage({
     nonce: number;
     open: boolean;
     amount?: number;
+    presetIndex?: number;
   }>({ nonce: 0, open: false });
   const openRaisePanel = useCallback((amount?: number) => {
     setRaiseIntent((prev) => ({ nonce: prev.nonce + 1, open: true, amount }));
@@ -3847,8 +3927,9 @@ function LiveTablePage({
      Lightning room the seats' cards stay hidden through the button beat
      (`lightningDealPending`), and the slide cue waits for the deal to land
      (`settleHeroDealSound`). Nothing is dropped. */
-  const [lightningDealPending, setLightningDealPending] = useState(false);
-  const lightningDealPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The table flight owns the Lightning deal. Reveal the seat faces and the
+  // available controls together when it lands (or the existing hold expires).
+  const lightningDealPending = Boolean(lightningRoom) && dealInFlight;
   /** The last hand whose deal animation landed (or whose hold expired). */
   const dealSettledHandRef = useRef(0);
   /** A hand whose card-slide cue is waiting for its deal to land. */
@@ -3871,6 +3952,11 @@ function LiveTablePage({
     // the player their turn.
     dealHoldTimerRef.current = setTimeout(() => {
       dealHoldTimerRef.current = null;
+      if (lightningRoomRef.current) {
+        if (dealStartTimerRef.current) clearTimeout(dealStartTimerRef.current);
+        dealStartTimerRef.current = null;
+        setDealAnimationKey(0);
+      }
       setDealInFlight(false);
       // An interrupted deal still owes the held cue.
       settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
@@ -3880,7 +3966,6 @@ function LiveTablePage({
   useEffect(
     () => () => {
       if (dealHoldTimerRef.current) clearTimeout(dealHoldTimerRef.current);
-      if (lightningDealPendingTimerRef.current) clearTimeout(lightningDealPendingTimerRef.current);
     },
     []
   );
@@ -5057,6 +5142,10 @@ function LiveTablePage({
      is only the clock the rebuy sheet shows. Kept as "time left when told"
      plus this device's own clock, so a wrong device clock cannot skew it. */
   const [bustRebuyDeadlineAt, setBustRebuyDeadlineAt] = useState<number | null>(null);
+  /* The engine's deadline of the bust the clock above belongs to
+     (utils/bustRebuyDeadline). Kept when the window closes, so a frame of
+     that bust arriving late is still recognised as old. */
+  const bustRebuyServerDeadlineRef = useRef<number | null>(null);
   const [bustRebuySecondsLeft, setBustRebuySecondsLeft] = useState<number | null>(null);
   useEffect(() => {
     if (bustRebuyDeadlineAt === null) {
@@ -5624,6 +5713,25 @@ function LiveTablePage({
    * elimination broadcast carried is replayed when the hold releases, so the
    * result card is still correct.
    */
+  /* THE ENGINE'S BUST SEAT EXIT IS A BUST SIGNAL (2026-11-11). For a rebuyable
+     tournament bust the engine commits the seat exit with the hand and sends
+     `seat_left` reason `busted_awaiting_rebuy_decision`. The offer watcher
+     used to need the hero's zero-stack seat to still be on the page, so an
+     exit that landed before it ran meant no offer at all, and an exit that
+     landed after the offer opened closed it (applySeatRemoved). This records
+     the exit for exactly one tournament, player and bust; the watcher consumes
+     it once. Eligibility and expiry are still the server's (canRebuy).
+     The engine sends this reason only for a tournament seat
+     (ServerTableEngineDealing), so the reason alone is the signal: the page's
+     own tournament flag comes from an async table read that can still be in
+     flight when the exit arrives on a freshly opened page. The tournament id
+     is bound when it is known; the watcher acts only once the table is known
+     to be that tournament. */
+  const TOURNAMENT_BUST_EXIT = 'busted_awaiting_rebuy_decision';
+  const [tournamentBustExit, setTournamentBustExit] = useState<{
+    tournamentId: string | null;
+    userId: string;
+  } | null>(null);
   const BUST_HOLD_MS = 5000;
   /**
    * The backstop for the MODAL branch.
@@ -5963,7 +6071,8 @@ function LiveTablePage({
       /* The seat is gone as far as this device is concerned. Latch it, or the
          very next engine snapshot - which still carries this player until
          settlement - walks it back in through the players[]/heroSeat
-         invariant. Cleared only by taking a seat again. */
+         invariant. Cleared only by taking a seat again: a first buy-in, a
+         cash buy-in, or a tournament rebuy receipt. */
       leftSeatPendingRef.current = true;
       const heroId = String(userId ?? '');
       heroSeatRef.current = 0;
@@ -5974,7 +6083,12 @@ function LiveTablePage({
       pendingSeatStackRef.current = 0;
       setHeroRowStack(null);
       setShowBuyInModal(false);
-      setShowRebuyModal(false);
+      /* The engine's own tournament bust exit is the reason the rebuy offer
+         exists; it must not close the offer the player is reading. Every
+         other exit does. */
+      if (reason !== 'busted_awaiting_rebuy_decision') {
+        setShowRebuyModal(false);
+      }
       // The seat the bust rebuy sheet was offering to refill is gone.
       setBustRebuyOpen(false);
       setBustRebuyDeadlineAt(null);
@@ -6012,7 +6126,12 @@ function LiveTablePage({
           if (mapped) {
             bootNoticeShownRef.current = true;
             say(mapped);
-          } else if (!tableStateRef.current.isTournament) {
+          } else if (
+            !tableStateRef.current.isTournament &&
+            // A tournament bust is never a cash removal, even before the page
+            // has loaded the table's kind; the rebuy offer speaks for it.
+            reason !== 'busted_awaiting_rebuy_decision'
+          ) {
             bootNoticeShownRef.current = true;
             say(seatCopy(seatAsset).removedFromTable);
           }
@@ -6039,9 +6158,9 @@ function LiveTablePage({
   const handleSitBackIn = useCallback(async () => {
     if (!tableId) {
       clearLocalSitOutState();
-      return;
+      return { success: false };
     }
-    if (sitOutRequestInFlightRef.current) return;
+    if (sitOutRequestInFlightRef.current) return { success: false };
     sitOutRequestInFlightRef.current = true;
     const requestVersion = lightningSitOut.requestVersion();
     try {
@@ -6051,12 +6170,13 @@ function LiveTablePage({
           lightningRoom &&
           !lightningSitOut.acknowledge(tableId, String(userId), false, requestVersion)
         )
-          return;
+          return { success: false };
         clearLocalSitOutState();
         toast?.success?.("Welcome Back, You'll Be Dealt Into The Next Hand");
       } else {
         toast?.error?.(res?.error || 'Could Not Sit Back In. Please Try Again.');
       }
+      return res;
     } finally {
       sitOutRequestInFlightRef.current = false;
     }
@@ -6111,7 +6231,9 @@ function LiveTablePage({
       if (res?.success) {
         if (
           lightningRoom &&
-          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion)
+          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion, {
+            blindOff: res.blindOff === true,
+          })
         )
           return;
         setSitOutSince(Date.now());
@@ -6134,78 +6256,6 @@ function LiveTablePage({
     lightningSitOut.requestVersion,
     userId,
   ]);
-
-  // ─── Table Menu Actions ────────────────────────────────────────────────
-  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
-    if (event.tableId !== tableId) return;
-
-    switch (event.action) {
-      case 'SHOW_TOURNAMENT_DOCK':
-        setTournamentDockClosed(false);
-        break;
-      case 'SIT_OUT':
-        void handleSitOut();
-        break;
-      case 'REBUY':
-        /* A SPECTATOR HAS NO SEAT TO TOP UP (audit C2-17). The tab bar offers
-           this item to everyone at the table, and for a spectator the sheet
-           opened only for the engine to answer "Player not seated". The seat's
-           own header control already asked; this asks the same question. */
-        if (tableState.heroSeat <= 0) {
-          toast.info('Take A Seat To Top Up.');
-          break;
-        }
-        /* THE TAB BAR'S TOP UP ITEM WAS DEAD AT A DIAMOND SEAT (2026-09-12).
-           This refused every non-chip asset, and `createDefaultMenuSections`
-           renders the item unconditionally because the tab bar does not know
-           the arena - so a Diamond cash player tapped Top Up and nothing
-           happened at all: no sheet, no refusal, no error. The seat's own
-           control had already learned that a Diamond cash seat HAS a funded
-           top-up writer; this had not. Both read the one rule now. */
-        if (!seatCanAddFunds(tableState.arenaAsset, tableState.isTournament)) break;
-        if (tableState.isTournament) {
-          handleTournamentRebuy();
-        } else {
-          setShowCashier(true);
-        }
-        break;
-      case 'LEADERBOARD':
-        setShowLeaderboard(true);
-        break;
-      case 'SESSION_STATS':
-        setShowSessionStats(true);
-        break;
-      case 'SETTINGS':
-        setShowSettings(true);
-        break;
-      case 'HAND_HISTORY':
-        setShowHandHistory(true);
-        break;
-      case 'HELP':
-        setShowGameRules(true);
-        break;
-      case 'ADD_ON':
-        handleTournamentAddOn();
-        break;
-      case 'LEAVE_TABLE':
-        openLeaveConfirm();
-        break;
-      case 'LEAVE_TABLE_NEXT_HAND':
-        void requestLeaveAtNextHand();
-        break;
-      case 'FORCE_LEAVE_TABLE':
-        handleForceLeaveTable();
-        break;
-      case 'CHANGE_AVATAR':
-        // Open the Hub avatar selector in a new window
-        avatarService.openAvatarSelector();
-        break;
-      case 'TOGGLE_ALIAS':
-        // Instead of hard-toggling, open the new Identity Settings Modal
-        setShowIdentityModal(true);
-        break;
-    }
-  });
 
   // Buy-in processing lock to prevent double-click
   const buyInProcessingRef = useRef(false);
@@ -6319,6 +6369,13 @@ function LiveTablePage({
   const [tournamentEventName, setTournamentEventName] = useState('');
   /* Dan 2026-11-05: the line under the event name says what KIND of event it
      is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
+  const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
+  const shoveOrFold = Boolean(tableId && shoveOrFoldTable === tableId);
+  const explainShoveOrFold = useCallback(() => {
+    setActionErrorData({
+      error: 'This is an All In or Fold tournament. You can only press All In or Fold.',
+    });
+  }, []);
   const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
@@ -6676,6 +6733,13 @@ function LiveTablePage({
   const receiveThrowRef = useRef<
     ((fromSeat: number, toSeat: number, throwableId: string, throwId?: string) => void) | null
   >(null);
+  /* EMOJI REACTIONS IS A RECEIVE GATE (Dan 2026-11-12). Same bridge shape as
+     receiveThrowRef and for the same reason: useTableChat is declared here,
+     v8Settings is not read until the settings hook below. The hook reads this
+     getter at message-delivery time, so switching Emoji Reactions off stops
+     incoming reactions and throwables on the very next message — no reload,
+     no re-subscribe. Starts true: never mute a table before the row loads. */
+  const emojiEnabledRef = useRef(true);
   const {
     chatMessages,
     setChatMessages,
@@ -6695,8 +6759,13 @@ function LiveTablePage({
     parseIncomingMessage,
     unreadCount,
     clearUnread,
-  } = useTableChat(tableId, userId, tableState.players, (fromSeat, toSeat, throwableId, throwId) =>
-    receiveThrowRef.current?.(fromSeat, toSeat, throwableId, throwId)
+  } = useTableChat(
+    tableId,
+    userId,
+    tableState.players,
+    (fromSeat, toSeat, throwableId, throwId) =>
+      receiveThrowRef.current?.(fromSeat, toSeat, throwableId, throwId),
+    () => emojiEnabledRef.current
   );
 
   useSeatMoveAnnouncement({
@@ -6945,7 +7014,7 @@ function LiveTablePage({
   const [ritAcceptedIds, setRitAcceptedIds] = useState<string[]>([]);
   const [ritChooserId, setRitChooserId] = useState<string | null>(null);
   const [ritPotAmount, setRitPotAmount] = useState<number | null>(null);
-  const [ritTotalSeconds, setRitTotalSeconds] = useState(25);
+  const [ritTotalSeconds, setRitTotalSeconds] = useState(10);
   const [ritHeroAccepted, setRitHeroAccepted] = useState(false);
   const [ritChooserHasDecided, setRitChooserHasDecided] = useState(false);
   const ritDeadlineRef = useRef(0);
@@ -7542,13 +7611,6 @@ function LiveTablePage({
   /* One verdict for everything a seat draws about the hand that is over. */
   const feltShowsNoHand = tableHandIsOver || breakHidesCards;
 
-  // Hero's last action this street, for the transient badge under the tab.
-  // Same memo-to-primitive pattern as heroTabCards, same reason.
-  const heroTabLastAction = useMemo(() => {
-    const a = tableState.lastActions?.[tableState.heroSeat - 1];
-    return typeof a === 'string' ? a : '';
-  }, [tableState.lastActions, tableState.heroSeat]);
-
   // Roadmap batch 1 (Dan 2026-08-20): folded state for tab dimming.
   const heroTabFolded = useMemo(() => {
     const hero = tableState.players[tableState.heroSeat - 1];
@@ -7834,7 +7896,7 @@ function LiveTablePage({
   // The original retained-ready publication supplies a fresh authoritative token.
   const heroDecisionReady = tableDecisionIsReady({
     actionContext: tableState.actionContext,
-    allowContextless: Boolean(lightningRoom),
+    allowContextless: false,
     clientStateStale:
       !tableState.players[tableState.heroSeat - 1] ||
       tableState.players[tableState.heroSeat - 1]?.status === 'folded',
@@ -7842,7 +7904,7 @@ function LiveTablePage({
   const heroPromptedToAct = isHeroTurnContext && !suppressPanelForPreAction;
 
   useEffect(() => {
-    if (!isHeroTurnContext || heroDecisionReady || Boolean(lightningRoom)) {
+    if (!isHeroTurnContext || heroDecisionReady) {
       return;
     }
     let cancelled = false;
@@ -7908,6 +7970,10 @@ function LiveTablePage({
         };
       });
     };
+    if (lightningRoom) {
+      if (engineWsStatus === 'connected') requestEngineSnapshot();
+      return;
+    }
     const stopPoller = startMissingDecisionPoller({
       requestSnapshot: () => {
         if (!cancelled && engineWsStatus === 'connected') requestEngineSnapshot();
@@ -7939,28 +8005,34 @@ function LiveTablePage({
     requestEngineSnapshot,
   ]);
 
+  const heroCanDecideWithCards =
+    tableState.isHandInProgress &&
+    tableState.heroSeat > 0 &&
+    tableState.currentPlayerSeat === tableState.heroSeat &&
+    heroDecisionReady &&
+    (tableState.players[tableState.heroSeat - 1]?.holeCards?.length ?? 0) > 0;
+  const liveLightningDecision = Boolean(
+    lightningRoom &&
+    heroCanDecideWithCards &&
+    engineSnapshot &&
+    engineSnapshot.current_player === userId &&
+    Number(engineSnapshot.hand_number) === tableState.handNumber &&
+    heroCardsHandRef.current === tableState.handNumber &&
+    Number(engineSnapshot.turn_start_time_ms) > 0 &&
+    Number(engineSnapshot.turn_deadline_ms) > serverNow()
+  );
   useEffect(() => {
-    if (
-      dealInFlight &&
-      tableState.isHandInProgress &&
-      tableState.heroSeat > 0 &&
-      tableState.currentPlayerSeat === tableState.heroSeat &&
-      heroDecisionReady &&
-      (tableState.players[tableState.heroSeat - 1]?.holeCards?.length ?? 0) > 0
-    ) {
+    if (dealInFlight && heroCanDecideWithCards && (!lightningRoom || liveLightningDecision)) {
+      // The engine starts the first clock after its deal budget. If its
+      // authoritative turn has arrived, local motion must yield immediately.
+      if (lightningRoom) {
+        if (dealStartTimerRef.current) clearTimeout(dealStartTimerRef.current);
+        setDealAnimationKey(0);
+      }
       endDealHold();
       settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
     }
-  }, [
-    dealInFlight,
-    tableState.isHandInProgress,
-    tableState.heroSeat,
-    tableState.currentPlayerSeat,
-    tableState.players,
-    heroDecisionReady,
-    endDealHold,
-  ]);
-
+  }, [lightningRoom, liveLightningDecision, heroCanDecideWithCards, dealInFlight, endDealHold]);
   /**
    * The bell and the buzz follow the SAME boolean. The TURN_CHANGE handler
    * rings on the discrete event (which lands before the snapshot, so the
@@ -8057,7 +8129,6 @@ function LiveTablePage({
       pot: tableState.pot,
       handNumber: tableState.handNumber,
       holeCards: heroTabCards,
-      lastAction: heroTabLastAction,
       folded: heroTabFolded,
       handResult: heroTabResult,
       toCall: isHeroTurn ? heroTabToCall : undefined,
@@ -8075,6 +8146,9 @@ function LiveTablePage({
          A Diamond tournament seat reports false and loses the two items that
          this page would only have refused. */
       canAddFunds: seatCanAddFunds(tableState.arenaAsset, tableState.isTournament),
+      /* The menu drops its seat-only rows for a spectator (2026-11-14). Asked
+         of this page, which owns the seat, not inferred from the tab. */
+      heroSeated: tableState.heroSeat > 0,
       gameCode: heroTabGameCode,
       decision: heroTabDecision,
       timeBank: heroTabTimeBank,
@@ -8103,7 +8177,6 @@ function LiveTablePage({
     heroTabDecision,
     heroTabTimeBank,
     heroTabCards,
-    heroTabLastAction,
     heroTabFolded,
     heroTabResult,
     /* BOTH HALVES OF THE SIT-OUT REPORT. `heroTabSittingOut` alone covers the
@@ -8178,6 +8251,7 @@ function LiveTablePage({
     qualifyingHandLabel: string;
   } | null>(null);
   const [bbjCelebrationData, setBbjCelebrationData] = useState<{
+    chipDestination?: 'table' | 'wallet';
     totalPayout: number;
     loser: { userId: string; username: string; share: number; handName: string };
     winner: { userId: string; username: string; share: number; handName: string };
@@ -8619,16 +8693,9 @@ function LiveTablePage({
       const beatMs =
         Math.round(HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed()) +
         (lightningRoomRef.current ? lightningArrivalWindowMs(lightningArrivalMs) : 0);
-      if (lightningRoomRef.current) {
-        setLightningDealPending(true);
-        if (lightningDealPendingTimerRef.current)
-          clearTimeout(lightningDealPendingTimerRef.current);
-        // Hard ceiling: the cards can never stay hidden past the beat.
-        lightningDealPendingTimerRef.current = setTimeout(() => {
-          lightningDealPendingTimerRef.current = null;
-          setLightningDealPending(false);
-        }, beatMs + 400);
-      }
+      // A fast fold can bring another hand while the old flight is running.
+      // Retire it before the new button beat so its completion cannot release this hand.
+      if (lightningRoomRef.current) setDealAnimationKey(0);
       observeDealPresentationTiming({
         handNumber,
         phase: 'scheduled',
@@ -8640,8 +8707,7 @@ function LiveTablePage({
         dealPresentationHandRef.current = handNumber;
         observeDealPresentationTiming({ handNumber, phase: 'timer-fired' });
         setDealAnimationKey((k) => k + 1);
-        setIsSeatDealing(true);
-        setLightningDealPending(false);
+        setIsSeatDealing(!lightningRoomRef.current);
         if (seatDealTimerRef.current) clearTimeout(seatDealTimerRef.current);
         seatDealTimerRef.current = setTimeout(() => {
           seatDealTimerRef.current = null;
@@ -9053,7 +9119,9 @@ function LiveTablePage({
    * runtime inside a deferred callback, but the law prefers the declaration
    * moved over the exception baselined, and it is right to.
    */
-  const [handSettling, setHandSettling] = useState(false);
+  const [settlingHandNumber, setSettlingHandNumber] = useState<number | null>(null);
+  const handSettling =
+    settlingHandNumber !== null && (!lightningRoom || settlingHandNumber === tableState.handNumber);
 
   const [bombWheelHands, setBombWheelHands] = useState<number | null>(null);
   const bombWheelPendingRef = useRef<number | null>(null);
@@ -9272,6 +9340,16 @@ function LiveTablePage({
    *   2. The effect ran on mount, so simply opening a table POSTed
    *      `straddle=false` to the engine before the player touched anything.
    */
+  /* The tab bar's menu is the only table menu, and it cannot see this seat.
+     It offers Straddle only when told the seat may straddle (2026-11-14). */
+  useEffect(() => {
+    onTableInfoUpdate?.({
+      straddleAvailable: isStraddleAvailable,
+      straddleEnabled: isStraddleEnabled,
+      straddleBusy,
+    });
+  }, [isStraddleAvailable, isStraddleEnabled, straddleBusy, onTableInfoUpdate]);
+
   const handleToggleStraddle = useCallback(
     async (next: boolean) => {
       if (!tableId || straddleBusy) return;
@@ -9546,16 +9624,15 @@ function LiveTablePage({
         /* The AUTOMATIC top-up sizes itself from the stack it can see, and
            it cannot see a queued mid-hand add-on that already fills the seat
            (the engine caps on stack + pending). "Already at the maximum" is
-           then the ordinary answer, not an incident: no toast, no report,
-           the next snapshot re-evaluates. A manual request still hears it. */
-        if (
-          opts?.source === 'auto' &&
-          /maximum buy-in|top up is already pending/i.test(String(res.error || ''))
-        ) {
+           then the ordinary answer, not an incident. A missing Lightning
+           session during feeder play also must not interrupt the table;
+           retain diagnostics for that refusal. Manual requests stay visible. */
+        if (res.code !== 'TRANSPORT' && quietAutoTopUpRefusal(opts?.source, res.error)) {
+          if (res.error === 'Lightning Session Is Unavailable')
+            reportError(new Error(res.error), 'TablePage.auto_top_up_session_unavailable');
           lastAddChipsResultRef.current = { applied: 0, queued: false };
-          // And do not ask again this hand: the effect below re-runs on every
-          // snapshot (`tableState.players` is a new array each time), and
-          // the answer cannot change until the queued chips land.
+          // Do not repeat a refused automatic request on every snapshot.
+          // The existing hand boundary owns the next automatic attempt.
           autoTopUpRefusedForHandRef.current = tableStateRef.current.handNumber ?? null;
           return false;
         }
@@ -10222,8 +10299,6 @@ function LiveTablePage({
   const {
     isSoundEnabled,
     setIsSoundEnabled,
-    isVibrationEnabled,
-    setIsVibrationEnabled,
     isAutoRebuyEnabled,
     setIsAutoRebuyEnabled,
     playTurnAlert,
@@ -10361,6 +10436,7 @@ function LiveTablePage({
   observePublicEventRef.current = observePublicEvent;
 
   // User settings with persistence
+  const { settings: actionControllerSettings } = useActionControllerSettings();
   const { settings: userSettings, updateSetting } = useTableSettings();
   const userSettingsRef = useRef(userSettings);
   useEffect(() => {
@@ -10375,6 +10451,23 @@ function LiveTablePage({
     setAlias: setV8TableAlias,
   } = useUserTableSettings(userId !== 'guest' ? userId : null);
   autoTimeBankPreferenceRef.current = v8SettingsLoading ? undefined : v8Settings.auto_time_bank;
+  /* The live value behind the inbound reaction/throwable gate (see
+     emojiEnabledRef). While the row is still loading the cached value from
+     useUserTableSettings is already in `v8Settings`, so this is the player's
+     own choice from the first paint, not a default that briefly unmutes a
+     table they muted. */
+  emojiEnabledRef.current = !!v8Settings.emoji_enabled;
+
+  /* Drain anything the queue was already holding when Emoji Reactions went
+     off. `handleThrowComplete` is the queue's only exit: calling it for each
+     live event retires that event AND pulls the FIFO backlog forward, so the
+     state settles empty instead of frozen. Without this, switching the
+     setting back on would dump every throw that arrived while it was off. */
+  useEffect(() => {
+    if (v8Settings.emoji_enabled) return;
+    if (activeThrows.length === 0) return;
+    for (const event of activeThrows) handleThrowComplete(event.id);
+  }, [v8Settings.emoji_enabled, activeThrows, handleThrowComplete]);
   useEffect(() => {
     if (
       !tableId ||
@@ -10502,8 +10595,7 @@ function LiveTablePage({
     enabled: socialFeaturesAllowed && !isChatMuted,
     speakingPlayerIds,
   });
-  /* Dan 2026-09-04: "HAS ADDED ON FOR XX.XX" above the head of whoever added
-     on. NOT behind the social gate: it is a fact about the stack, not a line
+  /* Owner 2026-11-10: "+amount Added On" flies from the bank above the head. NOT behind the social gate: it is a fact about the stack, not a line
      from the player, so heads-up tables and muted chat still show it. Fed by
      the engine's `add_on_applied` event — the moment the sweep lands the chips. */
   const seatAddOnBubbles = useSeatAddOnBubbles(engineLastEvent, seatOwnerIds, {
@@ -10542,16 +10634,23 @@ function LiveTablePage({
      IMAGES AND EVERYTHING AT ONCE." Both rasters are fetched, decoded and
      retried by useTableArt; the table is revealed in one frame once they
      have (hooks/useTableArt.ts). */
-  const tableSkinUrl = resolveSkin(
-    tableState.isFinalTable
-      ? 'final_table'
-      : v8Theme.table_id || v8Theme.theme_id || userSettings.theme || ''
-  );
-  const tableBackgroundUrl = resolveBackground(
-    tableState.isFinalTable ? 'final_table_broadcast' : v8Theme.background_id || 'midnight'
-  );
+  const tableSkinId = tableState.isFinalTable
+    ? 'final_table'
+    : v8Theme.table_id || v8Theme.theme_id || userSettings.theme || '';
+  const tableBackgroundId = tableState.isFinalTable
+    ? 'final_table_broadcast'
+    : v8Theme.background_id || 'midnight';
+  const tableSkinUrl = resolveSkin(tableSkinId);
+  const tableBackgroundUrl = resolveBackground(tableBackgroundId);
   const deckReady = useDeckImages(userSettings.fourColorDeck ? '4color' : '2color');
-  const tableArt = useTableArt(tableSkinUrl, tableBackgroundUrl, themeReady, themeScope, deckReady);
+  const tableArt = useTableArt(
+    tableSkinUrl,
+    tableBackgroundUrl,
+    themeReady,
+    themeScope,
+    deckReady,
+    liveLightningDecision
+  );
 
   /**
    * Dan 2026-08-20 — THE CARDS TAB NEVER APPLIED ANYTHING.
@@ -10571,6 +10670,20 @@ function LiveTablePage({
     () => normalizeCardBack(v8Theme.cards_id || userSettings.cardBack),
     [v8Theme.cards_id, userSettings.cardBack]
   );
+
+  const shareAppearance = {
+    faceDeck: v8Theme.faceDeckId,
+    showAvatars: v8Settings.show_avatars,
+    showStackInBB: v8Settings.show_stack_in_bb,
+    skin: tableSkinId,
+    background: tableBackgroundId,
+    buttonSkin: v8Theme.button_id || 'classic-white',
+    cardBack: activeCardBack,
+    fourColor: !!userSettings.fourColorDeck,
+    maxPlayers: tableState.maxPlayers,
+  };
+  const shareAppearanceRef = useRef(shareAppearance);
+  shareAppearanceRef.current = shareAppearance;
 
   // Bible V8 §9.1.3: Frame budget monitoring (dev mode only — warns on >16ms frames)
   useFrameBudgetMonitor();
@@ -10779,6 +10892,7 @@ function LiveTablePage({
         handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         }),
@@ -10849,6 +10963,7 @@ function LiveTablePage({
       const rows = await handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
         tableId,
         gameMode: tableHistoryGameMode,
+        includeObserved: true,
         beforeHandNumber: oldest.handNumber,
         throwOnError: true,
       });
@@ -10897,7 +11012,7 @@ function LiveTablePage({
         return;
       try {
         const savedScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
-        const row = await handHistoryService.getHand(savedId);
+        const row = await handHistoryService.getHand(savedId, { includeObserved: true });
         if (
           handHistoryScopeRef.current !== savedScope ||
           handHistoryViewerRef.current !== userId ||
@@ -10914,7 +11029,13 @@ function LiveTablePage({
         if (stateAfterAwait !== 'ready') return;
         // Lightning's authenticated room announces a physical hand, whereas
         // this page's tableId is the player's pool session, not a tables row.
-        if (!row || (!lightningRoom?.poolSessionId && row.table_id !== tableId)) return;
+        if (
+          !row ||
+          (!lightningRoom?.poolSessionId &&
+            engineSnapshotRef.current?.lightning_observer !== true &&
+            row.table_id !== tableId)
+        )
+          return;
         if (Boolean(row.tournament_id) !== (tableHistoryGameMode === 'tournament')) return;
         const record = adaptServiceHandToPanel(row, userId);
         setHandHistory((prev) => {
@@ -10942,6 +11063,7 @@ function LiveTablePage({
         const hands = await handHistoryService.getPlayerHands(userId, 1, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         });
@@ -10981,8 +11103,147 @@ function LiveTablePage({
 
   // Hand history recording refs — accumulate actions during a hand
   const handActionsRef = useRef<
-    Array<{ seat: number; action: string; amount?: number; street: string }>
+    Array<{ seat: number; action: string; amount?: number; street: string; atMs?: number }>
   >([]);
+  const shareStartedAt = useRef<number | null>(null);
+  const paintedSeats = useRef<{
+    hand: number;
+    latest: Map<number, SeatPaint>;
+    events: SeatPaintEvent[];
+  }>({ hand: 0, latest: new Map(), events: [] });
+  const paintedChips = useRef<{ seen: Set<string>; paths: SharedChip[] }>({
+    seen: new Set(),
+    paths: [],
+  });
+  const observeChipFlights = useCallback(
+    (events: ChipAnimationEvent[]) => {
+      if (
+        !events.length ||
+        !isActive ||
+        document.hidden ||
+        shareStartedAt.current == null ||
+        paintedSeats.current.hand !== tableState.handNumber
+      )
+        return;
+      const rect = tableScalerRef.current?.getBoundingClientRect();
+      if (!rect?.width || !rect.height) return;
+      const at = Math.round(performance.now() - shareStartedAt.current);
+      for (const event of events) {
+        if (paintedChips.current.seen.has(event.id) || paintedChips.current.paths.length >= 4096)
+          continue;
+        paintedChips.current.seen.add(event.id);
+        paintedChips.current.paths.push(captureChip(at, event, rect));
+      }
+    },
+    [isActive, tableState.handNumber]
+  );
+  const paintedDeal = useRef<SharedDeal | undefined>(undefined);
+  const observeDeal = useCallback(
+    (frame: DealFrame) => {
+      if (
+        paintedDeal.current ||
+        shareStartedAt.current == null ||
+        document.hidden ||
+        !isActive ||
+        paintedSeats.current.hand !== frame.handNumber
+      )
+        return;
+      paintedDeal.current = {
+        at: Math.round(performance.now() - shareStartedAt.current),
+        flightMs: frame.flightMs,
+        paths: frame.cards.map((c) => [c.originX, c.originY, c.targetX, c.targetY, c.delay]),
+      };
+    },
+    [isActive]
+  );
+  const refreshCompletedPresentation = useRef<((archiveOnly?: boolean) => void) | null>(null);
+  useEffect(() => {
+    const persistLastHand = () => refreshCompletedPresentation.current?.(true);
+    window.addEventListener('pagehide', persistLastHand);
+    return () => {
+      window.removeEventListener('pagehide', persistLastHand);
+      persistLastHand();
+      refreshCompletedPresentation.current = null;
+    };
+  }, [tableId, userId]);
+  const observeShareSeat = useCallback(
+    (props: SeatSlotProps) => {
+      const journal = paintedSeats.current;
+      if (
+        document.hidden ||
+        !isActive ||
+        !tableState.handNumber ||
+        tableState.handNumber !== journal.hand ||
+        shareStartedAt.current == null ||
+        journal.events.length >= 4096
+      )
+        return;
+      const paint = seatPaint(props);
+      if (!paint || paint.every((v, i) => journal.latest.get(props.seatNumber)?.[i] === v)) return;
+      journal.latest.set(props.seatNumber, paint);
+      journal.events.push([
+        Math.round(performance.now() - shareStartedAt.current),
+        props.seatNumber,
+        ...paint,
+      ]);
+    },
+    [tableState.handNumber, isActive]
+  );
+  const paintedThrows = useRef<{ hand: number; seen: Set<string>; events: SharedThrow[] }>({
+    hand: 0,
+    seen: new Set(),
+    events: [],
+  });
+  useLayoutEffect(() => {
+    const journal = paintedThrows.current;
+    if (
+      !v8Settings.emoji_enabled ||
+      !isActive ||
+      document.hidden ||
+      !journal.hand ||
+      journal.hand !== tableState.handNumber ||
+      shareStartedAt.current === null
+    )
+      return;
+    for (const event of activeThrows) {
+      if (
+        journal.seen.has(event.id) ||
+        journal.events.length >= 256 ||
+        !seatPositionsRef.current[event.toSeat - 1] ||
+        !seatPositionsRef.current[event.fromSeat - 1]
+      )
+        continue;
+      journal.seen.add(event.id);
+      journal.events.push([
+        Math.round(performance.now() - shareStartedAt.current),
+        event.fromSeat,
+        event.toSeat,
+        event.throwable.id,
+        throwSeed(event.id),
+      ]);
+    }
+  }, [activeThrows, isActive, tableState.handNumber, v8Settings.emoji_enabled]);
+  const visibleHeroCards = useRef<{
+    hand: number;
+    user: string;
+    cards: ReturnType<typeof visibleShareCards>;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const hand = tableState.handNumber;
+    const player = tableState.players[tableState.heroSeat - 1];
+    if (!hand || !userId || !isActive || player?.id !== userId || heroCardsHandRef.current !== hand)
+      return;
+    const cards = visibleShareCards(player.holeCards);
+    if (cards.length) visibleHeroCards.current = { hand, user: userId, cards };
+  }, [tableState.handNumber, tableState.players, tableState.heroSeat, userId, isActive]);
+  const visibleBoard = useRef<{ hand: number; times: SharedBoardTiming }>({ hand: 0, times: {} });
+  const observeSharedBoard = useCallback((hand: string | number, count: number) => {
+    const street = boardStreet(count);
+    const started = shareStartedAt.current;
+    const observation = visibleBoard.current;
+    if (started == null || observation.hand !== Number(hand) || !street || document.hidden) return;
+    observation.times[street] ??= Math.round(performance.now() - started);
+  }, []);
   const handStartStacksRef = useRef<Record<number, number>>({});
   /** Button seat captured at HAND_STARTED — the live dealerSeat has already
    *  rotated by the time the hand completes. */
@@ -10991,12 +11252,6 @@ function LiveTablePage({
      both declared here and never touched again. The per-street pot figures
      the hand history actually publishes come from the engine snapshot, not
      from a client-side accumulator. */
-
-  /** SOUND AUDIT 2026-08-27: when the rank-aware showdown cue (spec 43) fires
-   *  playBigWin at REVEAL time, the pot-time escalation below must not fire it
-   *  AGAIN seconds later — that was a double fanfare on every quads-or-better
-   *  hand that also won a 50BB+ pot. Stamp reveal-time fanfares here. */
-  const bigWinFanfareAtRef = useRef(0);
 
   // Play win sound — escalates based on pot size
   const playWinSound = (potAmount?: number) => {
@@ -11009,9 +11264,8 @@ function LiveTablePage({
     const bb = safeBB(currentBlinds);
     const bbWon = (potAmount || tableStateRef.current.pot) / bb;
 
-    if (bbWon >= 50 && Date.now() - bigWinFanfareAtRef.current > 8000) {
+    if (bbWon >= 50) {
       soundService.playBigWin();
-      // Confetti disabled — annoying on repeated wins
     } else {
       soundService.playWin();
     }
@@ -11376,8 +11630,16 @@ function LiveTablePage({
 
   // Tournament bust / rebuy & elimination watcher
   useEffect(() => {
-    if (!tableId || !userId || tableState.heroSeat <= 0) return;
+    if (!tableId || !userId) return;
     if (!tableState.isTournament || !tableState.tournamentId) return;
+    /* The engine's bust exit for THIS tournament and player stands in for the
+       zero-stack seat it has just removed (see tournamentBustExit). */
+    const bustExit =
+      tournamentBustExit !== null &&
+      (tournamentBustExit.tournamentId === null ||
+        tournamentBustExit.tournamentId === tableState.tournamentId) &&
+      tournamentBustExit.userId === String(userId);
+    if (tableState.heroSeat <= 0 && !bustExit) return;
     /**
      * ═══════════════════════════════════════════════════════════════════════
      *  NOBODY IS BUSTED BEFORE A CARD HAS BEEN DEALT (Dan 2026-08-30, r17)
@@ -11413,9 +11675,9 @@ function LiveTablePage({
      * nothing to have lost yet.
      */
     if (!playHasBegun) return;
-    const heroPlayer = tableState.players[tableState.heroSeat - 1];
-    if (!heroPlayer) return;
-    const stack = heroPlayer.stack ?? 0;
+    const heroPlayer = tableState.heroSeat > 0 ? tableState.players[tableState.heroSeat - 1] : null;
+    if (!heroPlayer && !bustExit) return;
+    const stack = bustExit ? 0 : (heroPlayer?.stack ?? 0);
     if (stack > 0) {
       bustPromptFiredRef.current = false;
       /* The rebuy has landed: local state now agrees with the server, so the
@@ -11454,8 +11716,10 @@ function LiveTablePage({
        'eliminated' to PlayerStatus, which would make every seat-status switch
        in the app claim to handle a state the SEAT never renders. */
     const eliminationSignalled =
-      bustHoldRef.current.active || String(heroPlayer.status) === 'eliminated';
+      bustExit || bustHoldRef.current.active || String(heroPlayer?.status) === 'eliminated';
     if (tableState.isHandInProgress && !eliminationSignalled) return;
+    // One episode, one consumption: the exit never re-arms a later run.
+    if (bustExit) setTournamentBustExit(null);
     if (bustPromptFiredRef.current) return;
     if (showRebuyModal) return;
     bustPromptFiredRef.current = true;
@@ -11622,6 +11886,7 @@ function LiveTablePage({
     tableState.isHandInProgress,
     tableState.isTournament,
     tableState.tournamentId,
+    tournamentBustExit,
     showRebuyModal,
     endRebuyPrompt,
     beginBustHold,
@@ -12050,6 +12315,18 @@ function LiveTablePage({
    *   - `null`: a Lightning room with no open pool session: nothing to cash out.
    *   - 'unreadable': the read failed; the seat may hold chips, so it stays.
    */
+  const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
+    room: string;
+    tableId: string;
+    occupancyId: string;
+  } | null>(null);
+  const noteLightningAnchor = useCallback(
+    (anchor: { room: string; tableId: string; occupancyId: string }) => {
+      if (userId) rememberLightningLeaveAnchor(userId, anchor.room, anchor);
+      setVerifiedLightningAnchor(anchor);
+    },
+    [userId]
+  );
   const resolveLightningLeave = async (): Promise<
     LightningAnchorSeat | null | undefined | 'unreadable'
   > => {
@@ -12057,11 +12334,26 @@ function LiveTablePage({
     if (!room || !userId || userId === 'guest') return undefined;
     try {
       const session = await fetchMyLightningSession(room.clusterId);
-      if (!hasLightningRoom(session)) return await fetchStoppedLightningAnchor(session, userId);
+      if (!hasLightningRoom(session)) {
+        if (session.poolSessionId && session.poolSessionId !== room.poolSessionId)
+          throw new Error('Lightning Leave Session Changed');
+        const original =
+          verifiedLightningAnchor?.room === room.poolSessionId
+            ? verifiedLightningAnchor
+            : rememberedLightningLeaveAnchor(userId, room.poolSessionId);
+        return await fetchStoppedLightningAnchor(session, userId, room, original);
+      }
       if (session.poolSessionId !== room.poolSessionId)
         throw new Error('Lightning Leave Session Changed');
       const anchor = lightningAnchorSeat(session);
-      if (anchor) return anchor;
+      if (anchor) {
+        noteLightningAnchor({
+          room: room.poolSessionId,
+          tableId: anchor.anchorTableId,
+          occupancyId: anchor.occupancyId,
+        });
+        return anchor;
+      }
       /* An open session whose anchor the answer did not name: the chips are
          somewhere real, so this is never treated as "nothing to cash out". */
       reportError(
@@ -12086,6 +12378,8 @@ function LiveTablePage({
   }, [leaveAttentionSuppressed]);
 
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
+  const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
+  const [lightningCountReceipt, setLightningCountReceipt] = useState(0);
   const heroHandCount = useHeroHandCount({
     enabled:
       !!userId &&
@@ -12095,6 +12389,9 @@ function LiveTablePage({
     tableId,
     lightningClusterId: lightningRoom?.clusterId ?? null,
     handNumber: tableState.handNumber ?? 0,
+    settledLightningHandId: lightningCountReceipt,
+    onLightningAnchor: noteLightningAnchor,
+    lightningConnected: engineWsStatus === 'connected',
     engine: heroHandsOwedEngine,
   });
   const heroHandsOwed = heroHandCount.owed;
@@ -12109,8 +12406,20 @@ function LiveTablePage({
   // hands. Said when it happens, so the count going up is never a surprise.
   useHandsAddedByDouble(heroHandCount, (added) => toast.info(charlesRuleText(added)));
   /* HIT AND RUN: the hand the countdown starts, the player is told at once. */
-  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands) =>
-    toast.info(countdownStartedText(hands))
+  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands, reason, bigWinBb) =>
+    toast.info(
+      reason === 'big_win' || reason === 'both'
+        ? bigWinStartedText(hands, bigWinBb)
+        : countdownStartedText(hands)
+    )
+  );
+  /* THE COUNTDOWN RESUMES (owner 2026-11-13): back in profit, the paused
+     count picks up where it stopped; said with the resumed number. */
+  useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)));
+  /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
+     win while hands are owed resets the count to ten; said when it happens. */
+  useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
+    toast.info(bigWinStartedText(hands, bigWinBb))
   );
   /**
    * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
@@ -12131,9 +12440,17 @@ function LiveTablePage({
     }
     return fetchMyHandsOwed(target);
   };
-  const handleLeaveTable = async () => {
+  const handleLeaveTable = async (
+    afterLightningHand = false,
+    finalChoice?: {
+      confirmed: boolean;
+      current: () => boolean;
+      ask: (hands: number) => void;
+      accepted: () => void;
+    }
+  ) => {
     if (leaveRequestActiveRef.current) return;
-    const confirmedHandCount = hitRunConfirmedRef.current;
+    const confirmedHandCount = finalChoice?.confirmed ?? hitRunConfirmedRef.current;
     hitRunConfirmedRef.current = false;
     if (!confirmedHandCount) {
       leaveRequestActiveRef.current = true;
@@ -12143,7 +12460,12 @@ function LiveTablePage({
       } finally {
         leaveRequestActiveRef.current = false;
       }
+      if (finalChoice && !finalChoice.current()) return;
       if (owed !== null) {
+        if (finalChoice) {
+          finalChoice.ask(owed);
+          return;
+        }
         hitRunConfirmFromTabRef.current = false;
         setHitRunConfirmHands(owed);
         return;
@@ -12166,11 +12488,20 @@ function LiveTablePage({
 
       // Stop matchmaking first, then fold the exact room hand through its existing
       // server pre-action door. The anchor cashout alone cannot fold a pool hand.
-      if (lightningRoomRef.current && tableId) {
+      if (!afterLightningHand && lightningRoomRef.current && tableId) {
         const snapshot = engineSnapshotRef.current as LightningSnapshotFields | null;
         const handId = lightningHandId(snapshot);
         const hero = tableState.players.find((player) => player?.id === userId);
-        if (handId && hero && hero.status !== 'folded' && hero.status !== 'all_in') {
+        // A hand that already settled has nothing left to fold (a Leave Next
+        // Hand arrives here exactly at that boundary).
+        const handStillLive = tableState.isHandInProgress && !handSettling;
+        if (
+          handStillLive &&
+          handId &&
+          hero &&
+          hero.status !== 'folded' &&
+          hero.status !== 'all_in'
+        ) {
           const folded = await foldLightningHandForLeave({
             tableId,
             handId,
@@ -12193,6 +12524,7 @@ function LiveTablePage({
        there is anything to cash out. */
       const lightningSummaryRoom = lightningRoomRef.current;
       const lightningLeave = await resolveLightningLeave();
+      if (finalChoice && !finalChoice.current()) return;
       if (lightningLeave === 'unreadable') {
         setLeaveAttentionSuppressed(false);
         goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
@@ -12205,6 +12537,7 @@ function LiveTablePage({
         ? lightningLeave.seatNumber
         : Math.max(tableState.heroSeat, heroSeatRef.current);
       if (!tableId || !userId || liveSeat <= 0 || lightningLeave === null) {
+        finalChoice?.accepted();
         leaveWithoutCashout(liveSeat);
         return;
       }
@@ -12277,8 +12610,9 @@ function LiveTablePage({
       const seatAtLeave = tableState.heroSeat;
       const handStatsAsOf = Date.now();
 
-      // The lobby first (rule above). Everything below completes behind it.
-      showLobbyNow();
+      // A final-hand decision can still require an owed-hands choice at the writer.
+      if (finalChoice && !finalChoice.current()) return;
+      if (!finalChoice) showLobbyNow();
 
       try {
         const leaveTableId = lightningLeave ? lightningLeave.anchorTableId : tableId;
@@ -12290,6 +12624,7 @@ function LiveTablePage({
               {
                 seatNumber: lightningLeave.seatNumber,
                 occupancyId: lightningLeave.occupancyId,
+                poolSessionId: lightningSummaryRoom!.poolSessionId,
               },
               confirmedHandCount
             )
@@ -12300,6 +12635,12 @@ function LiveTablePage({
               undefined,
               confirmedHandCount
             );
+        if (result.success) finalChoice?.accepted();
+        if (finalChoice && result.needsConfirmation && result.handsRemaining) {
+          setLeaveAttentionSuppressed(false);
+          finalChoice.ask(result.handsRemaining);
+          return;
+        }
         if (result.success && result.blindOff) {
           // HIT AND RUN: the seat stays, blinded off for the owed hands; the
           // engine cashes it out when they are played. The tab stays too.
@@ -12528,34 +12869,92 @@ function LiveTablePage({
     }
   };
 
-  const leaveNextHand = useLeaveTableNextHand({
-    userId: userId === 'guest' ? '' : (userId ?? ''),
-    tableId: tableId ?? '',
-    occupancyId:
-      lightningRoom?.poolSessionId ||
-      (ownSeatIdentity?.tableId === tableId && ownSeatIdentity?.userId === userId
-        ? ownSeatIdentity.occupancyId
-        : ''),
-    seated: !leftSeatPendingRef.current && (tableState.heroSeat > 0 || !!lightningRoom),
+  // Once the requested final deal is visible, wait for the hero to finish it.
+  const lightningHeroInLiveHand =
+    !!lightningRoom &&
+    lightningLeaveWaitsForHand(
+      engineSnapshot as LightningSnapshotFields | null,
+      settledLightningHandId,
+      userId
+    );
+  /* The queued leave is saved per pool session, so a reload or a reconnect
+     mid-hand still leaves at the end of that hand (Dan 2026-11-12). It runs
+     only once the engine's own snapshot for this page is applied (or the room
+     has closed), never off a half-hydrated felt. */
+  const lightningLeaveAfterHand = useLightningLeaveAfterHand({
+    userId,
+    poolSessionId: lightningRoom?.poolSessionId ?? null,
     ready:
-      !!engineSnapshot &&
-      appliedExitSnapshot?.snapshot === engineSnapshot &&
-      appliedExitSnapshot.tableId === tableId &&
-      appliedExitSnapshot.userId === userId,
-    handLive: tableState.isHandInProgress && !handSettling,
-    completionVersion:
-      lastHandId ||
-      (engineSnapshot && !tableState.isHandInProgress && (tableState.handNumber ?? 0) > 0
-        ? `idle:${tableState.handNumber}`
-        : ''),
-    setSitOut: () => setSitOut(tableId ?? '', true),
-    onLeave: handleLeaveTable,
+      lightningRoomClosed ||
+      (!!engineSnapshot &&
+        appliedExitSnapshot?.snapshot === engineSnapshot &&
+        appliedExitSnapshot.tableId === tableId &&
+        appliedExitSnapshot.userId === userId),
+    connected: engineWsStatus === 'connected' || lightningRoomClosed,
+    roomClosed: lightningRoomClosed,
+    waits: lightningHeroInLiveHand,
+    leave: () => handleLeaveTable(true),
+    finish: async (confirmed, current) => {
+      let result: number | 'accepted' | 'unknown' = 'unknown';
+      await handleLeaveTable(true, {
+        confirmed,
+        current,
+        ask: (hands) => {
+          result = hands;
+        },
+        accepted: () => {
+          result = 'accepted';
+        },
+      });
+      return result;
+    },
+    alreadyLeaving: () => leaveNavigatedRef.current,
+    onError: (error) => {
+      reportError(error, 'TablePage.lightning_leave_after_hand');
+      toast.warning('Could Not Confirm Your Request. Tap Again To Keep Playing.');
+    },
+    performCommand: async (command) => {
+      const room = lightningRoomRef.current;
+      if (!room) return 'unknown';
+      if (command === 'stopping') {
+        const stop = await stopLightningForLeave.receipt();
+        if (!stop) {
+          toast.warning('Could Not Confirm Your Leave. Tap Again To Keep Playing.');
+          return 'unknown';
+        }
+        if (!stop.ok) {
+          toast.warning('Could Not Queue Your Leave. Please Try Again.');
+          return false;
+        }
+        if (stop.inHand && !lightningHeroInLiveHand) return 'awaiting-hand';
+        return true;
+      }
+      const answer = await resumeLightningPlaying(room.clusterId, room.poolSessionId);
+      if (!answer) return 'unknown';
+      if (answer.ok) {
+        stopLightningForLeave.reset();
+        toast.info('You Will Keep Playing.');
+        return false;
+      }
+      if (answer.reason === 'LEAVE_CONFIRMED') {
+        toast.info('Your Confirmed Leave Is Being Completed.');
+        return false;
+      }
+      if (answer.reason === 'SESSION_CHANGED' || answer.reason === 'NO_SESSION') return false;
+      if (answer.reason === 'EXITED') {
+        toast.info('This Hand Already Ended. You Are Leaving The Table.');
+      } else {
+        toast.warning(
+          answer.reason === 'RG_LIMIT'
+            ? 'Your Play Limits Do Not Allow More Hands Right Now.'
+            : 'Could Not Cancel Your Leave. Please Try Again.'
+        );
+      }
+      return true;
+    },
   });
-  const requestLeaveAtNextHand = async () => {
-    const queued = await leaveNextHand.requestLeaveNextHand();
-    if (queued) toast.info('You Will Leave The Table After This Hand.');
-    else toast.warning(leaveNextHand.getError() || 'Could Not Queue Your Leave. Please Try Again.');
-  };
+  const resumingLightning = lightningLeaveAfterHand.busy;
+  const cancelLightningLeave = () => lightningLeaveAfterHand.request('resuming');
 
   // Presentation is keyed by occupancy, independently of the roster exit latch.
   // A roster read can observe leave_pending before the websocket seat_left.
@@ -12565,7 +12964,13 @@ function LiveTablePage({
       !userId ||
       leaveRequestActiveRef.current ||
       leaveNavigatedRef.current ||
-      tableStateRef.current.isTournament
+      tableStateRef.current.isTournament ||
+      /* The engine's tournament bust exit is never a cash leave from another
+         device. On a freshly opened page the table's own kind can still be
+         loading when the bust lands, and this used to read that as a remote
+         cash leave: a cash session summary and the club lobby, over the rebuy
+         offer the player was owed (2026-11-11). */
+      evictionReasonRef.current === TOURNAMENT_BUST_EXIT
     )
       return;
     const remoteSessionSeat = Math.max(heroSeatRef.current, tableStateRef.current.heroSeat);
@@ -13173,7 +13578,22 @@ function LiveTablePage({
     if (ev.kind === 'bust_rebuy_window' && ev.table_id === tableId && ev.user_id === userId) {
       const remainingMs = Number(ev.remaining_ms);
       if (Number.isFinite(remainingMs) && remainingMs > 0) {
-        setBustRebuyDeadlineAt(Date.now() + remainingMs);
+        /* One deadline per bust (utils/bustRebuyDeadline): a resend may bring
+           it forward, never push it back; a frame of an earlier bust, or one
+           that reaches a funded seat, changes nothing. */
+        const heroIdx = tableStateRef.current.heroSeat - 1;
+        const hero = heroIdx >= 0 ? tableStateRef.current.players[heroIdx] : null;
+        setBustRebuyDeadlineAt((prev) => {
+          const next = nextBustRebuyClock(
+            { localDeadlineAt: prev, serverDeadlineAt: bustRebuyServerDeadlineRef.current },
+            ev,
+            Date.now(),
+            hero ? hero.stack : null
+          );
+          if (!next) return prev;
+          bustRebuyServerDeadlineRef.current = next.serverDeadlineAt;
+          return next.localDeadlineAt;
+        });
       }
       return;
     }
@@ -13421,7 +13841,12 @@ function LiveTablePage({
               holeCards: parsedCards,
               showCards: true,
             };
-            if (parsedCards.length >= 2) heroHandOutcomeRef.current.dealtIn = true;
+            if (parsedCards.length >= 2) {
+              heroHandOutcomeRef.current.dealtIn = true;
+              const recoveredHand = Number(data.hand_number);
+              if (Number.isSafeInteger(recoveredHand) && recoveredHand > 0)
+                heroCardsHandRef.current = recoveredHand;
+            }
             cardsApplied = true;
             heroCardsRecoveredRef.current = true;
           }
@@ -13708,7 +14133,38 @@ function LiveTablePage({
       // seen a hand finish yet, but it races the insert — tapping Replay
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
-      if (eventType === 'hand_history_saved') {
+      if (eventType === 'hand_history_saved' || eventType === 'observed_hand_saved') {
+        const receiptRoom = handState.pool_session_id;
+        if (
+          receiptRoom &&
+          receiptRoom === lightningRoomRef.current?.poolSessionId &&
+          handState.player_id === userId
+        ) {
+          const scope = JSON.stringify([receiptRoom, userId]);
+          setSelectedLightningReview((open) => {
+            if (
+              !open ||
+              open.deal.scope !== scope ||
+              open.deal.number !== handState.hand_number ||
+              (open.deal.id && open.deal.id !== handState.lightning_hand_id)
+            )
+              return open;
+            const archiveId = typeof handState.hand_id === 'string' ? handState.hand_id : null;
+            return open.receipt?.archiveId === archiveId
+              ? open
+              : { ...open, receipt: { archiveId } };
+          });
+        }
+        if (lightningRoomRef.current && typeof handState.lightning_hand_id === 'string') {
+          // Every commit can advance the anchor count, including an earlier fold.
+          // Only the displayed hand's receipt can change its settlement state.
+          setLightningCountReceipt((receipt) => receipt + 1);
+          if (
+            lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) ===
+            handState.lightning_hand_id
+          )
+            setSettledLightningHandId(handState.lightning_hand_id);
+        }
         const savedId = handState.hand_id as string | undefined;
         if (savedId) {
           handHistoryFetchedAtRef.current = null;
@@ -13906,7 +14362,7 @@ function LiveTablePage({
         const chooserId = handState.chooserPlayerId as string;
         const allPlayerIds = (handState.allPlayerIds as string[]) || [];
         const maxRuns = (handState.maxRuns as number) || 2;
-        const timeoutSeconds = Number(handState.timeoutSeconds) || 25;
+        const timeoutSeconds = Number(handState.timeoutSeconds) || 10;
         const deadlineTs = Number(handState.deadline_ts) || Date.now() + timeoutSeconds * 1000;
 
         // The waiting strip rides the felt for EVERYONE — spectators and
@@ -13940,13 +14396,10 @@ function LiveTablePage({
         );
         setRitTimer(Math.max(0, Math.ceil((deadlineTs - Date.now()) / 1000)));
         setDecisionDeadline({ kind: 'rit', at: deadlineTs });
-        // Reference cadence: the table settles into "waiting" for a beat,
-        // THEN the panel slides in. rit_single_run cancels a pending open.
+        // The decision clock is already running: show its controls immediately.
         if (ritPanelOpenTimerRef.current) clearTimeout(ritPanelOpenTimerRef.current);
-        ritPanelOpenTimerRef.current = setTimeout(() => {
-          ritPanelOpenTimerRef.current = null;
-          if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
-        }, 1500 * getAnimationSpeed());
+        ritPanelOpenTimerRef.current = null;
+        if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
         return;
       }
 
@@ -14542,8 +14995,25 @@ function LiveTablePage({
         const updatedStacks =
           (handState.updatedStacks as Array<{ userId: string; stack: number }>) || [];
 
-        // Update local player stacks immediately (so stacks reflect BBJ payout)
-        if (updatedStacks.length > 0) {
+        if (lightningRoomRef.current) {
+          const award = lightningJackpotAward(userId, {
+            loser: loserPayout,
+            winner: winnerPayout,
+            tablePlayerIds,
+            perPlayerShare: perPlayer,
+          });
+          if (award > 0) {
+            const label = handState.kind === 'mini' ? 'Mini Bad Beat Jackpot' : 'Bad Beat Jackpot';
+            toast.success(
+              `${label}: You Won ${money(award)} From Hand #${handState.hand_number}.`,
+              6000
+            );
+            retryAccountBalance();
+          }
+        }
+        // Lightning awards credit the wallet, not the current hand's stack.
+        // Its payload carries the finished hand's stacks, even after fast fold.
+        if (!lightningRoomRef.current && updatedStacks.length > 0) {
           setTableState((prev) => ({
             ...prev,
             players: prev.players.map((p) => {
@@ -14569,6 +15039,7 @@ function LiveTablePage({
           const hitData = bbjHitDataRef.current;
 
           setBbjCelebrationData({
+            chipDestination: lightningRoomRef.current ? 'wallet' : 'table',
             totalPayout,
             loser: {
               userId: loserPayout?.userId || hitData?.loserUserId || '',
@@ -14622,7 +15093,7 @@ function LiveTablePage({
                   ? perPlayer
                   : 0;
           const credits: Record<string, number> = {};
-          for (const su of updatedStacks) {
+          for (const su of lightningRoomRef.current ? [] : updatedStacks) {
             const amt = shareForSeat(su.userId);
             if (amt > 0) credits[su.userId] = amt;
           }
@@ -14793,7 +15264,6 @@ function LiveTablePage({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShareHand, setShowShareHand] = useState(false);
-  const [showTableMenu, setShowTableMenu] = useState(false);
   /* True while THIS table's bet/raise sizing overlay is open. The overlay is a
      tall fixed panel and the bottom-left HUD corner stands inside its band, so
      the corner is unmounted for as long as it is up rather than merely hidden
@@ -14812,6 +15282,10 @@ function LiveTablePage({
      (Dan 2026-08-28). Distinct from showTournamentInfo, which is the smaller
      four-tab summary now reached only from the hero hub's Stats tab. */
   const [showTournamentLobby, setShowTournamentLobby] = useState(false);
+  /** A tab the lobby should open on (the "Prizes Are Set" popup asks for Bounties). */
+  const [tournamentLobbyTabRequest, setTournamentLobbyTabRequest] = useState<
+    { tab: string; seq: number } | undefined
+  >(undefined);
   /* THE TOURNAMENT INFO DOCK (Dan 2026-10-04): "A COLLAPSABLE BOX, UNDER THE
      'ACTION BAR' ON THE BOTTOM OF THE PAGE". Open or collapsed is the
      player's choice and is remembered on this device. It is ONE value for
@@ -14850,7 +15324,7 @@ function LiveTablePage({
        tab. Setting the flag with no cluster left it `true` against a modal that
        renders null, so the lobby popped open unbidden when the cluster read
        landed seconds later. Read from the ref, not from the closure. */
-    if (!tableStateRef.current?.clusterId) return;
+    if (!lightningRoomClusterId && !tableStateRef.current?.clusterId) return;
     setShowMustMoveLobby(true);
   });
 
@@ -14865,6 +15339,12 @@ function LiveTablePage({
     setShowTournamentLobby(true);
   });
   const [standUpNextBB, setStandUpNextBB] = useState(false);
+  /* The tab bar's Stand Up Next Big Blind badge reads this off the tab. It was
+     never reported, so the row toggled the real setting and showed nothing
+     (2026-11-14). Same route as isAutoRebuyEnabled. */
+  useEffect(() => {
+    onTableInfoUpdate?.({ standUpNextBB });
+  }, [standUpNextBB, onTableInfoUpdate]);
 
   const [sharedHandData, setSharedHandData] = useState<any>(null);
   /* SHARE AS VIDEO (Phase 9.1): the hand_history id behind sharedHandData
@@ -14880,8 +15360,8 @@ function LiveTablePage({
   const [heroProfile, setHeroProfile] = useState<NameableProfile | null>(null);
 
   // Sync settings when changed from other components (like TableMenu)
-  useMasterBusSubscription('TABLE_MENU_ACTION', (event: any) => {
-    if (event.tableId && event.tableId !== tableId) return;
+  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
+    if (event.tableId !== tableId) return;
     if (event.action === 'STAND_UP_BB') {
       // STALE CLOSURE. This bus callback is registered once, so `standUpNextBB`
       // inside it is whatever the value was at registration - `!standUpNextBB`
@@ -14904,6 +15384,16 @@ function LiveTablePage({
       const auto = tableStateRef.current;
       if (!seatCanAddFunds(auto.arenaAsset, auto.isTournament) || auto.isTournament) return;
       setIsAutoRebuyEnabled((prev) => !prev);
+    } else if (event.action === 'TOGGLE_STRADDLE') {
+      /* The same guard the row is offered under: the engine refuses a
+         straddle the host has not enabled, and an empty seat has none. */
+      if (!isStraddleAvailable) return;
+      void handleToggleStraddle(!isStraddleEnabled);
+    } else if (event.action === 'CLUB_MARKETPLACE') {
+      masterBus.emit('OPEN_HUB_TAB', {
+        path: hubMarketplaceDestination('', actualClubIdRef.current),
+        requestedBy: userId,
+      });
     } else if (event.action === 'TOGGLE_SOUNDS') {
       /* Fixed 2026-08-28: this wrote 'table_sound_muted' — a key NOTHING
          reads (soundGate documents it as outside the contract) — and emitted
@@ -14934,6 +15424,76 @@ function LiveTablePage({
          menu item could only ever turn haptics ON: tapping "Vibrations" to mute
          them set them to `!false` = true, every time. */
       updateSetting('isHapticEnabled', !isVibrationPreferred());
+    }
+    /* The rows that open or do something, as opposed to the switches above.
+       ONE subscription answers the menu (2026-11-14): there were two, 9,000
+       lines apart with different guards, and a new row had to guess which.
+       tests/the-table-has-one-menu.law.test.ts counts them. */
+    switch (event.action) {
+      case 'SHOW_TOURNAMENT_DOCK':
+        setTournamentDockClosed(false);
+        break;
+      case 'SIT_OUT':
+        void handleSitOut();
+        break;
+      case 'REBUY':
+        /* A SPECTATOR HAS NO SEAT TO TOP UP (audit C2-17). The tab bar offers
+           this item to everyone at the table, and for a spectator the sheet
+           opened only for the engine to answer "Player not seated". The seat's
+           own header control already asked; this asks the same question. */
+        if (tableState.heroSeat <= 0) {
+          toast.info('Take A Seat To Top Up.');
+          break;
+        }
+        /* THE TAB BAR'S TOP UP ITEM WAS DEAD AT A DIAMOND SEAT (2026-09-12).
+           This refused every non-chip asset, and `createDefaultMenuSections`
+           renders the item unconditionally because the tab bar does not know
+           the arena - so a Diamond cash player tapped Top Up and nothing
+           happened at all: no sheet, no refusal, no error. The seat's own
+           control had already learned that a Diamond cash seat HAS a funded
+           top-up writer; this had not. Both read the one rule now. */
+        if (!seatCanAddFunds(tableState.arenaAsset, tableState.isTournament)) break;
+        if (tableState.isTournament) {
+          handleTournamentRebuy();
+        } else {
+          setShowCashier(true);
+        }
+        break;
+      case 'LEADERBOARD':
+        setShowLeaderboard(true);
+        break;
+      case 'SESSION_STATS':
+        setShowSessionStats(true);
+        break;
+      case 'SETTINGS':
+        setShowSettings(true);
+        break;
+      case 'HAND_HISTORY':
+        setShowHandHistory(true);
+        break;
+      case 'HELP':
+        setShowGameRules(true);
+        break;
+      case 'ADD_ON':
+        handleTournamentAddOn();
+        break;
+      case 'LEAVE_TABLE':
+        openLeaveConfirm();
+        break;
+      case 'LEAVE_TABLE_NEXT_HAND':
+        void requestLeaveAtNextHand();
+        break;
+      case 'FORCE_LEAVE_TABLE':
+        handleForceLeaveTable();
+        break;
+      case 'CHANGE_AVATAR':
+        // Open the Hub avatar selector in a new window
+        avatarService.openAvatarSelector();
+        break;
+      case 'TOGGLE_ALIAS':
+        // Instead of hard-toggling, open the new Identity Settings Modal
+        setShowIdentityModal(true);
+        break;
     }
   });
 
@@ -15013,6 +15573,7 @@ function LiveTablePage({
          same courtesy: up to five attempts, 1s/2s/4s/8s backoff, stopping
          the moment the component unmounts or data lands. */
       type TableBootstrapRow = {
+        all_in_or_fold?: boolean;
         id: string;
         name: string | null;
         game_variant: string | null;
@@ -15078,7 +15639,7 @@ function LiveTablePage({
         const res = await supabase
           .from('tables')
           .select(
-            'id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), name, game_variant, game_type, tournament_id, stakes, small_blind, big_blind, max_players, club_id, settings, min_buy_in, max_buy_in, straddle_enabled, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_variant, bomb_pot_announce_seconds, bomb_pot_ante_fixed, bomb_pot_min_players, bomb_pot_button_policy, cluster_id, nit_game, maintain_percent_min, maintain_hands'
+            'id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), name, game_variant, game_type, tournament_id, all_in_or_fold, stakes, small_blind, big_blind, max_players, club_id, settings, min_buy_in, max_buy_in, straddle_enabled, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_variant, bomb_pot_announce_seconds, bomb_pot_ante_fixed, bomb_pot_min_players, bomb_pot_button_policy, cluster_id, nit_game, maintain_percent_min, maintain_hands'
           )
           .eq('id', tableId)
           .maybeSingle();
@@ -15159,6 +15720,7 @@ function LiveTablePage({
       if (isMounted) setTableLoadFailure(null);
 
       if (table && !error) {
+        setShoveOrFoldTable(table.tournament_id && table.all_in_or_fold ? table.id : null);
         let arenaIdentity;
         try {
           arenaIdentity = parseTableArenaIdentity(table);
@@ -15670,7 +16232,7 @@ function LiveTablePage({
           const { data: tournData, error: tournError } = await supabase
             .from('tournaments')
             .select(
-              'name, format_contract, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_regular_pool_percent, bounty_amount, spin_multiplier, spin_locked_tiers, spin_reveal_at, prize_pool, buy_in_amount, buy_in_fee, max_players, starting_chips, status, blind_structure, current_level, level_started_at, started_at, variant, tournament_type, satellite_target_id, satellite_target, final_table_triggered, add_on_available, addon_cost, addon_chips, addon_period_triggered, addon_period_started_at, addon_period_ends_at, late_reg_levels, rebuy_levels, late_reg_mins, addon_from_start, prize_pool_finalized, start_time, is_rebuy, is_reentry'
+              'name, format_contract, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_regular_pool_percent, bounty_amount, spin_multiplier, spin_locked_tiers, spin_reveal_at, prize_pool, buy_in_amount, buy_in_fee, max_players, starting_chips, status, blind_structure, current_level, level_started_at, started_at, variant, tournament_type, satellite_target_id, satellite_target, final_table_triggered, add_on_available, addon_cost, addon_chips, addon_period_triggered, addon_period_started_at, addon_period_ends_at, late_reg_levels, rebuy_levels, late_reg_mins, addon_from_start, all_in_or_fold, blind_speed, club_id, union_id, prize_pool_finalized, start_time, is_rebuy, is_reentry'
             )
             .eq('id', table.tournament_id)
             .maybeSingle();
@@ -15680,6 +16242,7 @@ function LiveTablePage({
               tournamentId: table.tournament_id,
             });
           }
+          setShoveOrFoldTable(table.all_in_or_fold || tournData?.all_in_or_fold ? table.id : null);
           loadedTournamentStatus = typeof tournData?.status === 'string' ? tournData.status : null;
           const satelliteTarget = tournData?.satellite_target_id ?? tournData?.satellite_target;
           loadedSatelliteTarget =
@@ -15806,14 +16369,16 @@ function LiveTablePage({
             const fmt = formatKind === 'unknown' ? null : formatKind;
             setTournamentFormat(fmt);
             setTournamentBuyInTotal(
-              Math.round(Number(tournData.buy_in_amount ?? 0) + Number(tournData.buy_in_fee ?? 0))
+              totalBuyIn(
+                Number(tournData.buy_in_amount ?? 0),
+                Number(tournData.buy_in_fee ?? 0),
+                tournData
+              )
             );
             setTournamentEventName(
               formatTournamentTitle(String((tournData as { name?: unknown }).name ?? '').trim())
             );
-            setTournamentTypeLine(
-              fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
-            );
+            setTournamentTypeLine(tournamentTypeLabel(tournData));
             // Seat-first = a Spin (3 seats) or a Heads-Up (2 seats) that has
             // not started. Once it is RUNNING the seats are no longer for
             // sale and the normal tournament table rules apply.
@@ -17431,6 +17996,20 @@ function LiveTablePage({
                 if (claimMysteryLiveAnnouncement(mysteryLiveAnnouncedRef.current, tid)) {
                   toast.info(MYSTERY_BOUNTIES_LIVE_TEXT, 4000);
                 }
+              } else if (data?.type === 'mystery_bounty_sealed') {
+                /* THE PRIZES ARE SET (Dan 2026-11-13). Entry has closed and the
+                   ladder is sealed from the finalized pool; tell the table once
+                   per event, and let the tap open the lobby on Bounties. */
+                const tid = tableStateRef.current.tournamentId || table.tournament_id;
+                if (claimMysteryLiveAnnouncement(mysteryPrizesSetAnnouncedRef.current, tid)) {
+                  toast.info(MYSTERY_BOUNTY_PRIZES_SET_TEXT, 6000, () => {
+                    setTournamentLobbyTabRequest((r) => ({
+                      tab: 'bounties',
+                      seq: (r?.seq ?? 0) + 1,
+                    }));
+                    setShowTournamentLobby(true);
+                  });
+                }
               } else if (data?.type === 'mystery_bounty_complete') {
                 // SECTION 63: reveal, animation done, UI clears, button moves,
                 // next hand. The queue at this table is empty, so nothing more
@@ -18226,30 +18805,14 @@ function LiveTablePage({
     if (tableState.arenaAsset === 'diamonds') retryAccountBalance();
   });
 
-  // ── Bus Listener: live settings sync (theme, sound, deck changes) ──
-  useMasterBusSubscription('SETTINGS_UPDATED', (payload: any) => {
-    const s = payload?.settings || payload;
-    if (!s) return;
-    // Apply sound preference if changed
-    // MUTE ONLY (2026-09-27). This payload is the Settings page's cached copy,
-    // re-sent on every tab return and theme change, and it goes stale the
-    // moment the player mutes at the table or in the menu (those write the
-    // sound keys, not this cache). So it may only ever turn sound OFF: a stale
-    // `true` here must never un-mute a player. Sound ON from the Settings page
-    // already arrives through useTableSettings (applyGateChanges -> setEnabled).
-    // Off goes through the engine, which also returns the Safari audio session
-    // to "ambient", so a player's music is not left paused.
-    if (s.soundEnabled === false) {
-      soundService.setEnabled(false);
-    }
-    // 2026-08-18: a `deckStyle` branch used to live here writing
-    // STORAGE_KEYS.DECK_STYLE. Nothing ever sent that key and nothing ever read
-    // that storage entry, and its presence made this listener look like the
-    // route by which the settings page reached the table. It was not — the real
-    // route is useTableSettings' SETTINGS_CHANGED subscription, which the
-    // settings page now feeds via updateSettings(). Deck style, card back, pot
-    // odds, animation speed and the rest all arrive that way.
-  });
+  /* NO SETTINGS_UPDATED LISTENER, DELIBERATELY (2026-11-14). The one here read
+     `soundEnabled` out of the Settings page's cached copy, which the account
+     sync and the theme mirror re-send and which goes stale the moment a player
+     changes sound at the table. It could un-mute (fixed 2026-09-27) and then
+     re-mute (narrowed earlier on 2026-11-14) a player against their own
+     choice. The Settings page reaches the table through useTableSettings
+     (updateSettings -> applyGateChanges), in both directions, so this route
+     carried nothing that one does not. Nothing at the table reads that cache. */
 
   // ── Bus Listeners: Phase 8 — Action Rejection + Timer Events ──
   useMasterBusSubscription('ACTION_REJECTED', (payload: any) => {
@@ -18785,6 +19348,33 @@ function LiveTablePage({
   }, [tableState]);
 
   /**
+   * THE POT GOES TO THE CHAIR THE WINNER WON IT IN (Dan 2026-11-15).
+   *
+   * "THE PREVIOUS HAND PLAYED, DID NOT AWARD THE POT, OR SHIP IT TO THE
+   * WINNING PLAYER ANIMATION." Hand 59517030 (Kings Club, Madness PLO5 1/2):
+   * the seat-4 winner stood up 1.26 s after the hand ended, while the
+   * four-way showdown was still being read, so by the time pot_win was
+   * handled the winner had no seat in the snapshot and the fan flew to the
+   * neutral point under the pot. Every player's LAST seat index is kept here,
+   * so a winner who has already left is still paid on the felt at the chair
+   * the pot was won from. The engine now also keeps that chair until the push
+   * has landed (completionPresentation in ServerTableEngineSeating); this is
+   * the client half, and it covers every client still holding an old engine.
+   */
+  const lastSeatIdxByPlayerRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    tableState.players.forEach((p, idx) => {
+      if (p?.id) lastSeatIdxByPlayerRef.current.set(p.id, idx);
+    });
+  }, [tableState.players]);
+  /** Live seat index, else the seat this player last held on this client, else -1. */
+  const winnerSeatIdx = useCallback((playerId: string): number => {
+    const live = tableStateRef.current.players.findIndex((p) => p?.id === playerId);
+    if (live >= 0) return live;
+    return lastSeatIdxByPlayerRef.current.get(playerId) ?? -1;
+  }, []);
+
+  /**
    * The resolved format, readable from inside the engine-event callback.
    *
    * That callback closes over its own render, so it cannot read
@@ -18959,6 +19549,16 @@ function LiveTablePage({
     const evt = { type: normalizedType, data: normalizedData };
     void engineLastEvent;
     observePublicEventRef.current(tableId ?? '', evt.type, evt.data);
+
+    if (
+      lightningRoomRef.current &&
+      isPreviousLightningSettlement(
+        evt.type,
+        evt.data.hand_number,
+        Number(engineSnapshotRef.current?.hand_number)
+      )
+    )
+      return;
 
     switch (evt.type) {
       case 'SEAT_KNOCKOUT':
@@ -19508,6 +20108,10 @@ function LiveTablePage({
           if (log.length < 400) {
             log.push({
               seat: actionSeat,
+              atMs:
+                shareStartedAt.current == null
+                  ? undefined
+                  : Math.round(performance.now() - shareStartedAt.current),
               action,
               amount: actionAmount > 0 ? actionAmount : undefined,
               street: tableStateRef.current.boardStage || 'preflop',
@@ -19646,33 +20250,67 @@ function LiveTablePage({
       // change. The four events below were added with this fix; client must
       // act on them directly, never wait for snapshot diff.
       case 'HAND_STARTED': {
-        if (lightningRoomRef.current && tableId) {
-          const reached = lightningMilestoneRef.current.note(
-            tableId,
-            { ...evt.data, type: 'hand_started' },
-            readLightningPrefs().milestoneHands
-          );
-          // Background rooms count their events but never replay a missed cue.
-          // A decision in any room outranks an optional milestone.
+        const startedHandNumber = Number(evt.data.hand_number) || 0;
+        if (lightningRoomRef.current) {
+          const snapshotHand = Number(engineSnapshotRef.current?.hand_number) || 0;
+          const displayedHand = tableStateRef.current.handNumber || 0;
+          // Event and snapshot sequences are independent. Never unwind a newer
+          // hand, or replay boundary cleanup on a hand already being played.
+          if (startedHandNumber <= 0 || startedHandNumber < Math.max(snapshotHand, displayedHand))
+            break;
           if (
-            reached &&
-            lightningCaps.sound &&
-            ambientSoundsAllowed &&
-            !document.hidden &&
-            !pendingLightningDecisions().some((d) => d.deadlineAt > serverNow())
+            startedHandNumber === snapshotHand &&
+            isLightningIdleSnapshot(engineSnapshotRef.current as LightningSnapshotFields)
+          )
+            break;
+          if (tableId) {
+            const reached = lightningMilestoneRef.current.note(
+              tableId,
+              { ...evt.data, type: 'hand_started' },
+              readLightningPrefs().milestoneHands
+            );
+            // Background rooms count their events but never replay a missed cue.
+            // A decision in any room outranks an optional milestone.
+            if (
+              reached &&
+              lightningCaps.sound &&
+              ambientSoundsAllowed &&
+              !document.hidden &&
+              !pendingLightningDecisions().some((d) => d.deadlineAt > serverNow())
+            ) {
+              soundService.playLightningMilestone();
+            }
+          }
+          const sameLiveHand =
+            snapshotHand === startedHandNumber &&
+            displayedHand === startedHandNumber &&
+            tableStateRef.current.isHandInProgress;
+          const dealtToHero =
+            sameLiveHand &&
+            heroCardsHandRef.current === startedHandNumber &&
+            (tableStateRef.current.players[tableStateRef.current.heroSeat - 1]?.holeCards?.length ??
+              0) > 0;
+          if (
+            lastDealPresentationHandRef.current === startedHandNumber ||
+            dealtToHero ||
+            (sameLiveHand &&
+              (tableStateRef.current.boardStage !== 'preflop' ||
+                Number(engineSnapshotRef.current?.turn_start_time_ms) > 0))
           ) {
-            soundService.playLightningMilestone();
+            lastDealPresentationHandRef.current = startedHandNumber;
+            unpresentedHandTransitionRef.current = null;
+            pendingHandStartRecoveryRef.current = null;
+            break;
           }
         }
         /* A new hand is taking action again (Dan 2026-09-07, item 5). The
            partner of the flag set at HAND_COMPLETE: cleared HERE rather than
            on a timer, because the start of a hand is an event and a duration
            would only be a guess at one. */
-        setHandSettling(false);
+        setSettlingHandNumber(null);
         // AUDIT FIX 2026-07-19: track the new hand number and CLEAR hero hole
         // cards so a dropped card-insert can't leave the previous hand's cards
         // showing; then re-arm the hand-aware fetch to recover the new cards.
-        const startedHandNumber = Number((evt.data as any)?.hand_number) || 0;
         if (startedHandNumber > 0) heroHandRef.current = startedHandNumber;
         // The authoritative discrete event arrived, so any transport-gap arm
         // has done its job. The shared scheduler below records this hand and
@@ -19882,6 +20520,14 @@ function LiveTablePage({
         // and the starting stacks BEFORE any chips move, so the shared replay
         // shows what each player sat down with rather than what they finished
         // with. (The button seat is needed for position labels on the replay.)
+        refreshCompletedPresentation.current?.();
+        refreshCompletedPresentation.current = null;
+        paintedChips.current = { seen: new Set(), paths: [] };
+        paintedDeal.current = undefined;
+        shareStartedAt.current = performance.now();
+        paintedSeats.current = { hand: Number(startedHandNumber), latest: new Map(), events: [] };
+        visibleBoard.current = { hand: Number(startedHandNumber), times: {} };
+        paintedThrows.current = { hand: Number(startedHandNumber), seen: new Set(), events: [] };
         handActionsRef.current = [];
         handStartStacksRef.current = {};
         {
@@ -19900,10 +20546,20 @@ function LiveTablePage({
           heldCardsHand: heroCardsHandRef.current,
           dealCueHand: heroDealSoundHandRef.current,
         });
+        // A new seat snapshot and its private deal can arrive before HAND_STARTED.
+        // Preserve the already displayed hand, including the server's active clock.
+        const lightningHandOnScreen = Boolean(
+          lightningRoomRef.current &&
+          startedHandNumber > 0 &&
+          Number(engineSnapshotRef.current?.hand_number) === startedHandNumber &&
+          tableStateRef.current.handNumber === startedHandNumber &&
+          tableStateRef.current.isHandInProgress
+        );
         if (!heroCardsAlreadyDealtForThisHand) {
           heroEngineCardOrderRef.current = null;
         }
         setTableState((prev) => {
+          if (lightningHandOnScreen && prev.handNumber === startedHandNumber) return prev;
           // ANIMATION AUDIT 2026-08-19: 'folded' is per-hand state. It was
           // never reset here, so DealAnimation (which mounts off this event,
           // often before the first snapshot of the new hand arrives) skipped
@@ -20477,10 +21133,16 @@ function LiveTablePage({
             seat: number;
             action: string;
             amount?: number;
+            atMs?: number;
           }): ShareableAction | null => {
             const mapped = LIVE_SHARE_VERB[(a.action || '').toLowerCase().replace(/[\s-]/g, '_')];
             if (!mapped) return null;
-            const out: ShareableAction = { seat: a.seat, action: mapped, amount: a.amount };
+            const out: ShareableAction = {
+              seat: a.seat,
+              action: mapped,
+              amount: a.amount,
+              atMs: a.atMs,
+            };
             /* An ante is dead money: in the pot, never in front of the seat. */
             if (mapped === 'ANTE') out.dead = true;
             return out;
@@ -20507,6 +21169,9 @@ function LiveTablePage({
                 ? {
                     seat: i + 1,
                     name: p.name || `Seat ${i + 1}`,
+                    avatar: p.avatar,
+                    frame: p.frame,
+                    aura: p.aura,
                     // Stack as it was at the top of the hand, not post-payout.
                     stack: handStartStacksRef.current[i + 1] ?? p.stack ?? 0,
                     // Only cards actually visible on screen travel in the link
@@ -20521,6 +21186,81 @@ function LiveTablePage({
             .filter(Boolean) as ShareableHand['players'];
 
           if (sharePlayers.length > 0) {
+            const appearance = {
+              ...shareAppearanceRef.current,
+              positions: st.positions.slice(),
+              deal: paintedDeal.current,
+              chips: [...paintedChips.current.paths],
+              throws:
+                paintedThrows.current.hand === Number(st.handNumber)
+                  ? [...paintedThrows.current.events]
+                  : undefined,
+              geometry: captureTableGeometry(tableScalerRef.current, seatPositionsRef.current),
+              animationSpeed: getAnimationSpeed(),
+              seatPaints:
+                paintedSeats.current.hand === Number(st.handNumber)
+                  ? [...paintedSeats.current.events]
+                  : undefined,
+              endAtMs:
+                visibleBoard.current.hand === Number(st.handNumber) &&
+                shareStartedAt.current != null
+                  ? Math.round(performance.now() - shareStartedAt.current)
+                  : undefined,
+              boardTiming:
+                visibleBoard.current.hand === Number(st.handNumber)
+                  ? { ...visibleBoard.current.times }
+                  : undefined,
+            };
+            const completedHand = st.handNumber;
+            const completedSeats = st.players.map(
+              (player) =>
+                player && {
+                  id: player.id,
+                  avatar: player.avatar,
+                  frame: player.frame,
+                  aura: player.aura,
+                }
+            );
+            const completedTiming = Object.fromEntries(
+              ['preflop', 'flop', 'turn', 'river'].map((street) => [
+                street,
+                byStreet(street).map(({ seat, action, atMs }) => ({ seat, action, atMs })),
+              ])
+            );
+            const seatedViewer = st.heroSeat > 0;
+            const persistAppearance = (value: typeof appearance) => {
+              if (tableId && userId && completedHand && seatedViewer)
+                rememberObservedTable(
+                  tableId,
+                  userId,
+                  completedHand,
+                  value,
+                  completedSeats,
+                  completedTiming,
+                  visibleHeroCards.current?.hand === completedHand &&
+                    visibleHeroCards.current.user === userId
+                    ? visibleHeroCards.current.cards
+                    : undefined
+                );
+            };
+            persistAppearance(appearance);
+            // Settlement is received before the seat awards are painted. Keep the original
+            // hand's journal until the next deal, and flush it when either share entry opens.
+            refreshCompletedPresentation.current = (archiveOnly) => {
+              if (paintedSeats.current.hand !== completedHand) return;
+              const updated = {
+                ...appearance,
+                chips: [...paintedChips.current.paths],
+                seatPaints: [...paintedSeats.current.events],
+                throws: [...paintedThrows.current.events],
+                boardTiming: { ...visibleBoard.current.times },
+              };
+              persistAppearance(updated);
+              if (archiveOnly) return;
+              setSharedHandData((hand: ShareableHand | null) =>
+                hand?.handNumber === completedHand ? { ...hand, appearance: updated } : hand
+              );
+            };
             /* THE TABLE KNEW FOUR OF THE SEVEN GAMES. This list was
                ['NLH','PLO4','PLO5','PLO6'] with everything else falling to
                NLH, so a PLO8 hand shared from the felt reached the recipient
@@ -20547,6 +21287,7 @@ function LiveTablePage({
               stakes: st.blinds || '',
               timestamp: Date.now(),
               buttonSeat: shareButtonSeatRef.current || st.dealerSeat || 0,
+              appearance,
               players: sharePlayers,
               preflop: byStreet('preflop'),
               flop:
@@ -20842,9 +21583,6 @@ function LiveTablePage({
            through the whole post-hand hold; now it gets exactly the half
            second. Clearing an already-empty array is a no-op, and a NEW
            hand's equities cannot arrive before its own all-in. */
-        window.setTimeout(() => {
-          setAllInEquities([]);
-        }, 500);
         handCompleteResetAtRef.current = Date.now() + holdMs;
         /* Captured so POT_WIN can re-arm exactly this work at a later time
            without duplicating any of it. */
@@ -20866,8 +21604,16 @@ function LiveTablePage({
         const completedHeroSig = holeCardSig(
           tableStateRef.current.players.find((pl) => pl?.isHero)?.holeCards
         );
+        // A reconnect snapshot can advance to B without a fresh start event.
+        // The old award timers may only clear presentation belonging to A.
+        const stillShowingCompletedHand = () =>
+          !lightningRoomRef.current ||
+          (completedHandNumber > 0 &&
+            tableStateRef.current.handNumber === completedHandNumber &&
+            Number(engineSnapshotRef.current?.hand_number) === completedHandNumber);
         handCompleteResetFnRef.current = () => {
           handCompleteTimerRef.current = null;
+          if (!stillShowingCompletedHand()) return;
           if (completedHandNumber > 0) {
             setFinishedHand({ handNumber: completedHandNumber, heroSig: completedHeroSig });
           }
@@ -20911,6 +21657,9 @@ function LiveTablePage({
           // window itself.
           setStackHoldReleased(true);
         };
+        window.setTimeout(() => {
+          if (stillShowingCompletedHand()) setAllInEquities([]);
+        }, 500);
         handCompleteTimerRef.current = window.setTimeout(
           () => handCompleteResetFnRef.current?.(),
           holdMs
@@ -20921,7 +21670,7 @@ function LiveTablePage({
            `boardStage !== 'waiting'` and stays TRUE through this entire hold,
            so nothing else here distinguishes "the winner is being paid" from
            "the next actor is being decided". See `handStillTakingAction`. */
-        setHandSettling(true);
+        setSettlingHandNumber(completedHandNumber);
 
         /* THE BOMB POT REVEAL, DRAINED AT THE HAND BOUNDARY (Dan 2026-09-07,
            7D: "POPS UP AFTER THE HAND IS OVER"). The latch was armed the
@@ -21047,28 +21796,8 @@ function LiveTablePage({
             }
           }
         }
-        // Bible V8 §4.6: Showdown — play showdown sound, trigger card reveal animations
-        // #175 gated for multi-table: only play on the active tab
-        if (soundService.isEnabled() && ambientSoundsAllowed) {
-          soundService.playShowdown();
-          // SHOWDOWN POLISH 2026-08-25 (spec 43, rank-aware cue): a revealed
-          // hand of four of a kind or better is the moment of the session —
-          // give it the big-win fanfare ON TOP of the reveal cue, at reveal
-          // time rather than pot time, so the table gasps when the monster
-          // turns over, not when the chips move. Mucked hands carry
-          // hand_ranking 0 on the wire, so a hidden monster cannot leak
-          // through its own fanfare.
-          try {
-            const sdRanks = ((evt.data as any).results as Array<{ hand_ranking?: number }>) || [];
-            if (sdRanks.some((r) => (r.hand_ranking ?? 0) >= 8)) {
-              soundService.playBigWin();
-              // Suppress the pot-time repeat (see bigWinFanfareAtRef).
-              bigWinFanfareAtRef.current = Date.now();
-            }
-          } catch {
-            /* sound is decoration */
-          }
-        }
+        // Revealed cards do not establish a winner. The confirmed POT_WIN
+        // owns the hero's celebration, including chops (owner 2026-11-10).
         /**
          * DEALER NARRATION, second half — WIRED 2026-08-28 (see HAND_COMPLETE
          * for the full note). `useTableChat`'s `SHOWDOWN_START` subscriber
@@ -21185,6 +21914,10 @@ function LiveTablePage({
         const potAmount = ((evt.data as any).pot as number) || 0;
         const payoutCelebrations: Array<() => void> = [];
         const presentPayoutVisual = (cue: () => void) => {
+          // Personal celebrations belong only to this viewer's awarded hand.
+          // Membership includes chops, side pots and high/low shares, without
+          // requiring a positive net profit after rake.
+          if (!userId || !winnerIds.includes(userId)) return;
           if (ritExpectedRunsRef.current > 1 || (ritResultRef.current?.boards.length ?? 0) > 1)
             payoutCelebrations.push(cue);
           else cue();
@@ -21403,7 +22136,11 @@ function LiveTablePage({
                    already finished by the time it appears. Reuse the big-win
                    cue, gated for a muted player and for background
                    multi-table tabs (#175). */
-                  if (soundService.isEnabled() && ambientSoundsAllowedRef.current) {
+                  if (
+                    scoopUserId === userId &&
+                    soundService.isEnabled() &&
+                    ambientSoundsAllowedRef.current
+                  ) {
                     soundService.playBigWin();
                   }
                   // Self-clears with the celebration - on its OWN ref, so a
@@ -21534,9 +22271,8 @@ function LiveTablePage({
           // re-rendered yet and the render-time mirror assignment would still
           // hold the previous hand's winners when Share Hand reads it.
           winnerInfoRef.current = merged;
-          // Bible V8 §5.1: Tiered celebration per docs/_archive/POKERBROS_UPGRADE_PLAN.md §3.7
-          // < 10 BB = gold glow only (default), 10-50 BB = confetti,
-          // 50+ BB = confetti + screen shake + bigWin sound
+          // Every hero win, including a small chop, gets confetti. Massive
+          // wins retain the existing screen shake and big-win sound tier.
           if (winnerIds.includes(userId)) {
             // Accumulate the hero's win for the achievement/challenge fire at
             // HAND_COMPLETE (POT_WIN can fire once per pot on split/side pots).
@@ -21565,16 +22301,14 @@ function LiveTablePage({
             presentPayoutVisual(() => {
               const bb = safeBB(tableStateRef.current.blinds, 1);
               const winBB = (amounts[userId] || potAmount) / bb;
-              if (winBB >= 10) {
-                // ANIMATION AUDIT 2026-08-27: setShowConfetti(true) was a no-op
-                // when the previous burst was still airborne (ConfettiCanvas
-                // only fires on the false→true edge) — back-to-back qualifying
-                // wins produced ONE burst. Clear-then-set on the next macrotask
-                // so every win gets its own burst (same pattern as
-                // useAnimationQueue.complete()).
-                setShowConfetti(false);
-                setTimeout(() => setShowConfetti(true), 0);
-              }
+              // ANIMATION AUDIT 2026-08-27: setShowConfetti(true) was a no-op
+              // when the previous burst was still airborne (ConfettiCanvas
+              // only fires on the false→true edge) — back-to-back qualifying
+              // wins produced ONE burst. Clear-then-set on the next macrotask
+              // so every win gets its own burst (same pattern as
+              // useAnimationQueue.complete()).
+              setShowConfetti(false);
+              setTimeout(() => setShowConfetti(true), 0);
               if (winBB >= 50) {
                 // Screen shake for massive win.
                 // ANIMATION AUDIT 2026-08-27: three fixes. (1) In multi-table
@@ -21603,10 +22337,10 @@ function LiveTablePage({
               }
             });
           }
-          // Bible V8 §5.1: Particle burst from first winner's seat position
+          // Hero-only particle burst from the viewing winner's seat position
           presentPayoutVisual(() => {
             const firstWinnerIdx = tableStateRef.current.players.findIndex(
-              (p) => p && winnerIds.includes(p.id)
+              (p) => p && p.id === userId
             );
             if (firstWinnerIdx >= 0) {
               // AUDIT FIX 2026-07-19: seatPositions is physical-seat-indexed
@@ -21890,7 +22624,7 @@ function LiveTablePage({
               // instead. Estimating remains for legacy non-exact groups.
               if (g.exact && !(w.amount > 0)) continue;
               // SeatPlayer.id is the userId — players[] index = seatNumber - 1.
-              const seatIdx = tableStateRef.current.players.findIndex((p) => p?.id === w.userId);
+              const seatIdx = winnerSeatIdx(w.userId);
               /**
                * SEAT LOOKUP FAILURE IS NOT A REASON TO SKIP THE ANIMATION
                * (Dan 2026-08-27, the ship-pot invariant above).
@@ -21990,7 +22724,7 @@ function LiveTablePage({
               perPlayer: {},
             };
             for (const wid of winnerIds) {
-              const seatIdx = tableStateRef.current.players.findIndex((p) => p?.id === wid);
+              const seatIdx = winnerSeatIdx(wid);
               const seatPct =
                 seatIdx >= 0
                   ? seatPositionsRef.current[seatIdx] || { x: 50, y: 50 }
@@ -22320,14 +23054,19 @@ function LiveTablePage({
                 return;
               }
               const wid = winnerIds[0];
-              const idx = tableStateRef.current.players.findIndex((p) => p?.id === wid);
-              if (idx < 0) return;
+              // 2026-11-15: a winner who has already stood up is still pushed
+              // the pot, at the chair it was won from (winnerSeatIdx). Never a
+              // silent return: that was the pot vanishing on hand 59517030.
+              const idx = winnerSeatIdx(wid);
               const root = tableScalerRef.current?.closest('.table-page') ?? null;
               const source = potViewportPoint(root, potPos);
               const target = winnerViewportPoint(
                 root,
                 wid,
-                seatPctToViewportPx(tableScalerRef.current, seatPositionsRef.current[idx])
+                seatPctToViewportPx(
+                  tableScalerRef.current,
+                  (idx >= 0 ? seatPositionsRef.current[idx] : undefined) ?? UNSEATED_WINNER_PCT
+                )
               );
               const scale =
                 (tableScalerRef.current?.getBoundingClientRect().width ?? 0) /
@@ -22668,7 +23407,20 @@ function LiveTablePage({
                clears without a word. A reason means something happened TO them
                and they are told what. */
             if (!reason) presentRemoteSeatExitRef.current();
-            applySeatRemoved(reason, { announce: Boolean(reason) });
+            const live = tableStateRef.current;
+            const bustExit = reason === TOURNAMENT_BUST_EXIT;
+            /* A paid rebuy whose restored stack has not shown yet makes a bust
+               exit stale: it belongs to the episode just paid for, and must
+               neither unseat the player again nor reopen an offer. */
+            if (!(bustExit && rebuyJustSucceededRef.current)) {
+              if (bustExit) {
+                setTournamentBustExit({
+                  tournamentId: live.tournamentId ? String(live.tournamentId) : null,
+                  userId: String(userId),
+                });
+              }
+              applySeatRemoved(reason, { announce: Boolean(reason) });
+            }
           }
 
           /* ── THE TABLE LOSES THE BADGE TOO (2026-08-29) ──────────────────
@@ -23419,6 +24171,9 @@ function LiveTablePage({
     setPendingSeat(seatNumber);
     setSelectedSeat(seatNumber);
     setShowBuyInModal(true);
+    // ...and on every other viewer's felt (Dan 2026-11-17): the engine shows
+    // this face in the chair for the sixty-second buy-in window.
+    void sendSeatArrival(tableId ?? '', 'hold', seatNumber);
     // Fire-and-forget: update presence (non-blocking — do NOT await)
     updateSeat(seatNumber).catch((e) => console.warn('[Seat] Presence update failed:', e));
   };
@@ -23450,6 +24205,19 @@ function LiveTablePage({
      silently, and replayed the moment the funding read lands (effect below
      the handler). */
   const deferredSeatTapRef = useRef<number | null>(null);
+
+  /* The buy-in sheet closed with no seat bought (cancel, the sixty seconds ran
+     out, a refusal): take this face back out of the chair on every other
+     viewer's felt. A committed buy-in sets heroSeatRef first, and the engine
+     releases only a hold, never a committed chair. */
+  const heldSeatRef = useRef<number | null>(null);
+  useEffect(() => {
+    const held = heldSeatRef.current;
+    heldSeatRef.current = pendingSeat;
+    if (held !== null && pendingSeat === null && heroSeatRef.current <= 0) {
+      void sendSeatArrival(tableId ?? '', 'release');
+    }
+  }, [pendingSeat, tableId]);
   const handleSeatClick = (seatNumber: number) => {
     /* LIGHTNING: the engine assigns every seat (Dan 2026-10-24: "YOU DON'T
        SELECT YOUR SEAT"). A pool-session room has no `tables` row to buy into. */
@@ -24674,7 +25442,9 @@ function LiveTablePage({
           // The DB flag describes a voluntary sit-out, not an engine entry
           // hold. Only an authoritative waiting-list update admits that seat.
           const shouldBeOut =
-            sittingOut.has(p.id) || (prev.waitingForBBUserIds ?? []).includes(p.id);
+            sittingOut.has(p.id) ||
+            p.waitingForButton === true ||
+            (prev.waitingForBBUserIds ?? []).includes(p.id);
           /* Never repaint a seat whose status is telling a more urgent story.
              An all-in seat is all-in first; a folded seat has already acted
              this hand. Sitting out is the resting state underneath both, and
@@ -24856,6 +25626,32 @@ function LiveTablePage({
                From The Table" is simply untrue (Dan 2026-09-05). A real
                eviction never sets that latch, so it still speaks. */
             if (leftSeatPendingRef.current) presentRemoteSeatExitRef.current();
+            /* A LOST BUST EXIT (2026-11-11). The engine's seat_left can be lost
+               with the link at the bust; the page then reconnects to a table
+               without its seat and this read is the first to notice. A
+               tournament seat that vanished with no socket reason and no
+               leave of our own may be a bust awaiting a rebuy decision, so it
+               is offered to the watcher, and canRebuy (the server's row:
+               playing, zero chips, open window) decides. A moved or still
+               funded player is refused there and nothing is shown. The table's
+               own kind may still be loading on a freshly opened page, so only a
+               table already known to be a cash game is excluded; the watcher
+               itself acts only once the table is known to be a tournament. */
+            const live = tableStateRef.current;
+            if (
+              (live.isTournament || knownTableIsTournament(tableId) !== false) &&
+              !leftSeatPendingRef.current &&
+              /* An earlier bust's reason may still be remembered; any other
+                 socket reason names what happened instead. */
+              (!evictionReasonRef.current ||
+                evictionReasonRef.current === 'busted_awaiting_rebuy_decision') &&
+              !rebuyJustSucceededRef.current
+            ) {
+              setTournamentBustExit({
+                tournamentId: live.tournamentId ? String(live.tournamentId) : null,
+                userId: String(userId),
+              });
+            }
             applySeatRemoved(evictionReasonRef.current, {
               announce: !leftSeatPendingRef.current,
             });
@@ -25190,6 +25986,28 @@ function LiveTablePage({
     setActionErrorData(data);
   }, []);
 
+  const lastLightningDecision = useRef<string | null>(null);
+  const renderedLightningDecision = lightningRoom
+    ? lightningDecisionKey(
+        tableId,
+        userId,
+        lightningHandId(engineSnapshot as LightningSnapshotFields),
+        tableState.actionContext
+      )
+    : null;
+  const uncertainLightningDecision = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      uncertainLightningDecision.current &&
+      uncertainLightningDecision.current === renderedLightningDecision &&
+      engineSnapshot &&
+      engineSnapshot.action_context === tableState.actionContext &&
+      engineSnapshot.current_player === userId
+    ) {
+      lastLightningDecision.current = null;
+      uncertainLightningDecision.current = null;
+    }
+  }, [engineSnapshot, renderedLightningDecision, tableState.actionContext, userId]);
   const submitActionWithToast = useCallback(
     async (
       tid: string,
@@ -25198,24 +26016,47 @@ function LiveTablePage({
       amount?: number,
       callsite?: string
     ): Promise<boolean | null> => {
+      if (isLightningObserverSnapshot(engineSnapshotRef.current)) return false;
+      const snapshot = engineSnapshotRef.current;
+      const decision = tableStateRef.current.actionContext;
+      const hand = lightningRoomRef.current
+        ? lightningHandId(snapshot as LightningSnapshotFields)
+        : null;
+      const intent = lightningDecisionKey(tid, uid, hand, decision);
+      if (intent && lastLightningDecision.current === intent) return null;
+      const stillCurrent = () =>
+        tableStateRef.current.tableId === tid &&
+        actionUserRef.current === uid &&
+        (!hand ||
+          (lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) === hand &&
+            tableStateRef.current.actionContext === decision));
       try {
-        if (isLightningObserverSnapshot(engineSnapshotRef.current)) return false;
         // Read at the tap: a retained callback must not send a token from an
         // earlier render. A missing decision is refreshed, never sent unbound.
         const res = await submitTableDecision({
           actionContext: tableStateRef.current.actionContext,
-          allowContextless: Boolean(lightningRoomRef.current),
+          allowContextless: false,
           clientStateStale:
             action !== 'fold' &&
             (!tableStateRef.current.players[tableStateRef.current.heroSeat - 1] ||
               tableStateRef.current.players[tableStateRef.current.heroSeat - 1]?.status ===
                 'folded'),
-          send: async (context) => await submitAction(tid, uid, action, amount, context),
+          send: async (context) => {
+            if (intent) {
+              lastLightningDecision.current = intent;
+              uncertainLightningDecision.current = null;
+            }
+            return await submitAction(tid, uid, action, amount, context);
+          },
           refresh: () => awaitEngineState(snapshotWaitersRef.current, requestEngineSnapshot),
         });
         // A response from the old table/account cannot put a popup on a new one.
-        if (tableStateRef.current.tableId !== tid || actionUserRef.current !== uid) return false;
+        if (!stillCurrent()) return null;
         if (!res.success) {
+          if (intent && lastLightningDecision.current === intent) {
+            if (res.outcomeUnconfirmed) uncertainLightningDecision.current = intent;
+            else lastLightningDecision.current = null;
+          }
           showActionError({
             error: res.outcomeUnconfirmed
               ? ACTION_NOT_DELIVERED_MESSAGE
@@ -25230,6 +26071,8 @@ function LiveTablePage({
         }
         return true;
       } catch (err) {
+        if (!stillCurrent()) return null;
+        if (intent) uncertainLightningDecision.current = intent;
         showActionError({ error: 'Server unreachable' });
         if (callsite) console.warn(`[Table] Server ${action} threw (${callsite}):`, err);
         return false;
@@ -26143,6 +26986,7 @@ function LiveTablePage({
      the players, so it is not being done inside a sweep. */
 
   const handleRaise = () => {
+    if (shoveOrFold) return explainShoveOrFold();
     openRaisePanel();
   };
 
@@ -26175,9 +27019,25 @@ function LiveTablePage({
   //Server is authoritative — all actions go through submitAction
   const handleActionPanelAction = useCallback(
     async (action: 'fold' | 'check' | 'call' | 'raise' | 'allin', amount?: number) => {
-      if (actionLockRef.current) return; // Debounce guard
+      if (shoveOrFold && action !== 'fold' && action !== 'allin') return explainShoveOrFold();
+      if (lightningRoomRef.current) {
+        const onFelt = lightningDecisionKey(
+          tableId,
+          userId,
+          lightningHandId(engineSnapshotRef.current as LightningSnapshotFields),
+          tableStateRef.current.actionContext
+        );
+        if (
+          onFelt !== renderedLightningDecision ||
+          (onFelt && lastLightningDecision.current === onFelt)
+        )
+          return;
+      }
+      // A new Lightning decision can arrive inside the ordinary tap debounce.
+      // Its engine token owns its own duplicate guard.
+      if (actionLockRef.current && !renderedLightningDecision) return;
       // Serialize state recovery; ordinary action sends retain their 300ms debounce.
-      actionLockRef.current = true;
+      if (!renderedLightningDecision) actionLockRef.current = true;
       // 2026-08-15: every read below comes from tableStateRef, never from the
       // `tableState` this callback closed over. The dep array does not include
       // players/boardStage/currentBet, so the captured snapshot can lag a
@@ -26193,7 +27053,7 @@ function LiveTablePage({
       if (
         !tableDecisionIsReady({
           actionContext: live.actionContext,
-          allowContextless: Boolean(lightningRoomRef.current),
+          allowContextless: false,
           clientStateStale: staleHero,
         })
       ) {
@@ -26208,9 +27068,10 @@ function LiveTablePage({
         }
         return;
       }
-      setTimeout(() => {
-        actionLockRef.current = false;
-      }, 300);
+      if (!renderedLightningDecision)
+        setTimeout(() => {
+          actionLockRef.current = false;
+        }, 300);
       const heroSeat = live.heroSeat;
       const hero = live.players[heroSeat - 1] ?? null;
       const heroStack = hero?.stack || 0;
@@ -26366,7 +27227,16 @@ function LiveTablePage({
           break;
       }
     },
-    [tableState.heroSeat, tableId, userId, submitActionWithToast]
+    [
+      tableState.heroSeat,
+      tableId,
+      userId,
+      submitActionWithToast,
+      shoveOrFold,
+      explainShoveOrFold,
+      renderedLightningDecision,
+      applyOptimisticHeroAction,
+    ]
   );
 
   // handleConfirmRaise was removed on 2026-08-20. It was the confirm handler for
@@ -26428,7 +27298,7 @@ function LiveTablePage({
        on a table where hero had no hand. That is the identical false-trigger the
        note on isHeroTurnContext documents. */
     isHeroTurn: isHeroTurnContext && heroDecisionReady,
-    isSizingOpen: raiseIntent.open,
+    isSizingOpen: raisePanelOpen,
     isSpectator: !heroAtTable,
     isModalOpen:
       !!tournamentWinner ||
@@ -26483,13 +27353,12 @@ function LiveTablePage({
     onToggleSound: () => setIsSoundEnabled(!isSoundEnabled),
     // FIX 199: onToggleHandStrength REMOVED — not allowed for live online gameplay
     onBetPreset: (preset: number) => {
-      // Bet presets: 0=1/3 pot, 1=1/2 pot, 2=3/4 pot, 3=pot
-      //Use tableState.pot instead of local engine state
-      const pot = tableState.pot || 0;
-      const fractions = [1 / 3, 1 / 2, 3 / 4, 1];
-      const fraction = fractions[preset] ?? 0.5;
-      const betAmount = Math.max(safeBB(tableState.blinds), Math.round(pot * fraction * 100) / 100);
-      openRaisePanel(betAmount);
+      if (shoveOrFold) return explainShoveOrFold();
+      setRaiseIntent((previous) => ({
+        nonce: previous.nonce + 1,
+        open: true,
+        presetIndex: preset,
+      }));
     },
     onClosePanel: () => {
       // Escape key → close ALL open modals/overlays
@@ -26669,6 +27538,124 @@ function LiveTablePage({
       (tableGameLightningState !== undefined && !isClassicLobbyState(tableGameLightningState)))
       ? tableState.clusterId
       : null;
+
+  // A feeder can still deal ordinary hands while its Lightning switch is on.
+  // Wait for a confirmed Classic answer before offering a table change.
+  /* NOT AT A TOURNAMENT (2026-11-15). The switch only shows or hides the
+     must-move Seat Change button, which exists at cash cluster tables alone.
+     At a tournament table it flipped a preference that changed nothing on the
+     screen: the silent button Dan reported. Tournament seats are assigned, so
+     the row is not offered there at all. */
+  const seatChangeEnabled =
+    !tableState.isTournament &&
+    !lightningRoom &&
+    !lightningObserver &&
+    (!tableState.clusterId ||
+      (tableGameLightningState != null && isClassicLobbyState(tableGameLightningState)));
+  /* Off BECAUSE it is Lightning, as opposed to off while the table's mode is
+     still unknown. The menu names the first and hides the second. */
+  const seatChangeOffInLightning =
+    !seatChangeEnabled &&
+    (lightningRoom !== null ||
+      lightningObserver ||
+      (!!tableState.clusterId &&
+        tableGameLightningState != null &&
+        !isClassicLobbyState(tableGameLightningState)));
+  useEffect(() => {
+    onTableInfoUpdate?.({ seatChangeEnabled, seatChangeOffInLightning });
+  }, [onTableInfoUpdate, seatChangeEnabled, seatChangeOffInLightning]);
+
+  const leaveNextHand = useLeaveTableNextHand({
+    userId: userId === 'guest' ? '' : (userId ?? ''),
+    tableId: tableId ?? '',
+    occupancyId:
+      lightningRoom?.poolSessionId ||
+      (ownSeatIdentity?.tableId === tableId && ownSeatIdentity?.userId === userId
+        ? ownSeatIdentity.occupancyId
+        : ''),
+    seated: !leftSeatPendingRef.current && (tableState.heroSeat > 0 || !!lightningRoom),
+    ready:
+      !!engineSnapshot &&
+      appliedExitSnapshot?.snapshot === engineSnapshot &&
+      appliedExitSnapshot.tableId === tableId &&
+      appliedExitSnapshot.userId === userId,
+    // A reconnect may deliver the new hand before its HAND_STARTED event
+    // clears the previous hand's presentation flag.
+    handLive: lightningCapableClusterId
+      ? !!engineSnapshot && engineSnapshot.stage !== 'waiting'
+      : tableState.isHandInProgress && !handSettling,
+    completionVersion:
+      lastHandId ||
+      (engineSnapshot && !tableState.isHandInProgress && (tableState.handNumber ?? 0) > 0
+        ? `idle:${tableState.handNumber}`
+        : ''),
+    setSitOut: () => setSitOut(tableId ?? '', true),
+    onLeave: handleLeaveTable,
+  });
+
+  const finalLightningDeal = useLightningFinalDeal({
+    userId,
+    poolSessionId: lightningRoom?.poolSessionId,
+    anchor: lightningRoom
+      ? verifiedLightningAnchor?.room === lightningRoom.poolSessionId
+        ? verifiedLightningAnchor
+        : null
+      : lightningCapableClusterId &&
+          ownSeatIdentity &&
+          ownSeatIdentity.tableId === tableId &&
+          ownSeatIdentity.userId === userId
+        ? ownSeatIdentity
+        : null,
+    currentHand: Number(engineSnapshot?.hand_number ?? tableState.handNumber ?? 0),
+    presentedHand:
+      isActive &&
+      !lightningObserver &&
+      (lightningRoom ? lightningHeroInLiveHand : tableState.isHandInProgress && !handSettling) &&
+      !dealInFlight &&
+      !isSeatDealing &&
+      tableState.players[tableState.heroSeat - 1]?.holeCards?.length &&
+      heroCardsHandRef.current === tableState.handNumber &&
+      tableState.handNumber === Number(engineSnapshot?.hand_number)
+        ? tableState.handNumber
+        : null,
+    roomClosed: lightningRoomClosed,
+    onPresented: async () => {
+      if (!lightningRoom) {
+        if (!(await leaveNextHand.requestLeaveNextHand())) throw new Error('Leave unconfirmed');
+        return;
+      }
+      lightningLeaveAfterHand.request('stopping');
+    },
+    onError: () => toast.warning('Could Not Confirm Your Leave. Please Try Again.'),
+  });
+  /* The tab bar's Leave Table Next Hand row shows ON while a leave is queued.
+     It could not: nothing told the tab (2026-11-14). */
+  const leaveNextHandQueued =
+    finalLightningDeal.queued || lightningLeaveAfterHand.queued || leaveNextHand.queued;
+  useEffect(() => {
+    onTableInfoUpdate?.({ leaveNextHandQueued });
+  }, [leaveNextHandQueued, onTableInfoUpdate]);
+  const requestLeaveAtNextHand = async () => {
+    if (lightningRoom || lightningCapableClusterId) {
+      if (finalLightningDeal.pending || leaveNextHand.pending || lightningLeaveAfterHand.busy)
+        return;
+      if (lightningLeaveAfterHand.queued) cancelLightningLeave();
+      else if (finalLightningDeal.queued) {
+        finalLightningDeal.cancel();
+        toast.info('You Will Keep Playing.');
+      } else if (leaveNextHand.queued && tableId) {
+        await leaveNextHand.resumeQueuedLeave(handleSitBackIn);
+        const error = leaveNextHand.getError();
+        if (error) toast.warning(error);
+      } else if (finalLightningDeal.queue())
+        toast.info('You Will Play One More Hand Before Leaving.');
+      else toast.warning('Your Seat Is Still Loading. Please Try Again.');
+      return;
+    }
+    const queued = await leaveNextHand.requestLeaveNextHand();
+    if (queued) toast.info('You Will Leave The Table After This Hand.');
+    else toast.warning(leaveNextHand.getError() || 'Could Not Queue Your Leave. Please Try Again.');
+  };
 
   /**
    * ── IS THERE ACTUALLY A SEAT AT THIS TABLE? (Dan 2026-09-07, item 9) ──────
@@ -26972,15 +27959,19 @@ function LiveTablePage({
      'waiting', no players and LIGHTNING FOLD off, published to the folder's
      room. Nothing of the folded hand is the player's any more: no fold is
      offered, and the quiet is timed for "Next Hand..." from that moment. */
+  const lightningHold = useLightningClusterStatus(lightningRoom?.clusterId ?? null);
   const lightningHandLive = lightningRoom
     ? lightningHandOnFelt(engineSnapshot as LightningSnapshotFields)
     : false;
+  const lightningLeaveHero = lightningRoom
+    ? tableState.players.find((player) => player?.id === userId)
+    : undefined;
   const lightningFold = lightningFoldAvailability(
     {
       heroSeated: tableState.heroSeat > 0,
       handInProgress: tableState.isHandInProgress,
       handSettling,
-      heroStatus: lightningHero?.status,
+      heroStatus: lightningLeaveHero?.status,
       engineFastFoldAvailable: lightningRoom
         ? lightningFastFoldFlag(engineSnapshot as LightningSnapshotFields)
         : null,
@@ -26992,7 +27983,23 @@ function LiveTablePage({
     },
     lightningCaps
   );
-  const lightningFoldBusyRef = useRef(false);
+  const lightningFoldBusyRef = useRef<string | null>(null);
+  const uncertainFold = useRef<{
+    hand: string;
+    snapshot: typeof engineSnapshot;
+  } | null>(null);
+  useEffect(() => {
+    const pending = uncertainFold.current;
+    if (!pending || pending.snapshot === engineSnapshot) return;
+    const snapshot = engineSnapshot as LightningSnapshotFields | null;
+    if (
+      lightningHandId(snapshot) !== pending.hand ||
+      snapshot?.lightning?.fast_fold_available !== true
+    )
+      return;
+    if (lightningFoldBusyRef.current === pending.hand) lightningFoldBusyRef.current = null;
+    uncertainFold.current = null;
+  }, [engineSnapshot]);
   const lightningFoldHandId =
     lightningRoom && lightningHandLive
       ? lightningHandId(engineSnapshot as LightningSnapshotFields)
@@ -27000,7 +28007,13 @@ function LiveTablePage({
   const handleLightningFold = useCallback(
     async (kind: LightningFoldKind, quiet = false) => {
       if (!tableId || !lightningRoomRef.current || !userId || userId === 'guest') return;
-      if (lightningFoldBusyRef.current) return;
+      if (
+        !lightningFoldHandId ||
+        lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) !==
+          lightningFoldHandId ||
+        lightningFoldBusyRef.current === lightningFoldHandId
+      )
+        return;
       const queued = lightningFoldOnTurn(engineSnapshotRef.current, userId, kind);
       if (queued) {
         if ('error' in queued) {
@@ -27025,7 +28038,8 @@ function LiveTablePage({
         setPreAction('fold');
         return;
       }
-      lightningFoldBusyRef.current = true;
+      uncertainFold.current = null;
+      lightningFoldBusyRef.current = lightningFoldHandId;
       // The fold supersedes any armed pre-action for this hand.
       lightningCheckFoldArmRef.current = null;
       setPreAction(null);
@@ -27050,19 +28064,38 @@ function LiveTablePage({
       const revert = pressAnswered ? applyOptimisticHeroAction('fold') : () => {};
       try {
         const result = await sendLightningFold(tableId, userId, kind, lightningFoldHandId);
-        if (!result.success) {
+        if (
+          lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) !==
+          lightningFoldHandId
+        )
+          return;
+        const uncertain =
+          result.code === 'ACTION_NOT_DELIVERED' || result.code === 'ACTION_STATE_PENDING';
+        if (!result.success && !uncertain) {
+          lightningFoldBusyRef.current = null;
           revert();
           // A release sent for the player (an armed Check/Fold a bet priced)
           // can cross their own turn, where the engine folds the same arm: a
           // refusal there is not something the player did or needs to read.
           if (!quiet) toast.warning(result.error || 'That Action Could Not Be Confirmed');
+        } else if (uncertain) {
+          uncertainFold.current = {
+            hand: lightningFoldHandId,
+            snapshot: engineSnapshotRef.current,
+          };
+          requestEngineSnapshot();
+          if (!quiet) toast.warning(ACTION_NOT_DELIVERED_MESSAGE);
         }
       } catch (err) {
-        revert();
-        if (!quiet) throw err;
+        if (
+          lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) !==
+          lightningFoldHandId
+        )
+          return;
+        uncertainFold.current = { hand: lightningFoldHandId, snapshot: engineSnapshotRef.current };
+        requestEngineSnapshot();
+        if (!quiet) toast.warning(ACTION_NOT_DELIVERED_MESSAGE);
         reportError(err, 'lightning-check-fold-release');
-      } finally {
-        lightningFoldBusyRef.current = false;
       }
     },
     [
@@ -27073,6 +28106,7 @@ function LiveTablePage({
       isActive,
       lightningCaps,
       lightningFoldHandId,
+      requestEngineSnapshot,
       applyOptimisticHeroAction,
     ]
   );
@@ -27189,8 +28223,18 @@ function LiveTablePage({
     return scheduleLightningRenderAck(lightningRenderHandId, (handId, deltaMs, resumed) => {
       lightningRenderAckedRef.current = handId;
       sendEngineRenderAck(handId, deltaMs, resumed);
+      // A timed join (lightningJoinTiming.ts) ends when its first hand paints.
+      markLightningJoinRoom(tableId, 'cards_painted');
     });
-  }, [lightningRenderHandId, sendEngineRenderAck]);
+  }, [lightningRenderHandId, sendEngineRenderAck, tableId]);
+  /* JOIN TIMING (2026-11-10): the room's half of a timed Lightning join - the
+     room mounted, its socket connected, its first snapshot and first hand. */
+  useLightningJoinTiming({
+    roomId: tableId,
+    lightningRoom: !!lightningRoom,
+    connected: engineWsStatus === 'connected',
+    snapshot: lightningRoom ? (engineSnapshot as LightningSnapshotFields | null) : null,
+  });
 
   /* JOIN LIGHTNING: the buy-in landed at the anchor table the player joined
      through, so this tab follows their chair into the pool-session room. */
@@ -27214,6 +28258,7 @@ function LiveTablePage({
         ? lightningAnchorFunding.funded
         : undefined,
     follow: (poolSessionId) => {
+      finalLightningDeal.followIntoRoom(poolSessionId);
       if (embeddedTableId) {
         onTableInfoUpdate?.({ movedToTableId: poolSessionId });
         return;
@@ -27704,6 +28749,12 @@ function LiveTablePage({
          scaler, so the --sp-hero-clear bottom reserve is dead space for them.
          CSS collapses it via [data-hero='false'] (see TablePage.css). */
       data-hero={heroAtTable ? 'true' : 'false'}
+      data-lightning-room={lightningRoom ? 'true' : undefined}
+      data-lightning-hud={
+        (lightningRoom || lightningCapableClusterId) && isActive ? 'true' : undefined
+      }
+      data-kill-enabled={killRulesApply ? 'true' : 'false'}
+      data-hole-card-count={seatHoleCardCount}
       /* LIGHTNING TRANSITION, PHASE 3: the folded hand is leaving the felt;
          LightningFoldBar.css fades the opponents, the board and the pot out
          and keeps them out until the next table arrives. 2026-11-09: a hand
@@ -27828,6 +28879,11 @@ function LiveTablePage({
         backgroundRepeat: TABLE_BACKGROUND_REPEAT,
       }}
     >
+      {/* THE ROOM IS BLURRED (Dan 2026-11-13): "MAKE THE BACK GROUND BLURY LIKE
+          THEY WERE BEFORE". One layer over the whole page background, under the
+          felt and every control, so the blur is continuous behind the
+          tournament dock too (no seam). See .table-room-blur in TablePage.css. */}
+      <div className="table-room-blur" aria-hidden="true" />
       {!tableArt.reveal && !tableLoadFailure && (
         <div className="table-art-cover" role="status" aria-live="polite">
           <span className="table-art-cover__label">
@@ -28090,271 +29146,29 @@ function LiveTablePage({
              child is `pointer-events: auto`, and a wrapper as wide as its
              widest child becomes an invisible slab over the seats below it. */
           <div className="hud-ul-column hud-ul-column--stack">
-            {embeddedTableId ? null : (
-              <div className="hud-ul-column">
-                <TableMenu
-                  isOpen={showTableMenu}
-                  onClose={() => setShowTableMenu(false)}
-                  onToggle={() => setShowTableMenu((prev) => !prev)}
-                  position="top-left"
-                  sections={[
-                    {
-                      title: 'Quick Actions',
-                      actions: [
-                        {
-                          id: 'sitout',
-                          label: 'Sit Out',
-                          icon: <SitOutIcon />,
-                          onClick: () => void handleSitOut(),
-                        },
-                        {
-                          id: 'leave-next-hand',
-                          label: 'Leave Table Next Hand',
-                          icon: <LeaveTableIcon />,
-                          badge: leaveNextHand.queued ? 'ON' : undefined,
-                          disabled: leaveNextHand.pending,
-                          onClick: () => void requestLeaveAtNextHand(),
-                        },
-                        {
-                          id: 'standup-bb',
-                          label: 'Stand Up Next Big Blind',
-                          icon: <SitOutIcon />,
-                          badge: standUpNextBB ? 'ON' : undefined,
-                          onClick: () => setStandUpNextBB(!standUpNextBB),
-                        },
-                        /* STRADDLE LIVES HERE NOW (2026-09-15). `StraddleToggle`
-                         was rendered only inside the old side menu, and that
-                         menu had lost its opener - the only reference to
-                         `toggleSideMenu` was the overlay's own close handler -
-                         so switching straddling on has been unreachable for as
-                         long as that was true. The control is the menu the
-                         player can actually open, on the same shape as Stand Up
-                         beside it, calling the same `handleToggleStraddle`.
-                         Only offered when the host enabled straddles: the
-                         engine refuses the toggle outright otherwise. */
-                        ...(isStraddleAvailable
-                          ? [
-                              {
-                                id: 'straddle',
-                                label: 'Straddle',
-                                icon: <AddOnIcon />,
-                                badge: isStraddleEnabled ? 'ON' : undefined,
-                                disabled: straddleBusy,
-                                onClick: () => void handleToggleStraddle(!isStraddleEnabled),
-                              },
-                            ]
-                          : []),
-                        /* A Diamond cash seat tops up; a Diamond tournament does
-                         not, because tournament funding is a later phase and
-                         the custody door refuses a tournament table outright.
-                         Offering the control there would promise a seat
-                         something no writer can give it. */
-                        /* Never to a spectator (audit C2-17): there is no seat to
-                         top up, and the engine refuses one that is not seated. */
-                        ...(tableState.arenaAsset === 'diamonds'
-                          ? !canTopUpSeat || tableState.heroSeat <= 0
-                            ? []
-                            : [
-                                {
-                                  id: 'rebuy',
-                                  label: 'Top Up',
-                                  icon: <RebuyIcon />,
-                                  onClick: () => setShowCashier(true),
-                                },
-                              ]
-                          : tableState.arenaAsset !== 'chips'
-                            ? []
-                            : tableState.isTournament
-                              ? [
-                                  {
-                                    id: 'rebuy',
-                                    label: 'Rebuy',
-                                    icon: <RebuyIcon />,
-                                    onClick: handleTournamentRebuy,
-                                  },
-                                  {
-                                    id: 'addon',
-                                    label: 'Add-On',
-                                    icon: <AddOnIcon />,
-                                    onClick: handleTournamentAddOn,
-                                  },
-                                ]
-                              : tableState.heroSeat > 0
-                                ? [
-                                    {
-                                      id: 'rebuy',
-                                      label: 'Top Up',
-                                      icon: <RebuyIcon />,
-                                      onClick: () => setShowCashier(true),
-                                    },
-                                  ]
-                                : []),
-                        ...(canTopUpSeat && !tableState.isTournament
-                          ? [
-                              {
-                                id: 'auto-top-up',
-                                label: 'Auto Top Up',
-                                icon: <RebuyIcon />,
-                                badge: isAutoRebuyEnabled ? 'ON' : undefined,
-                                onClick: () => setIsAutoRebuyEnabled(!isAutoRebuyEnabled),
-                              },
-                            ]
-                          : []),
-                        {
-                          id: 'marketplace',
-                          label: 'Club Marketplace',
-                          icon: <SettingsIcon />,
-                          // Dan 2026-09-04: a hub tab beside this table, not a
-                          // separate browser tab the felt cannot see (the
-                          // strip, the swipe and every other table stay put).
-                          //
-                          // 2026-09-21: the exact Hub page, not the alias. The
-                          // menu said '/hub/marketplace', which 308s to
-                          // /hub/diamond-store inside the frame - so the tab's
-                          // own address no longer matched what opened it, and
-                          // pressing the item again opened a SECOND tab (or hit
-                          // the cap) instead of focusing the one already there.
-                          // It also names this table's club, so "Club
-                          // Marketplace" opens that club's shop.
-                          onClick: () =>
-                            masterBus.emit('OPEN_HUB_TAB', {
-                              path: hubMarketplaceDestination('', actualClubIdRef.current),
-                              requestedBy: userId,
-                            }),
-                        },
-                      ],
-                    },
-                    {
-                      title: 'Table Info',
-                      actions: [
-                        {
-                          id: 'history',
-                          label: 'Hand History',
-                          icon: <HandHistoryIcon />,
-                          onClick: () => setShowHandHistory(true),
-                        },
-                        {
-                          id: 'leaderboard',
-                          label: 'Leaderboard',
-                          icon: <LeaderboardIcon />,
-                          onClick: () => setShowLeaderboard(true),
-                        },
-                        ...(!tableState.isTournament
-                          ? [
-                              {
-                                id: 'session-stats',
-                                label: 'Session Stats',
-                                icon: <SessionStatsIcon />,
-                                onClick: () => setShowSessionStats(true),
-                              },
-                            ]
-                          : []),
-                        // Bible V8 §11.1 — Settings accessible from BOTH table HUD menu AND hamburger menu
-                        {
-                          id: 'sounds',
-                          label: 'Sounds',
-                          icon: <SettingsIcon />,
-                          badge: isSoundEnabled ? 'ON' : 'OFF',
-                          onClick: () => setIsSoundEnabled(!isSoundEnabled),
-                        },
-                        {
-                          id: 'vibrations',
-                          label: 'Vibrations',
-                          icon: <SettingsIcon />,
-                          badge: isVibrationEnabled ? 'ON' : 'OFF',
-                          onClick: () => setIsVibrationEnabled(!isVibrationEnabled),
-                        },
-                        {
-                          id: 'settings',
-                          label: 'Table Settings',
-                          icon: <HelpIcon />,
-                          onClick: () => setShowSettings(true),
-                        },
-                      ],
-                    },
-                    {
-                      title: 'Support',
-                      actions: [
-                        {
-                          id: 'help',
-                          label: 'Help & Rules',
-                          icon: <HelpIcon />,
-                          onClick: () => setShowGameRules(true),
-                        },
-                      ],
-                    },
-                    {
-                      actions: [
-                        {
-                          id: 'leave',
-                          label: 'Leave Table',
-                          icon: <LeaveTableIcon />,
-                          onClick: () => openLeaveConfirm(),
-                          danger: true,
-                        },
-                      ],
-                    },
-                  ]}
-                  tableName={tableState.tableName}
-                  handNumber={tableState.handNumber}
-                  // 2026-08-22: the indicator used to mirror the LEGACY Supabase
-                  // channel (presence/chat) while the game rides the engine WS —
-                  // a dead engine socket showed a green dot and a Supabase blip
-                  // showed red on a healthy game. Report the transport that
-                  // actually carries the game.
-                  connectionStatus={
-                    engineWsStatus === 'connected'
-                      ? 'connected'
-                      : engineWsStatus === 'connecting' || engineWsStatus === 'reconnecting'
-                        ? 'reconnecting'
-                        : 'disconnected'
-                  }
-                />
-                {/* Dan 2026-08-15 — this "+" is ADD TABLE, not Add Chips.
-                It used to open CashierModal, which duplicated the wallet entry
-                already on the table menu and left no way to start a second
-                game without abandoning the current one.
-                It now asks MultiTablePage to open a LOBBY tab beside the
-                running table: the current game keeps dealing in its own tab on
-                its own live engine socket, and picking a cash game or
-                tournament from that lobby converts the lobby tab into the new
-                table tab in place. Add Chips lives on in the table menu.
-
-                2026-08-23 — this was labelled "Open another table", which is
-                the tab bar's "+" verbatim: two buttons, one accessible name,
-                two different actions (that one opens the Quick Join sheet,
-                this one opens a lobby tab). A screen reader announced them
-                identically and a getByLabel query matched both, so Playwright
-                resolved two elements and silently drove whichever came first
-                in the DOM. Named for what it does. */}
-                <button
-                  className="add-chips-icon-btn"
-                  onClick={() => {
-                    soundService.playButtonClick();
-                    masterBus.emit('OPEN_LOBBY_TAB', { requestedBy: userId });
-                  }}
-                  title="Open The Lobby In A New Tab"
-                  aria-label="Open The Lobby In A New Tab"
-                >
-                  <img
-                    src={addScreenIcon}
-                    className="add-chips-icon-btn__img"
-                    alt=""
-                    draggable={false}
-                  />
-                </button>
-              </div>
-            )}
+            {/* THE HAMBURGER IS THE TAB BAR'S (2026-11-14). A second TableMenu
+                stood here behind `embeddedTableId ? null :`, and every table
+                is drawn embedded, so it was never on screen. Rows added to it
+                (Straddle on 2026-09-15, Club Marketplace) reached nobody. One
+                menu: TableTabBar's, fed by what this page reports for its tab.
+                tests/the-table-has-one-menu.law.test.ts keeps it that way. */}
             {lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
               <LightningLeaveControl
                 key={`${lightningRoom.poolSessionId}/${userId}`}
-                clusterId={lightningRoom.clusterId}
-                onLeave={handleLeaveTable}
-                ensureStopped={stopLightningForLeave}
-                onLeaveIntentChange={(leaving) => {
-                  setLeaveAttentionSuppressed(leaving);
-                  if (leaving) ++preActionSendSeqRef.current;
-                }}
+                queued={finalLightningDeal.queued || lightningLeaveAfterHand.queued}
+                pending={finalLightningDeal.pending || resumingLightning}
+                onLeave={requestLeaveAtNextHand}
+                waitingForDeal={finalLightningDeal.queued && !finalLightningDeal.pending}
+                onCancel={() => void requestLeaveAtNextHand()}
+              />
+            ) : lightningCapableClusterId && heroIsSeated && userId && userId !== 'guest' ? (
+              /* A feeder uses its ordinary seat leave once the final hand appears. */
+              <LightningFeederLeaveControl
+                queued={finalLightningDeal.queued || leaveNextHand.queued}
+                pending={finalLightningDeal.pending || leaveNextHand.pending}
+                onLeave={requestLeaveAtNextHand}
+                waitingForDeal={finalLightningDeal.queued && !finalLightningDeal.pending}
+                onCancel={() => void requestLeaveAtNextHand()}
               />
             ) : null}
           </div>
@@ -28375,11 +29189,7 @@ function LiveTablePage({
                 STACKS, HOW MANY PLAYERS ETC." Every must-move table carries
                 it; the SEAT CHANGE button under it appears only while the
                 database says the change is available. */}
-            {/* THE SEAT CHANGE BUTTON IS ON THE LEFT (Dan 2026-10-14): "THE
-                'SEAT CHANGE' BUTTON SHOULD NEVER BE IN THE UPPER RIGHT HAND
-                CORNER, IT SHOULD BE ON THE LEFT SIDE." The box still mounts in
-                this slot, but its dock is pinned to the left edge at the same
-                height (.hud-seat-change-dock, TableHUD.css). */}
+            {/* The feeder dock shares Chat's row on the opposite table edge. */}
             {!tableState.isTournament &&
               tableState.clusterId &&
               !anchorLightningClusterId &&
@@ -28388,6 +29198,7 @@ function LiveTablePage({
                   <CashClusterHUD
                     gameId={tableState.clusterId}
                     refreshKey={clusterRefreshKey}
+                    seatChangeEnabled={seatChangeEnabled}
                     onOpenLobby={() => setShowMustMoveLobby(true)}
                     onSeatChange={() => setShowMustMoveLobby(true)}
                     onGoToTable={(dest) => {
@@ -28536,13 +29347,19 @@ function LiveTablePage({
                 />
               )}
               <PreviousHandCard
-                handNumber={prevHandResult?.handNumber ?? null}
+                handNumber={reviewedLightningDeal?.number ?? prevHandResult?.handNumber ?? null}
                 canReviewHistory={Boolean(userId && userId !== 'guest')}
                 result={prevHandResult?.result ?? 0}
                 didWin={prevHandResult?.didWin ?? false}
                 didFold={prevHandResult?.didFold ?? false}
                 handDescription={prevHandResult?.handDescription}
-                onTap={() => setShowHandDetail(true)}
+                onTap={() => {
+                  if (reviewedLightningDeal)
+                    setSelectedLightningReview((open) =>
+                      open ? null : { deal: reviewedLightningDeal }
+                    );
+                  else setShowHandDetail(true);
+                }}
                 onShareHand={() => {
                   // The modal renders only when a hand has been captured. Say so
                   // instead of no-opping — tapping a menu item and getting
@@ -28551,6 +29368,7 @@ function LiveTablePage({
                     toast?.info?.('Play a hand to the end, then share it.');
                     return;
                   }
+                  refreshCompletedPresentation.current?.();
                   setShowShareHand(true);
                 }}
               />
@@ -28591,9 +29409,10 @@ function LiveTablePage({
             guess. scalerSize comes from the ResizeObserver already on this
             element, so it is the real painted width - including in landscape,
             where the table is height-driven and has no width to infer from. */}
-        <div
-          className="table-scaler"
+        <TableScene
           ref={tableScalerRef}
+          observeSeat={observeShareSeat}
+          observeBoard={observeSharedBoard}
           style={
             {
               '--table-w': `${scalerSize.w}px`,
@@ -28629,240 +29448,217 @@ function LiveTablePage({
           }
         >
           {/* Table Felt */}
-          <div className="table-felt">
-            {/* Dan 2026-08-17 — the painted table itself. object-fit: cover
-                inside the 605/1000 scaler crops the 896x1200 composite to
-                x [9.5%, 90.5%], putting the rail centerline exactly where
-                SEAT_POSITIONS_* expect it. This is what guarantees villains
-                and + SIT buttons sit ON the rail at every breakpoint. */}
-            <img
-              className="table-art"
-              src={tableArt.skinSrc || undefined}
-              alt=""
-              draggable={false}
-              decoding="sync"
-            />
-            <div className="table-rail">
-              <div className="table-surface">
-                {tableState.tournamentId && (
-                  <TournamentStartCountdown
-                    key={tableState.tournamentId}
-                    tournamentId={tableState.tournamentId}
-                    hasLiveHand={(tableState.handNumber ?? 0) > 0}
-                  />
-                )}
-                {/* Hand Number — Dan 2026-08-15 (second revision): moved OFF
+          <TableFelt src={tableArt.skinSrc || undefined}>
+            {tableState.tournamentId && (
+              <TournamentStartCountdown
+                key={tableState.tournamentId}
+                tournamentId={tableState.tournamentId}
+                hasLiveHand={(tableState.handNumber ?? 0) > 0}
+              />
+            )}
+            {/* Hand Number — Dan 2026-08-15 (second revision): moved OFF
                     the upper-right corner and into the felt masthead as line 2,
                     centred under the date/club/game row. It renders inside
                     .table-brand now; nothing draws it here. */}
 
-                {/* ── TABLE CENTRE BRAND (Dan 2026-08-15) ──────────────────
+            {/* ── TABLE CENTRE BRAND (Dan 2026-08-15) ──────────────────
                     "Use the smarter.poker letter logo in the middle of the
                     table, then under that it should say the date, game,
                     blinds, and what club or union it's in."
                     Sits behind the pot and community cards (z-index 1, the
                     pot area is 2+) and is fully click-through so it can never
                     intercept a seat or action tap. */}
-                {/* Sits directly above the wordmark, in felt coordinates, and
+            {/* Sits directly above the wordmark, in felt coordinates, and
                     paints over everything on the surface. See the note in
                     .table-container above for why it moved off the top rail. */}
-                <TableConnectionBanner
-                  status={engineWsStatus}
-                  isActive={isActive}
-                  authRefused={engineRefusedAuth}
-                  accessRefusal={engineAccessRefusal}
-                  /* A dealt hand number proves the felt is showing real state,
+            <TableConnectionBanner
+              status={engineWsStatus}
+              isActive={isActive}
+              authRefused={engineRefusedAuth}
+              accessRefusal={engineAccessRefusal}
+              /* A dealt hand number proves the felt is showing real state,
                      which silences 'connecting' — see the prop's own doc. */
-                  hasLiveState={(tableState.handNumber ?? 0) > 0}
-                />
-                {/* The engine's verdict on THIS seat's presence, on the same
+              hasLiveState={(tableState.handNumber ?? 0) > 0}
+            />
+            {/* The engine's verdict on THIS seat's presence, on the same
                     line. Defers to the socket banner whenever the socket is
                     down (Dan 2026-09-04: every connection message lives on
                     the felt, and none of them says "refresh"). */}
-                <DisconnectToast
-                  heroUserId={userId}
-                  disconnectStates={disconnectStates}
-                  socketStatus={engineWsStatus}
-                  isActive={isActive}
-                  /* Dan 2026-10-04: a seat the tournament has just moved here
+            <DisconnectToast
+              heroUserId={userId}
+              disconnectStates={disconnectStates}
+              socketStatus={engineWsStatus}
+              isActive={isActive}
+              /* Dan 2026-10-04: a seat the tournament has just moved here
                      is not "reconnecting" - say what happened. */
-                  movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}
-                  tableName={
-                    tableState.tableName && tableState.tableName !== 'Loading...'
-                      ? formatGameTitle(tableState.tableName)
-                      : undefined
-                  }
-                />
-                {/* LIGHTNING: THE ROOM'S WORDS ON THE FELT (Lightning transition,
+              movedHereAtMs={followingPlayer ? undefined : arrivedByMoveAtMs}
+              tableName={
+                tableState.tableName && tableState.tableName !== 'Loading...'
+                  ? formatGameTitle(tableState.tableName)
+                  : undefined
+              }
+            />
+            {/* LIGHTNING: THE ROOM'S WORDS ON THE FELT (Lightning transition,
                     phase 1). "Next Hand..." after a long quiet, and "Lightning
                     Is Ending" while the Cluster drains, in felt coordinates
                     just above the wordmark (the band the connection banner
                     uses), so they read the same between hands and in a hand.
                     Words only: nothing here navigates (CLAUDE.md 10.6). */}
-                {lightningRoom ? (
-                  <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
-                    <LightningNextHand
-                      handInProgress={lightningHandLive && tableState.isHandInProgress}
-                      handComplete={tableHandIsOver}
-                    />
-                    <LightningEndingNotice clusterId={lightningRoom.clusterId} />
-                  </div>
-                ) : lightningStartingHere ? (
-                  <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
-                    <LightningStartingNotice show />
-                  </div>
-                ) : null}
+            {lightningRoom ? (
+              <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
+                <LightningNextHand
+                  handInProgress={lightningHandLive && tableState.isHandInProgress}
+                  handComplete={tableHandIsOver}
+                  dealing={lightningHandLive && lightningDealPending}
+                  eligible={
+                    engineWsStatus === 'connected' &&
+                    !!engineSnapshot &&
+                    !lightningObserver &&
+                    !lightningRoomClosed &&
+                    !heroIsSittingOut &&
+                    !lightningHold
+                  }
+                />
+                <LightningEndingNotice clusterId={lightningRoom.clusterId} />
+              </div>
+            ) : lightningStartingHere ? (
+              <div className="lightning-felt-notices" data-testid="lightning-felt-notices">
+                <LightningStartingNotice show />
+              </div>
+            ) : null}
 
-                <div className="table-brand" aria-hidden="true">
-                  <img
-                    className="table-brand__logo"
-                    src={smarterPokerLetterLogo}
-                    alt=""
-                    draggable={false}
-                  />
-                  {/* Dan 2026-08-15 \u2014 felt masthead, two centered lines.
+            <div
+              className="table-brand"
+              aria-hidden={!(lightningRoom || lightningCapableClusterId || heroHandsOwed)}
+            >
+              <img
+                className="table-brand__logo"
+                src={smarterPokerLetterLogo}
+                alt=""
+                draggable={false}
+              />
+              {/* Dan 2026-08-15 \u2014 felt masthead, two centered lines.
                       Was three stacked lines (date / game+blinds / club) plus a
                       separate .table-game-info strip further down that repeated
                       the same stakes twice ("NLH 2.00/5.00" and "2/5 NLH").
                       Now line 1 is date, club and game on one centered row
                       under the wordmark, and line 2 is the hand number, which
                       used to float alone in the top-right corner. */}
-                  <div className="table-brand__meta">
-                    {(() => {
-                      // Shared: the short game label. Dan 2026-08-17 (audit):
-                      // raw DB enums like OFC_PINEAPPLE printed verbatim on
-                      // the felt -- format enums for display.
-                      const gameShort = (
-                        tableState.gameType === "No Limit Hold'em"
-                          ? 'NLH'
-                          : tableState.gameType === 'Pot Limit Omaha'
-                            ? 'PLO'
-                            : tableState.gameType === "Fixed Limit Hold'em"
-                              ? 'FLH'
-                              : (tableState.gameType || 'NLH').replace(/_/g, ' ')
-                      ).toUpperCase();
-                      /* Dan 2026-08-26 mobile pass, item 5: the DATE is gone
+              <div className="table-brand__meta">
+                {(() => {
+                  // Shared: the short game label. Dan 2026-08-17 (audit):
+                  // raw DB enums like OFC_PINEAPPLE printed verbatim on
+                  // the felt -- format enums for display.
+                  const gameShort = (
+                    tableState.gameType === "No Limit Hold'em"
+                      ? 'NLH'
+                      : tableState.gameType === 'Pot Limit Omaha'
+                        ? 'PLO'
+                        : tableState.gameType === "Fixed Limit Hold'em"
+                          ? 'FLH'
+                          : (tableState.gameType || 'NLH').replace(/_/g, ' ')
+                  ).toUpperCase();
+                  /* Dan 2026-08-26 mobile pass, item 5: the DATE is gone
                          from the masthead. Line 1 is club · union, line 2 is
                          game + stakes + hand number — and the hand number can
                          never be cut off (it gets a no-shrink span; the club
                          and union are what ellipsize). */
 
-                      if (tableState.isTournament) {
-                        // Dan 2026-08-20, from a seat at a live Spin: "1st
-                        // line Date, (game type) Poker Spins, Club Name,
-                        // Union Name. 2nd line Level #, Blinds, and the
-                        // clock. 3rd line hand number."
-                        const formatWord =
-                          tournamentFormat === 'spin'
-                            ? 'Poker Spins'
-                            : tournamentFormat === 'sng'
-                              ? 'Poker Heads Up'
-                              : 'Poker Tournament';
-                        /* Dan 2026-08-24: "THE DESCRIPTION ON THE TABLE IS
-                           BLEEDING OVER THE TABLE AND NEEDS TO BE TWO LINES.
-                           FIRST LINE, DATE, CLUB + UNION, SECOND LINE, GAME
-                           AND STAKES AND HAND NUMBER." Level + clock ride the
-                           stakes on line 2; each line ellipsizes instead of
-                           bleeding past the rail. */
-                        return (
-                          <>
-                            <span className="table-brand__line table-brand__line--identity">
-                              <span className="table-brand__club">
-                                <span className="table-brand__club-name">
-                                  {tableState.clubName}
-                                </span>
-                                {tableState.unionName && (
-                                  <>
-                                    {' '}
-                                    {tableState.clubName ? ' - ' : ''}
-                                    <span className="table-brand__union">
-                                      {tableState.unionName}
-                                    </span>
-                                  </>
-                                )}
-                              </span>
-                            </span>
-                            {tournamentFormat === 'spin' ||
-                            (tournamentFormat === 'sng' && Number(tableState.maxPlayers) === 2) ? (
+                  if (tableState.isTournament) {
+                    // Dan 2026-08-20, from a seat at a live Spin: "1st
+                    // line Date, (game type) Poker Spins, Club Name,
+                    // Union Name. 2nd line Level #, Blinds, and the
+                    // clock. 3rd line hand number."
+                    const formatWord =
+                      tournamentFormat === 'spin'
+                        ? 'Poker Spins'
+                        : tournamentFormat === 'sng'
+                          ? 'Poker Heads Up'
+                          : 'Poker Tournament';
+                    const price = tournamentTabBuyInLabel(tournamentBuyInTotal);
+                    const entryLine = [
+                      price && tournamentBuyInTotal ? `${price} Buy-In` : price,
+                      tournamentTypeLine,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return (
+                      <>
+                        <span className="table-brand__line table-brand__line--level">
+                          <span className="table-brand__game">
+                            {tournamentEventName || `${gameShort} ${formatWord}`}
+                          </span>
+                        </span>
+                        {entryLine && (
+                          <span className="table-brand__line" data-testid="tournament-type-line">
+                            {entryLine}
+                          </span>
+                        )}
+                        <span className="table-brand__line table-brand__line--identity">
+                          <span className="table-brand__club">
+                            <span className="table-brand__club-name">{tableState.clubName}</span>
+                            {tableState.unionName && (
                               <>
-                                {!spinDraw &&
-                                  (tableState.spinPrizePool ?? 0) > 0 &&
-                                  arenaAssetUnitCentsIfRead(tableState.arenaAsset) != null && (
-                                    <span className="table-brand__line table-brand__prize">
-                                      {formatPrizeAtUnit(
-                                        tableState.spinPrizePool as number,
-                                        arenaAssetUnitCents(tableState.arenaAsset)
-                                      )}{' '}
-                                      {moneyWordAtUnit(arenaAssetUnitCents(tableState.arenaAsset))}
-                                    </span>
-                                  )}
-                                {(tableState.handNumber ?? 0) > 0 && (
-                                  <span className="table-brand__line table-brand__hand">
-                                    Hand #{tableState.handNumber}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                {/* Dan 2026-10-21: "UNDER KINGS CLUB - MIDWAY UNION IT
-                                    SHOULD SAY THE TOURNAMENT NAME AND BUY IN, NOT JUST
-                                    NLH POKER TOURNAMENT ... REMOVE LEVEL... AND UNDER
-                                    THAT." Line 2 is the event name and its buy-in, then
-                                    the hand number. The level, blinds and the Next
-                                    Blinds / Break line beneath it are gone from the
-                                    felt (the tournament lobby's Blinds tab carries
-                                    the structure). */}
-                                <span className="table-brand__line table-brand__line--level">
-                                  <span className="table-brand__game">
-                                    {tournamentEventName || `${gameShort} ${formatWord}`}
-                                    {tournamentBuyInTotal !== undefined &&
-                                      tournamentTabBuyInLabel(tournamentBuyInTotal) !== '' && (
-                                        <>
-                                          {' · '}
-                                          {tournamentBuyInTotal > 0
-                                            ? `${tournamentTabBuyInLabel(tournamentBuyInTotal)} Buy-In`
-                                            : tournamentTabBuyInLabel(tournamentBuyInTotal)}
-                                        </>
-                                      )}
-                                  </span>
-                                  {tournamentTypeLine && (
-                                    <span
-                                      className="table-brand__line"
-                                      data-testid="tournament-type-line"
-                                    >
-                                      {tournamentTypeLine}
-                                    </span>
-                                  )}
-                                  {tournamentTableLabel(tableState.tableName) && (
-                                    <span
-                                      className="table-brand__line"
-                                      data-testid="tournament-table-number"
-                                    >
-                                      {tournamentTableLabel(tableState.tableName)}
-                                    </span>
-                                  )}
-                                  {(tableState.handNumber ?? 0) > 0 && (
-                                    <span className="table-brand__hand">
-                                      Hand #{tableState.handNumber}
-                                    </span>
-                                  )}
-                                </span>
+                                {' '}
+                                {tableState.clubName ? ' - ' : ''}
+                                <span className="table-brand__union">{tableState.unionName}</span>
                               </>
                             )}
+                          </span>
+                        </span>
+                        {tournamentFormat === 'spin' ||
+                        (tournamentFormat === 'sng' && Number(tableState.maxPlayers) === 2) ? (
+                          <>
+                            {!spinDraw &&
+                              (tableState.spinPrizePool ?? 0) > 0 &&
+                              arenaAssetUnitCentsIfRead(tableState.arenaAsset) != null && (
+                                <span className="table-brand__line table-brand__prize">
+                                  {formatPrizeAtUnit(
+                                    tableState.spinPrizePool as number,
+                                    arenaAssetUnitCents(tableState.arenaAsset)
+                                  )}{' '}
+                                  {moneyWordAtUnit(arenaAssetUnitCents(tableState.arenaAsset))}
+                                </span>
+                              )}
+                            {(tableState.handNumber ?? 0) > 0 && (
+                              <span className="table-brand__line table-brand__hand">
+                                Hand #{tableState.handNumber}
+                              </span>
+                            )}
                           </>
-                        );
-                      }
+                        ) : (
+                          <>
+                            <span className="table-brand__line table-brand__line--level">
+                              {tournamentTableLabel(tableState.tableName) && (
+                                <span
+                                  className="table-brand__line"
+                                  data-testid="tournament-table-number"
+                                >
+                                  {tournamentTableLabel(tableState.tableName)}
+                                </span>
+                              )}
+                              {(tableState.handNumber ?? 0) > 0 && (
+                                <span className="table-brand__hand">
+                                  Hand #{tableState.handNumber}
+                                </span>
+                              )}
+                            </span>
+                          </>
+                        )}
+                      </>
+                    );
+                  }
 
-                      // Cash tables keep the two-line masthead.
-                      /* Dan 2026-08-26 mobile pass, item 5: NO date. Line 1 is
+                  // Cash tables keep the two-line masthead.
+                  /* Dan 2026-08-26 mobile pass, item 5: NO date. Line 1 is
                          "Club Name" - "Union Name"; line 2 is game + stakes +
                          hand number, and the hand number may never be cut off
                          \u2014 it sits in its own no-shrink span while the game
                          label is the part that ellipsizes (see
                          .table-brand__hand in TablePage.css). */
-                      return (
-                        <>
-                          {/* ── LINE 1: WHO THIS TABLE BELONGS TO ────────────
+                  return (
+                    <>
+                      {/* ── LINE 1: WHO THIS TABLE BELONGS TO ────────────
                               Dan 2026-09-07, 7A: "LINE ONE UNDER SMARTER.POKER
                               IS THE CLUB NAME AND THE UNION NAME, (NEVER
                               ABBREVIATE ANY NAME, THEY NEED TO BE FULLY SPELT
@@ -28875,10 +29671,10 @@ function LiveTablePage({
                               "MIDWAY U..." is not a shorter name, it is a
                               wrong one, and a club paying to be on this felt
                               should not be truncated to fit a wordmark. */}
-                          {(tableState.clubName || tableState.unionName) && (
-                            <span className="table-brand__line table-brand__line--identity">
-                              <span className="table-brand__club">
-                                {/* A NAME IS ONE WORD TO THE LINE BREAKER (Dan 2026-09-23:
+                      {(tableState.clubName || tableState.unionName) && (
+                        <span className="table-brand__line table-brand__line--identity">
+                          <span className="table-brand__club">
+                            {/* A NAME IS ONE WORD TO THE LINE BREAKER (Dan 2026-09-23:
                                     '"Shark Club" needs to be on the same line, not stacked').
                                     The union span below is nowrap and carried its own
                                     separator, so the only break opportunity on the row was
@@ -28887,22 +29683,20 @@ function LiveTablePage({
                                     now, and the one breakable space on the row sits between
                                     the two names, so a row too long for one line breaks
                                     club / union and never inside either. */}
-                                <span className="table-brand__club-name">
-                                  {tableState.clubName}
+                            <span className="table-brand__club-name">{tableState.clubName}</span>
+                            {tableState.unionName && (
+                              <>
+                                {tableState.clubName ? ' ' : ''}
+                                <span className="table-brand__union">
+                                  {tableState.clubName ? '· ' : ''}
+                                  {tableState.unionName}
                                 </span>
-                                {tableState.unionName && (
-                                  <>
-                                    {tableState.clubName ? ' ' : ''}
-                                    <span className="table-brand__union">
-                                      {tableState.clubName ? '· ' : ''}
-                                      {tableState.unionName}
-                                    </span>
-                                  </>
-                                )}
-                              </span>
-                            </span>
-                          )}
-                          {/* ── LINE 2: THE GAME, ON ONE LINE ────────────────
+                              </>
+                            )}
+                          </span>
+                        </span>
+                      )}
+                      {/* ── LINE 2: THE GAME, ON ONE LINE ────────────────
                               Dan 2026-09-07, 7B: "LINE TWO SHOULD HAVE THE
                               GAME TYPE 'CLASSIC, ACTION, MADNESS' AND THEN THE
                               GAME AND STAKES. (SO 'ACTION PLO4 2/5' ALL ON ONE
@@ -28921,7 +29715,7 @@ function LiveTablePage({
                               it either blind would be a lie and it prints
                               "+ Ante". If SB antes are a real format here they
                               need a column before they can be a label. */}
-                          {/* THE LINE FITS ITS BOX (audit 2026-09-09). The
+                      {/* THE LINE FITS ITS BOX (audit 2026-09-09). The
                               10.5cqw size above was measured for "NLH
                               0.10/0.25" alone; with the style in front and the
                               ante behind, a 375px phone ellipsized this row to
@@ -28929,26 +29723,26 @@ function LiveTablePage({
                               measures itself and scales down to fit, and wraps
                               at the floor rather than cutting the stakes off.
                               See MastheadGameLine. */}
-                          <span className="table-brand__line table-brand__line--level">
-                            <MastheadGameLine className="table-brand__game">
-                              {lightningRoom
-                                ? 'Lightning Games '
-                                : tableState.gameStyle
-                                  ? `${tableState.gameStyle} `
-                                  : ''}
-                              {gameShort} {tableState.blinds || '1/2'}
-                              {tableState.ante > 0 &&
-                                (tableState.anteMode === 'big_blind' ? ' + BB Ante' : ' + Ante')}
-                            </MastheadGameLine>
-                          </span>
-                          {customCashGameName(tableState.tableName) && (
-                            <span className="table-brand__line table-brand__line--level">
-                              <MastheadGameLine className="table-brand__game">
-                                {customCashGameName(tableState.tableName)}
-                              </MastheadGameLine>
-                            </span>
-                          )}
-                          {/* THE JACKPOT ROW IS GONE (Dan 2026-09-07, item 6).
+                      <span className="table-brand__line table-brand__line--level">
+                        <MastheadGameLine className="table-brand__game">
+                          {lightningRoom
+                            ? 'Lightning Games '
+                            : tableState.gameStyle
+                              ? `${tableState.gameStyle} `
+                              : ''}
+                          {gameShort} {tableState.blinds || '1/2'}
+                          {tableState.ante > 0 &&
+                            (tableState.anteMode === 'big_blind' ? ' + BB Ante' : ' + Ante')}
+                        </MastheadGameLine>
+                      </span>
+                      {customCashGameName(tableState.tableName) && (
+                        <span className="table-brand__line table-brand__line--level">
+                          <MastheadGameLine className="table-brand__game">
+                            {customCashGameName(tableState.tableName)}
+                          </MastheadGameLine>
+                        </span>
+                      )}
+                      {/* THE JACKPOT ROW IS GONE (Dan 2026-09-07, item 6).
                               "YOU'VE ADDED THE BOMBPOT TOTAL TO ALL OF THE
                               TABLES, THAT SHOULD NEVER BE THERE."
 
@@ -28964,17 +29758,21 @@ function LiveTablePage({
                               number is. If the placard idea comes back it
                               belongs in the jackpot widget, not on the felt
                               between the stakes and the hand number. */}
-                          {(tableState.handNumber ?? 0) > 0 && (
-                            <span className="table-brand__line table-brand__line--hand">
-                              <span className="table-brand__hand">
-                                Hand #{tableState.handNumber}
-                              </span>
-                            </span>
-                          )}
-                        </>
-                      );
-                    })()}
-                    {/* THE BOMB POT CLOCK, UNDER THE BLINDS (Dan 2026-09-05):
+                      {(tableState.handNumber ?? 0) > 0 && (
+                        <span className="table-brand__line table-brand__line--hand">
+                          <span className="table-brand__hand">Hand #{tableState.handNumber}</span>
+                        </span>
+                      )}
+                      <HitRunCountPill
+                        retryRead={heroHandCount.retryRead}
+                        hands={heroHandsOwed}
+                        reason={heroHandCount.reason ?? null}
+                        paused={heroHandCount.paused ?? null}
+                      />
+                    </>
+                  );
+                })()}
+                {/* THE BOMB POT CLOCK, UNDER THE BLINDS (Dan 2026-09-05):
                         "THE 'DOUBLE BOARD BOMB POT NEXT HAND' DISPLAY AND
                         COUNTDOWN CLOCK NEEDS TO BE MUCH SMALLER ... IT SHOULD
                         BE UNDER THE BLINDS WHERE 'ACTION' IS LOCATED. AND
@@ -28988,45 +29786,46 @@ function LiveTablePage({
                         .table-brand__meta, outside the branch above. The live
                         state is NOT here - it hangs off the board (see
                         .bomb-pot-live). */}
-                    {bombPotBadge && bombPotBadge.state !== 'live' && (
-                      <span
-                        className={`table-brand__line table-brand__line--bomb${
-                          bombPotBadge.state === 'next' ? ' table-brand__line--bomb-next' : ''
-                        }`}
-                      >
-                        <span className="table-brand__bomb">{bombPotBadge.text}</span>
-                      </span>
-                    )}
-                    {/* THE CLOSED MAINTENANCE BREAK (Dan 2026-10-14): "THIS
+                {bombPotBadge && bombPotBadge.state !== 'live' && (
+                  <span
+                    className={`table-brand__line table-brand__line--bomb${
+                      bombPotBadge.state === 'next' ? ' table-brand__line--bomb-next' : ''
+                    }`}
+                  >
+                    <span className="table-brand__bomb">{bombPotBadge.text}</span>
+                  </span>
+                )}
+                {!lightningRoom && <LightningStartTicker state={tableGameLightningState} />}
+                {/* THE CLOSED MAINTENANCE BREAK (Dan 2026-10-14): "THIS
                         NEEDS TO APPEAR BELOW 'BOMB POT IN 2:47' NOT UNDER THE
                         HERO." Shown once the player closes the break card,
                         and on every background tile of a multi-table view,
                         where the card itself is not drawn. */}
-                    {maintenanceBreak.active &&
-                      (maintenanceBreakClosed || (isMultiTable && !isActive)) && (
-                        <MaintenanceBreakLine
-                          phase={maintenanceBreak.phase}
-                          breakEndsAtMs={maintenanceBreak.breakEndsAtMs}
-                          onOpen={() => setMaintenanceBreakClosed(false)}
-                        />
-                      )}
-                    {/* KILL POTS (kill-v1): the next hand is a kill hand. The
+                {maintenanceBreak.active &&
+                  (maintenanceBreakClosed || (isMultiTable && !isActive)) && (
+                    <MaintenanceBreakLine
+                      phase={maintenanceBreak.phase}
+                      breakEndsAtMs={maintenanceBreak.breakEndsAtMs}
+                      onOpen={() => setMaintenanceBreakClosed(false)}
+                    />
+                  )}
+                {/* KILL POTS (kill-v1): the next hand is a kill hand. The
                         bomb clock's line, word for word the same pattern: a
                         masthead line under the blinds, not a pill on the felt.
                         The engine says so (kill_next); nothing here predicts. */}
-                    {tableState.killNext && (
-                      <span
-                        className="table-brand__line table-brand__line--bomb table-brand__line--bomb-next table-brand__line--kill"
-                        aria-live="polite"
-                      >
-                        <span className="table-brand__bomb">
-                          {killNextAnnouncement(tableState.killNext)}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* Dan 2026-08-19 item 15: the pot moved OUT of .table-surface.
+                {tableState.killNext && (
+                  <span
+                    className="table-brand__line table-brand__line--bomb table-brand__line--bomb-next table-brand__line--kill"
+                    aria-live="polite"
+                  >
+                    <span className="table-brand__bomb">
+                      {killNextAnnouncement(tableState.killNext)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* Dan 2026-08-19 item 15: the pot moved OUT of .table-surface.
                     That element sets z-index:1 and so creates a stacking
                     context, which trapped the pot below the chip-flight layer
                     no matter what z-index it was given - every chip flying to
@@ -29034,283 +29833,273 @@ function LiveTablePage({
                     the chip layer (see .pot-area in TablePage.css, whose
                     percentages are converted so it does not move a pixel). */}
 
-                {/* Community Cards.
+            {/* Community Cards.
                     When the hand is run twice or three times, all boards render
                     directly on the table felt with run badges, winning hand names,
                     winner labels, and winning card highlights. */}
-                <div className="community-area">
-                  {/* The offer belongs above the board, never over player cards. */}
-                  {ritFeltBanner && (
-                    <div className="rit-felt-banner" role="status" aria-live="polite">
-                      <span className="rit-felt-banner__text">{ritFeltBanner}</span>
-                    </div>
-                  )}
-                  {ritBoardsView.length >= 2 ? (
-                    ritBoardsView.map((board) => (
-                      <div
-                        className={`community-area__run community-area__run--board-${board.boardIndex + 1}${
-                          board.boardIndex > 0 ? ' community-area__run--extra' : ''
-                        }`}
-                        key={`rit-run-${board.boardIndex + 1}`}
-                        /* RIT BOARD FIX (Dan 2026-08-30): runs 2+ render the
+            <div className="community-area">
+              {/* The offer belongs above the board, never over player cards. */}
+              {ritFeltBanner && (
+                <div className="rit-felt-banner" role="status" aria-live="polite">
+                  <span className="rit-felt-banner__text">{ritFeltBanner}</span>
+                </div>
+              )}
+              {ritBoardsView.length >= 2 ? (
+                ritBoardsView.map((board) => (
+                  <div
+                    className={`community-area__run community-area__run--board-${board.boardIndex + 1}${
+                      board.boardIndex > 0 ? ' community-area__run--extra' : ''
+                    }`}
+                    key={`rit-run-${board.boardIndex + 1}`}
+                    /* RIT BOARD FIX (Dan 2026-08-30): runs 2+ render the
                            FULL board — the shared flop/turn appear on every
                            run exactly as dealt, plus that run's re-dealt
                            streets. CSS previously hid the shared prefix on
                            extra runs (a turn all-in run 3x showed runs 2/3 as
                            a lone river card); that rule is deleted.
                            data-base-count remains as data only. */
-                        data-base-count={
-                          board.boardIndex > 0 ? (ritResult?.baseBoardCount ?? 0) : 0
-                        }
-                        style={
-                          {
-                            '--rit-run-delay': `${board.boardIndex * 0.4}s`,
-                          } as React.CSSProperties
-                        }
-                      >
-                        <div className="community-area__run-header">
-                          <span className="community-area__run-badge">
-                            RUN {board.boardIndex + 1}
-                          </span>
-                          {board.winnerNames.length > 0 && (
-                            <span
-                              className="community-area__run-winner"
-                              title={board.winnerNames.join(', ')}
-                            >
-                              {/* HOUSE RULE (Dan 2026-08-26): First Letter Of
+                    data-base-count={board.boardIndex > 0 ? (ritResult?.baseBoardCount ?? 0) : 0}
+                    style={
+                      {
+                        '--rit-run-delay': `${board.boardIndex * 0.4}s`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <div className="community-area__run-header">
+                      <span className="community-area__run-badge">RUN {board.boardIndex + 1}</span>
+                      {board.winnerNames.length > 0 && (
+                        <span
+                          className="community-area__run-winner"
+                          title={board.winnerNames.join(', ')}
+                        >
+                          {/* HOUSE RULE (Dan 2026-08-26): First Letter Of
                                   Every Word — the evaluator's "Three of a
                                   Kind" renders "Three Of A Kind". Names keep
                                   their interior capitals. */}
-                              {formatPopupText(
-                                /* The engine's line wins when the wire has it
+                          {formatPopupText(
+                            /* The engine's line wins when the wire has it
                                    (hi-lo halves named, no "Chop" on a split).
                                    The local evaluation is the fallback for
                                    older payloads only. */
-                                board.engineLabel
-                                  ? board.engineLabel
-                                  : board.winnerNames.length > 1
-                                    ? `${board.winnerNames.join(' & ')} • ${board.winnerHandName ? `${board.winnerHandName} (Chop)` : 'Chop'}`
-                                    : `${board.winnerNames[0]}${board.winnerHandName ? ` • ${board.winnerHandName}` : ''}`
-                              )}
-                            </span>
+                            board.engineLabel
+                              ? board.engineLabel
+                              : board.winnerNames.length > 1
+                                ? `${board.winnerNames.join(' & ')} • ${board.winnerHandName ? `${board.winnerHandName} (Chop)` : 'Chop'}`
+                                : `${board.winnerNames[0]}${board.winnerHandName ? ` • ${board.winnerHandName}` : ''}`
                           )}
-                          {/* Share %/amount only once the reveal has finished —
+                        </span>
+                      )}
+                      {/* Share %/amount only once the reveal has finished —
                               the reference shows nothing on a board still
                               dealing. Tournament chips carry no currency mark
                               (RIT ALL FORMATS 2026-08-26). */}
-                          {board.revealed && (
-                            <span className="community-area__run-equity">
-                              {board.sharePct}%
-                              {board.shareAmount > 0
-                                ? ` (${board.shareAmount.toLocaleString()})`
-                                : ''}
-                            </span>
-                          )}
-                        </div>
-                        {/* POKERBROS PARITY 2026-08-26: each run deals street
+                      {board.revealed && (
+                        <span className="community-area__run-equity">
+                          {board.sharePct}%
+                          {board.shareAmount > 0 ? ` (${board.shareAmount.toLocaleString()})` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {/* POKERBROS PARITY 2026-08-26: each run deals street
                             by street on the reveal timeline — the cards and
                             stage below advance flop → turn → river per run,
                             so CommunityCards plays its own deal animation for
                             every street exactly like a live board. */}
-                        <CommunityCards
-                          cards={board.cards.slice(0, board.visibleCount)}
-                          rabbitCards={board.revealed ? liveRabbitCards : []}
-                          stage={
-                            board.visibleCount >= 5
-                              ? 'river'
-                              : board.visibleCount === 4
-                                ? 'turn'
-                                : board.visibleCount >= 3
-                                  ? 'flop'
-                                  : 'preflop'
-                          }
-                          highlightedIndices={board.highlightedIndices}
-                          winningHandName={board.winnerHandName}
-                          deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                          cardBack={activeCardBack}
-                          playSounds={board.boardIndex === 0 && ambientSoundsAllowed}
-                          /* RIVER SQUEEZE 2026-09-04: presentation identity
+                    <CommunityCards
+                      cards={board.cards.slice(0, board.visibleCount)}
+                      rabbitCards={board.revealed ? liveRabbitCards : []}
+                      stage={
+                        board.visibleCount >= 5
+                          ? 'river'
+                          : board.visibleCount === 4
+                            ? 'turn'
+                            : board.visibleCount >= 3
+                              ? 'flop'
+                              : 'preflop'
+                      }
+                      highlightedIndices={board.highlightedIndices}
+                      winningHandName={board.winnerHandName}
+                      deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                      cardBack={activeCardBack}
+                      playSounds={board.boardIndex === 0 && ambientSoundsAllowed}
+                      /* RIVER SQUEEZE 2026-09-04: presentation identity
                              and focus for the card presentation engine. Each
                              run is its own board lane. */
-                          tableId={tableId}
-                          handId={tableState.handNumber}
-                          boardIndex={board.boardIndex}
-                          onRiverPresented={() =>
-                            markRitBoardPresented(board.boardIndex, tableState.handNumber ?? 0)
-                          }
-                          /* VIP ALL-IN SQUEEZE 2026-09-05: a re-run board is
+                      tableId={tableId}
+                      handId={tableState.handNumber}
+                      boardIndex={board.boardIndex}
+                      onRiverPresented={() =>
+                        markRitBoardPresented(board.boardIndex, tableState.handNumber ?? 0)
+                      }
+                      /* VIP ALL-IN SQUEEZE 2026-09-05: a re-run board is
                              told it is one of several, so it can never
                              squeeze whatever else it is handed. */
-                          runs={Math.max(2, ritBoardsView.length)}
-                          gameMode={boardPresentationMode}
-                          isFocused={isActive}
-                          isVisible={isVisible}
-                        />
-                      </div>
-                    ))
-                  ) : (
-                    <>
-                      <CommunityCards
-                        /* P1 2026-09-05: while a reveal's retained board is
+                      runs={Math.max(2, ritBoardsView.length)}
+                      gameMode={boardPresentationMode}
+                      isFocused={isActive}
+                      isVisible={isVisible}
+                    />
+                  </div>
+                ))
+              ) : (
+                <>
+                  <CommunityCards
+                    /* P1 2026-09-05: while a reveal's retained board is
                            showing, the felt paints THAT copy (cards, stage,
                            ghost cards, hand id) and the live hand plays on
                            around it. See retainedBoardShows. */
-                        rabbitStartIndex={
-                          showRetainedRabbitGhosts ? retainedRabbitBoard!.cards.length : undefined
-                        }
-                        rabbitHandId={retainedRabbitBoard?.handNumber ?? rabbitRevealedHandNumber}
-                        cards={showRetainedRabbitBoard ? retainedCards : tableState.communityCards}
-                        rabbitCards={
-                          showRetainedRabbitBoard || showRetainedRabbitGhosts
-                            ? retainedRabbitCards
-                            : liveRabbitCards
-                        }
-                        stage={
-                          showRetainedRabbitBoard
-                            ? retainedRabbitBoard!.stage
-                            : bombPotHoldFlop && tableState.boardStage === 'flop'
-                              ? 'preflop'
-                              : tableState.boardStage
-                        }
-                        highlightedIndices={winnerBandActive ? winnerInfo.cardIndices : []}
-                        winningHandName={
-                          winnerBandActive
-                            ? winnerInfo.boardHandNames?.[0] || winnerInfo.handName
-                            : undefined
-                        }
-                        /* SHOWDOWN SYSTEM 2026-08-25 (spec section 14): the
+                    rabbitStartIndex={
+                      showRetainedRabbitGhosts ? retainedRabbitBoard!.cards.length : undefined
+                    }
+                    rabbitHandId={retainedRabbitBoard?.handNumber ?? rabbitRevealedHandNumber}
+                    cards={showRetainedRabbitBoard ? retainedCards : tableState.communityCards}
+                    rabbitCards={
+                      showRetainedRabbitBoard || showRetainedRabbitGhosts
+                        ? retainedRabbitCards
+                        : liveRabbitCards
+                    }
+                    stage={
+                      showRetainedRabbitBoard
+                        ? retainedRabbitBoard!.stage
+                        : bombPotHoldFlop && tableState.boardStage === 'flop'
+                          ? 'preflop'
+                          : tableState.boardStage
+                    }
+                    highlightedIndices={winnerBandActive ? winnerInfo.cardIndices : []}
+                    winningHandName={
+                      winnerBandActive
+                        ? winnerInfo.boardHandNames?.[0] || winnerInfo.handName
+                        : undefined
+                    }
+                    /* SHOWDOWN SYSTEM 2026-08-25 (spec section 14): the
                            engine's descriptive line under the hand name.
                            Single-board only — per-board labels already carry
                            their own hand names. */
-                        winningHandDescription={
-                          !winnerBandActive || winnerInfo.boardHandNames
-                            ? undefined
-                            : winnerInfo.handDescription
-                        }
-                        /* SHOWDOWN POLISH 2026-08-25 (spec 33): the hi-lo
+                    winningHandDescription={
+                      !winnerBandActive || winnerInfo.boardHandNames
+                        ? undefined
+                        : winnerInfo.handDescription
+                    }
+                    /* SHOWDOWN POLISH 2026-08-25 (spec 33): the hi-lo
                            split's LOW WINNER line. Review fix: NOT gated on
                            boardHandNames — a double-board hi-lo hand has both
                            per-board names AND a low winner, and suppressing
                            the label hid a real winner's credit line. */
-                        lowWinnerLabel={winnerBandActive ? winnerInfo.lowWinnerLabel : ''}
-                        /* Dan 2026-10-24: the band names WHO won a contested
+                    lowWinnerLabel={winnerBandActive ? winnerInfo.lowWinnerLabel : ''}
+                    /* Dan 2026-10-24: the band names WHO won a contested
                            single-board showdown. A fold-around win already
                            reads "Wins The Pot" on the winner's seat, and a
                            per-board label carries its own names. */
-                        winningPlayerLabel={
-                          winnerBandActive &&
-                          !winnerInfo.boardHandNames &&
-                          tableState.boardStage === 'showdown'
-                            ? showdownWinnerLine(
-                                winnerInfo.playerIds.map(
-                                  (id) => tableState.players.find((p) => p?.id === id)?.name || ''
-                                )
-                              )
-                            : undefined
-                        }
-                        deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                        cardBack={activeCardBack}
-                        playSounds={ambientSoundsAllowed}
-                        /* POKERBROS PARITY 2026-08-26: during the all-in
+                    winningPlayerLabel={
+                      winnerBandActive &&
+                      !winnerInfo.boardHandNames &&
+                      tableState.boardStage === 'showdown'
+                        ? showdownWinnerLine(
+                            winnerInfo.playerIds.map(
+                              (id) => tableState.players.find((p) => p?.id === id)?.name || ''
+                            )
+                          )
+                        : undefined
+                    }
+                    deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                    cardBack={activeCardBack}
+                    playSounds={ambientSoundsAllowed}
+                    /* POKERBROS PARITY 2026-08-26: during the all-in
                            runout (equity overlay live) the turn/river land
                            face down and flip - the reference slowed reveal. */
-                        slowReveal={allInEquities.length > 0}
-                        /* VIP ALL-IN SQUEEZE 2026-09-05: this viewer's right
+                    slowReveal={allInEquities.length > 0}
+                    /* VIP ALL-IN SQUEEZE 2026-09-05: this viewer's right
                            to squeeze, and the run count so a re-run never
                            does (see heroSqueezeEligible). */
-                        squeezeEligible={heroSqueezeEligible}
-                        runs={ritRunsThisHand}
-                        onSqueezeHold={setSqueezeHolding}
-                        /* RIVER SQUEEZE 2026-09-04: presentation identity and
+                    squeezeEligible={heroSqueezeEligible}
+                    runs={ritRunsThisHand}
+                    onSqueezeHold={setSqueezeHolding}
+                    /* RIVER SQUEEZE 2026-09-04: presentation identity and
                            focus. The engine keys the river by table + hand +
                            board so a duplicate snapshot never replays it and
                            a background table gets the compact profile. */
-                        tableId={tableId}
-                        handId={
-                          showRetainedRabbitBoard
-                            ? retainedRabbitBoard!.handNumber
-                            : tableState.handNumber
-                        }
-                        boardIndex={0}
-                        gameMode={boardPresentationMode}
-                        isFocused={isActive}
-                        isVisible={isVisible}
-                      />
-                      {/* DOUBLE-BOARD BOMB POT 2026-08-20: board 2, stacked
+                    tableId={tableId}
+                    handId={
+                      showRetainedRabbitBoard
+                        ? retainedRabbitBoard!.handNumber
+                        : tableState.handNumber
+                    }
+                    boardIndex={0}
+                    gameMode={boardPresentationMode}
+                    isFocused={isActive}
+                    isVisible={isVisible}
+                  />
+                  {/* DOUBLE-BOARD BOMB POT 2026-08-20: board 2, stacked
                           directly under board 1 like the reference — no label,
                           same stage (both boards deal in lockstep), silent so
                           each street sounds once. */}
-                      {/* RABBIT FIX 2026-08-28 (spec §19): a rabbit hunt is
+                  {/* RABBIT FIX 2026-08-28 (spec §19): a rabbit hunt is
                           board-1's would-have-come cards — appending them to
                           board 2/3 drew the same cards on two boards. The
                           engine no longer offers rabbits on multi-board hands
                           at all; the empty rabbitCards here are defence. */}
-                      {tableState.communityCards2.length > 0 && (
-                        <div className="community-area__board2">
-                          <CommunityCards
-                            cards={tableState.communityCards2}
-                            rabbitCards={[]}
-                            stage={
-                              bombPotHoldFlop && tableState.boardStage === 'flop'
-                                ? 'preflop'
-                                : tableState.boardStage
-                            }
-                            winningHandName={
-                              winnerBandActive
-                                ? winnerInfo.boardHandNames?.[1] || undefined
-                                : undefined
-                            }
-                            /* POKERBROS PARITY 2026-08-26 (round 3): board 2
+                  {tableState.communityCards2.length > 0 && (
+                    <div className="community-area__board2">
+                      <CommunityCards
+                        cards={tableState.communityCards2}
+                        rabbitCards={[]}
+                        stage={
+                          bombPotHoldFlop && tableState.boardStage === 'flop'
+                            ? 'preflop'
+                            : tableState.boardStage
+                        }
+                        winningHandName={
+                          winnerBandActive ? winnerInfo.boardHandNames?.[1] || undefined : undefined
+                        }
+                        /* POKERBROS PARITY 2026-08-26 (round 3): board 2
                                dims and lights exactly like board 1. */
-                            highlightedIndices={board2HighlightedIndices}
-                            deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                            cardBack={activeCardBack}
-                            playSounds={false}
-                            slowReveal={allInEquities.length > 0}
-                            tableId={tableId}
-                            handId={tableState.handNumber}
-                            boardIndex={1}
-                            gameMode={boardPresentationMode}
-                            isFocused={isActive}
-                            isVisible={isVisible}
-                          />
-                        </div>
-                      )}
-                      {/* TRIPLE-BOARD BOMB POT 2026-08-27: board 3, stacked
-                          under board 2, same lockstep stage and silence. */}
-                      {tableState.communityCards3.length > 0 && (
-                        <div className="community-area__board2 community-area__board3">
-                          <CommunityCards
-                            cards={tableState.communityCards3}
-                            rabbitCards={[]}
-                            stage={
-                              bombPotHoldFlop && tableState.boardStage === 'flop'
-                                ? 'preflop'
-                                : tableState.boardStage
-                            }
-                            winningHandName={
-                              winnerBandActive
-                                ? winnerInfo.boardHandNames?.[2] || undefined
-                                : undefined
-                            }
-                            highlightedIndices={board3HighlightedIndices}
-                            deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
-                            cardBack={activeCardBack}
-                            playSounds={false}
-                            slowReveal={allInEquities.length > 0}
-                            tableId={tableId}
-                            handId={tableState.handNumber}
-                            boardIndex={2}
-                            gameMode={boardPresentationMode}
-                            isFocused={isActive}
-                            isVisible={isVisible}
-                          />
-                        </div>
-                      )}
-                    </>
+                        highlightedIndices={board2HighlightedIndices}
+                        deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                        cardBack={activeCardBack}
+                        playSounds={false}
+                        slowReveal={allInEquities.length > 0}
+                        tableId={tableId}
+                        handId={tableState.handNumber}
+                        boardIndex={1}
+                        gameMode={boardPresentationMode}
+                        isFocused={isActive}
+                        isVisible={isVisible}
+                      />
+                    </div>
                   )}
+                  {/* TRIPLE-BOARD BOMB POT 2026-08-27: board 3, stacked
+                          under board 2, same lockstep stage and silence. */}
+                  {tableState.communityCards3.length > 0 && (
+                    <div className="community-area__board2 community-area__board3">
+                      <CommunityCards
+                        cards={tableState.communityCards3}
+                        rabbitCards={[]}
+                        stage={
+                          bombPotHoldFlop && tableState.boardStage === 'flop'
+                            ? 'preflop'
+                            : tableState.boardStage
+                        }
+                        winningHandName={
+                          winnerBandActive ? winnerInfo.boardHandNames?.[2] || undefined : undefined
+                        }
+                        highlightedIndices={board3HighlightedIndices}
+                        deckStyle={userSettings.fourColorDeck ? '4color' : '2color'}
+                        cardBack={activeCardBack}
+                        playSounds={false}
+                        slowReveal={allInEquities.length > 0}
+                        tableId={tableId}
+                        handId={tableState.handNumber}
+                        boardIndex={2}
+                        gameMode={boardPresentationMode}
+                        isFocused={isActive}
+                        isVisible={isVisible}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
 
-                  {/* SCOOP LABELS (spec §9.2/§13.3): one player swept the
+              {/* SCOOP LABELS (spec §9.2/§13.3): one player swept the
                       multi-board bomb pot — announced only after the awards
                       have pushed, never before.
 
@@ -29331,16 +30120,16 @@ function LiveTablePage({
                       three boards, at any width, without a single magic
                       percentage to go stale the next time the stack is
                       resized. */}
-                  {scoopBanner && scoopBanner.handNumber === tableState.handNumber && (
-                    <div className="bomb-scoop-banner" aria-live="polite">
-                      <span className="bomb-scoop-banner__label">{scoopBanner.text}</span>
-                      {scoopBanner.name && (
-                        <span className="bomb-scoop-banner__name">{scoopBanner.name}</span>
-                      )}
-                    </div>
+              {scoopBanner && scoopBanner.handNumber === tableState.handNumber && (
+                <div className="bomb-scoop-banner" aria-live="polite">
+                  <span className="bomb-scoop-banner__label">{scoopBanner.text}</span>
+                  {scoopBanner.name && (
+                    <span className="bomb-scoop-banner__name">{scoopBanner.name}</span>
                   )}
+                </div>
+              )}
 
-                  {/* THE BOMB HAND ITSELF. Dan 2026-09-05: "THE 'DOUBLE BOARD
+              {/* THE BOMB HAND ITSELF. Dan 2026-09-05: "THE 'DOUBLE BOARD
                       BOMB POT' IS COVERING THE TOP OF THE CARDS ... IT NEEDS
                       TO BE HIGHER, AND SMALLER, AND IT NEEDS TO BE
                       SMARTER.POKER COLOR SCHEMA, NOT PINK."
@@ -29354,45 +30143,43 @@ function LiveTablePage({
                       the felt it sat inside the two- and three-board stack,
                       which is the only time this label is ever shown. An
                       anchor cannot go stale; a percentage can. */}
-                  {bombPotBadge?.state === 'live' && (
-                    <div className="bomb-pot-live" aria-live="polite">
-                      <span className="bomb-pot-live__dot" />
-                      {bombPotBadge.text}
-                    </div>
-                  )}
-                  {/* KILL POTS (kill-v1): THIS hand is a kill hand. Same pill,
+              {bombPotBadge?.state === 'live' && (
+                <div className="bomb-pot-live" aria-live="polite">
+                  <span className="bomb-pot-live__dot" />
+                  {bombPotBadge.text}
+                </div>
+              )}
+              {/* KILL POTS (kill-v1): THIS hand is a kill hand. Same pill,
                       same anchor as the live bomb (the two never share a hand:
                       a kill table runs no bomb pots). It states the hand's
                       effective limits as the engine published them, "Kill Pot
                       8/16" or "Half Kill 6/12"; the killer's seat carries the
                       matching marker. */}
-                  {tableState.killHand && bombPotBadge?.state !== 'live' && (
-                    <div
-                      className="bomb-pot-live kill-pot-live"
-                      aria-live="polite"
-                      aria-label={`${killPotPillText(tableState.killHand)}, Killer In Seat ${tableState.killHand.killerSeat}`}
-                    >
-                      <span className="bomb-pot-live__dot" aria-hidden="true" />
-                      {killPotPillText(tableState.killHand)}
-                    </div>
-                  )}
+              {tableState.killHand && bombPotBadge?.state !== 'live' && (
+                <div
+                  className="bomb-pot-live kill-pot-live"
+                  aria-live="polite"
+                  aria-label={`${killPotPillText(tableState.killHand)}, Killer In Seat ${tableState.killHand.killerSeat}`}
+                >
+                  <span className="bomb-pot-live__dot" aria-hidden="true" />
+                  {killPotPillText(tableState.killHand)}
                 </div>
+              )}
+            </div>
 
-                {/* Dan 2026-08-15: the "Game Info Strip" that lived here is
+            {/* Dan 2026-08-15: the "Game Info Strip" that lived here is
                     gone. It printed the stakes a second and third time
                     ("NLH 2.00/5.00", then "2/5 NLH" in yellow) right under the
                     masthead that already states them. Date, club and game now
                     appear once, on one centered line in .table-brand. */}
 
-                {/* Spectator Badge + Overlay REMOVED from table surface.
+            {/* Spectator Badge + Overlay REMOVED from table surface.
                     Observer count belongs inside the chat panel, not on the felt.
                     SpectatorBadge and SpectatorOverlay components still exist for
                     future integration into the chat panel. */}
 
-                {/* FIX 194: HandStrengthIndicator REMOVED — not allowed for live online gameplay */}
-              </div>
-            </div>
-          </div>
+            {/* FIX 194: HandStrengthIndicator REMOVED — not allowed for live online gameplay */}
+          </TableFelt>
 
           {/* Dealer Button — Animated "D" chip */}
           <DealerButton
@@ -29407,8 +30194,24 @@ function LiveTablePage({
               .table-scaler, so its `position:absolute; inset:0` resolved
               against the wrong ancestor and the coordinates meant nothing.
               Mounted here it shares the seats' own coordinate space. */}
+          {/* Bible V8 §11.1 emoji_enabled — FAIL-SAFE (Dan 2026-11-12). The
+              real gate is at ingest in useTableChat, which is what stops the
+              playback queue filling in the first place. This second gate
+              exists because a throw already mid-flight when the player flips
+              the switch would otherwise finish its arc on a felt the player
+              just asked to be clean, and because any future inbound path that
+              forgets the ingest gate still cannot paint here.
+
+              It feeds an EMPTY list rather than unmounting: unmounting kills
+              the per-event onEventComplete callback, and that callback is
+              what drains both `events` and the FIFO `pending` backlog in
+              useTableAnimations. A container torn down mid-flight would leave
+              the queue holding events forever — they would all replay the
+              moment the player switched reactions back on, and at
+              MAX_ACTIVE_THROWS the backlog would stop accepting new ones.
+              The drain effect below empties it instead. */}
           <ThrowAnimationContainer
-            events={activeThrows}
+            events={v8Settings.emoji_enabled ? activeThrows : EMPTY_THROW_EVENTS}
             seatPositions={throwSeatPositions}
             onEventComplete={handleThrowComplete}
           />
@@ -29445,7 +30248,9 @@ function LiveTablePage({
           {dealAnimationKey > 0 && (
             <DealAnimation
               key={dealAnimationKey}
+              onPaint={observeDeal}
               handNumber={dealPresentationHandRef.current}
+              cardsPerSeat={lightningRoom ? seatHoleCardCount : undefined}
               active={true}
               /* Dan 2026-08-21 (item 14): "cards actually dealt to ALL the
                  players to start a new hand." The `status !== 'folded'` test
@@ -29455,9 +30260,18 @@ function LiveTablePage({
                  skipped by the deal. Nobody has folded a hand that has not been
                  dealt yet — the only players who genuinely get no cards are
                  those sitting out or away. */
-              activeSeats={tableState.players
-                .map((p, i) => (p && p.status !== 'sitting_out' && p.status !== 'away' ? i : -1))
-                .filter((i) => i >= 0)}
+              activeSeats={
+                lightningRoom &&
+                (Number(engineSnapshot?.hand_number) !== dealPresentationHandRef.current ||
+                  appliedExitSnapshot?.snapshot !== engineSnapshot ||
+                  tableState.handNumber !== dealPresentationHandRef.current)
+                  ? []
+                  : tableState.players
+                      .map((p, i) =>
+                        p && p.status !== 'sitting_out' && p.status !== 'away' ? i : -1
+                      )
+                      .filter((i) => i >= 0)
+              }
               dealerSeatIndex={Math.max(0, tableState.dealerSeat - 1)}
               seatPositions={seatPositions}
               onComplete={() => {
@@ -29840,7 +30654,7 @@ function LiveTablePage({
 
             return (
               <div
-                key={seatNumber}
+                key={lightningSeatKey(!!lightningRoom, seatNumber, tableState.heroSeat)}
                 /* Dan 2026-08-19, bug list item 10: the TOP-CENTRE seat is the
                    one with nothing above it but the BBJ banner, so it gets the
                    compact treatment (smaller avatar + capped bust art) that
@@ -29978,17 +30792,25 @@ function LiveTablePage({
                      to post on the next deal is in neither of the other two,
                      so that window still read SITTING OUT. */
                   entryWait={
-                    displayPlayer?.waitingForButton
-                      ? 'waiting_for_button'
-                      : !displayPlayer?.id || tableState.isTournament
-                        ? null
-                        : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
-                            (tableState.postingBBUserIds ?? []).includes(displayPlayer.id) ||
-                            (displayPlayer.isHero && bbPostAgreed)
-                          ? 'posting_bb'
-                          : (tableState.waitingForBBUserIds ?? []).includes(displayPlayer.id)
-                            ? 'waiting_for_bb'
-                            : null
+                    /* Dan 2026-11-17: a chair is shown the moment it is
+                       taken (engine SeatArrivalDisplay). */
+                    displayPlayer?.seatArrival === 'buying_in'
+                      ? 'buying_in'
+                      : displayPlayer?.seatArrival === 'seated'
+                        ? 'joining'
+                        : displayPlayer?.waitingForButton
+                          ? tableState.isTournament
+                            ? null
+                            : 'waiting_for_button'
+                          : !displayPlayer?.id || tableState.isTournament
+                            ? null
+                            : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
+                                (tableState.postingBBUserIds ?? []).includes(displayPlayer.id) ||
+                                (displayPlayer.isHero && bbPostAgreed)
+                              ? 'posting_bb'
+                              : (tableState.waitingForBBUserIds ?? []).includes(displayPlayer.id)
+                                ? 'waiting_for_bb'
+                                : null
                   }
                   /* Dan 2026-08-18: only the hero can mark their own cards. */
                   showPickedCardIndexes={displayPlayer?.isHero ? shownCardIndexes : undefined}
@@ -30266,12 +31088,13 @@ function LiveTablePage({
                       setSelectedPlayerForNotes(
                         displayPlayer ? { id: displayPlayer.id, name: displayPlayer.name } : null
                       );
-                      if (v8Settings.emoji_enabled) setShowThrowableSelector(true);
+                      if (v8Settings.emoji_enabled || !tableState.tournamentId)
+                        setShowThrowableSelector(true);
                       else if (displayPlayer) setShowPlayerNotes(true);
                     }
                   }}
                   isDealing={isSeatDealing}
-                  dealPending={!!lightningRoom && lightningDealPending}
+                  dealPending={lightningDealPending}
                   isMucking={muckingSeats[idx] || false}
                   /* CARD SLIDE (Dan 2026-09-04): the corner peel — hero only.
                      Force-reveal conditions (showdown stage) are folded in
@@ -30292,7 +31115,7 @@ function LiveTablePage({
                     maths and SeatSlot needs no knowledge of chat at all. */}
                 {(() => {
                   /* The add-on notice takes the slot over a chat line: it is
-                     the newer fact, it lives 4s, and two boxes over one plate
+                     the newer fact, it flies up briefly, and two notices over one plate
                      is how you cover the seat above. */
                   const bubble =
                     bubbleForSeat(seatAddOnBubbles, seatNumber) ??
@@ -30300,6 +31123,7 @@ function LiveTablePage({
                   if (!bubble) return null;
                   return (
                     <ChatBubble
+                      key={bubble.id}
                       text={bubble.content}
                       playerName={bubble.playerName}
                       isOwn={bubble.playerId === userId}
@@ -30376,26 +31200,22 @@ function LiveTablePage({
                   })
             }
           />
-          {/* HIT AND RUN: between Lightning hands the hero has no seat on this
-              felt for the tracker to stand beside; the count still shows. */}
-          {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
-            <HitRunCountPill hands={heroHandsOwed} />
-          )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
               the hero seat's own point; HeroVpipTracker.css pushes it left of
               the pod. Nothing renders for a spectator or on a tournament. */}
           <HeroVpipTracker
             tableId={tableId}
+            lightningClusterId={lightningRoom?.clusterId}
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
-            handsOwed={heroHandsOwed}
+            lightningLayout={Boolean(lightningRoom || lightningCapableClusterId)}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null
             }
           />
-        </div>
+        </TableScene>
 
         {/* AUDIT FIX 2026-07-19: mount the chip-flight layer. Every wager
             (bet/raise/call/all-in) + blinds + pot-to-winner pushes events into
@@ -30410,6 +31230,7 @@ function LiveTablePage({
             still hides with the table in multi-table mode. */}
         <ChipAnimationManager
           animations={chipAnimations}
+          onPaint={observeChipFlights}
           floats={potWinFloats}
           onAnimationComplete={handleAnimationComplete}
         />
@@ -30651,9 +31472,28 @@ function LiveTablePage({
       <div className="action-panel-wrapper">
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
-        {heroWaitingForButton ? (
+        {lightningRoom &&
+        !lightningHeroInRoster &&
+        lightningSitOut.readError &&
+        !heroIsSittingOut ? (
+          <div className="spectator-footer-bar" data-state="seat-status-unavailable">
+            <span className="spectator-footer-bar__label" role="status" aria-live="polite">
+              Seat Status Unavailable
+            </span>
+            <button
+              type="button"
+              className="spectator-footer-bar__cta"
+              disabled={lightningSitOut.reading}
+              onClick={lightningSitOut.retryRead}
+            >
+              Retry Seat Status
+            </button>
+          </div>
+        ) : heroWaitingForButton ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
-            <span className="spectator-footer-bar__label">Waiting For The Button To Pass</span>
+            <span className="spectator-footer-bar__label">
+              {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
+            </span>
           </div>
         ) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
           /* LIGHTNING BETWEEN HANDS (Dan 2026-10-24). The player is in the pool
@@ -31006,19 +31846,21 @@ function LiveTablePage({
               aria-live="polite"
               aria-atomic="true"
             >
-              {sitOutBadgeLabel(
-                sitOutMsRemaining({
-                  sitOutSince,
-                  isTournament: tableState.isTournament,
-                  now: sitOutTick,
-                }),
-                /* 2026-09-04 (audit item 3): the engine says whether this
+              {lightningSitOut.blindOff
+                ? 'Posting Blinds Until Your Hand Count Ends'
+                : sitOutBadgeLabel(
+                    sitOutMsRemaining({
+                      sitOutSince,
+                      isTournament: tableState.isTournament,
+                      now: sitOutTick,
+                    }),
+                    /* 2026-09-04 (audit item 3): the engine says whether this
                    sit-out was forced (two timeouts) or chosen, and the bar
                    says so too. Same I'm Back either way. */
-                disconnectStates[userId ?? '']?.sitOutReason === 'forced'
-                  ? 'You Timed Out Two Times, So You Are Sitting Out'
-                  : 'You Are Sitting Out'
-              )}
+                    disconnectStates[userId ?? '']?.sitOutReason === 'forced'
+                      ? 'You Timed Out Two Times, So You Are Sitting Out'
+                      : 'You Are Sitting Out'
+                  )}
             </span>
             <button
               type="button"
@@ -31202,6 +32044,8 @@ function LiveTablePage({
                           moved on 2026-08-26 and this line was corrected on
                           2026-08-27.) */}
                       <ActionPanel
+                        controllerSettings={actionControllerSettings}
+                        maxPlayers={tableState.maxPlayers}
                         onRaiseModeChange={setRaisePanelOpen}
                         canFold={true}
                         canCheck={callAmount === 0}
@@ -31252,6 +32096,7 @@ function LiveTablePage({
                            clamped to minRaise and 2X/3X/4X/5X produced the
                            same number. See ActionPanel presets. */
                         currentBet={serverCurrentBet}
+                        shoveOrFold={shoveOrFold}
                         onAction={handleActionPanelAction}
                         /* The documented R / E hotkey and the 1/2/3/4 pot-fraction
                            keys arrive here. Before 2026-08-20 they set a
@@ -31359,6 +32204,7 @@ function LiveTablePage({
                  an EXACT settling flag off the engine's own HAND_COMPLETE, and
                  a BOUNDED bridge for the one silence that has no event. */}
             {handStillTakingAction &&
+              !lightningDealPending &&
               tableState.heroSeat > 0 &&
               /* ...or it IS the hero's seat and the engine is taking the
                  turn with the armed pre-action (2026-09-08 sweep): the bar
@@ -31412,6 +32258,8 @@ function LiveTablePage({
                         ? lightningOwes <= 0
                         : (tableState.currentBet || 0) <=
                           (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0);
+                    if (shoveOrFold && next && (next !== 'fold' || heroOwesNothing))
+                      return explainShoveOrFold();
                     if (lightningRoom && next === 'fold' && !heroOwesNothing) {
                       void handleLightningFold('fast_fold');
                       return;
@@ -31742,6 +32590,18 @@ function LiveTablePage({
       {/* Dan 2026-08-21: PokerBros-style hand breakdown. Replay + Share are
           buttons in its header, driving the existing HandReplayPlayer and
           ShareHand modals. */}
+      {reviewRoom &&
+        selectedLightningReview?.deal.scope === JSON.stringify([reviewRoom, userId]) && (
+          <LightningPreviousHandReview
+            key={selectedLightningReview.deal.scope + ':' + selectedLightningReview.deal.number}
+            room={reviewRoom}
+            viewer={userId}
+            deal={selectedLightningReview.deal}
+            receipt={selectedLightningReview.receipt}
+            connected={engineWsStatus === 'connected'}
+            onClose={() => setSelectedLightningReview(null)}
+          />
+        )}
       <HandDetailModal
         currentUserName={username || null}
         isOpen={showHandDetail}
@@ -31756,7 +32616,12 @@ function LiveTablePage({
             : []
         }
         heroId={userId || ''}
-        loadState={handHistoryState}
+        loadState={
+          handHistoryViewerRef.current === userId &&
+          loadedHandHistoryScopeRef.current === handHistoryScopeRef.current
+            ? handHistoryState
+            : 'idle'
+        }
         initialHandId={handDetailFocusId}
         onLoadOlder={loadOlderReviewHands}
         hasOlderHands={hasOlderHands}
@@ -31792,6 +32657,7 @@ function LiveTablePage({
            the record, so it is converted rather than looked up. */
         onShare={(hand) => {
           try {
+            refreshCompletedPresentation.current?.();
             setSharedHandData(panelHandToShareable(hand, tableState.tableName || 'Club Arena'));
             /* A stored record: its id is the hand_history row (Share As Video). */
             setSharedHandId(hand.id || null);
@@ -31823,12 +32689,20 @@ function LiveTablePage({
       />
       {/* HIT AND RUN (owner 2026-11-06): the full-screen leave confirmation. */}
       <HitRunLeaveConfirm
-        handsRemaining={hitRunConfirmHands}
+        handsRemaining={lightningLeaveAfterHand.owed ?? hitRunConfirmHands}
         onStay={() => {
+          if (lightningLeaveAfterHand.owed) {
+            lightningLeaveAfterHand.decide(false);
+            return;
+          }
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
         }}
         onLeave={async () => {
+          if (lightningLeaveAfterHand.owed) {
+            lightningLeaveAfterHand.decide(true);
+            return;
+          }
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
           hitRunConfirmedRef.current = true;
@@ -31836,6 +32710,7 @@ function LiveTablePage({
         }}
       />
       <TableModalsLayer
+        cashStatsClusterId={lightningRoom?.clusterId}
         isActive={isActive}
         /* THE DIAMONDS-TO-CHIPS DOOR (Dan 2026-09-10). The club the player
            came in through, never the union that hosts the table: membership,
@@ -32128,6 +33003,8 @@ function LiveTablePage({
           const stillCurrent = () =>
             buyInScopeRef.current === scope && buyInOperationRef.current === operation;
           let buyInCommitted = false;
+          // False until this click has a saved request and is about to send it.
+          let buyInRequestStarted = false;
           try {
             if (!userId || userId === 'guest' || !tableId || !selectedSeat) {
               toast.error('Unable To Verify Your Table And Seat.');
@@ -32175,6 +33052,7 @@ function LiveTablePage({
               toast.warning('Review Your Original Buy-In Before Retrying.');
               return false;
             }
+            buyInRequestStarted = true;
             const outcome = await executeCashBuyIn(attempt, recovered, undefined, stillCurrent);
             if (outcome.kind !== 'unknown') {
               // Cleanup failure leaves a safely replayable receipt, never a new
@@ -32214,7 +33092,8 @@ function LiveTablePage({
               /* No seat was bought: there is no room for this tab to follow. */
               if (anchorLightningClusterId) clearLightningEntryIntent(tableId);
               const message =
-                cashBuyInRefusalText(outcome.error) ?? 'The Server Refused This Buy-In.';
+                cashBuyInRefusalText(outcome.error, { leftWith: cashoutMinBuyIn }) ??
+                'The Server Refused This Buy-In.';
               if (
                 /^SEAT_RESERVED:/.test(
                   String(
@@ -32255,6 +33134,9 @@ function LiveTablePage({
             }
             buyInCommitted = true;
             const paid = attempt.payload;
+            // Every viewer's felt shows the committed chair now, not when the
+            // hand in the air ends (Dan 2026-11-17, engine SeatArrivalDisplay).
+            void sendSeatArrival(paid.p_table_id, 'seated');
             // Wallet broadcasts may already contain this debit. Re-read the
             // balance instead of subtracting it again during receipt recovery.
             retryAccountBalance();
@@ -32322,6 +33204,15 @@ function LiveTablePage({
             if (buyInCommitted) {
               toast.warning('Buy-In Confirmed. Your Table Display Is Catching Up.');
               setShowBuyInModal(false);
+            } else if (!buyInRequestStarted && isCashBuyInStorageFailure(error)) {
+              /* The request could not be saved on this device, so this click
+                 sent nothing (2026-11-14). Say that. "Unable To Confirm Your
+                 Buy-In" told a player whose phone was slow to save that a
+                 purchase was in doubt, when no purchase had been attempted. */
+              if (anchorLightningClusterId && tableId) clearLightningEntryIntent(tableId);
+              toast.error(
+                'This Device Could Not Save Your Buy-In Request. Nothing Was Sent. Please Try Again.'
+              );
             } else {
               toast.error(
                 cashBuyInPendingRef.current
@@ -32349,7 +33240,7 @@ function LiveTablePage({
         // Leave Confirm
         showLeaveConfirm={showLeaveConfirm}
         onCloseLeaveConfirm={() => setShowLeaveConfirm(false)}
-        onConfirmLeaveTable={handleLeaveTable}
+        onConfirmLeaveTable={() => void handleLeaveTable()}
         // Session Stats
         showSessionStats={showSessionStats}
         sessionStatsRevision={engineWsStatus}
@@ -32590,6 +33481,22 @@ function LiveTablePage({
               userId,
               tableName: tableState.tableName,
             });
+            /* A REBUY IS TAKING A SEAT AGAIN (2026-11-10, MichaelJordan, Monday
+               Night Turbo). The bust vacates the physical seat, and both the
+               engine's `seat_left` (busted_awaiting_rebuy_decision) and the
+               ten-second seat read answer that through applySeatRemoved, which
+               latches leftSeatPendingRef. This receipt restored heroSeat and
+               left the latch set, so the page went on treating a paid, seated
+               player as one who had left: their row was stripped from every
+               snapshot and, since 2026-11-09, their hole cards were dropped at
+               the delivery door. He was dealt three hands he could not see
+               and was folded by the clock on each. The receipt clears the
+               latch like every other paid seat, and stamps the seat time so a
+               seat read already in flight from before the purchase cannot
+               latch it again. */
+            leftSeatPendingRef.current = false;
+            seatAcquiredAtRef.current = Date.now();
+            bootNoticeShownRef.current = false;
             if (purchase.tableId !== tableId) {
               navigate(`/table/${purchase.tableId}`);
             } else {
@@ -32749,7 +33656,9 @@ function LiveTablePage({
           (This comment used to describe the tournament lobby below it.) */}
       <MustMoveLobbyModal
         isOpen={showMustMoveLobby}
-        gameId={tableState.clusterId}
+        gameId={lightningRoomClusterId ?? tableState.clusterId}
+        lightning={Boolean(lightningRoomClusterId)}
+        seatChangeEnabled={seatChangeEnabled}
         asset={tableState.arenaAsset === 'diamonds' ? 'diamonds' : 'chips'}
         currentTableId={tableId}
         onClose={() => setShowMustMoveLobby(false)}
@@ -32776,6 +33685,7 @@ function LiveTablePage({
         tournamentId={tableState.tournamentId}
         currentTableId={tableId}
         onClose={() => setShowTournamentLobby(false)}
+        requestedTab={tournamentLobbyTabRequest}
       />
       {/* Dan 2026-08-28: the tabbed HERO HUB behind the hero's own avatar —
           Throwables / Stats / Profile / Table Settings. Replaces the removed

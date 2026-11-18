@@ -40,8 +40,8 @@
  * header bar carrying three 32px square icon buttons, a pill tab strip, a
  * rounded card per showdown row, bordered board blocks, a boxed rake panel and
  * a rounded "Show What Would Have Come" button. The spade master is the frame
- * now: the table is the eyebrow, HAND DETAIL is engraved in the header well,
- * the hand number sits in the well's painted pill slot, every board, pot,
+ * now: HAND DETAIL heads the glass, the table sits below it on the left and
+ * the hand number prints unframed on the right. Every board, pot,
  * showdown row is a ROW on the black glass, and REPLAY /
  * CLOSE are the plates painted into the foot.
  *
@@ -53,6 +53,7 @@
  */
 
 import { copyToClipboard } from '../../lib/copyToClipboard';
+import { hasShareSheet, shareLink } from '../../lib/share';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
@@ -65,6 +66,7 @@ import {
 } from './replayRabbitOffer';
 import { useRabbitHuntReveal } from './useRabbitHuntReveal';
 import type { RabbitHuntRevealResult } from './RabbitHunt';
+import { sortCardsByRank } from '../../lib/tableCardDisplay';
 import { cardKey } from '../../utils/handEvaluator';
 import type { ReplayModel, ReplayShowdownRow } from '../../utils/handReplay';
 import './HandDetailModal.css';
@@ -480,7 +482,7 @@ function SummaryRow({
       </div>
       <div className="hdm-sd__cards">
         {row.hole
-          ? row.hole.map((c, i) => (
+          ? sortCardsByRank(row.hole).map((c, i) => (
               <CardImage
                 key={i}
                 card={c}
@@ -810,19 +812,21 @@ export function HandDetailModal({
         typeof window !== 'undefined' &&
         typeof window.matchMedia === 'function' &&
         window.matchMedia('(pointer: coarse)').matches;
-      if (phone && typeof navigator.share === 'function') {
-        try {
-          await navigator.share({
-            title: h.handNumber ? `Hand #${h.handNumber}` : 'Poker Hand',
-            url: link,
-          });
-          setCopied('sent');
-          if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-          copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-          return true;
-        } catch (error) {
-          if ((error as { name?: string } | null)?.name === 'AbortError') return false;
+      if (phone && hasShareSheet()) {
+        const outcome = await shareLink({
+          source: 'HandDetailModal.sendLink',
+          title: h.handNumber ? `Hand #${h.handNumber}` : 'Poker Hand',
+          url: link,
+        });
+        if (outcome === 'cancelled') return false;
+        if (outcome === 'failed') {
+          setCopied(null);
+          return false;
         }
+        setCopied(outcome === 'shared' ? 'sent' : 'link');
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
+        return true;
       }
       return copyText('link', link);
     },
@@ -859,6 +863,7 @@ export function HandDetailModal({
      before the history loaded was indistinguishable from a dead button. Open
      the panel and say why it is empty - and say WHICH why. */
   if (!hand) {
+    const awaitingHistory = loadState === 'idle' || loadState === 'loading';
     return (
       <div className="hdm-overlay" onClick={onClose}>
         <div
@@ -866,7 +871,7 @@ export function HandDetailModal({
           role="dialog"
           aria-modal="true"
           aria-label="Hand Detail"
-          aria-busy={loadState === 'loading'}
+          aria-busy={awaitingHistory}
           tabIndex={-1}
           ref={panelRef}
           style={sheetStyle}
@@ -882,7 +887,7 @@ export function HandDetailModal({
             foot="foot"
           >
             <div className="hdm-empty">
-              {loadState === 'loading'
+              {awaitingHistory
                 ? 'Loading The Hands For This Table'
                 : loadState === 'failed'
                   ? 'Could Not Load The Hands For This Table. Close And Try Again.'
@@ -930,10 +935,9 @@ export function HandDetailModal({
           onClose={onClose}
           as="div"
           className="hdm-console"
-          eyebrow={hand.tableName || 'This Table'}
+          subtitle={hand.tableName || 'This Table'}
           title="Hand Detail"
-          /* The hand number in the well's painted pill slot: it is what every
-             dispute and every chat about a hand opens with. */
+          /* Printed beside the game name, without a separate number frame. */
           pill={`#${hand.handNumber}`}
           pillInk="blue"
           foot="foot"
@@ -976,7 +980,7 @@ export function HandDetailModal({
                       <span className="hdm-sd__pos">{me.position}</span>
                     </div>
                     <div className="hdm-sd__cards">
-                      {cards?.map((card, i) => (
+                      {sortCardsByRank(cards ?? []).map((card, i) => (
                         <CardImage
                           key={i}
                           card={card}

@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
+import * as opponentLayout from '../../src/components/table/opponentAvatarLayout';
 import { useProtectedCardLayout } from '../../src/hooks/useProtectedCardLayout';
 
 function Table({ hand, player }: { hand: string; player: string }) {
@@ -65,6 +66,27 @@ it('reinitializes a loaded avatar ring at a new hand without calling an uninitia
     drawImage() {},
     getImageData: () => ({ data: new Uint8ClampedArray([255, 255, 255, 255]) }),
   } as unknown as CanvasRenderingContext2D);
+  let measured = false;
+  const allocatedAfterMeasurement: boolean[] = [];
+  const measureCaption = () => {
+    measured = true;
+  };
+  document.addEventListener('seatcaptionmeasure', measureCaption, true);
+  const createLayout = opponentLayout.createOpponentAvatarLayout;
+  vi.spyOn(opponentLayout, 'createOpponentAvatarLayout').mockImplementation((...args) => {
+    const layout = createLayout(...args);
+    return {
+      ...layout,
+      prepare: (...values) => {
+        measured = false;
+        return layout.prepare(...values);
+      },
+      space: () => {
+        allocatedAfterMeasurement.push(measured);
+        return layout.space();
+      },
+    };
+  });
   const view = render(<Table hand="hand-1" player="first" />);
   await act(async () => {
     await Promise.resolve();
@@ -77,4 +99,7 @@ it('reinitializes a loaded avatar ring at a new hand without calling an uninitia
   view.unmount();
   expect(cancel).toHaveBeenCalledWith(pending);
   expect(frames.size).toBe(0);
+  document.removeEventListener('seatcaptionmeasure', measureCaption, true);
+  expect(allocatedAfterMeasurement.length).toBeGreaterThan(0);
+  expect(allocatedAfterMeasurement.every(Boolean)).toBe(true);
 });

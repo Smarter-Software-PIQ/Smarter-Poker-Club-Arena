@@ -255,7 +255,10 @@ test.describe('Production Cashier Certification', () => {
     const currentBalances = page.getByLabel('Current Cashier Balances').locator('strong');
     await expectCashierWalletBalance(currentBalances.nth(0), 'Club Chips');
     await expectCashierWalletBalance(currentBalances.nth(1), 'Agent Wallet');
-    const rosterWalletLabels = surface.getByText('Player Wallet', { exact: true });
+    // The sort control also says Player Wallet; only roster balance rows own figures.
+    const rosterWalletLabels = surface
+      .locator('[class*="rosterBalanceLine"]')
+      .getByText('Player Wallet', { exact: true });
     const rosterWalletCount = await rosterWalletLabels.count();
     expect(rosterWalletCount, 'Trade Cashier must expose player wallet balances').toBeGreaterThan(
       0
@@ -419,6 +422,37 @@ test.describe('Production Cashier Certification', () => {
     await expect(page.getByRole('listbox', { name: 'Club Cashiers' })).toBeVisible();
     await expectCashierAxeClean(page, testInfo, '#cashier-club-picker', 'trade-wallet-picker');
     await attachCashierScreenshot(page, testInfo, 'trade-wallet-picker');
+  });
+
+  test('shows the persistent request note field without submitting a cashout', async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    const writes: string[] = [];
+    await page.route(
+      /\/rest\/v1\/rpc\/fn_cashout_(?:request|approve|release|escalate)(?:_v2)?$/,
+      async (route) => {
+        writes.push(route.request().url());
+        await route.abort('blockedbyclient');
+      }
+    );
+    const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
+    await page.goto(`clubs/${clubId}/cashier`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
+    await page.getByRole('button', { name: 'Request Cash Out', exact: true }).click();
+    const note = page.getByLabel('Note For Agent (Optional)', { exact: true });
+    await expect(note).toBeVisible();
+    await expect(note).toHaveAttribute('maxlength', '2000');
+    await note.fill('Read-only field verification.\nNo cashout will be submitted.');
+    await expect(note).toHaveValue('Read-only field verification.\nNo cashout will be submitted.');
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    ).toBe(true);
+    await testInfo.attach('cashout-note-mobile.png', {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+    expect(writes).toEqual([]);
   });
 
   test('keeps the Arena home free of bottom cards on mobile and desktop', async ({
@@ -862,19 +896,25 @@ test.describe('Production Cashier Certification', () => {
       const cashoutResponse = await cashouts;
       expect(cashoutResponse.status()).toBe(200);
       const cashoutRows = await cashoutResponse.json();
-      const approved = cashoutRows.find(
-        (row: { transaction_type: string }) => row.transaction_type === 'cashout_approved'
-      );
+      const approvedIndex = cashoutRows
+        .slice(0, 50)
+        .findIndex(
+          (row: { transaction_type: string }) => row.transaction_type === 'cashout_approved'
+        );
+      expect(approvedIndex).toBeGreaterThanOrEqual(0);
+      const approved = cashoutRows[approvedIndex];
       // This maintained club already holds audited approvals. Their absence is
       // a missing proof, never a reason to manufacture a cash-out to test it.
       expect(approved).toBeTruthy();
       expect(approved.to_user_id).toMatch(/^[0-9a-f-]{36}$/i);
       expect(approved.to_name).toBeTruthy();
       expect(approved.invoice_number).toMatch(/^CA-/);
+      // The compact row prints the wallet route, while the receipt retains its kind.
+      // Select the exact visible feed position and verify its ledger id below.
+      await expect(panel).toHaveAttribute('aria-busy', 'false');
       await panel
         .getByRole('button', { name: /^Open Receipt For/ })
-        .filter({ hasText: 'Cash-Out Accepted' })
-        .first()
+        .nth(approvedIndex)
         .click();
       const accepted = page.getByRole('dialog', { name: 'Transaction Receipt' });
       await expect(accepted).toBeVisible();

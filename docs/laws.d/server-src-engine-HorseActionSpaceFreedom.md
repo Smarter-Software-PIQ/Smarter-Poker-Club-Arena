@@ -1,0 +1,3 @@
+# server/src/engine/HorseActionSpaceFreedom.law.test.ts
+
+All 1,000 unretired horses run the full real-time decision engine (`gtoAdherence === 1`, strict release qualification on unselected feature/tournament flags, Phases 8-14 admitted, versioned `HorseUpgradeActivationManifest` verified across worker shards) with unblocked legal action-space freedom, valid worker receipts, unmocked `HandController` integer/pot-limit wager legality, specialty-variant (`PLO8`, `FLO8`, `Short Deck`, `Pineapple` discard) and side-game (`Insurance`, `Run It Twice`, `7-2`, `Kill Pot`) parity, EV-bounded individuality, and cardinality-bounded Prometheus watchcounter exposition across every supported poker variant and format.

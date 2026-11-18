@@ -1,0 +1,35 @@
+name: Every horse's brain day is on the record
+
+# fn_horse_daily_brain_coverage_upsert and the zz_horse_brain_activity_rollup
+# trigger (migration 20261110054654). Runs
+# scripts/ci/test-per-horse-brain-coverage.py against a throwaway
+# PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261110054654_every_horse_s_brain_day_is_on_the_record.sql
+      - scripts/ci/test-per-horse-brain-coverage.py
+      - .github/workflows/per-horse-brain-coverage.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: per-horse-brain-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  per-horse-brain-coverage:
+    name: Every roster horse gets a daily coverage row, idle zeros included
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Every roster horse gets a daily coverage row, idle zeros included
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-per-horse-brain-coverage.py

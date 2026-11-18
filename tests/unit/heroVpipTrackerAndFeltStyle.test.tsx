@@ -66,6 +66,42 @@ describe('the tracker', () => {
     error: null,
   });
 
+  it('reads Lightning VPIP through its real anchor and keeps the tracker after ten', async () => {
+    rpc.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'fn_lightning_my_session'
+          ? {
+              data: {
+                pool_session_id: '22222222-2222-4222-8222-222222222222',
+                anchor_table_id: '11111111-1111-4111-8111-111111111111',
+              },
+              error: null,
+            }
+          : seated({ required: 40, hands: 10, vpip: 60 })
+      )
+    );
+    const props = {
+      tableId: '22222222-2222-4222-8222-222222222222',
+      lightningClusterId: '33333333-3333-4333-8333-333333333333',
+      heroSeated: true,
+      isTournament: false,
+      heroPos: { x: 50, y: 100 },
+    };
+    const { rerender } = render(<HeroVpipTracker {...props} handNumber={10} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rpc).toHaveBeenCalledWith('fn_cash_vpip_status', {
+      p_table_id: '11111111-1111-4111-8111-111111111111',
+    });
+    rerender(<HeroVpipTracker {...props} handNumber={11} />);
+    await act(async () => {
+      vi.advanceTimersByTime(VPIP_REFRESH_DELAY_MS);
+    });
+    expect(screen.getByTestId('vpip-badge').textContent).toContain('60%');
+    expect(rpc.mock.calls.filter((c) => c[0] === 'fn_lightning_my_session')).toHaveLength(1);
+  });
+
   it("asks the database for the hero's own figure and prints it with the floor and the count", async () => {
     rpc.mockResolvedValue(seated());
     render(
@@ -372,29 +408,15 @@ describe('the regular ante reaches the felt', () => {
     );
   });
 
-  it('the game and blinds are twice the club line on a cash table; the style is a badge', () => {
+  it('prints muted gray captions directly on the felt in all-in hands and gives cash stakes a larger type size', () => {
     const css = read('src/pages/TablePage.css');
-    expect(css).toMatch(/\.table-brand__line \{\s*font-size: 0\.48rem;/);
+    expect(css).not.toMatch(/\.table-page--allin-mode \.table-brand\s*\{[^}]*opacity:/);
+    expect(css).not.toContain('.table-brand::before');
+    expect(css).toMatch(/\.table-brand__line \{[^}]*color: #a6a6a6;/);
+    expect(css).toMatch(/\.table-brand__line \{[^}]*font-size: calc\(0\.67 \* clamp\(0\.6875rem,/);
     expect(css).toMatch(
-      /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{[^}]*font-size: clamp\(0\.6rem, 10\.5cqw, 0\.98rem\);/
+      /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{[^}]*font-size: calc\(0\.67 \* clamp\(0\.8125rem,/
     );
-    expect(css).toMatch(/\.table-brand__line--rules \{[^}]*font-size: 0\.54rem;/);
-    // The box is the container the big line is sized against (it ellipsized at 127px).
-    expect(css).toMatch(/\.table-brand \{[^}]*container-type: inline-size;/);
-  });
-
-  it('at 375px the placard keeps its own steps instead of squashing to the 7px club line', () => {
-    const css = read('src/pages/TablePage.css');
-    const phone = css.slice(css.indexOf('@media (max-width: 380px) {'));
-    const block = phone.slice(0, phone.indexOf('/* Fade the brand out'));
-    expect(block).toMatch(/\.table-brand__line \{\s*font-size: 0\.44rem;/);
-    expect(block).toMatch(
-      /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{\s*font-size: clamp\(0\.6rem, 10\.5cqw, 0\.9rem\);/
-    );
-    expect(block).toMatch(/\.table-brand__line--rules \{\s*font-size: 0\.5rem;/);
-    expect(block).toMatch(/\.table-brand__line--hand \{\s*font-size: 0\.4rem;/);
-    // and every one of them comes AFTER the 0.44rem line, so it wins.
-    expect(block.indexOf('font-size: 0.44rem')).toBeLessThan(block.indexOf('10.5cqw, 0.9rem'));
   });
 
   it("the table page reads the game's template through the table's cluster_id", () => {
@@ -411,7 +433,7 @@ describe('the regular ante reaches the felt', () => {
   it("the tracker is mounted beside the seats, at the hero seat's point, cash only", () => {
     const page = read('src/pages/TablePage.tsx');
     expect(page).toMatch(
-      /<HeroVpipTracker\s+tableId=\{tableId\}\s+heroSeated=\{tableState\.heroSeat > 0\}\s+isTournament=\{tableState\.isTournament\}/
+      /<HeroVpipTracker\s+tableId=\{tableId\}\s+lightningClusterId=\{lightningRoom\?\.clusterId\}\s+heroSeated=\{tableState\.heroSeat > 0\}\s+isTournament=\{tableState\.isTournament\}/
     );
     expect(page).toMatch(/seatPositions\[tableState\.heroSeat - 1\]/);
     const css = read('src/components/table/HeroVpipTracker.css');
@@ -523,7 +545,9 @@ describe('the game line fits its box (2026-09-09)', () => {
     expect(css).toMatch(/\.table-brand__game \{[^}]*font-size: calc\(100% \* var\(--fit, 1\)\);/);
     /* Inherited letter-spacing arrives as computed px and does not scale with
        the span; the em is handed down as a custom property instead. */
-    expect(css).toMatch(/\.table-brand__game \{[^}]*letter-spacing: var\(--sp-game-ls, 0\.1em\);/);
+    expect(css).toMatch(
+      /\.table-brand__game \{[^}]*letter-spacing: var\(--sp-game-ls, 0\.035em\);/
+    );
     expect(css).toMatch(
       /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{[^}]*--sp-game-ls: 0\.05em;/
     );
@@ -535,14 +559,14 @@ describe('the game line fits its box (2026-09-09)', () => {
   });
 });
 
-describe('the retired stay clock never prints; the hand count does', () => {
+describe('the hero seat only shows VPIP information', () => {
   beforeEach(() =>
     rpc.mockResolvedValue({
       data: { ok: true, seated: true, required: 30, vpip: 100 },
       error: null,
     })
   );
-  it('shows the hands owed and no time clock', async () => {
+  it('keeps the leave counter and retired time clock off the seat', async () => {
     const props = {
       tableId: 't1',
       heroSeated: true,
@@ -550,14 +574,80 @@ describe('the retired stay clock never prints; the hand count does', () => {
       handNumber: 1,
       heroPos: { x: 50, y: 95 },
     };
-    const view = render(<HeroVpipTracker {...props} handsOwed={7} />);
-    expect(screen.getByTestId('hero-hand-count')).toHaveTextContent('7');
+    render(<HeroVpipTracker {...props} />);
     expect(screen.queryByTestId('hero-profit-clock')).not.toBeInTheDocument();
     expect(screen.queryByText('Your Time Clock Has Started')).not.toBeInTheDocument();
-    view.rerender(<HeroVpipTracker {...props} handsOwed={0} />);
     expect(screen.queryByTestId('hero-hand-count')).not.toBeInTheDocument();
     await act(async () => {
       await Promise.resolve();
     });
+  });
+});
+
+/* WARN, THEN BOOT: THE GRACE READOUT (Dan 2026-11-10).
+   A warned seat is told on the felt how many dealt hands it has left to get
+   back to the floor. The rule worth pinning is WHICH FIELD DECIDES: `warned`,
+   not `grace_remaining`. A seat that recovered can still carry a number in the
+   payload, and reading the number would keep counting down at a player who is
+   no longer in any trouble. The readout reuses the hit-and-run clock's own
+   column, so no approved artwork changes and the badge is never recoloured by
+   whether the player is passing (badge spec section 25). */
+describe('the grace readout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    rpc.mockReset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const classic = (over: Record<string, unknown> = {}) => ({
+    data: {
+      ok: true,
+      seated: true,
+      nit_game: true,
+      required: 20,
+      window: 30,
+      rolling: true,
+      hands: 30,
+      vpip: 17.1,
+      ...over,
+    },
+    error: null,
+  });
+
+  const mount = async () => {
+    render(
+      <HeroVpipTracker
+        tableId="t-grace"
+        heroSeated
+        isTournament={false}
+        handNumber={31}
+        heroPos={{ x: 10, y: 20 }}
+      />
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  it('counts the dealt hands left while a warning is open', async () => {
+    rpc.mockResolvedValue(classic({ warned: true, grace_hands: 10, grace_remaining: 4 }));
+    await mount();
+    const el = screen.getByTestId('hero-vpip-grace');
+    expect(el.textContent).toContain('Hands To Correct Your VPIP');
+    expect(el.textContent).toContain('4');
+  });
+
+  it('says nothing once the warning is cleared, even with a number still in the payload', async () => {
+    rpc.mockResolvedValue(classic({ warned: false, grace_hands: 10, grace_remaining: 4 }));
+    await mount();
+    expect(screen.queryByTestId('hero-vpip-grace')).toBeNull();
+  });
+
+  it('keeps the label exactly as approved', () => {
+    expect(read('src/components/table/HeroVpipTracker.tsx')).toContain(
+      "export const VPIP_GRACE_COUNT_LABEL = 'Hands To Correct Your VPIP';"
+    );
   });
 });

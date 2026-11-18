@@ -18,7 +18,7 @@ vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: () => {
       const query: Record<string, unknown> = {};
-      for (const method of ['select', 'eq', 'in']) query[method] = () => query;
+      for (const method of ['select', 'eq', 'in', 'abortSignal']) query[method] = () => query;
       query.maybeSingle = query.limit = () => reads.result;
       return query;
     },
@@ -28,8 +28,12 @@ vi.mock('../../src/lib/supabase', () => ({
 vi.mock('../../src/services/readTournamentStandings', () => ({
   readTournamentStandings: () => reads.result,
 }));
+const standings = vi.hoisted(() => ({ listener: null as null | (() => void) }));
 vi.mock('../../src/services/tournamentStandingsUpdates', () => ({
-  subscribeTournamentStandings: () => () => {},
+  subscribeTournamentStandings: (_id: string, cb: () => void) => {
+    standings.listener = cb;
+    return () => {};
+  },
 }));
 
 const props = {
@@ -93,7 +97,7 @@ describe('the tournament break card', () => {
     expect(share).toHaveBeenCalledTimes(1);
     expect(share).toHaveBeenCalledWith({
       title: props.tournamentName,
-      url: expect.stringMatching(/\/hub\/club-arena\/tournaments\/share-event$/),
+      url: expect.stringMatching(/\/t\/share-event$/),
     });
     await act(async () => finish());
   });
@@ -102,14 +106,15 @@ describe('the tournament break card', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     render(<TournamentBreakScreen {...props} tournamentId="share-event" />);
+    // No share sheet: the button is worded for what the tap does (2026-11-15).
     await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Share Tournament' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Copy Tournament Link' }))
     );
-    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/tournaments\/share-event$/));
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/t\/share-event$/));
     expect(screen.getByRole('alert')).toHaveTextContent('Tournament Link Copied');
     writeText.mockRejectedValue(new Error('Denied'));
     await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Share Tournament' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Copy Tournament Link' }))
     );
     expect(screen.getByRole('alert')).toHaveTextContent('Could Not Share Tournament');
   });
@@ -286,11 +291,11 @@ describe('the tournament break card', () => {
         myPlayer={{ ...props.topPlayers[0], isCurrentUser: true }}
       />
     );
-    expect(screen.getByText('292.5K')).toHaveAttribute('title', '292,500');
-    expect(screen.getByText('5.1K')).toHaveAttribute('title', '5,166');
+    expect(screen.getByText('292,500')).toHaveAttribute('title', '292,500');
+    expect(screen.getByText('5,166')).toHaveAttribute('title', '5,166');
     const leaders = screen.getByRole('region', { name: 'Chip Leaders' });
     expect(within(leaders).getByText('FISH')).toBeVisible();
-    expect(within(leaders).getByText('910.7K')).toHaveAttribute('title', '910,719');
+    expect(within(leaders).getByText('910,719')).toHaveAttribute('title', '910,719');
     expect(screen.getByText('Your Status')).toBeVisible();
   });
 
@@ -342,4 +347,74 @@ it('removes the minimized popup when the break expires', () => {
     vi.advanceTimersByTime(1000);
   });
   expect(screen.queryByRole('button', { name: 'Open Break Screen' })).toBeNull();
+});
+
+describe('the closed popup keeps the real-time add-on tally on the table (Dan 2026-11-11)', () => {
+  const field = (addOns: number) => ({
+    data: Array.from({ length: 5 }, (_, i) => ({
+      id: `row-${i}`,
+      user_id: `p${i}`,
+      username: `Player ${i}`,
+      chips: 10000 + i,
+      status: 'playing',
+      add_on: i < addOns,
+    })),
+    error: null,
+  });
+
+  it('shows the live tally and countdown on the minimized add-on clock', async () => {
+    reads.result = Promise.resolve(field(2));
+    const table = document.createElement('div');
+    document.body.append(table);
+    const view = render(
+      <TournamentBreakScreen
+        {...props}
+        tournamentId="addon-event"
+        tableAnchorRef={{ current: table }}
+        phase="counting_down"
+        breakTimeRemaining={42}
+        breakEndsAtMs={clock.now + 42000}
+        addOnNotice={{ cost: 35, chips: 15000, asset: 'chips' }}
+        onAddOn={() => {}}
+      />
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    const clockButton = within(table).getByRole('button', { name: 'Open Break Screen' });
+    expect(clockButton).toHaveTextContent('Add-On Closes In 0:42');
+    expect(clockButton).toHaveTextContent('Add-Ons Taken: 2');
+    // The countdown stays live while minimized.
+    act(() => {
+      clock.now += 1000;
+      vi.advanceTimersByTime(1000);
+    });
+    expect(clockButton).toHaveTextContent('Add-On Closes In 0:41');
+    // A committed purchase reaches the closed popup without reopening it.
+    reads.result = Promise.resolve(field(3));
+    await act(async () => standings.listener!());
+    expect(clockButton).toHaveTextContent('Add-Ons Taken: 3');
+    view.unmount();
+    table.remove();
+  });
+
+  it('carries the tally on the last-hand waiting chip as well', async () => {
+    reads.result = Promise.resolve(field(1));
+    const view = render(
+      <TournamentBreakScreen
+        {...props}
+        tournamentId="addon-event"
+        phase="last_hand"
+        heroHandLive
+        addOnNotice={{ cost: 35, chips: 15000, asset: 'chips' }}
+      />
+    );
+    await act(async () => {});
+    const chip = screen.getByRole('status');
+    expect(chip).toHaveTextContent('Will Start When All Tables Finish Their Current Hand');
+    expect(chip).toHaveTextContent('Add-Ons Taken: 1');
+    // A plain break's waiting chip carries no tally.
+    view.rerender(<TournamentBreakScreen {...props} phase="last_hand" heroHandLive />);
+    expect(screen.getByRole('status')).not.toHaveTextContent('Add-Ons Taken');
+    view.unmount();
+  });
 });

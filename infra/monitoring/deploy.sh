@@ -33,9 +33,11 @@ STAMP_SCHEMA=$(sed -n 's/^schema=//p' "$AUTHORITY_FILE" 2>/dev/null || true)
 STAMP_SHA=$(sed -n 's/^sha=//p' "$AUTHORITY_FILE" 2>/dev/null || true)
 STAMP_PREVIOUS=$(sed -n 's/^previous=//p' "$AUTHORITY_FILE" 2>/dev/null || true)
 STAMP_PAYLOAD=$(sed -n 's/^payload=//p' "$AUTHORITY_FILE" 2>/dev/null || true)
+STAMP_COLLECTOR_PREVIOUS=$(sed -n 's/^collector_previous=//p' "$AUTHORITY_FILE" 2>/dev/null || true)
 if [[ "$STAMP_SCHEMA" != "club-arena-monitoring-release-v1" ]] \
   || [[ ! "$STAMP_PREVIOUS" =~ ^(none|[0-9a-f]{40})$ ]] \
-  || [[ ! "$STAMP_PAYLOAD" =~ ^[0-9a-f]{64}$ ]]; then
+  || [[ ! "$STAMP_PAYLOAD" =~ ^[0-9a-f]{64}$ ]] \
+  || [[ ! "$STAMP_COLLECTOR_PREVIOUS" =~ ^[0-9a-f]{64}$ ]]; then
   echo "❌ Shipped monitoring release authority is malformed."
   exit 1
 fi
@@ -127,6 +129,12 @@ elif [[ "$STAMP_PREVIOUS" != "none" ]]; then
   echo "❌ Monitoring release receipt disappeared after workflow authorization."
   exit 1
 fi
+
+# This observer is outside the engine generation and uses its existing timer.
+# Install only after the complete payload and host predecessor are authenticated.
+python3 "$SRC_DIR/infra/monitoring/install-health-collector.py" \
+  "$SRC_DIR/server/scripts/collect-monitoring-health.sh" \
+  --expected-current "$STAMP_COLLECTOR_PREVIOUS"
 
 # Symlink stack config files (keeps them git-tracked at $SRC_DIR, runnable at $RUN_DIR)
 # EVERY RULE FILE prometheus.yml LOADS MUST BE IN THIS LIST (phase 7,

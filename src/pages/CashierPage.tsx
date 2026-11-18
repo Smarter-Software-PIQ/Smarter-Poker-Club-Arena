@@ -1,6 +1,10 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
-import { formatCashierAmountInput, cashierAmountInputValue } from '../utils/cashierAmount';
+import {
+  cashierAmountInputValue,
+  chipCents,
+  formatCashierAmountInput,
+} from '../utils/cashierAmount';
 import {
   reserveCashierWalletOperation,
   clearCashierWalletOperation,
@@ -38,7 +42,8 @@ import { useMasterBusSubscriptions } from '../hooks/useMasterBusSubscription';
 import { useWalletStore } from '../stores/useWalletStore';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useBridgeRate } from '../hooks/useBridgeRate';
-import type { CashoutRequest } from '../services/CashoutService';
+import { CashoutRefusedError, type CashoutRequest } from '../services/CashoutService';
+import { CASHOUT_NOTE_LIMIT } from '../utils/cashoutNote';
 import { validateCashoutAmount } from '../utils/cashoutAmount';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
 import {
@@ -304,6 +309,7 @@ function CashierContent() {
   const [action, setActionState] = useState<CashierAction>('send');
   const tableRouteOnly = !!tableId && (action === 'buyin' || action === 'cashout');
   const [amount, setAmountState] = useState('');
+  const [cashoutNote, setCashoutNoteState] = useState('');
   const preparationAmount = validateCashoutAmount(amount);
   const cashoutPreparations = usePreparedCashoutOperations(
     action === 'cashout' && !tableId && user?.id && clubId && preparationAmount.ok
@@ -317,6 +323,7 @@ function CashierContent() {
               targetId: user.id,
               kind: 'cashout_request',
               amount: preparationAmount.amount,
+              note: cashoutNote,
             },
           },
         ]
@@ -324,6 +331,10 @@ function CashierContent() {
     isCashoutCurrent,
     null
   );
+  const setCashoutNote = (value: string) => {
+    cashoutPreparations.invalidate();
+    setCashoutNoteState(value);
+  };
   const setAmount = (value: string) => {
     cashoutPreparations.invalidate();
     const previousAmount =
@@ -586,6 +597,7 @@ function CashierContent() {
   useEffect(() => {
     setAction('send');
     setAmount('');
+    setCashoutNote('');
     setIsProcessing(false);
     setCooldown(0);
     setMessage(null);
@@ -1643,6 +1655,7 @@ function CashierContent() {
   );
 
   const showCashoutResult = (value: number, receipt: CashoutRequest) => {
+    setCashoutNote('');
     setMessage({
       type: 'success',
       text:
@@ -2120,7 +2133,9 @@ function CashierContent() {
               assertCashoutStartCurrent(cashoutStart);
             } catch (err: unknown) {
               cashoutFailed = true;
-              if (isCashoutStartCurrent(cashoutStart))
+              if (isCashoutStartCurrent(cashoutStart)) {
+                if (err instanceof CashoutRefusedError && err.code === 'P0001')
+                  toast.warning(err.message, 15000);
                 setMessage({
                   type: 'error',
                   text:
@@ -2129,6 +2144,7 @@ function CashierContent() {
                     ((err instanceof Error ? err.message : String(err)) ||
                       'Cashout request failed.'),
                 });
+              }
             }
             // A failed cashout used to fall through to the blanket setAmount('')
             // below, wiping what the user typed while showing them an error they
@@ -2231,13 +2247,16 @@ function CashierContent() {
       assertCashoutStartCurrent(start);
       setAmount('');
     } catch (error: unknown) {
-      if (isCashoutStartCurrent(start))
+      if (isCashoutStartCurrent(start)) {
+        if (error instanceof CashoutRefusedError && error.code === 'P0001')
+          toast.warning(error.message, 15000);
         setMessage({
           type: 'error',
           text:
             (error instanceof Error ? error.message : String(error)) ||
             'Cashout failed. Please try again.',
         });
+      }
     }
     if (isCashoutCurrent()) setIsProcessing(false);
     startCooldown();
@@ -2767,7 +2786,7 @@ function CashierContent() {
                       <span className="sc-label sc-ink--blue">Your Agent Wallet</span>
                       <span className={`${styles.value} sc-ink--silver`}>
                         {formatWalletChips(myAgentWallet)} →{' '}
-                        {formatWalletChips(Math.max(0, myAgentWallet - typedChips))}
+                        {formatWalletChips(chipCents(Math.max(0, myAgentWallet - typedChips)))}
                       </span>
                     </div>
                     <div className={styles.row}>
@@ -2777,7 +2796,7 @@ function CashierContent() {
                       <span className={`${styles.value} sc-ink--silver`}>
                         {canHoldAgentWallet(selectedRecipientData.role)
                           ? `Agent Wallet Receives ${chipFigure(typedChips)} Chips`
-                          : `${formatWalletChips(selectedRecipientData.balance)} → ${formatWalletChips(selectedRecipientData.balance + typedChips)}`}
+                          : `${formatWalletChips(selectedRecipientData.balance)} → ${formatWalletChips(chipCents(selectedRecipientData.balance + typedChips))}`}
                       </span>
                     </div>
                     <div className={styles.row}>
@@ -3328,6 +3347,24 @@ function CashierContent() {
                     />
                     {amountFeedback}
                   </div>
+
+                  {action === 'cashout' && !tableId && (
+                    <div className={styles.formGroup}>
+                      <label className="sc-label sc-ink--blue" htmlFor="cashier-cashout-note">
+                        Note For Agent (Optional)
+                      </label>
+                      <textarea
+                        id="cashier-cashout-note"
+                        className={styles.input}
+                        value={cashoutNote}
+                        onChange={(event) => setCashoutNote(event.target.value)}
+                        maxLength={CASHOUT_NOTE_LIMIT}
+                        rows={3}
+                        disabled={isProcessing}
+                        placeholder="Any Message For Your Agent..."
+                      />
+                    </div>
+                  )}
 
                   {action === 'mint' && amount && (
                     <div className="sc-copy">

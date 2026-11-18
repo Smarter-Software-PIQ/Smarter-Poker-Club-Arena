@@ -1,3 +1,8 @@
+import { confirmedHuman } from './HorseConfirmedSeatRole.js';
+import { randomUUID } from 'node:crypto';
+import { closeHourlyCashTable } from '../services/supabase/cashHourlyTables.js';
+import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
+import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 /**
  * ServerTableEngine, layer 5/8 — the dealing loop, blinds refresh, hand deal, hole-card delivery.
  *
@@ -11,6 +16,7 @@
 import { noteFire } from './BrainTelemetry.js';
 import { resolvePersona, wantsStraddle } from './HorsePersona.js';
 import { HandController } from './HandController.js';
+import { structureAllowsStraddle } from './BettingStructure.js';
 import {
   HandContinuationLane,
   type ContinuationEvent,
@@ -80,7 +86,11 @@ import {
 } from './BombPotScheduler.js';
 
 import { ServerTableEngineRunout } from './ServerTableEngineRunout.js';
-import { ServerTableEngineBase } from './ServerTableEngineBase.js';
+import {
+  ServerTableEngineBase,
+  type EngineRecoveryEventClass,
+  type F06OwnReservedReconcileOutcome,
+} from './ServerTableEngineBase.js';
 import { secureRandomInt } from './CryptoRandom.js';
 import { drawFirstButtonSeat, headsUpButtonSeat } from './headsUpButton.js';
 import type { BlindSeats } from './deadButton.js';
@@ -101,7 +111,12 @@ import {
 } from '../services/supabase/lightningAnchor.js';
 import { reportLightningEngineInputDeviceLive } from '../lightning/LightningEngineInputDevice.js';
 import { nextHandGap } from './nextHandGapRecorder.js';
-import { cashDealGap } from './CashDealGap.js';
+import {
+  cashDealGap,
+  CASH_NEXT_HAND_LIMIT_MS,
+  CashNextHandSpan,
+  reportCashNextHandBreach,
+} from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
 import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
@@ -134,6 +149,87 @@ type PreparedHandNumberOutcome =
   | null;
 
 export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
+  private hourlyCashOperationId: string | null = null;
+  private hourlyCashErrorAt = 0;
+
+  /** Both the startup wait and ordinary dealer use the original boundary. */
+  protected override async passOperatorFloorBoundary(): Promise<boolean> {
+    if (await super.passOperatorFloorBoundary()) return true;
+    return this.passHourlyCashBoundary();
+  }
+
+  /** Cash only. Never called by a timer or from inside an active hand. */
+  protected async passHourlyCashBoundary(): Promise<boolean> {
+    const authority = this.getEngineLeaseAuthority();
+    if (
+      this.isTournamentTable() ||
+      !this.lifecycleCanMutate() ||
+      !this.isBetweenHands() ||
+      this.postHandTasksPromise ||
+      isMaintenanceFrozen() ||
+      this.weeklyPayoutPauseOwners.size > 0 ||
+      this.maintenancePaused ||
+      !authority ||
+      !authority.verified ||
+      authority.scope !== 'cash'
+    )
+      return false;
+    const releaseBoundary = await this.acquireSeatBoundary();
+    try {
+      if (!this.lifecycleCanMutate() || !this.isBetweenHands() || isMaintenanceFrozen())
+        return false;
+      this.hourlyCashOperationId ??= randomUUID();
+      const result = await closeHourlyCashTable(
+        this.tableId,
+        this.hourlyCashOperationId,
+        INSTANCE_ID,
+        authority.generation
+      );
+      if (!this.lifecycleCanMutate()) return true;
+      this.hourlyCashOperationId = null;
+      if (!result.closed) return false;
+      const departed = result.departures.map((r) => ({
+        userId: r.user_id,
+        occupancyId: r.occupancy_id,
+      }));
+      this.releaseDepartedSeats(departed);
+      for (const receipt of result.departures) {
+        this.hub?.emitEvent(this.tableId, {
+          type: 'seat_left',
+          table_id: this.tableId,
+          seat: receipt.seat_number,
+          user_id: receipt.user_id,
+          mid_hand: false,
+          timestamp: Date.now(),
+        });
+      }
+      this.broadcastCurrentState();
+      console.log(
+        `[CashHourlyCap] Closed ${this.tableId} after its hand; ${departed.length} occupancy receipts`
+      );
+      // stop joins this original dealer; never await our own loop here.
+      void this.stop().catch((error) => reportError(error, 'cash_hourly_close_stop_failed'));
+      return true;
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      // Authoritative transaction refusals rolled back every exit. In
+      // particular, a pooled Lightning hand completes before another attempt.
+      if (e.code === '55P03' || e.message?.includes('LIGHTNING_HAND_IN_PROGRESS')) {
+        this.hourlyCashOperationId = null;
+        return false;
+      }
+      // Unknown acknowledgment retains its original id, and cannot deal a
+      // new hand from seats that the original transaction may have cashed out.
+      this.markProgress();
+      if (Date.now() - this.hourlyCashErrorAt > 60_000) {
+        this.hourlyCashErrorAt = Date.now();
+        reportError(error, 'cash_hourly_close_outcome_pending', { table_id: this.tableId });
+      }
+      return true;
+    } finally {
+      releaseBoundary();
+    }
+  }
   protected abstract activateRetainedTurn(): Promise<void>;
   /** Measure before the original continuation queues this street behind retention. */
   protected captureStreetIntegrityEvent(event: HandEvent, controller: HandController): HandEvent {
@@ -193,10 +289,31 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   // ═══════════════════════════════════════════════════════════════════════════════
 
   protected async dealingLoop(): Promise<void> {
+    let threw = false;
+    try {
+      await this.dealingLoopPasses();
+    } catch (err) {
+      threw = true;
+      throw err;
+    } finally {
+      // No silent disappearance (2026-11-10): a cash wait still open when the
+      // loop ends (stop, lease lost, engine replaced, loop threw) never dealt.
+      this.settleCashBreachSpan(
+        'aborted',
+        threw ? 'dealing_loop_threw' : this.cashBreachExitReason()
+      );
+    }
+  }
+
+  private async dealingLoopPasses(): Promise<void> {
     // A roster read can retire mirrors before its arrival proof is available.
     // Keep the prior occupancies until that observation can be announced.
     let deferredRosterBeforeArrival: Map<string, SeatedPlayer['occupancy_id']> | null = null;
     while (this.running) {
+      // A pass that comes round after the rest ended, with the wait still
+      // open, abandoned that attempt without dealing (a pause, a changed seat
+      // boundary, a stale lease, dealHand returning before the start).
+      this.abandonCashBreachAttempt();
       try {
         if (this.handContinuation) {
           await this.handContinuation.join();
@@ -496,12 +613,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
                 this.registerWaitForBB(p.user_id);
                 if (entryHold === 'waiting' && entryAgreed) {
-                  // A SEAT CHANGE ARRIVES (Dan 2026-09-05): "SEAT CHANGE ALWAYS
-                  // RE POSTS THE BB WHEN GETTING TO A NEW TABLE." The executor
-                  // wrote the agreement on the chair; the same replay that
-                  // honours a tapped POST honours it - the live big blind on
-                  // the next deal, held until clear if they landed between the
-                  // button and the blind.
+                  // An arrival already carrying a standing agreement to post.
+                  // Since 2026-11-15 no seat move writes one (every move lands
+                  // 'moved', docs/LAWS.md "A moved player never posts to
+                  // enter"); a row written before then is honoured once - the
+                  // live big blind on the next deal, held until clear if it
+                  // landed between the button and the blind.
                   this.postBBWhenClear.add(p.user_id);
                   this.persistEntryHold(p.user_id, { hold: 'waiting', agreed: true });
                 }
@@ -1112,7 +1229,20 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // A completed short-handed sweep is real progress just like the
           // startup waiting sweep. Stamp after all awaited idle work so a
           // hung read or move remains visible to the existing watchdog.
-          this.markProgress();
+          //
+          // NOT WHEN THE GATE ITSELF IS THE REASON (#10741, 2026-11-13): if the
+          // seats this pass judged dealable already reach the minimum and a
+          // hold below the gate still left it short, the table is stuck, not
+          // waiting. Leaving the clock alone lets the stall watch and /health
+          // see it (it reported 0 stalled while four FLO8 tables sat for hours).
+          if (
+            !(
+              candidates.length >= this.minPlayersToDeal() &&
+              dealable.some((p) => !this.isBlindedOff(p.user_id))
+            )
+          ) {
+            this.markProgress();
+          }
           await this.sleep(3000);
           continue;
         }
@@ -1234,7 +1364,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
         // Deal hand (self-transition: running → running for next hand)
         this.setLoopPhase('dealing');
+        this.beginCompletionPresentation(activePlayers);
         await this.dealHand(activePlayers);
+        // completionPresentation (Seating): the chair stays until its pot is pushed.
+        if (!this.running) this.endCompletionPresentation();
         this.consecutiveErrors = 0;
 
         // Bible V8 §4.23: Formal cleanup timing between hands.
@@ -1325,6 +1458,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // mucked.
           this.setLoopPhase('post_hand_hold');
           await this.awaitHandCompletionDisplay(resultDisplayMs);
+          // The pot has been pushed: deferred leavers' chairs may go now.
+          this.endCompletionPresentation();
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
           this.broadcastCurrentState(); // Sends clean state (no hand in progress)
@@ -1387,6 +1522,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                  the first sweep that notices the empty stack: that sweep runs
                  after the pause below, which would hand out twenty-five. */
               this.noteCashBust(justBustedPlayers);
+              /* THE OFFER LEAVES WITH THE BUST (2026-11-11). The wallet is
+                 judged and the rebuy sheet told its deadline here, not at the
+                 next boundary sweep: that sweep runs after the pause below and
+                 the next hand's bookkeeping, which on a slow table outlasted
+                 the twenty seconds, so the sheet opened without its clock. */
+              const bustWallets = await this.offerCashBustWindows(justBustedPlayers);
               /* CAN THEY ACTUALLY COME BACK? (Dan 2026-08-28)
                *
                * "IN A CASH GAME, CHECK IF THEY HAVE ENOUGH CHIPS TO REBUY, (40
@@ -1405,7 +1546,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                * window off somebody who had the money, and then
                * standUpBustedCashPlayers below removes them for it. Same
                * fail-open reasoning as the tournament branch underneath. */
-              needsRebuyPause = await this.anyBustedPlayerCanAffordARebuy(justBustedPlayers);
+              needsRebuyPause = await this.anyBustedPlayerCanAffordARebuy(
+                justBustedPlayers,
+                bustWallets
+              );
               if (!needsRebuyPause) {
                 console.log(
                   `[ServerTableEngine:${this.tableId}] No rebuy pause - none of ` +
@@ -1634,6 +1778,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           }
         }
       } catch (err) {
+        // A hand that died never reaches its completion hold (completionPresentation).
+        this.endCompletionPresentation();
         const errMsg =
           err instanceof Error
             ? err.message
@@ -1669,6 +1815,49 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               phase: this.loopPhase,
               handCount: this.handCount,
             });
+          }
+        }
+
+        // IN-LIFE ORPHANED RESERVED PERMIT (2026-11-12, issue #10564). A
+        // `reserved` F06 permit this live generation left behind - its
+        // in-memory owner lost across a break or balancing boundary - refuses
+        // every allocation with f06_allocation_unproven. resolveUnstartedF06Permit
+        // needs the live permit object (this dealer holds none), and the
+        // abandoned-generation door only fires once this generation is dead,
+        // so nothing in this process clears it short of a watchdog kill and
+        // rebuild. Decide it here, in place, once per refusal, through the
+        // evidence-guarded cancel door, gated to this dealer's own generation.
+        if (!isTransient && errMsg.includes('f06_allocation_unproven')) {
+          let reconciled: F06OwnReservedReconcileOutcome = 'skipped';
+          try {
+            reconciled = await this.reconcileOwnUnresolvedReservedPermit();
+          } catch (reconcileErr) {
+            reportError(
+              reconcileErr,
+              'ServerTableEngine.' + this.tableId + '.own_reserved_permit_reconcile_failed'
+            );
+          }
+          if (reconciled === 'resolved') {
+            if (this.noteOwnReservedResolveShouldFastRecover()) {
+              this.recordRecoveryEvent(
+                'in_life_reserved_permit_resolved',
+                'allocation_unproven:own_generation'
+              );
+              this.consecutiveErrors = 0;
+              this.markProgress();
+              await this.sleep(250);
+              continue;
+            }
+            // Repeated resolves with no hand dealt between them: a second fault
+            // is re-orphaning a permit every pass. Stop masking - fall through
+            // to the normal error count and backoff so the >=10 self-kill and
+            // the zombie watchdog catch the table, and page it now.
+            reportError(
+              new Error(
+                'own-reserved permit resolved repeatedly with no hand dealt; letting the stall surface'
+              ),
+              'ServerTableEngine.' + this.tableId + '.own_reserved_permit_resolves_unbounded'
+            );
           }
         }
 
@@ -1787,13 +1976,26 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     this.lastCompletionAtMs = now;
     // Observation only. A failed clock leaves the exact-hand anchor unknown.
     try {
+      const monotonicMs = performance.now();
       this.postHandCompletionStamp = {
         handNumber: this.handCount,
         atMs: now,
-        monotonicMs: performance.now(),
+        monotonicMs,
       };
+      // The breach span starts at this same completion stamp, on the
+      // monotonic clock (cash only, like the metric).
+      // dealHand can return without starting a hand and the loop re-arms
+      // here; that wait ends now, like the metric's anchor.
+      this.settleCashBreachSpan(
+        'aborted',
+        this.cashBreachSpan?.restEnded ? 'deal_not_started' : 'superseded'
+      );
+      this.cashBreachSpan = this.isTournamentTable()
+        ? null
+        : new CashNextHandSpan(this.tableId, this.handCount, this.loopPhase, monotonicMs);
     } catch {
       this.postHandCompletionStamp = null;
+      this.cashBreachSpan = null;
     }
     this.gapPhaseMs = {};
     this.gapPhaseName = this.loopPhase;
@@ -1873,6 +2075,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       !this.isTournamentTable()
         ? this.lastCompletionAtMs
         : null;
+    // The breach span: from here to the controller start is the deal itself.
+    if (this.cashBreachSpan) {
+      this.cashBreachSpan.restEnded = true;
+      this.cashBreachSpan.enter('deal');
+    }
     // A table that idled between the two hands (short-handed, parked, held
     // for a spin reveal) is not a sample of the rest; it waited on people.
     this.lastCompletionAtMs = null;
@@ -1931,11 +2138,116 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected override setLoopPhase(phase: string): void {
     super.setLoopPhase(phase);
     this.accrueGapPhase(Date.now());
+    // `?.` on purpose: the base constructor runs this before field initialisers.
+    this.cashBreachSpan?.enter(phase, ServerTableEngineDealing.cashBreachExclusion(phase));
   }
 
   // One bounded current/last hand, released with this engine; no fleet history.
   protected postHandStageTiming: PostHandStageTiming | null = null;
   private postHandCompletionStamp: CompletionHoldStamp | null = null;
+
+  /**
+   * Ends the open breach span without a deal: one line if it is over the limit.
+   * A wait the metric contract excludes says so in `excluded`.
+   */
+  private settleCashBreachSpan(outcome: 'aborted', reason: string): void {
+    const span = this.cashBreachSpan;
+    if (!span) return;
+    this.cashBreachSpan = null;
+    try {
+      const { gapMs, stages } = span.close();
+      reportCashNextHandBreach({
+        tableId: span.tableId,
+        handNumber: span.handNumber,
+        nextHandNumber: null,
+        outcome,
+        reason,
+        counted: false,
+        excluded: span.excluded,
+        gapMs,
+        at: Date.now(),
+        stages,
+        settlement: this.cashBreachSettlement(span.handNumber),
+      });
+    } catch {
+      /* Observation only. */
+    }
+  }
+
+  /**
+   * At the top of a pass: an attempt that passed the rest and came round
+   * without dealing is abandoned. Over the limit it is reported now and the
+   * span ends; under it the wait carries on, labelled, to the next check.
+   */
+  private abandonCashBreachAttempt(): void {
+    const span = this.cashBreachSpan;
+    if (!span?.restEnded) return;
+    const reason = 'next_hand_not_started:' + String(this.loopPhase || 'unknown');
+    if (span.elapsedMs() > CASH_NEXT_HAND_LIMIT_MS) this.settleCashBreachSpan('aborted', reason);
+    else span.retried ??= reason;
+  }
+
+  /**
+   * A table stopped or killed mid-wait reports it at once, even while the
+   * loop is still parked on an await that may never return.
+   */
+  override stop(): Promise<void> {
+    this.settleCashBreachSpan('aborted', 'table_stopped');
+    return super.stop();
+  }
+
+  protected override killForRestart(
+    reason: string,
+    notifyOwner = true,
+    recoveryEventClass?: EngineRecoveryEventClass,
+    recoveryDetail = reason
+  ): void {
+    this.settleCashBreachSpan(
+      'aborted',
+      'engine_killed:' +
+        String(reason)
+          .toLowerCase()
+          .replace(/[^a-z0-9_:]/g, '_')
+          .slice(0, 80)
+    );
+    super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
+  }
+
+  /** Why the dealing loop ended, from raw state only (no lease re-evaluation). */
+  private cashBreachExitReason(): string {
+    const st = this.leavePendingLifecycleSnapshot();
+    if (!st) return 'loop_exited';
+    if (st.lease_expired) return 'lease_lost';
+    if (st.terminal) return 'engine_terminal';
+    if (!st.running) return 'table_stopped';
+    if (!st.current_engine) return 'engine_replaced';
+    return 'loop_exited';
+  }
+
+  /** The metric contract's excluded waits, named the way the breach line reports them. */
+  private static cashBreachExclusion(phase: string): string | null {
+    if (phase === 'idle_not_enough_players' || phase === 'start_wait_for_players')
+      return 'waiting_for_players';
+    if (phase === 'rebuy_pause') return 'rebuy_pause';
+    return ServerTableEngineDealing.IDLE_LOOP_PHASES.has(phase) ? phase : null;
+  }
+
+  /** The completed hand's settlement spans for a breach line; in memory only. */
+  private cashBreachSettlement(handNumber: number | null) {
+    try {
+      const snap = this.postHandTimingSnapshot();
+      if (!snap || handNumber === null || snap.handNumber !== handNumber) return null;
+      const spansMs: Record<string, number> = {};
+      for (const st of snap.stages) if (st.elapsedMs !== null) spansMs[st.name] = st.elapsedMs;
+      return {
+        complete: snap.pipelineComplete,
+        spansMs,
+        threw: snap.stages.filter((st) => st.outcome === 'threw').map((st) => st.name),
+      };
+    } catch {
+      return null;
+    }
+  }
 
   public postHandTimingSnapshot() {
     return this.postHandStageTiming?.snapshot(this.postHandCompletionStamp) ?? null;
@@ -1948,6 +2260,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private gapPhaseSinceMs = 0;
   private gapHadRebuyPause = false;
   private cashDealGapAnchorMs: number | null = null;
+  /** The open hand-end to next-deal wait on the monotonic clock (cash only). */
+  private cashBreachSpan: CashNextHandSpan | null = null;
   private gapSawIdle = false;
 
   /**
@@ -1978,6 +2292,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected async prepareNextHand(): Promise<SeatedPlayer[]> {
     const releaseSeatBoundary = await this.acquireSeatBoundary();
     try {
+      // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): a horse that
+      // banked the win in the hand just presented leaves now, before the roster
+      // read, through the same door settlement would have used.
+      if (!this.isTournamentTable()) await this.runDeferredBankTheWinExits();
       /* ═══ A LEAVE THE PLAYER ASKED FOR STILL HAPPENS UNDER A HALT ═════
          (Lightning 2.0 Phase 5 remediation, 2026-09-25. JUDGED, NOT MISSED.)
 
@@ -2770,8 +3088,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         return;
       }
       if (!this.isTournamentTable()) this.retireHandNumberWithForeignManifest(players);
+      this.cashBreachSpan?.enter('deal_allocate');
       this.handCount = this.takePreparedHandNumber() ?? (await this.allocateGlobalHandNumber());
       await this.reserveF06Hand(this.handCount);
+      this.cashBreachSpan?.enter('dealing');
       if (this.discardPreparedHandForPause()) return;
       this.handsDealtThisSession++;
       const handNumber = this.handCount;
@@ -2966,12 +3286,22 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const headsUpFirstButton = drawsFirstButton
         ? drawFirstButtonSeat(sortedSeats, secureRandomInt)
         : null;
+      // Cash, heads-up back to three or more: the button stays for the entry
+      // hand (HU-EXE-002). A button that stayed has not completed an orbit; see
+      // orbitComplete below.
+      const buttonStays =
+        !drawnIsSeated &&
+        headsUpFirstButton === null &&
+        prevButtonSeat > 0 &&
+        this.cashButtonStaysAfterHeadsUp(players, buttonRoster);
       let dealerSeat = drawnIsSeated
         ? (drawnButton as number)
         : headsUpFirstButton !== null
           ? headsUpFirstButton
           : prevButtonSeat > 0
-            ? this.getNextSeat(prevButtonSeat, buttonRoster)
+            ? buttonStays
+              ? prevButtonSeat
+              : this.getNextSeat(prevButtonSeat, buttonRoster)
             : buttonSeats[0];
       if (headsUpFirstButton !== null && this.isTournamentTable()) {
         /**
@@ -3103,7 +3433,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // Bible V8 §6: Orbit complete (button wrapped past the top seat) → refill
       // time banks. With seat-based rotation, a wrap means the new button seat is
       // not strictly greater than the previous one.
-      const orbitComplete = prevButtonSeat > 0 && dealerSeat <= prevButtonSeat;
+      // The one hand where the cash button stays (heads-up back to three or
+      // more, HU-EXE-002) is not a wrap: the button did not move, so no time
+      // bank refills and no sit-out orbit is counted for it. The walk resumes
+      // from the same seat on the next hand and wraps exactly when it would have.
+      const orbitComplete = prevButtonSeat > 0 && dealerSeat <= prevButtonSeat && !buttonStays;
       if (orbitComplete) {
         this.timeBankEngine.onOrbitComplete(this.tableId);
       }
@@ -3178,7 +3512,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
       // Bible V8 §4.4: Process straddles before hand starts
       let straddleResults: { seat: number; amount: number }[] = [];
-      if (this.tableInfo.straddle_enabled) {
+      // Fixed limit refuses a straddle (BettingStructure.structureAllowsStraddle):
+      // it is not counted as a fixed-limit wager, so a straddled limit preflop
+      // took five levels. None is collected for a fixed-limit hand, whatever
+      // the table row says; a mixed table still straddles its other games.
+      if (this.tableInfo.straddle_enabled && structureAllowsStraddle(this.dealtGameVariant())) {
         // Build seat order starting from UTG (left of BB)
         const utgSeat = this.getNextSeat(bbSeat, players);
 
@@ -3351,6 +3689,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
              * first and then discovering the table is short would consume the
              * host's request and fire nothing.
              */
+            this.cashBreachSpan?.enter('deal_bomb_claim');
             const { data: claimed, error: claimErr } = await supabase
               .from('tables')
               .update({ bomb_pot_manual_pending: false })
@@ -3358,6 +3697,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               .eq('bomb_pot_manual_pending', true)
               .select('id')
               .maybeSingle();
+            this.cashBreachSpan?.enter('dealing');
             if (claimErr) {
               // Fail closed and KEEP the armed flag, so the next hand tries
               // again rather than dropping the host's request on one blip.
@@ -3596,6 +3936,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         if (this.returningFromSitout.size > 0) {
           for (const p of players) {
             if (!this.returningFromSitout.has(p.user_id)) continue;
+            if (this.postingBBToEnter.has(p.user_id)) continue;
             if (p.seat_number === sbSeat || p.seat_number === bbSeat) continue;
             this.disconnectEngine.noteBlindChargedWhileAway(this.tableId, p.user_id, 'sb');
             this.disconnectEngine.noteBlindChargedWhileAway(this.tableId, p.user_id, 'bb');
@@ -3614,12 +3955,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // Entry posting belongs exclusively to cash games. Tournament moves and
       // late registration never add a live BB outside the natural blind seats,
       // even if an old in-memory arrival marker remains.
-      const bbOnlyPostSeats: { seat: number }[] = [];
-      if (!this.isTournamentTable() && this.postingBBToEnter.size > 0) {
-        for (const p of players) {
-          if (this.postingBBToEnter.has(p.user_id)) bbOnlyPostSeats.push({ seat: p.seat_number });
-        }
-      }
+      const entryCharges = this.entryChargeSeats(players);
+      const bbOnlyPostSeats = entryCharges.bbOnlyPosts;
 
       /* ── KILL POT (rule manifest kill-v1) ────────────────────────────────
          Decided HERE, once, at the hand boundary, from the settings the table
@@ -3708,10 +4045,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         straddles: bombPotConfig || straddleResults.length === 0 ? undefined : straddleResults,
         // Bible V8 §4.2: Dead blinds for players returning from sit-out
         deadBlinds:
-          !this.isTournamentTable() && this.returningFromSitout.size > 0
-            ? players
-                .filter((p) => this.returningFromSitout.has(p.user_id))
-                .map((p) => ({ seat: p.seat_number }))
+          !this.isTournamentTable() &&
+          this.returningFromSitout.size > 0 &&
+          entryCharges.deadBlinds.length > 0
+            ? entryCharges.deadBlinds
             : undefined,
         // AUDIT FIX 2026-07-19: "Post BB to enter" players post a live BB only.
         // Cash only: tournament arrivals never post to enter.
@@ -3796,11 +4133,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               is_horse: original.is_horse === true,
             };
           });
+          this.cashBreachSpan?.enter('deal_manifest');
           const manifestId = await this.takePreparedCashHandManifest(
             handNumber,
             originalParticipants,
             fundingLease.generation
           );
+          this.cashBreachSpan?.enter('dealing');
           this.currentHandSeatGenerations = bindCashHandManifest(
             this.currentHandSeatGenerations,
             manifestId,
@@ -3826,6 +4165,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           : undefined
       );
       const preparedController = this.handController;
+      // The upcoming roster can start a read. Only a later FAST with the same
+      // actual dealt seats, original hand, lease and rules can use its result.
+      if (
+        players.some(confirmedHuman) &&
+        players.some((p) => p.is_horse === true) &&
+        players.every((p) => typeof p.is_horse === 'boolean')
+      ) {
+        const lease = this.getEngineLeaseAuthority();
+        const blinds = preparedController.getBlindSnapshot();
+        const domain =
+          blinds && publicMemoryDomainFromRules('table', blinds.ante, blinds.bigBlindAnte);
+        if (lease?.verified && lease.generation && domain) {
+          horseSavedProfilePresence.prime({
+            tableId: this.tableId,
+            handNumber,
+            lease: lease.generation,
+            variant: config.gameVariant,
+            mode: this.isTournamentTable() ? 'tournament' : 'cash',
+            domain,
+            roster: players.map((p) => ({
+              seat: p.seat_number,
+              id: p.user_id,
+              human: confirmedHuman(p),
+            })),
+          });
+        }
+      }
+
       this.currentHandCashRakePolicy =
         !config.isTournament && config.asset !== 'diamonds'
           ? preparedController.getRakeConfigSnapshot()
@@ -3856,6 +4223,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           table_id: this.tableId,
           variant: String(this.tableInfo?.game_variant ?? ''),
         });
+        EngineMetrics.handsFleetTotal.inc(1, { format: this.tableFormat() });
       } catch {
         /* metrics must never affect gameplay */
       }
@@ -3961,6 +4329,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const preferenceIds = hcPlayers
         .filter((p) => !this.timeBankEngine.hasAutoActivatePreference(this.tableId, p.user_id))
         .map((p) => p.user_id);
+      this.cashBreachSpan?.enter('deal_time_bank_reads');
       const [tbExtras, autoPreferences] = await Promise.all([
         this.fetchTimeBankExtras(tbNewPlayers.map((p) => p.user_id)),
         readAutoTimeBankPreferences(preferenceIds).catch((error) => {
@@ -3970,6 +4339,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           return new Map(preferenceIds.map((id) => [id, false]));
         }),
       ]);
+      this.cashBreachSpan?.enter('dealing');
       /**
        * THE ENGINE MAY HAVE BEEN TORN DOWN DURING THAT AWAIT (2026-09-06).
        *
@@ -4044,13 +4414,35 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const attempt = { started: false, cause: null as string | null };
       const preparedPermit = this.f06CurrentPermit;
       const cashDealGapAnchor = this.cashDealGapAnchorMs;
+      const breachSpan = this.cashBreachSpan;
       this.cashDealGapAnchorMs = null;
+      this.cashBreachSpan = null;
+      // Both clocks stop here, at the same instant: the metric on Date.now()
+      // (its definition), the breach line on performance.now().
+      const breachEnd = breachSpan?.close();
+      const startAtMs = Date.now();
       if (cashDealGapAnchor !== null) {
-        const startAtMs = Date.now();
         cashDealGap.record({
           tableId: this.tableId,
           gapMs: startAtMs - cashDealGapAnchor,
           at: startAtMs,
+        });
+      }
+      if (breachSpan && breachEnd && breachEnd.gapMs > CASH_NEXT_HAND_LIMIT_MS) {
+        reportCashNextHandBreach({
+          tableId: this.tableId,
+          handNumber: breachSpan.handNumber,
+          nextHandNumber: handNumber,
+          outcome: 'dealt',
+          // The metric counted exactly this interval (same two stamps) unless
+          // it excluded the wait or an earlier attempt went round.
+          counted: cashDealGapAnchor !== null,
+          reason: breachSpan.retried,
+          excluded: breachSpan.excluded,
+          gapMs: breachEnd.gapMs,
+          at: startAtMs,
+          stages: breachEnd.stages,
+          settlement: this.cashBreachSettlement(breachSpan.handNumber),
         });
       }
       try {
@@ -5038,7 +5430,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * return true, because the cost of a wrong `true` is five seconds and the
    * cost of a wrong `false` is taking a rebuy away from someone who could pay.
    */
-  protected async anyBustedPlayerCanAffordARebuy(busted: SeatedPlayer[]): Promise<boolean> {
+  protected async anyBustedPlayerCanAffordARebuy(
+    busted: SeatedPlayer[],
+    alreadyRead?: Map<string, number>
+  ): Promise<boolean> {
     if (this.tableInfo?.arena?.asset === 'diamonds') return false;
     if (busted.length === 0) return false;
 
@@ -5071,10 +5466,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     /* The wallet each SEAT was bought from, not the table's club: a union
        table's club row holds no member wallet, so every player there read as
        unknown and the felt paused for a player with nothing (2026-11-09). */
-    const balances = await readSeatWalletBalances(
-      this.tableId,
-      humans.map((p) => p.user_id).filter(Boolean)
-    );
+    const balances =
+      alreadyRead ??
+      (await readSeatWalletBalances(this.tableId, humans.map((p) => p.user_id).filter(Boolean)));
 
     for (const human of humans) {
       if (!balances.has(human.user_id)) return true; // Unread -> fail open.
@@ -5165,11 +5559,18 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    */
   private announceBustRebuyWindow(userId: string, remainingMs: number): void {
     try {
+      /* The bust is named by its deadline on this engine's wall clock: every
+         resend of one bust carries the same instant, a later bust a later
+         one, so the sheet can tell a resend from a new bust and ignore a
+         frame of an earlier one (src/utils/bustRebuyDeadline.ts). */
+      const seat = this.seatedPlayers.find((p) => p.user_id === userId);
       this.hub?.sendToUser(this.tableId, userId, {
         kind: 'bust_rebuy_window',
         table_id: this.tableId,
         user_id: userId,
+        occupancy_id: seat?.occupancy_id ?? null,
         remaining_ms: remainingMs,
+        deadline_at_ms: Date.now() + remainingMs,
         window_ms: BUST_REBUY_WINDOW_MS,
       });
     } catch (err) {
@@ -5439,9 +5840,44 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     }
   }
 
+  /**
+   * Judge each human who has just busted against the wallet their seat was
+   * bought from, once, at the bust, and tell a player who can rebuy how long
+   * they have. The deadline is the one noteCashBust just started; this only
+   * arms its timer and delivers it. Returns the read so the table pause is
+   * decided from the same answer, or undefined where the window does not
+   * apply. An unread wallet is "can rebuy" (bustRebuyVerdict), never a reason
+   * to stand a player up.
+   */
+  protected async offerCashBustWindows(
+    busted: SeatedPlayer[]
+  ): Promise<Map<string, number> | undefined> {
+    if (!this.bustRebuyWindowApplies()) return undefined;
+    const humans = busted.filter((p) => p.user_id && !p.is_horse);
+    if (humans.length === 0) return undefined;
+    const balances = await readSeatWalletBalances(
+      this.tableId,
+      humans.map((p) => p.user_id)
+    );
+    const minimum = cashRebuyMinimum(this.tableInfo);
+    const activeNow = maintenanceActiveNow();
+    for (const player of humans) {
+      const bustedAt = this.bustedSince.get(player.user_id);
+      if (bustedAt === undefined || this.bustRebuyVerdicts.has(player.user_id)) continue;
+      const verdict = bustRebuyVerdict(balances.get(player.user_id), minimum);
+      this.bustRebuyVerdicts.set(player.user_id, verdict);
+      if (verdict !== 'can_rebuy') continue;
+      const remaining = bustRebuyRemainingMs(bustedAt, activeNow);
+      this.announceBustRebuyWindow(player.user_id, remaining);
+      if (player.occupancy_id) this.armBustRebuyExpiry(player.occupancy_id, remaining);
+    }
+    return balances;
+  }
+
   protected override async passWhileDealingHalted(): Promise<void> {
     await super.passWhileDealingHalted();
     if (!this.lifecycleCanMutate() || this.isTournamentTable() || isMaintenanceFrozen()) return;
+    if (await this.passHourlyCashBoundary()) return;
     // Only a busted anchor can need this boundary. Funded parked tables keep
     // their existing halt contract; a paid bust rebuy must not await a deal.
     const busted = this.seatedPlayers.filter((p) => p.user_id && Number(p.stack) === 0);
@@ -6038,5 +6474,40 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     if (isMaintenanceFrozen() || !this.lifecycleCanMutate()) return;
     if (this.lightningObserverCluster() !== clusterId) return;
     await this.evictExpiredSitOuts({ countOrbit: false, sitOutOnly: true, onlyUsers: confirmed });
+  }
+  /**
+   * THE ENTRY CHARGES OF ONE DEAL, AND A SEAT HOLDS AT MOST ONE OF THEM
+   * (2026-11-15, hand #59634000).
+   *
+   * Two different debts are billed outside the blind seats on a cash table:
+   *
+   *   bbOnlyPosts  a new entrant who chose Post Big Blind: ONE live big blind.
+   *   deadBlinds   a player back from sit-out who missed blinds: a dead small
+   *                blind plus a live big blind.
+   *
+   * They were built from two unrelated sets with nothing keeping them apart,
+   * and HandController billed a seat named in both for all of it. The entry
+   * post wins: a seat posting to enter has never been dealt here, so it has
+   * missed nothing. Tournaments bill neither.
+   */
+  protected entryChargeSeats(players: ReadonlyArray<{ user_id: string; seat_number: number }>): {
+    deadBlinds: { seat: number }[];
+    bbOnlyPosts: { seat: number }[];
+  } {
+    const deadBlinds: { seat: number }[] = [];
+    const bbOnlyPosts: { seat: number }[] = [];
+    if (!this.isTournamentTable() && this.postingBBToEnter.size > 0) {
+      for (const p of players) {
+        if (this.postingBBToEnter.has(p.user_id)) bbOnlyPosts.push({ seat: p.seat_number });
+      }
+    }
+    if (!this.isTournamentTable() && this.returningFromSitout.size > 0) {
+      for (const p of players) {
+        if (this.returningFromSitout.has(p.user_id) && !this.postingBBToEnter.has(p.user_id)) {
+          deadBlinds.push({ seat: p.seat_number });
+        }
+      }
+    }
+    return { deadBlinds, bbOnlyPosts };
   }
 }

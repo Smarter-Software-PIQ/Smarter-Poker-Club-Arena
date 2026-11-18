@@ -1,0 +1,136 @@
+[
+  {
+    "name": "blacklists",
+    "owner": "postgres",
+    "rls": true,
+    "force_rls": false,
+    "columns": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "club_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "union_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "reason",
+        "type": "text",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "banned_by",
+        "type": "uuid",
+        "default": null,
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "banned_at",
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notnull": true,
+        "identity": "",
+        "generated": ""
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "default": null,
+        "notnull": false,
+        "identity": "",
+        "generated": ""
+      }
+    ],
+    "constraints": [
+      {
+        "name": "blacklists_banned_by_fkey",
+        "type": "f",
+        "validated": true,
+        "definition": "FOREIGN KEY (banned_by) REFERENCES auth.users(id)"
+      },
+      {
+        "name": "blacklists_club_id_fkey",
+        "type": "f",
+        "validated": true,
+        "definition": "FOREIGN KEY (club_id) REFERENCES clubs(id) ON DELETE CASCADE"
+      },
+      {
+        "name": "blacklists_pkey",
+        "type": "p",
+        "validated": true,
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "name": "blacklists_scope_check",
+        "type": "c",
+        "validated": true,
+        "definition": "CHECK (((club_id IS NOT NULL) OR (union_id IS NOT NULL)))"
+      },
+      {
+        "name": "blacklists_user_id_fkey",
+        "type": "f",
+        "validated": true,
+        "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+      }
+    ],
+    "indexes": [
+      {
+        "constraint": false,
+        "definition": "CREATE INDEX idx_blacklists_club_id_fk ON public.blacklists USING btree (club_id)"
+      },
+      {
+        "constraint": true,
+        "definition": "CREATE UNIQUE INDEX blacklists_pkey ON public.blacklists USING btree (id)"
+      },
+      {
+        "constraint": false,
+        "definition": "CREATE INDEX idx_blacklists_club ON public.blacklists USING btree (club_id) WHERE (club_id IS NOT NULL)"
+      },
+      {
+        "constraint": false,
+        "definition": "CREATE INDEX idx_blacklists_user ON public.blacklists USING btree (user_id)"
+      },
+      {
+        "constraint": false,
+        "definition": "CREATE UNIQUE INDEX uniq_blacklists_club_user_permanent ON public.blacklists USING btree (club_id, user_id) WHERE ((club_id IS NOT NULL) AND (expires_at IS NULL))"
+      },
+      {
+        "constraint": false,
+        "definition": "CREATE UNIQUE INDEX uniq_blacklists_union_user_permanent ON public.blacklists USING btree (union_id, user_id) WHERE ((union_id IS NOT NULL) AND (expires_at IS NULL))"
+      },
+      {
+        "constraint": false,
+        "definition": "CREATE INDEX idx_blacklists_banned_by ON public.blacklists USING btree (banned_by)"
+      }
+    ]
+  }
+]

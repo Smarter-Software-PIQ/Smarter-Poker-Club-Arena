@@ -114,3 +114,7 @@ describe('blind seats', () => {
     expect(bigBlindSeat([1, 2, 3], null)).toBeNull();
   });
 });
+
+it('labels the occupied button eight-handed as on the live Classic Feeder', () => {
+  expect(derivePositions([1, 2, 3, 4, 5, 6, 7, 8], 5)[3]).toBe('MP+1');
+});

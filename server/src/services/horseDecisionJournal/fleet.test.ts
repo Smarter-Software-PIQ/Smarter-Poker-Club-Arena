@@ -524,7 +524,14 @@ r=t.partition_result(p);r['execution']['observation']=o
 print(json.dumps(c.module.bounded_summary(p,a,[r])))
 `,
         ],
-        { input: JSON.stringify([packet(), result]), encoding: 'utf8', maxBuffer: 2097152 }
+        {
+          input: JSON.stringify([packet(), result]),
+          encoding: 'utf8',
+          maxBuffer: 2097152,
+          // A stalled native bridge must fail, not block Vitest's own timer.
+          // Match the maintained Python packet contract's finite process budget.
+          timeout: 15_000,
+        }
       )
     );
     expect(summary.publicReadEvidence).toMatchObject({

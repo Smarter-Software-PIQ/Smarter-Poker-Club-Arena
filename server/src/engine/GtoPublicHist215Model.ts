@@ -21,8 +21,8 @@ export interface PublicHist215Head {
 export interface PublicHist215Payload {
   format: typeof PUBLIC_HIST215_FORMAT;
   variant: 'direct' | 'coherent';
-  /** 215 under contract v1, 246 under v2 (the model's pinned descriptor decides). */
-  feature_count: 215 | 246;
+  /** 215 under contract v1, 246 under v2, 248 under v3 (the model's pinned descriptor decides). */
+  feature_count: 215 | 246 | 248;
   action_ids: string[];
   heads: PublicHist215Head[];
   template_sha256: string;
@@ -191,7 +191,7 @@ export function public215ActionSum(values: readonly number[]): number {
 export interface CompiledPublicHist215 {
   readonly format: typeof PUBLIC_HIST215_FORMAT;
   readonly variant: 'direct' | 'coherent';
-  /** Input width of the bound descriptor: 215 (v1) or 246 (v2). */
+  /** Input width of the bound descriptor: 215 (v1), 246 (v2) or 248 (v3). */
   readonly featureCount: number;
   readonly actionIds: readonly string[];
   /** Pure numeric inference only. Native feature extraction has its own worker guard. */

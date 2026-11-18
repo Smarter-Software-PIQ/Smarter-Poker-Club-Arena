@@ -16,6 +16,7 @@ import {
 import { useProtectedCardLayout } from '../../../src/hooks/useProtectedCardLayout';
 import BadBeatJackpot from '../../../src/components/table/BadBeatJackpot';
 import ActionPanel from '../../../src/components/table/ActionPanel';
+import { WaitlistCallToAction } from '../../../src/components/table/WaitlistCallToAction';
 import PreActionBar from '../../../src/components/table/PreActionBar';
 import PotDisplay from '../../../src/components/table/PotDisplay';
 import HeroVpipTracker from '../../../src/components/table/HeroVpipTracker';
@@ -118,12 +119,20 @@ export function Review() {
     <div className="multi-table-page">
       <div className="multi-table-page__tab-bar-wrapper">
         <div className="table-tab-bar">
-          <button className="table-tab-bar__tab table-tab-bar__tab--active">NLH 1/2</button>
+          <button className="table-tab-bar__tab table-tab-bar__tab--active">
+            {heroCards > 2 ? `PLO${heroCards}` : 'NLH'} 1/2
+          </button>
         </div>
         <button className="mtp-lobby-btn" aria-label="Open Must Move Lobby">
           <img className="mtp-lobby-btn__img" src={lobbyArt} alt="" draggable={false} />
         </button>
       </div>
+      {spectator && document.documentElement.dataset.follow === 'true' && (
+        <div className="mtp-player-follow" role="status">
+          <span>Following KingFish</span>
+          <button>Stop Following</button>
+        </div>
+      )}
       <div
         className="multi-table-page__container"
         style={{
@@ -138,6 +147,10 @@ export function Review() {
                 : 'table-page table-page--embedded'
             }
             data-seats={n}
+            data-hole-card-count={heroCards}
+            data-kill-enabled={
+              document.documentElement.dataset.killEnabled === 'true' ? 'true' : 'false'
+            }
             data-hero={spectator ? 'false' : 'true'}
             data-hero-action={action === 'active' ? 'active' : 'waiting'}
             data-bbj-mini={jackpot === 'mini' ? '1' : '0'}
@@ -206,7 +219,9 @@ export function Review() {
                         </span>
                       </span>
                       <span className="table-brand__line table-brand__line--level">
-                        <span className="table-brand__game">Madness PLO4 1/2 + BB Ante</span>
+                        <span className="table-brand__game">
+                          Classic {heroCards > 2 ? `PLO${heroCards}` : 'NLH'} 1/2 + BB Ante
+                        </span>
                       </span>
                       <span className="table-brand__line table-brand__line--hand">
                         Hand #4283505
@@ -245,7 +260,11 @@ export function Review() {
                       <SeatSlot
                         seatNumber={i + 1}
                         player={
-                          document.documentElement.dataset.emptyBottom === 'true' && i === 0
+                          (document.documentElement.dataset.emptyBottom === 'true' && i === 0) ||
+                          (Boolean(document.documentElement.dataset.occupiedSeats) &&
+                            !document.documentElement.dataset.occupiedSeats
+                              .split(',')
+                              .includes(String(i)))
                             ? null
                             : {
                                 id: `p${i}`,
@@ -267,10 +286,13 @@ export function Review() {
                                    combination a real human player sees. Absent,
                                    every chair keeps the character art the other
                                    scenes already use. */
-                                avatar:
-                                  i === 0 && document.documentElement.dataset.heroAvatar
-                                    ? document.documentElement.dataset.heroAvatar
-                                    : `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
+                                avatar: document.documentElement.dataset.avatarNames
+                                  ? `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarNames.split(',')[i % document.documentElement.dataset.avatarNames.split(',').length]}`
+                                  : i > 0 && document.documentElement.dataset.villainAvatar
+                                    ? document.documentElement.dataset.villainAvatar
+                                    : i === 0 && document.documentElement.dataset.heroAvatar
+                                      ? document.documentElement.dataset.heroAvatar
+                                      : `https://smarter.poker/avatars/table/${document.documentElement.dataset.avatarMix === 'true' ? (i % 2 ? 'vip_aztec_warrior@2x.webp' : 'vip_wolf@2x.webp') : document.documentElement.dataset.avatar || 'vip_wolf@2x.webp'}`,
                                 stack:
                                   document.documentElement.dataset.allIn === 'true' && i % 3 === 0
                                     ? 0
@@ -299,12 +321,30 @@ export function Review() {
                         }
                         position={i === 1 ? 'SB' : null}
                         isActive={i === activeSeat}
+                        isWinner={document.documentElement.dataset.winnerSeat === String(i + 1)}
+                        winningHandName="Two Pair"
+                        handStrength={
+                          i === 0 ? document.documentElement.dataset.handStrength : undefined
+                        }
                         lastAction={
-                          document.documentElement.dataset.actionPills === 'true'
-                            ? 'raise'
-                            : revealed && i % 3 === 0
-                              ? 'all_in'
-                              : 'call'
+                          document.documentElement.dataset.actionPills === 'none'
+                            ? null
+                            : document.documentElement.dataset.actionCaption
+                              ? (document.documentElement.dataset.actionCaption as
+                                  | 'check'
+                                  | 'fold'
+                                  | 'raise')
+                              : (document.documentElement.dataset.folded || '')
+                                    .split(',')
+                                    .filter(Boolean)
+                                    .map(Number)
+                                    .includes(i)
+                                ? 'fold'
+                                : document.documentElement.dataset.actionPills === 'true'
+                                  ? 'raise'
+                                  : revealed && i % 3 === 0
+                                    ? 'all_in'
+                                    : 'call'
                         }
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */
@@ -336,7 +376,15 @@ export function Review() {
             <div className="action-panel-wrapper">
               {spectator ? (
                 <div className="spectator-footer-bar">
-                  <span className="spectator-footer-bar__label">Spectating</span>
+                  {document.documentElement.dataset.waitlist === 'true' ? (
+                    <WaitlistCallToAction
+                      onClick={() => undefined}
+                      waitingCount={0}
+                      position={null}
+                    />
+                  ) : (
+                    <span className="spectator-footer-bar__label">Spectating</span>
+                  )}
                 </div>
               ) : action === 'active' ? (
                 <ActionPanel

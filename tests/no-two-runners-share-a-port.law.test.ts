@@ -55,6 +55,7 @@ const PLAYWRIGHT_CONFIGS = readdirSync(ROOT).filter((f) => /^playwright.*\.confi
  */
 function startsAServerInCI(code: string): boolean {
   if (!/webServer\s*:/.test(code)) return false;
+  if (/webServer\s*:\s*undefined\b/.test(code)) return false;
   // The production-aware config also guards local startup with
   // `isCI || !targetsLocalDevServer`. What matters is that every conditional
   // containing `isCI` chooses the empty object on its true branch before the
@@ -63,6 +64,10 @@ function startsAServerInCI(code: string): boolean {
 }
 
 describe('no two runners share a port', () => {
+  it('an explicitly disabled server never binds a port', () => {
+    expect(startsAServerInCI('webServer: undefined,')).toBe(false);
+    expect(startsAServerInCI('webServer: { command: start }')).toBe(true);
+  });
   it('the failed hosted accessibility runner can fetch its own bound preview', () => {
     // A native child uses the real readiness transport, never happy-dom fetch.
     const result = spawnSync(

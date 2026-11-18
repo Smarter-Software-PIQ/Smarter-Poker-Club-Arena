@@ -1,17 +1,21 @@
 import { createRequire } from 'node:module';
 import { isMainThread } from 'node:worker_threads';
 import { boardRelativeFeaturesV2 } from './GtoBoardRelativeFeaturesV2.js';
+import { gtoV31LineClassValidV3 } from './GtoDecisionContext.js';
 import descriptor from './GtoPublicHist215FeatureDescriptor.json' with { type: 'json' };
 import descriptorV2 from './GtoPublicHist215FeatureDescriptorV2.json' with { type: 'json' };
 import {
   PUBLIC_HIST215_PRIOR,
   PUBLIC_HIST215_V2_APPENDED,
+  PUBLIC_HIST215_V3_APPENDED,
 } from './GtoPublicHist215FeatureSchema.js';
 import {
   PUBLIC_HIST215_V1,
   PUBLIC_HIST215_V2,
+  PUBLIC_HIST215_V3,
   PUBLIC_HIST215_V1_FEATURE_SCHEMA_SHA256,
   PUBLIC_HIST215_V2_FEATURE_SCHEMA_SHA256,
+  PUBLIC_HIST215_V3_FEATURE_SCHEMA_SHA256,
   public215FeatureContract,
   type Public215FeatureContractVersion,
 } from './GtoPublicHist215Contracts.js';
@@ -37,6 +41,31 @@ if (
   public215FeatureContract(PUBLIC_HIST215_V2)?.featureCount !== descriptorV2.feature_count
 )
   throw Error('PUBLIC_HIST215_V2_FEATURE_DESCRIPTOR_CHANGED');
+/** v3 = the v2 descriptor + the v3 appended one-hots, nothing else. Derived
+ * here (as World Hub public_hist215.feature_descriptor_v3 derives it) and
+ * checked against the pinned digest at load, so no new descriptor file joins
+ * the decision sources. */
+export const PUBLIC_HIST215_V3_DESCRIPTOR = Object.freeze({
+  ...descriptorV2,
+  format: 'holdem-public-hist215-feature-schema-v3',
+  feature_count: descriptorV2.feature_count + PUBLIC_HIST215_V3_APPENDED.length,
+  feature_order: [...descriptorV2.feature_order, ...PUBLIC_HIST215_V3_APPENDED],
+  feature_groups: [
+    ...descriptorV2.feature_groups,
+    {
+      count: PUBLIC_HIST215_V3_APPENDED.length,
+      name: 'v3_appended_public_categories',
+      offset: descriptorV2.feature_count,
+    },
+  ],
+  predecessor_schema_sha256: PUBLIC_HIST215_V2_FEATURE_SCHEMA_SHA256,
+});
+if (
+  public215Digest(PUBLIC_HIST215_V3_DESCRIPTOR) !== PUBLIC_HIST215_V3_FEATURE_SCHEMA_SHA256 ||
+  public215FeatureContract(PUBLIC_HIST215_V3)?.featureCount !==
+    PUBLIC_HIST215_V3_DESCRIPTOR.feature_count
+)
+  throw Error('PUBLIC_HIST215_V3_FEATURE_DESCRIPTOR_CHANGED');
 export const PUBLIC_HIST215_BASE_SCHEMA_SHA256 =
   '4d8a4918635544c467778a75f77bdb962cf183d99f6a7b2f64a4e418eaf3aaf1';
 const CONTEXT_KEYS = [
@@ -54,6 +83,10 @@ const CONTEXT_KEYS = [
   'texture_class',
   'utility_context',
 ] as const;
+/** A hist215-v3 template is authored over a cell contract v3 cell: the 13 keys
+ * plus cell_contract "v3" and its line_class. Only the v3 contract admits them. */
+const CONTEXT_KEYS_V3 = [...CONTEXT_KEYS, 'cell_contract', 'line_class'] as const;
+const CELL_CONTRACT_KEYS = ['cell_contract', 'line_class'];
 export interface Public215Context {
   depth_bucket: number;
   table_size: number;
@@ -141,6 +174,11 @@ const V2_CATEGORIES: ReadonlySet<string> = new Set([
   ...PUBLIC_HIST215_PRIOR,
   ...PUBLIC_HIST215_V2_APPENDED,
 ]);
+const V3_CATEGORIES: ReadonlySet<string> = new Set([
+  ...PUBLIC_HIST215_PRIOR,
+  ...PUBLIC_HIST215_V2_APPENDED,
+  ...PUBLIC_HIST215_V3_APPENDED,
+]);
 export function compilePublic215Template(
   input: unknown,
   expectedSha256: string,
@@ -149,7 +187,12 @@ export function compilePublic215Template(
 ): CompiledPublic215Template {
   if (!validPublic215Digest(expectedSha256)) return fail('TEMPLATE_DIGEST');
   if (!public215FeatureContract(featureContract)) return fail('FEATURE_CONTRACT');
-  const categories = featureContract === PUBLIC_HIST215_V2 ? V2_CATEGORIES : V1_CATEGORIES;
+  const categories =
+    featureContract === PUBLIC_HIST215_V3
+      ? V3_CATEGORIES
+      : featureContract === PUBLIC_HIST215_V2
+        ? V2_CATEGORIES
+        : V1_CATEGORIES;
   const t = strictObject(input, [
     'format',
     'context',
@@ -163,7 +206,15 @@ export function compilePublic215Template(
     public215Digest(t) !== expectedSha256
   )
     return fail('TEMPLATE_IDENTITY');
-  const c = strictObject(t.context, CONTEXT_KEYS);
+  const c = strictObject(
+    t.context,
+    featureContract === PUBLIC_HIST215_V3 ? CONTEXT_KEYS_V3 : CONTEXT_KEYS
+  );
+  if (
+    featureContract === PUBLIC_HIST215_V3 &&
+    (c.cell_contract !== 'v3' || !gtoV31LineClassValidV3(c.line_class, c.street))
+  )
+    return fail('CELL_CONTRACT_V3');
   if (
     !Number.isSafeInteger(c.depth_bucket) ||
     (c.depth_bucket as number) <= 0 ||
@@ -185,7 +236,7 @@ export function compilePublic215Template(
     return fail('CONTEXT_STREET');
   for (const [k, v] of Object.entries(c))
     if (
-      !['texture_class', 'depth_bucket', 'table_size'].includes(k) &&
+      !['texture_class', 'depth_bucket', 'table_size', ...CELL_CONTRACT_KEYS].includes(k) &&
       !categories.has(k + '=' + v)
     )
       return fail('UNKNOWN_PUBLIC_CATEGORY');
@@ -249,9 +300,25 @@ export function compilePublic215Template(
  * Runtime pot, ranges, rake or other players' private cards are never inputs. */
 export function public215TemplateMatchesContext(
   template: CompiledPublic215Template,
-  context: Public215Context
+  context: Public215Context & {
+    cell_contract?: unknown;
+    cell_contract_version?: unknown;
+    line_class?: unknown;
+  }
 ): boolean {
-  return CONTEXT_KEYS.every((k) => Object.is(template.context[k], context[k]));
+  if (!CONTEXT_KEYS.every((k) => Object.is(template.context[k], context[k]))) return false;
+  // Cell contract v3: a v3 template matches only a v3 cell (a runtime row's
+  // cell_contract_version or a context's cell_contract) of its own line, and a
+  // v3 cell only a v3 template. Without either, the original comparison.
+  const t = template.context as unknown as Record<string, unknown>;
+  const declared = context.cell_contract_version ?? context.cell_contract ?? null;
+  if (!('line_class' in t) && declared === null && context.line_class == null) return true;
+  return (
+    t.cell_contract === 'v3' &&
+    declared === 'v3' &&
+    typeof t.line_class === 'string' &&
+    t.line_class === context.line_class
+  );
 }
 
 function numeric(h: string[], b: string[]): Record<string, number> {
@@ -376,6 +443,13 @@ export function encodePublic215V2Appended(template: CompiledPublic215Template): 
     if (!['texture_class', 'depth_bucket', 'table_size'].includes(k)) on.add(k + '=' + v);
   return PUBLIC_HIST215_V2_APPENDED.map((k) => +on.has(k));
 }
+/** v3 appended one-hots (indices 246..247), the same exact-category rule. */
+export function encodePublic215V3Appended(template: CompiledPublic215Template): number[] {
+  const on = new Set<string>();
+  for (const [k, v] of Object.entries(template.context))
+    if (!['texture_class', 'depth_bucket', 'table_size'].includes(k)) on.add(k + '=' + v);
+  return PUBLIC_HIST215_V3_APPENDED.map((k) => +on.has(k));
+}
 /** The contract's full vector from the unchanged v1 215 and, for v2, the appended block. */
 export function public215ContractVector(
   v1Features: number[],
@@ -384,9 +458,15 @@ export function public215ContractVector(
   const contract = public215FeatureContract(template.featureContract);
   if (!contract || v1Features.length !== 215) return fail('FEATURE215');
   const out =
-    contract.version === PUBLIC_HIST215_V2
-      ? [...v1Features, ...encodePublic215V2Appended(template)]
-      : v1Features;
+    contract.version === PUBLIC_HIST215_V3
+      ? [
+          ...v1Features,
+          ...encodePublic215V2Appended(template),
+          ...encodePublic215V3Appended(template),
+        ]
+      : contract.version === PUBLIC_HIST215_V2
+        ? [...v1Features, ...encodePublic215V2Appended(template)]
+        : v1Features;
   if (out.length !== contract.featureCount || !out.every(Number.isFinite))
     return fail('FEATURE_CONTRACT_SHAPE');
   return out;

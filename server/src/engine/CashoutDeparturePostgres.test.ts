@@ -2578,6 +2578,9 @@ describe.skipIf(!host)('engine/service/PostgreSQL departure recovery', () => {
           forget: vi.fn(),
           markBlindOff: vi.fn(),
           leaveLock: vi.fn(() => ({ locked: false, remainingMs: 0, handsRemaining: 0 })),
+          // The mirror already holds this seat's session (no first database read).
+          row: vi.fn(() => ({ hands_required: 0, hands_played: 0 })),
+          evaluate: vi.fn(async () => []),
         };
         e.hub = { emitEvent: vi.fn() };
         e.bustedSince = new Map([[USER, Date.now() - 3600000]]);

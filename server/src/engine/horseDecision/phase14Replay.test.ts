@@ -7,6 +7,13 @@ import { harness, request, run } from './phase14Worker.test-support.js';
 import { fastRandom } from '../HorseEval.js';
 import { makeHorseJournalRecord, journalHash } from '../../services/horseDecisionJournal/record.js';
 import { exactReplayHorseDecisionRecord } from './replay/exactReplay.js';
+import { styleShadowRerunRecord, styleShadowTurnIdentity } from './replay/styleShadowRerun.js';
+import {
+  STYLE_SWITCH_OPTIONS,
+  StyleSwitchHolder,
+  styleSwitchSourceFromStates,
+  type StyleSwitchStates,
+} from '../HorseStyleSwitch.js';
 import {
   createHorseExecutionWitness,
   settleHorseExecutionWitness,
@@ -356,6 +363,87 @@ describe('qualified Phase14 replay authority and versioned state', () => {
       ).toBe('non_replayable:retained_fast_read_view');
     }
   );
+  it('offline style re-run: a DEEP v4 second look replays exactly given its original FAST record, and is refused without it', async () => {
+    // review bd7a5cc2, finding 4
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const h = harness(false);
+    h.deps.correctiveDraw = fastRandom;
+    const shadowAll = Object.fromEntries(
+      STYLE_SWITCH_OPTIONS.map((o) => [o, 'shadow'])
+    ) as StyleSwitchStates;
+    h.deps.styleSwitch = new StyleSwitchHolder(styleSwitchSourceFromStates(shadowAll), () => {});
+    // a live hand coordinate (table id, hand number) so the re-run can name the hand
+    const source = request();
+    source.fence = `7c9e6679-7425-40de-944b-e07fc1f90ae7:1000007:${source.player.seat}:9:${source.generation}`;
+    source.decisionKey = buildHorseDecisionKey(source);
+    const fast = await run(h, source);
+    h.runtime.receive({
+      ...source,
+      type: 'DECIDE_DEEP' as const,
+      requestId: 2,
+      rngBefore: fast.rngBefore,
+      deepEquity: 2,
+    });
+    await h.runtime.drain();
+    expect(h.records).toHaveLength(2);
+    const producerId = randomUUID(),
+      sourceRelease = '5'.repeat(40),
+      handKey = journalHash('style-rerun-deep');
+    // Review finding B1/B2: the journal's turn key hashes the request id (HorseDecisionJournal.ts `turnKey`), so
+    // the FAST decision and its DEEP second look are journaled under two turn keys, as here. They are one turn
+    // only by the lane-independent turn identity.
+    const metadata = (sequence: number, requestId: number) => ({
+      producerId,
+      sequence,
+      atMs: now + sequence,
+      sourceRelease,
+      kind: 'decision' as const,
+      handKey,
+      turnKey: journalHash(
+        JSON.stringify([
+          source.generation,
+          source.fence,
+          requestId,
+          source.decisionKey,
+          source.decisionTimeMs,
+        ])
+      ),
+    });
+    const originalFast = makeHorseJournalRecord(metadata(1, source.requestId), h.records[0]);
+    const originalDeep = makeHorseJournalRecord(metadata(2, 2), h.records[1]);
+    expect(source.requestId).not.toBe(2);
+    expect(originalFast.turnKey).not.toBe(originalDeep.turnKey);
+    const turnOf = (record: HorseJournalRecord) =>
+      styleShadowTurnIdentity(JSON.parse(record.body).snapshot);
+    expect(turnOf(originalDeep)).toMatch(/^[0-9a-f]{64}$/);
+    expect(turnOf(originalDeep)).toBe(turnOf(originalFast));
+    expect(JSON.parse(originalDeep.body).replayState).toMatchObject({
+      version: 'horse-decision-replay-state-v4',
+      style: shadowAll,
+    });
+    vi.spyOn(qualifiedReplayAdmissions, 'admitPhase14Attachment').mockImplementation(() => ({
+      admission: { status: 'refused', reason: 'unselected', transient: false },
+      catalog: null,
+    }));
+    const deep = await styleShadowRerunRecord(originalDeep, {
+      runningSource: sourceRelease,
+      originalFastRecords: [originalFast],
+    });
+    expect(deep.lane).toBe('deep');
+    expect(deep.baseline, JSON.stringify(deep)).toBe('replayed_exact');
+    expect(deep.status).toBe('rerun');
+    expect(deep.rerunOptions).toEqual([...STYLE_SWITCH_OPTIONS]);
+    expect(deep.failedOptions).toEqual([]);
+    // No style option changes this decision (the harness opponent has no style read), so there is no row to
+    // inspect here; stated, so a row appearing is noticed. A row made through the real exact replay, with its
+    // turn identity and executed lane, is asserted in exactReplay.test.ts (offline style re-run end to end).
+    expect(deep.rows).toEqual([]);
+    // without the FAST record a DEEP look cannot replay: refused by name, never counted as exact
+    const alone = await styleShadowRerunRecord(originalDeep, { runningSource: sourceRelease });
+    expect(alone.status).toBe('baseline_not_exact');
+    expect(alone.baseline).toMatch(/original_fast_binding/);
+  });
+
   it.each([true, false])(
     'restores the recorded epoch even for applied=%s, without taking authority from recorded flags',
     (applied) => {

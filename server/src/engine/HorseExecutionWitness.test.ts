@@ -61,6 +61,50 @@ beforeEach(() => {
 });
 
 describe('private execution witness', () => {
+  it('copies the reference preflop branch evidence instead of sharing mutable decision state', () => {
+    const decision: HorseDecision = {
+      action: 'call',
+      amount: 6,
+      thinkTime: 0,
+      preflopAuthority: {
+        version: 1,
+        scope: 'reference_preflop',
+        context: {
+          raises: 1,
+          callers: 0,
+          toCall: 6,
+          stack: 200,
+          position: 'bb',
+          isOmaha: true,
+          classNeverThreeBet: true,
+        },
+        events: [
+          {
+            branch: 'v46_class_flat',
+            strength: 0.97,
+            threeBetThreshold: 0.9,
+            effectiveThreeBetThreshold: 0.9,
+            premiumValue: false,
+            pressure: false,
+          },
+        ],
+        intent: { a: 'call' },
+        referenceAction: 'call',
+        referenceAmount: 6,
+      },
+    };
+    const witness = make(decision);
+    expect(witness.preflopAuthority).toEqual(decision.preflopAuthority);
+    decision.preflopAuthority!.context.toCall = 50;
+    decision.preflopAuthority!.events[0].branch = 'premium_value';
+    decision.preflopAuthority!.intent.a = 'jam';
+    expect(witness.preflopAuthority?.context.toCall).toBe(6);
+    expect(witness.preflopAuthority?.events[0].branch).toBe('v46_class_flat');
+    expect(witness.preflopAuthority?.intent.a).toBe('call');
+    expect(Object.isFrozen(witness.preflopAuthority?.events)).toBe(true);
+    expect(Reflect.set(witness.preflopAuthority!.events, 0, {})).toBe(false);
+  });
+
   it.each(['accepted', 'withdrawn'] as const)(
     'keeps the distinct guard candidate bound through %s acceptance',
     (outcome) => {

@@ -1,3 +1,4 @@
+import { confirmedHuman } from './HorseConfirmedSeatRole.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
@@ -18,6 +19,8 @@ import {
 } from './HorsePhase14Acceptance.js';
 import { buildAllInGestureInput, gestureBeforeAllIn } from '../services/HorseTableGestures.js';
 import { HandController } from './HandController.js';
+import { horseDecisionRefusalContextOf } from './horseDecision/refusalContext.js';
+import { retainHorseTurnClock, type HorseTurnPath } from './HorseTurnClockReceipt.js';
 import { playerActionContext } from './PlayerActionContext.js';
 import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
 import {
@@ -31,6 +34,7 @@ import {
   fixedLimitStreetBounds,
   potLimitBettingPot,
   substituteOnCappedStreet,
+  failureFallbackAction,
   type BettingStructure,
 } from './BettingStructure.js';
 import { horseVariantRulesFor } from './VariantRules.js';
@@ -71,7 +75,15 @@ import { reportError } from '../services/errorReporter.js';
 import { ServerTableEngineSeating } from './ServerTableEngineSeating.js';
 // Static watchdog thresholds live on the Base class (single source of truth).
 import { ServerTableEngineBase } from './ServerTableEngineBase.js';
-import { noteFire } from './BrainTelemetry.js';
+import {
+  noteFire,
+  noteHorseActionClamped,
+  noteHorseLegalizerDegraded,
+  noteHorseTelemetryOpportunity,
+} from './BrainTelemetry.js';
+import { horseUpgradeEvidenceArmed, noteHorseUpgradeEvent } from './HorseUpgradeEvidence.js';
+import { DECISION_QUEUE_AGE_DISTRESS_MS } from '../decisionPipelinePressure.js';
+import { isHorseDecisionShardBusy } from './horseDecision/client.js';
 import {
   horseAuthorityDomainOf,
   reconcileHorsePhaseReceipts,
@@ -110,6 +122,7 @@ import {
   getLiveHorseDecisionWorker,
   HorseDecisionAbortedError,
   horseDecisionFallbackReason,
+  liveHorseDecisionWorkerStatus,
   markHorseDecisionRejection,
   type FastHorseDecisionResult,
   type LiveHorseDecisionSnapshot,
@@ -546,9 +559,18 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0
         ? Date.now() - startedAt
         : 0;
+    const liveDurationSec = this.playerTurnDuration;
+    const maxRemainingClockMs =
+      typeof liveDurationSec === 'number' &&
+      Number.isFinite(liveDurationSec) &&
+      liveDurationSec > 0 &&
+      liveDurationSec < 3.5
+        ? Math.max(250, liveDurationSec * 1000 - elapsedMs)
+        : undefined;
     return horseDecisionDeadlineMs({
       actionTimeSeconds: this.actionClockSeconds(),
       elapsedMs,
+      ...(maxRemainingClockMs !== undefined ? { maxRemainingClockMs } : {}),
     });
   }
 
@@ -587,6 +609,16 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // the paused window — the same class of bug this function was written to
     // fix, reintroduced for the other timer.
     this.cancelHorseDecisionWork();
+  }
+
+  /**
+   * F06 fix: clears only the primary PreciseActionTimer when a durable time
+   * bank takes over the SAME turn, preserving in-flight horse tank/decision
+   * work (`THINK_TIMEBANK_SENTINEL`) while `clearTurnTimer()` continues to
+   * cancel all turn-owned horse work on true turn exits and pauses.
+   */
+  protected clearPrimaryClockPreservingHorseDecision(): void {
+    this.preciseTimer.clearTable(this.tableId);
   }
 
   /**
@@ -894,6 +926,27 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     this.killForRestart('turn_unrecoverable');
   }
 
+  protected horseActionableClock: {
+    context: string;
+    seat: number;
+    startedAtMs: number;
+    armed: boolean;
+  } | null = null;
+
+  private horseClockObserver(seat: number, path: HorseTurnPath, reason?: string) {
+    const clock = this.horseActionableClock;
+    if (
+      !clock ||
+      !this.handController ||
+      clock.seat !== seat ||
+      playerActionContext(this.handController) !== clock.context
+    )
+      return undefined;
+    const deadline = this.playerTurnStartTime + this.playerTurnDuration * 1000;
+    return (record: Readonly<ActionRecord>) =>
+      retainHorseTurnClock(record, clock.startedAtMs, deadline, path, reason);
+  }
+
   /**
    * Resolve a seat that MUST stop being on the clock, preferring check over
    * fold (Bible V8 §1.7.4). Returns false only when the engine refuses both.
@@ -920,7 +973,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const order: Array<'check' | 'fold'> = preferCheck ? ['check', 'fold'] : ['fold'];
     for (const a of order) {
       try {
-        if (this.handController.performAction(seat, a as any, undefined, 'forced')) {
+        if (
+          this.handController.performAction(
+            seat,
+            a as any,
+            undefined,
+            'forced',
+            this.horseClockObserver(
+              seat,
+              reason.endsWith('_expired') ? 'timeout' : 'forced',
+              reason
+            )
+          )
+        ) {
           this.noteHorseTurnResolvedWithoutDecision(seat, a, reason, brainDecisionPending);
           return true;
         }
@@ -1130,6 +1195,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const armedIdentity = this.turnClockIdentity;
     this.playerTurnStartTime = Date.now();
     this.playerTurnDuration = Math.max(0, durationSeconds);
+    // A pre-action uses the published turn-change stamp. A regular turn uses
+    // its first actual arm; a bank or reconnect re-arm only changes the deadline.
+    const clock = this.horseActionableClock;
+    if (
+      clock &&
+      !clock.armed &&
+      clock.seat === seat &&
+      this.handController &&
+      playerActionContext(this.handController) === clock.context
+    ) {
+      clock.startedAtMs = this.playerTurnStartTime;
+      clock.armed = true;
+    }
     const retainedClock = this.bankArmRetentionHold;
     if (
       retainedClock &&
@@ -1353,7 +1431,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           }
           this.turnFSM.transition('time_bank_active');
           this.timeBankActivatedThisTurn = true;
-          if (activationIsDurable) this.clearTurnTimer();
+          // F06 fix: clear only the primary PreciseActionTimer when durable time
+          // bank takes over this SAME turn, preserving in-flight horse tank/decision
+          // work so THINK_TIMEBANK_SENTINEL tanks commit cleanly inside time_bank.
+          if (activationIsDurable) this.clearPrimaryClockPreservingHorseDecision();
           // Bible V8 §2.15: Log time bank activation
           this.currentHandTimerLog.push({
             playerId: userId,
@@ -2246,7 +2327,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           preResult.action,
           preResult.amount,
           undefined,
-          'pre_action'
+          'pre_action',
+          action === 'auto_check_fold' ? 'quick_check_fold' : 'pre_action'
         );
         if (acted.success) {
           console.log(
@@ -2278,7 +2360,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     action: string,
     amount?: number,
     actionContext?: string | null,
-    trustedOrigin?: 'pre_action'
+    trustedOrigin?: 'pre_action',
+    preActionPath?: 'quick_check_fold' | 'pre_action'
   ): { success: boolean; error?: string; code?: string; hint?: Record<string, unknown> } {
     if (this.hasCommittedLeaveFold(userId) && action !== 'fold') {
       return { success: false, error: 'You Have Left This Hand', code: 'NOT_IN_HAND' };
@@ -2344,7 +2427,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           ? 'player'
           : trustedOrigin === 'pre_action'
             ? 'pre_action'
-            : 'unknown'
+            : 'unknown',
+        preActionPath
       );
     } finally {
       this.actionLock = false;
@@ -2355,7 +2439,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     userId: string,
     action: string,
     amount?: number,
-    origin: AcceptedActionOrigin = 'unknown'
+    origin: AcceptedActionOrigin = 'unknown',
+    preActionPath?: 'quick_check_fold' | 'pre_action'
   ): { success: boolean; error?: string; code?: string; hint?: Record<string, unknown> } {
     if (this.isOriginalInputPending())
       return {
@@ -2670,6 +2755,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
 
       // The published deadline of the clock this action is answering, read
       // before that clock is cancelled. A refusal gives back exactly this.
+      const preClock =
+        origin === 'pre_action'
+          ? this.horseClockObserver(seat, preActionPath ?? 'pre_action')
+          : undefined;
       const displayDeadlineBeforeAction = this.playerTurnStartTime + this.playerTurnDuration * 1000;
       this.clearTurnTimer();
       this.preciseTimer.cancelTimer(this.tableId, userId); // Step 4: Cancel precise deadline
@@ -2722,6 +2811,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         origin,
         (record) => {
           accepted.record = record;
+          preClock?.(record);
         }
       );
       if (!actionApplied) {
@@ -3183,8 +3273,15 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const seated = this.seatedPlayers.find(
       (p) => p.user_id === actor.user_id && p.seat_number === actor.seat
     );
-    if (seated?.is_horse && !this.isOwnClientControlling(actor.user_id))
+    if (
+      seated?.is_horse &&
+      !this.isOwnClientControlling(actor.user_id) &&
+      !this.horseActionTimer &&
+      (this.horseDecisionAbortController === null ||
+        this.horseDecisionAbortController.signal.aborted)
+    ) {
       this.scheduleHorseAction(seated, actor.seat, actor, state);
+    }
   }
 
   protected async handleTurnChange(event: HandEvent, players: SeatedPlayer[]): Promise<void> {
@@ -3265,17 +3362,40 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     const canCheckForPreAction = toCallForPreAction === 0;
     if (this.hasCommittedLeaveFold(player.user_id)) {
       this.preActionEngine.setPreAction(this.tableId, player.user_id, 'auto_fold');
+    } else if (player.is_horse && !this.isOwnClientControlling(player.user_id)) {
+      // Wave 2 #9: non-client-piloted horse seats always evaluate live action
+      // via scheduleHorseAction; purge any stale pre-action left behind.
+      const stalePreAction = this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
+      this.preActionEngine.clearPreAction?.(this.tableId, player.user_id);
+      // Evidence only: counted when there was something to purge.
+      if (stalePreAction) {
+        noteFire('upgrade09_preaction_purge_table_seen');
+        // Per-Horse evidence only: this branch is a server-owned Horse seat
+        // (never a person's client). The tournament branch below is a Horse
+        // seat a person's own client pilots, so it records no Horse event.
+        if (horseUpgradeEvidenceArmed())
+          noteHorseUpgradeEvent(
+            player.user_id,
+            this.activeHandVariant(),
+            this.isTournamentTable() ? 'tournament' : 'cash',
+            'upgrade_09_preaction_purge'
+          );
+      }
     } else if (
       player.is_horse &&
       this.isTournamentTable() &&
-      this.preActionEngine.getPreAction(this.tableId, player.user_id)?.action ===
+      this.preActionEngine.getPreAction?.(this.tableId, player.user_id)?.action ===
         'auto_check_fold' &&
       (!canQuickCheckFold(player.user_id) ||
         facingShovePrice(state.currentBet, enginePlayer.bet, state.players))
     ) {
       // A shove can arrive after arming. Return the seat to its ordinary turn.
       this.preActionEngine.clearPreAction(this.tableId, player.user_id);
+      noteFire('upgrade09_preaction_purge_table_seen');
     }
+    const armedPreAction = player.is_horse
+      ? this.preActionEngine.getPreAction(this.tableId, player.user_id)?.action
+      : undefined;
     const preResult = this.preActionEngine.executePreAction(
       this.tableId,
       player.user_id,
@@ -3310,6 +3430,17 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // race (#2318): a delayed continuation acting on whatever controller
       // the table holds when it wakes.
       const controllerAtBeat = this.handController;
+      const preActionClock = this.horseActionableClock;
+      if (
+        preActionClock &&
+        controllerAtBeat &&
+        preActionClock.seat === seat &&
+        preActionClock.context === playerActionContext(controllerAtBeat)
+      ) {
+        // This visible pre-action already owns an actionable turn. A refusal
+        // may arm its first timer below, but must retain this earlier start.
+        preActionClock.armed = true;
+      }
       await this.weeklyPayoutContinuation(this.sleepHand(this.preActionVisibleMs));
       // The hand can be replaced while we hold that beat.
       if (
@@ -3323,12 +3454,24 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         if (st.currentPlayerSeat !== seat) return;
       }
       let preApplied = false;
+      // FORCED-ACTION COUNTING (2026-11-15): the fold of a player who left while not on turn is the engine's, not
+      // a choice he made at this node, exactly as the on-turn leave fold (foldLeaverNow) and a timeout are. It is
+      // recorded 'forced', so no learner (exploit counters, SQL reducer, style tallies, public stats) counts it as
+      // a voluntary fold or its hand as a participation opportunity. A pre-action fold he armed himself stays
+      // 'pre_action'.
+      const leaveFold = this.hasCommittedLeaveFold(player.user_id);
       try {
         preApplied = controllerAtBeat.performAction(
           seat,
-          (this.hasCommittedLeaveFold(player.user_id) ? 'fold' : preResult.action) as any,
-          this.hasCommittedLeaveFold(player.user_id) ? undefined : preResult.amount,
-          'pre_action'
+          (leaveFold ? 'fold' : preResult.action) as any,
+          leaveFold ? undefined : preResult.amount,
+          leaveFold ? 'forced' : 'pre_action',
+          this.horseClockObserver(
+            seat,
+            armedPreAction === 'auto_check_fold' && !this.hasCommittedLeaveFold(player.user_id)
+              ? 'quick_check_fold'
+              : 'pre_action'
+          )
         );
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.preaction_threw');
@@ -3351,6 +3494,18 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     }
 
     // Step 2: Check disconnect state before starting timer (applies to ALL players)
+    // W1.4: If a non-client-piloted horse was previously forced into sit-out by
+    // consecutive connected timeouts (e.g. under earlier load), sit it back in
+    // automatically so it never permanently auto-check/folds in 350ms.
+    if (
+      player.is_horse &&
+      !this.isOwnClientControlling(player.user_id) &&
+      this.disconnectEngine.isSittingOut?.(this.tableId, player.user_id) &&
+      !this.disconnectEngine.isClientSitOut?.(this.tableId, player.user_id)
+    ) {
+      this.disconnectEngine.sitBack?.(this.tableId, player.user_id);
+      enginePlayer.is_sitting_out = false;
+    }
     const playerCanAct = this.disconnectEngine.onPlayerTurn(
       this.tableId,
       player.user_id,
@@ -3880,7 +4035,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       players: any[];
       stage: HandStage;
     },
-    protectedDeadlineMs?: number
+    protectedDeadlineMs?: number,
+    leaseRetryAttempt = 0
   ): void {
     // One turn owns one worker request, optional deep replay and action timer.
     // Cancel the previous set as a unit before publishing a new local fence.
@@ -4032,8 +4188,43 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       return false;
     };
 
+    const scheduleRefusal = fenceRefusal();
     if (!fenceIsCurrent('schedule')) {
       this.cancelHorseDecisionWork();
+      if (
+        scheduleRefusal === 'lease_lost' &&
+        leaseRetryAttempt < 3 &&
+        handControllerRef &&
+        handControllerRef === this.handController &&
+        this.handCount === handNumber &&
+        this.lifecycleCanMutate() &&
+        handControllerRef.getState().currentPlayerSeat === seat
+      ) {
+        const retryTimer = this.setHandTimeout(() => {
+          if (this.horseActionTimer === retryTimer) this.horseActionTimer = null;
+          if (
+            !this.lifecycleCanMutate() ||
+            !this.handController ||
+            this.handController !== handControllerRef ||
+            this.handCount !== handNumber ||
+            this.isOwnClientControlling(player.user_id)
+          ) {
+            return;
+          }
+          const st = this.handController.getState();
+          const ep = st.players.find((p) => p.seat === seat);
+          if (!ep || st.currentPlayerSeat !== seat) return;
+          this.scheduleHorseAction(
+            player,
+            seat,
+            ep,
+            st,
+            protectedDeadlineMs,
+            leaseRetryAttempt + 1
+          );
+        }, 250);
+        this.horseActionTimer = retryTimer;
+      }
       return;
     }
 
@@ -4210,19 +4401,48 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // coercion below stays as the legality guarantee.
       allInOrFold: this.tableInfo?.all_in_or_fold === true,
       // THE VPIP FLOOR (Dan 2026-09-04). A floored table stands a seat up
-      // after ten hands under the floor, horses included (10.5). The brain
-      // gets the floor and ITS OWN judged figure - the same numbers the
+      // under its window/grace policy, horses included (10.5). The brain
+      // gets the floor, window and ITS OWN judged figure - the same numbers the
       // eviction reads - and widens toward the floor like a regular would.
-      vpipFloor: this.vpipFloor(),
-      ownVpip: (() => {
-        const row = this.nitStatus.get(authoritativePlayer.user_id);
-        return row ? { hands: row.hands, vpip: row.vpip } : undefined;
+      ...this.horseVpipDecisionInputs(authoritativePlayer.user_id),
+      // V18 / V87.1 STRADDLE (2026-08-26, hardened 2026-11-11): straddle posts
+      // are not ActionRecords, so report whether a straddle was actually posted
+      // on THIS hand (plus its exact posted amount) rather than merely whether
+      // voluntary straddles are enabled on the table.
+      ...(() => {
+        const postedStraddle = handControllerRef.getPostedStraddleSnapshot?.() ?? null;
+        if (postedStraddle !== null) {
+          return {
+            straddleActive: postedStraddle.amount > 0,
+            ...(postedStraddle.amount > 0 ? { straddleAmount: postedStraddle.amount } : {}),
+          };
+        }
+        return { straddleActive: this.tableInfo?.straddle_enabled === true };
       })(),
-      // V18 STRADDLE (2026-08-26): straddle posts are not ActionRecords, so
-      // a straddled pot's preflop currentBet (2xBB) with an empty history
-      // read as an OPEN RAISE and the fleet folded to dead money. Tell the
-      // brain straddles are possible here.
-      straddleActive: this.tableInfo?.straddle_enabled === true,
+      ...(() => {
+        const rawState = state as unknown as Record<string, unknown>;
+        const liveKillPot =
+          handControllerRef.getKillHandState?.() ??
+          (rawState.killPot as HorseGameStateV2['killPot'] | undefined) ??
+          null;
+        const liveStraddleSeat =
+          handControllerRef.getLastStraddleSeat?.() ??
+          (typeof rawState.straddleSeat === 'number' ? rawState.straddleSeat : null);
+        return {
+          ...(liveKillPot != null ? { killPot: liveKillPot } : {}),
+          ...(liveStraddleSeat != null ? { straddleSeat: liveStraddleSeat } : {}),
+        };
+      })(),
+      ...((this.tableInfo as { seven_deuce_enabled?: boolean; seven_deuce_amount?: number } | null)
+        ?.seven_deuce_enabled === true
+        ? {
+            sevenDeuceEnabled: true,
+            sevenDeuceBountyBB:
+              Number(
+                (this.tableInfo as { seven_deuce_amount?: number } | null)?.seven_deuce_amount ?? 2
+              ) || 2,
+          }
+        : {}),
       // Phase 6: complete cached tournament metadata plus exact local blinds,
       // seats, stacks, hand-for-hand state and the hero's M snapshot.
       ...this.horseTournamentContext(
@@ -4238,6 +4458,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // at the worker boundary. Worker timing and boot entropy never enter it;
     // private opponent cards were removed before gameState was constructed.
     const decisionSnapshot: LiveHorseDecisionSnapshot = {
+      savedProfileHumanIds: this.seatedPlayers.filter(confirmedHuman).map((p) => p.user_id),
       handJournalContext: captureHorseHandJournalContext(this.currentHandActions),
       generation: turnToken,
       fence,
@@ -4260,8 +4481,20 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       planBinding: null;
       effects: [];
     };
+    let workerRefusalReason: string | undefined;
     let fastDecision: Promise<FastHorseDecisionResult>;
     try {
+      noteHorseTelemetryOpportunity(
+        activeVariant,
+        tournamentHand ? 'tournament' : 'cash',
+        'decision_started'
+      );
+      // Side-game context that reached this decision's request (evidence only).
+      // No per-Horse event here: this is the decision the worker is about to
+      // make and fold once (the brain's own upgrade08_* reads fire inside its
+      // scope). A host event beside these would count the same decision twice.
+      if (gameState.killPot != null) noteFire('upgrade08_kill_pot_seen');
+      if (gameState.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_seen');
       // THE DECISION DEADLINE IS THE TURN CLOCK (2026-09-17). The job may
       // live for what is left of this seat's action clock, less the margin
       // the engine needs to act on the answer - not a fixed 8 s that gave up
@@ -4285,6 +4518,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         }
         reportError(error, 'ServerTableEngine.' + this.tableId + '.horse_decision_worker_failed');
         if (!fenceIsCurrent('fallback')) throw new HorseDecisionAbortedError();
+        workerRefusalReason =
+          horseDecisionRefusalContextOf(error)?.reason ?? horseDecisionFallbackReason(error);
         try {
           EngineMetrics.horseDecisionFallbacksTotal.inc(1, {
             reason: horseDecisionFallbackReason(error),
@@ -4297,8 +4532,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         // legal liveness action for the already-authoritative turn; it does not
         // compute poker strategy and cannot hide a dead worker. Terminal worker
         // failure is separately process-fatal at the GameServer lifecycle.
+        // 2026-11-15: on FIXED LIMIT the liveness action is price-aware - a
+        // call when the pot lays 4 to 1 or better and `call` is on the seat's
+        // menu, else fold (BettingStructure.failureFallbackAction). Every
+        // other structure folds when chips are owed, as before.
+        const fallbackAction = failureFallbackAction({
+          structure: boundedActions.structure,
+          toCall,
+          pot: state.pot,
+          legalActions: boundedActions.legalActions,
+        });
         const safeDecision: HorseDecision = {
-          action: toCall > 0 ? 'fold' : 'check',
+          action: fallbackAction,
+          ...(fallbackAction === 'call' ? { amount: toCall } : {}),
           thinkTime: 0,
         };
         safeDecision.executionWitness = createHorseExecutionWitness(
@@ -4465,12 +4711,21 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           // cap by a short exponential instead of sitting on it. Still inside the
           // clock, still visibly a tank, no longer the same number every time.
           const cap = Math.max(2000, actionTimeMs - 1200);
+          // Wave 2 #6B: Anti-timing-tell floor — prevent deterministic 0ms/250ms
+          // snap-tell leaks on normal clocks while respecting short-clock budgets
+          // and preserving synthetic sub-150ms unit-test probes.
+          const humanFloorMs =
+            requested < 150
+              ? 150
+              : actionTimeMs >= 3000
+                ? 360 + ((seat * 73 + handNumber * 41 + state.pot * 7) % 220)
+                : 250;
           if (requested <= cap) {
-            thinkTimeMs = Math.round(Math.max(250, requested));
+            thinkTimeMs = Math.round(Math.max(humanFloorMs, requested));
           } else {
             const u = Math.max(1e-6, 1 - Math.random());
             const backoff = Math.min(-Math.log(u) * 900, Math.max(0, cap - 2500));
-            thinkTimeMs = Math.round(Math.max(250, cap - backoff));
+            thinkTimeMs = Math.round(Math.max(humanFloorMs, cap - backoff));
           }
         }
 
@@ -4502,18 +4757,25 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         // `secondLookHoldUntil`, which never passes the clock less its margin
         // (or a protected deadline). A worker fallback is a liveness action,
         // not a read, and never earns one.
-        const turnBudgetMs = safeWorkerFallback
-          ? 0
-          : Math.min(
-              ServerTableEngineTurns.horseTurnBudgetMs(
-                this.actionClockSeconds(),
-                this.playerTurnStartTime,
-                Date.now()
-              ),
-              protectedDeadlineMs === undefined
-                ? Infinity
-                : Math.max(0, protectedClockDeadline()! - Date.now() - 100)
-            );
+        const workerStatusForSecondLook = liveHorseDecisionWorkerStatus();
+        const pipelineUnderPressure =
+          typeof workerStatusForSecondLook?.oldestQueuedAgeMs === 'number' &&
+          workerStatusForSecondLook.oldestQueuedAgeMs >= DECISION_QUEUE_AGE_DISTRESS_MS;
+        const skipSecondLookForPressure =
+          pipelineUnderPressure || isHorseDecisionShardBusy(this.tableId);
+        const turnBudgetMs =
+          safeWorkerFallback || skipSecondLookForPressure
+            ? 0
+            : Math.min(
+                ServerTableEngineTurns.horseTurnBudgetMs(
+                  this.actionClockSeconds(),
+                  this.playerTurnStartTime,
+                  Date.now()
+                ),
+                protectedDeadlineMs === undefined
+                  ? Infinity
+                  : Math.max(0, protectedClockDeadline()! - Date.now() - 100)
+              );
         const secondLook = ServerTableEngineTurns.secondLookPlan(
           decision,
           toCall,
@@ -4878,9 +5140,21 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 Number(this.tableInfo?.cap_bb) || 0,
                 Number(this.tableInfo?.big_blind) || 0
               );
+              const commitPublicPlayers: SeatPlayer[] = currentState.players.map((candidate) => {
+                const { knownDeadCards: _privateDeadCards, ...publicCandidate } = candidate;
+                return {
+                  ...publicCandidate,
+                  // HIDDEN-INFORMATION FIREWALL: never attach opponent hole cards on commitState.
+                  cards: [],
+                  is_sitting_out:
+                    candidate.is_sitting_out === true ||
+                    (!candidate.is_all_in &&
+                      this.disconnectEngine.isSittingOut(this.tableId, candidate.user_id)),
+                };
+              });
               const commitState = {
                 ...gameState,
-                players: currentState.players,
+                players: commitPublicPlayers,
                 communityCards: currentState.communityCards,
                 communityCards2: currentState.communityCards2,
                 communityCards3: currentState.communityCards3,
@@ -4897,21 +5171,27 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 commitmentCapRemaining: nutsActions.commitmentCapRemaining,
               };
               const privateHero = { ...commitHero, knownDeadCards: decisionPlayer.knownDeadCards };
-              const wagerGuarded = fullPotNearPotWager(
-                riverNutsRaise(
-                  tournamentShoveDiscipline(
-                    holdemPremiumAggression(decision, privateHero, commitState, {
-                      holdemDominatedFold: false,
-                    }),
-                    privateHero,
-                    commitState
-                  ),
-                  privateHero,
-                  commitState
-                ),
-                privateHero,
-                commitState
-              );
+              // A liveness action carries no priced poker decision. Do not
+              // turn its free check into a premium value bet after the worker
+              // failed. The short-all-in call floor below still applies.
+              const wagerGuarded =
+                safeWorkerFallback || decision.policyFallback === 'brain_exception'
+                  ? decision
+                  : fullPotNearPotWager(
+                      riverNutsRaise(
+                        tournamentShoveDiscipline(
+                          holdemPremiumAggression(decision, privateHero, commitState, {
+                            holdemDominatedFold: false,
+                          }),
+                          privateHero,
+                          commitState
+                        ),
+                        privateHero,
+                        commitState
+                      ),
+                      privateHero,
+                      commitState
+                    );
               // Dan 2026-10-26: a short all in is called by a big stack in a
               // tournament. Last at the door too, on the controller's fresh
               // state, so no withdrawal above and no liveness fallback can fold
@@ -4933,6 +5213,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     ['phase13', jointLedger],
                   ],
                   decision,
+                  'commit_wager_rules'
+                );
+                noteHorseActionClamped(
+                  activeVariant,
+                  tournamentHand ? 'tournament' : 'cash',
                   'commit_wager_rules'
                 );
               }
@@ -4967,26 +5252,37 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               }
             }
 
-            // Normalize actions
+            const horseWatchMode = tournamentHand ? 'tournament' : 'cash';
+            noteHorseTelemetryOpportunity(activeVariant, horseWatchMode, 'commit_evaluated');
+            const wholeChipWager =
+              tournamentHand ||
+              this.tableInfo?.arena?.asset === 'diamonds' ||
+              (this.tableInfo as { asset?: string } | null)?.asset === 'diamonds' ||
+              handControllerRef.getChipRulesSnapshot?.()?.chipUnit === 1;
+            const snapWagerFloor = (v: number): number =>
+              wholeChipWager ? Math.ceil(v - 1e-6) : Math.round(v * 100) / 100;
+            const snapWagerCap = (v: number): number =>
+              wholeChipWager ? Math.floor(v + 1e-6) : Math.round(v * 100) / 100;
+            const snapWagerNearest = (v: number): number =>
+              wholeChipWager ? Math.round(v) : Math.round(v * 100) / 100;
+
+            // Normalize actions against LIVE currentState.currentBet (not stale state)
+            const liveCurrentBet = currentState.currentBet;
             if (action === 'check' && toCall > 0) action = 'call';
             if (action === 'call' && toCall === 0) action = 'check';
-            if (action === 'call') amount = toCall;
+            if (action === 'call') amount = snapWagerNearest(toCall);
             if (action === 'fold' && toCall === 0) action = 'check';
-            if (action === 'raise' && state.currentBet === 0) action = 'bet';
-            if (action === 'bet' && state.currentBet > 0) action = 'raise';
+            if (action === 'raise' && liveCurrentBet === 0) action = 'bet';
+            if (action === 'bet' && liveCurrentBet > 0) action = 'raise';
 
-            // Clamp amounts
+            // Clamp amounts (W1.1 Authoritative Pre-Commit Legalizer)
             //
-            // 2026-08-23: the original horse path sized every bet no-limit style. The
-            // Phase 5 canonical boundary now supplies and enforces the exact fixed-
-            // limit bound; this commit-side snap remains as a final legality belt.
-            // Read the controller's live completion amount, not currentBet plus
-            // a full street bet. A short opening 5 at a 20 limit completes to 20;
-            // rewriting it to 25 would be rejected and fall through to a fold.
+            // Snap to chipUnit (whole integer on tournaments/diamonds, cents on cash),
+            // clamp sized wagers into [commitActions.minRaiseTo, commitActions.maxRaiseTo]
+            // BEFORE whole-stack promotion so PLO4/5/6 pot-limit max raises stay as legal
+            // sized wagers instead of promoting to an unoffered all_in and folding, while
+            // preserving incomplete-short-raise refusal when raise itself is not legal.
             const horseIsFixedLimit = commitActions.structure === 'fixed_limit';
-            /* CAP FIX 2026-08-27: this commit-side check predates the Phase 5 shared
-         canonical cap menu. Keep it as a final belt against a stale delayed
-         decision; the worker has already received the same ceiling. */
             const horseCapBB = Number(this.tableInfo?.cap_bb) || 0;
             const horseCapChips =
               this.tableInfo?.cap_enabled === true && horseCapBB > 0
@@ -5000,30 +5296,130 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // all_in below - never when the horse itself chose all_in.
             let promotedToAllIn = false;
             if (action === 'bet' && amount !== undefined) {
-              amount = horseIsFixedLimit
-                ? (commitActions.minRaiseTo ?? amount)
-                : Math.max(state.minRaise, amount);
-              amount = Math.min(amount, horseCapRemaining);
-              // Only the STACK promotes to all_in; a cap-bounded wager stays sized.
-              if (amount >= enginePlayer.stack && enginePlayer.stack <= horseCapRemaining) {
-                action = 'all_in';
-                amount = undefined;
-                promotedToAllIn = true;
+              const rawAmount = snapWagerNearest(amount);
+              if (
+                commitActions.legalActions.includes('bet') &&
+                typeof commitActions.minRaiseTo === 'number' &&
+                typeof commitActions.maxRaiseTo === 'number'
+              ) {
+                const legalMin = snapWagerFloor(commitActions.minRaiseTo);
+                const legalMax = snapWagerCap(
+                  Math.min(commitActions.maxRaiseTo, horseCapRemaining)
+                );
+                const clamped = Math.max(legalMin, Math.min(legalMax, rawAmount));
+                if (Math.abs(clamped - rawAmount) > 0.005) {
+                  noteHorseActionClamped(
+                    activeVariant,
+                    horseWatchMode,
+                    rawAmount > legalMax ? 'above_max_bet' : 'below_min_bet'
+                  );
+                  if (
+                    rawAmount > legalMax * 1.02 + (wholeChipWager ? 1 : 0.05) &&
+                    !commitActions.legalActions.includes('all_in')
+                  ) {
+                    noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'pot_or_cap_max_bet');
+                  }
+                }
+                amount = clamped;
+                if (
+                  amount >= enginePlayer.stack - 0.005 &&
+                  enginePlayer.stack <= horseCapRemaining &&
+                  commitActions.legalActions.includes('all_in')
+                ) {
+                  action = 'all_in';
+                  amount = undefined;
+                  promotedToAllIn = true;
+                }
+              } else {
+                amount = horseIsFixedLimit
+                  ? snapWagerNearest(commitActions.minRaiseTo ?? rawAmount)
+                  : snapWagerFloor(Math.max(currentState.minRaise, rawAmount));
+                amount = snapWagerCap(Math.min(amount, horseCapRemaining));
+                if (amount >= enginePlayer.stack && enginePlayer.stack <= horseCapRemaining) {
+                  action = 'all_in';
+                  amount = undefined;
+                  promotedToAllIn = true;
+                }
               }
             } else if (action === 'raise' && amount !== undefined) {
-              const minRaiseTo = state.currentBet + state.minRaise;
-              amount = horseIsFixedLimit
-                ? (commitActions.minRaiseTo ?? amount)
-                : Math.max(minRaiseTo, amount);
+              const rawAmount = snapWagerNearest(amount);
               const horseCapRaiseTo =
                 horseCapRemaining === Infinity ? Infinity : enginePlayer.bet + horseCapRemaining;
-              amount = Math.min(amount, horseCapRaiseTo);
               const horseStackRaiseTo = enginePlayer.stack + enginePlayer.bet;
-              const maxRaiseTo = Math.min(horseStackRaiseTo, horseCapRaiseTo);
-              if (amount >= maxRaiseTo && horseStackRaiseTo <= horseCapRaiseTo) {
-                action = 'all_in';
-                amount = undefined;
-                promotedToAllIn = true;
+              if (
+                commitActions.legalActions.includes('raise') &&
+                typeof commitActions.minRaiseTo === 'number' &&
+                typeof commitActions.maxRaiseTo === 'number'
+              ) {
+                const legalMin = snapWagerFloor(commitActions.minRaiseTo);
+                const legalMax = snapWagerCap(Math.min(commitActions.maxRaiseTo, horseCapRaiseTo));
+                const clamped = Math.max(legalMin, Math.min(legalMax, rawAmount));
+                if (Math.abs(clamped - rawAmount) > 0.005) {
+                  noteHorseActionClamped(
+                    activeVariant,
+                    horseWatchMode,
+                    rawAmount > legalMax ? 'above_max_raise' : 'below_min_raise'
+                  );
+                  if (
+                    rawAmount > legalMax * 1.02 + (wholeChipWager ? 1 : 0.05) &&
+                    !commitActions.legalActions.includes('all_in')
+                  ) {
+                    noteHorseLegalizerDegraded(
+                      activeVariant,
+                      horseWatchMode,
+                      'pot_or_cap_max_raise'
+                    );
+                  }
+                }
+                amount = clamped;
+                if (
+                  amount >= horseStackRaiseTo - 0.005 &&
+                  horseStackRaiseTo <= horseCapRaiseTo &&
+                  commitActions.legalActions.includes('all_in')
+                ) {
+                  action = 'all_in';
+                  amount = undefined;
+                  promotedToAllIn = true;
+                }
+              } else {
+                const minRaiseTo = liveCurrentBet + currentState.minRaise;
+                amount = horseIsFixedLimit
+                  ? snapWagerNearest(commitActions.minRaiseTo ?? rawAmount)
+                  : snapWagerFloor(Math.max(minRaiseTo, rawAmount));
+                amount = snapWagerCap(Math.min(amount, horseCapRaiseTo));
+                const maxRaiseTo = Math.min(horseStackRaiseTo, horseCapRaiseTo);
+                if (amount >= maxRaiseTo && horseStackRaiseTo <= horseCapRaiseTo) {
+                  action = 'all_in';
+                  amount = undefined;
+                  promotedToAllIn = true;
+                }
+              }
+            } else if (
+              action === 'all_in' &&
+              !promotedToAllIn &&
+              !commitActions.legalActions.includes('all_in')
+            ) {
+              // Direct brain `all_in` when all_in is not in legalActions:
+              // if a sized raise/bet is still offered (e.g. capped pot/table where
+              // maxRaiseTo < stack), clamp to maxRaiseTo; otherwise leave `all_in`
+              // for HandController.performAction's 2026-10-04 passive-call coercion
+              // so the execution ledger records `coerced` accurately.
+              if (
+                commitActions.legalActions.includes('raise') &&
+                typeof commitActions.maxRaiseTo === 'number'
+              ) {
+                action = 'raise';
+                amount = snapWagerCap(commitActions.maxRaiseTo);
+                noteHorseActionClamped(activeVariant, horseWatchMode, 'all_in_to_max_raise');
+                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'all_in_to_max_raise');
+              } else if (
+                commitActions.legalActions.includes('bet') &&
+                typeof commitActions.maxRaiseTo === 'number'
+              ) {
+                action = 'bet';
+                amount = snapWagerCap(commitActions.maxRaiseTo);
+                noteHorseActionClamped(activeVariant, horseWatchMode, 'all_in_to_max_bet');
+                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'all_in_to_max_bet');
               }
             }
 
@@ -5040,6 +5436,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               if (substituted !== action) {
                 action = substituted as typeof action;
                 amount = substituted === 'call' ? toCall : undefined;
+                noteHorseActionClamped(activeVariant, horseWatchMode, 'fixed_limit_capped_street');
+                noteHorseLegalizerDegraded(
+                  activeVariant,
+                  horseWatchMode,
+                  'fixed_limit_capped_street'
+                );
               }
             }
 
@@ -5055,6 +5457,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               promotedToAllIn &&
               action === 'all_in' &&
               !commitActions.legalActions.includes('all_in');
+            if (promotedShoveIsIllegal) {
+              noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'promoted_shove_illegal');
+            }
 
             const normalizedAmount =
               typeof amount === 'number' && Number.isFinite(amount) ? amount : null;
@@ -5072,6 +5477,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             // throws something at the player it faces, or taps a reaction, the
             // way a person does as they shove. Never every time (the roll is in
             // HorseTableGestures), never awaited, never in the action's way.
+            // Dan 2026-11-11: "THEY SHOULD BE THROWING THEM RANDOMLY BEFORE
+            // CALLING ALL IN'S" - the hook now also fires when the horse CALLS
+            // an opponent's all in while covering it (a call that puts the
+            // horse itself all in was already a shove below).
             {
               const horseStack = Number(
                 currentState.players.find((p: { seat: number }) => p.seat === seat)?.stack ?? 0
@@ -5081,7 +5490,17 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                 ((action === 'call' || action === 'raise' || action === 'bet') &&
                   horseStack > 0 &&
                   (typeof amount === 'number' ? amount : toCall) >= horseStack);
-              if (movesAllIn && !promotedShoveIsIllegal) {
+              const callsAllInBet =
+                action === 'call' &&
+                toCall > 0 &&
+                typeof currentState.lastAggressorSeat === 'number' &&
+                currentState.players.some(
+                  (p: { seat: number; stack?: number; is_folded?: boolean }) =>
+                    p.seat === currentState.lastAggressorSeat &&
+                    p.is_folded !== true &&
+                    Number(p.stack ?? 0) <= 0
+                );
+              if ((movesAllIn && !promotedShoveIsIllegal) || callsAllInBet) {
                 void gestureBeforeAllIn(
                   buildAllInGestureInput(
                     this.tableInfo,
@@ -5116,17 +5535,32 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             ): boolean => {
               if (origin === 'horse_policy' && !horseFeatureAcceptanceUsable(decision)) {
                 noteFire('horse_feature_authority_withdrawn_before_acceptance');
+                noteHorseLegalizerDegraded(
+                  activeVariant,
+                  horseWatchMode,
+                  'feature_authority_refused'
+                );
                 return false;
               }
               const receiptsBefore = acceptedActions.length;
               let returned = false;
               try {
+                const capture = this.horseClockObserver(
+                  seat,
+                  origin === 'horse_policy' ? 'strategy' : 'fallback',
+                  origin === 'horse_fallback'
+                    ? (workerRefusalReason ?? decision.policyFallback ?? 'action_refused')
+                    : undefined
+                );
                 returned = handControllerRef.performAction(
                   seat,
                   attemptedAction,
                   attemptedAmount,
                   origin,
-                  acceptanceObserver
+                  (record) => {
+                    acceptanceObserver(record);
+                    capture?.(record);
+                  }
                 );
               } catch (err) {
                 reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_action_threw');
@@ -5137,6 +5571,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               return returned || acceptedActions.length > receiptsBefore;
             };
             worker.runWithDispatchBarrier(() => {
+              if (decision.policyFallback === 'brain_exception') {
+                noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'brain_exception');
+              }
               if (!promotedShoveIsIllegal) {
                 applied = attemptAction(
                   action as ActionType,
@@ -5196,6 +5633,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     });
               }
               if (!applied) {
+                if (!promotedShoveIsIllegal) {
+                  noteHorseLegalizerDegraded(activeVariant, horseWatchMode, 'controller_rejected');
+                }
                 attemptingFallback = true;
                 console.warn(
                   '[ServerTableEngine:' +

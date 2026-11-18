@@ -172,6 +172,7 @@ describe('the baseline is a record of work done, not a list of excuses', () => {
       'public/assets/club-buttons/tournament-info-dock-v1/middle.webp',
       'public/assets/club-buttons/wallets/mobile/wallet-union-bank-v1.webp',
       'public/assets/club-buttons/wallets/square/wallet-promo-wallet-square-v1.png',
+      'public/assets/diamond-spins/mines-chrome-hazard-v2.webp',
       'public/assets/diamond-spins/wheel-matte-controls-v1.png',
       'public/assets/diamond-spins/wheel-selector-holder-v2.png',
       'public/assets/diamond-spins/wheel-selector-holder-v2.webp',
@@ -194,6 +195,7 @@ describe('the port agrees with the Python the artists run', () => {
     ['public/assets/club-buttons/console/spade-console-v1/mid.png', 4.2],
     ['public/assets/club-buttons/tournament-info-dock-v1/bottom.webp', 4.0],
     ['public/assets/club-buttons/tournament-info-dock-v1/middle.webp', 0.5],
+    ['public/assets/diamond-spins/mines-chrome-hazard-v2.webp', 0.5],
   ];
 
   // Written out rather than `it.each`: its printf titles render this set as

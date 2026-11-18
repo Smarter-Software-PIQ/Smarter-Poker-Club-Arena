@@ -397,3 +397,476 @@ export function evaluateMultiStreetBarrelContinuation(params: {
     invalidationReasons: [],
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WAVE 1 MULTI-STREET GEOMETRIC SIZING, ARCHETYPES & DYNAMIC RE-EVALUATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type MultiStreetLineArchetype =
+  | 'value_geometric'
+  | 'value_pot_control'
+  | 'semibluff_barrel'
+  | 'blocker_triple_barrel'
+  | 'oop_check_raise_trap'
+  | 'ip_float_takeaway'
+  | 'delayed_turn_probe';
+
+export interface GeometricSizingInput {
+  readonly pot: number;
+  readonly effectiveStack: number;
+  readonly streetsRemaining: 1 | 2 | 3;
+  readonly isPotLimit: boolean;
+  readonly minFraction?: number;
+  readonly maxFraction?: number;
+}
+
+export interface GeometricSizingPlan {
+  readonly fractionOfPot: number;
+  readonly targetBetChips: number;
+  readonly commitsAllInNow: boolean;
+  readonly projectedRemainingSpr: number;
+}
+
+/**
+ * Solves exact multi-street geometric bet sizing `(1 + 2f)^k = 1 + 2 * SPR`
+ * across `k = streetsRemaining` (`3` on flop, `2` on turn, `1` on river),
+ * obeying Pot-Limit caps (`f <= 1.0`) and eliminating awkward `0.08..0.28 SPR`
+ * micro-stubs left behind for the next street.
+ */
+export function solveGeometricStreetSizing(input: GeometricSizingInput): GeometricSizingPlan {
+  const safePot = Math.max(1, input.pot);
+  const effStack = Math.max(0, input.effectiveStack);
+  const spr = effStack / safePot;
+  if (spr <= 0) {
+    return {
+      fractionOfPot: 0,
+      targetBetChips: 0,
+      commitsAllInNow: false,
+      projectedRemainingSpr: 0,
+    };
+  }
+
+  const minFrac = Math.max(0.2, input.minFraction ?? 0.28);
+  const maxAllowed = input.isPotLimit
+    ? Math.min(1.0, input.maxFraction ?? 1.0)
+    : Math.max(minFrac, input.maxFraction ?? 1.5);
+
+  // In No-Limit at shallow SPR (`<= 1.35` with 1-2 streets left), shoving immediately avoids tiny stubs:
+  if (!input.isPotLimit && spr <= 1.35 && input.streetsRemaining <= 2) {
+    return {
+      fractionOfPot: spr,
+      targetBetChips: effStack,
+      commitsAllInNow: true,
+      projectedRemainingSpr: 0,
+    };
+  }
+
+  const k = Math.max(1, Math.min(3, input.streetsRemaining));
+  const rawGeometric = (Math.pow(1 + 2 * spr, 1 / k) - 1) / 2;
+  let frac = Math.max(minFrac, Math.min(maxAllowed, rawGeometric));
+
+  let targetBet = frac * safePot;
+  let remaining = Math.max(0, effStack - targetBet);
+  let nextPot = safePot + 2 * targetBet;
+  let nextSpr = nextPot > 0 ? remaining / nextPot : 0;
+
+  // Eliminate awkward `0.01 .. 0.28 SPR` next-street stubs when at least one later street remains (`k >= 2`):
+  if (k >= 2 && nextSpr > 0 && nextSpr <= 0.28) {
+    if (!input.isPotLimit && spr <= maxAllowed) {
+      return {
+        fractionOfPot: spr,
+        targetBetChips: effStack,
+        commitsAllInNow: true,
+        projectedRemainingSpr: 0,
+      };
+    }
+    if (input.isPotLimit && spr <= 1.0) {
+      return {
+        fractionOfPot: spr,
+        targetBetChips: effStack,
+        commitsAllInNow: true,
+        projectedRemainingSpr: 0,
+      };
+    }
+    // Otherwise trim current street slightly (`~0.50-0.58 pot`) so next street retains a clean `>= 0.35 SPR` shove:
+    const targetNextSpr = 0.36;
+    // Solve `(effStack - f*P) / (P + 2*f*P) = targetNextSpr` => `f = (spr - targetNextSpr) / (1 + 2*targetNextSpr)`
+    const trimmed = (spr - targetNextSpr) / (1 + 2 * targetNextSpr);
+    if (trimmed >= minFrac) {
+      frac = Math.min(maxAllowed, trimmed);
+      targetBet = frac * safePot;
+      remaining = Math.max(0, effStack - targetBet);
+      nextPot = safePot + 2 * targetBet;
+      nextSpr = nextPot > 0 ? remaining / nextPot : 0;
+    }
+  }
+
+  const commitsAllInNow = targetBet >= effStack * 0.96;
+  if (commitsAllInNow) {
+    targetBet = effStack;
+    frac = spr;
+    nextSpr = 0;
+  }
+
+  return {
+    fractionOfPot: frac,
+    targetBetChips: targetBet,
+    commitsAllInNow,
+    projectedRemainingSpr: nextSpr,
+  };
+}
+
+export interface DynamicPlanBuilderInput {
+  readonly createdAtMs: number;
+  readonly handNumber: number;
+  readonly handId: string | null;
+  readonly tableId: string | null;
+  readonly actorId: string;
+  readonly createdStreet: 'FLOP' | 'TURN';
+  readonly binding?: HorsePlanBatchBinding;
+  readonly plannedOriginAction: 'check' | 'call' | 'bet' | 'raise';
+  readonly plannedOriginAmount: number | null;
+  readonly archetype: MultiStreetLineArchetype;
+  readonly activePlayerCount: number;
+  readonly pot: number;
+  readonly effectiveStack: number;
+  readonly isPotLimit: boolean;
+  readonly hasNutAdvantage: boolean;
+  readonly vulnerableToFlush: boolean;
+  readonly vulnerableToPair: boolean;
+  readonly vulnerableToLow?: boolean;
+}
+
+export interface DynamicMultiStreetPlan {
+  readonly archetype: MultiStreetLineArchetype;
+  readonly v2: ExplicitContinuationPlanV2;
+  readonly turnTargetFraction: number;
+  readonly riverTargetFraction: number;
+}
+
+/**
+ * Constructs an explicit Flop->Turn->River `DynamicMultiStreetPlan` wrapping
+ * `ExplicitContinuationPlanV2` with geometric sizing targets and contingency rules.
+ */
+export function buildExplicitContinuationPlanV2(
+  input: DynamicPlanBuilderInput
+): DynamicMultiStreetPlan {
+  const safePot = Math.max(1, input.pot);
+  const spr = Math.max(0, input.effectiveStack) / safePot;
+  const streetsLeft: 1 | 2 = input.createdStreet === 'FLOP' ? 2 : 1;
+  const geom = solveGeometricStreetSizing({
+    pot: safePot,
+    effectiveStack: input.effectiveStack,
+    streetsRemaining: streetsLeft,
+    isPotLimit: input.isPotLimit,
+    minFraction: input.archetype === 'value_pot_control' ? 0.33 : 0.45,
+    maxFraction: input.isPotLimit ? 1.0 : 1.25,
+  });
+
+  const baseBarrelFrac =
+    input.archetype === 'value_pot_control'
+      ? Math.min(0.5, geom.fractionOfPot)
+      : input.archetype === 'ip_float_takeaway' || input.archetype === 'delayed_turn_probe'
+        ? Math.min(0.7, Math.max(0.52, geom.fractionOfPot))
+        : geom.fractionOfPot;
+
+  const isTrapOrCommit =
+    input.archetype === 'value_geometric' || input.archetype === 'oop_check_raise_trap';
+
+  const responses: Record<ContinuationResponseBranch, ContinuationResponseRule> = {
+    check: {
+      branch: 'check',
+      action: input.archetype === 'value_pot_control' && !input.hasNutAdvantage ? 'check' : 'bet',
+      sizingFractionOfPot: baseBarrelFrac,
+      minFacingFractionOfPot: 0,
+      maxFacingFractionOfPot: 0.01,
+      maxEffectiveSpr: Math.max(20, spr * 2.5 + 4),
+      requiresIntactNutAdvantage: input.archetype === 'blocker_triple_barrel',
+    },
+    call: {
+      branch: 'call',
+      action: input.archetype === 'value_pot_control' ? 'check' : 'bet',
+      sizingFractionOfPot: baseBarrelFrac,
+      minFacingFractionOfPot: 0,
+      maxFacingFractionOfPot: 0.01,
+      maxEffectiveSpr: Math.max(20, spr * 2.5 + 4),
+      requiresIntactNutAdvantage: false,
+    },
+    raise_small: {
+      branch: 'raise_small',
+      action: isTrapOrCommit ? 'raise' : 'call',
+      sizingFractionOfPot: input.isPotLimit ? 0.85 : 0.75,
+      minFacingFractionOfPot: 0.01,
+      maxFacingFractionOfPot: 0.42,
+      maxEffectiveSpr: Math.max(20, spr * 2.5 + 4),
+      requiresIntactNutAdvantage: false,
+    },
+    raise_half_pot: {
+      branch: 'raise_half_pot',
+      action:
+        input.archetype === 'oop_check_raise_trap'
+          ? 'raise'
+          : input.archetype === 'blocker_triple_barrel'
+            ? 'fold'
+            : 'call',
+      sizingFractionOfPot: input.isPotLimit ? 1.0 : 0.85,
+      minFacingFractionOfPot: 0.38,
+      maxFacingFractionOfPot: 0.78,
+      maxEffectiveSpr: Math.max(20, spr * 2.5 + 4),
+      requiresIntactNutAdvantage: input.archetype === 'oop_check_raise_trap',
+    },
+    raise_pot: {
+      branch: 'raise_pot',
+      action: isTrapOrCommit && input.hasNutAdvantage ? 'raise' : 'call',
+      sizingFractionOfPot: 1.0,
+      minFacingFractionOfPot: 0.72,
+      maxFacingFractionOfPot: 1.2,
+      maxEffectiveSpr: Math.max(20, spr * 2.5 + 4),
+      requiresIntactNutAdvantage: true,
+    },
+    raise_all_in: {
+      branch: 'raise_all_in',
+      action: isTrapOrCommit && input.hasNutAdvantage ? 'call' : 'fold',
+      sizingFractionOfPot: 1.0,
+      minFacingFractionOfPot: 0.5,
+      maxFacingFractionOfPot: 50,
+      maxEffectiveSpr: Math.max(20, spr * 2.5 + 4),
+      requiresIntactNutAdvantage: true,
+    },
+  };
+
+  const v2: ExplicitContinuationPlanV2 = {
+    planVersion: 'horse-continuation-plan-v2',
+    createdAtMs: input.createdAtMs,
+    maxAgeMs: 180_000,
+    handNumber: input.handNumber,
+    handId: input.handId,
+    tableId: input.tableId,
+    actorId: input.actorId,
+    createdStreet: input.createdStreet,
+    targetStreet: input.createdStreet === 'FLOP' ? 'TURN' : 'RIVER',
+    binding: input.binding ?? {
+      version: 'horse-plan-batch-v1',
+      fastRequestId: 1,
+      generation: 0,
+      fence: 'local',
+      decisionKey: `phase5-v1:${'0'.repeat(64)}`,
+      actorId: input.actorId || 'hero',
+      seat: 1,
+      street: input.createdStreet === 'FLOP' ? 'flop' : 'turn',
+      planContext: { version: 1, hand: null },
+    },
+    plannedOriginAction: input.plannedOriginAction,
+    plannedOriginAmount: input.plannedOriginAmount,
+    expectedMaxActivePlayers: Math.max(2, input.activePlayerCount),
+    baselineEffectiveSpr: spr,
+    maxSprDeviationRatio: 0.85,
+    invalidateOnFlushComplete: input.vulnerableToFlush,
+    invalidateOnBoardPair: input.vulnerableToPair,
+    invalidateOnLowComplete: input.vulnerableToLow ?? false,
+    invalidateOnNutCounterfeit: true,
+    responses,
+  };
+
+  return {
+    archetype: input.archetype,
+    v2,
+    turnTargetFraction: baseBarrelFrac,
+    riverTargetFraction: Math.min(input.isPotLimit ? 1.0 : 1.15, baseBarrelFrac * 1.1),
+  };
+}
+
+export interface DynamicNodeReevaluationInput {
+  readonly archetype: MultiStreetLineArchetype | null;
+  readonly street: 'flop' | 'turn' | 'river';
+  readonly facingBetChips: number;
+  readonly potBeforeBet: number;
+  readonly effectiveStackChips: number;
+  readonly isPotLimit: boolean;
+  readonly equity: number;
+  readonly potOdds: number;
+  readonly hasCurrentNuts: boolean;
+  readonly hasNutRedraw: boolean;
+  readonly certifiedNutBlocker: boolean;
+  readonly villainRangeCapped: boolean;
+  readonly multiwayIncreased: boolean;
+  readonly facingUnexpectedRaise: boolean;
+  readonly facingUnexpectedDonk: boolean;
+  readonly cardClass: 'good' | 'blank' | 'scare';
+}
+
+export type DynamicNodeDirective =
+  | 'execute_planned_barrel'
+  | 'execute_float_takeaway'
+  | 'execute_check_raise_trap'
+  | 'attack_small_donk'
+  | 'defend_polar_donk'
+  | 'scare_nut_blocker_barrel'
+  | 'pivot_pot_control_check'
+  | 'reraise_commit_value'
+  | 'call_unexpected_raise_priced'
+  | 'fold_unexpected_raise_unpriced'
+  | 'abort_multiway_air';
+
+export interface DynamicNodeReevaluationResult {
+  readonly reevaluated: boolean;
+  readonly directive: DynamicNodeDirective;
+  readonly recommendedSizingFraction: number;
+  readonly reason: string;
+}
+
+/**
+ * Dynamically re-evaluates the multi-street continuation plan on any unexpected
+ * mid-street or cross-street action (check-raise, multiway cold-call, small vs
+ * polar donk lead, scare runout, or capped check-through) so the horse neither
+ * blindly executes a stale plan nor throws away forward lookahead.
+ */
+export function reevaluateDynamicContinuationNode(
+  input: DynamicNodeReevaluationInput
+): DynamicNodeReevaluationResult {
+  const safePot = Math.max(1, input.potBeforeBet);
+  const facingFrac = input.facingBetChips > 0 ? input.facingBetChips / safePot : 0;
+  const streetsLeft: 1 | 2 | 3 = input.street === 'flop' ? 3 : input.street === 'turn' ? 2 : 1;
+  const geom = solveGeometricStreetSizing({
+    pot: safePot + input.facingBetChips,
+    effectiveStack: Math.max(0, input.effectiveStackChips - input.facingBetChips),
+    streetsRemaining: streetsLeft,
+    isPotLimit: input.isPotLimit,
+  });
+
+  // 1. Unexpected raise / check-raise on current street: NEVER blindly auto-fold!
+  if (input.facingUnexpectedRaise && input.facingBetChips > 0) {
+    const sprAfterCall =
+      Math.max(0, input.effectiveStackChips - input.facingBetChips) /
+      Math.max(1, safePot + 2 * input.facingBetChips);
+    if (
+      input.hasCurrentNuts ||
+      (input.equity >= 0.62 && (input.hasNutRedraw || sprAfterCall <= 1.2))
+    ) {
+      return {
+        reevaluated: true,
+        directive: 'reraise_commit_value',
+        recommendedSizingFraction: input.isPotLimit ? 1.0 : Math.max(0.85, geom.fractionOfPot),
+        reason: 'unexpected_raise_nut_or_high_equity_commit',
+      };
+    }
+    const impliedAllowance = input.hasNutRedraw && input.street !== 'river' ? 0.06 : 0;
+    if (input.equity + impliedAllowance >= input.potOdds - 0.01) {
+      return {
+        reevaluated: true,
+        directive: 'call_unexpected_raise_priced',
+        recommendedSizingFraction: 0,
+        reason: 'unexpected_raise_priced_continue',
+      };
+    }
+    return {
+      reevaluated: true,
+      directive: 'fold_unexpected_raise_unpriced',
+      recommendedSizingFraction: 0,
+      reason: 'unexpected_raise_insufficient_equity',
+    };
+  }
+
+  // 2. Unexpected donk-bet into preflop / prior-street aggressor:
+  if (input.facingUnexpectedDonk && input.facingBetChips > 0) {
+    if (
+      facingFrac <= 0.36 &&
+      (input.hasCurrentNuts ||
+        input.equity >= 0.58 ||
+        input.hasNutRedraw ||
+        (input.certifiedNutBlocker && !input.multiwayIncreased))
+    ) {
+      return {
+        reevaluated: true,
+        directive: 'attack_small_donk',
+        recommendedSizingFraction: input.isPotLimit ? 0.85 : 0.78,
+        reason: 'small_blocker_donk_punish',
+      };
+    }
+    return {
+      reevaluated: true,
+      directive: 'defend_polar_donk',
+      recommendedSizingFraction: 0,
+      reason: 'polar_donk_mdf_defense',
+    };
+  }
+
+  // 3. Facing a bet with a planned OOP check-raise trap:
+  if (
+    input.archetype === 'oop_check_raise_trap' &&
+    input.facingBetChips > 0 &&
+    (input.hasCurrentNuts || input.equity >= 0.6 || input.hasNutRedraw)
+  ) {
+    return {
+      reevaluated: false,
+      directive: 'execute_check_raise_trap',
+      recommendedSizingFraction: input.isPotLimit ? 1.0 : 0.85,
+      reason: 'planned_oop_check_raise_trap',
+    };
+  }
+
+  // 4. Multiway cold-call shift when checked to: shut down pure air, size up protection on value/nut draws:
+  if (input.multiwayIncreased && input.facingBetChips <= 0) {
+    if (input.equity < 0.48 && !input.hasNutRedraw && !input.hasCurrentNuts) {
+      return {
+        reevaluated: true,
+        directive: 'abort_multiway_air',
+        recommendedSizingFraction: 0,
+        reason: 'multiway_cold_call_air_shutdown',
+      };
+    }
+    return {
+      reevaluated: true,
+      directive: 'execute_planned_barrel',
+      recommendedSizingFraction: Math.min(
+        input.isPotLimit ? 1.0 : 1.1,
+        Math.max(0.66, geom.fractionOfPot * 1.12)
+      ),
+      reason: 'multiway_protection_value_sizing',
+    };
+  }
+
+  // 5. IP Flop Float -> Turn Takeaway when checked to by capped villain:
+  if (
+    input.archetype === 'ip_float_takeaway' &&
+    input.facingBetChips <= 0 &&
+    (input.villainRangeCapped || input.cardClass !== 'scare' || input.certifiedNutBlocker)
+  ) {
+    return {
+      reevaluated: input.cardClass === 'scare',
+      directive: 'execute_float_takeaway',
+      recommendedSizingFraction: Math.min(0.75, Math.max(0.56, geom.fractionOfPot)),
+      reason: 'ip_float_turn_takeaway_stab',
+    };
+  }
+
+  // 6. Scare card arrived when checked to:
+  if (input.cardClass === 'scare' && input.facingBetChips <= 0) {
+    if (input.certifiedNutBlocker && input.equity < 0.44 && !input.multiwayIncreased) {
+      return {
+        reevaluated: true,
+        directive: 'scare_nut_blocker_barrel',
+        recommendedSizingFraction: Math.min(
+          input.isPotLimit ? 0.9 : 0.85,
+          Math.max(0.65, geom.fractionOfPot)
+        ),
+        reason: 'scare_card_nut_blocker_leverage',
+      };
+    }
+    if (!input.hasCurrentNuts && input.equity < 0.64) {
+      return {
+        reevaluated: true,
+        directive: 'pivot_pot_control_check',
+        recommendedSizingFraction: 0,
+        reason: 'scare_card_pot_control_check',
+      };
+    }
+  }
+
+  return {
+    reevaluated: false,
+    directive: 'execute_planned_barrel',
+    recommendedSizingFraction: geom.fractionOfPot,
+    reason: 'intact_geometric_plan',
+  };
+}

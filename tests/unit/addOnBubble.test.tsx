@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- *  "HAS ADDED ON FOR XX.XX" — the bubble over the seat (Dan 2026-09-04)
+ *  "+XX Added On" — the bubble over the seat (Dan 2026-09-04)
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * "IF A PLAYER ADDS ON AFTER A HAND, THEY SHOULD GET A LITTLE POP UP ABOVE
- *  THEIR HEAD. 'HAS ADDED ON FOR XX.XX'."
+ *  THEIR HEAD. '+XX Added On'."
  *
  * The engine says `add_on_applied` when the chips land; this pins that the
  * table turns it into exactly those words, over exactly that seat, for a
@@ -51,10 +51,10 @@ function Harness({ event, seats = SEATS }: { event: unknown; seats?: readonly (s
 }
 
 describe('the words and the seat', () => {
-  it('says exactly "Has Added On For XX.XX", two decimals, grouped', () => {
-    expect(addOnBubbleText(50)).toBe('Has Added On For 50.00');
-    expect(addOnBubbleText(12.5)).toBe('Has Added On For 12.50');
-    expect(addOnBubbleText(1500)).toBe('Has Added On For 1,500.00');
+  it('says exactly "+XX Added On", with table precision and grouping', () => {
+    expect(addOnBubbleText(50)).toBe('+50 Added On');
+    expect(addOnBubbleText(12.5)).toBe('+12.5 Added On');
+    expect(addOnBubbleText(1500)).toBe('+1,500 Added On');
   });
 
   it('recognises only a real add-on landing', () => {
@@ -77,44 +77,62 @@ describe('useSeatAddOnBubbles', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('raises a gold notice over the seat and takes it down after the lifetime', () => {
+  it('raises a plain text flight over the seat and takes it down after the lifetime', () => {
     const { rerender } = render(<Harness event={null} />);
-    expect(screen.queryByText(/Has Added On/)).toBeNull();
+    expect(screen.queryByText(/Added On/)).toBeNull();
 
     const evt = { type: 'add_on_applied', seat: 2, user_id: 'hero', amount: 75.5, timestamp: 1 };
     rerender(<Harness event={evt} />);
 
-    const bubble = screen.getByText('Has Added On For 75.50');
+    const bubble = screen.getByText('+75.5 Added On');
     expect(screen.getByTestId('seat-2').contains(bubble)).toBe(true);
-    expect(bubble.closest('.chat-bubble')?.className).toContain('chat-bubble--notice');
-    expect(screen.getByText('Seat 2')).toBeTruthy();
+    expect(bubble.closest('.add-on-flight')?.className).toContain('add-on-flight');
+    expect(bubble.getAttribute('aria-label')).toBe('Seat 2: +75.5 Added On');
+    expect(screen.queryByText('Seat 2')).toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(ADD_ON_BUBBLE_LIFETIME_MS - 1);
     });
-    expect(screen.queryByText(/Has Added On/)).not.toBeNull();
+    expect(screen.queryByText(/Added On/)).not.toBeNull();
     act(() => {
       vi.advanceTimersByTime(1);
     });
-    expect(screen.queryByText(/Has Added On/)).toBeNull();
+    expect(screen.queryByText(/Added On/)).toBeNull();
+  });
+
+  it('keeps the full flight at the chosen slow animation speed', () => {
+    document.documentElement.style.setProperty('--animation-speed', '3');
+    try {
+      render(
+        <Harness
+          event={{ type: 'add_on_applied', seat: 2, user_id: 'hero', amount: 29, timestamp: 9 }}
+        />
+      );
+      act(() => vi.advanceTimersByTime(ADD_ON_BUBBLE_LIFETIME_MS * 3 - 1));
+      expect(screen.getByText('+29 Added On')).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByText('+29 Added On')).toBeNull();
+    } finally {
+      document.documentElement.style.removeProperty('--animation-speed');
+    }
   });
 
   it('processes one event object once, and a second add-on on the same seat replaces the first', () => {
     const evt1 = { type: 'add_on_applied', seat: 2, user_id: 'hero', amount: 10, timestamp: 1 };
     const { rerender } = render(<Harness event={evt1} />);
     rerender(<Harness event={evt1} />); // same object again: no second bubble, no re-armed timer
-    expect(screen.getAllByText(/Has Added On/)).toHaveLength(1);
+    expect(screen.getAllByText(/Added On/)).toHaveLength(1);
 
     const evt2 = { type: 'add_on_applied', seat: 2, user_id: 'hero', amount: 20, timestamp: 2 };
     rerender(<Harness event={evt2} />);
-    expect(screen.queryByText('Has Added On For 10.00')).toBeNull();
-    expect(screen.getByText('Has Added On For 20.00')).toBeTruthy();
+    expect(screen.queryByText('+10 Added On')).toBeNull();
+    expect(screen.getByText('+20 Added On')).toBeTruthy();
   });
 
   it('ignores an add-on for someone with no seat to sit over', () => {
     const evt = { type: 'add_on_applied', seat: null, user_id: 'nobody', amount: 20, timestamp: 1 };
     render(<Harness event={evt} />);
-    expect(screen.queryByText(/Has Added On/)).toBeNull();
+    expect(screen.queryByText(/Added On/)).toBeNull();
   });
 });
 
@@ -134,11 +152,15 @@ describe('the wiring is the real one', () => {
     expect(sweep).toMatch(/amount: applied,/);
   });
 
-  it('the notice is gold, not chat white', () => {
-    const css = read('src/components/table/ChatBubble.css');
-    expect(css).toMatch(
-      /\.chat-bubble--notice[\s\S]*background: linear-gradient\(180deg, rgba\(255, 214, 102/
+  it('the notice matches the countdown ring ink, no speech panel, and an upward flight', () => {
+    const css = read('src/components/table/AddOnFlight.css');
+    expect(css).toContain('color: #00e5ff');
+    expect(read('src/components/table/SeatSlot.css')).toMatch(
+      /\.seat__timer-ink\s*\{[^}]*border:\s*3px solid #00e5ff/
     );
+    expect(css).toContain('addOnBankToCrown');
+    expect(css).not.toMatch(/background:|border:|box-shadow:/);
+    expect(read('src/components/table/AddOnFlight.tsx')).toContain('restingAvatarTop(art, scale)');
   });
 });
 
@@ -148,11 +170,11 @@ describe('add-on notices retain their player and receipt across reconnects', () 
   it('removes a notice when another player takes the same chair', () => {
     const evt = { type: 'add_on_applied', seat: 2, user_id: 'hero', amount: 20, timestamp: 123 };
     const view = render(<Harness event={evt} />);
-    expect(screen.getByText('Has Added On For 20.00')).toBeTruthy();
+    expect(screen.getByText('+20 Added On')).toBeTruthy();
     view.rerender(<Harness event={evt} seats={['villain', 'replacement', null, 'third']} />);
-    expect(screen.queryByText('Has Added On For 20.00')).toBeNull();
+    expect(screen.queryByText('+20 Added On')).toBeNull();
     view.rerender(<Harness event={evt} seats={SEATS} />);
-    expect(screen.queryByText('Has Added On For 20.00')).toBeNull();
+    expect(screen.queryByText('+20 Added On')).toBeNull();
   });
   it('does not reannounce the same receipt when a reconnect delivers a fresh object', () => {
     const evt = { type: 'add_on_applied', seat: 2, user_id: 'hero', amount: 20, timestamp: 123 };
@@ -160,9 +182,9 @@ describe('add-on notices retain their player and receipt across reconnects', () 
     act(() => {
       vi.advanceTimersByTime(ADD_ON_BUBBLE_LIFETIME_MS);
     });
-    expect(screen.queryByText('Has Added On For 20.00')).toBeNull();
+    expect(screen.queryByText('+20 Added On')).toBeNull();
     view.rerender(<Harness event={{ ...evt }} />);
-    expect(screen.queryByText('Has Added On For 20.00')).toBeNull();
+    expect(screen.queryByText('+20 Added On')).toBeNull();
   });
   it('does not render non-finite money', () => {
     expect(isAddOnAppliedEvent({ type: 'add_on_applied', user_id: 'hero', amount: Infinity })).toBe(

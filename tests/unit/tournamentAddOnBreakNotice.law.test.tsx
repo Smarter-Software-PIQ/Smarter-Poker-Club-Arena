@@ -215,7 +215,7 @@ describe('every player receives the public add-on break notice', () => {
     expect(screen.getByText('Add-On Closes In')).toBeVisible();
     expect(screen.getByText('All Tables Paused')).toBeVisible();
     expect(screen.getByText('15')).toBeVisible();
-    expect(screen.getByText('20K')).toHaveAttribute('title', '20,000');
+    expect(screen.getByText('20,000')).toHaveAttribute('title', '20,000');
     view.rerender(<TournamentBreakScreen {...props} addOnNotice={{ cost: 15, chips: 20000 }} />);
     expect(screen.getByText('Total Cost')).toBeVisible();
     expect(screen.queryByText('Chips Total')).toBeNull();

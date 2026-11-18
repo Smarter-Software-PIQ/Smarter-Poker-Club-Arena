@@ -1,0 +1,5 @@
+{
+  "_owner": "Hold'em Strategy, migration 20261116004500_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql: on for a non-style Horse option needs its evidence sha256 recorded first (Hand Analysis N1 on the switch registry).",
+  "tables": ["ca_horse_option_switch_evidence"],
+  "functions": ["fn_ca_horse_option_switch_record_evidence"]
+}

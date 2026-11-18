@@ -378,61 +378,70 @@ describe('post-deploy production account', () => {
     }
   });
 
-  it('creates one normalized reserved identity, exports it, then proves hard deletion', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'production-e2e-account-'));
-    const env = environment(directory);
-    writeFileSync(env.GITHUB_ENV, '');
-    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/auth/v1/admin/users') && init?.method === 'POST') {
-        return Response.json({ id: USER_ID });
-      }
-      if (url.includes('/rest/v1/rpc/fn_ca_stale_certification_accounts')) {
-        return Response.json([]);
-      }
-      if (url.includes('/rest/v1/profiles?select=id,arena_avatar_url')) {
-        return Response.json([{ id: USER_ID, arena_avatar_url: AVATAR }]);
-      }
-      if (url.includes('/rest/v1/profiles?select=id')) {
-        return Response.json([{ id: USER_ID }]);
-      }
-      if (url.includes('/rest/v1/profiles?id=eq.') && init?.method === 'PATCH') {
-        return new Response(null, { status: 204 });
-      }
-      if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account')) {
-        return Response.json({ success: true });
-      }
-      if (url.includes(`/auth/v1/admin/users/${USER_ID}`)) {
-        return new Response(null, { status: 404 });
-      }
-      return new Response('unexpected request', { status: 500 });
-    });
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  it.each([false, true])(
+    'creates and retires the reserved account (spectator=%s)',
+    async (spectator) => {
+      const directory = mkdtempSync(join(tmpdir(), 'production-e2e-account-'));
+      const env = environment(directory);
+      writeFileSync(env.GITHUB_ENV, '');
+      const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/auth/v1/admin/users') && init?.method === 'POST') {
+          const metadata = JSON.parse(String(init.body));
+          expect(metadata.app_metadata).toEqual(
+            spectator ? { ca_certification_purpose: 'table-spectator' } : undefined
+          );
+          expect(metadata.user_metadata.ca_certification_purpose).toBeUndefined();
+          return Response.json({ id: USER_ID });
+        }
+        if (url.includes('/rest/v1/rpc/fn_ca_stale_certification_accounts')) {
+          return Response.json([]);
+        }
+        if (url.includes('/rest/v1/profiles?select=id,arena_avatar_url')) {
+          return Response.json([{ id: USER_ID, arena_avatar_url: AVATAR }]);
+        }
+        if (url.includes('/rest/v1/profiles?select=id')) {
+          return Response.json([{ id: USER_ID }]);
+        }
+        if (url.includes('/rest/v1/profiles?id=eq.') && init?.method === 'PATCH') {
+          return new Response(null, { status: 204 });
+        }
+        if (url.includes('/rest/v1/rpc/cleanup_reserved_certification_account')) {
+          return Response.json({ success: true });
+        }
+        if (url.includes(`/auth/v1/admin/users/${USER_ID}`)) {
+          return new Response(null, { status: 404 });
+        }
+        return new Response('unexpected request', { status: 500 });
+      });
+      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    const account = await createProductionE2EAccount({
-      environment: env,
-      fetchImpl: fetchMock,
-      wait: async () => undefined,
-    });
+      const account = await createProductionE2EAccount({
+        spectator,
+        environment: env,
+        fetchImpl: fetchMock,
+        wait: async () => undefined,
+      });
 
-    expect(account.id).toBe(USER_ID);
-    expect(account.email).toMatch(/^ca-customization-cert-postdeploy-.+@example\.invalid$/);
-    const exported = readFileSync(env.GITHUB_ENV, 'utf8');
-    expect(exported).toContain(`SP_EMAIL=${account.email}`);
-    expect(exported).toContain(`SP_PASS=${account.password}`);
-    const recordPath = join(directory, 'club-arena-production-e2e-account.json');
-    expect(existsSync(recordPath)).toBe(true);
+      expect(account.id).toBe(USER_ID);
+      expect(account.email).toMatch(/^ca-customization-cert-postdeploy-.+@example\.invalid$/);
+      const exported = readFileSync(env.GITHUB_ENV, 'utf8');
+      expect(exported).toContain(`SP_EMAIL=${account.email}`);
+      expect(exported).toContain(`SP_PASS=${account.password}`);
+      const recordPath = join(directory, 'club-arena-production-e2e-account.json');
+      expect(existsSync(recordPath)).toBe(true);
 
-    await expect(
-      cleanupProductionE2EAccount({ environment: env, fetchImpl: fetchMock })
-    ).resolves.toBe(true);
-    expect(existsSync(recordPath)).toBe(false);
-    const cleanupCall = fetchMock.mock.calls.find(([input]) =>
-      String(input).includes('/rest/v1/rpc/cleanup_reserved_certification_account')
-    );
-    expect(String(cleanupCall?.[1]?.body)).toContain(USER_ID);
-  });
+      await expect(
+        cleanupProductionE2EAccount({ environment: env, fetchImpl: fetchMock })
+      ).resolves.toBe(true);
+      expect(existsSync(recordPath)).toBe(false);
+      const cleanupCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes('/rest/v1/rpc/cleanup_reserved_certification_account')
+      );
+      expect(String(cleanupCall?.[1]?.body)).toContain(USER_ID);
+    }
+  );
 
   it('refuses cleanup outside its exact reserved namespace without a request', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'production-e2e-account-refusal-'));
@@ -2672,7 +2681,9 @@ describe('stale certification residue drains', () => {
       if (url.includes('/auth/v1/admin/users/player'))
         return Response.json({ id: 'player', email: 'someone@gmail.com' });
       if (url.includes('/rest/v1/rpc/fn_ca_retire_welcome_certification_club')) {
-        retiredByDoor.push(JSON.parse(String(init?.body)).p_club_id);
+        const retirement = JSON.parse(String(init?.body));
+        expect(retirement.p_reason).toBe('stale-cert-recovery'); // registered maintenance, same guarded door
+        retiredByDoor.push(retirement.p_club_id);
         return Response.json({ success: true, chips_retired: 100000 });
       }
       return new Response('unexpected request', { status: 500 });

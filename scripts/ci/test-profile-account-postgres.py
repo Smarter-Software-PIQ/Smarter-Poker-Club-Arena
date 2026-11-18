@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
@@ -66,3 +67,10 @@ finally:
     if start_attempted and (data/'postmaster.pid').exists():
         run([pg/'pg_ctl', '-D', data, '-m', 'fast', '-w', 'stop'])
     shutil.rmtree(cluster)
+
+# The existing required profile-account gate also owns the exact financial
+# terms acknowledgement stored on that same profile. Keep both native proofs
+# in this maintained entrypoint instead of adding another workflow route.
+subprocess.run([sys.executable, str(ROOT/'scripts/ci/test-terms-revision-postgres.py'),
+                '--pg-bin', str(pg), '--scratch', args.scratch,
+                '--output', str(ROOT/'artifacts/terms-revision')], check=True)

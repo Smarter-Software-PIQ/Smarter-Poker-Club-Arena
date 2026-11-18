@@ -1,3 +1,4 @@
+import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../legal/promoPlayThroughTerms';
 import { formatWalletChips } from '../../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -440,7 +441,7 @@ export default function AgentPromoPanel({
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: FB.text }}>◈ Promo Wallet</div>
           <div style={{ fontSize: 11, color: FB.dim }}>
-            Distribute Promotional Chips To Your Players
+            Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days
           </div>
         </div>
         <div
@@ -776,7 +777,8 @@ export default function AgentPromoPanel({
         }}
       >
         ⓘ Promo Chips Are Non-Transferable Between Agents. They Can Only Be Distributed To Your
-        Assigned Players. Promo Chips Do Not Count As Settlement Debt.
+        Assigned Players. Promo Chips Do Not Count As Settlement Debt.{' '}
+        {PROMO_PLAY_THROUGH_SENDER_TERMS}
       </div>
     </div>
   );

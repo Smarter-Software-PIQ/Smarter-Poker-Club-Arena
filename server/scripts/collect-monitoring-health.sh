@@ -284,6 +284,99 @@ PY
 RENDERED="$RENDERED
 $CRON_FAILING_RENDERED"
 
+# ── Reliability Controller health (2026-11-09) ───────────────────────────
+# The Reliability Controller (smarter_private.reliability_*, pg_cron job
+# reliability-controller-tick) lives in the same database as the inbox and the
+# Messenger it reports through, so it cannot be the thing that says it has
+# stopped. public.fn_reliability_controller_health() is read here and published
+# for the ReliabilityController* rules in infra/monitoring/recovery-rules.yml,
+# whose email route does not pass through the controller.
+#
+# NOT fail closed, like the two halves above, and all or nothing: a database
+# without the function, a failed read, a heartbeat that has never ticked or an
+# answer missing any column drops every reliability_controller_* series except
+# _collect_ok, and ReliabilityControllerMetricsAbsent turns that absence into
+# an email. Nothing here publishes a zero it did not read.
+#
+# The heartbeat is published twice on purpose. _age_seconds is the database's
+# own reading at collection time. _timestamp_seconds lets Prometheus keep
+# counting when this script stops refreshing the file (the fail-closed half
+# above leaves the old file in place when the database cannot be reached), so
+# a frozen file cannot hold the age at its last healthy value.
+RELIABILITY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  -X POST "$SUPABASE_URL/rest/v1/rpc/fn_reliability_controller_health" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -d '{}' 2>&1) || RELIABILITY_BODY=''
+RELIABILITY_RENDERED=$(python3 - "$RELIABILITY_BODY" <<'PY'
+import json, math, sys
+
+NOTIFY_MODES = ("observe", "critical_only", "all")
+# metric, column, help
+GAUGES = [
+    ("reliability_controller_heartbeat_age_seconds", "heartbeat_age_seconds",
+     "Seconds since smarter_private.reliability_tick last wrote its heartbeat, read by the database at collection time."),
+    ("reliability_controller_heartbeat_timestamp_seconds", "heartbeat_at_unix",
+     "Unix time of the last smarter_private.reliability_tick heartbeat."),
+    ("reliability_controller_notifications_queued", "notifications_queued",
+     "Reliability Controller notifications in state queued (not yet delivered to the Messenger)."),
+    ("reliability_controller_notifications_failed_24h", "notifications_failed_24h",
+     "Reliability Controller notifications created in the last 24 hours that ended in state failed."),
+    ("reliability_controller_intake_rejections_24h", "intake_rejections_24h",
+     "Rows written to smarter_private.reliability_intake_rejections in the last 24 hours."),
+]
+
+lines = []
+ok = 1
+try:
+    payload = json.loads(sys.argv[1])
+    if isinstance(payload, list):
+        if len(payload) != 1:
+            raise ValueError(f"expected one row, got {len(payload)}")
+        row = payload[0]
+    else:
+        row = payload
+    if not isinstance(row, dict) or "heartbeat_age_seconds" not in row:
+        raise ValueError(f"not a health row: {str(payload)[:200]}")
+    rendered = []
+    for metric, column, help_text in GAUGES:
+        if row.get(column) is None:
+            raise ValueError(f"{column} is missing or null")
+        value = float(row[column])
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"{column} is not a non-negative number: {row[column]!r}")
+        rendered += [f"# HELP {metric} {help_text}", f"# TYPE {metric} gauge", f"{metric} {value:.10g}"]
+    paused = row.get("mutation_paused")
+    if not isinstance(paused, bool):
+        raise ValueError(f"mutation_paused is not a boolean: {paused!r}")
+    mode = row.get("notify_mode")
+    if mode not in NOTIFY_MODES:
+        raise ValueError(f"notify_mode is not a known mode: {mode!r}")
+    rendered += [
+        "# HELP reliability_controller_mutation_paused 1 when smarter_private.reliability_settings.mutation_paused is true, else 0.",
+        "# TYPE reliability_controller_mutation_paused gauge",
+        f"reliability_controller_mutation_paused {1 if paused else 0}",
+        "# HELP reliability_controller_notify_mode 1 on the series whose mode label is smarter_private.reliability_settings.notify_mode, 0 on the others.",
+        "# TYPE reliability_controller_notify_mode gauge",
+    ] + [f'reliability_controller_notify_mode{{mode="{m}"}} {1 if m == mode else 0}' for m in NOTIFY_MODES]
+    lines = rendered
+except Exception as exc:
+    sys.stderr.write(f"collect-monitoring-health: reliability controller gauges skipped: {exc}\n")
+    lines = []
+    ok = 0
+lines += [
+    "# HELP reliability_controller_collect_ok 1 when fn_reliability_controller_health was read this run, else 0.",
+    "# TYPE reliability_controller_collect_ok gauge",
+    f"reliability_controller_collect_ok {ok}",
+]
+print("\n".join(lines))
+PY
+) || RELIABILITY_RENDERED='reliability_controller_collect_ok 0'
+RENDERED="$RENDERED
+$RELIABILITY_RENDERED"
+
 # ── Engine release owner gauges (2026-11-06) ─────────────────────────────
 # On 2026-11-05 release transaction 42099609162-1 sat as the runtime owner for
 # 2 h 36 m, systemd restarted it 222 times, and five newer releases refused to
@@ -353,6 +446,91 @@ PY
 ) || RELEASE_RENDERED='club_arena_engine_release_collect_ok 0'
 RENDERED="$RENDERED
 $RELEASE_RENDERED"
+
+# The relative cash baseline must not compare different installed admission
+# contracts. An owner-approved pace change is not a loss of dealing capacity.
+# This catalog-only RPC follows the installed function, including a body change
+# at the same migration version. Failure is unknown, never fingerprint zero.
+CASH_POLICY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  -X POST "$SUPABASE_URL/rest/v1/rpc/fn_lightning_admission_policy" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' -d '{}' 2>&1) || CASH_POLICY_BODY=''
+# The engine's planned population/seat curve is a separate admission owner.
+# Unknown/missing policy is not an old-policy sample and never becomes zero.
+CASH_POPULATION_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  "http://127.0.0.1:8080/health" 2>/dev/null) || CASH_POPULATION_BODY=''
+CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" 3<<<"$CASH_POPULATION_BODY" <<'PY'
+import hashlib, json, os, sys
+lines = []
+ok = 0
+try:
+    rows = json.loads(sys.argv[1])
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError('policy row is unavailable')
+    fingerprint = rows[0].get('fingerprint')
+    if type(fingerprint) is not int or not 0 <= fingerprint < 2**52:
+        raise ValueError('policy fingerprint is unavailable')
+    # Health includes growing diagnostics; never put it in argv (Linux's
+    # per-argument limit is 128 KiB). FD 3 streams it independently of the
+    # Python program on stdin, with no intermediate health file.
+    with os.fdopen(3) as health_stream:
+        health = json.load(health_stream)
+    schedule = health.get('horseWorkSchedule')
+    if not isinstance(schedule, dict):
+        raise ValueError('engine cash population policy is unavailable')
+    # v1 compatibility is selected by a proven immutable release, but its
+    # identity is the admission semantics, not that build. This fingerprint
+    # was calculated with the engine's v1 algorithm over that release's full
+    # 1,440-minute curve and variant/stake matrix (retained regression fixture).
+    legacy_release = '3529e86663daa427b380a8ab9bd09347270c670e'
+    legacy_population = 2624902867899093
+    if 'policyFingerprint' in schedule:
+        population = schedule['policyFingerprint']
+        if type(population) is not int or not 0 <= population < 2**52:
+            raise ValueError('engine cash population policy is unavailable')
+    else:
+        if health.get('releaseSha') != legacy_release:
+            raise ValueError('engine cash population policy is unavailable')
+        population = legacy_population
+    # Keep the already-published key for these exact semantics, including a
+    # routine replacement that adds the fingerprint field and a rollback.
+    # The string is a stable wire alias, never the currently serving SHA.
+    # Different population fingerprints or SQL definitions remain different
+    # cohorts; unknown releases and malformed fields still fail closed.
+    if population == legacy_population:
+        population = 'legacy-release:' + legacy_release
+    contract = schedule.get('cashAdmissionContract')
+    if contract is None and health.get('releaseSha') == legacy_release:
+        contract = 'cash-population/v1'
+    if contract == 'cash-population/v1':
+        # Exactly the existing legacy wire key, including migration-first and rollback.
+        policy_key = f'{fingerprint}:{population}'
+    elif contract == 'cash-hourly-tables/v1':
+        hourly = rows[0].get('hourly_fingerprint')
+        if rows[0].get('hourly_contract') != contract or type(hourly) is not int or not 0 <= hourly < 2**52:
+            raise ValueError('hourly cash admission policy is unavailable')
+        # Adoption is explicit before the first hand-boundary close. Never key
+        # on the current instance, enablement row, wall clock or observed seats.
+        policy_key = f'{fingerprint}:{population}:{contract}:{hourly}'
+    else:
+        raise ValueError('engine cash admission contract is unavailable')
+    fingerprint = int(hashlib.sha256(policy_key.encode()).hexdigest()[:13], 16)
+    lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
+             '# TYPE poker_lightning_admission_policy_fingerprint gauge',
+             f'poker_lightning_admission_policy_fingerprint {fingerprint:d}']
+    ok = 1
+except Exception as exc:
+    sys.stderr.write(f'collect-monitoring-health: cash admission policy unavailable: {exc}\n')
+lines += ['# HELP poker_lightning_admission_policy_collect_ok 1 when the installed admission contract was read this run, else 0.',
+          '# TYPE poker_lightning_admission_policy_collect_ok gauge',
+          f'poker_lightning_admission_policy_collect_ok {ok}']
+print('\n'.join(lines))
+PY
+) || CASH_POLICY_RENDERED='poker_lightning_admission_policy_collect_ok 0'
+RENDERED="$RENDERED
+$CASH_POLICY_RENDERED"
 
 if [ -n "${DRY_RUN:-}" ]; then
   printf '%s\n' "$RENDERED"

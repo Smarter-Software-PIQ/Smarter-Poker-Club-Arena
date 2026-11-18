@@ -1,3 +1,4 @@
+import { confirmedHuman } from '../../engine/HorseConfirmedSeatRole.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadSeatedPlayers } from './tables.js';
 import { supabase } from './client.js';
@@ -10,6 +11,7 @@ describe('the engine roster uses the Must-Move lobby poker alias', () => {
       'horse',
       { is_horse: true, alias: 'TableAlias', username: 'old_handle', display_name: 'OldHorseName' },
       'TableAlias',
+      false,
     ],
     [
       'human social preference',
@@ -22,14 +24,22 @@ describe('the engine roster uses the Must-Move lobby poker alias', () => {
         use_real_name: true,
       },
       'TableAlias',
+      true,
     ],
     [
       'real-name-only legacy row',
       { display_name: 'Real Person', first_name: 'Real', last_name: 'Person' },
       'Player',
+      false,
     ],
-    ['legacy pseudonym', { display_name: 'RiverKing', full_name: 'Real Person' }, 'RiverKing'],
-  ])('%s matches in both roster transports', async (_label, profile, expected) => {
+    ['nullable role', { display_name: 'RiverKing', is_horse: null }, 'RiverKing', false],
+    [
+      'legacy pseudonym',
+      { display_name: 'RiverKing', full_name: 'Real Person' },
+      'RiverKing',
+      false,
+    ],
+  ])('%s matches in both roster transports', async (_label, profile, expected, expectedHuman) => {
     const seat = { id: 'seat', user_id: 'user', occupancy_id: 'stay', seat_number: 1, stack: 20 };
     const selections: string[] = [];
     let results: unknown[] = [];
@@ -54,6 +64,10 @@ describe('the engine roster uses the Must-Move lobby poker alias', () => {
       { data: [{ id: 'user', ...profile }], error: null },
     ];
     const fallback = await loadSeatedPlayers('table');
+    for (const row of [embedded[0]!, fallback[0]!]) {
+      expect(confirmedHuman(row)).toBe(expectedHuman);
+      expect(JSON.stringify(row)).not.toContain('confirmed-seat-role');
+    }
     expect(embedded[0].username).toBe(expected);
     expect(fallback[0].username).toBe(expected);
     expect(embedded[0]).not.toHaveProperty('full_name');

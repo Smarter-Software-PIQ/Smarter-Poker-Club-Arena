@@ -8,6 +8,7 @@ import { ensureClubMembership } from '../e2e/support/ensureClubMembership';
 import { ensureAcceptedTerms } from '../e2e/support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from '../e2e/support/ensurePlayableProfile';
 import { observeSetupFailure } from '../e2e/support/setupFailureObservation';
+import { TERMS_REVISION } from '../../src/components/legal/legalDates';
 
 const source = (path: string) => readFileSync(resolve(__dirname, '../..', path), 'utf8');
 
@@ -63,6 +64,19 @@ function playablePage(
 }
 
 function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, responseStatus = 200) {
+  const acceptedAt = '2026-11-17T07:00:00.000Z';
+  const profileResponse = {
+    request: () => ({ method: () => 'GET' }),
+    url: () =>
+      'https://example.supabase.co/rest/v1/profiles?select=club_arena_tos_revision%2C%20club_arena_tos_accepted_at',
+    ok: () => true,
+    json: vi.fn().mockResolvedValue([
+      {
+        club_arena_tos_revision: TERMS_REVISION,
+        club_arena_tos_accepted_at: '2026-11-17T07:00:00+00:00',
+      },
+    ]),
+  };
   const [initialStatus, persistedStatus] = statuses;
   const decision = {
     waitFor: vi.fn().mockResolvedValue(undefined),
@@ -74,6 +88,10 @@ function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, res
   };
   const verification = {
     goto: vi.fn().mockResolvedValue(undefined),
+    waitForResponse: vi.fn(async (predicate: (candidate: typeof profileResponse) => boolean) => {
+      expect(predicate(profileResponse)).toBe(true);
+      return profileResponse;
+    }),
     locator: vi.fn(() => persistedDecision),
     close: vi.fn().mockResolvedValue(undefined),
   };
@@ -83,10 +101,14 @@ function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, res
   const agreement = { check: vi.fn().mockResolvedValue(undefined) };
   const accept = { click: vi.fn().mockResolvedValue(undefined) };
   const response = {
-    request: () => ({ method: () => 'POST' }),
+    request: () => ({
+      method: () => 'POST',
+      postDataJSON: () => ({ termsRevision: TERMS_REVISION }),
+    }),
     url: () => 'https://smarter.poker/api/club-arena/accept-tos',
     ok: () => responseStatus >= 200 && responseStatus < 300,
     status: () => responseStatus,
+    json: vi.fn().mockResolvedValue({ success: true, termsRevision: TERMS_REVISION, acceptedAt }),
   };
   const page = {
     locator: vi.fn((selector: string) =>
@@ -115,6 +137,8 @@ function termsPage(statuses: Array<'accepted' | 'not_accepted' | 'unknown'>, res
     heading,
     agreement,
     accept,
+    response,
+    profileResponse,
   };
 }
 
@@ -244,6 +268,51 @@ describe('authenticated production account preflight', () => {
     expect(fixture.page.reload).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { success: true, acceptedAt: '2026-11-17T07:00:00Z' },
+    { success: true, termsRevision: 'old-terms', acceptedAt: '2026-11-17T07:00:00Z' },
+    { success: true, termsRevision: TERMS_REVISION, acceptedAt: 'invalid' },
+  ])('refuses a noncanonical acceptance receipt before opening a fresh page', async (receipt) => {
+    const fixture = termsPage(['not_accepted', 'accepted']);
+    fixture.response.json.mockResolvedValue(receipt);
+    await expect(ensureAcceptedTerms(fixture.page as unknown as Page)).rejects.toThrow(
+      'exact reviewed Terms revision'
+    );
+    expect(fixture.context.newPage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { profile: [] },
+    {
+      profile: [
+        {
+          club_arena_tos_revision: TERMS_REVISION,
+          club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+        },
+        {},
+      ],
+    },
+    {
+      profile: {
+        club_arena_tos_revision: 'old-terms',
+        club_arena_tos_accepted_at: '2026-11-17T07:00:00Z',
+      },
+    },
+    {
+      profile: {
+        club_arena_tos_revision: TERMS_REVISION,
+        club_arena_tos_accepted_at: '2026-11-17T07:00:01Z',
+      },
+    },
+  ])('refuses ambiguous or mismatched persisted acceptance', async ({ profile }) => {
+    const fixture = termsPage(['not_accepted', 'accepted']);
+    fixture.profileResponse.json.mockResolvedValue(profile);
+    await expect(ensureAcceptedTerms(fixture.page as unknown as Page)).rejects.toThrow(
+      'Fresh canonical Terms read disagrees'
+    );
+    expect(fixture.verification.close).toHaveBeenCalledOnce();
+  });
+
   it('fails loudly when the canonical Terms decision is unavailable', async () => {
     const fixture = termsPage(['unknown']);
 
@@ -253,76 +322,79 @@ describe('authenticated production account preflight', () => {
     expect(fixture.agreement.check).not.toHaveBeenCalled();
   });
 
-  it('records the original Terms HTTP failure and script rejection without private inputs', () => {
-    const page = Object.assign(new EventEmitter(), { mainFrame: () => 'main' });
-    const observation = observeSetupFailure(
-      page as unknown as Page,
-      'https://smarter.poker/hub/club-arena/',
-      'https://project.supabase.co'
-    );
-    observation.stage('terms');
-    const request = {
-      url: () =>
-        'https://project.supabase.co/rest/v1/profiles?select=club_arena_tos_accepted_at&id=eq.private-account&token=private-token#private-fragment',
-      resourceType: () => 'fetch',
-      failure: () => ({ errorText: 'net::ERR_HTTP2_PROTOCOL_ERROR private-token' }),
-    };
-    page.emit('request', request);
-    page.emit('response', { request: () => request, status: () => 503 });
-    page.emit('requestfailed', request);
-    page.emit('console', {
-      type: () => 'error',
-      text: () => '[ProfileService.getTOSStatus] TypeError: Failed to fetch private-token',
-    });
-    const script = {
-      url: () =>
-        'https://smarter.poker/hub/club-arena/assets/ProfileService-secret.js?token=private-token',
-      resourceType: () => 'script',
-      failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
-    };
-    page.emit('requestfailed', script);
-    page.emit('console', {
-      type: () => 'error',
-      text: () =>
-        '[TOSGuard.status_check_failed] Failed to fetch dynamically imported module: https://private-user:private-password@example.com/private-account',
-    });
-    const result = observation.snapshot();
-    expect(result.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          event: 'response',
-          kind: 'terms-query',
-          status: 503,
-          request: 1,
-        }),
-        expect.objectContaining({
-          event: 'requestfailed',
-          kind: 'terms-query',
-          errorClass: 'ERR_HTTP2_PROTOCOL_ERROR',
-          request: 1,
-        }),
-        expect.objectContaining({
-          event: 'requestfailed',
-          kind: 'script',
-          errorClass: 'ERR_CONNECTION_RESET',
-          request: 2,
-        }),
-        expect.objectContaining({
-          event: 'reported-error',
-          kind: 'terms-query',
-          errorClass: 'FetchError',
-        }),
-        expect.objectContaining({
-          event: 'reported-error',
-          kind: 'terms-status-chain',
-          errorClass: 'ModuleImportError',
-        }),
-      ])
-    );
-    expect(JSON.stringify(result)).not.toMatch(/private-|secret|\?|#|id=|token=/);
-    expect(result.events.every((event) => event.stage === 'terms')).toBe(true);
-    observation.dispose();
-  });
+  it.each(['club_arena_tos_accepted_at', 'club_arena_tos_accepted_at,club_arena_tos_revision'])(
+    'records Terms HTTP failure for %s without private inputs',
+    (select) => {
+      const page = Object.assign(new EventEmitter(), { mainFrame: () => 'main' });
+      const observation = observeSetupFailure(
+        page as unknown as Page,
+        'https://smarter.poker/hub/club-arena/',
+        'https://project.supabase.co'
+      );
+      observation.stage('terms');
+      const request = {
+        url: () =>
+          `https://project.supabase.co/rest/v1/profiles?select=${select}&id=eq.private-account&token=private-token#private-fragment`,
+        resourceType: () => 'fetch',
+        failure: () => ({ errorText: 'net::ERR_HTTP2_PROTOCOL_ERROR private-token' }),
+      };
+      page.emit('request', request);
+      page.emit('response', { request: () => request, status: () => 503 });
+      page.emit('requestfailed', request);
+      page.emit('console', {
+        type: () => 'error',
+        text: () => '[ProfileService.getTOSStatus] TypeError: Failed to fetch private-token',
+      });
+      const script = {
+        url: () =>
+          'https://smarter.poker/hub/club-arena/assets/ProfileService-secret.js?token=private-token',
+        resourceType: () => 'script',
+        failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
+      };
+      page.emit('requestfailed', script);
+      page.emit('console', {
+        type: () => 'error',
+        text: () =>
+          '[TOSGuard.status_check_failed] Failed to fetch dynamically imported module: https://private-user:private-password@example.com/private-account',
+      });
+      const result = observation.snapshot();
+      expect(result.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: 'response',
+            kind: 'terms-query',
+            status: 503,
+            request: 1,
+          }),
+          expect.objectContaining({
+            event: 'requestfailed',
+            kind: 'terms-query',
+            errorClass: 'ERR_HTTP2_PROTOCOL_ERROR',
+            request: 1,
+          }),
+          expect.objectContaining({
+            event: 'requestfailed',
+            kind: 'script',
+            errorClass: 'ERR_CONNECTION_RESET',
+            request: 2,
+          }),
+          expect.objectContaining({
+            event: 'reported-error',
+            kind: 'terms-query',
+            errorClass: 'FetchError',
+          }),
+          expect.objectContaining({
+            event: 'reported-error',
+            kind: 'terms-status-chain',
+            errorClass: 'ModuleImportError',
+          }),
+        ])
+      );
+      expect(JSON.stringify(result)).not.toMatch(/private-|secret|\?|#|id=|token=/);
+      expect(result.events.every((event) => event.stage === 'terms')).toBe(true);
+      observation.dispose();
+    }
+  );
 
   it('distinguishes navigation failure from a successful Terms response and premature close', () => {
     const page = Object.assign(new EventEmitter(), { mainFrame: () => 'main' });

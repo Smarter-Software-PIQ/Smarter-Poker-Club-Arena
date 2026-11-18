@@ -34,8 +34,16 @@ const ENGINE = parse(
 const ENGINE_TEXT = readFileSync(join(ROOT, '.github/workflows/auto-deploy-hetzner.yml'), 'utf8');
 const CHECKER = readFileSync(join(ROOT, 'scripts/ci/check-alert-rules-match.mjs'), 'utf8');
 
-const RERUN =
-  "github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))";
+// The engine release that ends the condition re-runs the deploy and its
+// verdict. Merged 2026-11-18 onto main's later conditions (the read-only
+// read-club-arena-monitoring dispatch and the bot-dispatch refusal), which it
+// must keep: it ADDS one owed case and removes none.
+const ENGINE_RELEASE =
+  "(github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))";
+const PUSH_OR_DEPLOY =
+  "(github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))";
+const NO_BOT_RETRY = "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')";
+const OWED = '((' + PUSH_OR_DEPLOY + ') || ' + ENGINE_RELEASE + ') && ' + NO_BOT_RETRY;
 
 describe('an engine release re-asks the monitoring question', () => {
   it('listens for the engine publisher by its name, on completion', () => {
@@ -47,7 +55,10 @@ describe('an engine release re-asks the monitoring question', () => {
 
   it('keeps the push and recovery triggers it already had', () => {
     expect(WF.on.push.branches).toEqual(['main']);
-    expect(WF.on.repository_dispatch.types).toEqual(['deploy-club-arena-monitoring']);
+    expect(WF.on.repository_dispatch.types).toEqual([
+      'deploy-club-arena-monitoring',
+      'read-club-arena-monitoring',
+    ]);
   });
 
   it('re-runs only for a successful release or withdrawal on main', () => {
@@ -55,13 +66,15 @@ describe('an engine release re-asks the monitoring question', () => {
     expect(ENGINE_TEXT).toContain("format('Engine Release {0}'");
     expect(ENGINE_TEXT).toContain("format('Engine Withdrawal {0}'");
     expect(ENGINE_TEXT).toContain("format('Private Horse Fleet Observation {0}'");
-    expect(WF.jobs.deploy.if).toBe('${{ (' + RERUN + ') }}');
+    expect(WF.jobs.deploy.if).toBe('${{ ' + OWED + ' }}');
+    // the read-only heartbeat never runs on an engine release
+    expect(WF.jobs['read-controller-heartbeat'].if).not.toContain('workflow_run');
   });
 
   it('records a verdict only when the deploy job was owed', () => {
     const verdict = WF.jobs['monitoring-deploy-verdict'];
     expect(verdict.needs).toBe('deploy');
-    expect(verdict.if).toBe('${{ always() && (' + RERUN + ') }}');
+    expect(verdict.if).toBe('${{ always() && ' + OWED + ' }}');
   });
 
   it('a re-run converges on current main exactly as a push run does', () => {

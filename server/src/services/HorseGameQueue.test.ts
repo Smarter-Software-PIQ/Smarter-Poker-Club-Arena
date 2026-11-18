@@ -84,6 +84,14 @@ describe('horses stand in line on a full game (Dan 2026-11-06)', () => {
     expect(plan.cancel).toEqual([]);
   });
 
+  it('keeps a full game line when this fleet walk produced no ask', () => {
+    const rows = [{ id: 'r1', game_id: 'g1', user_id: 'h1', created_at: iso(60_000) }];
+    expect(planHorseQueues({ ...base, asks: [], tables: fullG1, rows })).toEqual({
+      cancel: [],
+      add: [],
+    });
+  });
+
   it('patience runs 25 to 55 minutes', () => {
     for (let i = 0; i < 200; i++) {
       const p = queuePatienceMs(`row-${i}`);
@@ -243,6 +251,6 @@ describe('several lists at once (owner 2026-11-07)', () => {
       body.match(/\.from\('([a-z_]+)'\)/g)?.every((m) => m.includes('cash_game_waitlist'))
     ).toBe(true);
     // The seats this cycle just took count as seated (horseTables).
-    expect(src).toMatch(/readIsCurrent,\s*horseTables\s*\);/);
+    expect(src).toMatch(/readIsCurrent,\s*horseTables,\s*book\s*\);/);
   });
 });

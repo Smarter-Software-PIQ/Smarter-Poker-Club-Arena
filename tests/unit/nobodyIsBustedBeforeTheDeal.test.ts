@@ -59,7 +59,11 @@ describe('the bust watcher waits for the game to deal', () => {
 
   it('the guard sits BEFORE the hero stack is read', () => {
     const guard = WATCHER.indexOf('if (!playHasBegun) return;');
-    const read = WATCHER.indexOf('const heroPlayer = tableState.players[');
+    // The read became conditional on a seat when the engine's bust exit began
+    // standing in for the removed seat (2026-11-11); it is still the stack read.
+    const read = WATCHER.indexOf(
+      'const heroPlayer = tableState.heroSeat > 0 ? tableState.players['
+    );
     expect(guard, 'the guard is missing from the watcher').toBeGreaterThan(-1);
     expect(read, 'the stack read is missing — this pin is on the wrong block').toBeGreaterThan(-1);
     expect(guard, 'a guard after the read is not a guard').toBeLessThan(read);

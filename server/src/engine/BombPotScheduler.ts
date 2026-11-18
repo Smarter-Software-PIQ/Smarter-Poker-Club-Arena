@@ -453,9 +453,11 @@ export class BombPotScheduler {
        *
        * This returned `true`, on the reasoning that "a single seat dealt
        * around" completes an orbit every hand. That case cannot occur — a hand
-       * needs two players, and ServerTableEngineDealing forces the button
-       * across whenever `players.length > 2` precisely so it can never stand
-       * still. The branch never fired for the reason it was written.
+       * needs two players. The branch never fired for the reason it was
+       * written. (Since 2026-11-13, HU-EXE-002, the cash button also stands
+       * still for the one hand that takes a heads-up game back to three or
+       * more players; that is not a completed orbit either, so `false` is
+       * the right answer for it too.)
        *
        * What DOES produce `from === to` is the SEPARATE BOMB BUTTON. On a bomb
        * hand that policy rewinds the regular rotation (`this.lastButtonSeat =

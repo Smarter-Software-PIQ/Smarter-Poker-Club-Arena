@@ -1,3 +1,5 @@
+import { reloadWithWorkerTiming } from './support/shellReloadTrace';
+import { traceTableNavigation } from './support/tableNavigationTrace';
 import {
   installHorseSeatPaints,
   initialAvatarPaint,
@@ -34,6 +36,7 @@ import {
   test,
   type APIRequestContext,
   type BrowserContext,
+  type Locator,
   type Page,
   type TestInfo,
 } from '@playwright/test';
@@ -49,6 +52,7 @@ import {
   CASH_SPECTATOR_ACTION,
   CASH_TABLE_CARD_SELECTOR,
   collectVisibleCashCandidates,
+  takeNextLayoutCandidate,
 } from './support/cashTableCandidates';
 import { createProgressSilenceGuard } from './support/progressSilence';
 import { captureEngineFailureHealth } from './support/liveTableFailureHealth';
@@ -66,7 +70,11 @@ import {
   SelectionObservationDeadline,
 } from './support/selectionDeadline';
 import { remainingObservationMs } from './support/observationDeadline';
-import { readinessReadCanStart, readinessReadTimeout } from './support/readinessReadAdmission';
+import {
+  readinessReadCanStart,
+  readinessReadTimeout,
+  remainingReadTimeout,
+} from './support/readinessReadAdmission';
 import { assertInitialTableOwnership, classifyUnsubscribes } from './support/initialTableOwnership';
 import {
   classifyCaseFailure,
@@ -86,6 +94,14 @@ import {
   type StalledSubject,
 } from './support/certifiableSubject';
 import { recordNonVerdict } from './support/nonVerdict';
+import {
+  classifySpectatorAdmission,
+  notObservedRecord,
+  occupiedCashTableForBreak,
+  SPECTATOR_NOT_OBSERVED_FILE,
+  SPECTATOR_NOT_OBSERVED_LATE,
+  SPECTATOR_OBSERVE,
+} from '../../scripts/ci/cutover-spectator-admission.mjs';
 import { admitMttReplacementBudget, MTT_MAX_SUBJECT_MS } from './support/mttSubjectBudget';
 import {
   createHudClockReader,
@@ -158,6 +174,7 @@ type BoardReader = Awaited<ReturnType<typeof createHudClockReader>>;
 type CertifiableGameFormat = 'cash' | (typeof TOURNAMENT_FORMATS)[number];
 
 interface RunningTableCandidate {
+  capacityHint?: string;
   id: string;
   players: number;
   name: string;
@@ -240,7 +257,10 @@ type LivenessScope =
 async function readEngineHealth(
   request: APIRequestContext,
   scope: LivenessScope,
-  timeoutMs = 15_000
+  timeoutMs = 15_000,
+  // Only the cutover spectator sets this: it exists to span the replacement,
+  // so an announced break whose freeze has not begun does not disqualify it.
+  options: { admitLastHand?: boolean } = {}
 ): Promise<EngineHealth> {
   const url = new URL(ENGINE_HEALTH_URL);
   url.searchParams.set('cb', String(Date.now()));
@@ -295,7 +315,10 @@ async function readEngineHealth(
     observedReleaseSha,
     `engine releaseSha ${observedReleaseSha || '(missing)'} did not exactly match ${EXPECTED_ENGINE_SHA}`
   ).toBe(EXPECTED_ENGINE_SHA);
-  if (health.maintenance?.active) {
+  if (
+    health.maintenance?.active &&
+    !(options.admitLastHand && health.maintenance.phase === 'last_hand')
+  ) {
     throw new Error(
       `production engine is in scheduled maintenance (${health.maintenance.phase || 'unknown phase'}); ` +
         'live-table continuity must be certified after normal dealing resumes'
@@ -445,6 +468,26 @@ async function selectCashLobbyTab(page: Page, tabName: string): Promise<void> {
   await page.waitForTimeout(100);
 }
 
+async function cashSpectatorAction(page: Page, tableId: string) {
+  const row = page.locator(`[data-testid="lobby-game-row"][data-id="${tableId}"]`);
+  if (await row.isVisible()) {
+    const details = row.getByRole('button', { name: /^Details:/ });
+    // The sticky phone controls cover the geometric viewport centre. Let the
+    // lobby's measured scroll padding place this row inside its usable area
+    // before WebKit resolves the real pointer location.
+    await details.evaluate((button) =>
+      button.scrollIntoView({ block: 'center', behavior: 'instant' })
+    );
+    await details.click();
+  }
+  const card = page.locator(
+    `[data-testid="arena-lobby-game-card"][data-kind="cash"][data-id="${tableId}"]`
+  );
+  return (await row.isVisible())
+    ? page.getByRole('dialog').getByRole('button', { name: CASH_SPECTATOR_ACTION })
+    : card.getByRole('button', { name: CASH_SPECTATOR_ACTION });
+}
+
 /**
  * Occupied, running cash tables across the cash-game lobby tabs
  * (at most CASH_PROGRESS_CANDIDATES), each with the liveness it had when it
@@ -457,8 +500,19 @@ async function selectCashLobbyTab(page: Page, tabName: string): Promise<void> {
 async function selectOccupiedRunningCashTables(
   page: Page,
   request: APIRequestContext,
-  options: { perVariantLimit?: number } = {}
+  options: { perVariantLimit?: number; admitLastHand?: boolean } = {}
 ): Promise<{ tables: OccupiedCashTable[]; health: EngineHealth }> {
+  const admit = { admitLastHand: options.admitLastHand === true };
+  // After the announcement every table parks at its hand boundary, so the
+  // running-table test selects nothing. An admitted spectator then takes an
+  // occupied cash table; the committed post-thaw hand is what proves it dealt.
+  const selectable = (health: EngineHealth, candidate: RunningTableCandidate) => {
+    const running = healthyRunningTable(health, candidate.id, candidate.gameFormat);
+    if (running || !admit.admitLastHand || health.maintenance?.phase !== 'last_hand')
+      return running;
+    const table = health.tableLiveness.find((entry) => entry.tableId === candidate.id);
+    return table && occupiedCashTableForBreak(table) ? table : null;
+  };
   await page.goto(CLUB_LOBBY, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   if (/\/auth(?:\/|\?|$)/.test(page.url())) {
     throw new Error('Production redirected to auth despite the required authenticated state');
@@ -491,9 +545,14 @@ async function selectOccupiedRunningCashTables(
     if (candidates.length === 0) continue;
     for (let offset = 0; offset < candidates.length; offset += 32) {
       const batch = candidates.slice(offset, offset + 32);
-      const health = await readEngineHealth(request, { candidateTableIds: batch.map((c) => c.id) });
+      const health = await readEngineHealth(
+        request,
+        { candidateTableIds: batch.map((c) => c.id) },
+        undefined,
+        admit
+      );
       for (const candidate of batch) {
-        const table = healthyRunningTable(health, candidate.id, candidate.gameFormat);
+        const table = selectable(health, candidate);
         if (
           table &&
           !seen.has(candidate.id) &&
@@ -516,11 +575,14 @@ async function selectOccupiedRunningCashTables(
   if (tables.length > 0) {
     // Tab scanning takes time. Start every contender from the same fresh
     // health observation, removing tables that departed during discovery.
-    const health = await readEngineHealth(request, {
-      candidateTableIds: tables.map(({ candidate }) => candidate.id),
-    });
+    const health = await readEngineHealth(
+      request,
+      { candidateTableIds: tables.map(({ candidate }) => candidate.id) },
+      undefined,
+      admit
+    );
     const fresh = tables.flatMap(({ candidate, tabName }) => {
-      const table = healthyRunningTable(health, candidate.id, candidate.gameFormat);
+      const table = selectable(health, candidate);
       return table ? [{ candidate, table, tabName }] : [];
     });
     if (fresh.length > 0) return { tables: fresh, health };
@@ -944,7 +1006,7 @@ async function selectProgressingTournamentTable(
     await expect
       .poll(
         () => {
-          if (!readinessReadCanStart(progressReadDeadline)) return false;
+          if (!remainingReadTimeout(progressReadDeadline)) return false;
           return operationalPollFailure.attempt(async () => {
             const readmitted = await refreshPreNavigationSelection(
               selection,
@@ -2165,17 +2227,6 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         }
         return route.continue();
       });
-      const selected = await selectOccupiedRunningCashTables(page, request);
-      const { candidate } = selected.tables[0];
-      const tableId = candidate.id;
-      await page.goto(`table/${tableId}`);
-      await expect(page).toHaveURL((url) => url.pathname.endsWith(`/table/${tableId}`));
-      const initial = await journal.waitForFrame(
-        { direction: 'received', tableId, type: 'SNAPSHOT' },
-        30_000,
-        'Missing predecessor snapshot'
-      );
-      expect(await subject()).toBe(fixture.id);
       const identity = async () => {
         const res = await request.get(ENGINE_HEALTH_URL, {
           params: { cb: Date.now() },
@@ -2184,12 +2235,116 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         if (!res.ok()) throw new Error('Serving identity unavailable');
         return await res.json();
       };
-      const before = await identity();
-      expect(before.releaseSha).toBe(EXPECTED_ENGINE_SHA);
-      expect(before.releaseSha).not.toBe(target);
-      expect(before.instanceId).toMatch(/^[1-9][0-9]*-[0-9a-f]{8}$/);
-      expect(before.maintenance?.active).toBe(false);
-      const armedAt = Date.now();
+      /* THE ANNOUNCEMENT IS NOT THE FREEZE (2026-11-14). The host transaction
+         does not wait for this browser, and on 2026-11-14 its last-hand
+         announcement landed about 30 s before this case read /health. The
+         predecessor still serves for two minutes after it, so `last_hand` is
+         admitted; the proofs below still require this one socket to be open on
+         the predecessor at the recorded freeze. Once the freeze has begun or
+         the candidate serves, the replacement cannot be witnessed: that is
+         NOT OBSERVED (late), named, with no witness file - never a pass, and
+         not a red that reads like a production defect (CLAUDE.md 10.86). */
+      const admit = (health: unknown) =>
+        classifySpectatorAdmission(health, { target, predecessor: EXPECTED_ENGINE_SHA });
+      const notObserved = async (reason: string, health: unknown): Promise<void> => {
+        const record = notObservedRecord({
+          runId: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+          target,
+          reason,
+          health,
+          at: Date.now(),
+        });
+        writeFileSync(SPECTATOR_NOT_OBSERVED_FILE, JSON.stringify(record));
+        const description = await recordNonVerdict(testInfo, {
+          title: 'NOT OBSERVED (late)',
+          detail: `${reason}. Spectator continuity for this release is unverified; no witness was written`,
+          evidence: record,
+          tag: 'cutover-spectator-not-observed',
+        });
+        test.skip(true, description);
+      };
+      let late: { reason: string; health: unknown } | null = null;
+      const arm = async () => {
+        const arriving = await identity();
+        const arrival = admit(arriving);
+        if (arrival.outcome === SPECTATOR_NOT_OBSERVED_LATE) {
+          late = { reason: arrival.reason, health: arriving };
+          return null;
+        }
+        if (arrival.outcome !== SPECTATOR_OBSERVE)
+          throw new Error(`Could not tell whether the spectator may attach: ${arrival.reason}`);
+        const selected = await selectOccupiedRunningCashTables(page, request, {
+          admitLastHand: true,
+        });
+        const { candidate } = selected.tables[0];
+        const tableId = candidate.id;
+        /* THE LOBBY'S SNAPSHOT IS NOT THE TABLE PAGE'S (2026-11-16). The lobby
+           opens its own game socket and pre-subscribes up to three visible
+           cash tables, so it can already hold a SNAPSHOT for this table. The
+           full-page navigation below closes that socket and the table page
+           opens its own. An unbounded wait took the lobby's stale frame, so
+           `initial` named a socket that was already gone and the one-socket
+           check at arming failed on three releases (expected [1], received
+           [2]). Only a SNAPSHOT received after the navigation began, on a
+           socket that was not already open then, is the table page's own. */
+        const navigationStartedAt = Date.now();
+        const socketsOpenBeforeNavigation = journal.transportIdsOpenAt(navigationStartedAt);
+        const tablePageSnapshots = () =>
+          journal
+            .matchingFrames({
+              direction: 'received',
+              tableId,
+              type: 'SNAPSHOT',
+              since: navigationStartedAt,
+            })
+            .filter((frame) => !socketsOpenBeforeNavigation.includes(frame.socketId));
+        await page.goto(`table/${tableId}`);
+        await expect(page).toHaveURL((url) => url.pathname.endsWith(`/table/${tableId}`));
+        await expect
+          .poll(() => tablePageSnapshots().length, {
+            timeout: 30_000,
+            intervals: [50, 100, 250, 500],
+            message: 'Missing predecessor snapshot',
+          })
+          .toBeGreaterThan(0);
+        const initial = tablePageSnapshots().at(-1)!;
+        expect(await subject()).toBe(fixture.id);
+        const before = await identity();
+        const admission = admit(before);
+        if (admission.outcome === SPECTATOR_NOT_OBSERVED_LATE) {
+          late = { reason: admission.reason, health: before };
+          return null;
+        }
+        if (admission.outcome !== SPECTATOR_OBSERVE)
+          throw new Error(
+            `Could not tell which engine the spectator attached to: ${admission.reason}`
+          );
+        expect(before.releaseSha).toBe(EXPECTED_ENGINE_SHA);
+        expect(before.releaseSha).not.toBe(target);
+        expect(before.instanceId).toMatch(/^[1-9][0-9]*-[0-9a-f]{8}$/);
+        return { tableId, initial, before, armedPhase: admission.phase, armedAt: Date.now() };
+      };
+      let armed: Awaited<ReturnType<typeof arm>> = null;
+      try {
+        armed = await arm();
+      } catch (error) {
+        // The freeze can begin while the table is still opening. Only a fresh
+        // read that itself says "late" reclassifies; anything else stays red.
+        const now = await identity().catch(() => null);
+        const verdict = now ? admit(now) : null;
+        if (verdict?.outcome !== SPECTATOR_NOT_OBSERVED_LATE) throw error;
+        late = {
+          reason: `${verdict.reason} (while opening: ${error instanceof Error ? error.message.split('\n')[0] : String(error)})`,
+          health: now,
+        };
+      }
+      if (!armed) {
+        const arrivedLate = late as { reason: string; health: unknown } | null;
+        if (!arrivedLate) throw new Error('The spectator neither armed nor was classified late');
+        await notObserved(arrivedLate.reason, arrivedLate.health);
+        return;
+      }
+      const { tableId, initial, before, armedPhase, armedAt } = armed;
       expect(journal.transportIdsOpenAt(armedAt)).toEqual([initial.socketId]);
       expect(journal.openTransportUrls().map((url) => new URL(url).pathname)).toEqual([
         '/ws/multi',
@@ -2290,6 +2445,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           afterInstance: after.instanceId,
           tableId,
           armedAt,
+          armedPhase,
           handNumber: cycle.handNumber,
           freeze,
           thaw,
@@ -2298,6 +2454,229 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           sameAuthenticatedSpectator: true,
         })
       );
+    });
+  }
+
+  // A phone's screen and viewport must agree before the table captures its
+  // stable 600px canvas. Resizing a fixed iPhone screen mid-table fabricated
+  // a different scale and stale height at 430px; it was not that phone.
+  for (const phoneWidth of [320, 375, 393, 430]) {
+    test.describe(`${phoneWidth}px physical phone`, () => {
+      test.use({
+        viewport: { width: phoneWidth, height: phoneWidth === 320 ? 568 : 852 },
+        screen: { width: phoneWidth, height: phoneWidth === 320 ? 568 : 852 },
+      });
+      test('occupied six and nine seat cash layouts preserve mobile displays', async ({
+        page,
+        request,
+      }, testInfo) => {
+        const mutations: string[] = [];
+        await page.route('**/*', async (route) => {
+          const req = route.request();
+          if (isSpectatorParticipationMutation(req.method(), req.url())) {
+            mutations.push(new URL(req.url()).pathname);
+            return route.abort();
+          }
+          return route.continue();
+        });
+        const journal = phoneWidth === 393 ? new EngineSocketJournal(page) : null;
+        let lobbyDocumentSince = Date.now();
+        const selected = await selectOccupiedRunningCashTables(page, request, {
+          perVariantLimit: 3,
+        });
+        const capacities = new Set<string>();
+        // Keep the reported 393px navigation in coverage while that table is
+        // still dealing. The lobby rotates its cluster representative, so the
+        // first full nine-seat card can otherwise exercise a different URL.
+        const remaining: { candidate: Pick<RunningTableCandidate, 'id' | 'capacityHint'> }[] =
+          selected.tables.map(({ candidate }) => ({ candidate }));
+        const reportedId = 'e78717a2-294d-4b8f-a6ce-d42ec54b237f';
+        let measuredClick = false;
+        if (phoneWidth === 393) {
+          const health = await readEngineHealth(request, { candidateTableIds: [reportedId] });
+          if (healthyRunningTable(health, reportedId, 'cash')) {
+            const existing = remaining.findIndex(({ candidate }) => candidate.id === reportedId);
+            if (existing >= 0) remaining.splice(existing, 1);
+            // The opened page still has to establish its actual seat count.
+            remaining.unshift({ candidate: { id: reportedId, capacityHint: '9' } });
+          }
+        }
+        while (remaining.length) {
+          const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
+          const table = page.locator('.table-page:visible').first();
+          const lobbySource = selected.tables.find((t) => t.candidate.id === candidate.id);
+          const useClick =
+            phoneWidth === 393 && candidate.id !== reportedId && !measuredClick && lobbySource;
+          let view: Locator | undefined;
+          if (useClick) {
+            if (!new URL(page.url()).pathname.endsWith('/' + CLUB_LOBBY)) {
+              lobbyDocumentSince = Date.now();
+              await page.goto(CLUB_LOBBY, { waitUntil: 'domcontentloaded' });
+            }
+            await prepareCashLobbyActions(page);
+            await openLobbyGameSection(page, 'ALL');
+            await selectCashLobbyTab(page, useClick.tabName);
+            view = await cashSpectatorAction(page, candidate.id);
+            await expect(view).toBeVisible();
+            await view.click({ trial: true });
+            await view.evaluate(
+              (button, id) =>
+                button.addEventListener(
+                  'click',
+                  (event) => {
+                    if (event.isTrusted) console.debug('spectator-click-' + id + ':' + Date.now());
+                  },
+                  { capture: true, once: true }
+                ),
+              candidate.id
+            );
+          }
+          const trace =
+            journal && traceTableNavigation(page, candidate.id, view ? 'click' : 'document');
+          try {
+            await test.step(`Open occupied table ${candidate.id} at ${phoneWidth}px and render its connected view`, async () => {
+              if (view) {
+                await Promise.all([
+                  page.waitForURL((url) => url.pathname.endsWith('/table/' + candidate.id)),
+                  view.click(),
+                ]);
+                measuredClick = true;
+              } else {
+                const document = await page.goto(`table/${candidate.id}`, {
+                  waitUntil: trace ? 'commit' : 'domcontentloaded',
+                });
+                expect(
+                  document?.ok(),
+                  'the selected table document must respond successfully'
+                ).toBe(true);
+              }
+              trace?.mark('table-route-observed');
+              expect(new URL(page.url()).pathname).toMatch(new RegExp(`/table/${candidate.id}/?$`));
+              await expect(table).toBeVisible({ timeout: 30_000 });
+              if (trace && journal) {
+                await expect(table.locator('.table-surface')).toBeVisible({ timeout: 30_000 });
+                trace.mark('felt-visible');
+                await expect(table.locator('.seat__avatar-img').first()).toBeVisible({
+                  timeout: 30_000,
+                });
+                await expect(table.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+                trace.mark('occupied-felt-uncovered');
+                const query = {
+                  direction: 'received' as const,
+                  tableId: candidate.id,
+                  type: 'SNAPSHOT',
+                };
+                const snapshot =
+                  journal.matchingFrames({ ...query, since: trace.start })[0] ??
+                  (view
+                    ? journal.matchingFrames({ ...query, since: lobbyDocumentSince }).at(-1)
+                    : undefined) ??
+                  (await journal.waitForFrame(
+                    { ...query, since: trace.start },
+                    CONNECT_DEADLINE_MS,
+                    'No authoritative table snapshot'
+                  ));
+                console.log(
+                  '[393px-snapshot]',
+                  JSON.stringify({
+                    tableId: candidate.id,
+                    entry: view ? 'click' : 'document',
+                    at: snapshot.at,
+                    elapsedMs: snapshot.at - trace.start,
+                  })
+                );
+              }
+              await expect(page.getByTestId('table-connection-banner')).toBeHidden({
+                timeout: 30_000,
+              });
+              trace?.mark('connected-table-visible');
+            });
+            const capacity = await table.getAttribute('data-seats');
+            if (phoneWidth === 393) {
+              await testInfo.attach(`393px-navigation-${candidate.id}`, {
+                contentType: 'application/json',
+                body: JSON.stringify({ tableId: candidate.id, capacity, committed: true }),
+              });
+            }
+            if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
+            await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
+            await certifyMobileLiveTableLayout(page, testInfo, {
+              requireAvatarGrowth: true,
+              spectator: true,
+            });
+            capacities.add(capacity);
+            if (capacities.size === 2) break;
+          } finally {
+            trace?.stop();
+            if (trace)
+              console.log(
+                '[393px-timing]',
+                JSON.stringify({
+                  tableId: candidate.id,
+                  entry: view ? 'click' : 'document',
+                  start: trace.start,
+                  events: trace.events,
+                })
+              );
+            if (trace)
+              await testInfo.attach(`393px-timing-${candidate.id}`, {
+                contentType: 'application/json',
+                body: JSON.stringify(trace.events),
+              });
+          }
+        }
+        if (journal) {
+          expect(measuredClick, 'measured a real lobby spectator action').toBe(true);
+          const tableId = new URL(page.url()).pathname.split('/').filter(Boolean).at(-1)!;
+          const banner = page.getByTestId('table-connection-banner');
+          await page.context().setOffline(true);
+          try {
+            await expect(banner).toBeVisible({ timeout: CONNECT_DEADLINE_MS });
+          } finally {
+            await page.context().setOffline(false);
+          }
+          await expect(banner).toBeHidden({ timeout: CONNECT_DEADLINE_MS });
+          const previousSockets = journal.transportIdsOpenAt(Date.now());
+          const reload = traceTableNavigation(page, tableId, 'reload');
+          try {
+            const oldDocument = await page.evaluate(() => performance.timeOrigin);
+            const response = await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+            expect(response?.ok()).toBe(true);
+            expect(await page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(oldDocument);
+            expect(new URL(page.url()).pathname).toMatch(new RegExp('/table/' + tableId + '/?$'));
+            await expect
+              .poll(
+                () =>
+                  journal
+                    .matchingFrames({
+                      direction: 'received',
+                      tableId,
+                      type: 'SNAPSHOT',
+                      since: reload.start,
+                    })
+                    .some((frame) => !previousSockets.includes(frame.socketId)),
+                { timeout: CONNECT_DEADLINE_MS, message: 'Missing new-document table snapshot' }
+              )
+              .toBe(true);
+            const table = page.locator('.table-page:visible').first();
+            await expect(table.locator('.table-surface')).toBeVisible({ timeout: 30_000 });
+            await expect(table.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+            await expect(banner).toBeHidden();
+            reload.mark('connected-after-reload');
+          } finally {
+            reload.stop();
+            await testInfo.attach('393px-reload', {
+              contentType: 'application/json',
+              body: JSON.stringify({ tableId, events: reload.events }),
+            });
+          }
+        }
+        expect(mutations, 'Layout observation must never participate in a live game').toEqual([]);
+        expect(
+          [...capacities].sort(),
+          'Both occupied table layouts require live screenshot proof'
+        ).toEqual(['6', '9']);
+      });
     });
   }
 
@@ -2400,16 +2779,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       // Discovery races witnesses from every cash tab and leaves the last tab
       // active. Restore the winner's tab before looking for its read-only action.
       await selectCashLobbyTab(page, engineBeforeNavigation.selected.tabName);
-      const row = page.locator(`[data-testid="lobby-game-row"][data-id="${candidate.id}"]`);
-      if (await row.isVisible()) {
-        await row.getByRole('button', { name: /^Details:/ }).click();
-      }
-      const card = page.locator(
-        `[data-testid="arena-lobby-game-card"][data-kind="cash"][data-id="${candidate.id}"]`
-      );
-      const view = (await row.isVisible())
-        ? page.getByRole('dialog').getByRole('button', { name: CASH_SPECTATOR_ACTION })
-        : card.getByRole('button', { name: CASH_SPECTATOR_ACTION });
+      const view = await cashSpectatorAction(page, candidate.id);
       await expect(
         view,
         `occupied table ${candidate.name} lost its visible read-only View/Watch Table or Game action`
@@ -2616,6 +2986,20 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
          Prove action/street progress, completion, automatic next-hand start,
          and presentation of that next hand. */
         await startBoardInterval('before-outage');
+        // A background preload must not tear down a working mobile table.
+        // This fault is local to this reserved spectator's browser; no asset
+        // or production game state changes. The natural hand cycle below is
+        // the observation interval, and must still arrive on this same DOM.
+        const originalTable = await page.locator('.table-page').elementHandle();
+        const preloadFaultUrl = new URL('assets/session-continuity-probe.css', page.url()).href;
+        await page.route(preloadFaultUrl, (route) =>
+          route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not Found' })
+        );
+        await page.evaluate((href) => {
+          const event = new Event('vite:preloadError', { cancelable: true });
+          Object.assign(event, { payload: new Error(`Unable to preload CSS for ${href}`) });
+          window.dispatchEvent(event);
+        }, preloadFaultUrl);
         const initialProgressStartedAt = Date.now();
         const initialCycle = await whileConnectionBannerStaysHidden(
           page,
@@ -2628,6 +3012,18 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           ),
           'live gameplay before the outage'
         );
+        expect(
+          await originalTable!.evaluate((table) => table === document.querySelector('.table-page')),
+          'a background CSS failure replaced the live mobile table'
+        ).toBe(true);
+        await originalTable!.dispose();
+        await page.unroute(preloadFaultUrl);
+        await testInfo.attach('mobile-preload-session-continuity', {
+          body: Buffer.from(
+            JSON.stringify({ sameMountedTable: true, tableId, fault: 'optional-css' })
+          ),
+          contentType: 'application/json',
+        });
         expect(initialCycle.maxObservedSilenceMs).toBeLessThanOrEqual(MAX_GAMEPLAY_SILENCE_MS);
         await expectNextHandPresentation(page, initialCycle, 'live gameplay before the outage');
         await expect(banner).toBeHidden();
@@ -2747,9 +3143,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           await expect(banner).toBeHidden();
           await expectNoOpponentHud(page);
           // Layout proof follows continuity; its UI reads do not extend any hand deadline.
-          testInfo.setTimeout(testInfo.timeout + 45_000);
+          testInfo.setTimeout(testInfo.timeout + 90_000);
           await certifyMobileAwardJournal(page, testInfo);
-          await certifyMobileLiveTableLayout(page, testInfo);
+          await certifyMobileLiveTableLayout(page, testInfo, { requireAvatarGrowth: true });
           // The two existing natural hand cycles are the source of these events.
           // Never synthesize a frame, buy in, seat, or render an opponent HUD.
           const baselineReceipts = new Set<string>(statsBefore.cache?.receipts ?? []);
@@ -2874,7 +3270,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           // Reuse only these existing connected observations; reload begins a new owner.
           await stopHorsePaints();
           await stopBoardInterval();
-          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+          await reloadWithWorkerTiming(page, testInfo);
           await expect(page.locator('.table-surface')).toBeVisible({ timeout: 20_000 });
           let afterReload: Awaited<ReturnType<typeof assertPublicStatsCache>> | undefined;
           await expect(async () => {

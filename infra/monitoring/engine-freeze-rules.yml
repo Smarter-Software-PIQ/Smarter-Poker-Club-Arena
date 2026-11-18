@@ -415,7 +415,8 @@ groups:
         # current hands by those historical tables falsely diagnosed slow
         # dealing. Use the existing live liveness denominator, averaged over
         # the same five-minute interval as hands, and its current fleet-size
-        # gate. HorseFleetCollapsed independently covers too few live tables.
+        # gate. HorseFleetCollapsed independently covers a floor with no live
+        # table at all (2026-11-11: a small owner-planned floor is not a collapse).
         expr: |
           (
             sum(increase(poker_hands_dealt_total[5m])) / 5

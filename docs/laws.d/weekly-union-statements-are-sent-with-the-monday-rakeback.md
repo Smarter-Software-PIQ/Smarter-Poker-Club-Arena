@@ -1,0 +1,3 @@
+# tests/weekly-union-statements-are-sent-with-the-monday-rakeback.law.test.ts
+
+Dan, 2026-11-14: the union must calculate and send each club's weekly invoice (what it owes or is owed) as part of the automatic weekly rakeback, and the union must be able to see it. The law pins that union square-ups and credit notes go through Messenger delivery (the union's own hub row stays record-only) and are listed in the inbox, that the union's weekly close runs on payout day after the round runner releases (the same chunked tick job 272 runs, every two minutes, at most twelve hours), that the union owner is notified of every club's position when round 4 records, and that the weekly horse promo leaves a receipt without changing its payment.

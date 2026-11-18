@@ -298,8 +298,14 @@ export function topUpAllowance(args: {
   const { bankroll, investedThisTable, desired, refBuyIn, minBuyIn, maxBuyIn, policy } = args;
   if (!(desired > 0) || !(bankroll > 0)) return 0;
 
-  // The stop-loss owns this decision before the arithmetic does.
+  // The stop-loss owns this decision before the arithmetic does, and a reload
+  // may never push cumulative session investment past the stop-loss ceiling
+  // (accounting for 200bb-max tables where one full stack is `maxBuyIn`).
   if (investedThisTable >= refBuyIn * policy.stopLossBuyIns) return 0;
+  const stopLossCeiling =
+    Math.max(refBuyIn, maxBuyIn) + refBuyIn * Math.max(0, policy.stopLossBuyIns - 1);
+  const stopLossHeadroom = stopLossCeiling - investedThisTable;
+  if (stopLossHeadroom <= 0) return 0;
 
   // Total exposure to ONE table is capped at the same share a single buy-in
   // is, so reloads cannot walk past the ceiling one step at a time.
@@ -307,7 +313,7 @@ export function topUpAllowance(args: {
   const headroom = exposureCap - investedThisTable;
   if (headroom <= 0) return 0;
 
-  const allowed = Math.min(desired, headroom, maxBuyIn);
+  const allowed = Math.min(desired, headroom, stopLossHeadroom, maxBuyIn);
   if (allowed <= 0) return 0;
 
   // After paying for it, can the horse still afford to be in this game?

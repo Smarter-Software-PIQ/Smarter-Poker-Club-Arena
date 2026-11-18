@@ -132,15 +132,13 @@ describe('the Trade record prints a treasury-funded seat as a Club Bank send', (
   it('reads word for word like a human Club Bank send the viewer was not party to', async () => {
     mockClub([horseRow, humanRow]);
     await openRecord();
-    expect(await screen.findByText('Transfer Club Bank To Midnight Run')).toBeInTheDocument();
-    expect(screen.getByText('Transfer Club Bank To Night Owl')).toBeInTheDocument();
-    // Both rows carry the same kind and route, and nothing names a horse or
-    // the admin who pressed the human send.
+    expect(await screen.findByText('Club Bank Paid Midnight Run')).toBeInTheDocument();
+    expect(screen.getByText('Club Bank Paid Night Owl')).toBeInTheDocument();
+    // Both rows carry the same route (Dan 2026-11-13: the sub line is the
+    // route and time; the kind is on the receipt), and nothing names a horse
+    // or the admin who pressed the human send.
     const subs = screen.getAllByText((_, el) =>
-      Boolean(
-        el?.textContent?.startsWith('Club Bank Send') &&
-        el.textContent.includes('Club Bank To Player Wallet')
-      )
+      Boolean(el?.textContent?.startsWith('Club Bank To Player Wallet'))
     );
     expect(subs.length).toBeGreaterThanOrEqual(2);
     expect(document.body.textContent).not.toMatch(/horse/i);
@@ -177,10 +175,10 @@ describe('the Trade record prints a treasury-funded seat as a Club Bank send', (
       'true'
     );
     expect(
-      await screen.findByRole('button', { name: /Chip Movement Club Bank To Midnight Run/ })
+      await screen.findByRole('button', { name: /Open Receipt For Club Bank Paid Midnight Run/ })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /Chip Movement Club Bank To Night Owl/ })
+      screen.getByRole('button', { name: /Open Receipt For Club Bank Paid Night Owl/ })
     ).toBeInTheDocument();
     // Repeated Enter refreshes the same book, rather than doing nothing.
     const before = vi
@@ -199,7 +197,7 @@ describe('the Trade record prints a treasury-funded seat as a Club Bank send', (
     mockClub([horseRow, humanRow]);
     await openRecord();
     fireEvent.click(
-      await screen.findByRole('button', { name: /Chip Movement Club Bank To Midnight Run/ })
+      await screen.findByRole('button', { name: /Open Receipt For Club Bank Paid Midnight Run/ })
     );
     expect(
       await screen.findByText("The Club Bank Sent 500 To Midnight Run's Player Wallet")

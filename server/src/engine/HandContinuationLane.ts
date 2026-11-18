@@ -1,8 +1,19 @@
 import type { HandEvent } from '../types.js';
 import type { TimeBankEvent } from './TimeBankEngine.js';
+import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
 export type ContinuationEvent =
   | HandEvent
   | { type: 'CONTINUATION_TIME_BANK'; event: TimeBankEvent };
+
+function cloneContinuationEvent(event: ContinuationEvent): ContinuationEvent {
+  const copy = structuredClone(event);
+  // Retention and dispatch each detach the public event. Carry live private
+  // metadata by identity without adding it to the durable or public payload.
+  // A deserialized original has no receipt and deliberately stays unknown.
+  if (event.type === 'PLAYER_ACTION' && copy.type === 'PLAYER_ACTION' && copy.record)
+    carryHorseTurnClock(event.record, copy.record);
+  return copy;
+}
 export interface ContinuationEventIdentity {
   sequence: number;
   index: number;
@@ -107,7 +118,7 @@ export class HandContinuationLane {
   enqueue(event: ContinuationEvent): void {
     if (this.closed || this.failed || !this.current())
       throw new Error('Hand Continuation Is Fenced');
-    this.pending.push(structuredClone(event));
+    this.pending.push(cloneContinuationEvent(event));
     if (this.scheduled) return;
     this.scheduled = true;
     queueMicrotask(() => this.captureBatch());
@@ -159,7 +170,7 @@ export class HandContinuationLane {
           for (const waiter of ready) waiter.resolve();
           for (const [index, event] of batch.events.entries()) {
             if (this.closed || !this.current()) throw new Error('Hand Continuation Is Fenced');
-            await this.dispatch(structuredClone(event), { sequence, index });
+            await this.dispatch(cloneContinuationEvent(event), { sequence, index });
           }
           // A snapshot requested during retention deliberately has no input
           // capability. When this original lane becomes ready, let its owner

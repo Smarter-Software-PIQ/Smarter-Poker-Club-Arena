@@ -136,7 +136,7 @@ describe('restart history pages retain every tied hand identity', () => {
       Array.from({ length: 2500 }, (_, i) => uuid(i))
     );
     expect(queries[0]).toMatchObject({
-      select: 'id, table_id, hand_number, actions, created_at',
+      select: 'id, table_id, hand_number, actions, created_at, game_variant',
       orders: ['created_at', 'id'],
       limit: 1000,
       since: '2026-09-09T18:00:00.000Z',
@@ -295,5 +295,30 @@ describe('restart replay names the actual retained hand without widening legacy 
       handNumber: 1000001,
     });
     expect(stored).toEqual(before);
+  });
+  it('hands each replayed hand its betting structure (FIXED-LIMIT BETS ARE NEVER PROBES)', async () => {
+    // The switch lives in HorseMind (mocked here); the counter's behaviour per
+    // structure is pinned in AFixedLimitBetIsNeverAProbe.law.test.ts. This pins
+    // that the boot replay, like the live learners, names the structure.
+    source([], () => ({
+      data: [
+        { ...row(3), game_variant: 'nlh' },
+        { ...row(2), game_variant: 'flo8' },
+        { ...row(1), game_variant: 'flh' },
+      ],
+      error: null,
+    }));
+    await hydrateHorseMind();
+    expect(mock.observe.mock.calls.map((call) => call[5])).toEqual([
+      'fixed_limit',
+      'fixed_limit',
+      'no_limit',
+    ]);
+    // A row without a variant keeps the old (not fixed-limit) counting.
+    mock.observe.mockReset();
+    queries = [];
+    source([row(4)]);
+    await hydrateHorseMind();
+    expect(mock.observe.mock.calls[0][5]).toBe('no_limit');
   });
 });

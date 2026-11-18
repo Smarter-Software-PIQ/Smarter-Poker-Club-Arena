@@ -41,8 +41,15 @@ import React, {
   useLayoutEffect,
   useMemo,
   Suspense,
+  type CSSProperties,
 } from 'react';
-import { matchPath, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  matchPath,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useSearchParams,
+} from 'react-router-dom';
 import { TableTabBar, type TabInfo } from '../components/table/TableTabBar';
 /* #ClubArenaConsole: this page's cards, sheets and states print into Dan's
    approved master rather than drawing a frame in CSS. See
@@ -86,9 +93,12 @@ import {
   LOBBY_TAB_PREFIX,
   isLobbyLike,
   isPageTab,
+  findTournamentSeatTab,
+  followTournamentMoves,
   isTournamentRow,
   pickObserveSlot,
   pruneStaleSeatedTabs,
+  supersededTournamentSeats,
 } from '../utils/tabSlots';
 import {
   hubTabSubtitle,
@@ -111,6 +121,7 @@ import {
   restoreLobbyPage,
   type LobbyPageSnapshot,
 } from '../utils/lobbyPageHistory';
+import { decideLobbyOffRoute } from '../utils/lobbyOffRoute';
 import { useUserStore } from '../stores/useUserStore';
 import { TableErrorBoundary } from '../components/common/TableErrorBoundary';
 import { betSliderStep, sliderUnitFor } from '../components/table/ActionPanel';
@@ -135,6 +146,7 @@ import {
   getLightningPoolSession,
   getLightningEntryIntent,
   registerLightningPoolSession,
+  useLightningPoolSession,
 } from '../lightning/lightningSession';
 import { resolveLightningSeatRooms } from '../lightning/lightningSeatRecovery';
 import { anchorsShownByOpenRooms } from '../lightning/lightningAnchorTabs';
@@ -167,6 +179,13 @@ const TournamentDetails = lazyWithRetry(() => import('./tournament/TournamentDet
 interface TableInstance {
   followPlayer?: FollowTournamentPlayer;
   id: string;
+  /**
+   * The tournament this table belongs to (absent for cash). It is how every
+   * seat path recognises a balance move as the SAME chair moving - see
+   * findTournamentSeatTab in utils/tabSlots.ts. Set by the tab factories that
+   * read the table row and reported by TablePage.
+   */
+  tournamentId?: string;
   name: string;
   stakes: string;
   isMyTurn: boolean;
@@ -185,8 +204,6 @@ interface TableInstance {
    * updateTableInfo's shallow !== bail-out keeps working (P1-2 fix).
    */
   holeCards?: string;
-  /** Hero's last action this street at this table ('fold', 'call', ...). */
-  lastAction?: string;
   /** Live Bad Beat Jackpot pool at this table (0/undefined = no BBJ). */
   jackpot?: number;
   /** Hero folded this hand (tab dims). */
@@ -247,8 +264,16 @@ interface TableInstance {
   /** TablePage's `seatCanAddFunds` answer; the tab bar drops its Top Up items
    *  on `false`. Reported, never derived here: this page cannot see the arena. */
   canAddFunds?: boolean;
+  seatChangeEnabled?: boolean;
+  seatChangeOffInLightning?: boolean;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
+  standUpNextBB?: boolean;
+  straddleAvailable?: boolean;
+  straddleEnabled?: boolean;
+  straddleBusy?: boolean;
+  heroSeated?: boolean;
+  leaveNextHandQueued?: boolean;
   /** Dan 2026-08-21: short game code the tab shows when no hand is live
    *  (NLH / PLO5 / SPIN / MTT / HU). Best-effort at first paint, replaced by
    *  TablePage's authoritative value the moment it loads. */
@@ -369,6 +394,27 @@ interface TableInstance {
   /** undefined uses the home club; null displays the shared arena selector. */
   lobbyClubId?: string | null;
   lobbyPageHistory?: LobbyPageSnapshot[];
+  /**
+   * THE PAGE THIS LOBBY TAB IS ON, WHEN THAT PAGE IS A ROUTE OF ITS OWN
+   * (Dan 2026-11-13).
+   *
+   * Dan, verbatim: "WHEN I CLICK ON A + BUTTON AND GO TO THE LOBBY. THEN
+   * SELECT ANYTHING LIKE PLAYER MANAGEMENT... THEN GO BACK AND VIEW ANOTHER
+   * OPEN TAB... BUT GO BACK TO 'LOBBY TAB' AND ITS NO LONGER PLAYER
+   * MANAGEMENT IT DEFAULTS BACK TO THE GAME LOBBY... KEEP IT ON THE EXACT
+   * PAGE YOU LEFT IT ON".
+   *
+   * Player Management, Club Data, the cashier and every other club page are
+   * real routes (`/clubs/:id/members`, ...), not in-tab renderers. Opening
+   * one from the lobby tab hides this container and the pinned strip keeps
+   * the Lobby pill lit, but nothing remembered that the pill now meant that
+   * page: tapping it again borrowed a table URL and painted the club's game
+   * lobby. This is the pathname + search the tab was last showing off-route,
+   * so selecting the pill goes back to it. Cleared the moment the tab shows
+   * its own in-tab lobby again (Back out of the page, "+" Lobby, a swipe),
+   * because then the game lobby IS the page the player left it on.
+   */
+  lobbyOffRoutePath?: string;
 }
 
 /**
@@ -422,6 +468,36 @@ const popLobbyTournament = (t: TableInstance): TableInstance => {
  */
 const tabIsTournament = (t: TableInstance | undefined): boolean =>
   !!t && (t.isTournament === true || isTournamentGameCode(t.gameCode));
+
+/**
+ * THE TAB FOLLOWS THE CHAIR: `current` becomes `dest`, in place. Every move
+ * path builds the moved tab here so none of them can drop what the next move
+ * needs to recognise it - a re-pointed tab that lost `seated` was no longer
+ * the player's chair to the following move, which then opened a new tab and
+ * left this one behind as an observer.
+ */
+const moveSeatTab = (
+  current: TableInstance,
+  dest: string,
+  patch: Partial<TableInstance> = {}
+): TableInstance => ({
+  id: dest,
+  kind: 'table',
+  name: current.name,
+  stakes: current.stakes,
+  isMyTurn: false,
+  pot: 0,
+  ...(current.seated === true ? { seated: true } : {}),
+  clusterId: current.clusterId,
+  gameCode: current.gameCode,
+  isTournament: tabIsTournament(current),
+  tournamentId: current.tournamentId,
+  tournamentBuyIn: current.tournamentBuyIn,
+  tournamentBuyInLabel: current.tournamentBuyInLabel,
+  tournamentName: current.tournamentName,
+  ...(tabIsTournament(current) ? { arrivedByMoveAt: Date.now() } : {}),
+  ...patch,
+});
 
 const clearLobbyTournaments = (t: TableInstance): TableInstance => ({
   ...t,
@@ -558,6 +634,9 @@ const makeHubTab = (path: string): TableInstance => ({
 /** What the swipe handlers read from a touch event - the part React's synthetic
  *  TouchEvent and the DOM's own TouchEvent have in common. */
 type SwipeTouchEvent = { touches: ArrayLike<{ clientX: number; clientY: number }> };
+
+/** How a lobby tab holding a page of its own hides its mounted game lobby. */
+const HELD_LOBBY_STYLE: CSSProperties = { visibility: 'hidden' };
 
 /** A fresh, empty lobby tab (the club lobby, no drill-in). */
 const makeLobbyTab = (): TableInstance => ({
@@ -963,6 +1042,8 @@ export default function MultiTablePage() {
     tableId: string;
     registrationLobbyTabId?: string;
     tableName?: string;
+    /** Present for a tournament seat: lets a balance move re-point its tab. */
+    tournamentId?: string;
     seat?: number;
     userId?: string; // FIX: added so we can filter to own events only
   }
@@ -1129,7 +1210,7 @@ export default function MultiTablePage() {
       try {
         const { data: seatRows, error: seatErr } = await supabase
           .from('table_seats')
-          .select('table_id')
+          .select('table_id, joined_at')
           .eq('user_id', user.id)
           .is('left_at', null);
         if (!isCurrent() || seatErr || !Array.isArray(seatRows)) return;
@@ -1167,7 +1248,24 @@ export default function MultiTablePage() {
             .map((tab) => tab.id)
         );
         const visibleAnchors = anchorRows.filter((row) => !isRetiredTournamentTable(row));
-        ids = ids.filter((id) => visibleAnchors.some((row) => row.id === id));
+        /* ONE TOURNAMENT, ONE CHAIR (owner 2026-11-14). A balance move writes
+           the destination chair before it closes the source, so a read in
+           that window returns both. The older one is the move's source, not a
+           second table to open: only the newest live seat per tournament is
+           the player's chair, and the fold below re-points its tab. */
+        const superseded = supersededTournamentSeats(
+          seatRows.map((row) => ({
+            tableId: row.table_id as string,
+            tournamentId: visibleAnchors.find((r) => r.id === row.table_id)?.tournament_id as
+              | string
+              | null
+              | undefined,
+            joinedAt: (row as { joined_at?: string | null }).joined_at,
+          }))
+        );
+        ids = ids.filter(
+          (id) => visibleAnchors.some((row) => row.id === id) && !superseded.has(id)
+        );
         const recovered = await resolveLightningSeatRooms(visibleAnchors, undefined, keepAnchors);
         if (!isCurrent()) return;
         recovered.rooms.forEach((room) => registerLightningPoolSession(room));
@@ -1176,8 +1274,17 @@ export default function MultiTablePage() {
           visibleAnchors.map((row, index) => [row.id, tblRows[index].id])
         );
         ids = ids.map((id) => restoredIds.get(id) ?? id);
+        const tournamentOfRow = (id: string) =>
+          (tblRows.find((row) => row.id === id)?.tournament_id as string | null | undefined) ??
+          undefined;
+        const tabTournament = (tab: TableInstance) => tab.tournamentId ?? tournamentOfRow(tab.id);
+        const chairs = ids.map((id) => ({ tableId: id, tournamentId: tournamentOfRow(id) }));
+        // A chair that moved is re-pointed below, not closed: it gets no toast.
+        const movedChairIds = new Set(
+          followTournamentMoves(tablesRef.current, chairs, (tab) => tab, tabTournament).movedFrom
+        );
         const previousSeatedIds = tablesRef.current
-          .filter((tab) => isTableTab(tab) && tab.seated === true)
+          .filter((tab) => isTableTab(tab) && tab.seated === true && !movedChairIds.has(tab.id))
           .map((tab) => tab.id);
         // Publish a durable finish before pruning can unmount TablePage and
         // cancel its delayed elimination report. A balancer move publishes none.
@@ -1192,7 +1299,20 @@ export default function MultiTablePage() {
         setTables((prev) => {
           if (!isCurrent()) return prev;
           const liveSeatIds = new Set([...ids, ...retainedReportTabs]);
-          const survivors = pruneStaleSeatedTabs(prev, liveSeatIds);
+          const followed = followTournamentMoves(
+            prev,
+            chairs,
+            (tab, dest) => {
+              const row = tblRows.find((r) => r.id === dest);
+              return moveSeatTab(tab, dest, {
+                seated: true,
+                tournamentId: tournamentOfRow(dest),
+                ...(row?.name ? { name: formatGameTitle(row.name as string) || tab.name } : {}),
+              });
+            },
+            tabTournament
+          );
+          const survivors = pruneStaleSeatedTabs(followed.tabs, liveSeatIds);
           const known = new Set(survivors.map((t) => t.id));
           const room = Math.max(0, MAX_TABLES - survivors.length);
           /* Lightning: an anchor seat whose room tab is open is already shown
@@ -1259,6 +1379,7 @@ export default function MultiTablePage() {
                 maxPlayers: row?.max_players as number | undefined,
               }),
               isTournament: rowIsTournament,
+              tournamentId: (row?.tournament_id as string | null | undefined) ?? undefined,
               isMyTurn: false,
               pot: 0,
               // Dan 2026-08-30: `kind` was omitted here, and the prune below
@@ -1297,12 +1418,17 @@ export default function MultiTablePage() {
           const prunedCount = prev.length - survivors.length;
           // A bare URL can already own a tab when its first seat read succeeds.
           // Carry that confirmed admission so a later rebuild can reconcile it.
+          // The confirmation also names the tab's tournament, so a later move
+          // of this chair is recognised by every path (see moveSeatTab).
           const confirmed = survivors.map((tab) =>
-            liveSeatIds.has(tab.id) && isTableTab(tab) && tab.seated !== true
-              ? { ...tab, seated: true }
+            liveSeatIds.has(tab.id) &&
+            isTableTab(tab) &&
+            (tab.seated !== true || (!tab.tournamentId && tournamentOfRow(tab.id)))
+              ? { ...tab, seated: true, tournamentId: tab.tournamentId ?? tournamentOfRow(tab.id) }
               : tab
           );
           if (
+            followed.movedFrom.length === 0 &&
             prunedCount === 0 &&
             additions.length === 0 &&
             confirmed.every((tab, index) => tab === prev[index])
@@ -1586,6 +1712,7 @@ export default function MultiTablePage() {
                         tournamentBuyIn: t.tournamentBuyIn,
                         tournamentBuyInLabel: t.tournamentBuyInLabel,
                         tournamentName: t.tournamentName,
+                        tournamentId: tourId ?? undefined,
                       }
                     : t
                 )
@@ -1661,9 +1788,28 @@ export default function MultiTablePage() {
       }
 
       if (existing) {
-        return existing.seated
+        return existing.seated && (!e.tournamentId || existing.tournamentId)
           ? prev
-          : prev.map((t) => (t.id === e.tableId ? { ...t, seated: true } : t));
+          : prev.map((t) =>
+              t.id === e.tableId
+                ? { ...t, seated: true, tournamentId: t.tournamentId ?? e.tournamentId }
+                : t
+            );
+      }
+
+      /* A seat in a tournament this player already sits in is that chair
+         being balanced, whichever source reported it first: re-point the
+         chair's tab in place and never add one (owner 2026-11-14). */
+      const chairIndex = findTournamentSeatTab(prev, e.tableId, e.tournamentId);
+      if (chairIndex >= 0) {
+        return prev.map((t, index) =>
+          index === chairIndex
+            ? moveSeatTab(t, e.tableId, {
+                seated: true,
+                ...(e.tableName ? { name: formatGameTitle(e.tableName) || t.name } : {}),
+              })
+            : t
+        );
       }
 
       const seatedTab: TableInstance = {
@@ -1674,6 +1820,7 @@ export default function MultiTablePage() {
         pot: 0,
         kind: 'table',
         seated: true,
+        ...(e.tournamentId ? { tournamentId: e.tournamentId, isTournament: true } : {}),
       };
 
       // Seat events never consume a page the player still has open.
@@ -1808,6 +1955,68 @@ export default function MultiTablePage() {
       if (!openIds.has(id)) lobbyReturnTabRef.current.delete(id);
     }
   }, [visibleTabId, hidden]);
+
+  /**
+   * ─── A LOBBY TAB KEEPS THE PAGE IT WAS LEFT ON (Dan 2026-11-13) ─────────
+   *
+   * See `lobbyOffRoutePath`. The rules (record, restore by any gesture,
+   * clear) are a pure decision in `src/utils/lobbyOffRoute.ts`, pinned by
+   * `tests/a-lobby-tab-keeps-the-page-it-was-left-on.law.test.ts`; this
+   * layout effect only applies it, before paint, after every commit.
+   */
+  const navigationType = useNavigationType();
+  const pendingOffRouteTabIdRef = useRef<string | null>(null);
+  const pendingOffRouteFromRef = useRef<string | null>(null);
+  const offRoutePrevRef = useRef<{ hidden: boolean; tabId: string | null }>({
+    hidden,
+    tabId: null,
+  });
+  const offRoutePath = `${location.pathname}${location.search}`;
+  useLayoutEffect(() => {
+    const tabs = tablesRef.current;
+    const decision = decideLobbyOffRoute({
+      hidden,
+      path: offRoutePath,
+      tabs: tabs.map((t) => ({
+        id: t.id,
+        isLobby: isLobbyTab(t),
+        lobbyOffRoutePath: t.lobbyOffRoutePath,
+      })),
+      activeIndex: activeIndexRef.current,
+      pendingTabId: pendingOffRouteTabIdRef.current,
+      pendingFromPath: pendingOffRouteFromRef.current,
+      prev: offRoutePrevRef.current,
+      navigationType,
+    });
+    offRoutePrevRef.current = decision.nextPrev;
+    if (decision.consumePending) pendingOffRouteTabIdRef.current = null;
+    if (decision.focusIndex !== null) {
+      activeIndexRef.current = decision.focusIndex;
+      setActiveIndex(decision.focusIndex);
+    }
+    if (decision.restore) {
+      const { restore } = decision;
+      if (restore.revertIndex !== null) {
+        activeIndexRef.current = restore.revertIndex;
+        setActiveIndex(restore.revertIndex);
+      }
+      pendingOffRouteTabIdRef.current = restore.tabId;
+      pendingOffRouteFromRef.current = offRoutePath;
+      navigate(restore.path);
+    }
+    const { record, clear } = decision;
+    if (record || clear.length > 0) {
+      setTables((all) =>
+        all.map((t) =>
+          record && t.id === record.tabId
+            ? { ...t, lobbyOffRoutePath: record.path }
+            : clear.includes(t.id)
+              ? { ...t, lobbyOffRoutePath: undefined }
+              : t
+        )
+      );
+    }
+  }, [hidden, offRoutePath, activeIndex, tables, navigationType, navigate]);
 
   useMasterBusSubscription('OPEN_LOBBY_TAB', () => {
     const prev = tablesRef.current;
@@ -2092,13 +2301,9 @@ export default function MultiTablePage() {
     setVisiblePokerTable(visiblePokerTableId);
     return () => setVisiblePokerTable(null);
   }, [visiblePokerTableId]);
-  /* THE LOBBY BUTTON (Dan 2026-09-05): "THE LOBBY RECTANGLE, NEEDS TO MOVE TO
-     ... WHERE THE '4 SQUARE' BOX IS IN THE ACTION PILL AREA. AND SAY 'LOBBY'
-     ON IT. (4 SQUARE BUTTON SHOULD BE TO THE LEFT OF IT)." Only a table that
-     belongs to a must-move game has a lobby to open, so the button appears
-     only for one - reported by TablePage as `clusterId` because this row is
-     drawn out here, where the felt's own state is not reachable. */
-  const activeClusterId = tables[activeIndex]?.clusterId || '';
+  // A Lightning room is keyed by pool session. Its game lobby belongs to the cluster.
+  const activeLightningRoom = useLightningPoolSession(activeTableId);
+  const activeClusterId = activeLightningRoom?.clusterId ?? tables[activeIndex]?.clusterId;
   /* THE SAME CORNER SERVES TOURNAMENTS (Dan 2026-11-01): "THE LOBBY BUTTON IS
      100% ALWAYS SUPPOSED TO BE IN THE RIGHT CORNER IN THE ACTION BAR AT THE
      TOP, NOT RANDOMLY INSIDE THE POKER TABLE PAGE." A tournament tab shows
@@ -2108,6 +2313,11 @@ export default function MultiTablePage() {
     !!tables[activeIndex] &&
     isTableTab(tables[activeIndex]) &&
     tabIsTournament(tables[activeIndex]);
+  const tableLobbyTitle = activeIsTournament
+    ? 'Tournament Lobby'
+    : activeLightningRoom
+      ? 'Game Lobby'
+      : 'Must Move Lobby';
 
   // 2026-08-15 multi-table fix: the tab countdown ticks off the server
   // deadline. One 1s clock runs only while some table has a live turn.
@@ -2175,7 +2385,6 @@ export default function MultiTablePage() {
           pot: t.pot,
           handNumber: t.handNumber,
           holeCards: t.holeCards,
-          lastAction: t.lastAction,
           folded: t.folded,
           handResult: t.handResult,
           sittingOut: t.sittingOut,
@@ -2191,8 +2400,16 @@ export default function MultiTablePage() {
              nothing else. */
           seated: t.seated,
           canAddFunds: t.canAddFunds,
+          seatChangeEnabled: t.seatChangeEnabled,
+          seatChangeOffInLightning: t.seatChangeOffInLightning,
           buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
+          standUpNextBB: t.standUpNextBB,
+          straddleAvailable: t.straddleAvailable,
+          straddleEnabled: t.straddleEnabled,
+          straddleBusy: t.straddleBusy,
+          heroSeated: t.heroSeated,
+          leaveNextHandQueued: t.leaveNextHandQueued,
           /* Dan 2026-10-04: a tournament tab prints its buy-in, never its
              blinds or a pot. The bar decides; it only needs to be told. */
           isTournament: t.isTournament,
@@ -2496,10 +2713,16 @@ export default function MultiTablePage() {
             masterBus.emit('TABLE_MENU_ACTION', { tableId: tabId, action: 'FORCE_LEAVE_TABLE' });
             break;
           }
-          if (remaining.length === 0) {
-            const club = homeClubIdRef.current;
-            const dest = club ? `/clubs/${club}` : '/';
-            if (pathnameRef.current !== dest) navigate(dest);
+          if (tablesRef.current[activeIndexRef.current]?.id === tabId) {
+            const next = remaining.find(isTableTab);
+            if (next) {
+              setActiveIndex(tablesRef.current.indexOf(next));
+              navigate(`/table/${next.id}${tableQuery(next)}`, { replace: true });
+            } else {
+              const club = homeClubIdRef.current;
+              const dest = club ? `/clubs/${club}` : '/';
+              if (pathnameRef.current !== dest) navigate(dest);
+            }
           }
           // The secure cashout path - the owning TablePage handles teardown.
           masterBus.emit('TABLE_MENU_ACTION', { tableId: tabId, action: 'FORCE_LEAVE_TABLE' });
@@ -2794,6 +3017,20 @@ export default function MultiTablePage() {
     (tabId: string) => {
       const idx = tables.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
+      const selected = tables[idx];
+      /* A lobby tab left on a club page (Player Management, Club Data, ...)
+         goes back to that page, not to the game lobby (Dan 2026-11-13). The
+         pill is focused by the off-route effect once the route has left
+         /table/*, so the in-tab lobby never paints on the way. */
+      if (isLobbyTab(selected) && selected.lobbyOffRoutePath) {
+        const here = `${location.pathname}${location.search}`;
+        if (selected.lobbyOffRoutePath === here) return;
+        pendingOffRouteTabIdRef.current = selected.id;
+        pendingOffRouteFromRef.current = here;
+        navigate(selected.lobbyOffRoutePath);
+        return;
+      }
+
       /**
        * `idx !== activeIndex` USED TO GATE THIS WHOLE BODY, and that was wrong
        * once the bar could be tapped from off-route (round 3).
@@ -2850,7 +3087,7 @@ export default function MultiTablePage() {
       pendingTabIndexRef.current = idx;
       navigate(`/table/${host.id}${tableQuery(host)}`);
     },
-    [tables, activeIndex, trackedTimeout, navigate, hidden]
+    [tables, activeIndex, trackedTimeout, navigate, hidden, location.pathname, location.search]
   );
 
   // ─── Batch 3: quick-join sheet on "+" ─────────────────────────────────
@@ -3712,32 +3949,11 @@ export default function MultiTablePage() {
               );
           }
           const next = prev.slice();
-          next[idx] = {
-            id: dest,
-            buyInRequested: updates.buyInRequested,
-            name: current.name,
-            stakes: current.stakes,
-            isMyTurn: false,
-            pot: 0,
-            /* THE GAME DOES NOT CHANGE WHEN THE TABLE DOES (2026-09-06). A             must-move / seat change / balance move re-points this tab at
-             another table OF THE SAME GAME, so the cluster is the one thing
-             that certainly survives it. Dropping it here blanked
-             `activeClusterId` until the remounted TablePage reported it again -
-             and in that gap the LOBBY button vanished and the 4-square jumped
-             ~74px sideways, at the exact moment the player was being moved. */
-            clusterId: current.clusterId,
-            gameCode: current.gameCode,
-            isTournament: tabIsTournament(current),
-            /* A balance move stays inside ONE tournament, so its price moves
-               with the chair. Without this the tab would drop to a bare code
-               until the buy-in was read again. */
-            tournamentBuyIn: current.tournamentBuyIn,
-            tournamentBuyInLabel: current.tournamentBuyInLabel,
-            tournamentName: current.tournamentName,
-            /* Only a TOURNAMENT move is something done to the player without
-               their asking; the table page reads this to say so on the felt. */
-            ...(tabIsTournament(current) ? { arrivedByMoveAt: Date.now() } : {}),
-          } as TableInstance;
+          /* Same game, same tournament, same chair: moveSeatTab keeps the
+             cluster, the price, the tournament and - the part this used to
+             drop - `seated`, so the NEXT move still finds this tab as the
+             player's chair instead of opening a new one beside it. */
+          next[idx] = moveSeatTab(current, dest, { buyInRequested: updates.buyInRequested });
           return next;
         }
         let changed = false;
@@ -4430,6 +4646,12 @@ export default function MultiTablePage() {
     const selectedClub = table.lobbyClubId === undefined ? homeClubId : table.lobbyClubId;
     const stack = table.lobbyTournamentStack ?? [];
     const top = stack[stack.length - 1];
+    /* A tab holding a page of its own (Player Management, ...) never shows
+       its game lobby, not even as the neighbour a swipe drags into view
+       (Dan 2026-11-13, "WITHOUT FLASHING THE GAME LOBBY"). The lobby stays
+       MOUNTED, so its list and filters survive, and is only hidden until the
+       tab shows it again. */
+    const heldStyle = table.lobbyOffRoutePath ? HELD_LOBBY_STYLE : undefined;
     /* No provider here any more — the whole container is inside one now (see
        the top-level return). A second, identical provider nested inside the
        first only invites the two to drift apart later. */
@@ -4458,6 +4680,8 @@ export default function MultiTablePage() {
           // the pill (see .multi-table-page__lobby-tab--tournament in the CSS).
           <div
             className="multi-table-page__lobby-tab multi-table-page__lobby-tab--tournament"
+            style={heldStyle}
+            data-lobby-held={heldStyle ? 'true' : undefined}
             onClickCapture={handleLobbyLinkCapture}
           >
             <GlobalHeader inTab={inTabLobbyNav} />
@@ -4476,7 +4700,12 @@ export default function MultiTablePage() {
             />
           </div>
         ) : (
-          <div className="multi-table-page__lobby-tab" onClickCapture={handleLobbyLinkCapture}>
+          <div
+            className="multi-table-page__lobby-tab"
+            style={heldStyle}
+            data-lobby-held={heldStyle ? 'true' : undefined}
+            onClickCapture={handleLobbyLinkCapture}
+          >
             <GlobalHeader inTab={inTabLobbyNav} />
             {renderTakeSeatBar()}
             {selectedClub ? (
@@ -4826,8 +5055,9 @@ export default function MultiTablePage() {
       pot: 0,
       kind: 'table',
     };
-    // Opening a game adds its tab; the page stays open until manually closed.
-    if (prev.length < MAX_TABLES) {
+    // Lobby/Hub pages stay open, but do not consume a game subscription.
+    // Three games plus the lobby must still admit the fourth game.
+    if (prev.filter(isTableTab).length < MAX_TABLES) {
       setTables([...prev, fromUrl]);
       setActiveIndex(prev.length); // Switch to new table
     } else {
@@ -5452,8 +5682,8 @@ export default function MultiTablePage() {
                     ? masterBus.emit('OPEN_TOURNAMENT_LOBBY', { tableId: activeTableId })
                     : masterBus.emit('OPEN_MUST_MOVE_LOBBY', { tableId: activeTableId })
                 }
-                aria-label={activeIsTournament ? 'Open Tournament Lobby' : 'Open Must Move Lobby'}
-                title={activeIsTournament ? 'Tournament Lobby' : 'Must Move Lobby'}
+                aria-label={`Open ${tableLobbyTitle}`}
+                title={tableLobbyTitle}
               >
                 <img className="mtp-lobby-btn__img" src={lobbyButtonArt} alt="" draggable={false} />
               </button>

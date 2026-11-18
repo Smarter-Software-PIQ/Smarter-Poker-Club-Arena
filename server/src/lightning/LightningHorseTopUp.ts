@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
 import { supabase, readClubChipBalances } from '../services/supabase.js';
-import { cappedAutoTopUp, horseAutoTopUpWanted } from '../services/HorseTopUpStyle.js';
+import {
+  cappedAutoTopUp,
+  horseAutoTopUpWanted,
+  horseSitsWithAutoTopUp,
+} from '../services/HorseTopUpStyle.js';
 import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { requestLightningTopUp } from './LightningTopUp.js';
 
 /** A horse's input device supplies the same original request a browser submits.
  * Seat Auto Top Up is the usual intent; the owner's 1/2 maximum policy supplies
- * that intent for every horse at this stake. Cluster auto-rebuy is separate.
+ * that intent for the stable 75% cohort at this stake. Cluster auto-rebuy is separate.
  *
  * EVERY HORSE AT ONCE (2026-10-26). Each horse's request is its own: its own
  * seat, its own session, its own wallet and its own idempotency key, exactly
@@ -48,10 +52,16 @@ async function requestOneHorseTopUp(
     unknown
   >;
   const maximumCash = table?.tournament_id === null && isMaximumHorseCashStake(table);
-  const own = { autoTopUp: maximumCash || seat.auto_rebuy === true, clubId: seat.club_id };
+  const own = {
+    autoTopUp: maximumCash
+      ? horseSitsWithAutoTopUp(playerId, table.game_variant, table)
+      : seat.auto_rebuy === true,
+    clubId: seat.club_id,
+  };
   if (!own.autoTopUp || !own.clubId) return;
   const wanted = horseAutoTopUpWanted({
     userId: playerId,
+    autoTopUp: own.autoTopUp,
     variant: table.game_variant,
     stack: Number(seat.stack),
     maxBuyIn: Number(table.max_buy_in),

@@ -1,3 +1,4 @@
+import { fetchMyLightningSession } from '../../lightning/lightningSession';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  THE HERO'S VPIP TRACKER (Dan 2026-09-04)
@@ -24,7 +25,6 @@
  * a slow backstop timer. One small RPC per hand per human.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { HIT_RUN_COUNT_LABEL } from '../../lib/hitAndRun';
 import { supabase } from '../../lib/supabase';
 import VpipRequirementBadge from './VpipRequirementBadge';
 import './HeroVpipTracker.css';
@@ -41,8 +41,27 @@ export interface HeroVpipStatus {
   hands?: number;
   /** VPIP over those hands, percent; null until the first hand is on file. */
   vpip?: number | null;
+  /** True on a Classic floored game: the window is the last `window` hands. */
+  rolling?: boolean;
+  /** A warning is open on this sitting (Dan 2026-11-10: warn, then boot). */
+  warned?: boolean;
+  /** Dealt hands a warned seat gets to recover in. */
+  grace_hands?: number;
+  /** Dealt hands left in that grace; null when no warning is open. */
+  grace_remaining?: number | null;
   reason?: string;
 }
+
+/**
+ * WARN, THEN BOOT (Dan 2026-11-10). A warned seat is told, on the felt, how
+ * many dealt hands it has left to get back to the floor. Same shape as the hit
+ * and run clock beside it: a label and a count, in the column the tracker
+ * already owns, so no approved artwork changes and the badge is not recoloured
+ * by whether the player is passing (badge spec section 25 forbids that, and
+ * says an eligibility indicator is built separately - this is that, built
+ * separately).
+ */
+export const VPIP_GRACE_COUNT_LABEL = 'Hands To Correct Your VPIP';
 
 /** Fact rows land at settlement; the hand number moves at the next deal. */
 export const VPIP_REFRESH_DELAY_MS = 1500;
@@ -77,11 +96,17 @@ export type VpipFreshness = 'loading' | 'connected' | 'stale';
 export function useHeroVpipStatus(
   tableId: string | null | undefined,
   enabled: boolean,
-  handNumber: number
+  handNumber: number,
+  lightningClusterId?: string | null
 ): { status: HeroVpipStatus | null; freshness: VpipFreshness } {
   const [status, setStatus] = useState<HeroVpipStatus | null>(null);
   const [freshness, setFreshness] = useState<VpipFreshness>('loading');
   const alive = useRef(true);
+  const scope = `${tableId ?? ''}:${lightningClusterId ?? ''}:${enabled}`;
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const anchorRef = useRef<{ scope: string; tableId: string } | null>(null);
+  const requestRef = useRef(0);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -91,9 +116,26 @@ export function useHeroVpipStatus(
 
   const refresh = useCallback(async () => {
     if (!tableId || !enabled) return;
+    const request = ++requestRef.current;
+    const current = () =>
+      alive.current && scopeRef.current === scope && requestRef.current === request;
     try {
-      const { data, error } = await supabase.rpc('fn_cash_vpip_status', { p_table_id: tableId });
-      if (!alive.current) return;
+      let statusTableId = tableId;
+      if (lightningClusterId) {
+        if (anchorRef.current?.scope !== scope) {
+          const session = await fetchMyLightningSession(lightningClusterId);
+          if (!current()) return;
+          if (session.poolSessionId !== tableId || !session.anchorTableId) {
+            throw new Error('Lightning Session Is Unavailable');
+          }
+          anchorRef.current = { scope, tableId: session.anchorTableId };
+        }
+        statusTableId = anchorRef.current.tableId;
+      }
+      const { data, error } = await supabase.rpc('fn_cash_vpip_status', {
+        p_table_id: statusTableId,
+      });
+      if (!current()) return;
       if (error || !data || typeof data !== 'object') {
         /* A MISSED READ IS REPORTED, NOT SWALLOWED (spec section 21).
            The figure itself is left exactly as it was - never blanked, never
@@ -107,10 +149,15 @@ export function useHeroVpipStatus(
       setStatus(data as HeroVpipStatus);
       setFreshness('connected');
     } catch {
-      if (!alive.current) return;
+      if (!current()) return;
       setFreshness((prev) => (prev === 'loading' ? 'loading' : 'stale'));
     }
-  }, [tableId, enabled]);
+  }, [tableId, enabled, lightningClusterId, scope]);
+
+  useEffect(() => {
+    setStatus(null);
+    setFreshness('loading');
+  }, [scope]);
 
   // On sit, and on a backstop.
   useEffect(() => {
@@ -158,7 +205,9 @@ export function useHeroVpipStatus(
 }
 
 interface Props {
+  lightningLayout?: boolean;
   tableId: string | null | undefined;
+  lightningClusterId?: string | null;
   /** The hero holds a seat at this table. Nothing renders otherwise. */
   heroSeated: boolean;
   /** Tournaments carry no VPIP floor and no tracker. */
@@ -166,30 +215,33 @@ interface Props {
   handNumber: number;
   /** Where the hero's seat is, percent of the table; the tracker sits to its left. */
   heroPos: { x: number; y: number } | null;
-  /**
-   * HIT AND RUN (owner 2026-11-06): hands still owed in profit before the
-   * hero may leave, counted down after every completed hand. Null: none.
-   */
-  handsOwed?: number | null;
 }
 
 export default function HeroVpipTracker({
   tableId,
+  lightningClusterId,
+  lightningLayout = Boolean(lightningClusterId),
   heroSeated,
   isTournament,
   handNumber,
   heroPos,
-  handsOwed = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
-  const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber);
+  const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber, lightningClusterId);
   const anchor = useRef<HTMLDivElement>(null);
   const vpip = status?.vpip == null ? null : Number(status.vpip);
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
-  const showHands = typeof handsOwed === 'number' && handsOwed > 0;
+  // The grace only means anything while a warning is actually open, so it is
+  // read from `warned` rather than from a number that could linger.
+  const graceLeft =
+    status?.warned === true && status?.grace_remaining != null
+      ? Number(status.grace_remaining)
+      : null;
+  const showGrace = showVpip && graceLeft !== null && Number.isFinite(graceLeft);
 
   useLayoutEffect(() => {
+    if (lightningLayout) return;
     const node = anchor.current;
     const plane = node?.parentElement;
     const info = plane?.querySelector<HTMLElement>('.seat-wrapper--hero .seat__info');
@@ -244,14 +296,14 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands]);
+  }, [lightningLayout, tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showGrace]);
 
-  if (!enabled || !heroPos || (!showVpip && !showHands)) return null;
+  if (!enabled || !heroPos || !showVpip) return null;
 
   return (
     <div
       ref={anchor}
-      className="hero-vpip"
+      className={lightningLayout ? 'hero-vpip hero-vpip--lightning' : 'hero-vpip'}
       style={{ left: `${heroPos.x}%`, top: `${heroPos.y}%` }}
       data-testid="hero-vpip"
     >
@@ -269,10 +321,10 @@ export default function HeroVpipTracker({
       {showVpip && (
         <VpipRequirementBadge minimumVpip={floor} currentVpip={vpip} status={freshness} />
       )}
-      {showHands && (
-        <div className="hero-vpip__clock" data-testid="hero-hand-count">
-          <span>{HIT_RUN_COUNT_LABEL}</span>
-          <time aria-label={`${HIT_RUN_COUNT_LABEL} ${handsOwed}`}>{handsOwed}</time>
+      {showGrace && (
+        <div className="hero-vpip__clock" data-testid="hero-vpip-grace">
+          <span>{VPIP_GRACE_COUNT_LABEL}</span>
+          <time aria-label={`${VPIP_GRACE_COUNT_LABEL} ${graceLeft}`}>{graceLeft}</time>
         </div>
       )}
     </div>

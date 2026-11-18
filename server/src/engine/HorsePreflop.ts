@@ -1,3 +1,10 @@
+import { noteHorseDeepDiveRule } from './HorseDeepDiveReceipt.js';
+import {
+  lightningParticipationBbDefend,
+  lightningParticipationFirstIn,
+  type LightningParticipationCtx,
+} from './HorseLightningParticipation.js';
+import { lightningCheapEntry, type LightningCheapEntryCtx } from './HorseLightningCheapEntry.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE PREFLOP V7 — Position-Pair Preflop Mastery (2026-07-24)
@@ -30,12 +37,46 @@
  * NEVER refer to the horses as "bots" — they are HORSES only.
  */
 
+import type { Card } from '../types.js';
 import { potLimitRaiseTo } from './BettingStructure.js';
 import { completePreflopCommitment } from './HorseContinuation.js';
+import {
+  classifyHoldemEpLimpCandidate,
+  holdemClass,
+  v85DepthWeight,
+  type HoldemEpLimpKind,
+} from './HorseGtoOpeningRanges.js';
+import {
+  V87_MULTIWAY_DEFENCE,
+  v87LowStakesWeight,
+  v87WidenDefence,
+} from './HorseGtoDefenceRanges.js';
 import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
+import type { HeroPriorPreflopAction } from './HorsePreflopOrbitState.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
-import { huBbRequiredEquity } from './HorseHuBbDefence.js';
+import {
+  huBbRequiredEquity,
+  huBbUnreadRequiredEquity,
+  huLimpRequiredEquity,
+  huOpenerRequiredEquity,
+} from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
+import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
+import {
+  fixedLimitPricedPreflopIntent,
+  type FixedLimitPricedCtx,
+} from './HorseFixedLimitPreflop.js';
+import {
+  OMAHA_TOURNAMENT_FIRST_IN,
+  omahaSmallBlindStealTable,
+  omahaTournamentFirstIn,
+  type OmahaTournamentFirstInParams,
+} from './HorseOmahaTournamentFirstIn.js';
+import {
+  v87OmahaCallBarBounds,
+  v87OmahaColdCallTighten,
+  v87PricedInMinStrength,
+} from './HorseDeepDiveDiscipline.js';
 import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
@@ -43,8 +84,58 @@ import {
   type TournamentPreflopPolicy,
 } from './HorseTournamentPreflop.js';
 import type { OmahaPressureShifts } from './HorseOmahaTournamentPressure.js';
+import type { OmahaEliteClassRead } from './HorseHandClasses.js';
 
 export type PreflopPosition = 'early' | 'middle' | 'late' | 'sb' | 'bb';
+
+/** The actual facing-open branch; classification alone is not application. */
+export interface PreflopAuthorityEvent {
+  branch:
+    | 'v46_class_flat'
+    | 'v16_non_aa_flat'
+    | 'value_trap'
+    | 'premium_value'
+    | 'strength_value'
+    | 'squeeze_bluff'
+    | 'three_bet_bluff'
+    | 'v87_ep_limp_trap'
+    | 'v87_ep_limp_suited_connector'
+    | 'v87_ep_limp_reraise_value'
+    | 'v87_ep_limp_reraise_bluff'
+    | 'v87_ep_limp_call_iso'
+    | 'lightning_participation_first_in'
+    | 'lightning_participation_bb_defend'
+    | 'lightning_cheap_entry_sb_complete'
+    | 'lightning_cheap_entry_over_limp';
+  strength: number;
+  threeBetThreshold: number;
+  effectiveThreeBetThreshold: number;
+  premiumValue: boolean;
+  pressure: boolean;
+}
+
+export interface PreflopAuthorityReceipt {
+  version: 1;
+  scope: 'reference_preflop';
+  events: readonly PreflopAuthorityEvent[];
+  context: {
+    raises: number;
+    callers: number;
+    toCall: number;
+    stack: number;
+    position: PreflopPosition;
+    isOmaha: boolean;
+    classNeverThreeBet: boolean;
+  };
+  intent: PreflopIntent;
+  /** omahaVpipFloorByLimp replaced the intent the events above were recorded
+   *  for (a raise made on the VPIP floor's account became a limp, a call or
+   *  the unfloored answer): the intent it replaced. Absent = no swap. */
+  intentSwap?: { by: 'omaha_vpip_floor_by_limp'; replaced: PreflopIntent };
+  /** Direct V7 glue return, before later reference wrappers or policy owners. */
+  referenceAction: string;
+  referenceAmount?: number;
+}
 
 export interface PreflopIntent {
   a: 'fold' | 'check' | 'call' | 'jam' | 'raiseTo';
@@ -60,14 +151,124 @@ export interface PreflopIntent {
     | 'cash_nlh_three_bet_size'
     | 'plo_suited_aces_four_bet'
     | 'plo_suited_aces_four_bettor_continues'
-    | 'hu_bb_defends_to_price';
+    | 'hu_bb_defends_to_price'
+    | 'hu_bb_defends_unread_to_price'
+    | 'hu_opener_defends_to_price'
+    | 'hu_limp_defends_to_price'
+    | 'committed_stack_priced_in'
+    | 'v86_plo_elite_three_bet'
+    | 'v86_plo_squeeze'
+    | 'v86_plo_shallow_four_bet'
+    | 'v86_plo_three_bettor_continues';
 }
+
+/** What a facing-a-raise branch reported through PreflopCtx.noteThresholds. */
+export interface PreflopThresholdsSeen {
+  threeBet: number | null;
+  call: number | null;
+  fourBet: number | null;
+  strength: number;
+}
+
+/**
+ * THE PER-DECISION READ RECEIPT (2026-11-15, accepted from the Human-vs-Horse
+ * lane): one bounded, journal-only record for every preflop decision facing a
+ * raise, so a witness can see that an opponent read moved a bar without
+ * replaying the decision with the switch off. `base*` are the bars of the same
+ * decision with the style and maniac reads taken out (a rewound
+ * counterfactual of the same intent engine, no RNG drawn, no telemetry);
+ * the plain fields are the bars the decision used. `consumer` 'maniac_price'
+ * is the maniac raise-width arithmetic (HorseLogic), which decides before any
+ * bar exists: its call threshold is the required equity and strength is the
+ * equity against the maniac's range. Never changes a decision.
+ */
+export interface PreflopReadReceipt {
+  version: 1;
+  consumer: 'range_play' | 'maniac_price';
+  /** Names passed to noteLayer in this decision, then the maniac reads present (at most 16). */
+  layers: readonly string[];
+  strength: number | null;
+  /** The last facing-open authority branch, when one fired. */
+  branch: string | null;
+  baseThreeBetThreshold: number | null;
+  baseCallThreshold: number | null;
+  baseFourBetThreshold: number | null;
+  threeBetThreshold: number | null;
+  callThreshold: number | null;
+  fourBetThreshold: number | null;
+  /** maniac_price only: the raiser's read width. */
+  maniacWidth?: number;
+}
+
+/**
+ * HU-HILO-002 (default OFF, HorseDecideOpts.omahaHiLoTournamentFirstIn): the
+ * shares the pot-limit Omaha hi-lo heads-up tournament arm passes to
+ * omahaTournamentFirstIn. The heads-up shares and the 20 BB ceiling are the
+ * Omaha high ones; every three-handed branch is zero and the table is capped
+ * at two dealt in.
+ */
+export const OMAHA_HILO_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = Object.freeze({
+  headsUpShare: 1,
+  blindVsBlindShare: 0,
+  maxStackBB: 20,
+  winnerTakeAllMaxStackBB: 0,
+  maxTableSize: 2,
+  bigBlindDefendShare: 0.75,
+  bigBlindMaxPrice: 0.5,
+  bigBlindClosingShare: 0,
+  payJumpBlindVsBlindShare: 0,
+  // The Omaha high full-table small-blind steal does not reach hi-lo.
+  fullTableSbStealShare: 0,
+  fullTableSbStealMaxStackBB: 0,
+});
 
 /** Layers that report through PreflopCtx.noteLayer (receipt only). */
 export type PreflopLayerReceipt =
   | 'v60_cash_pressure_facing_open'
   | 'v60_cash_pressure_facing_open_superseded'
-  | 'v60_cash_pressure_opener_vs_three_bet';
+  | 'v60_cash_pressure_opener_vs_three_bet'
+  | 'v87_deep_dive_discipline'
+  | 'bluff_raise_refused_no_fold_equity_seen'
+  | 'omaha_tournament_first_in'
+  | 'omaha_hilo_tournament_first_in'
+  | 'omaha_full_table_sb_steal'
+  | 'style_tight_opener_respect_seen'
+  | 'style_tight_reraiser_respect_seen'
+  | 'fixed_limit_priced_first_in'
+  | 'fixed_limit_priced_blind_defence'
+  | 'fixed_limit_steal_vs_tight_blinds'
+  | 'holdem_persona_3bet_bluff_eligible_seen'
+  | 'holdem_persona_3bet_bluff_changed_seen'
+  | 'holdem_persona_3bet_bluff_capped_seen'
+  | 'holdem_persona_squeeze_bluff_eligible_seen'
+  | 'holdem_persona_squeeze_bluff_changed_seen'
+  | 'holdem_persona_squeeze_bluff_capped_seen'
+  | 'holdem_persona_scale_held_by_style_seen';
+
+/**
+ * PERSONA RE-RAISE MIX, OFFLINE MEASUREMENT TAP. One event per persona
+ * comparison, with the numbers the comparison used. Null everywhere except
+ * the measuring harness (HoldemPersonaReRaiseProbe) and tests, which set it
+ * and clear it; no live process sets it. It observes and decides nothing.
+ */
+export interface HoldemPersonaReRaiseTapEvent {
+  kind: 'three_bet' | 'squeeze';
+  /** The site's unscaled probability. */
+  p: number;
+  /** The Horse's scale, and the scale the site used (held at 1 by a style read). */
+  scale: number;
+  scaleUsed: number;
+  unit: number;
+  /** The scaled answer, and the answer the unscaled comparison gave. */
+  fires: boolean;
+  unscaled: boolean;
+}
+let holdemPersonaReRaiseTap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null = null;
+export function setHoldemPersonaReRaiseTap(
+  tap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null
+): void {
+  holdemPersonaReRaiseTap = tap;
+}
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -120,6 +321,37 @@ export interface PreflopCtx {
   stackBB: number;
   /** style parameters (already modifier-scaled by the caller) */
   tightness: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle, default off): the tightness the
+   * VALUE re-raise bars read (the 3-bet and 4-bet bars) when the Horse's
+   * playing style scaled `tightness` for the entry bars only. A tight Horse
+   * enters fewer hands but re-raises its strong hands as today. Absent (every
+   * decision without the option, and the current style): `tightness`.
+   */
+  valueRaiseTightness?: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle.omahaPlayStyleEntryBarCredit, default
+   * off, 2026-11-16): the pressure style on the cutoff and button lowers the
+   * RAISE bars (first-in open and isolation, the value 3-bet) by this much
+   * (0..0.04). No call bar and no 4-bet bar reads it. Absent on every other
+   * decision: nothing is subtracted.
+   */
+  styleEntryBarCredit?: number;
+  /**
+   * horsePlayStyles (2026-11-16): the tightness the CALL bars read (cold call,
+   * call of a re-raise, call-off) when the style keeps them at today's width
+   * (the pressure style on the cutoff and button). Absent: `tightness`.
+   */
+  styleCallTightness?: number;
+  /**
+   * horsePlayStyles (wave two, 2026-11-16): the tightness and aggression the
+   * 4-BET node reads (the re-raise facing a re-raise: its value bar, the
+   * floor's unfloored bar and the jam bar) when the style keeps that node at
+   * today's width (the pressure style on the cutoff and button, whose 3-bet
+   * widening must not widen its 4-bets). Absent: as before.
+   */
+  styleFourBetTightness?: number;
+  styleFourBetAggression?: number;
   bluffFreq: number;
   aggression: number;
   slowplayFreq: number;
@@ -171,7 +403,72 @@ export interface PreflopCtx {
     flatBar: number | null;
     bbFlatBar: number | null;
     noBluffThreeBet: boolean;
+    /**
+     * STYLE READ #6 (2026-11-13, HorseOpponentStyle.tightOpenerRespect): set
+     * only for a credibly TIGHT opener (wide false). The most the value 3-bet
+     * bar may move toward the top of his range, and what the call bar rises
+     * by. Both only ever fold more. Absent = the exploit read is exactly what
+     * it was (the neutrality contract).
+     */
+    maxBarMove?: number;
+    callBump?: number;
   };
+  /**
+   * STYLE READ #6 (2026-11-13): the last re-raiser is credibly TIGHT (his
+   * 3-bet rate is credibly below the Horse mean, or he is tight with a low
+   * raise rate), facing a 3-bet or more. The 4-bet bar and the call bar rise
+   * by these bounded amounts; present only when no wide re-raiser read is.
+   * Undefined = unchanged.
+   */
+  styleTightReRaiser?: { fourBetBump: number; callBump: number };
+  /**
+   * OMAHA TIGHT OPPONENT (2026-11-13, HorseOmahaTightOpponent, default off):
+   * set only in pot-limit Omaha high against a proven tight player. Opener:
+   * the single raiser is a proven tight raiser; the 3-bet bar rises toward
+   * threeBetBar (at most maxBarMove), the call bar by callBump, and no bluff
+   * 3-bet or squeeze is made. ReRaiser: the last re-raiser is a proven tight
+   * raiser; the 4-bet and call bars rise. Steal: first in from late position
+   * or the small blind with every player left to act a proven tight folder;
+   * the open bar comes down by openWiden. Undefined = unchanged.
+   */
+  omahaTightOpener?: { threeBetBar: number; maxBarMove: number; callBump: number };
+  omahaTightReRaiser?: { fourBetBump: number; callBump: number };
+  omahaTightSteal?: { openWiden: number };
+  /** RESPONSES TO TIGHT PLAYERS (2026-11-15, styleTightPlayerExploit): every limper is credibly tight and not
+   *  aggressive; the no-limit hold'em isolation bar from middle or late position comes down by this much. */
+  styleTightIsoWiden?: number;
+  /** STEAL FROM TIGHT BLINDS (2026-11-15, styleStealTightBlinds, off-only under the owner's blind-steal hold): first
+   *  in from late position or the small blind, every player left to act credibly tight and not aggressive; the
+   *  no-limit hold'em open bar comes down by this much (at most 0.06). */
+  styleTightStealWiden?: number;
+  /**
+   * HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, option
+   * huSmallBlindStealsVsTightBigBlind, HorseHuTightBigBlindSteal): set only
+   * for the heads-up no-limit hold'em small blind first in when the big
+   * blind is a proven tight folder whose estimated fold share clears the
+   * largest heads-up open's break-even on folds alone. Every hand opens.
+   * Undefined = unchanged.
+   */
+  huTightBigBlindSteal?: { pFoldLower: number; breakEven: number };
+  /**
+   * FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15, option
+   * fixedLimitPricedPreflop, default off; HorseFixedLimitPreflop): present
+   * only in fixed limit with the option on. First in, the seat raises its
+   * reference share (the small blind also completes a band), and a blind's
+   * fold facing exactly one raise becomes a call when the realized equity
+   * against the opener's reference range covers the price. Absent =
+   * unchanged.
+   */
+  fixedLimitPriced?: FixedLimitPricedCtx;
+  /**
+   * FIXED-LIMIT STEAL VS TIGHT BLINDS with the priced option OFF (option
+   * fixedLimitStealVsTightBlinds, default off): every player left to act is a
+   * read over-folder, so the first-in open bar of the cutoff, button or small
+   * blind comes down by this (strength units). With the priced option on the
+   * widen travels in fixedLimitPriced.stealWidenShare instead. Absent =
+   * unchanged.
+   */
+  fixedLimitStealOpenWiden?: number;
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -217,6 +514,14 @@ export interface PreflopCtx {
    *  but whose call would commit more than the stack cap allows jams instead
    *  of folding (at 12-25bb effective the call is the stack). */
   vs3BetShortJam?: boolean;
+  /** See HorseDecideOpts.omahaCommitZoneThreeBetPriceRelief. Default off. */
+  omahaCommitZoneThreeBetPriceRelief?: boolean;
+  /** See HorseLightningParticipation. Absent = the option is off or the hand is outside its predicate. */
+  lightningParticipation?: LightningParticipationCtx;
+  /** See HorseLightningCheapEntry. Absent = the option is off or the hand is outside its predicate. */
+  lightningCheapEntry?: LightningCheapEntryCtx;
+  /** Persona tightness before any table VPIP-floor multiplier, so Lightning range modules never read ownVpip. */
+  unflooredTightness?: number;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -230,6 +535,68 @@ export interface PreflopCtx {
    *  the spot in scope; a fold of the heads-up defence becomes a call when
    *  the realised equity covers the price. Absent = unchanged. */
   huBbPrice?: { equity: number };
+  /** HU BB DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER (2026-11-15,
+   *  HU-NLH-001d, flag huBbDefendsUnreadToPrice, default off;
+   *  HorseHuBbDefence): heads-up no-limit hold'em, hero the big blind facing
+   *  the only open from an opener with no engaged read, 20-50bb effective,
+   *  cash or a tournament with exactly two players left. `equity` is this
+   *  class's all-in equity against the reference open width. Present only
+   *  with the flag on and the spot in scope; a fold becomes a call when the
+   *  equity at the 0.7 realisation covers the price. Absent = unchanged. */
+  huBbUnreadPrice?: { equity: number };
+  /** HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero made
+   *  the only open and faces exactly one 3-bet that is not all in. `equity`
+   *  is this class's all-in equity against the 3-bettor's range (the read's
+   *  width, else the 20% reference). Present only with the flag on and the
+   *  spot in scope; a fold of the opener's bars becomes a call when the
+   *  realised equity covers the price. Absent = unchanged. */
+  huOpenerPrice?: { equity: number };
+  /** HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero
+   *  limped the small blind and faces exactly one raise that is not all in.
+   *  `equity` is this class's all-in equity against the raiser's range.
+   *  Present only with the flag on and the spot in scope; the fold becomes a
+   *  call when the realised equity covers the price. Absent = unchanged. */
+  huLimpPrice?: { equity: number };
+  /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, flag
+   *  committedStackPricedIn, default OFF; HVH2D-NLH-M-COMMIT, NLH-007a).
+   *  True: in a two-card no-limit hold'em tournament multiway all-in the
+   *  priced-in guard decides again at a price of 0.05 or better, at 2bb or
+   *  less behind (the hand clears 0.26, or three-handed at a price of 0.12 or
+   *  better with any two cards), or when half the starting stack is in and
+   *  the hand clears 0.26; a committed top-half hand whose call is all in is
+   *  priced in to 0.18. Every other variant, and absent, = unchanged. */
+  committedStackPricedIn?: boolean;
+  /** PERSONA RE-RAISE MIX (2026-11-14, D3 option C, flag
+   *  holdemPersonaReRaiseMix, default OFF). Present only with the flag on and
+   *  a two-card no-limit hold'em decision by a Horse with an id. `scale` is
+   *  the Horse's nlh3BetMix over the model mean (0.52 to 1.52). Each `u` is a
+   *  zero-draw hash in [0,1) of the Horse, the hand (table id and hand
+   *  number), its exact hole cards and a salt per behaviour: one value per
+   *  behaviour for the whole hand (HorseLogic.holdemPersonaReRaiseUnit; a
+   *  caller with no hand gets the named public-state fallback). The
+   *  3-bet bluff and the squeeze bluff still consume their random draw at the
+   *  same place and decide on `u < min(1, p * scale)`. Against an opener
+   *  the style read classifies as tight (heldByTightRead), the scale is held
+   *  at min(1, scale): the persona may lower a bluff there, never raise it.
+   *  Value 3-bets, value squeezes and every four-bet reshove do not read it
+   *  (shallow four-bet reshoves are not persona-specific: owner decision
+   *  R3-B, 2026-11-13). Absent = unchanged. */
+  holdemPersonaReRaise?: {
+    scale: number;
+    u3bet: number;
+    uSqueeze: number;
+    /** The opener / re-raiser is one the opponent-style read classifies as
+     *  tight (HorseLogic asks the read itself, whatever the style option's
+     *  state). The scale is then min(1, scale) at both sites. */
+    heldByTightRead?: boolean;
+  };
+  /** Set with committedStackPricedIn only (HorseLogic.committedPayJumpLive): true when busting now can cost a pay
+   *  jump (bubble, hand for hand, satellite, in the money, or an unknown payout context). The option makes a call that can
+   *  bust the Horse (the crumbs clauses, the half-stack clause when the call is all in, the 0.18 all-in price) only
+   *  when this is exactly false; a call that leaves chips behind and the token price do not read it. */
+  committedPayJumpLive?: boolean;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -244,9 +611,22 @@ export interface PreflopCtx {
   /** V20 M-ZONES: players dealt in (for the orbit cost and Harrington's
    *  effective-M table-size scaling). Undefined = layer off. */
   tableSize?: number;
+  /** Players left in the tournament (trusted context), undefined when unknown. */
+  tournamentPlayersLeft?: number;
+  /** Paid places among the players left (trusted payout curve), undefined when unknown. */
+  tournamentPaidPlacesLeft?: number;
   /** V21 DEEP-STACK DISCIPLINE: scale cash 4-bet/5-bet stack-off thresholds
    *  with depth past 120bb. Undefined/false = legacy behavior. */
   deepDiscipline?: boolean;
+  /** PLO6-AUDIT-004 (2026-11-12): the VPIP floor multiplier already folded
+   *  into `tightness` (HorseLogic.vpipFloorMul), a number in (0, 1) on a
+   *  floored table where the seat is still steering up to its target. Given
+   *  only when the deep stack-off correction is on. The floor exists to make
+   *  a seat PLAY more hands; with this set, a deep Omaha seat's bar for
+   *  putting its whole stack in facing a re-raise is read without the floor
+   *  (the hand still continues by calling, which is what the floor counts).
+   *  Undefined = unchanged. */
+  vpipFloorMul?: number;
   /** V24: enable the Omaha price defense + risk-scaled survival premium.
    *  Undefined/false keeps the exact pre-V24 arithmetic (ablation). */
   ploPriceDefense?: boolean;
@@ -288,6 +668,18 @@ export interface PreflopCtx {
    *  one 3-bet, and continue when re-raised (see OMAHA_SUITED_ACES_FOUR_BET_MAX_BB).
    *  Undefined or false = off (hold'em, hi-lo, ablation). */
   omahaSuitedAcesFourBet?: boolean;
+  /** V86 PLO4/5/6/8 & cross-variant elite preflop overhaul (default false unless supplied). */
+  v86PloOverhaul?: boolean;
+  /** V86 4/5/6-card + PLO8 elite structural class read. */
+  omahaElite?: OmahaEliteClassRead;
+  /** V86 deterministic per-Horse PLO 3-bet mix [0.22, 0.85]. */
+  ploPersona3BetMix?: number;
+  /** V86 deterministic spot hash roll [0, 1) (consumes zero RNG draws). */
+  plo3BetRoll?: number;
+  /** V86: confirmed IP LAG bully / observed maniac yet to act behind hero's unopened pot. */
+  lagBullyIpBehind?: boolean;
+  /** V86: observed extreme maniac (re-raising >=25% or opening >=75%) raised or sits behind. */
+  observedExtremeManiac?: boolean;
   /** Exact Hold’em AA/KK, so score jitter cannot demote a value squeeze. */
   holdemPremiumPair?: boolean;
   /** Effective stack in big blinds against the deepest live opponent
@@ -301,6 +693,9 @@ export interface PreflopCtx {
    *  price-aware strength bar decides alone. Supplied by HorseLogic from the
    *  public seat flags; never from who anybody is. Absent = legacy caps. */
   facingClosedAllIn?: boolean;
+  /** True unless authoritative legalActions explicitly exclude raise and all_in
+   *  (e.g. a short all-in raise that did not reopen betting after hero acted). */
+  reopenAllowed?: boolean;
   /** Dan 2026-10-25 NLH tournament aggression; undefined = on. */
   tournamentAggression?: boolean;
   /** V74 no-limit open sizes (HorseNlhOpenSize, Dan 2026-10-31); undefined =
@@ -311,9 +706,34 @@ export interface PreflopCtx {
   cashActionSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
+  /** Omaha high tournament: the hand's percentile among Omaha hands, its
+   *  hole-card count, the trusted stage flags the full-table small blind rule
+   *  stands aside on and, for league arms only, replacement shares.
+   *  Undefined = the rule is off. */
+  omahaTournamentFirstIn?: {
+    percentile: number;
+    holeCount?: number;
+    nearBubble?: boolean;
+    handForHand?: boolean;
+    satellite?: boolean;
+    params?: Partial<OmahaTournamentFirstInParams>;
+  };
+  /** Pot-limit Omaha hi-lo tournament, heads-up (HU-HILO-002, default OFF):
+   *  the hand's hi-lo percentile and, for league arms only, replacement
+   *  shares. Undefined = the rule is off. */
+  omahaHiLoTournamentFirstIn?: {
+    percentile: number;
+    params?: Partial<OmahaTournamentFirstInParams>;
+  };
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
+  noteAuthority?: (event: PreflopAuthorityEvent) => void;
+  /** Receipt only (2026-11-15, LATER LAYERS KEEP THE STYLE READ): the bars a
+   *  facing-a-raise branch decided with, after every opponent-read move.
+   *  Facing one raise: the 3-bet and call bars; facing a 3-bet or more: the
+   *  4-bet and call bars. Never changes the action. */
+  noteThresholds?: (seen: PreflopThresholdsSeen) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
   isShortDeck?: boolean;
   /** League calibration arm (2026-10-30): added to the tournament call bar
@@ -437,6 +857,191 @@ export interface PreflopCtx {
    * and take this shift instead. Undefined = every bar is exactly what it was.
    */
   ploIcm?: OmahaPressureShifts;
+  /** Wave 1+2 unblocked preflop upgrades (default true when undefined; false only for Oct 16 corpus replay). */
+  v86MultiStreetUnblocked?: boolean;
+  v86UnblockedPreflop?: boolean;
+  /** Hero's own prior voluntary action earlier in this preflop orbit. */
+  heroPriorAction?: HeroPriorPreflopAction | 'all_in';
+  /** Full-raise count excluding sub-min incomplete short-stack all-ins. */
+  effectiveRaises?: number;
+  /** True when the pot has an active Kill / Half-Kill blind with zero raises so far. */
+  killPotUnopened?: boolean;
+  /** True when the 3-bet hero faces was already cold-called by another player. */
+  facingColdCalledThreeBet?: boolean;
+  /** True when hero is BB/straddler/killer checking an unraised live option. */
+  isOptionCheckAvailable?: boolean;
+  /** Cash NLH 7-2 side-game playability shift (moves open/call bars only, never sizing). */
+  sevenDeuceBonus?: number;
+  /** PLO5/PLO6 bare single-suited/rainbow AA with disconnected low side cards <= 9. */
+  omahaBareAcesDeep?: boolean;
+  /** Number of Ace-high suited flush draws in PLO4/5/6. */
+  omahaNutSuits?: number;
+  /** True in PLO6 when hero holds 2-2-2 triple-suited structure. */
+  omahaTripleSuited?: boolean;
+  /** Count of redundant suit cards (>= 3 of one suit) self-blocking flush outs. */
+  omahaSuitWaste?: number;
+  /** Asymmetric ICM cover leverage (-1..+1): >0 when hero covers bubble/cliff stacks, <0 when covered. */
+  coverBubblePressure?: number;
+  /** Chip-equivalent PKO/KO/Mystery bounty pot overlay in BB units when hero covers raiser. */
+  bountyOverlayBB?: number;
+  /** V87 Hold'em Cash & Tournament Elite Strategy Overhaul (2026-11-10); default true. */
+  v87HoldemOverhaul?: boolean;
+  /** Hero's hole cards when supplied by the brain (card-exact EP trap & reshove wedges). */
+  holeCards?: readonly Card[];
+  /** Hero's seat index and dealer seat for pure zero-RNG deterministic mixes. */
+  heroSeat?: number;
+  dealerSeat?: number;
+  /** True when hero already acted voluntarily earlier on this preflop street. */
+  heroPreviouslyActed?: boolean;
+  /** True when hero made the first open-raise on this preflop street. */
+  heroWasInitialRaiser?: boolean;
+  /** True when a straddle is posted on this hand (even after raises). */
+  straddleActive?: boolean;
+  /** True when `effectiveStackBB` was already normalized into straddle units by the caller. */
+  effectiveStackNormalized?: boolean;
+  /** Exact posted straddle size in table chips/Diamonds when `straddleActive` is true. */
+  straddleUnitCoins?: number;
+  /** Cash big blind normalized to dollar-equivalent chip units (`bb / 100` on Diamond cash tables). */
+  cashStakeBB?: number;
+  /** True when the last preflop raiser is already all-in (no further fold equity against them). */
+  raiserIsAllIn?: boolean;
+  /** True when every opponent still in the hand is all in: no raise can make
+   *  anyone fold. False or absent when any live opponent still has chips, so
+   *  an isolation raise over a short all-in keeps its fold equity against the
+   *  players behind. Supplied by HorseLogic from the public seat flags. */
+  everyOpponentAllIn?: boolean;
+  /** V87 (2026-11-10): all-hands deep-dive Omaha selectivity and pricedIn trash floor. */
+  v87DeepDiveDiscipline?: boolean;
+  /** V87: Omaha hole-card count (4, 5, or 6) when `isOmaha === true`. */
+  omahaHoleCount?: number;
+  /** V87: true on Hi-Lo split variants (PLO8/FLO8), excluded from V87 Omaha rules. */
+  omahaHiLo?: boolean;
+  /** V87: true when the preflop raiser has a non-presumed wide/maniac read. */
+  evidencedWideRaiser?: boolean;
+}
+
+const V87_PAIR_SUIT_PAIRS = ['cd', 'ch', 'cs', 'dh', 'ds', 'hs'] as const;
+const V87_SUITS = ['c', 'd', 'h', 's'] as const;
+const V87_SC_CLASSES = ['54s', '65s', '76s', '87s', '98s', 'T9s'] as const;
+
+const V87_FOUR_BET_VALUE_SHOVE_CLASSES = new Set<string>([
+  '77',
+  '88',
+  '99',
+  'TT',
+  'JJ',
+  'QQ',
+  'KK',
+  'AA',
+  'ATs',
+  'AJs',
+  'AQs',
+  'AKs',
+  'AKo',
+  'KQs',
+]);
+const V87_FOUR_BET_BLUFF_SHOVE_CLASSES = new Set<string>(['A5s', 'A4s', 'A3s', 'A2s']);
+
+const V87_TOURNEY_RESHOVE_VS_LATE = new Set<string>([
+  '22',
+  '33',
+  '44',
+  '55',
+  '66',
+  '77',
+  '88',
+  '99',
+  'TT',
+  'JJ',
+  'QQ',
+  'KK',
+  'AA',
+  'A2s',
+  'A3s',
+  'A4s',
+  'A5s',
+  'ATs',
+  'AJs',
+  'AQs',
+  'AKs',
+  'AKo',
+  'AQo',
+  'KQs',
+  'QJs',
+]);
+const V87_TOURNEY_RESHOVE_VS_MIDDLE = new Set<string>([
+  '55',
+  '66',
+  '77',
+  '88',
+  '99',
+  'TT',
+  'JJ',
+  'QQ',
+  'KK',
+  'AA',
+  'A4s',
+  'A5s',
+  'ATs',
+  'AJs',
+  'AQs',
+  'AKs',
+  'AKo',
+  'AQo',
+  'KQs',
+]);
+
+function v87Fmix32(h: number): number {
+  let x = h >>> 0;
+  x = Math.imul(x ^ (x >>> 16), 0x85ebca6b) >>> 0;
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35) >>> 0;
+  x = (x ^ (x >>> 16)) >>> 0;
+  return x / 4294967296;
+}
+
+function v87StateHashU(ctx: PreflopCtx, salt: number): number {
+  const bb = ctx.bigBlind > 0 ? ctx.bigBlind : 1;
+  const seat = (ctx.heroSeat ?? 0) | 0;
+  const dealer = (ctx.dealerSeat ?? 0) | 0;
+  const stackUnits = Math.round(((ctx.stack ?? 0) / bb) * 4) | 0;
+  const potUnits = Math.round(((ctx.pot ?? 0) / bb) * 4) | 0;
+  const tableSize = (ctx.tableSize ?? Math.max(2, ctx.oppsLeft + 1)) | 0;
+  let h = (salt ^ 0x9e3779b9) >>> 0;
+  for (const v of [seat, dealer, stackUnits, potUnits, tableSize]) {
+    h = Math.imul(h ^ (v >>> 0), 0x01000193) >>> 0;
+  }
+  return v87Fmix32(h);
+}
+
+/**
+ * Stratified 1D lattice rotation over exact two-card combos + public table
+ * state. Consumes zero PRNG draws (`rand()` untouched), achieves exact
+ * marginal uniformity across table states for any single combo, and achieves
+ * near-zero-variance combo balance at any single fixed table state.
+ */
+function v87EpCandidateMixU(ctx: PreflopCtx, kind: HoldemEpLimpKind, salt: number): number {
+  const cards = ctx.holeCards;
+  const baseU = v87StateHashU(ctx, salt);
+  if (!cards || cards.length !== 2) return baseU;
+  const [c1, c2] = cards;
+  const s1 = String(c1.suit)[0] ?? 'c';
+  const s2 = String(c2.suit)[0] ?? 'd';
+  if (kind === 'big_pair_trap') {
+    const rankIdx = c1.rank === 'Q' ? 0 : c1.rank === 'K' ? 1 : 2;
+    const sLo = s1 < s2 ? s1 : s2;
+    const sHi = s1 < s2 ? s2 : s1;
+    const spIdx = Math.max(
+      0,
+      V87_PAIR_SUIT_PAIRS.indexOf(`${sLo}${sHi}` as (typeof V87_PAIR_SUIT_PAIRS)[number])
+    );
+    const comboIdx = spIdx * 3 + rankIdx;
+    return (comboIdx / 18 + baseU) % 1;
+  }
+  const cls = holdemClass(c1, c2) ?? '54s';
+  const scIdx = Math.max(0, V87_SC_CLASSES.indexOf(cls as (typeof V87_SC_CLASSES)[number]));
+  const suitIdx = Math.max(0, V87_SUITS.indexOf(s1 as (typeof V87_SUITS)[number]));
+  const comboIdx = suitIdx * 6 + scIdx;
+  return (comboIdx / 24 + baseU) % 1;
 }
 
 const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
@@ -445,6 +1050,39 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 /** No stack deeper than this plays jam-or-fold, however burnt its M is.
  *  Matches the cap the V20 reshove branches already use. */
 /** AoF shove bar tightens above the depth where push/fold is already tuned. */
+/**
+ * A BLUFF RAISE NEEDS SOMEONE WHO CAN FOLD (2026-11-12, HVH2D-TRN-001 row 8).
+ * A bluff 3-bet or squeeze is chosen for its fold equity. It has none when
+ * the price to call is already the hero's whole stack (the "raise" is only a
+ * call), or when every opponent still in the hand is all in (the hand is
+ * shown down against all of them whatever the hero does). It keeps it when
+ * any opponent still has chips: raising over a short all-in to fold the
+ * players behind, or to build a side pot against a caller, is unchanged.
+ * KJo called off 59 big blinds through the bluff branch against a player who
+ * was all in for more than its stack.
+ */
+export function bluffRaiseCanFoldSomeone(
+  toCall: number,
+  stack: number,
+  everyOpponentAllIn: boolean | undefined
+): boolean {
+  return toCall < stack && everyOpponentAllIn !== true;
+}
+
+/**
+ * EVIDENCE ONLY (2026-11-12). The same test, with a receipt when it refuses.
+ * It is the last condition of the squeeze bluff and the 3-bet bluff, so it is
+ * reached only when every earlier condition held and the draw passed: a
+ * refusal here is a bluff raise that would have been made and was stopped
+ * because nobody could fold. The answer is bluffRaiseCanFoldSomeone's own,
+ * and no random number is drawn here.
+ */
+function bluffRaiseHasFoldEquity(toCall: number, stack: number, ctx: PreflopCtx): boolean {
+  const canFoldSomeone = bluffRaiseCanFoldSomeone(toCall, stack, ctx.everyOpponentAllIn);
+  if (!canFoldSomeone) ctx.noteLayer?.('bluff_raise_refused_no_fold_equity_seen');
+  return canFoldSomeone;
+}
+
 const AOF_TIGHTEN_PER_BB = 0.006;
 const AOF_MAX_TIGHTEN = 0.3;
 
@@ -638,6 +1276,40 @@ export function v77JamSeatTighten(widthPct: number): number {
   return Math.min(0.1, Math.max(0, (0.4 - widthPct / 100) * 0.3));
 }
 
+/** Own chips in, as a share of the hand's starting stack, that count as committed. */
+export const COMMITTED_STACK_SHARE = 0.5;
+/** Big blinds behind at or under which a stack is crumbs (the guard's own line). */
+export const COMMITTED_CRUMBS_BB = 2;
+/** A price this good is called in a multiway all-in whatever the commitment. */
+export const MULTIWAY_TOKEN_PRICE = 0.05;
+/** A committed hero's hand must clear this to be priced in three ways. */
+export const COMMITTED_MIN_STRENGTH = 0.26;
+/**
+ * The price at or under which a crumbs stack calls with any two cards, three
+ * ways. Price = call / (pot + call); a call that ends the hand is right when
+ * the hand's equity is at least the price. Against two tight ranges (TT+,
+ * AQs+, AKo) the worst two cards hold 0.125 (K2o; review 20261113 A1, 6,000
+ * trials; 0.121 over 24,000 in this change's own run) and 72o holds 0.133,
+ * so at 0.12 no hand calls below its price. Example: the big blind with a big
+ * blind ante and 0.5bb behind, the small blind folded, two covering all-ins.
+ * Pot before the call 1 (ante) + 1 (blind) + 0.5 (small blind) + 2 x 1.5 =
+ * 5.5bb, price 0.5 / 6.0 = 0.083; 72o's call is worth 0.133 x 6.0 = 0.80bb
+ * against the 0.5bb a fold keeps. Above this price the 0.26 floor decides.
+ */
+export const COMMITTED_CRUMBS_ANY_TWO_PRICE = 0.12;
+/**
+ * The any-two price is a three-way figure, so it is read with two opponents
+ * or fewer in the hand. Four ways against three tight ranges the same cards
+ * hold less than the price can be: K2o 0.079, T2o 0.102, 72o 0.116 (12,000
+ * trials), while a big blind with 1bb behind is laid 1 / 9.5 = 0.105. With
+ * three or more opponents the 0.26 floor decides at every price.
+ */
+export const COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS = 2;
+/** Price bar for a committed hero's all-in call with a top-half hand. */
+export const COMMITTED_ALL_IN_PRICE_BAR = 0.18;
+/** The hand strength that bar asks for (the top half of hands). */
+export const COMMITTED_ALL_IN_MIN_STRENGTH = 0.5;
+
 export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   // ═══ V46 (2026-09-05) ═══ THE PERCENTILE IS LYING. Three or four of a rank
   // in an Omaha hand (AAA-x above all) rates high on the hold'em ladder and
@@ -651,7 +1323,174 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   if (ctx.classFoldAlways === true && ctx.toCall > 0) {
     return { a: 'fold' };
   }
-  const out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
+  let out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
+  // ═══ FIXED-LIMIT PRICED PREFLOP (W5, default off) ═══ HorseFixedLimitPreflop:
+  // first in, the reference share by seat; a blind facing one raise defends
+  // to its price. Any other spot, and a defence the price does not carry,
+  // keeps the answer above. A priced fold still meets the guard below.
+  if (ctx.fixedLimitPriced !== undefined && ctx.isFixedLimit === true) {
+    const pricePotFl = Number.isFinite(ctx.contestablePot)
+      ? Math.max(0, ctx.contestablePot as number)
+      : ctx.pot;
+    const effCallFl = Math.min(ctx.toCall, ctx.stack);
+    const priced = fixedLimitPricedPreflopIntent(
+      {
+        priced: ctx.fixedLimitPriced,
+        strength: ctx.strength,
+        tightness: ctx.tightness,
+        riskAdd: ctx.riskAdd,
+        mode: ctx.mode,
+        stackBB: ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        bigBlind: ctx.bigBlind,
+        currentBet: ctx.currentBet,
+        blind: ctx.position === 'sb' || ctx.position === 'bb' ? ctx.position : null,
+        // W5 fix (2026-11-15): the defence is read at the RAW pot price,
+        // call / (pot + call). Its realization factors
+        // (FIXED_LIMIT_DEFENCE_REALIZATION) are calibrated to the published
+        // defence widths at that price (3.5 to 1, heads-up 3 to 1), and those
+        // published widths are for raked games. preflopCallOdds divides by
+        // (1 - callDeductionFraction), which projects the whole hand's rake
+        // and the fixed per-hand jackpot fee onto the pot after this call:
+        // preflop that pot is 4.5 big blinds, so the fraction is about 0.23 at
+        // every Midway fixed-limit stake and the price 0.29 instead of 0.222.
+        // Fed that price the ring defence never fired in 1,845 recorded hands
+        // (r2/R2-REACH-CONTINUATION.md); only the heads-up hold'em big blind
+        // cleared it. Rake therefore enters this verdict once, through the
+        // calibration, not twice.
+        odds: effCallFl > 0 ? effCallFl / Math.max(1e-9, pricePotFl + effCallFl) : 1,
+        maniacOpenBar: ctx.maniacOpenBar,
+      },
+      out
+    );
+    if (priced) {
+      ctx.noteLayer?.(priced.receipt);
+      if (
+        ctx.fixedLimitPriced.stealWidenShare > 0 &&
+        priced.receipt === 'fixed_limit_priced_first_in'
+      )
+        ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
+      if (priced.intent.a !== 'fold') return priced.intent;
+      out = priced.intent;
+    }
+  }
+  // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
+  // The commitment zone's unopened stack-off bar has no heads-up or
+  // blind-versus-blind case, so short-handed the table walks the big blind.
+  // HorseOmahaTournamentFirstIn.ts replaces the FOLD, and only the fold, in
+  // the measured short-handed spots (see its header for the cause and limits).
+  if (
+    out.a === 'fold' &&
+    ctx.omahaTournamentFirstIn !== undefined &&
+    ctx.isOmaha &&
+    !ctx.omahaHiLo &&
+    ctx.mode === 'tournament'
+  ) {
+    // A league arm may name only the parameters it changes: anything it
+    // leaves out keeps the published default (a partial object must never
+    // zero the other shares and silently switch the rule off).
+    const firstInParams = ctx.omahaTournamentFirstIn.params
+      ? {
+          ...OMAHA_TOURNAMENT_FIRST_IN,
+          ...Object.fromEntries(
+            Object.entries(ctx.omahaTournamentFirstIn.params).filter(([, v]) => v !== undefined)
+          ),
+        }
+      : OMAHA_TOURNAMENT_FIRST_IN;
+    // Unknown table size (a league ablation arm only) must not read as
+    // heads-up: NaN makes the rule stand aside.
+    const firstInTableSize = ctx.tableSize ?? Number.NaN;
+    const widened = omahaTournamentFirstIn(
+      {
+        percentile: ctx.omahaTournamentFirstIn.percentile,
+        position: ctx.position,
+        liveOpponents: ctx.oppsLeft,
+        tableSize: firstInTableSize,
+        // Unknown players-left must not read as a final table either.
+        playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
+        paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
+        effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        stack: ctx.stack,
+        pot: ctx.pot,
+        riskPremium: ctx.riskAdd,
+        allInOrFold: ctx.allInOrFold === true,
+        satelliteLocked: ctx.satellite?.locked === true,
+        holeCount: ctx.omahaTournamentFirstIn.holeCount,
+        nearBubble: ctx.omahaTournamentFirstIn.nearBubble === true,
+        handForHand: ctx.omahaTournamentFirstIn.handForHand === true,
+        satellite: ctx.omahaTournamentFirstIn.satellite === true,
+      },
+      firstInParams
+    );
+    if (widened) {
+      // Four to eight dealt only the full-table small blind rule acts, so it
+      // has its own receipt.
+      ctx.noteLayer?.(
+        omahaSmallBlindStealTable({ tableSize: firstInTableSize }, firstInParams)
+          ? 'omaha_full_table_sb_steal'
+          : 'omaha_tournament_first_in'
+      );
+      return widened;
+    }
+  }
+  // ═══ OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002, default OFF) ═══
+  // The same commitment-zone fold in pot-limit Omaha hi-lo: heads-up at 20 BB
+  // or less the small blind folds 83-85 percent first in and the big blind
+  // folds 81-91 percent to one raise. #10687 left hi-lo out for want of its
+  // own evaluation. This block applies the same replacement module with the
+  // hand's HI-LO percentile and its own limits (exactly two dealt in; no
+  // three-handed branch), only when the caller switched the option on.
+  if (
+    out.a === 'fold' &&
+    ctx.omahaHiLoTournamentFirstIn !== undefined &&
+    ctx.isOmaha &&
+    ctx.omahaHiLo === true &&
+    ctx.isFixedLimit !== true &&
+    ctx.mode === 'tournament'
+  ) {
+    const widened = omahaTournamentFirstIn(
+      {
+        percentile: ctx.omahaHiLoTournamentFirstIn.percentile,
+        position: ctx.position,
+        liveOpponents: ctx.oppsLeft,
+        tableSize: ctx.tableSize ?? Number.NaN,
+        playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
+        paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
+        effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        stack: ctx.stack,
+        pot: ctx.pot,
+        riskPremium: ctx.riskAdd,
+        allInOrFold: ctx.allInOrFold === true,
+        satelliteLocked: ctx.satellite?.locked === true,
+      },
+      {
+        ...OMAHA_HILO_TOURNAMENT_FIRST_IN,
+        ...Object.fromEntries(
+          Object.entries(ctx.omahaHiLoTournamentFirstIn.params ?? {}).filter(
+            ([, v]) => v !== undefined
+          )
+        ),
+        // Heads-up only, whatever a league arm passes: the three-handed
+        // branches were never measured for hi-lo.
+        maxTableSize: 2,
+      }
+    );
+    if (widened) {
+      ctx.noteLayer?.('omaha_hilo_tournament_first_in');
+      return widened;
+    }
+  }
   if (ctx.v13 === false) return out;
   if (out.a !== 'fold') return out;
   const stack = ctx.stack;
@@ -665,17 +1504,103 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   const guardOdds = preflopCallOdds(ctx, pricePot, effCall);
   const isTourney = ctx.mode === 'tournament';
   const stackBB = stack / bb;
+  // ── A COMMITTED STACK IS NOT FOLDED AT A PRICE (HVH2D-NLH-M-COMMIT) ─────
+  // The hero's own chips in this pot, as a share of the stack it started the
+  // hand with. `currentBet - toCall` is the hero's live bet; a big blind ante
+  // paid from the stack is not in it, so the share is never overstated.
+  // Default OFF (flag committedStackPricedIn): absent, every line below reads
+  // false and the guard is byte-for-byte the one it replaced.
+  // Two-card no-limit hold'em only (review 20261113 A3): the study, the
+  // floors and the equities below are hold'em's. Omaha, short deck, fixed
+  // limit and pineapple read `ctx.strength` on other ladders and keep the
+  // decision they had, option on or off.
+  const committedOn =
+    ctx.committedStackPricedIn === true &&
+    !ctx.isOmaha &&
+    ctx.isFixedLimit !== true &&
+    ctx.isShortDeck !== true &&
+    ctx.holeCards !== undefined &&
+    ctx.holeCards.length === 2;
+  const multiwayAllIn = committedOn && isTourney && ctx.phase6?.policy.branch === 'multiway_all_in';
+  const ownChipsIn = Math.max(0, ctx.currentBet - toCall);
+  const committedShare = ownChipsIn + stack > 0 ? ownChipsIn / (ownChipsIn + stack) : 0;
+  const heroCommitted = multiwayAllIn && committedShare >= COMMITTED_STACK_SHARE;
+  // HVH2D-NLH-007a (QJs, 56% of the stack in, price 0.159, folded 396 of 396).
+  // The 0.15 bar below is an ANY-TWO bar. A committed hero whose call puts
+  // the rest of its stack in sees all five cards with no bet left to face, so
+  // the only question is raw equity against the price. Three ways against two
+  // tight ranges (TT+, AQs+, AK) the top half of hands holds 0.20 to 0.24
+  // (pairs, suited connected cards) and no worse than about 0.135 (a dominated
+  // offsuit king); QJs holds 0.16 against aces and kings together, the worst
+  // pair of hands it can meet. So a top-half hand continues to 0.18, and the
+  // bar stops there.
+  // No pay jump live and not a satellite: the only state in which the option makes a call that can bust the Horse.
+  const payJumpClear = ctx.committedPayJumpLive === false && ctx.satellite === undefined;
+  const committedAllInPrice =
+    heroCommitted &&
+    payJumpClear &&
+    effCall >= stack * 0.99 &&
+    guardOdds <= COMMITTED_ALL_IN_PRICE_BAR &&
+    ctx.strength >= COMMITTED_ALL_IN_MIN_STRENGTH;
   const pricedIn =
     ctx.mode !== undefined &&
     (guardOdds <= 0.15 ||
       (effCall <= bb && guardOdds <= 0.22) ||
-      (isTourney && stackBB <= 2 && guardOdds <= 0.34));
+      (isTourney && stackBB <= 2 && guardOdds <= 0.34) ||
+      committedAllInPrice);
   if (!pricedIn) return out;
 
   // A generic any-two shortcut is not valid against multiple strong ranges.
   // The explicit Phase 6 multiway-all-in node owns this call-off, and its
-  // fold may never be rewritten into a call by the legacy heads-up guard.
-  if (ctx.phase6?.policy.branch === 'multiway_all_in') return out;
+  // fold may not be rewritten into a call by the legacy heads-up guard WHEN
+  // THE DECISION IS A FRESH ONE. That node's bar reads hand strength only: it
+  // has no rule for chips already in or for the price (2026-11-12 study: 31
+  // chips to call into 6,062 was folded with 63% of the stack in). So the
+  // exemption ends in three cases, and the guard's own bars above decide:
+  //  - the price is 0.05 or better (19 to 1): three ways no hand is under
+  //    0.127 against two tight ranges, and only a dominated king against aces
+  //    and kings exactly (0.044) falls below the price;
+  //  - 2 big blinds or fewer remain behind AND the hand is not junk: the
+  //    guard's own tournament crumbs line (a stack that small has no later
+  //    fold to protect). Independent review 461281e7: without a floor this
+  //    clause put 72o, K2o, 94o and 83o in at a 0.192 price three ways, where
+  //    they hold about 0.13 to 0.17 against tight ranges, so it shares the
+  //    0.26 floor below. The floor respects the price (review 20261113 A1):
+  //    three-handed at 0.12 or better any two cards have the odds (see
+  //    COMMITTED_CRUMBS_ANY_TWO_PRICE), so the floor applies above that
+  //    price, and at every price with three or more opponents;
+  //  - the hero is committed (half or more of the stack it started the hand
+  //    with is already in: from there the stack left is no larger than the
+  //    chips a fold abandons, and every spot in the study sat at 0.52 to
+  //    0.69) AND the hand is not junk. The any-two premise really does fail
+  //    three ways for the bottom of the deck (72o 0.14, K2o 0.127, J8o 0.166
+  //    against two tight ranges, at or under the 0.15 bar), so the hand must
+  //    clear 0.26, the guard's own tournament floor for a priced-in call with
+  //    a caller in the pot (v87PricedInMinStrength).
+  // The tournament utility arbiter runs after this and may still fold.
+  let committedRescue = false;
+  if (ctx.phase6?.policy.branch === 'multiway_all_in') {
+    const exemptionEnds =
+      committedOn &&
+      isTourney &&
+      (guardOdds <= MULTIWAY_TOKEN_PRICE ||
+        // chip arithmetic only: with a pay jump live (or unknown) the crumbs clauses do not end the exemption,
+        // and the half-stack clause ends it only when the call leaves more than crumbs behind (a call that cannot
+        // bust the Horse costs no pay jump). Otherwise the decision is what it is with the option off. The token price,
+        // which the guard pays in every tournament, is read without it (reviews 3e22706d H1, 347b0afc M2)
+        (stackBB <= COMMITTED_CRUMBS_BB &&
+          payJumpClear &&
+          (ctx.strength >= COMMITTED_MIN_STRENGTH ||
+            (guardOdds <= COMMITTED_CRUMBS_ANY_TWO_PRICE &&
+              ctx.oppsLeft <= COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS))) ||
+        (heroCommitted &&
+          ctx.strength >= COMMITTED_MIN_STRENGTH &&
+          // "leaves chips behind" means more than crumbs: a call that leaves 2bb or less is a bust in all but
+          // name (review 5d35da81 M1)
+          (payJumpClear || (stack - effCall) / bb > COMMITTED_CRUMBS_BB)));
+    if (!exemptionEnds) return out;
+    committedRescue = true;
+  }
 
   // ── THE PRICE IS ONLY REAL WHEN THE CALL CLOSES THE ACTION ──────────────
   //
@@ -704,19 +1629,62 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   // The one survivor is the call that ends the decision anyway: if calling
   // puts the stack in, there is no later fold to regret and no limp to
   // punish. That keeps the desperate <=2bb case the guard was widened for.
-  const unopenedForGuard = ctx.raises === 0 && ctx.currentBet <= bb * 1.05;
+  const unblocked86 = ctx.v86MultiStreetUnblocked !== false && ctx.v86UnblockedPreflop !== false;
+  const effRaisesForGuard =
+    unblocked86 && typeof ctx.effectiveRaises === 'number' ? ctx.effectiveRaises : ctx.raises;
+  const blindMoneyUnopenedForGuard =
+    unblocked86 &&
+    (((ctx.straddled === true || ctx.killPotUnopened === true) &&
+      (typeof ctx.effectiveRaises === 'number' || ctx.currentBet <= bb * 8.5)) ||
+      ctx.effectiveRaises === 0);
+  const unopenedForGuard =
+    effRaisesForGuard === 0 && (ctx.currentBet <= bb * 1.05 || blindMoneyUnopenedForGuard);
   const callIsAllIn = effCall >= stack * 0.99;
   if (unopenedForGuard && !callIsAllIn) return out;
+  const effectiveStackBBForGuard = ctx.effectiveStackBB ?? stackBB;
+  if (
+    ctx.v87HoldemOverhaul !== false &&
+    !ctx.isOmaha &&
+    ctx.isFixedLimit !== true &&
+    ctx.isShortDeck !== true &&
+    ctx.anteInPlay === true &&
+    toCall >= bb &&
+    effectiveStackBBForGuard >= 14 &&
+    ctx.raises >= 1 &&
+    !callIsAllIn &&
+    ctx.strength < 0.26
+  ) {
+    return out;
+  }
+  if (ctx.v87DeepDiveDiscipline === true && !callIsAllIn) {
+    const minStr87 = v87PricedInMinStrength({
+      isTourney,
+      isOmaha: ctx.isOmaha === true,
+      isHiLo: ctx.omahaHiLo === true,
+      omahaHoleCount: ctx.omahaHoleCount,
+      callers: ctx.callers,
+      guardOdds,
+      evidencedManiacRaiser: ctx.evidencedWideRaiser === true,
+    });
+    noteHorseDeepDiveRule('priced_in_floor', minStr87 > 0, minStr87 > 0 && ctx.strength < minStr87);
+    if (minStr87 > 0 && ctx.strength < minStr87) {
+      ctx.noteLayer?.('v87_deep_dive_discipline');
+      return out;
+    }
+  }
   // The receipt says which band decided; the priced-in call still came from it.
+  // A call the multiway exemption would have blocked is the committed-stack
+  // rule's own call, and says so.
+  if (committedRescue) return { a: 'call', receipt: 'committed_stack_priced_in' };
   return out.receipt ? { a: 'call', receipt: out.receipt } : { a: 'call' };
 }
 
 function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
+  const unblocked86 = ctx.v86MultiStreetUnblocked !== false && ctx.v86UnblockedPreflop !== false;
   const {
     strength: raw,
     position,
     raiserPosition,
-    raises,
     limpers,
     callers,
     toCall,
@@ -727,6 +1695,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     stackBB,
     rand,
   } = ctx;
+  const raises =
+    unblocked86 && typeof ctx.effectiveRaises === 'number' ? ctx.effectiveRaises : ctx.raises;
   const pricePot = Number.isFinite(ctx.contestablePot)
     ? Math.max(0, ctx.contestablePot as number)
     : pot;
@@ -765,22 +1735,148 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // achievable hand is not "tight", it is a dead branch.
   const BAR_CAP = 0.965;
   const capBar = (x: number) => Math.min(BAR_CAP, clamp01(x));
+  // horsePlayStyles (2026-11-16): the pressure style's entry-bar credit, only
+  // when the style supplied one. It lowers the RAISE bars (first-in open,
+  // isolation, the value 3-bet) and never a call bar; the call bars read
+  // `styleCallTightness` (today's tightness) when the style supplied it, so a
+  // pressure Horse's added entries are raises, not flat calls.
+  const entryCredit =
+    ctx.styleEntryBarCredit !== undefined && Number.isFinite(ctx.styleEntryBarCredit)
+      ? Math.max(0, Math.min(0.04, ctx.styleEntryBarCredit))
+      : undefined;
+  const callTightness =
+    ctx.styleCallTightness !== undefined && Number.isFinite(ctx.styleCallTightness)
+      ? ctx.styleCallTightness
+      : ctx.tightness;
   const t = (x: number) => capBar(x * ctx.tightness + ctx.riskAdd);
-  const tCall = (x: number) => capBar(x * ctx.tightness + riskScaled);
+  const tCall = (x: number) => capBar(x * callTightness + riskScaled);
   // V53: a bar priced by the action's own ICM cost instead of the flat
   // premium. Absent the read, exactly t() / tCall().
   const ploIcm = ctx.ploIcm;
-  const t53 = (x: number, family: keyof OmahaPressureShifts): number =>
-    ploIcm ? capBar(x * ctx.tightness + ploIcm[family]) : t(x);
+  // horsePlayStyles: the value re-raise bars read their own tightness when
+  // the playing style supplied one; absent, exactly ctx.tightness.
+  const valueTightness = ctx.valueRaiseTightness ?? ctx.tightness;
+  // The 4-bet node's own tightness and aggression when the style keeps it at today's width.
+  const fourBetTightness =
+    ctx.styleFourBetTightness !== undefined && Number.isFinite(ctx.styleFourBetTightness)
+      ? ctx.styleFourBetTightness
+      : valueTightness;
+  const fourBetAggression =
+    ctx.styleFourBetAggression !== undefined && Number.isFinite(ctx.styleFourBetAggression)
+      ? ctx.styleFourBetAggression
+      : ctx.aggression;
+  const tv = (x: number) =>
+    entryCredit !== undefined
+      ? capBar(x * valueTightness + ctx.riskAdd - entryCredit)
+      : capBar(x * valueTightness + ctx.riskAdd);
+  const t53 = (x: number, family: keyof OmahaPressureShifts): number => {
+    const value = family === 'threeBet' || family === 'fourBet';
+    const call = family === 'call' || family === 'commitCall';
+    const tightness =
+      family === 'fourBet'
+        ? fourBetTightness
+        : value
+          ? valueTightness
+          : call
+            ? callTightness
+            : ctx.tightness;
+    const raise = family === 'open' || family === 'threeBet';
+    if (entryCredit !== undefined && raise)
+      return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd) - entryCredit);
+    return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd));
+  };
   // No-limit hold'em only: the closed all-in exception and the 4-bet-node
   // tightness clamp were measured there and nowhere else.
   const noLimitHoldem = !ctx.isOmaha && ctx.isFixedLimit !== true && ctx.isShortDeck !== true;
+  const v87 = ctx.v87HoldemOverhaul !== false;
+  const v87HoleClass =
+    v87 && ctx.holeCards && ctx.holeCards.length === 2
+      ? holdemClass(ctx.holeCards[0], ctx.holeCards[1])
+      : null;
+  // PERSONA RE-RAISE MIX (D3 option C, default OFF): undefined on every
+  // decision without the flag, and then nothing below is reached. `roll` is
+  // the draw the bluff site consumed (the caller draws it at the place it
+  // always drew it); with the persona present the draw is discarded and the
+  // Horse's own unit decides against the scaled probability.
+  const personaReRaise = ctx.holdemPersonaReRaise;
+  // THE PERSONA NEVER BLUFFS A TIGHT PLAYER MORE. Where the opponent-style
+  // read classifies the raiser as tight (persona.heldByTightRead,
+  // worked out by HorseLogic from the read itself, so it holds with the style
+  // option off, in shadow or on), the persona's scale is held at
+  // min(1, scale): it may lower a bluff there, never raise it.
+  const personaScaleUsed = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    respected: boolean
+  ): number => {
+    if (!respected || !(persona.scale > 1)) return persona.scale;
+    ctx.noteLayer?.('holdem_persona_scale_held_by_style_seen');
+    return 1;
+  };
+  const personaBluffFires = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    roll: number,
+    p: number,
+    kind: 'three_bet' | 'squeeze'
+  ): boolean => {
+    const scaleUsed = personaScaleUsed(persona, persona.heldByTightRead === true);
+    const unit = kind === 'squeeze' ? persona.uSqueeze : persona.u3bet;
+    const fires = unit < Math.min(1, p * scaleUsed);
+    holdemPersonaReRaiseTap?.({
+      kind,
+      p,
+      scale: persona.scale,
+      scaleUsed,
+      unit,
+      fires,
+      unscaled: roll < p,
+    });
+    ctx.noteLayer?.(
+      kind === 'squeeze'
+        ? 'holdem_persona_squeeze_bluff_eligible_seen'
+        : 'holdem_persona_3bet_bluff_eligible_seen'
+    );
+    if (fires !== roll < p)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_changed_seen'
+          : 'holdem_persona_3bet_bluff_changed_seen'
+      );
+    // The cap held this comparison at 1: counted. (It is not the only place
+    // frequency is lost: once p is above 1 over the largest scale, a Horse
+    // below the average still bluffs less and nobody can bluff more.)
+    if (p * scaleUsed > 1)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_capped_seen'
+          : 'holdem_persona_3bet_bluff_capped_seen'
+      );
+    return fires;
+  };
+  const v87EpCand =
+    v87 && ctx.holeCards && ctx.holeCards.length === 2
+      ? classifyHoldemEpLimpCandidate(ctx.holeCards[0], ctx.holeCards[1])
+      : null;
+  const straddleActiveCash =
+    v87 && ctx.mode === 'cash' && (ctx.straddleActive === true || ctx.straddled === true);
+  const straddleUnitCoins = straddleActiveCash
+    ? ctx.straddleUnitCoins && ctx.straddleUnitCoins > bb * 1.05
+      ? ctx.straddleUnitCoins
+      : raises === 0 && currentBet > bb * 1.05
+        ? currentBet
+        : bb * 2
+    : bb;
+  const straddleRatio = bb > 0 ? straddleUnitCoins / bb : 1;
+  const straddleEffectiveBB = straddleActiveCash
+    ? ctx.effectiveStackNormalized === true && ctx.effectiveStackBB !== undefined
+      ? ctx.effectiveStackBB
+      : (ctx.effectiveStackBB ?? stackBB) / straddleRatio
+    : (ctx.effectiveStackBB ?? stackBB);
   const closedAllInCall =
     ctx.facingClosedAllIn === true &&
-    noLimitHoldem &&
+    (noLimitHoldem || (unblocked86 && ctx.isOmaha)) &&
     (ctx.effectiveStackBB ?? Infinity) <= CLOSED_ALL_IN_MAX_EFFECTIVE_BB;
   const tCall53 = (x: number): number =>
-    ploIcm ? capBar(x * ctx.tightness + ploIcm.call) : tCall(x);
+    ploIcm ? capBar(x * callTightness + ploIcm.call) : tCall(x);
   // V35: the game's own width. Zero for hold'em and for every ablation.
   const base35 = ctx.variantShift ?? { open: 0, threeBet: 0, fourBet: 0, coldCall: 0, bbDefend: 0 };
   // V46: the class shift rides on top of the variant shift, in the same
@@ -837,8 +1933,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // calibrations. The ICM premium (riskAdd) is untouched, so the bubble
   // still tightens exactly as before - this moves the baseline, not the
   // survival pressure.
+  const v86 = ctx.v86PloOverhaul === true;
   const tAggro =
     ctx.tournamentAggression !== false && isTourney && !ctx.isOmaha && ctx.allInOrFold !== true;
+  const tAggroPlo =
+    v86 &&
+    ctx.tournamentAggression !== false &&
+    isTourney &&
+    ctx.isOmaha &&
+    ctx.allInOrFold !== true;
   // CASH PRESSURE (Dan 2026-10-24: "3BET AGGRESSIVE HUMANS MORE IN POSITION",
   // "MAKE THESE HORSES KILLERS ... cash and tournament play alike"). Measured
   // on 4 days of human-seated NLH cash hands (2026-10-26..29): facing a
@@ -896,13 +1999,22 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   const depthLoosen = stackBB > 150 ? 0.02 : 0;
   const depthTighten = stackBB < 50 ? 0.03 : 0;
 
-  // V18 STRADDLE: a straddled pot's current bet is the straddle (2xBB) with
-  // zero raises - that is blind money, not an open. The whole unopened
+  // V18 STRADDLE: a straddled pot's current bet is the straddle (2xBB+) or kill
+  // blind with zero raises - that is blind money, not an open. The whole unopened
   // branch (opens, limps, isolation) must own it, and open sizing keys off
-  // the straddle so a raise "to 3x" means 3x the straddle.
-  const straddled = ctx.straddled === true && raises === 0 && currentBet <= bb * 2.2;
+  // the straddle/kill unit so a raise "to 3x" means 3x the active blind unit.
+  const straddled =
+    raises === 0 &&
+    (unblocked86
+      ? ((ctx.straddled === true || ctx.killPotUnopened === true) &&
+          (typeof ctx.effectiveRaises === 'number' || currentBet <= bb * 8.5)) ||
+        (ctx.effectiveRaises === 0 && currentBet > bb * 1.05)
+      : ctx.straddled === true && currentBet <= bb * 2.2);
   const openUnit = straddled ? Math.max(currentBet, bb) : bb;
-  const unopened = (raises === 0 && currentBet <= bb * 1.05) || straddled;
+  const unopened =
+    (raises === 0 && currentBet <= bb * 1.05) ||
+    straddled ||
+    (unblocked86 && ctx.isOptionCheckAvailable === true && raises === 0 && toCall === 0);
 
   // ═══ V20 M-ZONES (2026-08-27) ═══
   // stackBB is blind-blind arithmetic; the number that decides tournament
@@ -976,7 +2088,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // first cut used 0.35, which put a 12bb stack OUTSIDE the zone - and the
   // test caught the 12bb stack limp-calling junk through the deep-stack
   // fallback instead, which is precisely the hole this layer exists to fill.)
-  const ploT = ctx.isOmaha && isTourney && ctx.ploTourney === true;
+  // HU-FL-001 (2026-11-13): jam-or-fold is a no-limit structure and the
+  // commitment zone is pot-limit arithmetic (what one pot raise costs). A
+  // fixed-limit raise is one bet whatever the stack, so a fixed-limit stack
+  // enters neither (HorseFixedLimitStructure.ts).
+  const noJamOrFold = fixedLimitHasNoJamOrFold(ctx.isFixedLimit);
+  const ploT = ctx.isOmaha && !noJamOrFold && isTourney && ctx.ploTourney === true;
   // A pot raise from an unopened pot is ~3.5bb; facing a raise it is
   // roughly 3*currentBet + pot (the pot-limit formula), which is what the
   // engine's own legalize() will clamp to.
@@ -1126,7 +2243,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // the best, where the worst two hold ~12%), so being "crushed" is rare
     // and the pot odds carry most of the decision.
     let callOff = raises >= 2 ? 0.8 : 0.66;
-    if (guardOdds <= 0.4) callOff -= (0.4 - guardOdds) * 1.2; // 3:1 -> -0.18
+    if (
+      ctx.omahaCommitZoneThreeBetPriceRelief === true &&
+      ctx.isOmaha &&
+      ctx.omahaHiLo !== true &&
+      ctx.holeCards?.length === 6 &&
+      raises >= 2
+    ) {
+      // PLO6 tournament-folds study: the facing-3-bet priced branch's relief.
+      callOff -= Math.max(0, 0.5 - guardOdds) * 1.6;
+    } else if (guardOdds <= 0.4) callOff -= (0.4 - guardOdds) * 1.2; // 3:1 -> -0.18
     if (callers >= 1) callOff += Math.min(0.08, callers * 0.04);
     // V53 prices this call-off's survival cost itself (commitCall below).
     if (mzOn && effM >= 5 && !ploIcm) callOff += ctx.riskAdd * 0.5;
@@ -1167,11 +2293,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // open measured +1.9 +/- 1.6 bb/100 in the 20bb mirror but -8.7 +/- 2.9
   // against the human-calibrated field over four seeds (the population
   // over-folds to the shove), so it is a follow-up, not part of this change.
+  // HU-FL-001: a fixed-limit stack never enters jam-or-fold (the controller
+  // only ever executed these jams as one-bet raises).
   const legacyPushFold =
     !ctx.isOmaha &&
+    !noJamOrFold &&
     (stackBB <= 12 || (mzOn && (phase6M ? phase6Red : effM < 6) && effStackBB <= PUSH_FOLD_MAX_BB));
   const legacyOrangeJam =
-    mzOn && (phase6M ? phase6OrangeOrWorse : effM < 10) && stackBB <= 22 && !ctx.isOmaha;
+    mzOn &&
+    (phase6M ? phase6OrangeOrWorse : effM < 10) &&
+    stackBB <= 22 &&
+    !ctx.isOmaha &&
+    !noJamOrFold;
   //
   // Two- and three-handed the M zones are not a depth read at all: the
   // effective-M table scaling (players / 10) puts a heads-up 40bb stack at
@@ -1184,8 +2317,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   const v70JamZone = v70ShortHanded
     ? stackBB <= 12 || (mzOn && effStackBB <= V70_SHORT_HANDED_JAM_MAX_BB)
     : legacyPushFold || legacyOrangeJam;
+  const v70LimpersAllowed =
+    limpers === 0 ||
+    (v87 &&
+      ctx.mode === 'cash' &&
+      ctx.cashActionSizes !== false &&
+      straddleEffectiveBB > 50 &&
+      limpers >= 1 &&
+      limpers <= 2);
   const v70Open =
-    ctx.gtoOpen !== undefined && !ctx.isOmaha && unopened && limpers === 0 && !v70JamZone;
+    ctx.gtoOpen !== undefined && !ctx.isOmaha && unopened && v70LimpersAllowed && !v70JamZone;
   // V82 facing action too: two- and three-handed no-limit hold'em, the
   // jam-or-fold zone is the short-handed one above, not the table-scaled M
   // read, so a 20bb spin or heads-up stack can flat an open instead of only
@@ -1239,7 +2380,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
-  const pushFoldOmaha = ctx.isOmaha && !ploT && mzOn && (stackBB <= 8 || effM < 4);
+  const pushFoldOmaha = ctx.isOmaha && !noJamOrFold && !ploT && mzOn && (stackBB <= 8 || effM < 4);
   if (pushFoldNlh || pushFoldOmaha) {
     if (unopened) {
       // V11: tournament jam ranges follow push/fold math — wider from late
@@ -1303,10 +2444,155 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (!ctx.isOmaha && raises === 1 && ctx.openerOpenWidthPct !== undefined) {
       jamCallThresh += v77JamSeatTighten(ctx.openerOpenWidthPct);
     }
+    if (
+      v87 &&
+      isTourney &&
+      !ctx.isOmaha &&
+      (ctx.bountyFactor ?? 0) > 0 &&
+      ctx.coversRaiser === true
+    ) {
+      const bfJam = Math.max(0, Math.min(1, ctx.bountyFactor ?? 0));
+      jamCallThresh -=
+        Math.min(0.07, bfJam * 0.15) +
+        (ctx.raiserBustable === true ? Math.min(0.05, bfJam * 0.1) : 0);
+    }
     if (strength >= t(jamCallThresh)) return { a: 'jam' };
     if (toCall === 0) return { a: 'check' };
     if (!isTourney && toCall <= bb && strength >= 0.3) return { a: 'call' };
     return { a: 'fold' };
+  }
+  // ═══ V87 FACING ISO-RAISE AFTER HERO LIMPED (2026-11-10) ═══════════════
+  if (
+    v87 &&
+    noLimitHoldem &&
+    !ctx.isPotLimit &&
+    raises === 1 &&
+    toCall > 0 &&
+    ctx.heroPreviouslyActed === true &&
+    ctx.heroWasInitialRaiser !== true &&
+    v87EpCand !== null
+  ) {
+    const ipIso = position === 'late' || (raiserPosition === 'sb' && position === 'bb');
+    const raiseIsoTo = (): PreflopIntent => {
+      if (
+        ctx.mode === 'cash' &&
+        ctx.cashThreeBetSizing &&
+        !ctx.isOmaha &&
+        !ctx.isPotLimit &&
+        !ctx.isFixedLimit &&
+        !ctx.isShortDeck
+      ) {
+        return {
+          a: 'raiseTo',
+          receipt: 'cash_nlh_three_bet_size',
+          to: cashNlhThreeBetRaiseTo({
+            ...ctx.cashThreeBetSizing,
+            openTo: currentBet,
+            bigBlind: bb,
+            callers,
+            rand,
+          }),
+        };
+      }
+      return {
+        a: 'raiseTo',
+        to: currentBet * (ipIso ? 3.2 : 3.6) * ctx.sizingMultiplier,
+      };
+    };
+    const recordLimpIsoAuthority = (
+      branch: 'v87_ep_limp_reraise_value' | 'v87_ep_limp_reraise_bluff' | 'v87_ep_limp_call_iso',
+      premiumValue: boolean
+    ) =>
+      ctx.noteAuthority?.({
+        branch,
+        strength,
+        threeBetThreshold: 0.75,
+        effectiveThreeBetThreshold: 0.75,
+        premiumValue,
+        pressure: false,
+      });
+
+    if (v87EpCand === 'big_pair_trap') {
+      recordLimpIsoAuthority('v87_ep_limp_reraise_value', true);
+      if (ctx.facingClosedAllIn === true || ctx.reopenAllowed === false) {
+        return toCall >= stack ? { a: 'jam' } : { a: 'call' };
+      }
+      if (straddleEffectiveBB <= 28) return { a: 'jam' };
+      return raiseIsoTo();
+    }
+    const effCoins = Math.min(stack, straddleEffectiveBB * straddleUnitCoins);
+    const maxFlatIsoCoins = Math.min(
+      effCoins * 0.1,
+      straddleUnitCoins * (4.25 + Math.min(callers, 2) * 1.0)
+    );
+    if (
+      ctx.raiserIsAllIn !== true &&
+      ctx.facingClosedAllIn !== true &&
+      straddleEffectiveBB >= 28 &&
+      ctx.riskAdd < 0.08 &&
+      toCall <= maxFlatIsoCoins
+    ) {
+      const uIso = v87EpCandidateMixU(ctx, 'suited_connector', 0x87150b);
+      if (
+        ctx.reopenAllowed !== false &&
+        straddleEffectiveBB >= 45 &&
+        ctx.maniacNoBluff !== true &&
+        callers <= 1 &&
+        ctx.riskAdd < 0.05 &&
+        toCall <= straddleUnitCoins * 4.5 &&
+        uIso < 0.22
+      ) {
+        const bluffTarget = raiseIsoTo();
+        const bluffTargetCoins =
+          bluffTarget.a === 'raiseTo' ? (bluffTarget.to ?? Infinity) : Infinity;
+        // LATER LAYERS KEEP THE STYLE READ (2026-11-15): this branch returns
+        // before the opener bars, so the tight-opener respect read
+        // (styleTightReRaiserRespect, set on exploitOpener with maxBarMove only
+        // while that option is on) was never consulted and a 5-high suited
+        // limp re-raised a credibly tight raiser to 16bb. The bluff is not
+        // taken against a raiser that read respects; the hand calls the
+        // iso-raise below. The premium-pair value limp-reraise is above and
+        // unchanged. With the option off the field is absent: unchanged.
+        const respectedTightRaiser =
+          ctx.exploitOpener !== undefined &&
+          !ctx.exploitOpener.wide &&
+          typeof ctx.exploitOpener.maxBarMove === 'number';
+        if (bluffTargetCoins <= effCoins * 0.34 && respectedTightRaiser) {
+          ctx.noteLayer?.('style_tight_opener_respect_seen');
+        } else if (bluffTargetCoins <= effCoins * 0.34) {
+          recordLimpIsoAuthority('v87_ep_limp_reraise_bluff', false);
+          return bluffTarget;
+        }
+      }
+      recordLimpIsoAuthority('v87_ep_limp_call_iso', false);
+      return { a: 'call' };
+    }
+  }
+  // ═══ V87 TOURNAMENT 16-26BB 3-BET RESHOVE WEDGES (2026-11-10) ══════════
+  if (
+    v87 &&
+    isTourney &&
+    noLimitHoldem &&
+    !ctx.isPotLimit &&
+    (ctx.tableSize ?? 6) > 2 &&
+    raises === 1 &&
+    callers === 0 &&
+    toCall > 0 &&
+    effStackBB >= 16 &&
+    effStackBB <= 26 &&
+    ctx.satellite?.locked !== true &&
+    v87HoleClass !== null
+  ) {
+    const vsStealWedge =
+      (raiserPosition === 'late' || raiserPosition === 'sb') &&
+      V87_TOURNEY_RESHOVE_VS_LATE.has(v87HoleClass);
+    const vsMiddleWedge =
+      raiserPosition === 'middle' && V87_TOURNEY_RESHOVE_VS_MIDDLE.has(v87HoleClass);
+    const heavyIcmCovered = (ctx.bubblePressure ?? 0) === 0 && ctx.riskAdd >= 0.09;
+    const survivesIcm = !heavyIcmCovered || V87_TOURNEY_RESHOVE_VS_MIDDLE.has(v87HoleClass);
+    if ((vsStealWedge || vsMiddleWedge) && survivesIcm) {
+      return { a: 'jam' };
+    }
   }
   if (ctx.phase6?.policy.branch === 'reshove' && isTourney && !ctx.isOmaha && raises === 1) {
     // Phase 6 unified reshove node. The callers add dead money but also
@@ -1402,6 +2688,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       openThresh =
         capBar(ctx.gtoOpen!.bar * (ctx.gtoOpen!.tightness ?? ctx.tightness) + ctx.riskAdd) -
         (ctx.format === 'spin' ? 0.05 : 0) +
+        (limpers > 0 ? 0.02 * limpers : 0) +
         vs35.open +
         phase6Shift('open') +
         (isTourney && !ctx.anteInPlay ? depthTighten : 0);
@@ -1413,23 +2700,76 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // button wider still, and the small blind (one player left to beat, an
       // ante in the pot) far wider.
       if (tAggro) openThresh -= position === 'sb' ? 0.08 : position === 'late' ? 0.03 : 0.02;
+      else if (tAggroPlo)
+        openThresh -= position === 'sb' ? 0.06 : position === 'late' ? 0.03 : 0.015;
     }
     // V37: the captain steals wider near the bubble — the field cannot call.
-    openThresh -= 0.06 * Math.max(0, Math.min(1, ctx.bubblePressure ?? 0));
+    const bpOpen = Math.max(0, Math.min(1, ctx.bubblePressure ?? 0));
+    openThresh -=
+      (v87 && isTourney && noLimitHoldem && ctx.satellite?.locked !== true ? 0.105 : 0.06) * bpOpen;
+    if (
+      v87 &&
+      isTourney &&
+      noLimitHoldem &&
+      (ctx.bountyFactor ?? 0) > 0 &&
+      ctx.coversRaiser === true
+    ) {
+      openThresh -= Math.min(0.04, Math.max(0, ctx.bountyFactor ?? 0) * 0.08);
+    }
+    if (unblocked86) {
+      if (typeof ctx.coverBubblePressure === 'number' && ctx.coverBubblePressure !== 0) {
+        openThresh -= 0.05 * Math.max(-1, Math.min(1, ctx.coverBubblePressure));
+      }
+      if (
+        !isTourney &&
+        !ctx.isOmaha &&
+        typeof ctx.sevenDeuceBonus === 'number' &&
+        ctx.sevenDeuceBonus > 0
+      ) {
+        openThresh -= Math.min(0.42, ctx.sevenDeuceBonus);
+      }
+    }
     // V10 LIMP ISOLATION: weak limpers are the softest spot in cash poker.
     // Rather than only tightening (and sizing up) against them, ATTACK in
     // position — widen the raise floor so more hands isolate the limp(s). The
-    // per-limper size bump below already punishes them. In position only, so
-    // we are not bloating pots out of position.
+    // per-limper size bump below already punishes them.
     const isoW = ctx.isoWiden ?? 0;
     const limpReraiser = limpers >= 1 && ctx.limpReraiseRate !== undefined;
-    if (
+    if (v87 && noLimitHoldem) {
+      if (
+        isoW > 0 &&
+        limpers >= 1 &&
+        !limpReraiser &&
+        (position === 'late' || position === 'middle' || position === 'early')
+      ) {
+        const posIsoScale = position === 'early' ? 0.42 : 1;
+        if (v70Open) {
+          openThresh -= isoW * posIsoScale * 0.5;
+        } else {
+          openThresh -= isoW * posIsoScale + Math.min(limpers - 1, 2) * 0.01;
+        }
+      }
+    } else if (
       isoW > 0 &&
+      limpers >= 1 &&
+      !limpReraiser &&
+      (position === 'late' ||
+        position === 'middle' ||
+        (v86 && ctx.isOmaha && ctx.omahaElite?.canThreeBet === true))
+    ) {
+      openThresh -= isoW + Math.min(limpers - 1, 2) * 0.01;
+    }
+    // RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit): tight limpers fold to an isolation raise more
+    // often than the population, so the next-best hands below the bar isolate too. Never beside a limp-reraise
+    // read (that read raises the bar just below).
+    if (
+      ctx.styleTightIsoWiden !== undefined &&
+      noLimitHoldem &&
       limpers >= 1 &&
       !limpReraiser &&
       (position === 'late' || position === 'middle')
     ) {
-      openThresh -= isoW + Math.min(limpers - 1, 2) * 0.01;
+      openThresh -= Math.max(0, Math.min(0.04, ctx.styleTightIsoWiden));
     }
     // LIMP-RERAISE READ: a limper seen to limp-reraise is isolated only with
     // hands that stand his re-raise (HorseLimpReraiseRead).
@@ -1453,15 +2793,163 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         vs35.open +
         phase6Shift('open');
     }
+    // STEAL FROM TIGHT BLINDS (styleStealTightBlinds): hold'em, first in, everyone left credibly tight.
+    if (
+      ctx.styleTightStealWiden !== undefined &&
+      noLimitHoldem &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, Math.min(0.06, ctx.styleTightStealWiden));
+    }
+    // OMAHA TIGHT OPPONENT STEAL: every player left to act is a proven tight folder.
+    if (
+      ctx.omahaTightSteal !== undefined &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, ctx.omahaTightSteal.openWiden);
+    }
+    // FIXED-LIMIT STEAL VS TIGHT BLINDS (priced option off): every player
+    // left to act is a read over-folder.
+    if (
+      ctx.fixedLimitStealOpenWiden !== undefined &&
+      ctx.isFixedLimit === true &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, ctx.fixedLimitStealOpenWiden);
+      ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
+    }
+    // HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (D6, default off): the big
+    // blind's estimated fold share pays the open on folds alone, so every
+    // hand opens: a would-be limp or fold becomes an open. No size change;
+    // nothing facing action is touched.
+    if (
+      ctx.huTightBigBlindSteal !== undefined &&
+      !ctx.isOmaha &&
+      limpers === 0 &&
+      position === 'sb'
+    ) {
+      openThresh = Math.min(openThresh, 0);
+    }
     openThresh = phase6CapBar(openThresh);
     // MANIAC PRESSURE: never open a hand that has to fold to the maniac's
     // re-raise. Not tightness-shifted: the bar is the continuing share
     // against the maniac's measured width, already a price.
     if (ctx.maniacOpenBar !== undefined) openThresh = Math.max(openThresh, ctx.maniacOpenBar);
+    // V86 EP/MP MANIAC-BEHIND TIGHTENING: opening marginal single-suited / dangler
+    // Omaha hands from UTG/MP/HJ with a confirmed IP maniac or LAG bully yet to act
+    // invites bloated OOP pots with dominated suits. Enter with double-suited or
+    // nut-suit connected playability instead.
+    const confirmedIpManiacBehind =
+      ctx.lagBullyIpBehind === true ||
+      (ctx.lagBullyIpBehind === undefined && ctx.maniacOpenBar !== undefined);
+    if (
+      v86 &&
+      ctx.isOmaha &&
+      (position === 'early' ||
+        position === 'middle' ||
+        (position === 'late' && ctx.maniacOpenBar !== undefined)) &&
+      confirmedIpManiacBehind
+    ) {
+      const eliteOpen = ctx.omahaElite;
+      const linearOpenPlayable =
+        eliteOpen !== undefined &&
+        (eliteOpen.cls === 'aa_ds' ||
+          eliteOpen.cls === 'kk_ds' ||
+          eliteOpen.cls === 'plo8_scoop' ||
+          eliteOpen.cls === 'broadway_conn_ds' ||
+          eliteOpen.cls === 'rundown_ds' ||
+          eliteOpen.cls === 'ax_nut_suited' ||
+          eliteOpen.cleanSuits >= 2 ||
+          (eliteOpen.hasNutAceSuit && eliteOpen.connectedWindowSpan <= 4));
+      if (!linearOpenPlayable && (eliteOpen === undefined || eliteOpen.cleanSuits < 2)) {
+        openThresh = Math.max(openThresh + 0.08, position === 'early' ? 0.66 : 0.6);
+      }
+    }
+
+    // ═══ V87 EP OPEN-LIMP TRAP & SUITED-CONNECTOR LIMP MIX (2026-11-10) ═══
+    // Owner direction: mix early-position open-limps with QQ/KK/AA (to trap
+    // aggressive iso-raisers with a 100% limp-3-bet) and 54s-T9s (for balanced
+    // board coverage that defends against standard iso-raises) in both Hold'em
+    // cash games and Hold'em tournaments. Pure deterministic hash; zero PRNG
+    // draws consumed.
+    const dealtCount87 = ctx.tableSize ?? Math.max(2, ctx.oppsLeft + 1);
+    if (
+      v87 &&
+      v87EpCand !== null &&
+      noLimitHoldem &&
+      !ctx.isPotLimit &&
+      raises === 0 &&
+      limpers === 0 &&
+      toCall > 0 &&
+      position === 'early' &&
+      dealtCount87 >= 6 &&
+      !straddled &&
+      ctx.straddleActive !== true &&
+      !v70JamZone &&
+      ((ctx.mode === 'cash' && ctx.cashActionSizes !== false && straddleEffectiveBB >= 55) ||
+        (isTourney && effStackBB >= 35))
+    ) {
+      if (v87EpCand === 'big_pair_trap') {
+        const uTrap = v87EpCandidateMixU(ctx, 'big_pair_trap', 0x87e911);
+        if (uTrap < 3 / 18) {
+          ctx.noteAuthority?.({
+            branch: 'v87_ep_limp_trap',
+            strength,
+            threeBetThreshold: openThresh,
+            effectiveThreeBetThreshold: openThresh,
+            premiumValue: true,
+            pressure: false,
+          });
+          return { a: 'call' };
+        }
+      } else if (ctx.maniacOpenBar === undefined) {
+        const uSc = v87EpCandidateMixU(ctx, 'suited_connector', 0x87e95c);
+        if (uSc < 0.2) {
+          ctx.noteAuthority?.({
+            branch: 'v87_ep_limp_suited_connector',
+            strength,
+            threeBetThreshold: openThresh,
+            effectiveThreeBetThreshold: openThresh,
+            premiumValue: false,
+            pressure: false,
+          });
+          return { a: 'call' };
+        }
+      }
+    }
 
     // V70: the open reads the hand on this seat's order (see gtoOpen).
+    // V87: maniacOpenBar is calibrated in raw holdemPreflopScore units; from
+    // early/middle OOP seats with a confirmed maniac yet to act, tighten out
+    // weak dominated Rag-Ace / suited-7 / low-connector opens that brick and fold.
     const openStrength = v70Open ? ctx.gtoOpen!.strength : strength;
-    if (openStrength >= openThresh) {
+    const nlhManiacFloor =
+      noLimitHoldem &&
+      ctx.maniacOpenBar !== undefined &&
+      (position === 'early' || position === 'middle')
+        ? ctx.maniacOpenBar + (position === 'early' ? 0.08 : 0.04)
+        : ctx.maniacOpenBar;
+    const maniacBarOk = !v87 || nlhManiacFloor === undefined || strength >= nlhManiacFloor;
+    // LIGHTNING PARTICIPATION (default off): the Omaha first-in cell of this
+    // seat. Absent the option this is the base test, unchanged.
+    const opens = lightningParticipationFirstIn(ctx.lightningParticipation, {
+      isOmaha: ctx.isOmaha === true,
+      position,
+      limpers,
+      straddled,
+      toCall,
+      strength,
+      openThresh,
+      baseOpens: openStrength >= openThresh && maniacBarOk,
+      depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+      tightness: ctx.tightness,
+      lagBullyIpBehind: ctx.lagBullyIpBehind,
+      noteAuthority: ctx.noteAuthority,
+    });
+    if (opens) {
       // V20 ORANGE ZONE (M 6-10): there is no raise-fold — a standard open
       // is a third of the stack, and folding it to a reshove afterward is
       // the worst line short-stack poker offers. The opening range OPEN-JAMS
@@ -1480,7 +2968,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // it teaches every watching player that limping is normal here. Over-
       // limping a monster BEHIND other limpers is a real trap and survives;
       // opening the pot by calling does not.
-      if (limpers >= 1 && strength > 0.93 && rand() < ctx.slowplayFreq * 0.4 && toCall <= bb) {
+      if (
+        limpers >= 1 &&
+        strength > 0.93 &&
+        rand() < ctx.slowplayFreq * 0.4 &&
+        !(unblocked86 && ctx.isOmaha) &&
+        (!unblocked86 || position === 'late' || ctx.isButton === true) &&
+        toCall <= openUnit
+      ) {
         if (toCall === 0) return { a: 'check' };
         return { a: 'call' };
       }
@@ -1526,7 +3021,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         receipt: 'v74_nlh_open_size',
         to: nlhOpenRaiseTo({
           seat: nlhOpenSeat({ position, isButton: ctx.isButton, trueHeadsUp: trueHu }),
-          depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+          depthBB: straddleActiveCash
+            ? Math.min(stackBB / straddleRatio, straddleEffectiveBB)
+            : Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
           tournament: isTourney,
           anteInPlay: ctx.anteInPlay === true,
           tableSize: ctx.tableSize ?? 6,
@@ -1542,7 +3039,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // BvB limp mix from the SB with playable-but-not-open hands.
     // V70: the band is read on the small blind's own order, down to its floor.
     const sbLimpFloor = v70Open ? ctx.gtoOpen!.sbLimpFloor : 0.22;
-    if (bvb && toCall > 0 && toCall <= bb && openStrength >= sbLimpFloor && rand() < 0.75) {
+    if (bvb && toCall > 0 && toCall <= openUnit && openStrength >= sbLimpFloor && rand() < 0.75) {
       return { a: 'call' };
     }
     if (toCall === 0) return { a: 'check' };
@@ -1565,9 +3062,21 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // is [LIMP_BEHIND_MIN, openThresh) - empty in late position until several
     // limpers widen it. Late position isolating limpers instead of joining
     // them is correct, and the V10 isolation layer above already does it.
+    const omahaLimpDiscipline87 =
+      ctx.v87DeepDiveDiscipline === true &&
+      ctx.isOmaha === true &&
+      !ctx.omahaHiLo &&
+      ((ctx.omahaHoleCount ?? 4) >= 6 || limpers >= 2);
+    const omahaLimpTighten87 = omahaLimpDiscipline87
+      ? (ctx.omahaHoleCount === 6 ? 0.07 : ctx.omahaHoleCount === 5 ? 0.04 : 0) +
+        Math.min(2, Math.max(0, limpers - 1)) * 0.02
+      : 0;
+    if (ctx.v87DeepDiveDiscipline === true)
+      noteHorseDeepDiveRule('limp_bar', omahaLimpDiscipline87, omahaLimpDiscipline87);
     const canLimpBehind =
-      limpers >= 1 && strength >= phase6CapBar(LIMP_BEHIND_MIN + phase6Shift('call'));
-    const limpable = strength >= openThresh - 0.12;
+      limpers >= 1 &&
+      strength >= phase6CapBar(LIMP_BEHIND_MIN + omahaLimpTighten87 + phase6Shift('call'));
+    const limpable = strength >= openThresh - (omahaLimpDiscipline87 ? 0.06 : 0.12);
     // V28 AUDIT FIX: `|| position === 'sb'` short-circuited the strength test
     // entirely — the SB completed with ANY two cards 70% of the time and was
     // play-visible as "the small blind never folds". The SB still completes
@@ -1575,10 +3084,47 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // to the limpers-first rule: with the pot unopened, the small blind has
     // the big blind still to act behind it, so completing is an open-limp
     // like any other.
-    const sbCompletable = position === 'sb' && strength >= openThresh - 0.22;
-    if (canLimpBehind && toCall <= bb && (limpable || sbCompletable) && rand() < 0.7) {
+    const sbCompletable =
+      position === 'sb' && strength >= openThresh - (omahaLimpDiscipline87 ? 0.14 : 0.22);
+    if (canLimpBehind && toCall <= openUnit && (limpable || sbCompletable) && rand() < 0.7) {
       return { a: 'call' };
     }
+    if (
+      omahaLimpDiscipline87 &&
+      limpers >= 1 &&
+      toCall <= openUnit &&
+      strength >= phase6CapBar(LIMP_BEHIND_MIN + phase6Shift('call')) &&
+      (strength >= openThresh - 0.12 || (position === 'sb' && strength >= openThresh - 0.22))
+    ) {
+      ctx.noteLayer?.('v87_deep_dive_discipline');
+    }
+    // LIGHTNING CHEAP ENTRY (default off): where this branch folds, the small
+    // blind folded to or behind limpers, or the button behind limpers, asks
+    // whether the completion / over-limp pays at its price. Never a raise.
+    // Absent the option the answer is the fold, unchanged.
+    if (
+      lightningCheapEntry(ctx.lightningCheapEntry, {
+        isOmaha: ctx.isOmaha === true,
+        position,
+        isButton: ctx.isButton === true,
+        limpers,
+        raises,
+        straddled,
+        oppsLeft: ctx.oppsLeft,
+        toCall,
+        bigBlind: bb,
+        pot: pricePot,
+        drop:
+          ctx.mode === 'cash' && Number.isFinite(ctx.callDeductionFraction)
+            ? ctx.callDeductionFraction
+            : 0,
+        depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+        strength,
+        tightness: ctx.unflooredTightness ?? ctx.tightness,
+        noteAuthority: ctx.noteAuthority,
+      })
+    )
+      return { a: 'call' };
     return { a: 'fold' };
   }
 
@@ -1590,13 +3136,54 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // below moves it the way it moved the bucketed base.
     // V85: on a cash table the same base also answers an open that has been
     // called (squeeze, overcall, the multiway big blind).
-    const def72 =
+    const def72Base =
       ctx.gtoDefend !== undefined &&
-      (callers === 0 || ctx.gtoDefend.cashAction === true) &&
+      (callers === 0 || ctx.gtoDefend.cashAction === true || (unblocked86 && callers >= 1)) &&
       !ctx.isOmaha
         ? ctx.gtoDefend
         : null;
-    const def85 = def72 !== null && def72.cashAction === true;
+    // V87 MULTIWAY LOW-STAKES DEFENCE (owner direction 2026-11-10 22:48
+    // Chicago, HorseGtoDefenceRanges.V87_MULTIWAY_DEFENCE): wider flats,
+    // wider overcalls behind a caller and more 3-bets against one open, on
+    // the same (defender, opener seat) order. Cash tapers with the V85 depth
+    // weight (50bb or less exactly the prior bars) and widens most at a big
+    // blind of 2 or less; tournaments take a reduced share from 30bb up.
+    // Pure arithmetic on the bars: no draw is added or removed here.
+    const def87Weight = (() => {
+      if (
+        !v87 ||
+        !noLimitHoldem ||
+        def72Base === null ||
+        headsUp ||
+        ctx.maniacOpenBar !== undefined ||
+        ctx.maniacNoBluff === true ||
+        ctx.exploitOpener?.noBluffThreeBet === true
+      ) {
+        return 0;
+      }
+      if (ctx.mode === 'cash') {
+        return def72Base.cashAction === true ? v85DepthWeight(straddleEffectiveBB) : 0;
+      }
+      if (isTourney && ctx.satellite === undefined) {
+        const eff = ctx.effectiveStackBB ?? stackBB;
+        return V87_MULTIWAY_DEFENCE.tournamentWeight * Math.max(0, Math.min(1, (eff - 30) / 15));
+      }
+      return 0;
+    })();
+    const def72 =
+      def72Base !== null && def87Weight > 0
+        ? {
+            ...def72Base,
+            ...v87WidenDefence(def72Base, {
+              defender: def72Base.defender,
+              callers,
+              lowStakes: ctx.mode === 'cash' ? v87LowStakesWeight(ctx.cashStakeBB ?? bb) : 0,
+              weight: def87Weight,
+              dealt: ctx.tableSize ?? 6,
+            }),
+          }
+        : def72Base;
+    const def85 = def72 !== null && (def72.cashAction === true || (unblocked86 && callers >= 1));
     let threeBetThresh =
       t53((def72 ? def72.valueBar : THREEBET_VS[vs]) - (ctx.aggression - 1) * 0.08, 'threeBet') +
       vs35.threeBet +
@@ -1667,15 +3254,38 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // and the flat both widen to the top of their actual range; against a
     // credible nit the 3-bet narrows. Absent read = no change at all.
     const vsOpener = ctx.exploitOpener;
+    // STYLE READ #6: the narrow branch below was unreachable (the exploit read
+    // only ever engages a WIDE opener). For a credibly tight opener the move
+    // is held aside, bounded by maxBarMove, and added after every later layer
+    // so no re-steal widening undoes it; with the field absent nothing here
+    // differs from the original branch.
+    let styleOpenerBarMove = 0;
     if (vsOpener) {
       if (vsOpener.threeBetBar !== null) {
         const bar = t53(vsOpener.threeBetBar, 'threeBet');
-        threeBetThresh = vsOpener.wide
-          ? Math.min(threeBetThresh, bar)
-          : Math.max(threeBetThresh, bar);
+        if (!vsOpener.wide && typeof vsOpener.maxBarMove === 'number') {
+          styleOpenerBarMove = Math.max(0, Math.min(bar - threeBetThresh, vsOpener.maxBarMove));
+        } else {
+          threeBetThresh = vsOpener.wide
+            ? Math.min(threeBetThresh, bar)
+            : Math.max(threeBetThresh, bar);
+        }
       }
       const flat = position === 'bb' ? vsOpener.bbFlatBar : vsOpener.flatBar;
       if (flat !== null) callThresh = Math.min(callThresh, tCall53(flat));
+    }
+    if (
+      ctx.v87DeepDiveDiscipline === true &&
+      ctx.isOmaha === true &&
+      !ctx.omahaHiLo &&
+      ctx.evidencedWideRaiser !== true
+    ) {
+      const bump87 = v87OmahaColdCallTighten(ctx.omahaHoleCount, position, callers, stackBB);
+      noteHorseDeepDiveRule('cold_call_bar', bump87 > 0, bump87 > 0);
+      if (bump87 > 0) {
+        callThresh += bump87;
+        ctx.noteLayer?.('v87_deep_dive_discipline');
+      }
     }
     const noBluff3 = vsOpener?.noBluffThreeBet === true;
     // 2026-10-24 V53 PRESSURE: heads-up against a credibly wide opener, the
@@ -1687,8 +3297,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (pressure) {
       threeBetThresh = Math.min(
         threeBetThresh,
-        t(pressureIp ? pressure.ipThreeBetBar : pressure.oopThreeBetBar)
+        tv(pressureIp ? pressure.ipThreeBetBar : pressure.oopThreeBetBar)
       );
+      if (unblocked86 && !pressureIp && ctx.isOmaha) {
+        callThresh += 0.03;
+      }
     }
     // TOURNAMENT AGGRESSION: re-raise ranges stated as hand shares (the
     // holdemPreflopScore scale: 0.5 = top 19.8%, 0.62 ~ 11.5%, 0.65 = 10.9%),
@@ -1724,11 +3337,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           // survival premium still prices every candidate through t().
           const actionShift =
             (ctx.tableSize === 6 || ctx.tableSize === 9) && position !== 'sb' ? 0.02 : 0;
-          threeBetThresh = Math.min(threeBetThresh, t(aggroBar - actionShift));
+          threeBetThresh = Math.min(threeBetThresh, tv(aggroBar - actionShift));
         }
-      } else if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
+      } else if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, tv(aggroBar));
       else threeBetThresh -= 0.03;
       if (position === 'late' && stackBB >= 25) callThresh -= 0.03;
+    } else if (tAggroPlo && (vs === 'late' || vs === 'sb')) {
+      threeBetThresh -= 0.04;
+      if (position === 'late' || position === 'bb') callThresh -= 0.02;
     }
     // CASH PRESSURE: value 3-bet bars as hand shares against the opener's
     // width (same scale as the tournament bars above: 0.56 ~ top 15%,
@@ -1764,7 +3380,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.noteLayer?.('v60_cash_pressure_facing_open_superseded');
       } else if (cashBar !== null) {
         const beforeV60 = threeBetThresh;
-        threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
+        threeBetThresh = Math.min(threeBetThresh, tv(cashBar) - 0.05 * hunted);
         ctx.noteLayer?.(
           threeBetThresh !== beforeV60
             ? 'v60_cash_pressure_facing_open'
@@ -1775,10 +3391,63 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.noteLayer?.('v60_cash_pressure_facing_open');
       }
     }
+    if (v87 && isTourney && noLimitHoldem && ctx.satellite?.locked !== true) {
+      const bp3 = Math.max(0, Math.min(1, ctx.bubblePressure ?? 0));
+      if (bp3 > 0) {
+        threeBetThresh -= 0.065 * bp3;
+      } else if (ctx.riskAdd >= 0.06 && stackBB >= 16 && stackBB <= 38) {
+        callThresh += 0.035;
+      }
+      const bf3 = Math.max(0, Math.min(1, ctx.bountyFactor ?? 0));
+      if (bf3 > 0 && ctx.coversRaiser === true) {
+        threeBetThresh -= Math.min(0.05, bf3 * 0.12);
+      }
+    }
+    if (unblocked86) {
+      if (typeof ctx.coverBubblePressure === 'number' && ctx.coverBubblePressure !== 0) {
+        const cov = Math.max(-1, Math.min(1, ctx.coverBubblePressure));
+        threeBetThresh -= 0.04 * cov;
+        callThresh -= 0.03 * cov;
+      }
+      if (
+        !isTourney &&
+        !ctx.isOmaha &&
+        typeof ctx.sevenDeuceBonus === 'number' &&
+        ctx.sevenDeuceBonus > 0
+      ) {
+        callThresh -= Math.min(0.28, ctx.sevenDeuceBonus * 0.65);
+      }
+    }
+    if (
+      vsOpener &&
+      !vsOpener.wide &&
+      typeof vsOpener.maxBarMove === 'number' &&
+      (styleOpenerBarMove > 0 || (vsOpener.callBump ?? 0) > 0)
+    ) {
+      threeBetThresh += styleOpenerBarMove;
+      callThresh += Math.max(0, vsOpener.callBump ?? 0);
+      ctx.noteLayer?.('style_tight_opener_respect_seen');
+    }
+    // OMAHA TIGHT OPPONENT RESPECT: a proven tight raiser's open is stronger
+    // than the seat says; added after every later layer, like the move above.
+    const tightOpener = ctx.omahaTightOpener;
+    if (tightOpener) {
+      const bar = t53(tightOpener.threeBetBar, 'threeBet');
+      threeBetThresh += Math.max(0, Math.min(bar - threeBetThresh, tightOpener.maxBarMove));
+      callThresh += Math.max(0, tightOpener.callBump);
+    }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
-    const bbDiscount = position === 'bb' ? 0.06 : 0;
-    const priceOK = toCall <= Math.max(bb * 12, stack * 0.12);
+    ctx.noteThresholds?.({ threeBet: threeBetThresh, call: callThresh, fourBet: null, strength });
+    const bbDiscount =
+      position === 'bb' || (unblocked86 && ctx.heroPriorAction === 'post_straddle_or_kill')
+        ? 0.06
+        : 0;
+    const priceOK =
+      toCall <= Math.max(bb * 12, stack * 0.12) ||
+      (unblocked86 && guardOdds <= (ctx.isOmaha ? 0.34 : 0.28) && toCall <= stack * 0.25);
+    const heroLimpedEarlier =
+      unblocked86 && (ctx.heroPriorAction === 'limp' || ctx.heroPriorAction === 'complete_sb');
     const tourney3betTrim = isTourney && stackBB <= 40 ? 0.5 : 0;
     const cashThreeBet = (): PreflopIntent | null => {
       if (
@@ -1811,24 +3480,113 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // that dominates them.
     let effThreeBetThresh = threeBetThresh;
     if (ctx.isOmaha && ctx.omahaAA === true) effThreeBetThresh = threeBetThresh - 0.04;
+    const ipVsOpen = position === 'late' || (vs === 'sb' && position === 'bb');
+    const elite = v86 && ctx.isOmaha ? ctx.omahaElite : undefined;
+    const linearElite3Bet =
+      elite !== undefined &&
+      (elite.cls === 'aa_ds' ||
+        elite.cls === 'kk_ds' ||
+        elite.cls === 'plo8_scoop' ||
+        elite.cls === 'broadway_conn_ds' ||
+        elite.cls === 'rundown_ds' ||
+        elite.cls === 'ax_nut_suited');
+    const ultraPremiumElite =
+      elite !== undefined &&
+      (elite.cls === 'aa_ds' || elite.cls === 'kk_ds' || elite.cls === 'plo8_scoop');
+    // Sticky wide openers with low fold-to-3-bet (`noBluff3 === true`) and presumed/wide
+    // PLO openers (`maniacNoBluff` from pfr >= 35%) still get 3-bet and squeezed for
+    // linear equity by high-playability double-suited / nut-suit hands; thinner
+    // single-suited rundowns and pair+support stay gated behind `!noBluff3`.
+    const allowEliteVsRaiser =
+      ultraPremiumElite ||
+      (linearElite3Bet &&
+        ctx.observedExtremeManiac !== true &&
+        (ctx.maniacNoBluff !== true ||
+          (noBluff3 && ((ctx.omahaHoleCount ?? 4) <= 4 || callers >= 1)) ||
+          strength >= 0.62)) ||
+      (ctx.maniacNoBluff !== true && !noBluff3);
+    const basePloMix = ctx.ploPersona3BetMix ?? 0.55;
+    const rawPloMix = pressure
+      ? Math.min(0.96, basePloMix + 0.35)
+      : ipVsOpen
+        ? Math.min(0.92, basePloMix + 0.18)
+        : basePloMix;
+    const effPloMix = noBluff3 && linearElite3Bet ? Math.min(0.96, rawPloMix + 0.15) : rawPloMix;
+    const ploElite3BetActive =
+      elite !== undefined &&
+      elite.canThreeBet &&
+      allowEliteVsRaiser &&
+      (elite.cls === 'aa_ds' || elite.cls === 'plo8_scoop' || (ctx.plo3BetRoll ?? 0.4) < effPloMix);
+    if (ploElite3BetActive && elite) {
+      const bonus =
+        elite.cls === 'aa_ds' || elite.cls === 'plo8_scoop'
+          ? 0.16
+          : elite.cls === 'broadway_conn_ds' || elite.cls === 'rundown_ds'
+            ? ipVsOpen
+              ? 0.14
+              : 0.09
+            : elite.cls === 'kk_ds' || elite.cls === 'ax_nut_suited'
+              ? ipVsOpen
+                ? 0.11
+                : 0.07
+              : ipVsOpen || pressure !== undefined
+                ? 0.06
+                : 0;
+      effThreeBetThresh = Math.min(effThreeBetThresh, Math.max(0.46, threeBetThresh - bonus));
+    }
     const premiumValue =
       priceOK &&
       (ctx.holdemPremiumPair === true ||
         (ctx.isOmaha &&
           (ctx.omahaSuitedPremium === 'aces' ||
-            (ctx.omahaSuitedPremium === 'kings' && vsOpener?.wide !== false))));
+            (ctx.omahaSuitedPremium === 'kings' && vsOpener?.wide !== false) ||
+            (ploElite3BetActive && elite?.cls === 'plo8_scoop'))));
+    const noteAuthority = (branch: PreflopAuthorityEvent['branch']) =>
+      ctx.noteAuthority?.({
+        branch,
+        strength,
+        threeBetThreshold: threeBetThresh,
+        effectiveThreeBetThreshold: effThreeBetThresh,
+        premiumValue,
+        pressure: Boolean(pressure),
+      });
     if (premiumValue || strength >= effThreeBetThresh) {
       // ═══ V46 (2026-09-05) ═══ a rundown, a broadway hand and a dangler
       // FLAT. This is the thing a bar cannot say: those hands want a cheap
       // multiway flop, and widening or narrowing their 3-bet threshold does
       // the opposite of what the hand wants either way. The price still has
       // to be a flatting price - past that the bars decide as before.
+      // V86: double-suited rundowns, connected broadways, suited-Ax nut
+      // bridges, and PLO8 scoop hands take pot control by 3-betting instead
+      // of passively flatting every open.
       if (
         !premiumValue &&
         !pressure &&
+        !ploElite3BetActive &&
         ctx.classNeverThreeBet === true &&
         toCall <= ctx.stack * 0.12
       ) {
+        noteAuthority('v46_class_flat');
+        return { a: 'call' };
+      }
+      const ip = position === 'late' || ctx.isButton === true || (vs === 'sb' && position === 'bb');
+      const omahaContextual3Bet =
+        unblocked86 &&
+        ctx.observedExtremeManiac !== true &&
+        ((ip && vs !== 'early') ||
+          callers >= 1 ||
+          (ctx.omahaNutSuits ?? 0) >= 1 ||
+          ctx.omahaTripleSuited === true ||
+          stackBB <= 55);
+      if (
+        ctx.isOmaha &&
+        ctx.omahaAA === false &&
+        !premiumValue &&
+        ctx.observedExtremeManiac === true &&
+        strength < effThreeBetThresh + 0.08 &&
+        toCall <= ctx.stack * 0.15
+      ) {
+        noteAuthority('v16_non_aa_flat');
         return { a: 'call' };
       }
       if (
@@ -1836,15 +3594,25 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.omahaAA === false &&
         !premiumValue &&
         !pressure &&
-        strength < threeBetThresh + 0.05 &&
+        !omahaContextual3Bet &&
+        !ploElite3BetActive &&
+        strength < threeBetThresh + (unblocked86 ? 0.03 : 0.05) &&
         toCall <= ctx.stack * 0.08
       ) {
-        return { a: 'call' }; // speculative rundown: take the flop instead
+        noteAuthority('v16_non_aa_flat');
+        return { a: 'call' }; // OOP deep non-nut-suited margin: take the flop instead
       }
-      if (strength > 0.95 && rand() < ctx.slowplayFreq * 0.5 && callers === 0) {
-        return { a: 'call' }; // trap
+      if (
+        strength > 0.95 &&
+        rand() < ctx.slowplayFreq * 0.5 &&
+        callers === 0 &&
+        !(unblocked86 && ctx.isOmaha) &&
+        (!unblocked86 || position === 'late' || ctx.isButton === true)
+      ) {
+        noteAuthority('value_trap');
+        return { a: 'call' }; // trap (IP hold'em / non-Omaha only)
       }
-      const ip = position === 'late' || (vs === 'sb' && position === 'bb');
+      noteAuthority(premiumValue ? 'premium_value' : 'strength_value');
       // V35: a tournament 3-bet at 40bb or less is smaller (2.5x in position,
       // ~3.2x out) — the stack behind it is what makes the size, and a cash
       // 3.8x from a 30bb stack is a third of it. Solver MTT 3-bets sit at
@@ -1856,7 +3624,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // cheaply. Sizing to the ceiling makes both cases the same number, and
       // the number the game actually allows.
       if (ctx.isPotLimit) {
-        return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
+        return {
+          a: 'raiseTo',
+          to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand),
+          ...(ploElite3BetActive && ctx.omahaAA !== true
+            ? { receipt: 'v86_plo_elite_three_bet' as const }
+            : {}),
+        };
       }
       const cashSize = cashThreeBet();
       if (cashSize) return cashSize;
@@ -1864,17 +3638,60 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
     }
 
+    // V86 PLO POT SQUEEZE: raiser + caller(s) create dead money that double-suited
+    // rundowns, connected broadways, nut-suited Ax, and PLO8 scoop hands attack.
+    if (
+      v86 &&
+      callers >= 1 &&
+      ctx.isOmaha &&
+      ctx.isPotLimit &&
+      elite?.canSqueeze === true &&
+      strength >= t53(0.54, 'threeBet') &&
+      allowEliteVsRaiser &&
+      !tightOpener &&
+      (pressure !== undefined ||
+        (noBluff3 && linearElite3Bet) ||
+        (ctx.plo3BetRoll ?? 0.4) < Math.min(0.9, basePloMix + (ipVsOpen ? 0.2 : 0.1)))
+    ) {
+      noteAuthority('squeeze_bluff');
+      return {
+        a: 'raiseTo',
+        to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand),
+        receipt: 'v86_plo_squeeze',
+      };
+    }
+
     // V7 SQUEEZE BLUFF: raiser + caller(s) — attack the capped caller range.
+    // In Omaha, semi-bluff squeezes require nut-suit / Ace-blocker equity.
+    const omahaSqueezeAllowed =
+      unblocked86 && (ctx.holdsAce === true || (ctx.omahaNutSuits ?? 0) >= 1);
     if (
       callers >= 1 &&
       !def85 &&
-      strength >= t(0.55) &&
+      !heroLimpedEarlier &&
+      strength >= t(ctx.isOmaha ? 0.62 : 0.55) &&
       strength < threeBetThresh &&
-      !ctx.isOmaha &&
+      (!ctx.isOmaha || omahaSqueezeAllowed) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < bluffBudget * 0.3 * blockerMult
+      !tightOpener &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit.
+      (personaReRaise === undefined
+        ? rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult,
+            'squeeze'
+          )) &&
+      // The same test as the 3-bet bluff below, after the draw.
+      bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
+      noteAuthority('squeeze_bluff');
+      if (ctx.isPotLimit) {
+        return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
+      }
       // V28 AUDIT FIX: the bluff squeeze was sized 4.0-5.5x with no IP/OOP
       // split while the VALUE squeeze was 3.0-4.2x — the bluff was strictly
       // BIGGER than the value raise at every caller count, a directly
@@ -1889,7 +3706,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
 
     // V7 3-BET BLUFF: no callers, right position, mid-strength hands.
     // Wider vs late opens and from the blinds (re-steal).
-    const bluffFloor = blindVsSteal ? 0.48 : 0.55;
+    const bluffFloor =
+      (blindVsSteal ? 0.48 : 0.55) -
+      (v86 && !ctx.isOmaha && !def72 && ctx.holdsAce === true && position === 'late' ? 0.04 : 0);
     // V16: scale the bluff 3-bet by what THIS raiser actually does against
     // 3-bets. 0.6 + f3b maps a 70% folder to x1.3 and a 20% folder to x0.8,
     // clamped so a read can reshape but never zero out the mix.
@@ -1922,13 +3741,28 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (
       // V85: the squeeze bluffs are the same chart classes, at the squeeze width.
       (callers === 0 || def85) &&
+      !heroLimpedEarlier &&
       (def72
         ? bluff72 > 0 && strength < threeBetThresh
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < (def72 ? bluff72 : bluffFreqHere)
+      !tightOpener &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit
+      // (the squeeze unit when this block is the V85 squeeze, callers >= 1).
+      (personaReRaise === undefined
+        ? rand() < (def72 ? bluff72 : bluffFreqHere)
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            def72 ? bluff72 : bluffFreqHere,
+            callers >= 1 ? 'squeeze' : 'three_bet'
+          )) &&
+      // Tested after the draw so the random stream is unchanged.
+      bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
+      noteAuthority('three_bet_bluff');
       if (ctx.isPotLimit) {
         return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
       }
@@ -1958,9 +3792,25 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // percentile means what it says.
     // V74: the continue bar is already the big blind's own width.
     let callBar = callThresh - (def72 ? 0 : bbDiscount);
+    const bounds87 =
+      ctx.v87DeepDiveDiscipline === true &&
+      ctx.isOmaha === true &&
+      !ctx.omahaHiLo &&
+      ctx.evidencedWideRaiser !== true &&
+      ((ctx.omahaHoleCount ?? 4) >= 6 || callers >= 1)
+        ? v87OmahaCallBarBounds(ctx.omahaHoleCount, position, callers)
+        : null;
     if (ctx.isOmaha && ctx.ploPriceDefense === true) {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
-      const priceRelief = Math.max(0, 0.5 - odds); // BB ~0.17, cold call ~0.09
+      const rawRelief = Math.max(0, 0.5 - odds); // BB ~0.17, cold call ~0.09
+      const priceRelief = bounds87 ? Math.min(bounds87.maxPriceRelief, rawRelief) : rawRelief;
+      if (ctx.v87DeepDiveDiscipline === true)
+        noteHorseDeepDiveRule(
+          'price_relief',
+          bounds87 !== null,
+          bounds87 !== null && priceRelief < rawRelief
+        );
+      if (bounds87 && priceRelief < rawRelief) ctx.noteLayer?.('v87_deep_dive_discipline');
       callBar -= priceRelief;
     }
 
@@ -1970,17 +3820,40 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // than their chips - the exact reason PKO play is looser than a
     // freezeout - and the brain had NO preflop bounty adjustment at all.
     const bf = Math.max(0, Math.min(1, ctx.bountyFactor ?? 0));
+    let v24BountyDisc = 0;
     if (bf > 0 && ctx.coversRaiser === true) {
       // Covering means hero's own bounty is never at risk in this pot.
-      callBar -= Math.min(0.06, bf * 0.14);
+      v24BountyDisc += Math.min(0.06, bf * 0.14);
+      if (v87 && !ctx.isOmaha) v24BountyDisc += Math.min(0.03, bf * 0.06);
       // If the raiser can actually be eliminated here, the bounty is live
       // this hand rather than theoretical.
-      if (ctx.raiserBustable === true) callBar -= Math.min(0.05, bf * 0.12);
+      if (ctx.raiserBustable === true) v24BountyDisc += Math.min(0.05, bf * 0.12);
     }
+    const v86BountyDisc =
+      unblocked86 &&
+      ctx.coversRaiser === true &&
+      typeof ctx.bountyOverlayBB === 'number' &&
+      ctx.bountyOverlayBB > 0
+        ? Math.min(0.08, ctx.bountyOverlayBB * 0.015)
+        : 0;
+    callBar -= Math.max(v24BountyDisc, v86BountyDisc);
 
     // A floor, applied after every discount: hands that flop nothing are a
     // fold at any price, and a bounty is not a licence to play four napkins.
-    if (ctx.isOmaha && ctx.ploPriceDefense === true) callBar = Math.max(0.28, callBar);
+    if (ctx.isOmaha && ctx.ploPriceDefense === true) {
+      const baseFloor = unblocked86 && pressure && !pressureIp ? 0.34 : 0.28;
+      const floor87 = bounds87 ? Math.max(bounds87.callFloor, baseFloor) : baseFloor;
+      if (bounds87 && callBar < bounds87.callFloor && callBar >= baseFloor) {
+        ctx.noteLayer?.('v87_deep_dive_discipline');
+      }
+      if (ctx.v87DeepDiveDiscipline === true)
+        noteHorseDeepDiveRule(
+          'call_floor',
+          bounds87 !== null,
+          bounds87 !== null && Math.max(floor87, callBar) > Math.max(baseFloor, callBar)
+        );
+      callBar = Math.max(floor87, callBar);
+    }
     callBar = phase6CapBar(callBar);
 
     if ((def72 ? def72.strength : strength) >= callBar && priceOK) return { a: 'call' };
@@ -1995,6 +3868,62 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         return { a: 'call', receipt: 'hu_bb_defends_to_price' };
       }
     }
+    // HU BB DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER (HU-NLH-001d, flag
+    // huBbDefendsUnreadToPrice, default off): the same price as above, read
+    // only while the opener is unread and with the 0.7 realisation the
+    // bottom of the defending range measurably gets. Widen-only, call-only.
+    // Every layer below in this branch answers only call or fold, so the
+    // option's call is applied where they would fold (unreadOrFold) and the
+    // hand is the same either way; the receipt then marks only a fold the
+    // option turned into a call. With a big-blind ante the V34 tournament
+    // floor sits below the heads-up call bar and calls some of these hands
+    // itself (review of 87f605a5, N1).
+    let unreadCall = false;
+    if (ctx.huBbUnreadPrice && position === 'bb' && callers === 0 && priceOK && toCall > 0) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      unreadCall = ctx.huBbUnreadPrice.equity >= huBbUnreadRequiredEquity(odds);
+    }
+    const unreadOrFold = (intent: PreflopIntent): PreflopIntent =>
+      unreadCall && intent.a === 'fold'
+        ? { a: 'call', receipt: 'hu_bb_defends_unread_to_price' }
+        : intent;
+    // HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
+    // default off): the small blind's limp band sits below every call bar
+    // above, so it folded 99-100% of its limps to any raise, a min-raise
+    // laying 3:1 included. A limped hand whose equity against the raiser's
+    // range, after the realisation discount, covers the price calls.
+    // Widen-only: no raise is added and every call above is unchanged.
+    if (ctx.huLimpPrice && callers === 0 && priceOK && toCall > 0) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huLimpPrice.equity >= huLimpRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_limp_defends_to_price' };
+      }
+    }
+    // LIGHTNING PARTICIPATION (default off): where this branch folds, the big
+    // blind's Lightning continue range at this price is asked. Absent the
+    // option the answer is the fold, unchanged.
+    const foldOrLightningDefend = (): PreflopIntent =>
+      lightningParticipationBbDefend(ctx.lightningParticipation, {
+        isOmaha: ctx.isOmaha === true,
+        position,
+        raiserPosition: vs,
+        callers,
+        toCall,
+        pot: pricePot,
+        priceOK,
+        depthBB: v82HandStartBB,
+        strength: def72 ? def72.strength : strength,
+        tightness: ctx.tightness,
+        holdemContinueBar: def72?.continueBar,
+        opponentRead:
+          tightOpener !== undefined ||
+          styleOpenerBarMove > 0 ||
+          (vsOpener != null && !vsOpener.wide && (vsOpener.callBump ?? 0) > 0) ||
+          (pressure !== undefined && !pressureIp),
+        noteAuthority: ctx.noteAuthority,
+      })
+        ? { a: 'call' }
+        : { a: 'fold' };
     if (def72) {
       // V72: the big blind closes the action at the best price of the orbit,
       // so (as the V34 floor below did for the buckets) its defence is its
@@ -2011,7 +3940,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         );
         if (def72.strength >= bbBar72) return { a: 'call' };
       }
-      return { a: 'fold' };
+      return unreadOrFold(foldOrLightningDefend());
     }
     /**
      * ═══ V34 (2026-09-02): THE BIG BLIND DEFENDS ITS BLIND ═══════════════
@@ -2036,7 +3965,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
      */
     if (position === 'bb' && toCall <= bb * 2.5) {
       const steal = vs === 'late';
-      const bbFloor = phase6CapBar(
+      let bbFloor = phase6CapBar(
         (steal ? 0.22 : 0.3) -
           (ctx.anteInPlay ? 0.03 : 0) -
           // TOURNAMENT AGGRESSION: the big blind is getting its best price
@@ -2045,9 +3974,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           vs35.bbDefend +
           phase6Shift('call')
       );
+      if (bounds87) {
+        const omahaBbFloor = phase6CapBar(bounds87.callFloor + vs35.bbDefend + phase6Shift('call'));
+        noteHorseDeepDiveRule('blind_floor', true, omahaBbFloor > bbFloor);
+        if (omahaBbFloor > bbFloor) {
+          bbFloor = omahaBbFloor;
+          ctx.noteLayer?.('v87_deep_dive_discipline');
+        }
+      }
       if (strength >= bbFloor) return { a: 'call' };
     }
-    return { a: 'fold' };
+    return unreadOrFold(foldOrLightningDefend());
   }
 
   // ── Facing a 3-bet or bigger ──
@@ -2082,7 +4019,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     const deepT =
       ctx.deepDiscipline === true && stackBB > 120 ? Math.min(0.05, (stackBB - 120) / 2600) : 0;
     let fourBetThresh = phase6CapBar(
-      t53(0.93 - (ctx.aggression - 1) * 0.04, 'fourBet') -
+      t53(0.93 - (fourBetAggression - 1) * 0.04, 'fourBet') -
         0.04 * hunted3 -
         0.03 * sq +
         deepT +
@@ -2151,6 +4088,65 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       fourBetThresh = phase6CapBar(Math.min(fourBetThresh, t53(vsReRaiser.fourBetBar, 'fourBet')));
       callThresh = phase6CapBar(Math.min(callThresh, t53(vsReRaiser.callBar, 'call')));
     }
+    // STYLE READ #6: a credibly tight 3-bettor is 4-bet and called from the top
+    // of a narrower range: both bars rise a bounded amount. Never with a wide
+    // re-raiser read (they are exclusive by construction).
+    const vsTightReRaiser = vsReRaiser ? undefined : ctx.styleTightReRaiser;
+    if (vsTightReRaiser) {
+      fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, vsTightReRaiser.fourBetBump));
+      callThresh = phase6CapBar(callThresh + Math.max(0, vsTightReRaiser.callBump));
+      ctx.noteLayer?.('style_tight_reraiser_respect_seen');
+    }
+    // OMAHA TIGHT OPPONENT RESPECT: a proven tight raiser's re-raise.
+    const tightReRaiser = ctx.omahaTightReRaiser;
+    if (tightReRaiser) {
+      fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, tightReRaiser.fourBetBump));
+      callThresh = phase6CapBar(callThresh + Math.max(0, tightReRaiser.callBump));
+    }
+    if (unblocked86 && ctx.facingColdCalledThreeBet === true) {
+      fourBetThresh = phase6CapBar(fourBetThresh + 0.03);
+      callThresh = phase6CapBar(callThresh + 0.05);
+    }
+    ctx.noteThresholds?.({ threeBet: null, call: callThresh, fourBet: fourBetThresh, strength });
+    // ═══ PLO6-AUDIT-004 THE VPIP FLOOR DOES NOT SET THE STACK-OFF BAR ═══
+    // (2026-11-12) vpipFloorMul scales `tightness`, and every bar here is a
+    // product of it, so on a 50% floor table a seat in its first hands had its
+    // jam bar cut from 0.93 to 0.40 of the deck. Production hand 58751512
+    // (PLO6 1/2, 390bb): the button, strength 0.587, shoved 780 into a
+    // four-bet it could have called for 161. The floor counts voluntary money
+    // in, which a call supplies; it gives no reason to put 390bb in. So for a
+    // deep Omaha seat (the V21 depth, over 120bb) the bar for a jam at a
+    // stack-off node is read as if the table had no floor, exactly what the
+    // same seat does on an unfloored table. The call bars keep the floor, so
+    // the hand still plays. It applies only where that call exists at the
+    // 30% of stack this node already allows a call for; a call that is itself
+    // most of the stack is a price decision and is left alone. An observed
+    // wide re-raiser (vsReRaiser) keeps the owner's call-off-lighter rule
+    // untouched.
+    const floorMul91 =
+      ctx.isOmaha &&
+      deepT > 0 &&
+      !vsReRaiser &&
+      toCall > 0 &&
+      toCall <= stack * 0.3 &&
+      ctx.vpipFloorMul !== undefined &&
+      ctx.vpipFloorMul > 0 &&
+      ctx.vpipFloorMul < 1
+        ? ctx.vpipFloorMul
+        : 1;
+    const unflooredBar91 = (x: number): number =>
+      capBar(
+        (x * (ctx.styleFourBetTightness ?? ctx.tightness)) / floorMul91 +
+          (ploIcm ? ploIcm.fourBet : ctx.riskAdd)
+      );
+    const fourBetBase91 = 0.93 - (fourBetAggression - 1) * 0.04;
+    const floorDelta91 =
+      floorMul91 < 1
+        ? Math.max(0, unflooredBar91(fourBetBase91) - t53(fourBetBase91, 'fourBet'))
+        : 0;
+    const stackOffNode91 = raises >= 3 || currentBet * 2.3 >= stack * 0.4;
+    const floorHolds91 =
+      floorDelta91 > 0 && stackOffNode91 && strength < fourBetThresh + floorDelta91;
 
     // ═══ V25 NEVER RAISE-FOLD A COMMITTED PLO STACK ═══════════════════
     // Having raised a short PLO stack, the chips in the middle are already a
@@ -2183,6 +4179,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       toCall > 0 &&
       toCall <= stack * 0.25 &&
       (ctx.effectiveStackBB ?? stackBB) <= OMAHA_SUITED_ACES_FOUR_BET_MAX_BB &&
+      !(unblocked86 && ctx.omahaBareAcesDeep === true && (ctx.effectiveStackBB ?? stackBB) > 150) &&
       ctx.satellite?.locked !== true
     ) {
       return {
@@ -2192,7 +4189,91 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       };
     }
 
-    if (strength >= fourBetThresh) {
+    // ═══ V87 26-35BB 4-BET ALL-IN RESHOVES (2026-11-10) ══════════════════
+    // At 25 < effBB <= 35 in No-Limit Hold'em (<= 25bb belongs to vs3BetShortStack),
+    // a sized 4-bet over a non-all-in 3-bet commits the stack anyway (and is capped
+    // by Rule 4a); shoving all-in directly with 77+, ATs+, KQs, AKo, and wheel-Ace
+    // blockers A5s-A2s realizes full fold equity while never overriding all-in or
+    // closed-all-in call-offs.
+    const unitBB4Bet = bb > 0 ? bb : 1;
+    const heroInvested4Bet = Math.max(0, currentBet - toCall);
+    const effectiveStack4Bet =
+      ctx.effectiveStackBB !== undefined
+        ? Math.min(
+            stack + heroInvested4Bet,
+            ctx.effectiveStackBB *
+              (ctx.effectiveStackNormalized === true
+                ? straddleUnitCoins
+                : straddleActiveCash
+                  ? straddleUnitCoins
+                  : unitBB4Bet)
+          )
+        : stack + heroInvested4Bet;
+    const effRemaining4Bet = Math.min(stack, Math.max(0, effectiveStack4Bet - heroInvested4Bet));
+    const callIsAllIn4Bet =
+      effCall >= stack * 0.99 ||
+      (effRemaining4Bet > 0 && effCall >= effRemaining4Bet * 0.99) ||
+      ctx.facingClosedAllIn === true;
+    if (
+      v87 &&
+      noLimitHoldem &&
+      !ctx.isPotLimit &&
+      raises === 2 &&
+      callers === 0 &&
+      toCall > 0 &&
+      ctx.vs3BetShortJam !== false &&
+      straddleEffectiveBB > 25 &&
+      straddleEffectiveBB <= 35 &&
+      !callIsAllIn4Bet &&
+      toCall < effectiveStack4Bet * 0.65 &&
+      ctx.satellite?.locked !== true
+    ) {
+      // LATER LAYERS KEEP THE STYLE READ (2026-11-15): against a credibly tight
+      // 3-bettor (styleTightReRaiserRespect on and its read engaged, the same
+      // field that raised the 4-bet and call bars above) the bluff and blocker
+      // reshoves are dropped; the value reshoves are unchanged, and the
+      // tournament utility still runs after this as it does today.
+      const reshoveBluffAllowed = ctx.maniacNoBluff !== true && vsTightReRaiser === undefined;
+      if (v87HoleClass !== null) {
+        if (
+          V87_FOUR_BET_VALUE_SHOVE_CLASSES.has(v87HoleClass) ||
+          (reshoveBluffAllowed && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
+        ) {
+          return { a: 'jam' };
+        }
+      } else if (
+        strength >= t(0.76) ||
+        (reshoveBluffAllowed && ctx.holdsAce === true && strength >= t(0.58))
+      ) {
+        return { a: 'jam' };
+      }
+    }
+
+    // V86 PLO NON-AA SHALLOW/MEDIUM 4-BETTING: at <= 130bb effective (SPR <= ~4
+    // in a 4-bet pot), double-suited connected broadways, double-suited rundowns,
+    // double-suited KK, and PLO8 scoop hands pot-4-bet so 4-bet != AAxx only.
+    if (
+      v86 &&
+      ctx.isOmaha &&
+      ctx.isPotLimit &&
+      raises === 2 &&
+      toCall > 0 &&
+      toCall <= stack * 0.3 &&
+      (ctx.effectiveStackBB ?? stackBB) <= 130 &&
+      ctx.satellite?.locked !== true &&
+      ctx.maniacNoBluff !== true &&
+      ctx.omahaElite?.canFourBetShallow === true &&
+      strength >= Math.max(0.62, fourBetThresh - 0.14) &&
+      (ctx.plo3BetRoll ?? 0.4) < Math.min(0.85, (ctx.ploPersona3BetMix ?? 0.55) + 0.15)
+    ) {
+      return {
+        a: 'raiseTo',
+        to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand),
+        receipt: 'v86_plo_shallow_four_bet',
+      };
+    }
+
+    if (strength >= fourBetThresh && !floorHolds91) {
       // V21: deep, a 4-bet is no longer automatically a stack-off — jam only
       // when the money is already committed on normal sizing, and demand a
       // premium above the 4-bet floor before jamming 150bb+.
@@ -2265,9 +4346,30 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.isOmaha &&
         toCall > 0 &&
         investedShare >= 0.12 &&
-        guardOdds <= OMAHA_SUITED_ACES_CONTINUE_ODDS
+        guardOdds <= OMAHA_SUITED_ACES_CONTINUE_ODDS &&
+        !(
+          unblocked86 &&
+          ctx.omahaBareAcesDeep === true &&
+          (ctx.effectiveStackBB ?? stackBB) > 150 &&
+          guardOdds > 0.36
+        )
       ) {
         return { a: 'call', receipt: 'plo_suited_aces_four_bettor_continues' };
+      }
+      // V86 PLO 3-BETTOR / 4-BETTOR CONTINUES AT PRICE: any Omaha hand that
+      // 3-bet or 4-bet with an elite rundown, connected broadway, suited-Ax
+      // nut bridge, KKds, or PLO8 scoop hand continues when re-raised at pot
+      // odds <= 0.45 rather than raise-folding 40%+ raw equity.
+      if (
+        v86 &&
+        ctx.isOmaha &&
+        toCall > 0 &&
+        investedShare >= 0.09 &&
+        guardOdds <= OMAHA_SUITED_ACES_CONTINUE_ODDS &&
+        (ctx.omahaElite?.canThreeBet === true ||
+          strength >= (vsReRaiser ? Math.min(t53(0.56, 'call'), callThresh) : t53(0.56, 'call')))
+      ) {
+        return { a: 'call', receipt: 'v86_plo_three_bettor_continues' };
       }
       // ═══ DEEP 5-BET DISCIPLINE (Dan 2026-10-25) ═══════════════════════
       // Facing a 4-bet with 60bb+ effective in a tournament, only AA and KK
@@ -2298,10 +4400,19 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // balanced line. The ICM premium (riskAdd / the V53 family shift) and
       // the V21 deep scale still apply in full. Hold'em only: Omaha keeps its
       // own calibration on this node.
-      const tight5 = noLimitHoldem ? Math.min(1, ctx.tightness) : ctx.tightness;
+      const tightness5 = ctx.styleFourBetTightness ?? ctx.tightness;
+      const tight5 =
+        noLimitHoldem || (unblocked86 && ctx.isOmaha) ? Math.min(1, tightness5) : tightness5;
       const t5 = (x: number, family: keyof OmahaPressureShifts): number =>
         capBar(x * tight5 + (ploIcm ? ploIcm[family] : ctx.riskAdd));
-      if (strength >= t5(Math.min(0.98, 0.95 + deepT), 'fourBet')) return { a: 'jam' };
+      const jamBar5 = Math.min(0.98, 0.95 + deepT);
+      if (
+        strength >=
+        (floorMul91 < 1
+          ? Math.max(t5(jamBar5, 'fourBet'), unflooredBar91(jamBar5))
+          : t5(jamBar5, 'fourBet'))
+      )
+        return { a: 'jam' };
       // The 30% stack cap stops a call that more betting can follow; a call
       // that closes an all-in risks only what is priced (facingClosedAllIn).
       if (strength >= t5(0.88 + deepT, 'call') && (toCall <= stack * 0.3 || closedAllInCall)) {
@@ -2340,8 +4451,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // on top; the committed-stack relief and the floor still apply.
     const relief3 = v73 ? 0 : Math.max(0, 0.5 - guardOdds) * (ctx.isOmaha ? 1.6 : 0.9);
     const commit3 = investedShare >= 0.12 ? Math.min(0.1, investedShare * 0.5) : 0;
+    const elite3 =
+      v86 && ctx.isOmaha && investedShare >= 0.07 && ctx.omahaElite?.canThreeBet === true
+        ? 0.08
+        : 0;
     const floor3 = ctx.isOmaha ? 0.3 : 0.42;
-    const pricedCallThresh = Math.max(floor3, callThresh - relief3 - commit3);
+    const pricedCallThresh = Math.max(floor3, callThresh - relief3 - commit3 - elite3);
     // FACING A CLOSED ALL-IN 3-BET (2026-11-08): the cap protects a deep
     // stack from a light call that more betting can follow. When the 3-bet
     // is all in and nobody live can bet again, the call risks exactly the
@@ -2362,6 +4477,19 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       return v76Done({ a: 'jam' });
     }
     if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return v76Done({ a: 'call' });
+    // HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
+    // default off): the bars above continue about the top tenth of ALL hands,
+    // which heads-up is roughly a seventh of a 70% open, so the opener folded
+    // 81-92% to a 3-bet whose break-even is 62.5-67%. A hand whose equity
+    // against the 3-bettor's range, after the realisation discount, covers
+    // the price calls, under the same stack cap as the call above. Widen-only:
+    // 4-bets, jams and every call above are unchanged.
+    if (ctx.huOpenerPrice && raises === 2 && callers === 0 && toCall > 0 && capOK3) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huOpenerPrice.equity >= huOpenerRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_opener_defends_to_price' };
+      }
+    }
     if (toCall === 0) return v76Done({ a: 'check' });
     return v76Done({ a: 'fold' });
   }

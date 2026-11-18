@@ -136,7 +136,9 @@ describe('the controller is wired on the leader, beside the fleet', () => {
     // PIN MOVED 2026-09-05 (one tick RPC per pass): the pass sends the whole
     // census keyed by Main 1 table id; the per-game demand is still passed by
     // the wake, through the per-game RPC.
-    expect(CONTROLLER).toMatch(/rpc\('fn_cash_clusters_tick_all', \{ p_eligible: eligible \}\)/);
+    expect(CONTROLLER).toMatch(
+      /uncappedTick\(rpc, 'fn_cash_clusters_tick_all', \{\s*p_eligible: eligible,\s*\}\)/
+    );
     expect(CONTROLLER).toMatch(/p_eligible_horses: eligible/);
   });
 });
@@ -598,8 +600,8 @@ describe('the tick survives the PostgREST session (safeupdate)', () => {
       CONTROLLER.indexOf('async tick(): Promise<ClusterTickSummary>'),
       CONTROLLER.indexOf('private async afterGameTick(')
     );
-    expect(pass).toMatch(/rpc\('fn_cash_clusters_tick_all'/);
-    expect(pass).not.toMatch(/rpc\('fn_cash_cluster_tick'/);
+    expect(pass).toMatch(/uncappedTick\(rpc, 'fn_cash_clusters_tick_all'/);
+    expect(pass).not.toMatch(/'fn_cash_cluster_tick'/);
     expect(pass).not.toMatch(/rpc\('fn_cash_clusters_to_tick'/);
     expect(CONTROLLER).not.toMatch(/CLUSTER_TICK_CONCURRENCY/);
     expect(CONTROLLER).not.toMatch(/Promise\.all\(workers\)/);
@@ -736,8 +738,10 @@ describe('the deep dive after the first live cycle (20260905050000)', () => {
 /**
  * THE MUST MOVE LOBBY (Dan 2026-09-05, 20260905060000). The roster is the
  * must-move order, a seat change once per stay (never from or to Main 1),
- * swaps land both chairs at once, and the two entries: a seat change posts,
- * a move by the game does not. The floor is for winners.
+ * swaps land both chairs at once, and the two entries as first shipped: a
+ * seat change posted, a move by the game did not. Since 2026-11-15 no move
+ * posts (docs/LAWS.md, "A moved player never posts to enter"); the entry
+ * assertions below read the immutable 2026-09-05 file. The floor is for winners.
  */
 const LOBBY = read(
   'supabase/migrations/20260905060000_the_must_move_lobby_a_seat_change_and_the_order_you_joined.sql'
@@ -837,7 +841,7 @@ describe('the must move lobby: the roster is the order, the seat change is once,
     );
   });
 
-  it('entry by reason: a seat change posts, a move by the game does not', () => {
+  it('entry by reason as first shipped (2026-09-05 file; superseded 2026-11-15)', () => {
     expect(exec).toMatch(
       /v_hold := CASE WHEN m\.reason = 'seat_change' THEN 'waiting' ELSE 'moved' END/
     );
@@ -1074,9 +1078,9 @@ describe('one tick RPC per pass, a rest for dormant games, and a wake on seat ch
       CONTROLLER.indexOf('async tick(): Promise<ClusterTickSummary>'),
       CONTROLLER.indexOf('private async afterGameTick(')
     );
-    expect((pass.match(/await rpc\(/g) ?? []).length).toBe(1);
+    expect((pass.match(/await (rpc|uncappedTick)\(/g) ?? []).length).toBe(1);
     expect(pass).toMatch(
-      /summary\.rpcs\+\+;\s*const \{ data, error \} = await rpc\('fn_cash_clusters_tick_all'/
+      /summary\.rpcs\+\+;\s*const \{ data, error \} = await uncappedTick\(rpc, 'fn_cash_clusters_tick_all'/
     );
     // No loop in the pass body awaits an RPC per result.
     const loop = pass.slice(pass.indexOf('for (const entry of results)'));
@@ -1117,7 +1121,7 @@ describe('one tick RPC per pass, a rest for dormant games, and a wake on seat ch
       CONTROLLER.indexOf('private emptySummary()')
     );
     expect(wake).toMatch(
-      /rpc\('fn_cash_cluster_tick', \{\s*p_game_id: gameId,\s*p_eligible_horses: eligible,/
+      /uncappedTick\(rpc, 'fn_cash_cluster_tick', \{\s*p_game_id: gameId,\s*p_eligible_horses: eligible,/
     );
     expect(wake).not.toMatch(/fn_cash_clusters_tick_all/);
   });

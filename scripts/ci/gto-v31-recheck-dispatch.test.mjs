@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
-import { recheckDispatchPlan, busyDatasetsFromRuns, recheckDispatchBody, releaseEventAdmitted, RELEASE_WORKFLOW_PATH,
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { recheckDispatchPlan, busyDatasetsFromRuns, recheckIntent, releaseEventAdmitted, RELEASE_WORKFLOW_PATH,
   RELEASE_WORKFLOW_NAME, RECHECK_WORKFLOW } from './gto-v31-recheck-dispatch.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
@@ -60,10 +62,20 @@ test('idempotent: a queued or running qualification run for the dataset owns it'
   assert.deepEqual([...busyDatasetsFromRuns(null)], []);
 });
 
-test('the dispatch is exactly the recheck operation the qualification workflow admits', () => {
-  assert.deepEqual(recheckDispatchBody(A), { ref: 'main', inputs: { dataset: A, operation: 'recheck', reason: '' } });
-  assert.throws(() => recheckDispatchBody('x'));
-  assert.throws(() => recheckDispatchBody(`${A};echo`));
+test('the dispatch is exactly the recheck operation the qualification workflow admits, as a recorded intent', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'recheck-intent-'));
+  const env = { GITHUB_REPOSITORY: 'o/r', GITHUB_WORKFLOW_REF: 'o/r/.github/workflows/gto-v31-qualification.yml@refs/heads/main',
+    GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1', GITHUB_SHA: 'a'.repeat(40), GITHUB_EVENT_NAME: 'workflow_run' };
+  const nonce = '0123456789abcdef0123456789abcdef';
+  assert.deepEqual(recheckIntent(A, dir, env, nonce).body, {
+    ref: 'main',
+    inputs: { dataset: A, operation: 'recheck', reason: '', intent_run_id: '42', intent_run_attempt: '1', intent_nonce: nonce },
+  });
+  assert.equal(JSON.parse(readFileSync(join(dir, `${nonce}.json`), 'utf8')).inputs.dataset, A);
+  assert.throws(() => recheckIntent('x', dir, env));
+  assert.throws(() => recheckIntent(`${A};echo`, dir, env));
+  assert.throws(() => recheckIntent(A, dir, { ...env, GITHUB_EVENT_NAME: 'workflow_dispatch' }));
+  assert.throws(() => recheckIntent(A, dir, { ...env, GITHUB_WORKFLOW_REF: 'o/r/.github/workflows/ci.yml@refs/heads/main' }));
 });
 
 test('every completed protected-main engine release of this repository starts a decision, whatever its verdict', () => {

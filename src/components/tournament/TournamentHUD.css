@@ -43,10 +43,15 @@
   --sp-tdock-row-h: 44px;
   --sp-tdock-reserve: calc(var(--sp-tdock-line-h) + var(--sp-tdock-row-h));
   --sp-tdock-now: var(--sp-tdock-reserve);
+  --sp-tdock-gap: 8px;
+  --sp-tdock-clearance: max(
+    var(--sp-tdock-gap),
+    var(--sp-bar-inset, env(safe-area-inset-bottom, 0px))
+  );
   /* The same sum TablePage.css declares, plus the dock. Restated here rather
      than patched there so a cash table never evaluates a dock term at all. */
   --sp-action-reserve: calc(
-    var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) +
+    var(--sp-bottom-row-h, 96px) + max(8px, var(--sp-bar-inset, env(safe-area-inset-bottom, 0px))) +
       var(--sp-tdock-reserve)
   );
 }
@@ -56,38 +61,44 @@
 }
 
 /* ─── THE BARS STAND ON THE DOCK ────────────────────────────────────────────
-   Every bottom row on this page is `position: fixed; bottom: 0` and pads
-   itself by the home-indicator inset. The dock sits in that same band, just
-   above the inset, so each row's bottom padding grows by the dock's current
-   height. `!important` because both rows restate `padding-bottom` inside
-   their own breakpoints (deliberately - see the "Flush" notes in
-   ActionPanel.css and PreActionBar.css) and this has to hold at all of them. */
+   Keep the inset or minimum gap between the controls and the visible dock.
+   The dock itself ends at the viewport edge. The bottom rows restate their
+   padding in breakpoint rules, so this reservation needs to take precedence. */
 .table-page--tournament .action-panel,
 .table-page--tournament .pre-action-bar,
 .table-page--tournament .action-panel-wrapper {
-  padding-bottom: calc(
-    var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) + var(--sp-tdock-now)
-  ) !important;
+  padding-bottom: calc(var(--sp-tdock-clearance) + var(--sp-tdock-now)) !important;
 }
 
 .table-page--tournament .action-panel-wrapper {
-  min-height: calc(
-    var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) +
-      var(--sp-tdock-now)
-  );
+  min-height: calc(var(--sp-bottom-row-h, 96px) + var(--sp-tdock-clearance) + var(--sp-tdock-now));
 }
 
 .table-page--tournament.ca-raising .action-panel-wrapper {
-  height: calc(
-    var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) +
-      var(--sp-tdock-now)
-  );
+  height: calc(var(--sp-bottom-row-h, 96px) + var(--sp-tdock-clearance) + var(--sp-tdock-now));
 }
 
 /* A spectator's wrapper has no floor of its own (ActionPanel.css); it still
    has to clear the dock, which the padding above already does. */
 .table-page--tournament[data-hero='false'] .action-panel-wrapper {
   min-height: 0;
+}
+
+/* The nine-chair observer uses the seated rail. Keep the spectator line
+   and both rows of tournament information below its bottom nameplate. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page--tournament[data-seats='9'][data-hero='false'] {
+    /* An inset already supplies the clearance. On a square-edge phone
+       take only the missing pixels from the header, keeping the data row. */
+    --sp-tdock-line-h: min(
+      36px,
+      calc(28px + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)))
+    );
+  }
+  .table-page--tournament[data-seats='9'][data-hero='false'] .spectator-footer-bar {
+    width: calc(50% - 80px);
+    align-self: flex-end;
+  }
 }
 
 /* ─── THE DOCK ──────────────────────────────────────────────────────────── */
@@ -97,11 +108,10 @@
   left: 0;
   right: 0;
   bottom: 0;
-  padding-bottom: var(--sp-bar-inset, env(safe-area-inset-bottom, 0px));
   /* Above the two bottom rows (--z-action-panel, 100) it sits beneath, below
      every sheet and modal on the page. */
   z-index: 101;
-  height: calc(var(--sp-tdock-now, 50px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)));
+  height: var(--sp-tdock-now, 80px);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -191,6 +201,12 @@
   color: #ffd700;
 }
 
+/* Keep grouped chip totals legible alongside the short Level, Left and Paid values. */
+.tournament-dock__seg--chips {
+  flex: 0 1 auto;
+  max-width: 26%;
+}
+
 .tournament-dock__seg--wide {
   flex-grow: 1.7;
 }
@@ -252,6 +268,7 @@
 
 .table-page--tournament[data-tdock='closed'] {
   --sp-tdock-now: 0px;
+  --sp-tdock-gap: 0px;
 }
 
 .tournament-dock__close {

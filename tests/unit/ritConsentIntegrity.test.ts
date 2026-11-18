@@ -412,11 +412,10 @@ describe('the engine host re-reads the config and announces every single run', (
     expect(block).not.toContain('continueRunout');
   });
 
-  it('the auto-decline is forwarded to the wire, and only that', () => {
-    const fn = RUNOUT.slice(
-      RUNOUT.indexOf('protected wireRunItTwiceEvents()'),
-      RUNOUT.indexOf('protected wireRunItTwiceEvents()') + 500
-    );
+  it('deadline acceptance and auto-decline both reach the wire', () => {
+    const fn = sliceMethod(RUNOUT, 'protected wireRunItTwiceEvents()');
+    expect(fn).toContain("event.type === 'RIT_ACCEPTED'");
+    expect(fn).toContain('this.emitRitAllAccepted(state.allPlayerIds, state.chosenRuns)');
     expect(fn).toContain("event.type !== 'RIT_DECLINED'");
     expect(fn).toContain("!== 'timeout'");
     expect(fn).toContain("emitRitSingleRun('no_agreement')");

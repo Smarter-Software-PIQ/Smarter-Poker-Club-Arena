@@ -97,6 +97,10 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   RUNNER_TEMP="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   bash "$repo/scripts/dev/test-player-throwable-favorites-postgres.sh"
+# Every charged throw records its table, thrower and target, horse or human.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  RUNNER_TEMP="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  bash "$repo/scripts/dev/test-throw-targets-postgres.sh"
 # Paid jackpot awards are player cash results in every member reader.
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
@@ -143,3 +147,21 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   python3 -B "$repo/scripts/ci/test-club-data-player-totals-postgres.py"
+
+# Pacific standalone/pre-union reports and report-only earned-fee edge windows.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  python3 -B "$repo/scripts/ci/test-club-data-legacy-pacific-postgres.py"
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  python3 -B "$repo/scripts/ci/test-club-data-pacific-fees.py"
+
+# Member histories include every posted wallet movement and deduplicate receipts.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  python3 -B "$repo/scripts/ci/test-member-transaction-history.py"
+
+# Exact Ledger Window breakdown for the agent and every recursive descendant.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  python3 -B "$repo/scripts/ci/test-member-activity-breakdown.py"

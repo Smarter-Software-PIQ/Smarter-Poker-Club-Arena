@@ -434,7 +434,7 @@ function recentHandTimeLabel(iso: string): string {
 
 function chipLabel(value: number | null): string {
   if (value === null) return 'Unavailable';
-  if (value > 0 && value < 1) return 'Under 1 Chip';
+  // Exact to the cent (Dan 2026-11-13), so a sub-chip amount reads as itself.
   return compactChips(value);
 }
 

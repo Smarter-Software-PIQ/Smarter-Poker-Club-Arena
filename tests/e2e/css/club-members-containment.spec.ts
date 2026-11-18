@@ -3,6 +3,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { measureMobileTapTargets } from '../support/mobileTapTargets';
 
 const CSS = readFileSync(resolve(process.cwd(), 'src/pages/ClubMembersPage.css'), 'utf8');
 const ADMIN_CSS = readFileSync(
@@ -13,6 +14,39 @@ const PAGE_BAR_CSS = readFileSync(
   resolve(process.cwd(), 'src/components/help/PageHelp.css'),
   'utf8'
 );
+
+const DATA_CSS = readFileSync(
+  resolve(process.cwd(), 'src/pages/club/ClubDataSimplePage.module.css'),
+  'utf8'
+);
+const GLOBAL_CSS = ['club-engine.css', 'animations.css', 'metallic-popups.css']
+  .map((name) => readFileSync(resolve(process.cwd(), 'src/styles', name), 'utf8'))
+  .join('\n');
+for (const width of [320, 375, 393]) {
+  test(`Club Data total controls retain a full thumb target at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 812 });
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;600;700&family=Inter:wght@400;600;700&display=swap"><style>${GLOBAL_CSS}\n${DATA_CSS}
+      *, *::before, *::after { box-sizing: border-box; }
+      body { margin: 0; background: #000; font-family: Inter, sans-serif; }
+      main { padding-top: 60px; }
+    </style><main id="main-content" class="page"><dl class="stats">
+      <div class="stat"><dt class="statLabel">Games</dt><dd class="statValue">100</dd></div>
+      ${['Total Winnings', 'MTT Winnings', 'Fee'].map((label) => `<div class="stat"><dt class="statLabel"><button class="statAction">${label}</button></dt><dd class="statValue">1,000</dd></div>`).join('')}
+    </dl><section aria-label="Financial Reconciliation" style="height:80px">Reconciliation</section></main>`);
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => innerWidth)).toBe(width);
+    expect(
+      await page.evaluate(async () => (await document.fonts.load('11px "Roboto Condensed"')).length)
+    ).toBeGreaterThan(0);
+    await page.screenshot({ path: info.outputPath('club-data-targets.png') });
+    const measured = await page.evaluate(measureMobileTapTargets, { REACH: 20 });
+    expect(measured.n).toBe(3);
+    expect(measured.unmeasured).toEqual([]);
+    expect(measured.out).toEqual([]);
+  });
+}
 
 // The real PageBar prints controls before its title. Include its owning sheet:
 // roster-only fixtures cannot detect a title painted over the Advanced button.
@@ -94,7 +128,7 @@ for (const width of [375, 393]) {
             <label class="members-sort members-winloss-period"><span class="members-sort__label">Win / Loss</span>
               <select aria-label="Win And Loss Period"><option>Win / Loss This Week</option></select></label>
             <label class="members-sort"><span class="members-sort__label">Sort By</span>
-              <select aria-label="Sort Players"><option>Newest Players First</option></select></label>
+              <select aria-label="Sort Players"><option>Active Now</option></select></label>
           </div>
         </section>
       </section></main>`);
@@ -141,6 +175,7 @@ for (const width of [1449, 375, 393]) {
       </style>
       <main class="application-shell"><section class="club-members-page">
         <header class="ca-page-bar members-page-bar"><h1 class="ca-page-bar__title">Player Management</h1><div class="ca-page-bar__live"><div class="members-mode-toggle"><button>Simple</button><button>Advanced</button></div></div><button class="ca-page-help" aria-label="Page Help"></button></header>
+        <button class="members-export">Club Transaction History</button>
         <section class="members-console">
           <div class="members-console__heading"><h2>Find A Player</h2></div>
           <label class="members-search"><span>Search Players</span>
@@ -155,7 +190,7 @@ for (const width of [1449, 375, 393]) {
         </section>
         <div class="members-bulk"><strong>1 Player Selected</strong><button>Clear</button></div>
         <section class="members-list" role="list" aria-label="Club Member Directory">
-          <div class="member-row" role="listitem"><button class="member-row__open">Alice</button></div>
+          <div class="member-row" role="listitem"><div class="member-row__open"><button class="member-row__record" aria-label="Open Alice"></button><span class="member-avatar">A</span><span class="member-main"><span class="member-identity"><span class="member-alias">Alice</span></span><span class="member-subline"><button class="member-seated member-seated--table">Watch At Table</button></span></span><span class="member-chevron">&rsaquo;</span></div></div>
         </section>
         <div class="members-count">Loaded 1 Of 1 Players</div>
       </section></main>`);
@@ -191,16 +226,20 @@ for (const width of [1449, 375, 393]) {
       '.members-export',
       '.member-row__open',
     ]) {
-      const box = await page.locator(selector).boundingBox();
-      expect(box, `${selector} must render`).not.toBeNull();
-      expect(box!.width).toBeGreaterThan(0);
-      expect(box!.x, `${selector} is clipped at the left page edge`).toBeGreaterThanOrEqual(
-        frame!.x - 0.5
-      );
-      expect(
-        box!.x + box!.width,
-        `${selector} is clipped at the right page edge`
-      ).toBeLessThanOrEqual(frame!.x + frame!.width + 0.5);
+      const elements = await page.locator(selector).all();
+      expect(elements.length).toBeGreaterThan(0);
+      for (const element of elements) {
+        const box = await element.boundingBox();
+        expect(box, `${selector} must render`).not.toBeNull();
+        expect(box!.width).toBeGreaterThan(0);
+        expect(box!.x, `${selector} is clipped at the left page edge`).toBeGreaterThanOrEqual(
+          frame!.x - 0.5
+        );
+        expect(
+          box!.x + box!.width,
+          `${selector} is clipped at the right page edge`
+        ).toBeLessThanOrEqual(frame!.x + frame!.width + 0.5);
+      }
     }
     const consoleBox = await page.locator('.members-console').boundingBox();
     for (const selector of [
@@ -210,14 +249,19 @@ for (const width of [1449, 375, 393]) {
       '.members-select-loaded',
       '.members-export',
     ]) {
-      const box = await page.locator(selector).boundingBox();
+      const control = page.locator('.members-console').locator(selector);
+      const box = await control.boundingBox();
       expect(box!.x).toBeGreaterThanOrEqual(consoleBox!.x);
       expect(box!.x + box!.width).toBeLessThanOrEqual(consoleBox!.x + consoleBox!.width);
-      const readable = await page
-        .locator(selector)
-        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1);
+      const readable = await control.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth + 1
+      );
       expect(readable, `${selector} clips its own control content`).toBe(true);
     }
+    expect(await page.locator('.members-export').count()).toBe(2);
+    expect(await page.locator('.members-console .members-export').count()).toBe(1);
+    await page.getByRole('button', { name: 'Open Alice', exact: true }).click();
+    await page.getByRole('button', { name: 'Watch At Table', exact: true }).click();
   });
 }
 
@@ -383,7 +427,7 @@ for (const adminLoadsLast of [false, true]) {
         <span class="member-main"><span class="member-identity"><span class="member-alias">${m.alias}</span>${
           m.upline ? `<span class="member-upline">Upline: ${m.upline}</span>` : ''
         }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span><span class="member-seen">${m.status}</span></span>
-        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span>Rakeback 70%</span>${
+        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span class="member-simple-balance__wallet">274,600.00</span><span class="member-simple-balance__secondary member-winloss--up">Today +433</span>${
           m.downline
             ? `<span class="member-simple-balance__downline">Downline ${m.downline}</span>`
             : ''

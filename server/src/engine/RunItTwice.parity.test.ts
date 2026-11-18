@@ -98,7 +98,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('rit_offer - one shared 25s countdown on the wire', () => {
+describe('rit_offer - one shared 10s countdown on the wire', () => {
   it('carries the configured timeoutSeconds and a wall-clock deadline_ts', () => {
     vi.useFakeTimers();
     const { e, runoutEvent, emitted } = atAllIn();
@@ -108,15 +108,15 @@ describe('rit_offer - one shared 25s countdown on the wire', () => {
 
     const offer = emitted.find((p) => p.type === 'rit_offer');
     expect(offer).toBeTruthy();
-    expect(offer!.timeoutSeconds, 'the wire countdown must be the configured window').toBe(25);
+    expect(offer!.timeoutSeconds, 'the wire countdown must be the configured window').toBe(10);
     const deadline = Number(offer!.deadline_ts);
-    expect(deadline).toBeGreaterThanOrEqual(before + 25_000);
-    expect(deadline).toBeLessThanOrEqual(Date.now() + 25_000 + 1_000);
+    expect(deadline).toBeGreaterThanOrEqual(before + 10_000);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 10_000 + 1_000);
   });
 });
 
 describe('consent progress - live checkmarks and the accept banner', () => {
-  it('broadcasts rit_response_update per accept and rit_all_accepted on unanimity', () => {
+  it('broadcasts rit_response_update per accept and rit_all_accepted at the deadline after unanimity', () => {
     vi.useFakeTimers();
     const { e, runoutEvent, emitted } = atAllIn();
 
@@ -139,8 +139,10 @@ describe('consent progress - live checkmarks and the accept banner', () => {
       'no banner before the chooser decides'
     ).toBeFalsy();
 
-    // Chooser picks 2 → that completes the acceptance → banner.
+    // The choice is recorded immediately; the outcome waits for ten seconds.
     e.respondToRIT(chooser, undefined, 2);
+    expect(emitted.find((p) => p.type === 'rit_all_accepted')).toBeFalsy();
+    vi.advanceTimersByTime(10_000);
     const allAccepted = emitted.find((p) => p.type === 'rit_all_accepted');
     expect(allAccepted, 'unanimous consent must broadcast rit_all_accepted').toBeTruthy();
     expect(allAccepted!.runs).toBe(2);

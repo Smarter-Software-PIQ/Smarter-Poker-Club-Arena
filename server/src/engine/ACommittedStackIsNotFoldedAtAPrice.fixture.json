@@ -1,0 +1,375 @@
+{
+  "_about": "Six tournament preflop spots in which a Horse folded after committing most of its stack (study leads HVH2D-NLH-M-COMMIT and HVH2D-NLH-007a, 2026-11-12). These are RECONSTRUCTIONS from public development-packet rows: seats, stacks, commitments, blinds, ante, button, action order, legal actions and tournament stage flags. They carry no user, table, hand or tournament id. Hole cards are two synthetic cards of the recorded hand class. Everything a public row does not hold (style, field stacks, payout table, level clock) comes from the anonymised tournament body ABluffRaiseNeedsSomeoneWhoCanFold.fixture.json and from stated assumptions in the test. Seat rows are [seat, stack behind, street bet, total invested, dead invested, unused, state] with state 0 live, 1 folded, 2 all in. History rows are [seat, action, amount, isFullRaise].",
+  "spots": [
+    {
+      "name": "pair-of-threes-button",
+      "handClass": "33",
+      "bigBlind": 800,
+      "ante": 800,
+      "seats": [
+        [1, 2953, 6579, 6579, 0, 0, 0],
+        [2, 10758, 400, 400, 0, 0, 1],
+        [3, 9620, 12358, 13158, 800, 0, 0],
+        [4, 0, 6579, 6579, 0, 0, 2],
+        [5, 10276, 0, 0, 0, 0, 1],
+        [6, 40542, 0, 0, 0, 0, 1],
+        [7, 28027, 0, 0, 0, 0, 1],
+        [8, 16246, 0, 0, 0, 0, 1],
+        [9, 11154, 0, 0, 0, 0, 1]
+      ],
+      "hero": 1,
+      "smallBlindSeat": 2,
+      "bigBlindSeat": 3,
+      "dealer": 1,
+      "humanSeats": [5],
+      "pot": 26716,
+      "toCall": 5779,
+      "currentBet": 12358,
+      "legal": ["fold", "call", "all_in"],
+      "history": [
+        [4, "all_in", 6579, true],
+        [5, "fold", 0, null],
+        [6, "fold", 0, null],
+        [7, "fold", 0, null],
+        [8, "fold", 0, null],
+        [9, "fold", 0, null],
+        [1, "call", 6579, null],
+        [2, "fold", 0, null],
+        [3, "raise", 12358, true]
+      ],
+      "stage": {
+        "nearBubble": false,
+        "inMoney": false,
+        "finalTable": false,
+        "rebuyOpen": true,
+        "reentryOpen": true,
+        "registrationOpen": true,
+        "lateRegistrationOpen": true,
+        "addOnPeriodOpen": false,
+        "handForHand": false,
+        "isBounty": false,
+        "satellite": false,
+        "currentLevel": 7,
+        "playersLeft": 319,
+        "entrants": 365,
+        "spotsPaid": 55
+      },
+      "cards": [
+        {
+          "rank": "3",
+          "suit": "spades"
+        },
+        {
+          "rank": "3",
+          "suit": "hearts"
+        }
+      ]
+    },
+    {
+      "name": "pair-of-sevens-big-blind",
+      "handClass": "77",
+      "bigBlind": 800,
+      "ante": 800,
+      "seats": [
+        [1, 1451, 800, 1600, 800, 0, 0],
+        [2, 7500, 0, 0, 0, 0, 1],
+        [3, 24626, 0, 0, 0, 0, 1],
+        [4, 3000, 0, 0, 0, 0, 1],
+        [6, 6100, 0, 0, 0, 0, 1],
+        [7, 0, 3772, 3772, 0, 0, 2],
+        [8, 5700, 0, 0, 0, 0, 1],
+        [9, 3076, 3772, 3772, 0, 0, 0]
+      ],
+      "hero": 1,
+      "smallBlindSeat": 9,
+      "bigBlindSeat": 1,
+      "dealer": 8,
+      "humanSeats": [7],
+      "pot": 9144,
+      "toCall": 2972,
+      "currentBet": 3772,
+      "legal": ["fold", "call", "all_in"],
+      "history": [
+        [2, "fold", 0, null],
+        [3, "fold", 0, null],
+        [4, "fold", 0, null],
+        [6, "fold", 0, null],
+        [7, "all_in", 3772, true],
+        [8, "fold", 0, null],
+        [9, "call", 3372, null]
+      ],
+      "stage": {
+        "nearBubble": false,
+        "inMoney": false,
+        "finalTable": false,
+        "rebuyOpen": true,
+        "reentryOpen": true,
+        "registrationOpen": true,
+        "lateRegistrationOpen": true,
+        "addOnPeriodOpen": false,
+        "handForHand": false,
+        "isBounty": true,
+        "satellite": false,
+        "currentLevel": 9,
+        "playersLeft": 393,
+        "entrants": 480,
+        "spotsPaid": 72
+      },
+      "cards": [
+        {
+          "rank": "7",
+          "suit": "spades"
+        },
+        {
+          "rank": "7",
+          "suit": "hearts"
+        }
+      ]
+    },
+    {
+      "name": "ace-eight-suited-31-chips",
+      "handClass": "A8s",
+      "bigBlind": 200,
+      "ante": 200,
+      "seats": [
+        [1, 3992, 0, 0, 0, 0, 1],
+        [2, 1103, 1877, 1877, 0, 0, 0],
+        [3, 2229, 0, 0, 0, 0, 1],
+        [4, 7305, 0, 0, 0, 0, 1],
+        [5, 2253, 0, 0, 0, 0, 1],
+        [6, 2275, 0, 0, 0, 0, 1],
+        [7, 0, 1908, 1908, 0, 0, 2],
+        [8, 1781, 200, 400, 200, 0, 1],
+        [9, 0, 1877, 1877, 0, 0, 2]
+      ],
+      "hero": 2,
+      "smallBlindSeat": 7,
+      "bigBlindSeat": 8,
+      "dealer": 6,
+      "humanSeats": [6],
+      "pot": 6062,
+      "toCall": 31,
+      "currentBet": 1908,
+      "legal": ["fold", "call"],
+      "history": [
+        [9, "all_in", 1877, true],
+        [1, "fold", 0, null],
+        [2, "call", 1877, null],
+        [3, "fold", 0, null],
+        [4, "fold", 0, null],
+        [5, "fold", 0, null],
+        [6, "fold", 0, null],
+        [7, "all_in", 1908, false],
+        [8, "fold", 0, null]
+      ],
+      "stage": {
+        "nearBubble": false,
+        "inMoney": false,
+        "finalTable": false,
+        "rebuyOpen": true,
+        "reentryOpen": true,
+        "registrationOpen": true,
+        "lateRegistrationOpen": true,
+        "addOnPeriodOpen": false,
+        "handForHand": false,
+        "isBounty": true,
+        "satellite": false,
+        "currentLevel": 3,
+        "playersLeft": 502,
+        "entrants": 509,
+        "spotsPaid": 77
+      },
+      "cards": [
+        {
+          "rank": "A",
+          "suit": "spades"
+        },
+        {
+          "rank": "8",
+          "suit": "spades"
+        }
+      ]
+    },
+    {
+      "name": "ace-seven-offsuit-bubble",
+      "handClass": "A7o",
+      "bigBlind": 2400,
+      "ante": 2400,
+      "seats": [
+        [2, 64714, 1200, 1200, 0, 0, 1],
+        [3, 0, 38821, 41221, 2400, 0, 2],
+        [4, 0, 25761, 25761, 0, 0, 2],
+        [6, 20979, 25761, 25761, 0, 0, 0],
+        [9, 22976, 0, 0, 0, 0, 1]
+      ],
+      "hero": 6,
+      "smallBlindSeat": 2,
+      "bigBlindSeat": 3,
+      "dealer": 9,
+      "humanSeats": [9],
+      "pot": 93943,
+      "toCall": 13060,
+      "currentBet": 38821,
+      "legal": ["fold", "call"],
+      "history": [
+        [4, "all_in", 25761, true],
+        [6, "call", 25761, null],
+        [9, "fold", 0, null],
+        [2, "fold", 0, null],
+        [3, "all_in", 38821, false]
+      ],
+      "stage": {
+        "nearBubble": true,
+        "inMoney": false,
+        "finalTable": false,
+        "rebuyOpen": false,
+        "reentryOpen": false,
+        "registrationOpen": false,
+        "lateRegistrationOpen": false,
+        "addOnPeriodOpen": false,
+        "handForHand": true,
+        "isBounty": false,
+        "satellite": false,
+        "currentLevel": 11,
+        "playersLeft": 10,
+        "entrants": 54,
+        "spotsPaid": 9
+      },
+      "cards": [
+        {
+          "rank": "A",
+          "suit": "spades"
+        },
+        {
+          "rank": "7",
+          "suit": "hearts"
+        }
+      ]
+    },
+    {
+      "name": "queen-jack-suited-hijack",
+      "handClass": "QJs",
+      "bigBlind": 1200,
+      "ante": 1200,
+      "seats": [
+        [1, 13495, 0, 0, 0, 0, 1],
+        [2, 6495, 8305, 8305, 0, 0, 0],
+        [3, 57596, 15600, 15600, 0, 0, 0],
+        [4, 19172, 0, 0, 0, 0, 1],
+        [5, 17400, 600, 600, 0, 0, 1],
+        [6, 12600, 1200, 2400, 1200, 0, 1],
+        [7, 32442, 0, 0, 0, 0, 1],
+        [8, 0, 8305, 8305, 0, 0, 2]
+      ],
+      "hero": 2,
+      "smallBlindSeat": 5,
+      "bigBlindSeat": 6,
+      "dealer": 4,
+      "humanSeats": [3],
+      "pot": 35210,
+      "toCall": 7295,
+      "currentBet": 15600,
+      "legal": ["fold", "call", "all_in"],
+      "history": [
+        [7, "fold", 0, null],
+        [8, "all_in", 8305, true],
+        [1, "fold", 0, null],
+        [2, "call", 8305, null],
+        [3, "raise", 15600, true],
+        [4, "fold", 0, null],
+        [5, "fold", 0, null],
+        [6, "fold", 0, null]
+      ],
+      "stage": {
+        "nearBubble": false,
+        "inMoney": false,
+        "finalTable": false,
+        "rebuyOpen": true,
+        "reentryOpen": true,
+        "registrationOpen": true,
+        "lateRegistrationOpen": true,
+        "addOnPeriodOpen": false,
+        "handForHand": false,
+        "isBounty": false,
+        "satellite": false,
+        "currentLevel": 9,
+        "playersLeft": 425,
+        "entrants": 529,
+        "spotsPaid": 80
+      },
+      "cards": [
+        {
+          "rank": "Q",
+          "suit": "spades"
+        },
+        {
+          "rank": "J",
+          "suit": "spades"
+        }
+      ]
+    },
+    {
+      "name": "jack-eight-offsuit-in-the-money",
+      "handClass": "J8o",
+      "bigBlind": 12000,
+      "ante": 12000,
+      "seats": [
+        [1, 73672, 107356, 107356, 0, 0, 0],
+        [2, 0, 253539, 265539, 12000, 0, 2],
+        [3, 808111, 0, 0, 0, 0, 1],
+        [4, 338562, 0, 0, 0, 0, 1],
+        [6, 362100, 29421, 29421, 0, 0, 1],
+        [7, 0, 107356, 107356, 0, 0, 2],
+        [8, 538480, 0, 0, 0, 0, 1],
+        [9, 668759, 0, 0, 0, 0, 1]
+      ],
+      "hero": 1,
+      "smallBlindSeat": 1,
+      "bigBlindSeat": 2,
+      "dealer": 9,
+      "humanSeats": [7],
+      "pot": 509672,
+      "toCall": 146183,
+      "currentBet": 253539,
+      "legal": ["fold", "call", "all_in"],
+      "history": [
+        [3, "fold", 0, null],
+        [4, "fold", 0, null],
+        [6, "raise", 29421, true],
+        [7, "all_in", 107356, true],
+        [8, "fold", 0, null],
+        [9, "fold", 0, null],
+        [1, "call", 101356, null],
+        [2, "all_in", 253539, true],
+        [6, "fold", 0, null]
+      ],
+      "stage": {
+        "nearBubble": false,
+        "inMoney": true,
+        "finalTable": false,
+        "rebuyOpen": false,
+        "reentryOpen": false,
+        "registrationOpen": false,
+        "lateRegistrationOpen": false,
+        "addOnPeriodOpen": false,
+        "handForHand": false,
+        "isBounty": false,
+        "satellite": false,
+        "currentLevel": 19,
+        "playersLeft": 63,
+        "entrants": 530,
+        "spotsPaid": 80
+      },
+      "cards": [
+        {
+          "rank": "J",
+          "suit": "spades"
+        },
+        {
+          "rank": "8",
+          "suit": "hearts"
+        }
+      ]
+    }
+  ]
+}

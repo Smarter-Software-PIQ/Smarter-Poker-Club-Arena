@@ -53,7 +53,7 @@ describe('no stat reaches the DOM unrounded', () => {
     expect(formatSignedChips(1711.5)).toBe('+1,711.50');
     expect(formatSignedChips(-2183.7)).toBe('-2,183.70');
     expect(formatSignedChips(2183.7)).toBe('+2,183.70');
-    expect(formatSignedChips(0.999)).toBe('+0.99');
+    expect(formatSignedChips(0.999)).toBe('+0.999'); // stored precision kept (Dan 2026-11-13)
     expect(formatCount(1411.9)).toBe('1,411');
     expect(formatSignedChips(0)).toBe('0.00');
     expect(formatCount(1412)).toBe('1,412');

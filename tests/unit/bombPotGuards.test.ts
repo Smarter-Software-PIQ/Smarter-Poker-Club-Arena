@@ -58,7 +58,7 @@ describe('a multi-board bomb pot is never offered a rabbit hunt (spec §19)', ()
   const SETTLEMENT = read('server/src/engine/ServerTableEngineSettlement.ts');
 
   it('the offer gate excludes multi-board hands like it excludes RIT', () => {
-    expect(SETTLEMENT).toMatch(/multiBoardBomb\s*=\s*this\.handController\?\.isDoubleBoardActive/);
+    expect(SETTLEMENT).toMatch(/multiBoardBomb\s*=\s*settlingHand\?\.isDoubleBoardActive/);
     expect(SETTLEMENT).toMatch(/!ranItTwice && !multiBoardBomb/);
   });
 
@@ -300,12 +300,14 @@ describe('ROUND 5 (2026-08-28) — clone hygiene and manual-trigger ordering', (
     expect(window).toMatch(/this\.currentHandBombPot/);
   });
 
-  it('a swept multi-board pot is announced with sound, not in silence', () => {
+  it('a swept multi-board pot is announced with sound only for the scooping hero', () => {
     // Bounded by the block that encloses the banner call, never a byte count
     // (tests/helpers/sourceWindow — a fixed window drifts off the code it
     // guards the moment a comment is added above it).
     const window = sliceEnclosingBlock(PAGE, 'setScoopBanner({');
-    expect(window).toMatch(/soundService\.isEnabled\(\) && ambientSoundsAllowedRef\.current/);
+    expect(window).toMatch(
+      /scoopUserId === userId\s*&&\s*soundService\.isEnabled\(\)\s*&&\s*ambientSoundsAllowedRef\.current/
+    );
     expect(window).toMatch(/playBigWin\(\)/);
   });
 

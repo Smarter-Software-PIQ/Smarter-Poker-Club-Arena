@@ -85,7 +85,7 @@ it('restores the complete account workspace on an empty second device without wr
   expect(remote.writes).toHaveLength(0);
   writeRosterWorkspace('roster-a', 'club-x', chosen);
   await vi.waitFor(() =>
-    expect(remote.rows.get('roster-a/roster:workspace:club-x')).toEqual(chosen)
+    expect(remote.rows.get('roster-a/roster:workspace:club-x')).toEqual({ ...chosen, version: 3 })
   );
   sessionStorage.clear();
   localStorage.clear();
@@ -113,7 +113,7 @@ it('retains the original failed account write through logout and restores it on 
   signIn('roster-c');
   expect(await loadRosterWorkspace('roster-c', 'club-x')).toEqual(chosen);
   await vi.waitFor(() =>
-    expect(remote.rows.get('roster-c/roster:workspace:club-x')).toEqual(chosen)
+    expect(remote.rows.get('roster-c/roster:workspace:club-x')).toEqual({ ...chosen, version: 3 })
   );
   await vi.waitFor(() =>
     expect(readTableSettingIntent('roster-c', 'page:roster:workspace:club-x')).toBeNull()

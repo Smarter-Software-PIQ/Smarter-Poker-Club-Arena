@@ -1,3 +1,4 @@
+import { publicMemoryDomainIsValid } from '../engine/HorsePublicMemoryDomain.js';
 import type { HorsePublicMemoryDomain } from '../engine/HorsePublicMemoryDomain.js';
 import { readExactHorseOpponentProfiles } from '../services/HorseExactOpponentMemory.js';
 /**
@@ -58,6 +59,8 @@ export interface LightningObservedHand {
   showdown: ReadonlyArray<{ userId: string; mucked?: boolean; handName?: string }>;
   /** Settlement's per-player results (HorseWinnerRead). */
   results?: ReadonlyArray<{ playerId: string; contributed: number; won: number }>;
+  /** The hand_history row's has_human (a human was dealt in); the style read's Horse reference counts only these. */
+  hasHuman?: boolean;
 }
 
 export interface LightningObservationDeps {
@@ -88,6 +91,11 @@ export function buildLightningObservation(
     ...(hand.publicMemoryDomain !== undefined
       ? { publicMemoryDomain: hand.publicMemoryDomain }
       : {}),
+    // F1: Lightning is cash; every hand with a valid public domain teaches the style read, durable row or not
+    ...(publicMemoryDomainIsValid(hand.publicMemoryDomain)
+      ? { styleMemoryMode: 'cash' as const }
+      : {}),
+    ...(hand.hasHuman !== undefined ? { styleHasHuman: hand.hasHuman } : {}),
     ...(durableOpponentProfiles !== undefined ? { durableOpponentProfiles } : {}),
     generation: hand.handNumber,
     fence: [hand.hostTableId, hand.handNumber, hand.leaseGeneration ?? 'unleased', 'observe'].join(

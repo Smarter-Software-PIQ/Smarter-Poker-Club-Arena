@@ -184,9 +184,11 @@ describe('WIRING - the module exists and something calls it', () => {
   });
 
   it('names the session exit by which side of the policy it left on', () => {
-    expect(ROTATOR).toMatch(
-      /bankrollEvent\(verdict === 'book_win' \? 'session_book_win' : 'session_stop_loss'\);/
-    );
+    /* BANK THE WIN (owner 2026-11-10): the rotator books the stop loss; the
+       winning exit is the engine's (4-6x the starting stack, one orbit after
+       a big pot, before the next big blind) and is counted there. */
+    expect(ROTATOR).toMatch(/bankrollEvent\('session_stop_loss'\);/);
+    expect(SETTLEMENT).toMatch(/bankrollEvent\('session_book_win'\);/);
   });
 
   /**

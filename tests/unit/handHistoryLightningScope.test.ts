@@ -111,6 +111,35 @@ beforeEach(() => {
 });
 
 describe('Previous Hand reads a Lightning pool session, not a physical table', () => {
+  it('resolves only the selected deal archive and distinguishes unsettled, missing and failed reads', async () => {
+    const deal = { id: 'engine-a', number: 30 };
+    const read = () => handHistoryService.getPreviousLightningHand(HERO, POOL, deal);
+    await expect(read()).resolves.toMatchObject({ state: 'ready', hand: { id: A } });
+    expect(state.reads.find((entry) => entry.table === 'hand_history')?.calls).toContainEqual([
+      'in',
+      'id',
+      [A],
+    ]);
+    state.rpc.mockResolvedValue({
+      data: [{ hand_id: 'engine-b', hand_number: 20, hand_history_id: B }],
+      error: null,
+    });
+    await expect(read()).resolves.toEqual({ state: 'pending' });
+    state.rpc.mockResolvedValue({
+      data: [{ hand_id: 'engine-a', hand_number: 30, hand_history_id: null }],
+      error: null,
+    });
+    await expect(read()).resolves.toEqual({ state: 'unavailable' });
+    state.rows = [];
+    await expect(
+      handHistoryService.getPreviousLightningHand(HERO, POOL, deal, { archiveId: A })
+    ).resolves.toEqual({ state: 'unavailable' });
+    state.historyError = { message: 'Archive read failed' };
+    await expect(
+      handHistoryService.getPreviousLightningHand(HERO, POOL, deal, { archiveId: A })
+    ).rejects.toThrow('Archive read failed');
+  });
+
   it('loads only session-listed canonical hands across physical instances and retains private cards', async () => {
     const hands = await load();
     expect(hands.map((hand) => hand.id)).toEqual([A, B]);
@@ -250,5 +279,41 @@ describe('Previous Hand reads a Lightning pool session, not a physical table', (
       calls.findIndex((call) => call[0] === 'range')
     );
     expect(calls).toContainEqual(['range', 1, 1]);
+  });
+});
+
+describe('certified observer review at a physical or projected table', () => {
+  it('uses server entitlements and keeps unshown opponent cards private', async () => {
+    const observed = row(A, 30, 'host-table');
+    observed.players = [{ userId: 'villain', seat: 2, stack: 10 }];
+    const select = vi.fn().mockResolvedValue({ data: [observed], error: null });
+    state.facts = [];
+    state.rpc.mockImplementation((name) =>
+      name === 'ca_table_review_hands' ? { select } : Promise.resolve({ data: [], error: null })
+    );
+    const hands = await handHistoryService.getPlayerHands(HERO, 50, {
+      tableId: 'watched-room',
+      includeObserved: true,
+      beforeHandNumber: 31,
+      throwOnError: true,
+    });
+    expect(state.rpc).toHaveBeenCalledWith('ca_table_review_hands', {
+      p_table_id: 'watched-room',
+      p_before: 31,
+      p_limit: 50,
+      p_game_mode: null,
+      p_offset: 0,
+    });
+    expect(hands.map((hand) => hand.id)).toEqual([A]);
+    expect(hands[0].players[0].hole_cards).toEqual([]);
+    expect(hands[0].players[0].private_hole_cards).toBeUndefined();
+    select.mockResolvedValue({ data: null, error: { message: 'Review Unavailable' } });
+    await expect(
+      handHistoryService.getPlayerHands(HERO, 50, {
+        tableId: 'watched-room',
+        includeObserved: true,
+        throwOnError: true,
+      })
+    ).rejects.toMatchObject({ message: 'Review Unavailable' });
   });
 });

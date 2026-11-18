@@ -222,7 +222,10 @@ describe('LAW: every surface that shows a person online asks the door', () => {
     ['src/pages/FriendsPage.tsx', 'useProfilePresence('],
     ['src/pages/SuperAgentDashboard.tsx', 'useProfilePresence('],
     ['src/pages/AgentDashboardPage.tsx', 'readPresence('],
-    ['src/pages/ClubMembersPage.tsx', 'useOnlineNow('],
+    /* The roster asks once for every loaded row (2026-11-12): one batched
+       watch feeds both the row's status and the live Active Now order. */
+    ['src/pages/ClubMembersPage.tsx', 'useLoadedPresence('],
+    ['src/hooks/useRosterLiveOrder.ts', 'watchProfilePresence('],
     ['src/pages/DiamondPlayersPage.tsx', 'useOnlineNow('],
     ['src/pages/MemberManagementPage.tsx', 'useOnlineNow('],
     ['src/services/PlayerStatusService.ts', 'readPresence('],

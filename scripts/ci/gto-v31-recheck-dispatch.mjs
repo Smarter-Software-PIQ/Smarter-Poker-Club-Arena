@@ -24,13 +24,14 @@
  * It is a separate workflow run: nothing here can fail an engine release.
  * With no contract v3 playbook (today) it reads and dispatches nothing.
  */
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isClubArenaRepository } from './repository-identity.mjs';
 import { RECHECK_CONTRACT } from './gto-v31-qualification.mjs';
 import { executionClosure, executionDigest } from './v31-execution-fingerprint.mjs';
+import { writeIntent } from './dispatch-intent.mjs';
 
 const HEALTH = 'https://engine.smarter.poker/health';
 const DATABASE = 'https://kuklfnapbkmacvwxktbh.supabase.co';
@@ -108,9 +109,15 @@ export function busyDatasetsFromRuns(runs) {
 }
 
 /** The dispatch body for one re-check. */
-export function recheckDispatchBody(dataset) {
+// The receiving job refuses a job-token dispatch unless it is the exact intent
+// this run recorded and uploaded (scripts/ci/dispatch-intent.mjs, 2026-11-11),
+// so every recheck is written as an intent first and its body comes from it.
+export function recheckIntent(dataset, dir, env = process.env, nonce, ownRun) {
   if (!UUID.test(dataset ?? '')) throw new Error('A canonical dataset UUID is required');
-  return { ref: 'main', inputs: { dataset, operation: 'recheck', reason: '' } };
+  // ownRun: this run's own API record, so the intent binds the head_sha GitHub
+  // recorded for this run (what the receiver compares), not a re-read of main.
+  return writeIntent({ operation: 'gto-recheck', inputs: { dataset, operation: 'recheck', reason: '' }, dir, env,
+    ...(ownRun ? { ownRun } : {}), ...(nonce ? { nonce } : {}) });
 }
 
 /**
@@ -189,15 +196,36 @@ async function main() {
     busyDatasets: busyDatasetsFromRuns(runs) });
   const lines = [`- Serving engine: \`${servingSha ?? 'unknown'}\``];
   for (const s of plan.skipped) lines.push(`- \`${s.dataset}\`: no re-check (${s.reason})`);
+  const sends = [];
+  let ownRun = null;
+  if (plan.dispatch.length) {
+    const r = await github(`/actions/runs/${process.env.GITHUB_RUN_ID}`);
+    if (!r.ok) throw new Error(`Reading this run returned HTTP ${r.status}`);
+    ownRun = await r.json();
+  }
   for (const d of plan.dispatch) {
+    const intent = recheckIntent(d.dataset, process.env.INTENT_DIR, process.env, undefined, ownRun);
+    sends.push({ dataset: d.dataset, state: d.state, body: intent.body });
+    lines.push(`- \`${d.dataset}\` (${d.state}): re-check intent recorded`);
+  }
+  writeFileSync(process.env.INTENT_STATE, JSON.stringify(sends));
+  if (sends.length && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, 'send=true\n');
+  summary(lines);
+}
+
+/** Second phase: send exactly the bodies the first phase recorded, after the upload. */
+async function send() {
+  const sends = JSON.parse(readFileSync(process.env.INTENT_STATE, 'utf8'));
+  const lines = [];
+  for (const s of sends) {
     const r = await github(`/actions/workflows/${RECHECK_WORKFLOW}/dispatches`, { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(recheckDispatchBody(d.dataset)) });
-    if (r.status !== 204) throw new Error(`Dispatching the re-check of ${d.dataset} returned HTTP ${r.status}`);
-    lines.push(`- \`${d.dataset}\` (${d.state}): **re-check dispatched**`);
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s.body) });
+    if (r.status !== 204) throw new Error(`Dispatching the re-check of ${s.dataset} returned HTTP ${r.status}`);
+    lines.push(`- \`${s.dataset}\` (${s.state}): **re-check dispatched**`);
   }
   summary(lines);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => { console.error(`[gto-v31-recheck-dispatch] ${error.message}`); process.exitCode = 1; });
+  (process.argv[2] === 'send' ? send() : main()).catch((error) => { console.error(`[gto-v31-recheck-dispatch] ${error.message}`); process.exitCode = 1; });
 }

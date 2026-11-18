@@ -32,6 +32,7 @@
 
 /** The World Hub's URL prefix and this SPA's own basename under it. */
 export const HUB_PREFIX = '/hub';
+export const HUB_SOCIAL_FEED_PATH = '/hub/social-media';
 export const CLUB_ARENA_PREFIX = '/hub/club-arena';
 
 /** Everything after the origin: pathname plus search, no hash. */
@@ -80,6 +81,7 @@ const NAMED: Record<string, string> = {
   'vip-membership': 'VIP',
   'diamond-store': 'Diamonds',
   messenger: 'Messages',
+  'social-media': 'Social',
   jarvis: 'Jarvis',
   ai: 'AI',
 };
@@ -230,7 +232,9 @@ export function readHubTabs(
     // and only ever restore a World Hub path - never Club Arena, never
     // another origin.
     const urls = Array.isArray(parsed.urls) ? parsed.urls : [];
-    return urls.filter((u): u is string => typeof u === 'string' && isHubPath(u));
+    return urls
+      .filter((u): u is string => typeof u === 'string' && isHubPath(u))
+      .map((url) => (url === '/hub/social' ? HUB_SOCIAL_FEED_PATH : url));
   } catch {
     return [];
   }

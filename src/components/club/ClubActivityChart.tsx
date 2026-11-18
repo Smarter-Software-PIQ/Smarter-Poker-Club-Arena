@@ -104,7 +104,7 @@ export default function ClubActivityChart({ data, height = 240, handsLabel }: Pr
             tickLine={false}
             axisLine={false}
             width={48}
-            tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+            tickFormatter={(v: number) => fmtChips(v)}
           />
           <YAxis
             yAxisId="rake"
@@ -113,7 +113,7 @@ export default function ClubActivityChart({ data, height = 240, handsLabel }: Pr
             tickLine={false}
             axisLine={false}
             width={52}
-            tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+            tickFormatter={(v: number) => fmtChips(v)}
           />
           <Tooltip
             contentStyle={{

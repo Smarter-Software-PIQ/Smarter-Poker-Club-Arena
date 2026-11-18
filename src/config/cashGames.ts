@@ -11,6 +11,8 @@
  */
 
 import { isLightningVariant } from '../lightning/lightningLobby';
+import { isFixedLimitVariant } from '../lib/bettingStructure';
+import { FIXED_LIMIT_GAME_NAMES } from '../lib/fixedLimitNames';
 
 export type CashTemplate = 'classic' | 'action' | 'madness';
 
@@ -30,15 +32,16 @@ export function cashTemplateVariantAvailable(
   template: string | null,
   variant: string | null
 ): boolean {
-  return !(
-    cashTemplateKey(template ?? '') === 'madness' &&
-    variant &&
-    !isLightningVariant(variant)
-  );
+  if (!variant) return true;
+  const key = cashTemplateKey(template ?? '');
+  /* Owner ruling, November 14, 2026: every limit game is "ALWAYS CLASSIC GAME
+     SET UP". fn_cash_template_defaults refuses any other template for them. */
+  if (key && key !== 'classic' && isFixedLimitVariant(variant)) return false;
+  return !(key === 'madness' && !isLightningVariant(variant));
 }
 
 export const PINEAPPLE_CLASSIC_NOTE =
-  'Short Deck, Omaha Hi-Lo And Pineapple Use Classic Games. They Are Not Available In Lightning Games.';
+  'Fixed Limit, Short Deck, Omaha Hi-Lo And Pineapple Use Classic Games. They Are Not Available In Lightning Games.';
 
 /**
  * Dan 2026-11-08: "MAKE THE MINIMUM BUY INS 50 BB FOR ANY AND ALL CASH GAMES."
@@ -149,8 +152,9 @@ export const CASH_VARIANTS: ReadonlyArray<{
   { id: 'plo5', label: 'PLO5', family: 'plo' },
   { id: 'plo6', label: 'PLO6', family: 'plo' },
   { id: 'plo8', label: 'PLO8', family: 'plo' },
-  { id: 'flo8', label: 'FLO8', family: 'plo' },
-  { id: 'flh', label: 'FLH', family: 'holdem' },
+  /* Owner ruling, November 14, 2026: limit games are named in full. */
+  { id: 'flo8', label: FIXED_LIMIT_GAME_NAMES.flo8, family: 'plo' },
+  { id: 'flh', label: FIXED_LIMIT_GAME_NAMES.flh, family: 'holdem' },
   { id: 'short_deck', label: 'Short Deck', family: 'shortdeck' },
   { id: 'pineapple', label: 'Pineapple', family: 'pineapple' },
 ];
@@ -164,8 +168,8 @@ export const CASH_VARIANT_LONG: Readonly<Record<string, string>> = {
   plo5: 'Pot Limit Omaha 5',
   plo6: 'Pot Limit Omaha 6',
   plo8: 'Omaha Hi-Lo',
-  flo8: 'Fixed Limit Omaha Hi-Lo',
-  flh: "Fixed Limit Hold'em",
+  flo8: FIXED_LIMIT_GAME_NAMES.flo8,
+  flh: FIXED_LIMIT_GAME_NAMES.flh,
   short_deck: 'Short Deck',
   pineapple: "Pineapple Hold'em",
 };

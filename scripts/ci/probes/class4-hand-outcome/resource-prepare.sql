@@ -7,7 +7,7 @@ SET LOCAL statement_timeout='60s';
 SET LOCAL lock_timeout='3s';
 DO $$ BEGIN
  IF current_user<>'postgres' OR current_database()<>'class4_native_'||replace(current_setting('app.class4_execution_uuid'),'-','')
-    OR current_setting('server_version_num')::integer<>170011
+    OR current_setting('server_version_num')::integer<>170012
     OR current_setting('session_replication_role')<>'origin'
     OR EXISTS(SELECT 1 FROM public.financial_alerts)
     OR EXISTS(SELECT 1 FROM public.hand_atomic_commits)

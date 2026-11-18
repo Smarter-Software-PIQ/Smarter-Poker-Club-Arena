@@ -57,7 +57,11 @@ import CarouselSection from '../components/home/CarouselSection';
 import { savedPinnedClubIds } from '../components/home/arenaSelection';
 import ClubEntryActionBar from '../components/home/ClubEntryActionBar';
 import { getClubLevelFromMembers } from '../utils/clubLevels';
-import type { UserClub, ClubStats } from '../components/home/CarouselSection';
+import type {
+  UserClub,
+  ClubStats,
+  KingsClubDisplayTotals,
+} from '../components/home/CarouselSection';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 import { STORAGE_KEYS } from '../lib/storage';
@@ -314,7 +318,11 @@ function HomePageInner() {
     if (!joinCode && !welcome) return;
     const next = new URLSearchParams(searchParams);
     if (joinCode) {
-      setJoinIntent({ code: joinCode.trim(), watchTableId: null, ref: searchParams.get('ref')?.trim() || null });
+      setJoinIntent({
+        code: joinCode.trim(),
+        watchTableId: null,
+        ref: searchParams.get('ref')?.trim() || null,
+      });
       setShowJoinModal(true);
       next.delete('join');
       next.delete('ref');
@@ -944,15 +952,6 @@ function HomePageInner() {
             (r) => r,
             (error) => ({ data: null, error })
           );
-        /* Dan 2026-11-02: Kings Club shows +1,500 members and +233 active as a
-           separately labelled addition. The real counts above stay real; the
-           addition is never folded into them. */
-        const displayAdditionsPromise = supabase
-          .rpc('fn_club_display_labeled_additions', { p_club_ids: clubIds })
-          .then(
-            (r) => r,
-            (error) => ({ data: null, error })
-          );
 
         /* THE ARENA'S COUNT CANNOT COME FROM A MEMBERSHIP JOIN (2026-09-20).
            fn_batch_club_realtime_active_counts reaches its seats through
@@ -977,10 +976,18 @@ function HomePageInner() {
             )
           : null;
 
+        const kingsClub = displayClubs.find((club) => Number(club.club_id) === SHARK_CLUB_ID);
+        const kingsDisplayPromise = kingsClub
+          ? supabase.rpc('fn_kings_club_display_totals').then(
+              (result) => result,
+              (error) => ({ data: null, error })
+            )
+          : null;
+
         const { data: clubRows, error: clubRowsError } = await supabase
           .from('clubs')
           .select(
-            'id, member_count, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
+            'id, union_id, member_count, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
           )
           .in('id', clubIds);
         if (clubRowsError) reportError(clubRowsError, 'HomePage.Failed_to_fetch_club_stats');
@@ -1025,19 +1032,6 @@ function HomePageInner() {
             memberCountMap.set(r.club_id, Number(r.member_count) || 0);
         } catch (e) {
           reportError(e, 'HomePage.batchRealtimeMemberCounts');
-        }
-
-        const displayAdditionMap = new Map<string, { members: number; active: number; label: string }>();
-        try {
-          const { data: additions } = await displayAdditionsPromise;
-          for (const r of (additions as any[]) || [])
-            displayAdditionMap.set(r.club_id, {
-              members: Number(r.member_addition) || 0,
-              active: Number(r.active_addition) || 0,
-              label: String(r.label || 'Bonus'),
-            });
-        } catch (e) {
-          reportError(e, 'HomePage.displayAdditions');
         }
 
         /* Live seats in the Diamond Arena. `undefined` means the read never
@@ -1111,11 +1105,98 @@ function HomePageInner() {
                       : activePlayers,
                 activeCash: activeSplit?.cash ?? null,
                 activeEvents: activeSplit?.events ?? null,
-                displayAddition: displayAdditionMap.get(club.id) ?? null,
               };
             }
           })
         );
+
+        if (kingsClub && kingsDisplayPromise) {
+          const { data, error } = await kingsDisplayPromise;
+          if (error) reportError(error, 'HomePage.kingsClubDisplayTotals');
+          const totals = data as Partial<KingsClubDisplayTotals> | null;
+          if (totals && statsMap[kingsClub.id]) {
+            const { member_total, active_total, member_addition, active_addition } = totals;
+            if (
+              (typeof member_total === 'number' || member_total === null) &&
+              (typeof active_total === 'number' || active_total === null) &&
+              typeof member_addition === 'number' &&
+              typeof active_addition === 'number'
+            ) {
+              statsMap[kingsClub.id].kingsDisplayTotals = {
+                member_total,
+                active_total,
+                member_addition,
+                active_addition,
+              };
+            }
+          }
+        }
+
+        /* ── A UNION MEMBER CLUB'S CASH / EVENTS SPLIT IS THE UNION FLOOR ──
+           Dan 2026-11-12: "WHY DOES IT SAY 2 CASH - 0 EVENTS ON THE BOTTOM? IT
+           SHOULD BE SAYING MANY HANDS ARE IN THE MIDWAY UNION."
+
+           A club that joins a union has no floor of its own: every one of its
+           cash games and tournaments is removed before it may join (HARD
+           RULE), and its players sit at the UNION's tables. The split under
+           ACTIVE counted only this club's own members seated there, so Kings
+           Club read 2 CASH / 0 EVENTS while the Midway Union floor it plays on
+           carried hundreds of players at cash and in events. For a member club
+           the split now reports the union floor it shares (distinct players,
+           same RPC the union's own card uses) and the card names that union
+           over the split, so the figure says whose floor it is. A standalone
+           club keeps its own floor. The ACTIVE total is untouched. */
+        const memberClubUnion = new Map<string, string>();
+        for (const row of clubRows as any[]) {
+          const shown = displayClubs.find((c) => c.id === row.id);
+          if (!row.union_id || !shown || shown.entity_type === 'union') continue;
+          if (row.id === DIAMOND_ARENA_CLUB_ID || !statsMap[row.id]) continue;
+          memberClubUnion.set(row.id, String(row.union_id));
+        }
+        if (memberClubUnion.size > 0 && isMounted) {
+          const floorUnionIds = Array.from(new Set(memberClubUnion.values()));
+          try {
+            const [floorResult, floorNamesResult, floorPlayersResult] = await Promise.all([
+              supabase.rpc('fn_batch_union_realtime_active_counts', {
+                p_union_ids: floorUnionIds,
+              }),
+              supabase.from('unions').select('id, name').in('id', floorUnionIds),
+              // Use the same measured union floor as the invitation.
+              supabase.rpc('fn_batch_union_floor_players', { p_union_ids: floorUnionIds }),
+            ]);
+            if (floorResult.error) reportError(floorResult.error, 'HomePage.memberClubUnionFloor');
+            const floorSplit = new Map<string, { cash: number; events: number }>();
+            for (const r of (floorResult.data as any[]) || [])
+              floorSplit.set(String(r.union_id), {
+                cash: Number(r.cash_count) || 0,
+                events: Number(r.event_count) || 0,
+              });
+            if (floorPlayersResult.error)
+              reportError(floorPlayersResult.error, 'HomePage.memberClubUnionFloorPlayers');
+            const floorPlayers = new Map<string, number>();
+            for (const r of (floorPlayersResult.data as any[]) || [])
+              floorPlayers.set(String(r.union_id), Number(r.active_count) || 0);
+            const floorName = new Map<string, string>();
+            for (const r of (floorNamesResult.data as any[]) || [])
+              if (r?.name) floorName.set(String(r.id), String(r.name));
+            for (const [clubId, unionId] of memberClubUnion) {
+              const split = floorSplit.get(unionId);
+              // No answer for the union leaves the club's own split in place;
+              // an unknown never becomes a zero.
+              if (!split) continue;
+              statsMap[clubId] = {
+                ...statsMap[clubId],
+                activeCash: split.cash,
+                activeEvents: split.events,
+                splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
+                // Unknown stays unknown: no union total is printed without its read.
+                floorPlaying: floorPlayers.get(unionId) ?? null,
+              };
+            }
+          } catch (e) {
+            reportError(e, 'HomePage.memberClubUnionFloor.threw');
+          }
+        }
 
         // ── Union stats overlay: fetch from `unions` table for union-type clubs ──
         // The `clubs` table row for unions has stale/minimal data (level=1, member_count=1).

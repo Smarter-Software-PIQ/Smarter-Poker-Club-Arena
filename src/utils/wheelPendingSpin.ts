@@ -31,7 +31,10 @@ function valid(a: WheelPendingSpin, userId: string, clubId: string): boolean {
     (a.mode === 'paid' || a.mode === 'welcome' || a.mode === 'daily_bonus') &&
     (a.contractVersion === undefined
       ? a.entryDiamonds === undefined
-      : (a.contractVersion === 2 || a.contractVersion === 3 || a.contractVersion === 4) &&
+      : (a.contractVersion === 2 ||
+          a.contractVersion === 3 ||
+          a.contractVersion === 4 ||
+          a.contractVersion === 5) &&
         Number.isSafeInteger(a.entryDiamonds) &&
         Number(a.entryDiamonds) >= 1 &&
         (a.mode === 'paid' || a.entryDiamonds === 100)) &&

@@ -45,7 +45,10 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
-vi.mock('../../src/services/tableWarmup', () => ({ warmTable: vi.fn() }));
+vi.mock('../../src/services/tableWarmup', () => ({
+  warmTable: vi.fn(),
+  warmLightningRoom: vi.fn(),
+}));
 const toast = { info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
 vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toast }));
 vi.mock('../../src/components/replay/HandReplay', () => ({
@@ -421,7 +424,7 @@ describe('parsing the Lightning session RPCs', () => {
       'Hands',
       'Duration',
       'Hands / Hour',
-      'Starting Stack',
+      'Total Buy-In',
       'Current Stack',
       'Net',
       'BB / 100',
@@ -438,6 +441,26 @@ describe('parsing the Lightning session RPCs', () => {
     expect(summary).toContain('Ending Stack');
     expect(summary).not.toContain('VPIP');
     expect(summary).not.toContain('P95 Wait');
+  });
+
+  it('Dan 2026-11-12: the card adds up - Total Buy-In counts applied Auto Top Ups', () => {
+    // KingFish, PLO4 1.00/2.00: 400 start, three top ups (4 + 1 + 10), net -14, ended 401.
+    const s = parseLightningSessionStats({
+      hands: 9,
+      starting_stack: 400,
+      top_ups: 15,
+      total_buy_in: 415,
+      current_stack: 401,
+      net: -14,
+    })!;
+    expect(s.totalBuyIn).toBe(415);
+    expect(s.topUps).toBe(15);
+    expect((s.totalBuyIn ?? 0) + (s.net ?? 0)).toBe(s.currentStack);
+    const rows = lightningStatRows(s, 'summary');
+    expect(rows.find((r) => r.key === 'total_buy_in')?.value).toBe('415');
+    expect(rows.map((r) => r.label)).not.toContain('Starting Stack');
+    // An older answer without the field falls back to the starting stack.
+    expect(parseLightningSessionStats({ hands: 1, starting_stack: 200 })!.totalBuyIn).toBe(200);
   });
 
   it('the lobby card prefers the pool status the database names', () => {
@@ -642,7 +665,7 @@ describe('the session summary', () => {
       p_limit: 50,
       p_pool_session_id: POOL,
     });
-    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy Link' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Game Lobby' }));
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'));
     expect(screen.queryByTestId('lightning-summary-host')).toBeNull();

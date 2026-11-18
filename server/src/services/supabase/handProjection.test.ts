@@ -48,6 +48,7 @@ const queryCalls: Array<{
   limit?: number;
 }> = [];
 const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+const rpcHeaders: Array<{ fn: string; name: string; value: string }> = [];
 const failureReceiptCalls: Array<Record<string, unknown>> = [];
 const requestActors: string[] = [];
 const channels: FakeChannel[] = [];
@@ -175,6 +176,10 @@ vi.mock('./client.js', () => ({
       // through `then`, and `.abortSignal()` may be chained before that.
       let awaited: Promise<RpcReply> = reply;
       const builder = {
+        setHeader(name: string, value: string) {
+          rpcHeaders.push({ fn, name, value });
+          return builder;
+        },
         abortSignal(signal: AbortSignal) {
           awaited = abortable(reply, signal);
           return builder;
@@ -218,6 +223,7 @@ beforeEach(async () => {
   vi.unstubAllEnvs();
   queryCalls.length = 0;
   rpcCalls.length = 0;
+  rpcHeaders.length = 0;
   failureReceiptCalls.length = 0;
   channels.length = 0;
   removedChannels.length = 0;
@@ -232,6 +238,7 @@ beforeEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   queryCalls.length = 0;
   rpcCalls.length = 0;
+  rpcHeaders.length = 0;
   failureReceiptCalls.length = 0;
   mockReportError.mockReset();
   requestActors.length = 0;
@@ -447,6 +454,56 @@ describe('the accepted-hand projection worker', () => {
       vi.useRealTimers();
     }
   });
+
+  for (const queued of ['table_busy', 'obligation_lock_busy'])
+    it(`defers a contract-1 answer (predecessor_pending, queued_reason ${queued}) exactly as before`, async () => {
+      vi.useFakeTimers();
+      try {
+        outboxReplies.push({ data: [{ hand_id: 'h-403', hand_number: 403 }], error: null });
+        projectionReplies.push({
+          data: { ok: false, reason: 'predecessor_pending', queued_reason: queued, retryable: true },
+          error: null,
+        });
+        await expect(worker.wakeHandProjection()).resolves.toMatchObject({ deferred: 1, failed: 0 });
+        expect(failureReceiptCalls).toEqual([]);
+        expect(mockReportError).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+  for (const reason of ['table_busy', 'obligation_lock_busy'])
+    it(`defers the envelope's queued answer ${reason} instead of failing it (20261118073646)`, async () => {
+      vi.useFakeTimers();
+      try {
+        outboxReplies.push(
+          { data: [{ hand_id: 'h-402', hand_number: 402 }], error: null },
+          { data: [{ hand_id: 'h-402', hand_number: 402 }], error: null }
+        );
+        projectionReplies.push(
+          { data: { ok: false, reason, retryable: true }, error: null },
+          { data: { ok: true, hand_id: 'h-402' }, error: null }
+        );
+        await expect(worker.wakeHandProjection()).resolves.toMatchObject({
+          deferred: 1,
+          failed: 0,
+        });
+        // No failure receipt, no semantic-refusal report: only the projection RPC ran.
+        expect(rpcCalls.map((c) => c.fn)).toEqual(['fn_project_hand_side_effects']);
+        expect(mockReportError).not.toHaveBeenCalled();
+        // This engine asked for contract 2 on the projection call (the
+        // envelope runs inside it).
+        expect(rpcHeaders).toContainEqual({
+          fn: 'fn_project_hand_side_effects',
+          name: 'x-ca-post-commit-contract',
+          value: '2',
+        });
+        await vi.advanceTimersByTimeAsync(250);
+        await vi.waitFor(() => expect(rpcCalls).toHaveLength(2));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
   it('cancels the exact retry generation and joins active work on stop', async () => {
     vi.useFakeTimers();

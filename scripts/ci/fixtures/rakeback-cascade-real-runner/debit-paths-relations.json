@@ -1,0 +1,402 @@
+{
+  "public.ca_emergency_stops": {
+    "cols": [
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "path",
+        "nn": true,
+        "ty": "text"
+      },
+      {
+        "def": "false",
+        "gen": "",
+        "ident": "",
+        "n": "stopped",
+        "nn": true,
+        "ty": "boolean"
+      },
+      {
+        "def": "0",
+        "gen": "",
+        "ident": "",
+        "n": "version",
+        "nn": true,
+        "ty": "bigint"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "reason",
+        "nn": false,
+        "ty": "text"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "actor_id",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": "transaction_timestamp()",
+        "gen": "",
+        "ident": "",
+        "n": "updated_at",
+        "nn": true,
+        "ty": "timestamp with time zone"
+      }
+    ],
+    "cons": [
+      {
+        "def": "CHECK ((path = ANY (ARRAY['tournament_registration'::text, 'positive_issuance'::text, 'cashout'::text])))",
+        "n": "ca_emergency_stops_path_check",
+        "ty": "c"
+      },
+      {
+        "def": "PRIMARY KEY (path)",
+        "n": "ca_emergency_stops_pkey",
+        "ty": "p"
+      },
+      {
+        "def": "CHECK ((version >= 0))",
+        "n": "ca_emergency_stops_version_check",
+        "ty": "c"
+      }
+    ],
+    "idx": null,
+    "kind": "r",
+    "rls": true,
+    "s": "public",
+    "seq": null,
+    "t": "ca_emergency_stops",
+    "trg": null,
+    "view": null
+  },
+  "public.ca_manual_adjustments": {
+    "cols": [
+      {
+        "def": "gen_random_uuid()",
+        "gen": "",
+        "ident": "",
+        "n": "id",
+        "nn": true,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "actor",
+        "nn": true,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "approver",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "reason",
+        "nn": true,
+        "ty": "text"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "amount",
+        "nn": true,
+        "ty": "numeric(15,2)"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "target_kind",
+        "nn": true,
+        "ty": "text"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "target_id",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "tournament_id",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": "'proposed'::text",
+        "gen": "",
+        "ident": "",
+        "n": "status",
+        "nn": true,
+        "ty": "text"
+      },
+      {
+        "def": "now()",
+        "gen": "",
+        "ident": "",
+        "n": "created_at",
+        "nn": true,
+        "ty": "timestamp with time zone"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "approved_at",
+        "nn": false,
+        "ty": "timestamp with time zone"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "rejected_by",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "rejected_at",
+        "nn": false,
+        "ty": "timestamp with time zone"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "decision_note",
+        "nn": false,
+        "ty": "text"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "actor_label",
+        "nn": false,
+        "ty": "text"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "approver_label",
+        "nn": false,
+        "ty": "text"
+      },
+      {
+        "def": "'chips'::text",
+        "gen": "",
+        "ident": "",
+        "n": "asset",
+        "nn": true,
+        "ty": "text"
+      }
+    ],
+    "cons": [
+      {
+        "def": "CHECK (((amount <> (0)::numeric) AND (amount = round(amount, 2))))",
+        "n": "ca_manual_adjustments_amount_check",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK (((status <> ALL (ARRAY['approved'::text, 'settled'::text])) OR ((approver IS NOT NULL) AND (approved_at IS NOT NULL))))",
+        "n": "ca_manual_adjustments_approved_has_approver",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK ((asset = ANY (ARRAY['chips'::text, 'diamonds'::text])))",
+        "n": "ca_manual_adjustments_asset_check",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK (((asset = 'diamonds'::text) = (target_kind = ANY (ARRAY['diamond_wallet'::text, 'diamond_house'::text]))))",
+        "n": "ca_manual_adjustments_asset_matches_target",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK (((approver IS NULL) OR (approver <> actor)))",
+        "n": "ca_manual_adjustments_four_eyes",
+        "ty": "c"
+      },
+      {
+        "def": "PRIMARY KEY (id)",
+        "n": "ca_manual_adjustments_pkey",
+        "ty": "p"
+      },
+      {
+        "def": "CHECK ((length(btrim(reason)) >= 20))",
+        "n": "ca_manual_adjustments_reason_check",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK (((status <> 'rejected'::text) OR ((rejected_by IS NOT NULL) AND (rejected_at IS NOT NULL))))",
+        "n": "ca_manual_adjustments_rejected_has_rejecter",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK ((status = ANY (ARRAY['proposed'::text, 'approved'::text, 'settled'::text, 'rejected'::text])))",
+        "n": "ca_manual_adjustments_status_check",
+        "ty": "c"
+      },
+      {
+        "def": "CHECK ((target_kind = ANY (ARRAY['player_wallet'::text, 'promo_wallet'::text, 'club_treasury'::text, 'union_bank'::text, 'union_wallet'::text, 'agent_wallet'::text, 'club_wallet'::text, 'bbj_pool'::text, 'spin_reserve'::text, 'prize_liability'::text, 'bounty_liability'::text, 'diamond_wallet'::text, 'diamond_house'::text])))",
+        "n": "ca_manual_adjustments_target_kind_check",
+        "ty": "c"
+      }
+    ],
+    "idx": [
+      "CREATE INDEX ca_manual_adjustments_status_idx ON public.ca_manual_adjustments USING btree (status, created_at DESC)"
+    ],
+    "kind": "r",
+    "rls": true,
+    "s": "public",
+    "seq": null,
+    "t": "ca_manual_adjustments",
+    "trg": null,
+    "view": null
+  },
+  "public.credit_payments": {
+    "cols": [
+      {
+        "def": "gen_random_uuid()",
+        "gen": "",
+        "ident": "",
+        "n": "id",
+        "nn": true,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "invoice_id",
+        "nn": true,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "amount",
+        "nn": true,
+        "ty": "numeric"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "payment_method",
+        "nn": true,
+        "ty": "text"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "transaction_id",
+        "nn": false,
+        "ty": "text"
+      },
+      {
+        "def": "now()",
+        "gen": "",
+        "ident": "",
+        "n": "created_at",
+        "nn": true,
+        "ty": "timestamp with time zone"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "operation_id",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "payer_user_id",
+        "nn": false,
+        "ty": "uuid"
+      },
+      {
+        "def": null,
+        "gen": "",
+        "ident": "",
+        "n": "payment_reference",
+        "nn": false,
+        "ty": "text"
+      }
+    ],
+    "cons": [
+      {
+        "def": "CHECK ((amount > (0)::numeric))",
+        "n": "credit_payments_amount_check",
+        "ty": "c"
+      },
+      {
+        "def": "FOREIGN KEY (invoice_id) REFERENCES credit_invoices(id) ON DELETE CASCADE",
+        "n": "credit_payments_invoice_id_fkey",
+        "ty": "f"
+      },
+      {
+        "def": "UNIQUE (operation_id)",
+        "n": "credit_payments_operation_id_key",
+        "ty": "u"
+      },
+      {
+        "def": "CHECK ((payment_method = ANY (ARRAY['wallet'::text, 'diamonds'::text, 'external'::text])))",
+        "n": "credit_payments_payment_method_check",
+        "ty": "c"
+      },
+      {
+        "def": "PRIMARY KEY (id)",
+        "n": "credit_payments_pkey",
+        "ty": "p"
+      }
+    ],
+    "idx": [
+      "CREATE UNIQUE INDEX credit_payments_external_reference ON public.credit_payments USING btree (invoice_id, payment_reference) WHERE ((payment_method = 'external'::text) AND (payment_reference IS NOT NULL))"
+    ],
+    "kind": "r",
+    "rls": true,
+    "s": "public",
+    "seq": null,
+    "t": "credit_payments",
+    "trg": [
+      {
+        "def": "CREATE TRIGGER accounting_credit_payment_document AFTER INSERT ON public.credit_payments FOR EACH ROW EXECUTE FUNCTION fn_accounting_credit_document_on_insert()",
+        "e": "O",
+        "f": "public.fn_accounting_credit_document_on_insert",
+        "fm": "5a515636d7634d29514c723aa5dcfae2",
+        "n": "accounting_credit_payment_document"
+      }
+    ],
+    "view": null
+  }
+}

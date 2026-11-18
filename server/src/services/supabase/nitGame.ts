@@ -64,6 +64,14 @@ export interface NitSeatStatus {
   window: number;
   /** fn_nit_check's MAINTAIN verdict for this seat, right now. */
   evict: boolean;
+  /** True on a Classic floored game: the window is the last `window` hands. */
+  rolling: boolean;
+  /** A warning is open on this sitting (Dan 2026-11-10: warn, then boot). */
+  warned: boolean;
+  /** Dealt hands a warned seat gets to recover in; 0 means boot on the spot. */
+  graceHands: number;
+  /** Dealt hands left in that grace, or null when no warning is open. */
+  graceRemaining: number | null;
 }
 
 /**
@@ -100,6 +108,13 @@ export async function collectNitStatus(tableId: string): Promise<Map<string, Nit
         required: Number(row.required) || 0,
         window: Number(row.window_hands) || 10,
         evict: row.evict === true,
+        rolling: row.rolling === true,
+        warned: row.warned === true,
+        graceHands: Number(row.grace_hands) || 0,
+        graceRemaining:
+          row.grace_remaining === null || row.grace_remaining === undefined
+            ? null
+            : Number(row.grace_remaining),
       });
     }
     return out;
@@ -128,6 +143,47 @@ export async function collectNitEvictions(tableId: string): Promise<NitEviction[
       .filter((r) => r.userId && r.userId !== 'undefined');
   } catch (err) {
     reportError(err, 'nitGame.collectNitEvictions.unhandled', { tableId });
+    return [];
+  }
+}
+
+/**
+ * WARN, THEN BOOT (Dan 2026-11-10).
+ *
+ * The live transition at the hand boundary: `fn_nit_enforce` opens a warning
+ * on a seat's first lapse, clears it the moment the seat is back at or above
+ * the floor, and returns a seat ONLY once its grace has been spent in dealt
+ * hands and it is still under. On Action and Madness the grace is zero, so it
+ * returns exactly what `collectNitEvictions` returned and those tables keep
+ * booting on the spot.
+ *
+ * It replaces collectNitEvictions in the dealing loop because warning is a
+ * WRITE: a STABLE function cannot record that a player was told. The partial
+ * unique index on ca_nit_warnings is what stops two concurrent boundaries
+ * warning twice or booting the same lapse twice.
+ *
+ * Returns an EMPTY ARRAY on any failure, exactly as the read it replaces: a
+ * stats query that cannot answer must never remove a player from a live game.
+ */
+export async function collectNitEnforce(tableId: string): Promise<NitEviction[]> {
+  try {
+    const { data, error } = await supabase.rpc('fn_nit_enforce', { p_table_id: tableId });
+    if (error) {
+      reportError(error, 'nitGame.collectNitEnforce', { tableId });
+      return [];
+    }
+    if (!Array.isArray(data)) return [];
+    return data
+      .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object')
+      .map((r) => ({
+        userId: String(r.user_id),
+        vpip: Number(r.vpip) || 0,
+        required: Number(r.required) || 0,
+        hands: Number(r.hands) || 0,
+      }))
+      .filter((r) => r.userId && r.userId !== 'undefined');
+  } catch (err) {
+    reportError(err, 'nitGame.collectNitEnforce.unhandled', { tableId });
     return [];
   }
 }

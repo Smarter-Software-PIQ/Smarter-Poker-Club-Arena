@@ -35,6 +35,16 @@ vi.mock('../services/supabase/client.js', () => ({
   maintenanceSupabase: {},
 }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn(), reportWarning: vi.fn() }));
+vi.mock('../services/engineAlerts.js', () => ({
+  raiseEngineAlert: vi.fn(async () => true),
+  resolveEngineAlert: vi.fn(async () => true),
+  firingFingerprints: vi.fn(() => []),
+}));
+import {
+  raiseEngineAlert,
+  resolveEngineAlert,
+  firingFingerprints,
+} from '../services/engineAlerts.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import { F06HandPermit } from '../services/F06HandPermit.js';
 
@@ -63,6 +73,7 @@ afterEach(() => {
     engine.engineTelemetry.dispose();
   }
   vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 function fixture(
@@ -215,6 +226,56 @@ function fixture(
 }
 
 describe('a deal attempt that ends without a hand releases its F06 permit', () => {
+  it('keeps exhausted recovery allowance across a real preparation paused before start', async () => {
+    const f = fixture();
+    for (let i = 0; i < 4; i++) f.engine.noteOwnReservedResolveShouldFastRecover();
+    expect(raiseEngineAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        alertname: 'F06OwnReservedRecoveryStalled',
+        page: true,
+        component: `tournament-permit:${ids.table_id}`,
+      })
+    );
+    f.engine.fetchTimeBankExtras = async () => {
+      f.engine.handController.start = f.started;
+      f.engine.pauseForMaintenance(300_000);
+      return new Map();
+    };
+    await f.engine.dealHand(f.seats);
+    expect(f.started).not.toHaveBeenCalled();
+    expect(f.reserved()).toEqual([]);
+    expect(f.engine.noteOwnReservedResolveShouldFastRecover()).toBe(false);
+    expect(resolveEngineAlert).not.toHaveBeenCalled();
+  });
+
+  it('resets and resolves only on the real HAND_START event', async () => {
+    const f = fixture();
+    for (let i = 0; i < 5; i++) f.engine.noteOwnReservedResolveShouldFastRecover();
+    expect(raiseEngineAlert).toHaveBeenCalledTimes(1);
+    f.engine.hub.publish = vi.fn();
+    await f.engine.handleHandEvent({ type: 'HAND_START' }, f.seats);
+    expect(resolveEngineAlert).toHaveBeenCalledWith(
+      'F06OwnReservedRecoveryStalled',
+      `tournament-permit:${ids.table_id}`,
+      'A hand started'
+    );
+    expect(f.engine.noteOwnReservedResolveShouldFastRecover()).toBe(true);
+  });
+
+  it('clears a prior generation durable stall only after the successor starts a hand', async () => {
+    const f = fixture();
+    vi.mocked(firingFingerprints).mockReturnValueOnce([
+      `F06OwnReservedRecoveryStalled:tournament-permit:${ids.table_id}`,
+    ]);
+    f.engine.hub.publish = vi.fn();
+    await f.engine.handleHandEvent({ type: 'HAND_START' }, f.seats);
+    expect(resolveEngineAlert).toHaveBeenCalledWith(
+      'F06OwnReservedRecoveryStalled',
+      `tournament-permit:${ids.table_id}`,
+      'A hand started'
+    );
+  });
+
   it('captures the acknowledged cancelled original after the last completed hand', async () => {
     const f = fixture({ stoppedCustody: true });
     f.allowStart.value = false;

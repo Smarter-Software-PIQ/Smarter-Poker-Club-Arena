@@ -59,6 +59,10 @@ export function noteLightningUserEvent(
   payload: Record<string, unknown> | null | undefined
 ): boolean {
   const type = payload?.type;
+  // Dan 2026-11-10: only authoritative assignments are shown. The engine's
+  // pool waiting count is not an assignment (those players may never sit at
+  // this table), so it is consumed and ignored: no seat, no text.
+  if (type === 'lightning_pool_waiting') return true;
   if (type === 'lightning_cluster_status') {
     noteLightningClusterStatus(payload);
     return true;

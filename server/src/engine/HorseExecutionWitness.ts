@@ -138,6 +138,7 @@ export interface HorseExecutionWitness {
   readonly policyGraph: HorsePolicyGraphReceipt | null;
   /** Optional for retained v4 compatibility; absence never proves attribution. */
   readonly phase6Attribution?: HorseDecision['tournamentPreflopAttribution'] | null;
+  readonly preflopAuthority?: HorseDecision['preflopAuthority'] | null;
   /** Compact private commitment to the utility inputs and original read view.
    * Legacy absence is unavailable provenance, never calibrated-model proof. */
   readonly phase7Evidence?: Readonly<{
@@ -468,6 +469,16 @@ export function createHorseExecutionWitness(
     selected: Object.freeze({ action: decision.action, amount: decision.amount ?? null }),
     expectedExecutionAmount: expectedAmount,
     policyFallback: decision.policyFallback ?? null,
+    preflopAuthority: decision.preflopAuthority
+      ? Object.freeze({
+          ...decision.preflopAuthority,
+          context: Object.freeze({ ...decision.preflopAuthority.context }),
+          intent: Object.freeze({ ...decision.preflopAuthority.intent }),
+          events: Object.freeze(
+            decision.preflopAuthority.events.map((event) => Object.freeze({ ...event }))
+          ),
+        })
+      : null,
     phase6Attribution: decision.tournamentPreflopAttribution
       ? copyPhase6Attribution(decision.tournamentPreflopAttribution)
       : null,

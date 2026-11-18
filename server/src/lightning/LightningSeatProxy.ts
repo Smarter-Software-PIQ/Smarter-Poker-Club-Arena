@@ -11,6 +11,7 @@
  * validates it server-side (action rights, or a fold ahead of the turn while
  * facing a bet). The proxy never decides anything about the hand itself.
  */
+import { lightningPreActionRecorder } from './LightningPreActionRecord.js';
 import type { ActionEngine } from '../handlers/action.js';
 import type { LightningRegistry } from './LightningRegistry.js';
 
@@ -56,8 +57,26 @@ export class LightningSeatProxy implements ActionEngine {
   ): { success: boolean; error?: string; code?: string } {
     this.claim(userId);
     const host = this.registry.hostForRoom(this.roomId);
-    if (!host) return { success: false, error: 'No active hand', code: 'NO_ACTIVE_HAND' };
+    // Refusals before any hand is found are part of the pre-action record
+    // too (LightningPreActionRecord): the host records everything after.
+    const refuse = (detail: string, hostHandId: string | null) =>
+      lightningPreActionRecorder.record({
+        kind: 'refused',
+        playerId: userId,
+        handId: hostHandId,
+        clusterId: null,
+        requestedHandId: handId ?? null,
+        roomId: this.roomId,
+        action,
+        detail,
+        atMs: Date.now(),
+      });
+    if (!host) {
+      refuse('no_hand_for_room', null);
+      return { success: false, error: 'No active hand', code: 'NO_ACTIVE_HAND' };
+    }
     if (host.roomOf(userId) !== this.roomId) {
+      refuse('not_this_room', host.currentHandId);
       return { success: false, error: 'Player not found at this table' };
     }
     return host.setPreAction(userId, action, maxCallAmount, handId);

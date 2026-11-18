@@ -1,3 +1,14 @@
+import {
+  enlargeMobileAvatars,
+  enlargeMobileFrames,
+  resetMobileAvatarPaint,
+  createMobilePaintState,
+  retainMobilePaint,
+  mobileAvatarCardReservation,
+  mobileFrameCardReservation,
+  mobilePaintKey,
+  mobileAvatarPaintSupported,
+} from '../components/table/mobileAvatarEnlargement';
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import {
   avatarRestPose,
@@ -6,9 +17,17 @@ import {
   tableRenderScale,
 } from '../components/table/avatarCrownBounds';
 import { createOpponentAvatarLayout } from '../components/table/opponentAvatarLayout';
-import { placeProtectedCardRow, type CardBox } from '../lib/protectedCardPlacement';
+import {
+  placeProtectedCardRow,
+  placeHiddenFans,
+  type CardBox,
+} from '../lib/protectedCardPlacement';
 import {
   assignProtectedWagers,
+  capWagerSlot,
+  clearsWagerBoard,
+  firstWagerOnFelt,
+  insideClassicGreen,
   greedyProtectedWagers,
   wagerBoxesOverlap,
 } from '../lib/protectedWagerPlacement';
@@ -35,6 +54,7 @@ export function useProtectedCardLayout(
   revision: string,
   handKey = 'current'
 ) {
+  const mobilePaint = useRef(createMobilePaintState());
   const opponentArt = useRef({ key: '', shifts: new WeakMap<HTMLElement, [number, number]>() });
   // A runout changes the board, pot and highlights, never the hand's slot.
   // Retain placements across effect revisions; only a new hand or viewport
@@ -104,10 +124,11 @@ export function useProtectedCardLayout(
           settled.current.podKey === geometry
             ? settled.current.podPoses
             : new WeakMap<HTMLElement, string>();
+        const retainedDealer = settled.current.podKey === geometry ? settled.current.dealer : null;
         settled.current = {
           key,
           podKey: geometry,
-          dealer: null,
+          dealer: retainedDealer,
           rows: new WeakMap(),
           pods: retainedPods,
           podPoses: retainedPoses,
@@ -122,12 +143,144 @@ export function useProtectedCardLayout(
     const topPods = () =>
       Array.from(
         scaler.querySelectorAll<HTMLElement>(
-          page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480
+          (page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480) ||
+            (page.getAttribute('data-seats') === '9' &&
+              matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
+                .matches)
             ? '.seat-wrapper--cap, .seat-wrapper--top'
             : '.seat-wrapper--top'
         )
       );
     const wagers = () => Array.from(scaler.querySelectorAll<HTMLElement>('.seat__bet-chips'));
+    // A new hand mounts its blind nodes before portraits decode and before
+    // deal animations release the joint allocator. Give them a valid initial
+    // rest point in that very commit, using their actual amount width.
+    const fixedNinePhone = () =>
+      page.getAttribute('data-seats') === '9' &&
+      matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
+    const classicGreenSkin = () =>
+      page.getAttribute('data-felt-theme') === 'classic_green' ||
+      Boolean(
+        scaler.querySelector<HTMLImageElement>('.table-art')?.src.includes('skin_classic_green')
+      );
+    const placeInitialWagers = () => {
+      if (!fixedNinePhone()) return;
+      const fresh = wagers().filter((bet) => !bet.style.getPropertyValue('--bet-offset-x'));
+      if (!fresh.length) return;
+      const canvas = scaler.getBoundingClientRect(),
+        felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+      if (!felt?.width || !canvas.width) return;
+      const scale = tableRenderScale(scaler);
+      const gold = classicGreenSkin();
+      const board = scaler.querySelector('.community-area')?.getBoundingClientRect();
+      for (const bet of fresh) {
+        const box = bet.getBoundingClientRect();
+        if (!box.width || !box.height) continue;
+        const next = firstWagerOnFelt(
+          box,
+          canvas,
+          felt,
+          Math.max(8 * scale, canvas.width * 0.025),
+          gold,
+          board
+        );
+        if (next === box) continue;
+        const css = getComputedStyle(bet);
+        for (const [axis, delta] of [
+          ['x', (next.left - box.left) / scale],
+          ['y', (next.top - box.top) / scale],
+        ] as const) {
+          for (const [name, step] of [
+            [`--bet-offset-${axis}`, delta],
+            [`--collect-d${axis}`, -delta],
+          ] as const)
+            bet.style.setProperty(
+              name,
+              `${(parseFloat(css.getPropertyValue(name)) || 0) + step}px`
+            );
+        }
+      }
+    };
+    // A pot pile can mount after everyone already has an assigned wager slot.
+    // Retarget the flight independently of allocation and card animations.
+    const syncCollectionTargets = () => {
+      if (!fixedNinePhone()) return;
+      const scale = tableRenderScale(scaler);
+      const pot = page.querySelector('.pot-display__pile--pot') ?? page.querySelector('.pot-area');
+      if (pot) {
+        const to = pot.getBoundingClientRect();
+        for (const bet of wagers()) {
+          const stack = bet.querySelector<HTMLElement>('.cp-stacks');
+          const rest = wagerRestPoint(bet);
+          if (!stack || !rest) continue;
+          const rect = bet.getBoundingClientRect();
+          const dx = (to.left + to.width / 2 - rect.left) / scale - rest.x;
+          const dy = (to.top + to.height / 2 - rect.top) / scale - rest.y + stack.offsetHeight / 2;
+          bet.style.setProperty('--collect-dx', `${dx}px`);
+          bet.style.setProperty('--collect-dy', `${dy}px`);
+          const saved = settled.current.wagers.get(bet);
+          if (saved)
+            saved.offsets = [
+              '--bet-offset-x',
+              '--bet-offset-y',
+              '--collect-dx',
+              '--collect-dy',
+            ].map((name) => bet.style.getPropertyValue(name));
+        }
+      }
+    };
+    // Wide two-line markers at the upper curve can fit in a very narrow
+    // nearest-player lane. Qualify the final displayed portraits (including
+    // their common enlargement), and the rendered gold contour.
+    const placeCapAllIn = () => {
+      if (!fixedNinePhone()) return;
+      const markers = scaler.querySelectorAll<HTMLElement>(
+        '.seat-wrapper--cap .seat__bet-chips:has(.seat__allin-puck)'
+      );
+      if (!markers.length) return;
+      const felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+      if (!felt?.width) return;
+      const canvas = scaler.getBoundingClientRect(),
+        scale = tableRenderScale(scaler);
+      const gold = classicGreenSkin();
+      const peers = Array.from(scaler.querySelectorAll('.seat__avatar-img'), (image) => {
+        const r = image.getBoundingClientRect();
+        return { seat: image.closest('.seat'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      for (const bet of markers) {
+        const owner = peers.find((p) => p.seat === bet.closest('.seat'));
+        if (!owner) continue;
+        const box = bet.getBoundingClientRect();
+        const blockers = Array.from(
+          scaler.querySelectorAll(
+            '.seat__avatar-img,.seat__info,.seat__hand-name,.seat__mucked-label,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.seat__bet-chips,.table-brand,.community-area,.pot-display,.pot-display__pile,.dealer-button'
+          )
+        )
+          .filter((e) => e !== bet)
+          .map((e) => e.getBoundingClientRect())
+          .filter((r) => r.width && r.height);
+        const best = capWagerSlot(
+          box,
+          canvas,
+          felt,
+          owner,
+          peers.filter((p) => p !== owner),
+          blockers,
+          scale,
+          gold
+        );
+        if (!best || best === box) continue;
+        const css = getComputedStyle(bet);
+        bet.style.setProperty(
+          '--bet-offset-x',
+          `${(parseFloat(css.getPropertyValue('--bet-offset-x')) || 0) + (best.left - box.left) / scale}px`
+        );
+        bet.style.setProperty(
+          '--bet-offset-y',
+          `${(parseFloat(css.getPropertyValue('--bet-offset-y')) || 0) + (best.top - box.top) / scale}px`
+        );
+      }
+    };
     const wagerKind = (bet: HTMLElement) =>
       bet.dataset.wagerKind ?? (bet.querySelector('.seat__allin-puck') ? 'all-in' : 'chips');
     const sameWager = (bet: HTMLElement, stored: { owner: string | null; kind: string }) =>
@@ -182,6 +335,17 @@ export function useProtectedCardLayout(
        dealer button (Dan 2026-10-22: a shown hand must be clearly displayed at
        its own player), which are then placed round them; elsewhere, after. */
     const placeRows = (withMarkers: boolean) => {
+      // Decode the fixed outline before committing any new showdown slot.
+      if (
+        window.innerWidth > 480 &&
+        window.innerWidth <= 768 &&
+        window.innerHeight > window.innerWidth &&
+        page.getAttribute('data-seats') === '9' &&
+        page.getAttribute('data-kill-enabled') === 'false' &&
+        [2, 3, 4, 5, 6].includes(Number(page.getAttribute('data-hole-card-count'))) &&
+        !artwork.ready()
+      )
+        return false;
       const rows = Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards--revealed')).sort(
         (a, b) =>
           // Edge chairs' shown hands are confined by the viewport. Reserve
@@ -207,16 +371,36 @@ export function useProtectedCardLayout(
       const protectedEntries = Array.from(
         page.querySelectorAll(
           (withMarkers ? '.seat__bet-chips, ' : '') +
-            '.community-area, .seat__avatar-img, .pot-area, .pot-display, .seat__info, .seat__strength, .seat__action, .seat__bounty, .seat__position-badge, .pot-display__pile, .action-panel, .bbj-widget, .bbj-mini-plate, .cch-column, .chat-collapsed'
+            '.community-area, .table-brand, .seat__avatar-img, .pot-area, .pot-display, .seat__info, .seat__strength, .seat__action, .seat__bounty, .seat__position-badge, .pot-display__pile, .action-panel, .bbj-widget, .bbj-mini-plate, .cch-column, .chat-collapsed'
         )
       ).flatMap((element) => {
         // Transparent canvas is not a foreign character. Retain the same
         // card/panel keep-outs while measuring actual decoded avatar paint.
         const box =
           element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
-            ? (artwork.paintedBox(element) ?? visibleBox(element))
+            ? (() => {
+                // The resting slot, never the zoomed mobile paint layer that
+                // may be on screen between passes; the enlarged footprint is
+                // added once, by its reservation below.
+                const baseline =
+                  artwork.paintedBox(element, true, restingAvatarBox(element, scale)) ??
+                  visibleBox(element);
+                return baseline
+                  ? mobileAvatarCardReservation(
+                      element,
+                      baseline,
+                      scaler,
+                      page as HTMLElement,
+                      mobilePaint.current
+                    )
+                  : null;
+              })()
             : visibleBox(element);
-        return box ? [{ element, box }] : [];
+        const reserved =
+          box && element instanceof HTMLElement && element.matches('.seat__info')
+            ? mobileFrameCardReservation(element, box, page as HTMLElement, mobilePaint.current)
+            : box;
+        return reserved ? [{ element, box: reserved }] : [];
       });
       // Newly shown cards respect chips that already landed on this street.
       if (!withMarkers)
@@ -467,7 +651,8 @@ export function useProtectedCardLayout(
       opponentArt.current,
       () => schedule()
     );
-    const place = (
+    let paintReady = false;
+    const placeBase = (
       remainingOwnerSpacingPasses = wagers().length,
       spacingOrigins?: Map<HTMLElement, { y: number; radius: number }>
     ) => {
@@ -548,15 +733,25 @@ export function useProtectedCardLayout(
         });
       const scale = tableRenderScale(scaler);
       const pageBox = page.getBoundingClientRect();
+      // Only the phone reference layout moves hidden fans onto the felt.
+      // Compact compatibility layouts keep their established outboard fans;
+      // do not add those outside cards to their already dense marker search.
+      const inwardFans =
+        window.innerWidth > 480 &&
+        window.innerWidth <= 640 &&
+        window.innerHeight > window.innerWidth &&
+        (page.getAttribute('data-seats') === '6' || page.getAttribute('data-seats') === '9');
+      const markerCards = inwardFans
+        ? '.seat__cards .seat__card'
+        : '.seat--hero .seat__cards .seat__card,.seat__cards--revealed .seat__card';
       // Production uses the desktop-width viewport on phones. Preserve the
       // legacy <=480px fallback for browsers that ignore that viewport.
       const sixMax = page.getAttribute('data-seats') === '6' && pageBox.width > 480;
       for (const pod of scaler.querySelectorAll('.seat-wrapper--cap, .seat-wrapper--top')) {
         const seat = pod.querySelector<HTMLElement>('.seat');
-        // Keep the character connected to its plate with the existing 3px
-        // minimum overlap. Reclaim only the extra overlap for the full PLO
-        // row, whose bottom reads this same shared token.
-        if (sixMax) seat?.style.setProperty('--sp-wrap-overlap', '3px');
+        // The portrait top seat raises its plate and fan together. Other
+        // six-max layouts keep the 3px overlap for the full PLO row.
+        if (sixMax) seat?.style.setProperty('--sp-wrap-overlap', 'var(--sp-six-cap-overlap, 3px)');
         else seat?.style.removeProperty('--sp-wrap-overlap');
       }
       topPods().forEach((pod) => {
@@ -710,7 +905,19 @@ export function useProtectedCardLayout(
             if (railLine(pod) === railLine(entry.pod) && top !== undefined)
               level = Math.min(level, top);
           }
-          entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
+          if (inwardFans && page.getAttribute('data-seats') === '9') {
+            // The cap stations are six percent down the chassis. Centre each
+            // nameplate on that rail even when the observer footer changes height.
+            const ring = scaler.getBoundingClientRect();
+            const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
+            if (plate)
+              entry.shift =
+                (ring.top +
+                  (ring.height * parseFloat(railLine(entry.pod))) / 100 -
+                  plate.height / 2 -
+                  entry.plateTop) /
+                scale;
+          } else entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
         }
         for (const { pod, shift } of placed) {
           pod.style.translate = `0px ${shift}px`;
@@ -720,6 +927,13 @@ export function useProtectedCardLayout(
           settled.current.pods.set(pod, String(shift));
         }
       }
+      // Avatar normalization and loaded fonts can change the crown rise in
+      // this frame. Complete SeatSlot's existing measurement synchronously,
+      // before allocating chairs, recording keep-outs or landing a wager.
+      // Otherwise its queued measurement can move a tag into a fixed neighbour.
+      scaler
+        .querySelectorAll('.seat')
+        .forEach((seat) => seat.dispatchEvent(new Event('seatcaptionmeasure')));
       if (artwork.space()) {
         // Metadata arrives after initial card placement. Rebase shown rows
         // once against the final opponent position, then retain that slot.
@@ -739,14 +953,8 @@ export function useProtectedCardLayout(
       // Observers normalize the same artwork too. Do not run their marker
       // search against temporary raw-image bounds before metadata rebases them.
       // A terminal metadata failure still releases the baseline placer.
+      placeInitialWagers();
       if (artwork.awaitingMetadata() || artwork.awaitingInitialLayout()) return;
-      // Avatar normalization and loaded fonts can change the crown rise in
-      // this frame. Complete SeatSlot's existing measurement synchronously,
-      // before recording caption keep-outs or promoting a wager to landed.
-      // Otherwise its queued measurement can move a tag into a fixed bet.
-      scaler
-        .querySelectorAll('.seat')
-        .forEach((seat) => seat.dispatchEvent(new Event('seatcaptionmeasure')));
       // This synchronous transaction changes only chair/caption translation.
       // Project each already normalized portrait from one permanent snapshot
       // instead of walking its CSS transform chain for every trial candidate.
@@ -806,16 +1014,45 @@ export function useProtectedCardLayout(
           element.matches('.seat__avatar-img,.seat__position-badge')
             ? measurePermanentBox(element, scale)
             : undefined;
-        const box =
+        const painted =
           element instanceof HTMLImageElement && element.matches('.seat__avatar-img')
             ? (artwork.paintedBox(element, true, rest) ?? rest!)
+            : null;
+        // Dan 2026-11-12: a phone portrait enlarged by the fixed mobile paint
+        // is a display like any other. Markers (chips, the puck) must rest
+        // clear of the enlarged portrait, not only of the original art, so
+        // the enlarged footprint is the obstacle and all of it counts as paint.
+        const enlarged =
+          painted && element instanceof HTMLImageElement
+            ? mobileAvatarCardReservation(
+                element,
+                painted,
+                scaler,
+                page as HTMLElement,
+                mobilePaint.current
+              )
+            : null;
+        const box =
+          painted && enlarged
+            ? enlarged === painted
+              ? painted
+              : new DOMRect(enlarged.left, enlarged.top, enlarged.width, enlarged.height)
             : element instanceof HTMLElement && element.matches('.seat__position-badge')
               ? measurePermanentBox(element, scale)
               : element.getBoundingClientRect();
         boxSources.set(box, element);
         if (element instanceof HTMLImageElement && element.matches('.seat__avatar-img')) {
           paintedSources.set(box, element);
-          paintedTests.set(box, artwork.preparePaintedTouch(element, true, rest));
+          paintedTests.set(
+            box,
+            enlarged && enlarged !== painted
+              ? (target: CardBox, gap = 0) =>
+                  target.left < box.left + box.width + gap &&
+                  target.left + target.width > box.left - gap &&
+                  target.top < box.top + box.height + gap &&
+                  target.top + target.height > box.top - gap
+              : artwork.preparePaintedTouch(element, true, rest)
+          );
         }
         return box.width > 0 && box.height > 0 ? box : null;
       };
@@ -853,6 +1090,7 @@ export function useProtectedCardLayout(
       let allocationUnresolved = false;
       const promoteWagers = () => {
         if (!artwork.ready() || artwork.canMove() || allocationUnresolved) return;
+        paintReady = true;
         for (const bet of wagers()) {
           const stored = settled.current.wagers.get(bet);
           if (stored && !stored.landed && sameWager(bet, stored)) {
@@ -881,6 +1119,60 @@ export function useProtectedCardLayout(
         // including already-cached rows and Hero's visible deal/peek motion.
         if (hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards'))))
           return;
+        if (inwardFans && page.getAttribute('data-seats') === '9') {
+          const header = page
+            .closest('.multi-table-page')
+            ?.querySelector('.multi-table-page__tab-bar-wrapper');
+          const top = Math.max(pageBox.top, header?.getBoundingClientRect().bottom ?? 0);
+          const protectedBoxes = Array.from(
+            page.querySelectorAll(
+              '.seat__info,.seat__cards .seat__card,.community-area,.pot-display,.bbj-widget,.bbj-mini-plate,.spectator-footer-bar,.action-panel,.chat-collapsed,.mtp-lobby-btn'
+            )
+          )
+            .map((node) => node.getBoundingClientRect())
+            .filter((r) => r.width && r.height);
+          for (const caption of scaler.querySelectorAll<HTMLElement>('.seat > .seat__action')) {
+            const seat = caption.closest('.seat')!;
+            const rect = caption.getBoundingClientRect();
+            const [dx, dy] = caption.style.translate.split(/\s+/).map(parseFloat);
+            const natural = {
+              left: rect.left - (dx || 0) * scale,
+              top: rect.top - (dy || 0) * scale,
+              width: rect.width,
+              height: rect.height,
+            };
+            const plate = seat.querySelector('.seat__info')?.getBoundingClientRect();
+            if (!plate || !rect.width) continue;
+            // A full-size reveal can occupy the entire lane above its plate.
+            // Include one caption width beside that same plate so the fixed
+            // header cannot force the tag back through the shown cards.
+            const shown = Array.from(
+              seat.querySelectorAll('.seat__cards--revealed .seat__card')
+            ).map((card) => card.getBoundingClientRect());
+            const captionReach = rect.width + 1;
+            const left = Math.max(
+              pageBox.left,
+              Math.min(plate.left, ...shown.map((card) => card.left)) - captionReach
+            );
+            const ceiling = Math.max(top, natural.top - rect.height);
+            const bounds = {
+              left,
+              top: ceiling,
+              width:
+                Math.min(
+                  pageBox.right,
+                  Math.max(plate.right, ...shown.map((card) => card.right)) + captionReach
+                ) - left,
+              height: plate.top - ceiling,
+            };
+            const next = placeProtectedCardRow(natural, protectedBoxes, bounds, 1);
+            if (next) {
+              caption.style.translate = `${(next.left - natural.left) / scale}px ${(next.top - natural.top) / scale}px`;
+              protectedBoxes.push(new DOMRect(next.left, next.top, next.width, next.height));
+            }
+          }
+        }
+        if (inwardFans) placeHiddenFans(scaler, page, pageBox, scale);
         const canvas = scaler.getBoundingClientRect();
         // The painted chassis is tapered on a portrait phone only (TablePage.css,
         // 480px); a wider portrait felt is drawn flat, and the marker grid must
@@ -941,7 +1233,15 @@ export function useProtectedCardLayout(
            the stack on the rail. Candidates now walk further in, and one is
            only eligible when the WHOLE wager box is on the painted felt with
            daylight to spare (see `wagerOnFelt`). */
+        const ninePhoneFelt = inwardFans && page.getAttribute('data-seats') === '9';
+        const board = ninePhoneFelt
+          ? scaler.querySelector('.community-area')?.getBoundingClientRect()
+          : undefined;
+        const classicGreen = ninePhoneFelt && classicGreenSkin();
         const feltMarginPx = Math.max(8, canvas.width * 0.025);
+        // Classic green's inner gold boundary is a rounded rectangle in the
+        // 605x1000 skin. Stretch its native corners with the actual artwork:
+        // the CSS surface itself is wider along both straight sides.
         const wagerOnFeltWithMargin = (box: CardBox, margin: number): boolean =>
           [
             [box.left, box.top],
@@ -961,10 +1261,12 @@ export function useProtectedCardLayout(
             const spineY = Math.min(Math.max(py, upper), lower);
             return Math.hypot(px - cx, py - spineY) <= radius + inset - margin;
           });
-        const wagerOnFelt = (box: CardBox) => wagerOnFeltWithMargin(box, feltMarginPx);
+        const wagerOnFelt = (box: CardBox) =>
+          wagerOnFeltWithMargin(box, feltMarginPx) &&
+          (!classicGreen || insideClassicGreen(box, canvas, 8 * scale));
         const obstacles = Array.from(
           page.querySelectorAll(
-            '.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, .seat__cards--hero .seat__card, .seat__cards--revealed .seat__card, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn'
+            `.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, ${markerCards}, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn`
           )
         )
           .map(visibleBox)
@@ -973,9 +1275,12 @@ export function useProtectedCardLayout(
         // last resort: on the smallest phones (320px) the players, the board and
         // the pot leave almost no bare felt, and printing over the felt's own
         // lettering beats stacking two players' chips in one spot.
-        const printing = Array.from(page.querySelectorAll('.table-brand'))
+        const brandBoxes = Array.from(page.querySelectorAll('.table-brand'))
           .map(visibleBox)
           .filter((box): box is CardBox => box !== null);
+        // The nine-seat reference canvas has room beside the masthead. Its
+        // edges must participate in the exact slot search and retained slots.
+        const printing = ninePhoneFelt ? [] : brandBoxes;
         const hardObstacles = obstacles.filter(
           (box) =>
             !printing.some(
@@ -1038,15 +1343,26 @@ export function useProtectedCardLayout(
           .filter((bet) => settled.current.wagers.get(bet)?.landed)
           .map(visibleBox)
           .filter((box): box is CardBox => box !== null);
-        const reservedDealer = placeDealerButton(
-          scaler,
-          canvas,
-          scale,
-          getPoints,
-          obstacles.concat(retainedWagerBoxes),
-          hardObstacles.concat(retainedWagerBoxes),
-          retainedWagerBoxes
-        );
+        // A landed wager must use the dealer's reserved lane as an obstacle,
+        // never displace the button after the player puts chips in.
+        const fixedDealer =
+          settled.current.dealer?.owner ===
+          `${dealerElement?.dataset.ownerX}:${dealerElement?.dataset.ownerY}`;
+        const reservedDealer =
+          fixedDealer && dealerElement
+            ? // Preserve the reserved point through wager changes. A portrait
+              // can settle after artwork decodes or a reveal changes its pod;
+              // recheck ownership without allowing chips to displace the point.
+              placeDealerButton(scaler, canvas, scale, getPoints, obstacles, hardObstacles)
+            : placeDealerButton(
+                scaler,
+                canvas,
+                scale,
+                getPoints,
+                obstacles.concat(retainedWagerBoxes),
+                hardObstacles.concat(retainedWagerBoxes),
+                retainedWagerBoxes
+              );
         if (reservedDealer) {
           obstacles.push(reservedDealer);
           hardObstacles.push(reservedDealer);
@@ -1090,10 +1406,11 @@ export function useProtectedCardLayout(
             });
         };
         const permanentKeepouts = [
+          ...(ninePhoneFelt ? brandBoxes : []),
           ...(reservedDealer ? [reservedDealer] : []),
           ...Array.from(
             page.querySelectorAll(
-              '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+              `.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,${markerCards},.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn`
             )
           )
             .map(visibleBox)
@@ -1114,7 +1431,7 @@ export function useProtectedCardLayout(
           const obstacles = trial
             ? Array.from(
                 page.querySelectorAll(
-                  '.community-area,.table-brand,.pot-display,.pot-display__pile,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                  `.community-area,.table-brand,.pot-display,.pot-display__pile,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,${markerCards},.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn`
                 )
               )
                 .map(visibleBox)
@@ -1152,6 +1469,9 @@ export function useProtectedCardLayout(
                 ?.querySelector<HTMLImageElement>('.seat__avatar-img');
               const owner = ownerImage ? measurePermanentBox(ownerImage, scale) : null;
               if (!box || !owner) return [];
+              const heroWager = !!bet.closest('.seat--hero') && seatedSixPhone(scaler);
+              const aboveHero = (candidate: CardBox) =>
+                !heroWager || candidate.top + candidate.height <= owner.top - 3 * scale;
               const stored = settled.current.wagers.get(bet);
               const ownerMotion =
                 1.5 * scale + 0.008 * Math.max(owner.width, owner.height) + 0.5 * scale;
@@ -1176,6 +1496,11 @@ export function useProtectedCardLayout(
                 !trial &&
                 stored &&
                 sameWager(bet, stored) &&
+                aboveHero(box) &&
+                (!ninePhoneFelt || wagerOnFelt(box)) &&
+                clearsWagerBoard(box, board) &&
+                (!ninePhoneFelt ||
+                  !brandBoxes.some((brand) => retainedWagerTouches(box!, brand))) &&
                 (stored.landed ||
                   (stillOwned &&
                     Math.abs(stored.width - box.width) < 0.5 &&
@@ -1191,6 +1516,10 @@ export function useProtectedCardLayout(
               // Reallocate invalid slots from the inherited rail anchor rather
               // than compounding the previous retained displacement.
               if (stored && !trial) {
+                if (stored.translation) {
+                  restoreTranslation(bet);
+                  ownedTranslations.delete(bet);
+                }
                 offsetNames.forEach((name) => bet.style.removeProperty(name));
                 settled.current.wagers.delete(bet);
                 box = visibleBox(bet);
@@ -1288,9 +1617,14 @@ export function useProtectedCardLayout(
               // A marker's entire disc stays on felt. On a crowded cap lane,
               // one pixel of edge clearance fits where the chips' eight-pixel
               // decoration margin does not; never fall back off felt or to a neighbour.
-              const eligible = hasAllInMarker
-                ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
-                : placed;
+              const onFelt = ninePhoneFelt
+                ? placed.filter(
+                    (candidate) => wagerOnFelt(candidate) && clearsWagerBoard(candidate, board)
+                  )
+                : hasAllInMarker
+                  ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
+                  : placed;
+              const eligible = heroWager ? onFelt.filter(aboveHero) : onFelt;
               const clearOfTable = eligible.filter(
                 (candidate) => !obstacles.some((obstacle) => markerTouches(candidate, obstacle))
               );
@@ -1380,6 +1714,39 @@ export function useProtectedCardLayout(
                       if (!obstacles.some((obstacle) => markerTouches(next, obstacle)))
                         clearOfTable.push(next);
                     }
+              }
+              // Top-cap contributions share the same narrow curved ownership
+              // lane as an all-in marker. The oval samples can miss that lane
+              // entirely when the neighbouring cap is empty and the amount is wide.
+              if (
+                ninePhoneFelt &&
+                !hasAllInMarker &&
+                bet.closest('.seat-wrapper--cap') &&
+                !clearOfTable.some(ownedBy)
+              ) {
+                const felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+                if (felt) {
+                  const cap = capWagerSlot(
+                    box,
+                    canvas,
+                    felt,
+                    desired,
+                    playerCentres.filter((c) => Math.hypot(c.x - desired.x, c.y - desired.y) >= 1),
+                    obstacles,
+                    scale,
+                    classicGreen
+                  );
+                  if (cap && !obstacles.some((obstacle) => markerTouches(cap, obstacle))) {
+                    const candidate = {
+                      left: cap.left,
+                      top: cap.top,
+                      width: cap.width,
+                      height: cap.height,
+                      depth: 0,
+                    };
+                    clearOfTable.push(candidate);
+                  }
+                }
               }
               const nearest = [...clearOfTable].sort(byCost);
               const owned = nearest.filter(ownedBy);
@@ -1597,7 +1964,7 @@ export function useProtectedCardLayout(
               });
               const keepouts = Array.from(
                 page.querySelectorAll(
-                  '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed'
+                  `.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,${markerCards},.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed`
                 )
               )
                 .map(visibleBox)
@@ -1904,7 +2271,7 @@ export function useProtectedCardLayout(
                 delete row.dataset.baseCardW;
               });
             }
-            place(remainingOwnerSpacingPasses - 1, origins);
+            placeBase(remainingOwnerSpacingPasses - 1, origins);
             return;
           }
         }
@@ -1996,7 +2363,7 @@ export function useProtectedCardLayout(
             if (!retained.length) return [];
             const fixed = Array.from(
               page.querySelectorAll(
-                '.community-area,.table-brand,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                `.community-area,.table-brand,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,${markerCards},.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn`
               )
             )
               .filter((element) => !compactNine || !element.matches('.table-brand'))
@@ -2186,7 +2553,7 @@ export function useProtectedCardLayout(
               >();
               const proposalObstacles = Array.from(
                 page.querySelectorAll(
-                  '.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                  `.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,${markerCards},.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn`
                 )
               )
                 .filter((element) => !compactNine || !element.matches('.table-brand'))
@@ -2298,7 +2665,7 @@ export function useProtectedCardLayout(
                     return false;
                   const keepouts = Array.from(
                     page.querySelectorAll(
-                      '.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                      `.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,${markerCards},.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn`
                     )
                   )
                     .filter((element) => !compactNine || !element.matches('.table-brand'))
@@ -2376,7 +2743,7 @@ export function useProtectedCardLayout(
                 delete row.dataset.baseCardW;
               });
             }
-            place(remainingOwnerSpacingPasses - 1, origins);
+            placeBase(remainingOwnerSpacingPasses - 1, origins);
             return;
           }
         }
@@ -2421,7 +2788,7 @@ export function useProtectedCardLayout(
           remainingOwnerSpacingPasses > 0 &&
           wagers().filter((bet) => settled.current.wagers.has(bet)).length > cachedBefore
         ) {
-          place(remainingOwnerSpacingPasses - 1, spacingOrigins);
+          placeBase(remainingOwnerSpacingPasses - 1, spacingOrigins);
           return;
         }
         // A terminal metadata/owner gap may leave the baseline slot unresolved.
@@ -2465,6 +2832,82 @@ export function useProtectedCardLayout(
       }
       promoteWagers();
     };
+    const place = (...args: Parameters<typeof placeBase>) => {
+      const keepPaint = mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement);
+      const restorePaint = retainMobilePaint(scaler);
+      resetMobileAvatarPaint(scaler, true);
+      paintReady = false;
+      placeBase(...args);
+      syncCollectionTargets();
+      if (
+        paintReady &&
+        !hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards')))
+      ) {
+        const painted = enlargeMobileAvatars(
+          scaler,
+          page as HTMLElement,
+          artwork.paintedRuns,
+          mobilePaint.current
+        );
+        // The fitter declined this layout (not a supported phone ring): no paint.
+        if (!painted) resetMobileAvatarPaint(scaler);
+        enlargeMobileFrames(scaler, page as HTMLElement, painted, mobilePaint.current);
+      } else if (
+        keepPaint ||
+        (mobilePaint.current.choices.size &&
+          mobileAvatarPaintSupported(scaler, page as HTMLElement))
+      ) {
+        // Dan 2026-11-12: a portrait's size never changes once set. A pass
+        // that cannot refit yet (art decoding, cards in flight, a geometry
+        // change such as an iOS toolbar collapsing) carries the displayed
+        // paint over; the next refit replaces it at the locked size. Only a
+        // layout that no longer takes the paint at all drops it.
+        restorePaint();
+        // A carried-over portrait changes nothing an observer watches, so ask
+        // for the refit pass ourselves: one frame at a time, bounded, until
+        // the table has refitted at its new geometry.
+        if (!keepPaint && carryOverPasses++ < 240) requestAnimationFrame(() => schedule());
+      } else {
+        // The layout no longer takes the paint: drop the rest of it too.
+        resetMobileAvatarPaint(scaler);
+        carryOverPasses = 0;
+      }
+      placeCapAllIn();
+      // The HUD tiles normalize their visible raster frames to the tile size.
+      // Move the row and its hit targets together to the hero's card baseline.
+      if (
+        page.matches("[data-seats='6'][data-hero='true']") &&
+        matchMedia(
+          '(max-device-width:480px) and (min-width:481px) and (max-width:640px) and (orientation:portrait)'
+        ).matches
+      ) {
+        const tools = page.querySelector<HTMLElement>('.hud-bl-row');
+        if (tools) {
+          const cards = scaler.querySelectorAll<HTMLElement>(
+            '.seat--hero .seat__cards--hero img.card-image__img'
+          );
+          const bottom = Math.max(
+            0,
+            ...Array.from(cards, (card) => card.getBoundingClientRect().bottom)
+          );
+          const previous =
+            parseFloat(tools.style.getPropertyValue('--sp-hero-hand-tool-shift')) || 0;
+          const ratio = tableRenderScale(scaler);
+          const shift = bottom
+            ? Math.min(0, previous + (bottom - tools.getBoundingClientRect().bottom) / ratio)
+            : 0;
+          const value = `${shift.toFixed(2)}px`;
+          if (tools.style.getPropertyValue('--sp-hero-hand-tool-shift') !== value)
+            tools.style.setProperty('--sp-hero-hand-tool-shift', value);
+        }
+      }
+      if (
+        mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement) &&
+        !mobilePaint.current.stale
+      )
+        carryOverPasses = 0;
+    };
+    let carryOverPasses = 0;
     let frame: number | null = null;
     const schedule = () => {
       if (frame !== null) return;
@@ -2506,6 +2949,9 @@ export function useProtectedCardLayout(
     // SeatSlot reveals on its own animation clock, after the parent's commit.
     // React's child insertion/class change is the layout event to consume.
     const mutations = new MutationObserver(() => {
+      placeInitialWagers();
+      placeCapAllIn();
+      syncCollectionTargets();
       observePots();
       schedule();
     });
@@ -2524,6 +2970,9 @@ export function useProtectedCardLayout(
       active = false;
       placeRef.current = null;
       artwork.stop();
+      page
+        .querySelector<HTMLElement>('.hud-bl-row')
+        ?.style.removeProperty('--sp-hero-hand-tool-shift');
       document.fonts?.removeEventListener('loadingdone', schedule);
       resetWagers();
       observer.disconnect();
@@ -2587,6 +3036,13 @@ function dealerSettledBox(scaler: HTMLElement, dealer: HTMLElement): CardBox | n
  * otherwise it takes the nearest felt point that satisfies both. It runs
  * after the wagers are placed, and keeps clear of them too.
  */
+function seatedSixPhone(scaler: HTMLElement) {
+  return (
+    !!scaler.closest(".table-page[data-seats='6'][data-hero='true']") &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  );
+}
+
 function placeDealerButton(
   scaler: HTMLElement,
   canvas: DOMRect,
@@ -2619,6 +3075,7 @@ function placeDealerButton(
       : null;
   };
   let owner: { x: number; y: number; motion: number } | null = null;
+  let heroLeft: number | undefined;
   const others: { x: number; y: number; motion: number }[] = [];
   for (const wrapper of Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))) {
     const centre = centreOf(wrapper.querySelector('.seat:not(.seat--empty) .seat__avatar-img'));
@@ -2626,8 +3083,11 @@ function placeDealerButton(
     const mine =
       Math.abs(parseFloat(wrapper.style.left) - ownerX) < 0.01 &&
       Math.abs(parseFloat(wrapper.style.top) - ownerY) < 0.01;
-    if (mine) owner = centre;
-    else others.push(centre);
+    if (mine) {
+      owner = centre;
+      const image = wrapper.querySelector<HTMLElement>('.seat--hero .seat__avatar-img');
+      if (image && seatedSixPhone(scaler)) heroLeft = restingAvatarBox(image, scale).left;
+    } else others.push(centre);
   }
   if (!owner) return rest;
   const own = owner;
@@ -2648,6 +3108,7 @@ function placeDealerButton(
         box.top + box.height > o.top - air
     );
   const owned = (x: number, y: number) => {
+    if (heroLeft !== undefined && x + size / 2 + air > heroLeft) return false;
     const mine = Math.hypot(x - own.x, y - own.y);
     return others.every((o) => mine + 1.5 + own.motion + o.motion < Math.hypot(x - o.x, y - o.y));
   };

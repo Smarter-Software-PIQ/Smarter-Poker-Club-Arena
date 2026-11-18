@@ -531,9 +531,47 @@ export function icmEquity(stacks: number[], payouts: number[], heroIdx: number):
 }
 
 /**
- * Bubble factor retained for legacy layers. Phase 7's final action arbiter no
- * longer uses this single global multiplier; it evaluates each action's stack
- * vectors directly.
+ * Hero's prize equity after a pot in which hero may have lost every chip
+ * (2026-11-15, hand 59441335). icmEquity prices a zero stack at 0, but a
+ * player who busts in this hand still finishes in a place: behind every stack
+ * that was live before it, at place `live` of the vector before the risk. In
+ * the money that place is paid (nine left with 13 paid, the bust is ninth and
+ * collects ninth's payout either way); outside the money it pays 0, which is
+ * what this returned before.
+ */
+let bustPaysPlace = false;
+/**
+ * OPTION icmBustPaysPlace (HorseDecideOpts, default OFF, Hand Analysis B3 2026-11-15): HorseLogic.decide runs each
+ * decision inside withIcmBustPaysPlace(opts.icmBustPaysPlace === true, ...), so the paid-bust valuation is switched
+ * live like every other Horse decision change. Off, a bust is valued at 0 exactly as before.
+ */
+export function withIcmBustPaysPlace<T>(on: boolean, fn: () => T): T {
+  const previous = bustPaysPlace;
+  bustPaysPlace = on;
+  try {
+    return fn();
+  } finally {
+    bustPaysPlace = previous;
+  }
+}
+export function icmBustPaysPlaceOn(): boolean {
+  return bustPaysPlace;
+}
+
+function equityAfterPot(before: number[], after: number[], payouts: number[], idx: number): number {
+  if (!bustPaysPlace || (after[idx] ?? 0) > 0) return icmEquity(after, payouts, idx);
+  const live = cleanStacks(before).filter((stack) => stack > 0).length;
+  return cleanPayouts(payouts)[live - 1] ?? 0;
+}
+
+/**
+ * Bubble factor retained for legacy layers (icmRisk's V16 premium, the
+ * payout-aware push/fold tables). Phase 7's final action arbiter no longer
+ * uses this single global multiplier; it evaluates each action's stack
+ * vectors directly. A bust is valued at the place hero finishes
+ * (equityAfterPot): until 2026-11-15 it was valued at 0, so in the money a
+ * whole-stack risk was charged every payout, including the one a bust
+ * collects anyway, and a final-table short stack read the cap of 5.
  */
 export function bubbleFactor(
   stacks: number[],
@@ -562,11 +600,160 @@ export function bubbleFactor(
   down[heroIdx] = hero - risk;
   down[opponentIdx] = stacks[opponentIdx] + risk;
   const gain = icmEquity(up, payouts, heroIdx) - now;
-  const loss = now - icmEquity(down, payouts, heroIdx);
+  const loss = now - equityAfterPot(stacks, down, payouts, heroIdx);
   if (gain <= 1e-12) return 5;
   return Math.max(1, Math.min(5, loss / gain));
 }
 
 export function premiumFromBubbleFactor(factor: number): number {
   return Math.max(0, Math.min(0.14, (factor - 1) * 0.04));
+}
+
+/**
+ * Pairwise Malmuth-Harville / Plackett-Luce bubble factor for `actorIdx` in a
+ * direct pot collision against `counterpartyIdx` risking `riskChips`. A bust
+ * is valued at the place the actor finishes (equityAfterPot), as in
+ * bubbleFactor.
+ * Pure & deterministic; consumes zero global PRNG draws.
+ */
+export function pairwiseBubbleFactor(
+  stacks: number[],
+  payouts: number[],
+  actorIdx: number,
+  counterpartyIdx: number,
+  riskChips: number
+): number {
+  if (
+    riskChips <= 0 ||
+    actorIdx < 0 ||
+    counterpartyIdx < 0 ||
+    actorIdx === counterpartyIdx ||
+    actorIdx >= stacks.length ||
+    counterpartyIdx >= stacks.length
+  ) {
+    return 1;
+  }
+  const actorStack = stacks[actorIdx] ?? 0;
+  const counterStack = stacks[counterpartyIdx] ?? 0;
+  if (actorStack <= 0 || counterStack <= 0 || payoutMass(payouts) <= 0) return 1;
+  const risk = Math.min(riskChips, actorStack, counterStack);
+  if (risk <= 0) return 1;
+
+  const now = icmEquity(stacks, payouts, actorIdx);
+  const up = stacks.slice();
+  up[actorIdx] = actorStack + risk;
+  up[counterpartyIdx] = counterStack - risk;
+  const down = stacks.slice();
+  down[actorIdx] = actorStack - risk;
+  down[counterpartyIdx] = counterStack + risk;
+  const gain = icmEquity(up, payouts, actorIdx) - now;
+  const loss = now - equityAfterPot(stacks, down, payouts, actorIdx);
+  if (gain <= 1e-12) return 5;
+  return Math.max(1, Math.min(5, loss / gain));
+}
+
+export interface AsymmetricCoverPressure {
+  heroBubbleFactor: number;
+  villainBubbleFactor: number;
+  /**
+   * Bounded [-1, +1] asymmetric ICM leverage:
+   *  > 0 when hero covers a medium/bubble/satellite-cliff villain (villain hurts more than hero);
+   *  < 0 when villain covers hero on a pay-jump or satellite survival cliff.
+   */
+  coverLeverage: number;
+}
+
+/**
+ * Computes asymmetric cover-stack vs covered-stack ICM / satellite pressure
+ * across all variants (NLH, PLO4, PLO5, PLO6).
+ */
+export function asymmetricCoverPressure(input: {
+  stacks: number[];
+  payouts: number[];
+  heroIdx: number;
+  villainIdx: number;
+  riskChips: number;
+  satellite?: boolean;
+  satelliteSeats?: number;
+}): AsymmetricCoverPressure {
+  const effectivePayouts =
+    input.satellite && (input.satelliteSeats ?? 0) > 0
+      ? Array.from({ length: Math.max(1, Math.floor(input.satelliteSeats!)) }, () => 1)
+      : input.payouts;
+  const heroBF = pairwiseBubbleFactor(
+    input.stacks,
+    effectivePayouts,
+    input.heroIdx,
+    input.villainIdx,
+    input.riskChips
+  );
+  const villainBF = pairwiseBubbleFactor(
+    input.stacks,
+    effectivePayouts,
+    input.villainIdx,
+    input.heroIdx,
+    input.riskChips
+  );
+  const rawDiff = villainBF - heroBF;
+  const coverLeverage = Math.max(-1, Math.min(1, rawDiff / 1.5));
+  return {
+    heroBubbleFactor: heroBF,
+    villainBubbleFactor: villainBF,
+    coverLeverage,
+  };
+}
+
+export interface BountyChipEquivalence {
+  collectibleCents: number;
+  bountyOverlayChips: number;
+  bountyOverlayBB: number;
+}
+
+/**
+ * Converts a target player's PKO / KO / active Mystery Bounty head into exact
+ * chip-equivalent pot overlay (`bountyOverlayChips` / `bountyOverlayBB`).
+ * At tournament start a standard 50% PKO head equals ~0.25-0.33 starting stacks;
+ * as the regular prize pool concentrates per remaining chip, chip value rises
+ * and bounty chip-equivalence scales proportionally.
+ */
+export function bountyChipEquivalence(input: {
+  headBountyCents: number;
+  isPko: boolean;
+  isMysteryBounty?: boolean;
+  mysteryBountyActive?: boolean;
+  mysteryMeanCents?: number;
+  buyInCents: number;
+  prizePoolCents?: number;
+  totalChipsInPlay?: number;
+  startingStackChips: number;
+  bigBlind: number;
+  heroCoversTarget: boolean;
+}): BountyChipEquivalence {
+  if (!input.heroCoversTarget) {
+    return { collectibleCents: 0, bountyOverlayChips: 0, bountyOverlayBB: 0 };
+  }
+  const collectibleCents = input.isMysteryBounty
+    ? input.mysteryBountyActive
+      ? Math.max(0, input.mysteryMeanCents ?? 0)
+      : 0
+    : input.isPko
+      ? Math.max(0, input.headBountyCents) * 0.5
+      : Math.max(0, input.headBountyCents);
+  if (collectibleCents <= 0 || input.startingStackChips <= 0) {
+    return { collectibleCents: 0, bountyOverlayChips: 0, bountyOverlayBB: 0 };
+  }
+  // Cents of regular prize pool backing each chip currently in play; falls back
+  // to starting-stack buy-in density when live pool totals are absent.
+  const regularBuyInCents = Math.max(1, input.buyInCents * (input.isPko ? 0.5 : 1));
+  const centsPerChip =
+    (input.prizePoolCents ?? 0) > 0 && (input.totalChipsInPlay ?? 0) > 0
+      ? input.prizePoolCents! / input.totalChipsInPlay!
+      : regularBuyInCents / input.startingStackChips;
+  const bountyOverlayChips = centsPerChip > 0 ? collectibleCents / centsPerChip : 0;
+  const bb = input.bigBlind > 0 ? input.bigBlind : 1;
+  return {
+    collectibleCents,
+    bountyOverlayChips,
+    bountyOverlayBB: bountyOverlayChips / bb,
+  };
 }

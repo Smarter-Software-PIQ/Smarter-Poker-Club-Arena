@@ -668,3 +668,71 @@ describe('previous hand footer actions', () => {
     expect(HDM_CSS).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
   });
 });
+
+it('waits for this table’s first read before telling a seated player there are no completed hands', () => {
+  const props = { isOpen: true, onClose: () => {}, hands: [], heroId: HERO, viewerSeated: true };
+  const view = render(<HandDetailModal {...props} loadState="idle" />);
+  expect(view.getByRole('dialog').getAttribute('aria-busy')).toBe('true');
+  expect(view.queryByText(/No Completed Hands For You/)).toBeNull();
+  view.rerender(<HandDetailModal {...props} loadState="ready" />);
+  expect(view.getByText(/No Completed Hands For You/)).toBeTruthy();
+  view.unmount();
+});
+
+describe('hand detail hole cards use the hero high-to-low order', () => {
+  it('sorts both tabs and reveal rows without changing the record or played-card highlights', () => {
+    const stored = serviceRow();
+    const hand = record({
+      table_name: 'PLO5 1/2 Madness',
+      game_type: 'PLO5',
+      community_cards: ['Jhearts', 'Jclubs', '4clubs', 'Aclubs', '4spades'],
+      players: stored.players.map((player) => ({
+        ...player,
+        hole_cards:
+          player.user_id === HERO
+            ? [
+                { rank: 'K', suit: 'diamonds' },
+                { rank: 'A', suit: 'spades' },
+                { rank: '2', suit: 'clubs' },
+                { rank: 'A', suit: 'hearts' },
+                { rank: '5', suit: 'clubs' },
+              ]
+            : [
+                { rank: 'Q', suit: 'clubs' },
+                { rank: 'J', suit: 'diamonds' },
+                { rank: '8', suit: 'hearts' },
+                { rank: 'J', suit: 'spades' },
+                { rank: 'K', suit: 'hearts' },
+              ],
+      })),
+    });
+    const original = JSON.stringify(hand.replay);
+    const { container } = render(
+      <HandDetailModal isOpen onClose={() => {}} hands={[hand]} heroId={HERO} />
+    );
+    const ranks = (selector: string) =>
+      Array.from(container.querySelectorAll(selector)).map((image) => image.getAttribute('alt'));
+    const expected = [
+      'Ace Of Spades',
+      'Ace Of Hearts',
+      'King Of Diamonds',
+      'Five Of Clubs',
+      'Two Of Clubs',
+    ];
+    expect(ranks('.hdm-yours .hdm-sd__cards img')).toEqual(expected);
+    expect(ranks('.hdm-showdown .hdm-sd:first-of-type .hdm-sd__cards img')).toEqual(expected);
+    expect(container.querySelector('.sc__subtitle')?.textContent).toContain('PLO5 1/2 Madness');
+    expect(container.querySelector('.sc__pill')?.textContent).toContain('#3046089');
+    fireEvent.click(screen.getByRole('tab', { name: 'Hand Detail' }));
+    expect(ranks('.hdv__sd:first-of-type .hdv__sd-holerow img')).toEqual(expected);
+    expect(ranks('.hdv__sd:first-of-type .hdv__sd-holerow .hdv-plays img')).toEqual([
+      'Ace Of Spades',
+      'Ace Of Hearts',
+    ]);
+    const reveal = Array.from(container.querySelectorAll('.hdv__row')).find((row) =>
+      row.querySelector('.hdv__act--show')
+    );
+    expect(Array.from(reveal!.querySelectorAll('img')).map((image) => image.alt)).toEqual(expected);
+    expect(JSON.stringify(hand.replay)).toBe(original);
+  });
+});

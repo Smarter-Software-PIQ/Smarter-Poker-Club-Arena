@@ -2,7 +2,25 @@ import {
   publicMemoryDomainIsValid,
   type HorsePublicMemoryDomain,
 } from './HorsePublicMemoryDomain.js';
-import { EXPLOIT_COUNTER_FIELDS, type ExploitCounters } from './HorseOpponentExploit.js';
+import {
+  EXPLOIT_COUNTER_FIELDS,
+  EXPLOIT_LONG_FIELDS,
+  hasLongParticipation,
+  type ExploitCounters,
+  type ExploitCountersWithLong,
+  type ExploitLongCounters,
+} from './HorseOpponentExploit.js';
+import { validShownRiverRecord, type ShownRiverRecord } from './HorseLongShownMemory.js';
+import {
+  copyStreetRead,
+  validStreetRead,
+  type StreetReadCounters,
+} from './HorseOmahaStreetRead.js';
+import {
+  copyReraiseResponse,
+  validReraiseResponse,
+  type ReraiseResponseCounters,
+} from './HorseOmahaReraiseResponse.js';
 
 export const MEMORY_VARIANTS = [
   'nlh',
@@ -20,6 +38,8 @@ export type MemoryMode = 'cash' | 'tournament';
 export type MemorySize = 'hu' | 'short' | 'full';
 export interface DurableOpponentProfile {
   public_memory_domain?: HorsePublicMemoryDomain;
+  /** Original accepted event supplying this version. Older rows have no binding. */
+  last_accepted_hand_id?: string | null;
   user_id: string;
   variant: MemoryVariant;
   mode: MemoryMode;
@@ -27,6 +47,131 @@ export interface DurableOpponentProfile {
   observed_hands: number;
   initialized: boolean;
   counters: ExploitCounters;
+  /**
+   * 2026-11-15 the long participation window of this exact row
+   * (horse_exact_profiles.long_counters: lHands, lVpip, lPfr at a 120-hand
+   * half-life, written by the accepted-hand learner from the hand after the
+   * column was installed). Null or absent: the row has learned no hand since
+   * then (or the column is not installed, or it is a legacy-table row), and the
+   * read keeps the 30-hand window alone. Kept apart from `counters` so the
+   * 27-key counters JSON every reader validates keeps its exact shape.
+   */
+  long_counters?: ExploitLongCounters | null;
+  /**
+   * 2026-11-15 the durable shown river evidence of this exact row (horse_exact_profiles.shown_river: river first bets
+   * by size bucket, shown and strong, aged with a half-life of 40 shown bets, written by the accepted-hand learner
+   * from the hand after its column was installed; HorseLongShownMemory). Null or absent: none on file. Never part of
+   * the row's validity: a stored copy keeps it only when it is well formed (copyShownRiver), and a decision reads it
+   * only behind styleLongShownMemory.
+   */
+  shown_river?: ShownRiverRecord | null;
+  /**
+   * 2026-11-17 the postflop read of this exact row kept by street and by flop texture
+   * (horse_exact_profiles.street_counters: bet when no bet yet, fold to a bet and fold to a raise by street; the
+   * continuation bet and the flop bet by flop texture; each cell its own hit and opportunity count, aged by its own
+   * opportunities with a half-life of 30, written by the accepted-hand learner from the hand after its column was
+   * installed; HorseOmahaStreetRead). Public actions and board cards only. Null or absent: none on file. Never part
+   * of the row's validity: a stored copy keeps it only when it is well formed (copyStreetCounters). No decision
+   * reads it yet.
+   */
+  street_counters?: StreetReadCounters | null;
+  /**
+   * 2026-11-18 how this exact row's player answers when his own re-raise is raised again
+   * (horse_exact_profiles.reraise_response: after his 3-bet is 4-bet and after his 4-bet or more is raised again,
+   * each node its opportunities and his folds, calls and raises, aged by its own opportunities with the preflop
+   * counters' half-life of 30, written by the accepted-hand learner from the hand after its column was installed;
+   * HorseOmahaReraiseResponse). Public actions only. Null or absent: none on file (also before the column exists).
+   * Never part of the row's validity: a stored copy keeps it only when it is well formed (copyReraiseResponseRecord).
+   * Read only by the default-OFF option omahaReraisedCallVsRaisePriced.
+   */
+  reraise_response?: ReraiseResponseCounters | null;
+}
+
+/** A copy of a profile's re-raise response record for a stored copy of the profile: absent stays absent, null stays
+ *  null, and a malformed record is dropped (absent) rather than failing the row. */
+export function copyReraiseResponseRecord(p: {
+  reraise_response?: unknown;
+}): Pick<DurableOpponentProfile, 'reraise_response'> {
+  if (p.reraise_response === undefined) return {};
+  if (p.reraise_response === null) return { reraise_response: null };
+  if (!validReraiseResponse(p.reraise_response)) return {};
+  return { reraise_response: copyReraiseResponse(p.reraise_response) };
+}
+
+/** A copy of a profile's street read for a stored copy of the profile: absent stays absent, null stays null, and a
+ *  malformed record is dropped (absent) rather than failing the row, so the row's counters keep their reader. */
+export function copyStreetCounters(p: {
+  street_counters?: unknown;
+}): Pick<DurableOpponentProfile, 'street_counters'> {
+  if (p.street_counters === undefined) return {};
+  if (p.street_counters === null) return { street_counters: null };
+  if (!validStreetRead(p.street_counters)) return {};
+  return { street_counters: copyStreetRead(p.street_counters) };
+}
+
+/** A copy of a profile's shown river record for a stored copy of the profile: absent stays absent, null stays null,
+ *  and a malformed record is dropped (absent) rather than failing the row, so the row's counters keep their reader. */
+export function copyShownRiver(p: {
+  shown_river?: unknown;
+}): Pick<DurableOpponentProfile, 'shown_river'> {
+  if (p.shown_river === undefined) return {};
+  if (p.shown_river === null) return { shown_river: null };
+  if (!validShownRiverRecord(p.shown_river)) return {};
+  const r = p.shown_river;
+  const buckets: ShownRiverRecord['buckets'] = {};
+  for (const [k, c] of Object.entries(r.buckets))
+    buckets[k as keyof ShownRiverRecord['buckets']] = {
+      bets: c!.bets,
+      shown: c!.shown,
+      strong: c!.strong,
+    };
+  return { shown_river: { since: r.since, buckets } };
+}
+
+/** A profile's long participation window, valid or not: exactly lHands, lVpip, lPfr, finite and non-negative,
+ *  VPIP and PFR never above hands. Null and absent are valid (no window yet). */
+export function validLongCounters(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    Object.keys(v).length === EXPLOIT_LONG_FIELDS.length &&
+    EXPLOIT_LONG_FIELDS.every(
+      (f) => typeof v[f] === 'number' && Number.isFinite(v[f]) && (v[f] as number) >= 0
+    ) &&
+    (v.lVpip as number) <= (v.lHands as number) + 1e-9 &&
+    (v.lPfr as number) <= (v.lHands as number) + 1e-9
+  );
+}
+
+/** The counters a read takes from one durable row: its 27 counters plus, when the row has one, its long
+ *  participation window (the database's long_counters column; an engine-built row may carry it inside its
+ *  counters instead, and the column wins when both are present). A fresh object; the profile is not touched. */
+export function durableProfileCounters(p: DurableOpponentProfile): ExploitCountersWithLong {
+  const out: ExploitCountersWithLong = { ...p.counters };
+  if (p.long_counters) for (const f of EXPLOIT_LONG_FIELDS) out[f] = p.long_counters[f];
+  return out;
+}
+
+/** A copy of a profile's long window for a stored copy of the profile: absent stays absent, null stays null. */
+export function copyLongCounters(
+  p: DurableOpponentProfile
+): Pick<DurableOpponentProfile, 'long_counters'> {
+  return p.long_counters === undefined
+    ? {}
+    : { long_counters: p.long_counters === null ? null : { ...p.long_counters } };
+}
+
+/** Blend the long window of an exact row and a donor at the donor's weight, as every other field blends. A
+ *  window neither row carries stays absent. */
+function blendLong(
+  out: ExploitCountersWithLong,
+  exact: ExploitCountersWithLong | undefined,
+  donor: ExploitCountersWithLong,
+  weight: number
+): void {
+  if (!hasLongParticipation(exact) && !hasLongParticipation(donor)) return;
+  for (const f of EXPLOIT_LONG_FIELDS) out[f] = (exact?.[f] ?? 0) + weight * (donor[f] ?? 0);
 }
 
 export function memoryVariant(value: unknown): MemoryVariant | null {
@@ -71,6 +216,13 @@ export function validOpponentProfile(value: unknown): value is DurableOpponentPr
   const p = value as DurableOpponentProfile;
   return (
     (p.public_memory_domain === undefined || publicMemoryDomainIsValid(p.public_memory_domain)) &&
+    (p.last_accepted_hand_id == null ||
+      (publicMemoryDomainIsValid(p.public_memory_domain) &&
+        typeof p.last_accepted_hand_id === 'string' &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
+          p.last_accepted_hand_id
+        ) &&
+        p.observed_hands > 0)) &&
     typeof p.user_id === 'string' &&
     /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(p.user_id) &&
     memoryVariant(p.variant) !== null &&
@@ -79,9 +231,19 @@ export function validOpponentProfile(value: unknown): value is DurableOpponentPr
     Number.isSafeInteger(p.observed_hands) &&
     p.observed_hands >= 0 &&
     typeof p.initialized === 'boolean' &&
+    validLongCounters(p.long_counters) &&
     !!p.counters &&
     typeof p.counters === 'object' &&
-    Object.keys(p.counters).length === EXPLOIT_COUNTER_FIELDS.length &&
+    // The 27 counters; an engine-built row (a counter row of this process) may also carry its long window inside
+    // them, all three fields or none. The database's counters JSON is always the 27 (long_counters is apart).
+    (Object.keys(p.counters).length === EXPLOIT_COUNTER_FIELDS.length ||
+      (Object.keys(p.counters).length ===
+        EXPLOIT_COUNTER_FIELDS.length + EXPLOIT_LONG_FIELDS.length &&
+        validLongCounters(
+          Object.fromEntries(
+            EXPLOIT_LONG_FIELDS.map((f) => [f, (p.counters as ExploitCountersWithLong)[f]])
+          )
+        ))) &&
     EXPLOIT_COUNTER_FIELDS.every((f) => Number.isFinite(p.counters[f]) && p.counters[f] >= 0) &&
     (
       [
@@ -150,6 +312,7 @@ export function blendOpponentMemory(
   const out = {} as ExploitCounters;
   for (const f of EXPLOIT_COUNTER_FIELDS)
     out[f] = (exact?.[f] ?? 0) + OPPONENT_MEMORY_DONOR_WEIGHT * (best[f] ?? 0);
+  blendLong(out, exact, best, OPPONENT_MEMORY_DONOR_WEIGHT);
   return out;
 }
 
@@ -214,6 +377,7 @@ export function blendOpponentMemoryWithExpiry(
   const out = {} as ExploitCounters;
   for (const f of EXPLOIT_COUNTER_FIELDS)
     out[f] = (exact?.[f] ?? 0) + effectiveWeight * (best[f] ?? 0);
+  blendLong(out, exact, best, effectiveWeight);
   return out;
 }
 

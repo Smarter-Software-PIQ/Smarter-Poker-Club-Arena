@@ -447,7 +447,7 @@ export class ClusterController {
     // at Main 1; that is the game's horse demand.
     const eligible = row?.main1_table_id ? this.deps.eligibleHorseCount(row.main1_table_id) : 0;
     this.wakesFiredCount++;
-    const { data, error } = await rpc('fn_cash_cluster_tick', {
+    const { data, error } = await uncappedTick(rpc, 'fn_cash_cluster_tick', {
       p_game_id: gameId,
       p_eligible_horses: eligible,
     });
@@ -565,7 +565,9 @@ export class ClusterController {
         }
 
         summary.rpcs++;
-        const { data, error } = await rpc('fn_cash_clusters_tick_all', { p_eligible: eligible });
+        const { data, error } = await uncappedTick(rpc, 'fn_cash_clusters_tick_all', {
+          p_eligible: eligible,
+        });
         if (!passIsCurrent()) return summary;
         // Every plan this current pass committed reaches its game's feeders
         // now, before the per-game follow-up below awaits anything
@@ -772,4 +774,35 @@ export class ClusterController {
   get isRunning(): boolean {
     return this.running;
   }
+}
+
+/**
+ * ZERO RESTRICTIONS ON THE GAMES THAT CAN BE OPEN (Dan 2026-11-11).
+ *
+ * This engine seats horses at every secondary table of an allowed game
+ * (HorseUnionCashPlan.horseCashPlanSecondTables), so it calls the uncapped
+ * tick (migration 20261112154904: `<name>_uncapped`, no table count, the OPEN
+ * rule alone decides). The originals are untouched and every older engine
+ * calls only them: that is the compatibility contract. Should this engine
+ * ever run against a database without the uncapped functions (PostgREST
+ * PGRST202), it falls back to the capped tick for that call rather than skip
+ * the tick.
+ */
+/** The two doors uncappedTick opens, one per line so the release gate's door
+ *  check (scripts/ci/check-engine-doors-exist.mjs, `...RpcName = '<name>'`)
+ *  requires both before this engine can ship. */
+export const uncappedTickRpcName = 'fn_cash_cluster_tick_uncapped';
+export const uncappedTickAllRpcName = 'fn_cash_clusters_tick_all_uncapped';
+
+export async function uncappedTick(
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>,
+  fn: 'fn_cash_cluster_tick' | 'fn_cash_clusters_tick_all',
+  args: Record<string, unknown>
+): Promise<{ data: any; error: any }> {
+  const res = await rpc(
+    fn === 'fn_cash_cluster_tick' ? uncappedTickRpcName : uncappedTickAllRpcName,
+    args
+  );
+  if (res?.error && (res.error as { code?: unknown }).code === 'PGRST202') return rpc(fn, args);
+  return res;
 }

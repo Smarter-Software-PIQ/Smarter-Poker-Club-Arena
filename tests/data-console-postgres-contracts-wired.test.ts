@@ -16,6 +16,17 @@ describe('Data console PostgreSQL contracts stay in the required CI verdict', ()
     .filter((name) => /^test-stats-.*-postgres\.sh$/.test(name))
     .sort();
 
+  it('executes complete member history qualification in the required native job', () => {
+    expect(wrapper.split('scripts/ci/test-member-transaction-history.py')).toHaveLength(2);
+    const native = read('scripts/ci/test-member-transaction-history.py');
+    expect(native).toContain('member_transaction_history_reads_every_recorded_wallet_movem.sql');
+    expect(native).toContain('tests/fixtures/member-transaction-history.sql');
+    expect(wrapper.split('scripts/ci/test-member-activity-breakdown.py')).toHaveLength(2);
+    expect(read('scripts/ci/test-member-activity-breakdown.py')).toContain(
+      'tests/fixtures/member-activity-breakdown.sql'
+    );
+  });
+
   it('runs every native Stats contract exactly once plus both financial admin contracts', () => {
     expect(statsScripts).toHaveLength(8);
     for (const script of statsScripts) {
@@ -95,6 +106,9 @@ describe('Data console PostgreSQL contracts stay in the required CI verdict', ()
     'scripts/dev/test-player-throwable-favorites-postgres.sh',
     'tests/fixtures/player-throwable-favorites/assertions.sql',
     'tests/fixtures/player-throwable-favorites/bootstrap.sql',
+    'scripts/dev/test-throw-targets-postgres.sh',
+    'tests/fixtures/throw-targets/assertions.sql',
+    'tests/fixtures/throw-targets/bootstrap.sql',
     'scripts/ci/test-club-data-union-mtt-postgres.py',
     'tests/fixtures/club-data-report-db/union-mtt-scenario.sql',
     'tests/fixtures/club-data-report-db/rake-v2-fixture.sql',

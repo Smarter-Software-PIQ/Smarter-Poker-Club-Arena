@@ -86,7 +86,7 @@ export const JOINT_SELECTION_RULE = Object.freeze({
   z: 2,
   minEdgeBigBlinds: 0.1,
   actsWhen: 'nothing_to_call',
-  singleBoardCashKeepsVariantBrain: Object.freeze(['nlh', 'plo4'] as const),
+  singleBoardCashKeepsVariantBrain: Object.freeze(['nlh', 'plo4', 'plo5', 'plo6'] as const),
 });
 
 /**

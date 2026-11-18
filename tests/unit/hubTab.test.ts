@@ -45,7 +45,7 @@ describe('hubTabTitle names the pill for where the frame is', () => {
     ['/hub', 'Hub'],
     ['/hub/', 'Hub'],
     ['/hub?x=1', 'Hub'],
-    ['/hub/social', 'Social'],
+    ['/hub/social-media', 'Social'],
     ['/hub/media', 'Media'],
     ['/hub/trivia', 'Trivia'],
     ['/hub/training', 'Training'],
@@ -197,13 +197,19 @@ describe('hub tabs survive a reload (URLs, never seats)', () => {
 
   it('round-trips the open pages in order', () => {
     const st = fakeStorage();
-    saveHubTabs(['/hub/social', '/hub/training?x=1'], st, 1000);
-    expect(readHubTabs(st, 2000)).toEqual(['/hub/social', '/hub/training?x=1']);
+    saveHubTabs(['/hub/social-media', '/hub/training?x=1'], st, 1000);
+    expect(readHubTabs(st, 2000)).toEqual(['/hub/social-media', '/hub/training?x=1']);
+  });
+
+  it('restores a Social tab saved by the old action bar at the feed URL', () => {
+    const st = fakeStorage();
+    st.setItem(HUB_TABS_KEY, JSON.stringify({ at: 1000, urls: ['/hub/social'] }));
+    expect(readHubTabs(st, 2000)).toEqual(['/hub/social-media']);
   });
 
   it('clears the record when the last hub tab closes', () => {
     const st = fakeStorage();
-    saveHubTabs(['/hub/social'], st, 1000);
+    saveHubTabs(['/hub/social-media'], st, 1000);
     saveHubTabs([], st, 1000);
     expect(st.raw.has(HUB_TABS_KEY)).toBe(false);
     expect(readHubTabs(st, 1000)).toEqual([]);
@@ -211,8 +217,8 @@ describe('hub tabs survive a reload (URLs, never seats)', () => {
 
   it('expires: what you were reading half an hour ago is clutter, not continuity', () => {
     const st = fakeStorage();
-    saveHubTabs(['/hub/social'], st, 1000);
-    expect(readHubTabs(st, 1000 + HUB_TABS_TTL_MS)).toEqual(['/hub/social']);
+    saveHubTabs(['/hub/social-media'], st, 1000);
+    expect(readHubTabs(st, 1000 + HUB_TABS_TTL_MS)).toEqual(['/hub/social-media']);
     expect(readHubTabs(st, 1000 + HUB_TABS_TTL_MS + 1)).toEqual([]);
     expect(st.raw.has(HUB_TABS_KEY)).toBe(false);
   });
@@ -223,10 +229,17 @@ describe('hub tabs survive a reload (URLs, never seats)', () => {
       HUB_TABS_KEY,
       JSON.stringify({
         at: 5000,
-        urls: ['/hub/social', '/hub/club-arena/clubs/x', 'https://evil.example/hub', 42, null, '/'],
+        urls: [
+          '/hub/social-media',
+          '/hub/club-arena/clubs/x',
+          'https://evil.example/hub',
+          42,
+          null,
+          '/',
+        ],
       })
     );
-    expect(readHubTabs(st, 5000)).toEqual(['/hub/social']);
+    expect(readHubTabs(st, 5000)).toEqual(['/hub/social-media']);
   });
 
   it('a malformed or missing record is an empty list, never a throw', () => {
@@ -234,7 +247,7 @@ describe('hub tabs survive a reload (URLs, never seats)', () => {
     expect(readHubTabs(st)).toEqual([]);
     st.setItem(HUB_TABS_KEY, '{not json');
     expect(readHubTabs(st)).toEqual([]);
-    st.setItem(HUB_TABS_KEY, JSON.stringify({ urls: ['/hub/social'] })); // no `at`
+    st.setItem(HUB_TABS_KEY, JSON.stringify({ urls: ['/hub/social-media'] })); // no `at`
     expect(readHubTabs(st, 1)).toEqual([]);
     expect(readHubTabs(null)).toEqual([]);
     expect(() => saveHubTabs(['/hub'], null)).not.toThrow();

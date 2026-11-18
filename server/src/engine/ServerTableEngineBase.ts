@@ -1,3 +1,10 @@
+import type { HorseVpipDecisionInputs } from './HorsePublicActionNode.js';
+import {
+  raiseEngineAlert,
+  resolveEngineAlert,
+  firingFingerprints,
+} from '../services/engineAlerts.js';
+import { orbitHandsOwed } from '../services/HorseBankTheWin.js';
 import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
 import { noteFire } from './BrainTelemetry.js';
@@ -147,7 +154,7 @@ import {
   processLeavePending,
 } from '../services/supabase.js';
 import {
-  collectNitEvictions,
+  collectNitEnforce,
   collectNitStatus,
   type NitSeatStatus,
 } from '../services/supabase/nitGame.js';
@@ -155,6 +162,8 @@ import { INSTANCE_ID } from '../services/tableLease.js';
 import {
   evaluateCashSessions,
   atomicCashoutVoluntary,
+  owedLeavePlaysOnInGame,
+  returnOwedLightningLeaveToPool,
   setCashSessionBlindOff,
 } from '../services/supabase/cashSessions.js';
 import {
@@ -177,6 +186,7 @@ import {
   seatArrivalGeneration,
 } from '../cluster/seatBoundarySignals.js';
 import { ChipContinuityTracker } from './ChipContinuity.js';
+import { SeatArrivalDisplay } from './SeatArrivalDisplay.js';
 import {
   claimMovedPresence,
   claimTournamentMovePresence,
@@ -274,6 +284,14 @@ export type EngineLeaseAuthority =
  * kill-rate evidence.
  */
 export type EngineRecoveryEventClass = 'automatic_recovery' | 'fault_injection';
+
+export type F06OwnReservedReconcileOutcome =
+  | 'resolved'
+  | 'none'
+  | 'foreign'
+  | 'evidence'
+  | 'skipped'
+  | 'unavailable';
 
 export const AUTOMATIC_RECOVERY_EVENT_CLASS: EngineRecoveryEventClass = 'automatic_recovery';
 export const FAULT_INJECTION_EVENT_CLASS: EngineRecoveryEventClass = 'fault_injection';
@@ -665,11 +683,30 @@ export abstract class ServerTableEngineBase {
    * at engine construction. null in unit tests / until PR-2 wiring lands.
    */
   protected hub: TableStateHub | null = null;
-  private readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+  protected readonly committedSeatSitOut = new Set<string>();
+  protected readonly seatSitOutVersions = new WeakMap<object, number>();
+  protected readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+    if (
+      !this.seatedPlayers.some(
+        (p) => p.user_id === event.player_id && p.occupancy_id === event.occupancy_id
+      )
+    )
+      return;
+    // The committed original transition, including forced sit-outs, owns the
+    // held departure. The anchor remains dealable; the hand host folds it.
+    if (event.blind_off === true) {
+      this.leaveHeldByClock.set(event.player_id, event.occupancy_id);
+      this.chipContinuity.markBlindOff(event.player_id, true);
+    } else if (!event.sitting_out) {
+      this.leaveHeldByClock.delete(event.player_id);
+      this.chipContinuity.markBlindOff(event.player_id, false);
+    }
     this.hub?.emitEvent(room, { ...event });
   });
   protected tableInfo: TableInfo | null = null;
   protected seatedPlayers: SeatedPlayer[] = [];
+  /** Taps and committed buy-ins shown before the hand boundary adopts them (SeatArrivalDisplay). */
+  protected readonly seatArrivals = new SeatArrivalDisplay();
   /** Tracks busted users who explicitly rejected a rebuy in the current hand (Dan 2026-08-24). */
   protected rejectedRebuys = new Set<string>();
   /**
@@ -820,6 +857,11 @@ export abstract class ServerTableEngineBase {
   // Bankroll Management: Track how many times a horse has re-bought at this table.
   // Max is 2 rebuys (meaning 3 total buy-ins). If they bust a 3rd time, they leave.
   protected horseRebuys: Map<string, number> = new Map();
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands this table has completed since a
+   * horse's last big pot. Absent means no big pot is being held for.
+   */
+  protected horseHandsSinceBigPot: Map<string, number> = new Map();
 
   // Bible V8 §4.2: Track players returning from sit-out who must post dead blind
   protected returningFromSitout: Set<string> = new Set();
@@ -916,21 +958,74 @@ export abstract class ServerTableEngineBase {
   // Snapshot reason for the current deal. The button anchors advance once a hand starts.
   protected waitingForButton = new Map<number, string>();
 
+  /**
+   * THE FREE HAND (Dan 2026-11-11, binding): "IN TOURNAMENTS A PLAYER DOESN'T
+   * 'WAIT FOR THE BB' - THEY ARE DEALT IN AS SOON AS THE BUTTON PASSES WITHOUT
+   * POSTING. IT'S A FREE HAND."
+   *
+   * TOURNAMENT: the hold is read from the upcoming hand's own prediction
+   * (predictBlindSeats, the ONE definition the deal uses). Exactly one seat
+   * can be held: the seat the button is about to land on. The predicted
+   * button is the nearest occupied seat (or last hand's small blind seat)
+   * counter-clockwise of the small blind seat, so no other occupied seat lies
+   * between it and the small blind, and an empty seat holds nobody. Every
+   * other arrival is dealt in on this hand with no entry post and no
+   * missed-blind charge (noteTournamentArrival drops any legacy debt). An
+   * arrival on a naturally due blind seat posts that blind and plays.
+   * Defect replaced (Nightly 20K, table 5, hand #58703578): the hold used the
+   * previous hand's anchors and held a seat the button had already passed.
+   *
+   * CASH is unchanged (owner, 2026-11-11: "Cash entry rules remain
+   * unchanged"): a moved cash seat is held from just after the previous
+   * button through the previous big blind, exactly as before. A cash new
+   * arrival is never button-eligible, so the cash button can skip such a seat;
+   * the previous-anchor arc keeps holding it, which the prediction would not.
+   */
   protected admitMovedSeats(candidates: SeatedPlayer[]): SeatedPlayer[] {
     this.waitingForButton.clear();
-    const button = this.lastButtonSeat;
-    const bb = this.lastBigBlindSeat;
-    if (candidates.length <= 2 || button <= 0 || bb <= 0 || button === bb) return candidates;
-    return candidates.filter((p) => {
+    if (candidates.length <= 2) return candidates;
+    let inHold: (seat: number) => boolean;
+    if (this.isTournamentTable()) {
+      const predicted = this.predictBlindSeats(candidates);
+      const button = predicted?.button ?? 0;
+      if (button <= 0 || button === predicted?.smallBlindSeat) return candidates;
+      inHold = (seat) => seat === button;
+    } else {
+      const button = this.lastButtonSeat;
+      const bb = this.lastBigBlindSeat;
+      if (button <= 0 || bb <= 0 || button === bb) return candidates;
+      inHold = (seat) => (button < bb ? seat > button && seat <= bb : seat > button || seat <= bb);
+    }
+    const admitted = candidates.filter((p) => {
       const seat = p.seat_number;
-      const between = button < bb ? seat > button && seat <= bb : seat > button || seat <= bb;
-      if (!between) return true;
+      if (!inHold(seat)) return true;
       const held = this.isTournamentTable()
         ? this.previousHandOccupants.size > 0 && this.previousHandOccupants.get(seat) !== p.user_id
         : p.entry_hold === 'moved';
       if (held) this.waitingForButton.set(seat, p.user_id);
       return !held;
     });
+    /* A HOLD THAT STOPS THE TABLE RELEASES ITSELF (#10741, 2026-11-13).
+       The moved-seat hold keeps a seat out until the button passes it, so it
+       never comes in behind blinds already posted. But the button only moves
+       when a hand is dealt. A cash table whose deal minimum is its full ring
+       (FLO8 .25/.50 Madness: six of six) cannot deal while any seat is held,
+       so the hold could never end: Main 1 sat with six funded, sat-in horses
+       from 00:55 to past 18:00 Chicago, Mains 3 and 4 from 04:21 and 04:11.
+       When the hold is the only reason the table falls below its minimum,
+       nothing is being dealt and there is no blind to come in behind: every
+       seat enters the same hand and that hand posts by position, exactly as
+       releaseWaitersNoBlindCanReach does for a big-blind wait. A tournament
+       table's minimum is two, which this hold never stops. */
+    if (
+      !this.isTournamentTable() &&
+      admitted.length < this.minPlayersToDeal() &&
+      candidates.length >= this.minPlayersToDeal()
+    ) {
+      this.waitingForButton.clear();
+      return candidates;
+    }
+    return admitted;
   }
 
   // Guard for the dealing loop's first iteration. On the first pass — whether
@@ -2700,6 +2795,100 @@ export abstract class ServerTableEngineBase {
     this.f06Allocator = allocate;
     this.f06AllocationCurrent = current;
   }
+  /**
+   * IN-LIFE ORPHANED RESERVED PERMIT RECONCILER (2026-11-12, issue #10564).
+   * Installed by the owning tournament manager beside the allocator. The
+   * dealing loop calls it only when this dealer holds NO live permit yet
+   * allocation is refused by an unresolved `reserved` row. The closure
+   * resolves ONLY a row of this dealer's own current generation, through the
+   * evidence-guarded cancel door (which refuses any started or committed
+   * hand); a row of any other generation is left to the abandoned-generation
+   * door. This is the dealing path deciding the exact row that blocks this
+   * exact table, synchronously and once per refusal - not a background sweep,
+   * watcher or repair loop.
+   */
+  private f06OwnReservedPermitReconciler: (() => Promise<F06OwnReservedReconcileOutcome>) | null =
+    null;
+  installF06OwnReservedPermitReconciler(
+    reconcile: () => Promise<F06OwnReservedReconcileOutcome>
+  ): void {
+    if (this.running || !this.f06Allocator || this.f06OwnReservedPermitReconciler)
+      throw new Error('f06_own_reserved_reconciler_install_invalid');
+    this.f06OwnReservedPermitReconciler = reconcile;
+  }
+  /**
+   * Resolve this dealer's own current-generation `reserved` permit that it no
+   * longer holds in memory, so a table orphaned across a break or balancing
+   * boundary recovers in place instead of stalling until a watchdog kill. A
+   * held permit is resolveUnstartedF06Permit's job; this covers only the
+   * unheld row, and never touches another generation's permit.
+   */
+  protected async reconcileOwnUnresolvedReservedPermit(): Promise<F06OwnReservedReconcileOutcome> {
+    if (!this.running || this.f06CurrentPermit || !this.f06OwnReservedPermitReconciler)
+      return 'skipped';
+    return this.f06OwnReservedPermitReconciler();
+  }
+  /**
+   * BOUND THE IN-PLACE RECOVERY (2026-11-12, issue #10564, independent review).
+   * One orphaned reserved row resolves in a single refusal and the next hand
+   * deals, resetting this counter. But a table that re-orphaned a row on EVERY
+   * pass would resolve repeatedly, and each fast recovery in the dealing loop
+   * resets both liveness signals - consecutiveErrors and markProgress (which
+   * also clears the zombie watchdog's trips). Left unbounded, such a table
+   * would deal nothing yet stay invisible to the >=10-error self-kill AND the
+   * external zombie watchdog, with no page. After a few consecutive resolves
+   * with no hand actually dealt between them, stop masking and let both
+   * watchdogs see the table, loudly. The counter resets the moment a real hand
+   * deals (resetOwnReservedResolveProgress), so normal one-shot recovery never
+   * trips it.
+   */
+  protected static readonly MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS = 3;
+  private f06OwnReservedResolvesSinceProgress = 0;
+  /**
+   * Record one own-reserved resolve and say whether to fast-recover in place.
+   * True for the first few; false once they repeat with no hand dealt between,
+   * so the caller falls through to the normal error count and backoff instead
+   * of resetting the self-kill and zombie-watchdog liveness signals forever.
+   */
+  protected noteOwnReservedResolveShouldFastRecover(): boolean {
+    this.f06OwnReservedResolvesSinceProgress++;
+    if (
+      this.f06OwnReservedResolvesSinceProgress ===
+      ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS + 1
+    ) {
+      void raiseEngineAlert({
+        alertname: 'F06OwnReservedRecoveryStalled',
+        severity: 'critical',
+        component: this.ownReservedRecoveryAlertComponent(),
+        summary: 'Tournament permit recovery repeated without a started hand',
+        description:
+          'Four Own-Generation Reserved Permits Resolved Without HAND_START; Normal Stall Safeguards Remain Active.',
+        labels: { table_id: this.tableId },
+        page: true,
+      });
+    }
+    return (
+      this.f06OwnReservedResolvesSinceProgress <=
+      ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS
+    );
+  }
+  /** A hand actually dealt: the in-place recovery made real forward progress. */
+  protected resetOwnReservedResolveProgress(): void {
+    const component = this.ownReservedRecoveryAlertComponent();
+    if (
+      this.f06OwnReservedResolvesSinceProgress >
+        ServerTableEngineBase.MAX_OWN_RESERVED_RESOLVES_WITHOUT_PROGRESS ||
+      firingFingerprints().includes(`F06OwnReservedRecoveryStalled:${component}`)
+    ) {
+      // A replacement generation can clear the same durable table alert, but
+      // teardown alone must not claim the stalled table recovered.
+      void resolveEngineAlert('F06OwnReservedRecoveryStalled', component, 'A hand started');
+    }
+    this.f06OwnReservedResolvesSinceProgress = 0;
+  }
+  private ownReservedRecoveryAlertComponent(): string {
+    return `tournament-permit:${this.tableId}`;
+  }
   protected hasF06Allocator(): boolean {
     return this.f06Allocator !== null;
   }
@@ -3379,7 +3568,25 @@ export abstract class ServerTableEngineBase {
   public hitRunHandsOwed(userId: string): number {
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
     if (!seat) return 0;
-    return this.chipContinuity?.leaveLock(userId, seat.stack)?.handsRemaining ?? 0;
+    return (
+      this.chipContinuity?.leaveLock(userId, this.handCountStack(userId, seat.stack))
+        ?.handsRemaining ?? 0
+    );
+  }
+
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands a horse still plays after a big
+   * pot before it may leave (one full orbit). The horse rotator asks before
+   * choosing who stands up, so no horse leaves the hand after a big pot.
+   */
+  public bigPotOrbitHandsOwed(userId: string): number {
+    // Durable first (the session row, 20261111174148); memory only before it exists.
+    const row = this.chipContinuity?.row(userId);
+    const since =
+      row && row.hands_since_big_pot !== undefined
+        ? (row.hands_since_big_pot ?? undefined)
+        : this.horseHandsSinceBigPot.get(userId);
+    return orbitHandsOwed(since, this.seatedPlayers.length);
   }
 
   /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */
@@ -3393,6 +3600,141 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * THE STACK THE HAND COUNT IS JUDGED AT (#10740, 2026-11-13). At a classic
+   * table the roster stack is this engine's own, settled by its own hands. At
+   * a Lightning anchor the chips are played in the pool and settled by the
+   * Lightning settlement, which this engine's roster never sees: its stack can
+   * read at or below the buy-in while the seat is well in profit, so "owes no
+   * hands" was answered from a number hours old. The database's answer (the
+   * mirror row, refreshed before every anchor decision) is the seat's real
+   * stack; a mirror that has never answered keeps the roster's.
+   */
+  protected handCountStack(userId: string, rosterStack: number): number {
+    if (!this.isLightningAnchorNow()) return rosterStack;
+    const fresh = Number(this.chipContinuity?.row(userId)?.stack);
+    return Number.isFinite(fresh) ? fresh : rosterStack;
+  }
+
+  /**
+   * A HELD LEAVE ALONE AT ITS TABLE PLAYS ON IN ITS GAME (2026-11-14).
+   *
+   * Measured 2026-11-14: when Lightning NLH .25/.50 switched off at 03:33
+   * Chicago, nine held leaves each sat alone at a former anchor and were
+   * released as "nobody else left to play the owed hands" with 0-3 of 10
+   * played, while the same game dealt 23 hands at another table in the next
+   * 45 minutes. Hit and run is owed to the game. Before the waiver, the
+   * database is asked (fn_owed_leave_plays_on_in_game) whether another table
+   * of the same game is dealing; if so the seat stops pending, stays sat out as
+   * its blind off and stays held, and the game's consolidation moves it to a table that
+   * deals, where the restored hold plays the count out. The database bounds the
+   * wait and records every answer. A null answer releases as before. The same
+   * question for a person and a horse.
+   */
+  protected async owedLeavePlaysOnInGame(
+    userId: string,
+    seated: { seat_number: number; occupancy_id?: string | null; leave_pending?: boolean | null }
+  ): Promise<boolean> {
+    // The caller asks only at a non-anchor table; a table outside any game has
+    // no other table to play on, so it is not asked at all.
+    if (!seated.occupancy_id || !this.tableInfo?.cluster_id) return false;
+    if (isMaintenanceFrozen()) return true;
+    const answer = await owedLeavePlaysOnInGame(
+      userId,
+      this.tableId,
+      seated.seat_number,
+      seated.occupancy_id
+    );
+    if (!answer?.keep) return false;
+    if (answer.returned) {
+      // Pending is withdrawn so the game may move the seat; the sit-out stays,
+      // because at a Classic table the blind off IS the sit-out (holdLockedLeave).
+      seated.leave_pending = false;
+      console.log(
+        `[ServerTableEngine:${this.tableId}] held leave for ${userId} plays on in its game - ${answer.handsRemaining} hands owed`
+      );
+    }
+    return true;
+  }
+
+  /** When this anchor last re-read every seat's hand count. */
+  private lastAnchorContinuityRefreshAt = 0;
+  static readonly ANCHOR_CONTINUITY_REFRESH_MS = 30_000;
+
+  /**
+   * AN ANCHOR'S HAND COUNT IS READ, NOT REMEMBERED (2026-11-13).
+   *
+   * At a Lightning anchor every hand is settled in the pool, so the mirror the
+   * horse rotator asks ("does this seat owe hands?", "does it owe a big-pot
+   * orbit?") was refreshed only when presence changed - which, for a horse
+   * that plays on, is never. A snapshot taken just after a big pot or a win
+   * kept answering "owes" for hours, so the off-duty exit kept deferring:
+   * 24 horse departures at Lightning anchors on 2026-11-13 against 891 at
+   * Classic tables, and a horse an hour past its daily cap with nothing owed
+   * in the database. Every seat is re-read here at most every 30 seconds, on
+   * the halted loop that already serves the anchor, through the same evaluate
+   * the leave door uses. Never during the freeze (evaluate stands down too).
+   */
+  protected async refreshAnchorContinuity(): Promise<void> {
+    if (!this.isLightningAnchorNow() || isMaintenanceFrozen()) return;
+    const now = Date.now();
+    if (
+      now - this.lastAnchorContinuityRefreshAt <
+      ServerTableEngineBase.ANCHOR_CONTINUITY_REFRESH_MS
+    )
+      return;
+    const seats = this.seatedPlayers ?? [];
+    if (seats.length === 0) return;
+    this.lastAnchorContinuityRefreshAt = now;
+    await this.chipContinuity.evaluate(
+      seats.map((p) => ({ user_id: p.user_id, active: this.isContinuityActive(p.user_id) }))
+    );
+  }
+
+  /**
+   * A QUEUED LIGHTNING LEAVE THAT OWES HANDS GOES BACK TO THE POOL (#10740).
+   *
+   * A leave asked while the player's chips were in a live Lightning hand is
+   * queued: the seat is sat out and pending (fn_request_seat_departure). If
+   * that hand left the seat in profit, the cash-out is refused for the hands
+   * owed and the leave is held - but the pool never deals a sat-out, pending
+   * seat, so the owed hands could never be played and the seat stayed for
+   * ever (fifteen seats, the oldest 60 hours, 2026-11-13). The owner's rule
+   * for a leave with hands owed is the blind off ("YOU WILL BE BLINDED OFF FOR
+   * THE REMAINING HANDS"), which a between-hands leave already gets. This
+   * turns the queued leave into exactly that: the database withdraws the
+   * voluntary request and returns the seat to the pool
+   * (fn_lightning_owed_leave_returns_to_pool, which asks the leave door
+   * itself whether hands are owed), and the seat is held as a blind off; the
+   * hand host folds or checks it, the settlement counts each hand, and the
+   * held leave cashes out through the voluntary door when nothing is owed.
+   * People and horses alike. A refusal or a failed call changes nothing and is
+   * asked again on the next pass.
+   */
+  protected async returnOwedLightningLeaveToPool(
+    userId: string,
+    seated: { seat_number: number; occupancy_id?: string | null; leave_pending?: boolean | null }
+  ): Promise<boolean> {
+    if (!this.isLightningAnchorNow() || seated.leave_pending !== true || !seated.occupancy_id)
+      return false;
+    if (isMaintenanceFrozen()) return false;
+    const answer = await returnOwedLightningLeaveToPool(
+      userId,
+      this.tableId,
+      seated.seat_number,
+      seated.occupancy_id
+    );
+    if (!answer?.returned) return false;
+    seated.leave_pending = false;
+    this.lightningDeferredLeaves?.delete(userId);
+    this.disconnectEngine.sitBack(this.tableId, userId);
+    console.log(
+      `[ServerTableEngine:${this.tableId}] queued Lightning leave for ${userId} owes ${answer.handsRemaining} hands - back in the pool as a blind off`
+    );
+    this.holdLockedLeave(userId, answer.handsRemaining);
+    return true;
+  }
+
+  /**
    * HIT AND RUN: a held leave whose seat still owes hands in profit. The seat
    * is sat out but BLINDED OFF: dealt in every hand, posting its blinds, and
    * auto-acted (checked or folded) on its turn by the sit-out beat - the
@@ -3402,7 +3744,10 @@ export abstract class ServerTableEngineBase {
   protected isBlindedOff(userId: string): boolean {
     if (this.isTournamentTable() || !this.leaveHeldByClock.has(userId)) return false;
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
-    return !!seat && this.chipContinuity.leaveLock(userId, seat.stack).locked;
+    return (
+      !!seat &&
+      this.chipContinuity.leaveLock(userId, this.handCountStack(userId, seat.stack)).locked
+    );
   }
 
   /**
@@ -3590,8 +3935,19 @@ export abstract class ServerTableEngineBase {
           }
         }
         if (!occupancyId) return;
+        const key = `${this.tableId}:${event.playerId}:${occupancyId}`;
+        if (this.committedSeatSitOut.has(key)) return;
+        const state = this.disconnectEngine.getState(this.tableId, event.playerId);
+        const version = state ? (this.seatSitOutVersions.get(state) ?? 0) + 1 : 0;
+        if (state) this.seatSitOutVersions.set(state, version);
         void this.seatSitOutPersistence
-          .persist(this.tableId, event.playerId, occupancyId, sittingOut)
+          .persist(this.tableId, event.playerId, occupancyId, sittingOut, () => {
+            const current = this.disconnectEngine.getState(this.tableId, event.playerId);
+            return (
+              (current === state && (!state || this.seatSitOutVersions.get(state) === version)) ||
+              current?.isSittingOut === sittingOut
+            );
+          })
           .catch((err) => {
             reportError(err, 'ServerTableEngine.' + this.tableId + '.sitout_persist_threw');
           });
@@ -5147,7 +5503,18 @@ export abstract class ServerTableEngineBase {
       if (this.leaveHeldByClock.has(p.user_id) || !p.occupancy_id) continue;
       const row = this.chipContinuity.row(p.user_id);
       if (!row?.blind_off) continue;
-      const lock = this.chipContinuity.leaveLock(p.user_id, p.stack);
+      if (this.isLightningAnchorNow()) {
+        // A restart after the final owed deal must still restore the original
+        // departure intention. The normal release door checks the count and
+        // live hand before cashing out; zero owed must not lose that intention.
+        this.leaveHeldByClock.set(p.user_id, p.occupancy_id);
+        this.chipContinuity.markBlindOff(p.user_id, true);
+        continue;
+      }
+      const lock = this.chipContinuity.leaveLock(
+        p.user_id,
+        this.handCountStack(p.user_id, p.stack)
+      );
       if (!lock.locked) continue;
       this.holdLockedLeave(p.user_id, lock.handsRemaining);
     }
@@ -5197,7 +5564,10 @@ export abstract class ServerTableEngineBase {
         // HIT AND RUN: still owing hands, the seat goes on being blinded off -
         // unless nobody else is left to deal with, which leaves nobody to have
         // hit and run from: the hold ends as a system exit.
-        const owes = this.chipContinuity.leaveLock(userId, seated.stack).locked;
+        const owes = this.chipContinuity.leaveLock(
+          userId,
+          this.handCountStack(userId, seated.stack)
+        ).locked;
         const nobodyElse =
           owes &&
           !this.isLightningAnchorNow() &&
@@ -5208,7 +5578,16 @@ export abstract class ServerTableEngineBase {
               !this.leaveHeldByClock.has(p.user_id) &&
               !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)
           );
-        if (owes && !nobodyElse) continue;
+        if (owes && !nobodyElse) {
+          // #10740: a queued Lightning leave still owing hands is sat out and
+          // pending, which the pool never deals; send it back as a blind off.
+          await this.returnOwedLightningLeaveToPool(userId, seated);
+          continue;
+        }
+        // THE GAME, NOT THE TABLE (2026-11-14): alone here is not alone in the
+        // game. While another table of the same game deals, the seat keeps its
+        // obligation and the game moves it there; the database bounds the wait.
+        if (nobodyElse && (await this.owedLeavePlaysOnInGame(userId, seated))) continue;
         if (nobodyElse) {
           await atomicCashout(userId, this.tableId, seated.seat_number, {
             occupancyId: seated.occupancy_id,
@@ -5272,6 +5651,7 @@ export abstract class ServerTableEngineBase {
           void this.broadcastCurrentState();
         } else if (res.code === 'LEAVE_LOCKED') {
           this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
+          await this.returnOwedLightningLeaveToPool(userId, seated);
         } else if (res.code === 'LIGHTNING_HAND_IN_PROGRESS') {
           // The seat is in a live Lightning hand: queue the departure behind
           // it (the pool stops matching a seat with a pending cash-out), and
@@ -5634,10 +6014,14 @@ export abstract class ServerTableEngineBase {
     if (pending === null) return [];
     diagnostic?.phase('move_hold_reconciliation');
     this.reconcileSeatMoveHolds(pending);
+    // 2026-11-15: a seat held back for its pot push asked to leave; it is
+    // cashed out by the next-hand sweep and is never moved to another table.
+    // Hold reconciliation above still sees the complete list.
+    const movable = pending.filter((m) => !this.heldDepartures?.has(m.source_occupancy_id));
     // Stage the hand-boundary state BEFORE the transaction. The destination
     // may observe its committed seat before this RPC response returns, including
     // idle moves that never passed through a hand-start announcement.
-    for (const m of pending) {
+    for (const m of movable) {
       if (!seatMoveIsDue(m, opts)) continue;
       this.depositPresenceForMove(m.player_id, m.to_table_id, m.move_id, m.source_occupancy_id);
     }
@@ -5650,7 +6034,7 @@ export abstract class ServerTableEngineBase {
           ...opts,
           shouldContinue: () => this.lifecycleCanMutate(),
         },
-        pending,
+        movable,
         diagnostic?.move_execution
       );
       diagnostic?.move_execution.finish();
@@ -6020,6 +6404,8 @@ export abstract class ServerTableEngineBase {
     if (!this.lifecycleCanMutate()) return [];
     const previous = new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
     this.seatedPlayers = nextRoster;
+    // The roster now speaks for every committed arrival (SeatArrivalDisplay).
+    this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one
        authority on who sits here, and the presence FSM is the engine's mirror
        of those seats. Two paths filled the mirror with players the roster no
@@ -6528,6 +6914,8 @@ export abstract class ServerTableEngineBase {
         this.isContinuityActive(uid)
       );
       if (!this.lifecycleCanMutate()) return;
+      await this.refreshAnchorContinuity();
+      if (!this.lifecycleCanMutate()) return;
       this.restoreBlindOffFromSessions();
       await this.releaseLeavesHeldByClock();
       if (!this.lifecycleCanMutate()) return;
@@ -6733,7 +7121,34 @@ export abstract class ServerTableEngineBase {
    * the roster. Keyed by occupancy, so a player who has already rejoined in a
    * new seat keeps the new seat's state.
    */
+  /**
+   * A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). Occupancies whose
+   * departure was held back for the end-of-hand presentation (see
+   * ServerTableEngineSeating.completionPresentation), keyed by occupancy id.
+   * While an occupancy is here no seat move may carry it to another table:
+   * its player asked to leave, and the next-hand sweep is about to cash it
+   * out. When that cash-out lands, releaseDepartedSeats announces it.
+   */
+  protected heldDepartures: Map<string, { userId: string; seatNumber: number }> = new Map();
+
   protected releaseDepartedSeats(departed: Array<{ userId: string; occupancyId: string }>): void {
+    let announced = false;
+    for (const { userId: leftUserId, occupancyId } of departed) {
+      const held = this.heldDepartures?.get(occupancyId);
+      if (held && held.userId === leftUserId) {
+        this.heldDepartures.delete(occupancyId);
+        this.hub?.emitEvent(this.tableId, {
+          type: 'seat_left',
+          table_id: this.tableId,
+          seat: held.seatNumber,
+          user_id: leftUserId,
+          mid_hand: false,
+          timestamp: Date.now(),
+        });
+        announced = true;
+      }
+    }
+    if (announced) this.wakeClusterGame('seat_left');
     for (const { userId: leftUserId, occupancyId } of departed) {
       const current = this.seatedPlayers.find((sp) => sp.user_id === leftUserId);
       if (current && current.occupancy_id !== occupancyId) continue;
@@ -7683,6 +8098,15 @@ export abstract class ServerTableEngineBase {
    */
   horsesSeated(): number {
     return this.seatedPlayers.filter((p) => p.is_horse === true && p.stack > 0).length;
+  }
+
+  /**
+   * The variant this table's horse decisions are counted under in the policy
+   * ledger (the same activeHandVariant() the turn path puts in gameState), for
+   * `poker_tables_with_horses_by_variant`. Identification only.
+   */
+  horseLedgerVariant(): string {
+    return this.activeHandVariant();
   }
 
   /**
@@ -10744,15 +11168,33 @@ export abstract class ServerTableEngineBase {
    * SMALL BLIND. THEY MUST WAIT FOR THE BUTTON TO PASS." Same roster and
    * rotation as getBBSeatIndex, stopping one seat earlier.
    */
-  protected getSBSeatIndex(): number {
+  protected getSBSeatIndex(admitting?: string): number {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
         (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
-          this.dealsInWhileSittingOut(p.user_id))
+          this.dealsInWhileSittingOut(p.user_id)) &&
+        this.dealtIfAdmitted(p.user_id, admitting)
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.smallBlindSeat ?? -1;
+  }
+
+  /**
+   * THE HAND AS IT WOULD BE DEALT WITH ONE WAITING PLAYER ADMITTED
+   * (2026-11-13, HU-EXE-002 review R1).
+   *
+   * The post-to-enter gate asks "would THIS player be the small blind or the
+   * button". Answered over every seated player it counted other waiting
+   * players, who will not be dealt: with two newcomers side by side the first
+   * "held" the predicted small blind seat, the second was let through, and at
+   * the deal the second one WAS the small blind while an incumbent posted a
+   * blind twice running. With `admitting` set, getSBSeatIndex and
+   * getButtonSeatIndex leave out every waiting player except that one, which
+   * is the roster the deal will use. Without it they keep the whole roster.
+   */
+  protected dealtIfAdmitted(userId: string, admitting?: string): boolean {
+    return admitting === undefined || userId === admitting || !this.waitingForBB.has(userId);
   }
 
   /**
@@ -10831,6 +11273,34 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * HEADS-UP BACK TO THREE OR MORE, CASH: THE BUTTON STAYS ONE HAND.
+   *
+   * Heads-up the button IS the small blind. Walking the button forward when a
+   * third player is dealt in puts it on the previous big blind, so that player
+   * skips the small blind and the previous button posts the small blind twice
+   * running (HU-EXE-002). Keeping the button where it was for the entry hand
+   * makes the previous big blind post the small blind and lets the big blind
+   * advance one seat, which is what the tournament rule (deadButton.ts) and
+   * the three-handed-to-heads-up rule (headsUpButton.ts) already do.
+   *
+   * True only when the last recorded hand was heads-up (its small blind seat
+   * was its button), both of those players are still button-eligible, and no
+   * other eligible player sits between them. Anything else keeps the walk.
+   */
+  protected cashButtonStaysAfterHeadsUp(roster: SeatedPlayer[], eligible: SeatedPlayer[]): boolean {
+    return (
+      !this.isTournamentTable() &&
+      roster.length >= 3 &&
+      this.lastButtonSeat > 0 &&
+      this.lastBigBlindSeat > 0 &&
+      this.lastSmallBlindSeat === this.lastButtonSeat &&
+      this.lastBigBlindSeat !== this.lastButtonSeat &&
+      eligible.some((p) => p.seat_number === this.lastButtonSeat) &&
+      this.getNextSeat(this.lastButtonSeat, eligible) === this.lastBigBlindSeat
+    );
+  }
+
+  /**
    * Where the button lands on the hand about to be dealt. ONE definition,
    * shared by the SB/BB predictors, the wait-for-BB gate and the rotation
    * itself — if these were separate walks they could disagree about who is on
@@ -10865,6 +11335,7 @@ export abstract class ServerTableEngineBase {
         const headsUp = headsUpButtonSeat(sortedSeats, this.lastBigBlindSeat);
         if (headsUp !== null && headsUp > 0) return headsUp;
       }
+      if (this.cashButtonStaysAfterHeadsUp(roster, eligible)) return this.lastButtonSeat;
       return this.getNextSeat(this.lastButtonSeat, eligible);
     }
     return sortedSeats[0];
@@ -10875,12 +11346,13 @@ export abstract class ServerTableEngineBase {
    * Used by the dealing loop to hold a brand-new joiner out for one hand when
    * they have sat down in the seat the button is about to reach.
    */
-  protected getButtonSeatIndex(): number {
+  protected getButtonSeatIndex(admitting?: string): number {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
         (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
-          this.dealsInWhileSittingOut(p.user_id))
+          this.dealsInWhileSittingOut(p.user_id)) &&
+        this.dealtIfAdmitted(p.user_id, admitting)
     );
     if (roster.length < 2) return -1;
     return this.predictButtonSeat(roster);
@@ -10899,6 +11371,40 @@ export abstract class ServerTableEngineBase {
           this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
+    if (!this.isTournamentTable() && this.waitingForBB.size > 0) {
+      const playing = roster.filter((p) => !this.waitingForBB.has(p.user_id));
+      if (playing.length >= 2) {
+        // A waiter cannot occupy the small blind. Counting every waiter in
+        // that position can skip alternating waiting seats forever, or admit
+        // an entrant who actually posts the SB once the other waiters are
+        // removed. Predict the real hand with only the first seat after the
+        // playing small blind eligible to enter at BB.
+        const button = this.predictButtonSeat(roster);
+        const smallBlind = this.getNextSeat(button, playing);
+        const nextBigBlind = this.getNextSeat(smallBlind, roster);
+        const entering = roster.find(
+          (p) => p.seat_number === nextBigBlind && this.waitingForBB.has(p.user_id)
+        );
+        if (entering) {
+          // A waiter is not released onto a hand where their arrival would put
+          // a player who is already admitted to post, and has never been dealt
+          // here, on the small blind or the button (2026-11-13, HU-EXE-002
+          // review R1). They wait one more hand; that player is a veteran then.
+          const withEntrant = this.predictBlindSeats([...playing, entering]);
+          const displaced =
+            withEntrant !== null &&
+            playing.some(
+              (p) =>
+                this.postingBBToEnter.has(p.user_id) &&
+                !this.dealtInUserIds.has(p.user_id) &&
+                (p.seat_number === withEntrant.smallBlindSeat ||
+                  p.seat_number === withEntrant.button)
+            );
+          if (!displaced) return withEntrant?.bigBlind ?? -1;
+        }
+        return this.predictBlindSeats(playing)?.bigBlind ?? -1;
+      }
+    }
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;
   }
 
@@ -11212,6 +11718,20 @@ export abstract class ServerTableEngineBase {
    * with no rule, and after a failed read - the brain then plays its prior.
    */
   protected nitStatus: Map<string, NitSeatStatus> = new Map();
+
+  /** The three floor inputs handed to a Horse decision for `userId`, and
+   * written beside that decision's stored public node. One source for both,
+   * so what a replay reads is what the decision read. `nitStatus` only
+   * changes at a hand boundary, so the values are the same when the action is
+   * accepted as when it was decided. */
+  protected horseVpipDecisionInputs(userId: string): HorseVpipDecisionInputs {
+    const row = this.nitStatus.get(userId);
+    return {
+      vpipFloor: this.vpipFloor(),
+      vpipWindowHands: row?.window ?? Number(this.tableInfo?.maintain_hands ?? 10),
+      ownVpip: row ? { hands: row.hands, vpip: row.vpip } : undefined,
+    };
+  }
 
   /** The floor a seat at this table must keep, percent; 0 when there is none. */
   protected vpipFloor(): number {
@@ -12144,7 +12664,7 @@ export abstract class ServerTableEngineBase {
         // 2026-09-04). Read beside the eviction, at the same boundary, from the
         // same rows, so what a horse steers by is what it is stood up on.
         this.nitStatus = await collectNitStatus(this.tableId);
-        const nits = await collectNitEvictions(this.tableId);
+        const nits = await collectNitEnforce(this.tableId);
         for (const n of nits) {
           console.log(
             `[ServerTableEngine:${this.tableId}] nit game: ${n.userId} is at ` +
@@ -12231,6 +12751,14 @@ export abstract class ServerTableEngineBase {
         // would be the hit and run itself. It is blinded off for the hands it
         // owes, exactly as a confirmed early leave is. The VPIP boot (Dan
         // 2026-09-05) stays a system exit with its two-hour bar.
+        // ENGINE REPLACEMENT (2026-11-11): an empty mirror is not an answer.
+        // Ask the database for this seat's session before a clock cashes out
+        // a seat that may still owe hands; if it cannot answer, the system
+        // exit proceeds as before, so no seat is ever held on a guess.
+        if (!nitEvict && !this.chipContinuity.row(userId)) {
+          await this.chipContinuity.evaluate([{ user_id: userId, active: false }]);
+          if (!this.lifecycleCanMutate()) return;
+        }
         if (!nitEvict && this.chipContinuity.leaveLock(userId, seated.stack).locked) {
           const hands = this.chipContinuity.leaveLock(userId, seated.stack).handsRemaining;
           console.log(

@@ -9,8 +9,41 @@ const FULL_SHA = /^[0-9a-f]{40}$/;
 /** "I could not tell" is a third outcome with its own code (CLAUDE.md 10.86 rule 1). */
 export const UNKNOWN_EXIT_CODE = 3;
 
-/** The publisher selects current main after its trigger; its artifact records that choice. */
-export function readPublisherArtifactSha(raw, runId, triggerSha, repositoryId) {
+/**
+ * A workflow_run listener matches its sender by NAME, and any workflow file on
+ * any branch can carry that name. The publisher is therefore identified by its
+ * exact file, the events that start it on protected main, and this repository.
+ */
+export const PUBLISHER_PATH = '.github/workflows/publish-club-arena.yml';
+export const PUBLISHER_EVENTS = Object.freeze(['push', 'repository_dispatch']);
+
+export function requirePublisherRun(run, runId, triggerSha, repositoryId) {
+  const exactId = (actual, expected) =>
+    Number.isSafeInteger(actual) && actual > 0 && String(actual) === String(expected);
+  if (
+    !run ||
+    typeof run !== 'object' ||
+    !exactId(run.id, runId) ||
+    run.path !== PUBLISHER_PATH ||
+    !PUBLISHER_EVENTS.includes(run.event) ||
+    run.head_sha !== triggerSha ||
+    run.head_branch !== 'main' ||
+    !exactId(run.repository?.id, repositoryId) ||
+    !exactId(run.head_repository?.id, repositoryId)
+  ) {
+    throw new Error(
+      `The source run is not ${PUBLISHER_PATH} started by ${PUBLISHER_EVENTS.join(' or ')} on this repository's main.`
+    );
+  }
+  return run;
+}
+
+/**
+ * The publisher selects current main after its trigger; its artifact records that choice.
+ * `run`, when the caller holds the source run, must be the exact publisher file and event.
+ */
+export function readPublisherArtifactSha(raw, runId, triggerSha, repositoryId, run) {
+  if (run !== undefined) requirePublisherRun(run, runId, triggerSha, repositoryId);
   if (
     !/^[1-9][0-9]*$/.test(runId) ||
     !FULL_SHA.test(triggerSha) ||
@@ -295,6 +328,17 @@ async function readStdin() {
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
+  if (command === 'publisher-run' && args.length === 3) {
+    let run;
+    try {
+      run = JSON.parse(await readStdin());
+    } catch {
+      throw new Error('The source run response is not valid JSON.');
+    }
+    requirePublisherRun(run, ...args);
+    process.stdout.write(`${run.path} ${run.event}\n`);
+    return;
+  }
   if (command === 'publisher-artifact' && args.length === 3) {
     process.stdout.write(`${readPublisherArtifactSha(await readStdin(), ...args)}\n`);
     return;
@@ -343,7 +387,7 @@ async function main() {
     return;
   }
   throw new Error(
-    'Usage: production-e2e-provenance.mjs bracket <expected-sha> <before-file> <after-file> | publisher-artifact <run-id> <trigger-sha> <repository-id> | build-info | unchanged <expected-sha> | release-window <expected-sha> | engine-live | engine-ready <expected-sha> | lineage <live-sha> <checkout-sha>'
+    'Usage: production-e2e-provenance.mjs bracket <expected-sha> <before-file> <after-file> | publisher-run <run-id> <trigger-sha> <repository-id> | publisher-artifact <run-id> <trigger-sha> <repository-id> | build-info | unchanged <expected-sha> | release-window <expected-sha> | engine-live | engine-ready <expected-sha> | lineage <live-sha> <checkout-sha>'
   );
 }
 

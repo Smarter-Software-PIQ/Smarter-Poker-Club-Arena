@@ -526,3 +526,22 @@
     margin-inline: auto;
   }
 }
+
+/* The latest results sit inside the approved machined steel face. */
+.crashHistory {
+  width: 100%;
+  box-sizing: border-box;
+  border: 10px solid transparent;
+  border-image: url('/assets/club-buttons/lobby/shark-panel-v1/button-secondary.png') 26 fill / 10px
+    stretch;
+  padding: 6px 8px;
+  min-width: 0;
+}
+.crashHistory .strip {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  gap: clamp(8px, 1.1vw, 16px);
+  align-items: center;
+  min-height: 24px;
+}

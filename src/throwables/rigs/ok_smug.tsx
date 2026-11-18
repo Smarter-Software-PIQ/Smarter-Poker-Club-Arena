@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -24,7 +25,10 @@ export const spec: ThrowableSpec = {
     { at: 2600, marker: 'hand-pulse' },
     { at: 4000, marker: 'cut' },
   ],
-  audio: [{ at: 600, sample: 'chime_shimmer', gain: 0.22 }],
+  audio: [
+    { at: 900, sample: 'finger_snap', gain: 0.95 },
+    { at: 1500, sample: 'chime_shimmer', gain: 0.32 },
+  ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
 const RECTS: [number, number, number, number][] = [
@@ -71,7 +75,18 @@ function Payload(_props: RigProps) {
       <g className="thr-ok_smug__pop">
         <Tile tile={0} x={-65} y={-65} width={130} height={130} />
         <g className="thr-ok_smug__wink">
-          <Tile tile={1} x={-65} y={-65} width={130} height={130} />
+          <PerformancePose
+            src="ok_smug-acting"
+            row={0}
+            rows={1}
+            x={-65.0}
+            y={-65.0}
+            width={130.0}
+            height={130.0}
+            duration={420}
+            delay={1120}
+            repeats={1}
+          />
         </g>
         <g className="thr-ok_smug__hand-rise">
           <g className="thr-ok_smug__pulse">

@@ -413,14 +413,14 @@ jobs:
   production:
     needs: [admit, client-tests, build-and-store, publication-floor]
     if: >-
-      always() &&
+      (always() &&
       needs.admit.result == 'success' &&
       needs.publication-floor.result == 'success' &&
       needs.admit.outputs.published != 'true' &&
       inputs.component == 'client' &&
       (needs.client-tests.result == 'success' ||
        (needs.client-tests.result == 'skipped' && inputs.tests_proven == 'true')) &&
-      (inputs.publish == 'false' || needs.build-and-store.result == 'success')
+      (inputs.publish == 'false' || needs.build-and-store.result == 'success')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     concurrency:
       group: publish-club-arena-production
       cancel-in-progress: false

@@ -290,7 +290,7 @@ function Location() {
     <>
       <output data-testid="location">{useLocation().pathname}</output>
       <button onClick={() => navigate('/table/A')}>Enter Assigned Tournament</button>
-      {['A', 'B', 'C', 'D'].map((id) => (
+      {['A', 'B', 'C', 'D', 'E'].map((id) => (
         <button key={id} onClick={() => navigate(`/table/${id}`)}>
           View Cash {id}
         </button>
@@ -354,6 +354,23 @@ afterEach(() => {
 });
 
 describe('Rendered MultiTable authoritative seat rebuild', () => {
+  it('opens a fourth game from the lobby without counting its page as a game', async () => {
+    await seatA();
+    for (const id of ['B', 'C']) fireEvent.click(screen.getByText(`View Cash ${id}`));
+    await act(async () => masterBus.emit('OPEN_LOBBY_TAB', {}));
+    const lobby = screen.getByTestId('tabs').getAttribute('data-active')!;
+    expect(lobby).toContain('lobby:');
+    fireEvent.click(screen.getByText('View Cash D'));
+    expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('D');
+    for (const id of ['A', 'B', 'C', 'D']) expect(screen.getByTestId(`felt-${id}`)).toBeTruthy();
+    expect(screen.getByTestId('tab-' + lobby)).toBeTruthy();
+    expect(state.toast.warning).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('View Cash E'));
+    expect(screen.queryByTestId('felt-E')).toBeNull();
+    expect(screen.getByTestId('tabs').getAttribute('data-active')).toBe('D');
+    expect(state.toast.warning).toHaveBeenCalledOnce();
+  });
+
   it('enters the assigned game when its URL is already borrowed by the lobby', async () => {
     await seatA();
     await act(async () => masterBus.emit('OPEN_LOBBY_TAB', {}));

@@ -2,8 +2,28 @@
 export const HORSE_CASH_POLICY_START_MS = Date.parse('2026-11-02T06:00:00Z');
 export const PREVIOUS_CASH_ACTIVITY_SCALE = 0.5;
 export const REDUCED_CASH_ACTIVITY_SCALE = PREVIOUS_CASH_ACTIVITY_SCALE * 0.4;
+/** Owner November 11 relaunch: the weekly rake throttle is lifted and the cash
+ * floor runs at TRIPLE the reduced rate, effective 6 PM Chicago November 11
+ * ("RELAUNCH ALL THE 1/2 PLO AND HOLDEM CASH GAMES ... TRIPLE THE CURRENT
+ * RATE"). The ladder of stages is kept so dated tests and replays stay true. */
+export const RELAUNCH_CASH_POLICY_START_MS = Date.parse('2026-11-12T00:00:00Z');
+export const RELAUNCHED_CASH_ACTIVITY_SCALE = REDUCED_CASH_ACTIVITY_SCALE * 3;
+/** Owner direction November 14 (19:07, 19:10 and 20:42 Chicago): short deck,
+ * pineapple and PLO8 cash are approved variants to be made operational through
+ * the normal supply paths, respecting schedules, eligibility and bankroll
+ * rules. The owner delegated every decision to the Phase 1 overwatch (19:22
+ * Chicago, "THERE ARE NO DECISIONS FOR ME"), which decided that this lifts the
+ * November 1 cash exclusion for these three variants only, dated at the first
+ * direction (19:07 Chicago). The date is in the past on purpose: it takes
+ * effect when the engine release carrying it serves, and stays dated so
+ * replays of November 2-14 stay true. Every other November 1 rule stands: the
+ * reduced cash curve, the midnight cut and the stake ceiling below, which
+ * keeps these variants at .50/1 or lower. Mirrored by
+ * fn_horse_cash_game_allowed (20261115032204). */
+export const CASH_VARIANTS_RESTORED_START_MS = Date.parse('2026-11-15T01:07:00Z');
 
 export function cashActivityScaleAt(nowMs: number): number {
+  if (nowMs >= RELAUNCH_CASH_POLICY_START_MS) return RELAUNCHED_CASH_ACTIVITY_SCALE;
   return nowMs >= HORSE_CASH_POLICY_START_MS
     ? REDUCED_CASH_ACTIVITY_SCALE
     : PREVIOUS_CASH_ACTIVITY_SCALE;
@@ -23,7 +43,10 @@ export function horseCashGameAllowed(
   const variant = String(table.game_variant ?? '')
     .trim()
     .toLowerCase();
-  if (variant.includes('pineapple') || ['short_deck', 'shortdeck', '6+', 'plo8'].includes(variant))
+  if (
+    nowMs < CASH_VARIANTS_RESTORED_START_MS &&
+    (variant.includes('pineapple') || ['short_deck', 'shortdeck', '6+', 'plo8'].includes(variant))
+  )
     return false;
   const sb = Number(table.small_blind);
   const bb = Number(table.big_blind);

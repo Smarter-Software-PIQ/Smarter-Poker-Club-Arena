@@ -86,6 +86,12 @@ const BRAIN_FILES = [
   // place that knows the hand number and the seat order.
   'engine/ServerTableEngineDealing.ts',
   'engine/HorsePhase14Acceptance.ts',
+  // STYLE READ shadow (2026-11-13): the shadow list is read where every consumer asks for its arm.
+  'engine/HorseStyleShadow.ts',
+  // The Omaha priced rules (2026-11-17, default off): the rule sites read their own options and
+  // fire their own receipts where they answer.
+  'engine/HorseOmahaPricedWiring.ts',
+  'engine/HorseOmahaPricedSites.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit
@@ -98,6 +104,34 @@ const RECEIPT_ONLY_FILES = [
   'services/HorseExploitHydrator.ts',
   'lightning/LightningHandHost.ts',
   'lightning/LightningHorse.ts',
+  // Upgrade evidence (2026-11-12): side-game answers and fast-window reads
+  // are counted where they are sent and computed.
+  'engine/ServerTableEngineRunout.ts',
+  'engine/HorseOpponentExploit.ts',
+  // Fix evidence (2026-11-12): a settled hand counts whether its row was
+  // built with a memory domain, where the row is built.
+  'engine/ServerTableEngineSettlement.ts',
+  // STYLE READ live switch (2026-11-13): state changes are counted where the configuration is read.
+  'engine/HorseStyleSwitch.ts',
+  // Every decision upgrade has a live switch (2026-11-14): the same, for the registered non-style options.
+  'engine/HorseOptionSwitch.ts',
+  // Per-Horse upgrade evidence (2026-11-14): the aggregate's cap and identity counters, and the
+  // publisher's outcomes (its injected noteFeature is BrainTelemetry.noteFire in production).
+  'engine/HorseUpgradeEvidence.ts',
+  'services/HorseUpgradeEvidenceFlush.ts',
+  // Lightning participation (2026-11-15, default off): the predicate and its cells count their own
+  // opportunity, change and refusal receipts where they answer.
+  'engine/HorseLightningParticipation.ts',
+  // Lightning cheap entry (2026-11-15, default off): same, for its own receipts.
+  'engine/HorseLightningCheapEntry.ts',
+  // Omaha flop facing-bet EV (2026-11-17, default off): the rule fires its verdict and change
+  // receipts where it answers (HorseLogic only hands it the flop decision).
+  'engine/HorseOmahaFlopFacingBetEvRule.ts',
+  // Omaha priced preflop re-raise defence (2026-11-17, default off): the rule fires its verdict and
+  // change receipts where it answers (HorseLogic only hands it the preflop decision).
+  'engine/HorseOmahaPreflopReraiseDefenceRule.ts',
+  // Omaha read by street (2026-11-18, default off): the per-decision installer counts its one receipt.
+  'engine/HorseOmahaReadByStreetRule.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
@@ -141,6 +175,12 @@ describe('HorseDataLedger - the contract holds against the source', () => {
         expect(e.ratioOf, `${k} has minRatio without ratioOf`).toBeTruthy();
         expect(e.minRatio).toBeGreaterThan(0);
         expect(e.minRatio).toBeLessThanOrEqual(1);
+        // 2026-11-13: a floor is a fact the receipt audit reports as critical
+        // at zero. An occurrence counter (_seen: a side game nobody offered, a
+        // rare cleanup, a once-per-process build) has quiet days by nature, so
+        // it never carries one. (A _seen POPULATION counter, phase10_seen, is a
+        // fine denominator; this rule is about the numerator.)
+        expect(e.key.endsWith('_seen'), `${k}: an occurrence counter carries no floor`).toBe(false);
       }
       if (e.ratioOf) {
         expect(e.kind, `${k}: ratioOf only on receipts`).toBe('receipt');
@@ -224,7 +264,10 @@ describe('HorseDataLedger - the contract holds against the source', () => {
     for (const frag of ['_miss_depth_', '_miss_street_']) literals.delete(frag);
     // Every fired literal is covered.
     const uncovered = [...literals].filter((k) => !ledgerReceiptFor(k)).sort();
-    expect(uncovered, 'telemetry keys fired by the brain but missing from the ledger').toEqual([]);
+    expect(
+      uncovered,
+      'telemetry keys fired by the brain but missing from the ledger: register each in HorseDataLedger.ts, and end a counter that depends on table mix in _seen (BrainTelemetry.noteFire explains why)'
+    ).toEqual([]);
     const receiptKeys = ledgerByKind('receipt').map((r) => r.key);
     for (const p of dynamicPrefixes) {
       const covered = !!ledgerReceiptFor(p + 'x') || receiptKeys.some((k) => k.startsWith(p));

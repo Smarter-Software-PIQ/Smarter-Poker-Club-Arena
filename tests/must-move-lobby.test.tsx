@@ -303,6 +303,32 @@ describe('the box in the corner', () => {
     expect(mocks.rpc).toHaveBeenCalledWith('fn_cash_game_lobby', { p_game_id: GAME });
   });
 
+  it('withholds all seat-change buttons on a Lightning feeder while retaining its lobby and move information', async () => {
+    mocks.rpc.mockResolvedValue({ data: lobby(), error: null });
+    render(
+      <>
+        <CashClusterHUD
+          gameId={GAME}
+          seatChangeEnabled={false}
+          onOpenLobby={vi.fn()}
+          onSeatChange={vi.fn()}
+        />
+        <MustMoveLobbyModal
+          isOpen
+          gameId={GAME}
+          currentTableId={FEEDER}
+          seatChangeEnabled={false}
+          onClose={vi.fn()}
+        />
+      </>
+    );
+    await waitFor(() =>
+      expect(screen.getByText('You Are Number 2 On The Must Move List.')).toBeTruthy()
+    );
+    expect(screen.queryByText('Seat Change')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Request/ })).toBeNull();
+  });
+
   it('puts LOBBY in the action pill row, hamburger-sized, on cluster tables only', () => {
     const page = read('src/pages/MultiTablePage.tsx');
     /* The button exists and asks THIS table for its lobby over the bus - the
@@ -379,6 +405,36 @@ describe('the box in the corner', () => {
     );
   });
 
+  it('opens the Lightning game by cluster ID even when the room has no table cluster', async () => {
+    const tabs = read('src/pages/MultiTablePage.tsx');
+    const table = read('src/pages/TablePage.tsx');
+    expect(tabs).toContain('const activeLightningRoom = useLightningPoolSession(activeTableId);');
+    expect(tabs).toContain('const activeClusterId = activeLightningRoom?.clusterId ??');
+    expect(table).toContain(
+      'if (!lightningRoomClusterId && !tableStateRef.current?.clusterId) return;'
+    );
+    expect(table).toContain('gameId={lightningRoomClusterId ?? tableState.clusterId}');
+
+    const clusterId = 'lightning-cluster';
+    const snapshot = lobby({ seated: false });
+    snapshot.game = { ...snapshot.game, id: clusterId, name: 'Lightning PLO5 1/2' };
+    mocks.rpc.mockResolvedValue({ data: snapshot, error: null });
+    render(
+      <MustMoveLobbyModal
+        isOpen
+        lightning
+        gameId={clusterId}
+        currentTableId="lightning-pool-session"
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('dialog', { name: 'Game Lobby' })).toBeTruthy();
+    expect(await screen.findByText('Lightning PLO5 1/2')).toBeTruthy();
+    expect(mocks.rpc).toHaveBeenCalledWith('fn_cash_game_lobby', { p_game_id: clusterId });
+    expect(screen.queryByRole('button', { name: 'Join Game' })).toBeNull();
+  });
+
   it('shows no button on Main 1, and the list place instead once listed', async () => {
     mocks.rpc.mockResolvedValue({
       data: lobby({
@@ -445,13 +501,14 @@ describe('the lobby', () => {
     const readStat = (head: Element, stat: string) =>
       head.querySelector(`[data-stat="${stat}"] .mml-table-stat-value`)?.textContent;
     // Main 1: 21+22+23+24+25+26 = 141 over 6
-    expect(readStat(heads[0], 'average-stack')).toBe('23.50');
+    // An average stack is whole chips, truncated (Dan 2026-11-14).
+    expect(readStat(heads[0], 'average-stack')).toBe('23');
     expect(readStat(heads[0], 'total-chips')).toBe('141.00');
     // Main 2: 30 + 12.5 over 2 (open chairs never count)
-    expect(readStat(heads[1], 'average-stack')).toBe('21.25');
+    expect(readStat(heads[1], 'average-stack')).toBe('21');
     expect(readStat(heads[1], 'total-chips')).toBe('42.50');
     // Feeder: 25 + 40 over 2
-    expect(readStat(heads[2], 'average-stack')).toBe('32.50');
+    expect(readStat(heads[2], 'average-stack')).toBe('32');
     expect(readStat(heads[2], 'total-chips')).toBe('65.00');
     // and they sit after the seat count, in that order
     const order = Array.from(heads[0].children).map((c) => c.className);
@@ -472,7 +529,7 @@ describe('the lobby', () => {
     expect(lobbyTableChips({ seats: [] })).toEqual({ total: 0, average: 0, players: 0 });
     expect(
       lobbyTableChips({ seats: [seat(1, 0.1, 'a'), seat(2, '0.2', 'b'), seat(3, 99, null)] })
-    ).toEqual({ total: 0.3, average: 0.15, players: 2 });
+    ).toEqual({ total: 0.3, average: 0, players: 2 });
   });
 
   it('asks the door with the table, or null for any, and repeats the answer', async () => {
@@ -695,7 +752,9 @@ describe('the tab follows the chair', () => {
        this pin is about what the CODE does, and prose explaining the law it
        obeys must never be able to satisfy it or to break it. */
     const body = blankNonCode(block);
-    expect(body).toMatch(/next\[idx\] = \{\s*id: dest,/);
+    /* Built by moveSeatTab, the one factory every move path shares, so the
+       re-pointed tab keeps `seated` and the next move still finds its chair. */
+    expect(body).toMatch(/next\[idx\] = moveSeatTab\(current, dest,/);
     /* AND THE PIN CAN ACTUALLY FAIL NOW (2026-09-10). `/activeIndex/` is case
        sensitive, so it never matched `setActiveIndex(` - the one spelling the
        law is about. Proved by inserting `setActiveIndex(idx);` into this very
@@ -716,7 +775,7 @@ describe('the tab follows the chair', () => {
       /\{!tableState\.isTournament &&\s*tableState\.clusterId &&\s*!anchorLightningClusterId &&\s*!lightningRoom && \(\s*<div className="hud-seat-change-dock">\s*<CashClusterHUD/
     );
     expect(TABLE_PAGE).toMatch(
-      /<MustMoveLobbyModal\s+isOpen=\{showMustMoveLobby\}\s+gameId=\{tableState\.clusterId\}/
+      /<MustMoveLobbyModal\s+isOpen=\{showMustMoveLobby\}\s+gameId=\{lightningRoomClusterId \?\? tableState\.clusterId\}/
     );
     expect(TABLE_PAGE).toMatch(
       /<MustMoveLobbyModal[\s\S]*?asset=\{tableState\.arenaAsset === 'diamonds' \? 'diamonds' : 'chips'\}/

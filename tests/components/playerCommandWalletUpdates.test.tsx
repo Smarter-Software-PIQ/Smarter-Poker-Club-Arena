@@ -10,6 +10,7 @@ const f = vi.hoisted(() => ({
   summary: vi.fn(),
   export: vi.fn(),
   detail: vi.fn(),
+  promo: vi.fn(),
   csv: vi.fn(),
   report: vi.fn(),
   memberSignal: null as null | ((payload: unknown) => void),
@@ -18,6 +19,9 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => f.actor }));
 vi.mock('../../src/hooks/useProfilePresence', () => ({ useOnlineNow: () => false }));
+vi.mock('../../src/services/PromoPlayThroughService', () => ({
+  readMemberPromoPlayThrough: f.promo,
+}));
 vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
   useMasterBusSubscriptions: (events: string[], callback: (p: unknown) => void) => {
     if (events.includes('BALANCE_UPDATED')) f.balanceSignal = callback;
@@ -169,6 +173,23 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   liveRosterRefreshPolicy.minIntervalMs = 180_000;
+});
+
+it('never offers or reads promo progress from the roster', async () => {
+  // Dan, 2026-11-17: promo progress belongs to the cashier, when a player is
+  // cashing out. Player Management carries no promo control and makes no read.
+  const memberB = { ...row, user_id: 'member-b', alias: 'Bob', username: 'bob' };
+  f.page.mockResolvedValue({
+    items: [row, memberB],
+    next_cursor: null,
+    has_more: false,
+    filtered_total: 2,
+  });
+  render(tree());
+  await ready();
+  expect(screen.queryByRole('button', { name: /Promo Progress/ })).toBeNull();
+  expect(screen.queryByText(/Promo|Withdrawable Balance/)).toBeNull();
+  expect(f.promo).not.toHaveBeenCalled();
 });
 
 it('updates an authorized player wallet absolutely without starting another directory read', async () => {

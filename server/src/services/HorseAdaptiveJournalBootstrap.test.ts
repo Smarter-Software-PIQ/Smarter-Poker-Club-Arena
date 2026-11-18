@@ -45,12 +45,14 @@ function actualBootstrap(leader: boolean, stop: () => Promise<void>) {
     'HorseDailyAudit',
     'HorseReferenceAgreementReport',
     'BrainTelemetryFlush',
+    'HorseUpgradeEvidenceFlush',
     'HorseDataLedgerSync',
     'HorseLaneLoader',
     'GtoAggregationDriver',
     'GtoAggregationDriverV31',
     'CommerceRenewalConsumer',
     'HorseDiamondSpins',
+    'LightningBankTheWin',
   ]) {
     context['start' + name] = vi.fn();
     context['stop' + name] = async () => undefined;

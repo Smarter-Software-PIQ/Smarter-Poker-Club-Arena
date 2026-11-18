@@ -27,6 +27,8 @@ import {
   type HorseSpinStatus,
 } from '../services/HorseDiamondSpinsDriver.js';
 import { horsePlo5DepartureEvidence } from '../services/HorsePlo5DepartureEvidence.js';
+import { horseWorkScheduleEvidence } from '../services/HorseWorkSchedule.js';
+import { overlayCoverEvidence } from '../services/horseOverlayCover.js';
 
 // Minimal structural typing so handlers don't need to import the GameServer
 // class (which lives in `index.ts`) nor the transport classes. Anything that
@@ -165,6 +167,10 @@ export function handleHealth(
     // Actual departure decisions only, with no seat identities or amounts.
     // A diagnostic count never changes dealer routing readiness.
     horsePlo5Departure: horsePlo5DepartureEvidence(),
+    // The work schedule and days off being kept (owner 2026-11-12): counts
+    // only, no identities. A diagnostic; never a routing verdict.
+    horseWorkSchedule: horseWorkScheduleEvidence(),
+    overlayCover: overlayCoverEvidence(),
   };
   sendJSON(res, dealerReady ? 200 : 503, status);
 }

@@ -249,3 +249,23 @@ it('preserves explicit incomplete historical results while decoding current figu
     (await ClubRosterService.getMembersWinLoss('club', ['player'], 'overall')).get('player')?.net
   ).toBeNull();
 });
+
+it('preserves exact server-computed downline and combined figures and refuses incomplete breakdowns', async () => {
+  const group = {
+    ...detail.stats,
+    total_fee: Number('9007199254740993.12'),
+    total_fee_text: '9007199254740993.12',
+    total_winnings: null,
+  };
+  answer({ ...detail, activity_breakdown: { downline: group, combined: group } });
+  await expect(ClubRosterService.getMemberDetail('club', 'player')).resolves.toMatchObject({
+    activity_breakdown: {
+      downline: { total_fee_text: '9007199254740993.12', total_winnings: null },
+      combined: { total_fee_text: '9007199254740993.12', total_winnings: null },
+    },
+  });
+  answer({ ...detail, activity_breakdown: { downline: {}, combined: group } });
+  await expect(ClubRosterService.getMemberDetail('club', 'player')).rejects.toThrow(
+    /Breakdown Was Incomplete/
+  );
+});

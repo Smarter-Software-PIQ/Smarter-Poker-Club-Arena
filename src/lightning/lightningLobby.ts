@@ -51,6 +51,12 @@ export function isLightningTableSize(handedness: unknown): boolean {
 export const LIGHTNING_EXCLUDED_VARIANTS: readonly string[] = [
   'short_deck',
   'shortdeck',
+  /* Owner ruling, November 14, 2026: every limit game is "ALWAYS CLASSIC GAME
+     SET UP", so no limit game runs Lightning (fn_lightning_variant_allowed). */
+  'flh',
+  'flo4',
+  'flo5',
+  'flo6',
   'flo8',
   'plo8',
   'omaha8',

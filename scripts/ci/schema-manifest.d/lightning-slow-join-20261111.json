@@ -1,0 +1,5 @@
+{
+  "_owner": "lightning-slow-join",
+  "_comment": "Declared by migration 20261111214248; a source requirement, not a production installation claim. Trigger-only private helper that paces Horse admission for every Lightning game other than c79d8ec2.",
+  "functions": ["fn_lightning_horse_admit_paced"]
+}

@@ -1,10 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Club Data counts America/Chicago days (20261022120121): today is the Chicago date.
-const chicagoToday = (): string =>
+// Current Data reports count Pacific calendar dates for every club.
+const pacificToday = (): string =>
   new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
+    timeZone: 'America/Los_Angeles',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -74,7 +74,26 @@ import ClubDataSimplePage, {
   refreshIntervalMs,
 } from '../../src/pages/club/ClubDataSimplePage';
 
-const today = chicagoToday();
+const today = pacificToday();
+const calendarName = (day: string) =>
+  new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+function selectCalendarDay(day: string) {
+  const target = calendarName(day);
+  for (let i = 0; i < 120 && !screen.queryByRole('button', { name: target }); i++) {
+    const shownMonth = Date.parse(screen.getByRole('grid').getAttribute('aria-label')!);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: Date.parse(`${day}T12:00:00Z`) < shownMonth ? 'Previous Month' : 'Next Month',
+      })
+    );
+  }
+  fireEvent.click(screen.getByRole('button', { name: target }));
+}
 
 const live = {
   scope: 'club',
@@ -135,9 +154,9 @@ describe('helpers', () => {
 
   it('fits a large total in its tile without losing the exact figure', () => {
     expect(formatTotal(9_999.5)).toBe('9,999.50');
-    expect(formatTotal(149_602.37)).toBe('149.6K');
-    expect(formatTotal(-55_668.2)).toBe('-55.6K');
-    expect(formatTotal(3_544_599.22)).toBe('3.54M');
+    expect(formatTotal(149_602.37)).toBe('149,602.37');
+    expect(formatTotal(-55_668.2)).toBe('-55,668.20');
+    expect(formatTotal(3_544_599.22)).toBe('3,544,599.22');
     expect(formatTotal(undefined)).toBe('-');
   });
 
@@ -154,6 +173,36 @@ describe('helpers', () => {
 });
 
 describe('ClubDataSimplePage', () => {
+  it('renders reconciliation from the same accepted headline snapshot', async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        ...live,
+        accounting_basis: 'union_invoice_accounting',
+        accounting_coverage: { complete: true, provisional: true, awaiting_boundary_days: [today] },
+        summary: {
+          ...live.summary,
+          reconciliation: {
+            complete: true,
+            missing_days: [],
+            bbj_gross: 12.5,
+            bbj_awards: 3.25,
+            bbj_net: 9.25,
+            cash_fee: 987.25,
+            cash_winnings: -1444.5,
+            tournament_fee: 0,
+            tournament_winnings: 210,
+            cash_residual: 448,
+            tournament_flow_difference: -210,
+          },
+        },
+      },
+      error: null,
+    });
+    render(<ClubDataSimplePage />);
+    expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
+    expect(screen.getByText('12.50')).toBeInTheDocument();
+    expect(screen.getByText('Final Billing Pending')).toBeInTheDocument();
+  });
   it('retires owner figures immediately when an agent account is still hydrating', async () => {
     rpcMock.mockResolvedValue({ data: live, error: null });
     const view = render(<ClubDataSimplePage />);
@@ -195,9 +244,9 @@ describe('ClubDataSimplePage', () => {
     await waitFor(() => expect(screen.queryByText('Shark Tank')).not.toBeInTheDocument());
   });
 
-  it('follows Chicago midnight even when the 15 second refresh renders first', async () => {
+  it('follows Pacific midnight even when the 15 second refresh renders first', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-23T04:59:50Z'));
+    vi.setSystemTime(new Date('2026-10-23T06:59:50Z'));
     rpcMock.mockResolvedValue({ data: live, error: null });
     await act(async () => {
       render(<ClubDataSimplePage />);
@@ -216,8 +265,8 @@ describe('ClubDataSimplePage', () => {
   });
 
   it.each([
-    ['2026-03-08T06:00:00Z', '2026-03-09T05:00:00Z'],
-    ['2026-11-01T05:00:00Z', '2026-11-02T06:00:00Z'],
+    ['2026-03-08T08:00:00Z', '2026-03-09T07:00:00Z'],
+    ['2026-11-01T07:00:00Z', '2026-11-02T08:00:00Z'],
     ['2026-10-22T20:00:00Z', '2026-10-25T20:00:00Z'],
   ])('follows the calendar after returning from %s to %s', async (before, after) => {
     vi.useFakeTimers();
@@ -231,8 +280,8 @@ describe('ClubDataSimplePage', () => {
       fireEvent(document, new Event('visibilitychange'));
     });
     expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
-      p_start: chicagoToday(),
-      p_end: chicagoToday(),
+      p_start: pacificToday(),
+      p_end: pacificToday(),
     });
   });
 
@@ -291,7 +340,7 @@ describe('ClubDataSimplePage', () => {
     expect(screen.getByText('210.00')).toBeTruthy();
   });
 
-  it('asks for the Chicago day, not the UTC day', async () => {
+  it('asks for the Pacific day, not the UTC day', async () => {
     rpcMock.mockResolvedValue({ data: live, error: null });
     render(<ClubDataSimplePage />);
     await screen.findByText('987.25');
@@ -399,7 +448,10 @@ describe('ClubDataSimplePage', () => {
     );
     expect(title.getAttribute('title')).toBe('CLUB JAQK - CLUB DATA');
     expect(headerTitle(null)).toBe('Club Data');
-    expect(screen.getByRole('button', { name: 'Report' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&view=advanced`
+    );
   });
 
   it('an agent reads his own downline, and has no whole-club report door', async () => {
@@ -463,7 +515,9 @@ describe('earned fees and direct player lookup', () => {
     await screen.findByText('Shark Tank');
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'WooWoo' } });
     fireEvent.click(await screen.findByRole('button', { name: /WooWoo.*View Player Data/i }));
-    expect(navigateMock).toHaveBeenCalledWith(`/clubs/${CLUB_ID}/members/woo-id`);
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/clubs/${CLUB_ID}/members/woo-id?dataClub=${CLUB_ID}&dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=WooWoo`
+    );
     expect(screen.queryByText('Private')).not.toBeInTheDocument();
     expect(screen.queryByText('Private Legal Name')).not.toBeInTheDocument();
   });
@@ -489,7 +543,9 @@ describe('earned fees and direct player lookup', () => {
       search: 'KingFish',
       signal: expect.any(AbortSignal),
     });
-    expect(navigateMock).toHaveBeenCalledWith('/clubs/management-club/members/kingfish-id');
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/clubs/management-club/members/kingfish-id?dataClub=${CLUB_ID}&dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=KingFish`
+    );
   });
 
   it('discards player results after account hydration begins', async () => {
@@ -515,6 +571,7 @@ describe('earned fees and direct player lookup', () => {
 });
 
 it('finds a player independently when the game search fails', async () => {
+  routeState.search = new URLSearchParams('dataSearch=');
   rpcMock.mockResolvedValueOnce({ data: live, error: null });
   rpcMock.mockResolvedValue({
     data: null,
@@ -534,9 +591,11 @@ it('finds a player independently when the game search fails', async () => {
   await screen.findByText('Shark Tank');
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'WooWoo' } });
   expect(await screen.findByRole('button', { name: /WooWoo.*View Player Data/i })).toBeVisible();
-  expect(
-    screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
-  ).toBeVisible();
+  await waitFor(() =>
+    expect(
+      screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
+    ).toBeVisible()
+  );
 });
 
 describe('Selectable Chicago Dates And Player Totals', () => {
@@ -545,10 +604,8 @@ describe('Selectable Chicago Dates And Player Totals', () => {
     render(<ClubDataSimplePage />);
     await screen.findByText('Shark Tank');
     fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
-    fireEvent.change(screen.getByLabelText('Start Date'), {
-      target: { value: addDays(today, -5) },
-    });
-    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -2) } });
+    selectCalendarDay(addDays(today, -5));
+    selectCalendarDay(addDays(today, -2));
     fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith(
@@ -567,7 +624,7 @@ describe('Selectable Chicago Dates And Player Totals', () => {
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith(
         'ca_club_data_screen',
-        expect.objectContaining({ p_start: addDays(today, -6), p_end: addDays(today, -6) })
+        expect.objectContaining({ p_start: today, p_end: today })
       )
     );
   });
@@ -588,9 +645,11 @@ it('keeps selected dates when access hydration unmounts and remounts the page', 
   const view = render(<ClubDataSimplePage />);
   await screen.findByText('Shark Tank');
   fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
-  fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: addDays(today, -5) } });
-  fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -2) } });
+  selectCalendarDay(addDays(today, -5));
+  selectCalendarDay(addDays(today, -2));
   fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+  expect(routeState.search.get('dataEnd')).toBe(addDays(today, -2));
+  expect(routeState.search.has('dataUntil')).toBe(false);
   view.unmount();
   rpcMock.mockClear();
   render(<ClubDataSimplePage />);
@@ -611,8 +670,8 @@ it.each([
   routeState.search = new URLSearchParams({ dataStart: start, dataEnd: end });
   rpcMock.mockResolvedValue({ data: live, error: null });
   render(<ClubDataSimplePage />);
-  await screen.findByText('Shark Tank');
-  expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({ p_start: today, p_end: today });
+  expect(screen.getByRole('alert')).toBeVisible();
+  expect(rpcMock).not.toHaveBeenCalled();
 });
 
 it('retains a shifted preset after remount and resumes today when shifted back', async () => {
@@ -635,4 +694,389 @@ it('retains a shifted preset after remount and resumes today when shifted back',
     })
   );
   expect(routeState.search.has('dataEnd')).toBe(false);
+});
+
+/* STAGE 2 (2026-11-15): a Midway Union club's readers answer on the union
+   invoice's 02:00 Chicago accounting day and say so; the screen counts,
+   selects and labels the window by that answer. */
+describe('the union invoice basis', () => {
+  const unionLive = {
+    ...live,
+    range: { start: '2026-11-02', end: '2026-11-08', days: 7 },
+    accounting_basis: 'union_invoice_accounting',
+    day_basis: 'America/Chicago 02:00',
+    accounting_coverage: {
+      complete: false,
+      missing_days: ['2026-11-03'],
+      failed_days: [],
+      not_invoice_exact_days: ['2026-11-02'],
+      provisional: true,
+      provisional_from: '2026-11-09',
+      window_start: '2026-11-02T08:00:00+00:00',
+      window_end: '2026-11-09T08:00:00+00:00',
+      day_boundary: '02:00',
+      day_zone: 'America/Chicago',
+      source: 'ca_club_acct_fact',
+    },
+  };
+
+  it.each([
+    ['dataUntil', { dataStart: '2026-11-02', dataUntil: '2026-11-09' }],
+    ['legacy dataEnd', { dataStart: '2026-11-02', dataEnd: '2026-11-08' }],
+  ])('reads the %s pair as the seven-day invoice week and labels it', async (_n, params) => {
+    routeState.search = new URLSearchParams(params);
+    rpcMock.mockResolvedValue({ data: unionLive, error: null });
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: '2026-11-02',
+      p_end: '2026-11-08',
+    });
+    expect(screen.getByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM')).toBeTruthy();
+    expect(screen.getAllByText('Chicago Time').length).toBeGreaterThan(0);
+    // Explanations live behind the "?" (Dan, 2026-11-15), never on the page.
+    const tip = screen.getByTestId('data-help-tip');
+    expect(tip.hasAttribute('open')).toBe(false);
+    expect(tip.textContent).toMatch(
+      /Days Run Midnight To Midnight Pacific Time\. Weeks Run Monday Through Sunday\./
+    );
+    expect(screen.getByText(/^Union Invoice Basis\./).closest('details')).toBe(tip);
+    expect(screen.getByText(/Total Winnings Equals Its Player Win\/Loss/)).toBeTruthy();
+    // Tournament fees count when the tournament settles; no running MTT fee.
+    expect(
+      screen.getByText(/Tournament Fees Are Recognized When The Tournament Settles\./)
+    ).toBeTruthy();
+    expect(screen.queryByText(/Running MTT Fee/i)).toBeNull();
+    // Total Winnings is cash plus every tournament result; MTT Winnings is
+    // finished MTTs only (review, 2026-11-15).
+    expect(
+      screen.getByText(
+        /Plus Tournament Results \(MTT Winnings, Sit And Go Results And Unfinished MTT Entries\)\. MTT Winnings Are Finished MTTs Only/
+      )
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Provisional From Nov 9, 2026 2:00 AM Chicago Time: No Weekly Invoice Has Been Issued For That Part Of The Window Yet, So These Figures Can Still Change.'
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Incomplete: Not Yet Loaded: Nov 3, 2026. Week Boundary Not Invoice-Exact: Nov 2, 2026. These Totals Can Differ From The Union Invoice Until Those Days Are Whole.'
+    );
+    // Shown, never added: the felt sits beside Total Winnings.
+    expect(screen.getByText('On The Felt Now')).toBeTruthy();
+    expect(screen.getByText('5,400.00')).toBeTruthy();
+    expect(screen.queryByText(/Net Entries And Payouts In Chicago Time/)).toBeNull();
+  });
+
+  it('a window before the club joined its union reads and says the Chicago basis', async () => {
+    // The readers answer a union club's window that starts before its join
+    // day on the club's pre-union Chicago midnight basis (#10921 review).
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => ({
+      data:
+        args.p_start >= '2026-11-02'
+          ? unionLive
+          : {
+              ...live,
+              range: { start: args.p_start, end: args.p_end, days: 7 },
+              accounting_basis: 'chicago_net_money_flow',
+              day_basis: 'America/Chicago',
+            },
+      error: null,
+    }));
+    routeState.search = new URLSearchParams({ dataStart: '2026-11-02', dataUntil: '2026-11-09' });
+    render(<ClubDataSimplePage />);
+    expect(await screen.findByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    selectCalendarDay('2026-10-01');
+    selectCalendarDay('2026-10-07');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+    expect(await screen.findByText('Oct 1, 2026 12:00 AM To Oct 8, 2026 12:00 AM')).toBeTruthy();
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: '2026-10-01',
+      p_end: '2026-10-07',
+    });
+    expect(screen.getByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
+    expect(screen.queryByText(/Union Invoice Basis/)).toBeNull();
+    expect(screen.queryByText(/Provisional/)).toBeNull();
+    expect(screen.queryByText('On The Felt Now (Not In Total Winnings)')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    expect(screen.getByText(/^Days Run Midnight To Midnight Chicago Time\./)).toBeTruthy();
+  });
+
+  it('selects one inclusive accounting day with one click and Apply', async () => {
+    routeState.search = new URLSearchParams({ dataStart: '2026-11-02', dataUntil: '2026-11-09' });
+    rpcMock.mockResolvedValue({ data: unionLive, error: null });
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Through Nov 8, 2026');
+    expect(screen.queryByLabelText('Start Date')).toBeNull();
+    selectCalendarDay('2026-11-02');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+    await waitFor(() =>
+      expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+        p_start: '2026-11-02',
+        p_end: '2026-11-02',
+      })
+    );
+  });
+
+  it('between midnight and 02:00 Chicago it reads the accounting day still open', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T07:30:00Z')); // Mon 01:30 CST
+    // Like the server: a union club's reader clamps the last day to the
+    // accounting day still open (LEAST(p_end, fn_ca_accounting_day(now()))).
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => {
+      const end = args.p_end > '2026-11-15' ? '2026-11-15' : args.p_end;
+      const start = args.p_start > end ? end : args.p_start;
+      return { data: { ...unionLive, range: { start, end, days: 1 } }, error: null };
+    });
+    await act(async () => {
+      render(<ClubDataSimplePage />);
+    });
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+    // Calendar until the reader answers; then the open accounting day.
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: '2026-11-15',
+      p_end: '2026-11-15',
+    });
+  });
+
+  it('says unfinished MTT entries are inside Total Winnings on the union basis', async () => {
+    rpcMock.mockResolvedValue({
+      data: { ...unionLive, summary: { ...unionLive.summary, running_mtt_entries: -3_570 } },
+      error: null,
+    });
+    render(<ClubDataSimplePage />);
+    expect(await screen.findByText('Unfinished MTT Entries')).toBeTruthy();
+    expect(
+      screen
+        .getByText(
+          /Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total/
+        )
+        .closest('details')
+    ).toBeTruthy();
+    expect(screen.getByText('-3,570.00')).toBeTruthy();
+  });
+
+  it('settles in two reads at 01:30 CST when the day crosses the join day', async () => {
+    // "Today" follows the club, not the answer (review, 2026-11-15). The club
+    // joined on Nov 16: its 2 AM day Nov 15 is answered on the Chicago basis.
+    // No search, game or stakes choice left over from another test.
+    localStorage.clear();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T07:30:00Z')); // Mon 01:30 CST
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => {
+      const union = args.p_start >= '2026-11-16';
+      const end = union && args.p_end > '2026-11-15' ? '2026-11-15' : args.p_end;
+      return {
+        data: union
+          ? { ...unionLive, union_id: 'u-1', range: { start: args.p_start, end, days: 1 } }
+          : {
+              ...live,
+              union_id: 'u-1',
+              range: { start: args.p_start, end, days: 1 },
+              accounting_basis: 'chicago_net_money_flow',
+              day_basis: 'America/Chicago',
+            },
+        error: null,
+      };
+    });
+    await act(async () => {
+      render(<ClubDataSimplePage />);
+    });
+    for (let i = 0; i < 10; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+    }
+    const asked = rpcMock.mock.calls.map(([, a]) => a as Record<string, string>);
+    expect(
+      asked.length,
+      JSON.stringify(asked.map((x) => [x.p_start, x.p_end]))
+    ).toBeLessThanOrEqual(2);
+    expect(asked[0]).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+    expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+    expect(screen.getByText('Nov 15, 2026 12:00 AM To Now')).toBeTruthy();
+    expect(screen.getByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
+  });
+
+  it('an agent of a union club sees downline fees on the same basis', async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        ...unionLive,
+        scope: 'downline',
+        member_fees: {
+          cash_fees: 900,
+          tournament_fees: 27.75,
+          total_fees: 927.75,
+          day_basis: 'America/Chicago 02:00',
+          definition: 'downline_accounting_fees',
+          source: 'ca_club_acct_fact',
+        },
+      },
+      error: null,
+    });
+    render(<ClubDataSimplePage />);
+    expect(await screen.findByText('Downline Fees')).toBeTruthy();
+    expect(screen.getByText('927.75')).toBeTruthy();
+    expect(screen.getByText(/Downline Fees Are The Rake Credited For You And Your/)).toBeTruthy();
+    expect(screen.queryByText('My Fees Earned')).toBeNull();
+  });
+
+  it('the player drilldown labels the same window and totals exactly', async () => {
+    routeState.search = new URLSearchParams({ dataStart: '2026-11-02', dataUntil: '2026-11-09' });
+    rpcMock.mockImplementation((fn: string, args: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_player_totals') {
+        const answer = {
+          data: {
+            contract: 'ca_club_data_player_totals.v1',
+            club_id: CLUB_ID,
+            range: { start: args.p_start, end: args.p_end },
+            filters: { game: 'ALL', stakes: 'ALL', search: null },
+            scope: 'club',
+            day_basis: 'America/Chicago 02:00',
+            accounting_basis: 'union_invoice_accounting',
+            accounting_coverage: { ...unionLive.accounting_coverage, missing_days: [] },
+            players: [
+              { user_id: 'a', name: 'Alpha', total_winnings: 0.1, mtt_winnings: 0, fee: 1 },
+              { user_id: 'b', name: 'Bravo', total_winnings: 0.2, mtt_winnings: 0, fee: 2 },
+              {
+                user_id: 'c',
+                name: 'Charlie',
+                total_winnings: -1951998.47,
+                mtt_winnings: 0,
+                fee: 3,
+              },
+            ],
+            generated_at: '2026-11-15T12:00:00Z',
+          },
+          error: null,
+        };
+        return { abortSignal: () => Promise.resolve(answer) };
+      }
+      return Promise.resolve({ data: unionLive, error: null });
+    });
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    fireEvent.click(screen.getByRole('button', { name: 'View Total Winnings By Player' }));
+    expect(await screen.findByText('Winning Players')).toBeTruthy();
+    expect(
+      screen.getByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM Chicago Time')
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/^Union Invoice Basis: Cash Winnings \(The Stack Change Of Each Cash Hand/)
+    ).toBeTruthy();
+    expect(screen.getByText('0.30')).toBeTruthy(); // 0.1 + 0.2, exactly
+    expect(screen.getByText('-1,951,998.17')).toBeTruthy(); // the net, exactly
+    // The drilldown states its own coverage: Nov 2's boundary, not yet invoiced week.
+    expect(
+      screen.getAllByText(
+        'Incomplete: Week Boundary Not Invoice-Exact: Nov 2, 2026. These Totals Can Differ From The Union Invoice Until Those Days Are Whole.'
+      ).length
+    ).toBeGreaterThan(0);
+  });
+});
+
+it('starts a fresh visit on today even with a saved previous preset', async () => {
+  localStorage.setItem('ca_player_preference:guest:club/ClubDataSimplePage:preset', '14');
+  localStorage.setItem('ca_player_preference:owner-1:club/ClubDataSimplePage:preset', '14');
+  rpcMock.mockResolvedValue({ data: live, error: null });
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  expect(screen.getByRole('button', { name: '1 Day' })).toHaveAttribute('aria-pressed', 'true');
+  expect(rpcMock).toHaveBeenCalledWith(
+    'ca_club_data_screen',
+    expect.objectContaining({ p_start: today, p_end: today })
+  );
+});
+
+it('selects Monday through Sunday as seven inclusive accounting dates', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
+  rpcMock.mockResolvedValue({
+    data: {
+      ...live,
+      accounting_basis: 'union_invoice_accounting',
+      day_basis: 'America/Chicago 02:00',
+    },
+    error: null,
+  });
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+  selectCalendarDay('2026-11-09');
+  selectCalendarDay('2026-11-15');
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+  await waitFor(() =>
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: '2026-11-09',
+      p_end: '2026-11-15',
+    })
+  );
+});
+
+describe('standalone Pacific report answers', () => {
+  it('starts on the Pacific day before discovery and preserves net-flow fee meaning', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-11-16T07:30:00Z'));
+    rpcMock.mockImplementation(async (_name: string, args: Record<string, string>) => ({
+      data: {
+        ...live,
+        scope: 'downline',
+        union_id: null,
+        accounting_basis: 'pacific_net_money_flow',
+        day_basis: 'America/Los_Angeles 00:00',
+        range: { start: args.p_start, end: args.p_end, days: 1 },
+        member_fees: {
+          cash_fees: 4.27,
+          tournament_fees: 4.55,
+          total_fees: 8.82,
+          definition: 'pacific_earned_fees',
+          day_basis: 'America/Los_Angeles 00:00',
+          source: 'original_earning_receipts',
+        },
+      },
+      error: null,
+    }));
+    render(<ClubDataSimplePage />);
+    await screen.findByText('8.82');
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+    expect(screen.getByText('Nov 15, 2026 2:00 AM To Now')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Pacific Calendar Dates');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
+    fireEvent.click(screen.getByLabelText('How These Figures Are Counted'));
+    expect(
+      screen.getByText(
+        /Your Fees After Shares And Adjustments, Across All Games In This Pacific Window/
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText(/Union Invoice Basis\./)).toBeNull();
+  });
+  it('clears held figures when the source refuses incomplete Pacific history', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    rpcMock.mockResolvedValueOnce({ data: live, error: null });
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: 'P0001', message: 'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE' },
+    });
+    render(<ClubDataSimplePage />);
+    await screen.findByText('987.25');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(screen.queryByText('987.25')).toBeNull();
+    expect(
+      screen.getAllByText(
+        'Pacific Day Data Is Not Yet Complete. Totals Are Unavailable Until The Selected Days Are Verified.'
+      ).length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('No Data In This Period.')).toBeNull();
+  });
 });

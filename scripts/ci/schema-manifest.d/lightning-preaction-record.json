@@ -1,0 +1,24 @@
+{
+  "_owner": "feat/lightning-preaction-record-20261110 - migration 20261110213942_lightning_preaction_record",
+  "_comment": "The Lightning pre-action record (2026-11-10). Installed on merge through the protected route. lightning_preaction_event holds one row per pre-action event (RLS on, no role holds a privilege, no foreign key). fn_lightning_preaction_record is the engine's batched write door (service_role only) and bounds retention to fourteen days; fn_lightning_preaction_trace reads one hand (service_role only).",
+  "tables": ["lightning_preaction_event"],
+  "functions": ["fn_lightning_preaction_record", "fn_lightning_preaction_trace"],
+  "columns": {
+    "lightning_preaction_event": [
+      "event_id",
+      "kind",
+      "player_id",
+      "hand_id",
+      "cluster_id",
+      "requested_hand_id",
+      "room_id",
+      "action",
+      "detail",
+      "to_call",
+      "stage",
+      "action_seq",
+      "at",
+      "recorded_at"
+    ]
+  }
+}

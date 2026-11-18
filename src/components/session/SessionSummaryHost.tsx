@@ -30,6 +30,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { webAppUrl } from '../../lib/appBase';
+import { shareButtonLabel, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import HouseAdRotator from '../ads/HouseAdRotator';
@@ -202,10 +204,53 @@ export function SessionSummaryHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recapKey, currentUserId, publishedPayload?.plPending, retryRecap]);
 
+  const chipReceipt =
+    !target &&
+    !publishedPayload?.tournament &&
+    publishedPayload?.arenaAsset !== 'diamonds' &&
+    publishedPayload?.handStatsTarget?.userId === currentUserId &&
+    publishedPayload?.closeOccupancyId
+      ? publishedPayload.closeOccupancyId
+      : null;
+  const chipTable = publishedPayload?.closeTableId;
+  const chipKey = chipReceipt ? `${currentUserId}/${chipTable}/${chipReceipt}` : null;
+  const [chipResult, setChipResult] = useState<{
+    key: string;
+    money: { funding: number; net: number } | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!chipKey || !chipReceipt || !chipTable || publishedPayload?.plPending) return;
+    let current = true;
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('fn_my_settled_chip_result', {
+          p_table_id: chipTable,
+          p_occupancy_id: chipReceipt,
+        });
+        if (error) throw error;
+        if (current)
+          setChipResult({
+            key: chipKey,
+            money: data && Number.isFinite(data.funding) && Number.isFinite(data.net) ? data : null,
+          });
+      } catch {
+        if (current) setChipResult({ key: chipKey, money: null });
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [chipKey, chipReceipt, chipTable, publishedPayload?.plPending, retryRecap]);
+  const chipMoney = chipResult?.key === chipKey ? chipResult?.money : null;
   const ownsRecap = !target || currentUserId === target.userId;
   const recordedRecap = ownsRecap && recapRead.key === recapKey ? recapRead.data : null;
-  const recordedReady = ownsRecap && (!target || recordedRecap?.status === 'settled');
-  const recapFailed = !!target && recapRead.key === recapKey && recapRead.state === 'error';
+  const recordedReady =
+    ownsRecap &&
+    (!target || recordedRecap?.status === 'settled') &&
+    (!chipKey || !!publishedPayload?.plPending || !!chipMoney);
+  const recapFailed =
+    (!!target && recapRead.key === recapKey && recapRead.state === 'error') ||
+    (!!chipKey && chipResult?.key === chipKey && !chipMoney);
   const payload = useMemo<SessionSummaryPayload | null>(
     () =>
       !ownsRecap
@@ -225,8 +270,10 @@ export function SessionSummaryHost() {
               totalRebuys: recordedRecap.totalRebuys,
               plPending: false,
             }
-          : publishedPayload,
-    [publishedPayload, recordedRecap, ownsRecap]
+          : publishedPayload && chipMoney
+            ? { ...publishedPayload, totalBuyIn: chipMoney.funding, profitLoss: chipMoney.net }
+            : publishedPayload,
+    [publishedPayload, recordedRecap, ownsRecap, chipMoney]
   );
 
   const handStatsTarget = publishedPayload?.handStatsTarget;
@@ -558,7 +605,10 @@ export function SessionSummaryHost() {
      The split is on the data, not a flag: a tournament cannot fall through to
      the cash summary and report a chip profit on a seat where chips are not
      money. */
-  const [shareLabel, setShareLabel] = useState('Share');
+  /* null = resting, worded for what the tap does (Share or Copy Link). A
+     status word ("Copied") shows for a moment and the resting word returns. */
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const shareLabel = shareStatus ?? shareButtonLabel();
 
   const share = useCallback(async () => {
     if (
@@ -573,17 +623,17 @@ export function SessionSummaryHost() {
       `${payload.tableName || 'Table Session'} - ${money}${payload.arenaAsset === 'diamonds' ? ' Diamonds' : ''} over ` +
       `${displayedHands} hands on Smarter.Poker`;
 
-    try {
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'Session Complete', text });
-        return;
-      }
-      await navigator.clipboard.writeText(text);
-      setShareLabel('Copied');
-      window.setTimeout(() => setShareLabel('Share'), 1800);
-    } catch {
-      /* A cancelled share sheet rejects. That is the player changing their
-         mind, not a failure, and it must not raise anything at them. */
+    /* src/lib/share.ts: the sentence now travels with a link, and a sheet
+       that refuses falls through to the clipboard instead of ending the tap. */
+    const outcome = await shareLink({
+      source: 'SessionSummaryHost.share',
+      title: 'Session Complete',
+      text,
+      url: webAppUrl(),
+    });
+    if (outcome === 'copied' || outcome === 'failed') {
+      setShareStatus(outcome === 'copied' ? 'Copied' : 'Retry Share');
+      window.setTimeout(() => setShareStatus(null), 1800);
     }
   }, [payload, recordedReady, target, recordedRecap, displayedHands]);
 
@@ -644,6 +694,7 @@ export function SessionSummaryHost() {
             onView={() => setDetailOpen(true)}
             share={{
               label: shareLabel,
+              status: shareStatus,
               onClick: share,
               disabled: displayedHands === null || (!!target && recordedRecap?.handsPlayed == null),
             }}

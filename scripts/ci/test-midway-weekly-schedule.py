@@ -12,6 +12,14 @@ contract=json.loads((fixture/'production-creation-contract.json').read_text())
 for event in document['events']:
     if event['terms']['game_type']=='PLO6':
         assert event['terms']['table_size']<=7 and event['config']['tableSize']<=7,event['name']
+    if event['terms']['game_type']=='FLO8':
+        assert event['terms']['table_size']<=10 and event['config']['tableSize']<=10,event['name']
+# Overwatch 2026-11-15, on the owner's delegation: one fixed-limit Hold'em and
+# one fixed-limit Omaha hi-lo freezeout, installed by their own later migration.
+# Every stage before it replays the sheet as it stood without them.
+FIXED_LIMIT={'27fb3eb2-4c01-4931-8b44-0767d06ec2ef':'FLH','4601510e-2b88-431c-8fa5-04b01415c9d1':'FLO8'}
+before_fixed_limit=[e for e in document['events'] if e['id'] not in FIXED_LIMIT]
+assert len(before_fixed_limit)==len(document['events'])-2
 def run(tool,*args,input=None):
     result=subprocess.run([str(pg/tool),*args],input=input,text=True,capture_output=True)
     if result.returncode: raise RuntimeError(result.stderr)
@@ -79,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
          CREATE TRIGGER tournaments_lock_level_clock BEFORE INSERT OR UPDATE OF blind_structure ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_lock_level_clock();
          CREATE TRIGGER zzzzzzzzzz_tournament_level_clock_floor BEFORE INSERT OR UPDATE ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_level_clock_floor();
          CREATE TRIGGER table_inherits BEFORE INSERT ON tables FOR EACH ROW EXECUTE FUNCTION fn_tournament_table_inherits_committed_blinds();''')
-        target=next(e for e in document['events'] if e['sourceName']=='Nightly 10K (NLH)')
+        target=next(e for e in document['events'] if e['id']=='099ac5a4-c866-4acb-917c-31337bf468b1')
         scope='fade0000-0000-0000-0000-000000000001'
         def insert_event(event_id,schedule_id=target['id'],club=scope,status='REGISTERING',started='NULL',buy_in=31.5,fee=3.5):
             sql(f"""INSERT INTO tournaments(id,schedule_id,club_id,union_id,name,status,started_at,current_level,tournament_type,variant,buy_in_amount,buy_in_fee,starting_chips,blind_structure,late_reg_levels,late_reg_mins,blind_speed,ban_chat,start_time)
@@ -99,7 +107,7 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
            RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END; END$$;
           CREATE TRIGGER owner_board BEFORE INSERT OR UPDATE OR DELETE ON tournament_schedules
            FOR EACH ROW EXECUTE FUNCTION fn_tournament_schedule_board_is_hard_coded();""")
-        existing=[e for e in document['events'] if not e['id'].startswith('ef80591d')]
+        existing=[e for e in before_fixed_limit if not e['id'].startswith('ef80591d')]
         assert len(existing)==142
         seed=[dict(id=e['id'],club_id=scope,union_id=scope,name='Old '+e['name'],days_of_week=e['days'],start_times_utc=e['times'],active=True,time_zone='America/Chicago',config={}) for e in existing]
         seed.append(dict(id='ccb6164a-2db4-400a-8ee0-b6607e880f4e',club_id=scope,union_id=scope,name='Retired Prime Time',days_of_week=[1,2,3,4,5,6],start_times_utc=['18:00'],active=True,time_zone='America/Chicago',config={}))
@@ -168,7 +176,7 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         assert sql("SELECT name||','||start_times_utc[1]||','||(config->>'midwayWeeklyRevision') FROM tournament_schedules WHERE id='"+target['id']+"'")=="Nightly 10K (NLH),19:00,owner-sheet-2026-11-07-v1"
         # Every row, including renamed fixed boards and changed satellites,
         # survives the old creator's wrong defaults at the original insert.
-        for i,event in enumerate(document['events']):
+        for i,event in enumerate(before_fixed_limit):
             event_id=f'30000000-0000-4000-8000-{i:012d}'
             insert_event(event_id,event['id'])
             assert sql("SELECT to_jsonb(t) @> fn_ca_midway_weekly_terms(t.schedule_id) FROM tournaments t WHERE id='"+event_id+"'")=='t',event['name']
@@ -327,7 +335,7 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
                 if expected['short_description'] is not None: expected['short_description']=expected['short_description'].replace('Late Registration Through Level 12.','Late Registration Through Level 10.')
             actual=json.loads(sql("SELECT to_jsonb(t) FROM tournaments t WHERE id='"+before['id']+"'"))
             assert actual==expected,(before['name'],{k:(before[k],actual[k]) for k in before if before[k]!=actual[k]})
-        for event in document['events']:
+        for event in before_fixed_limit:
             assert sql("SELECT config->'midwayWeeklyTerms'->>'late_reg_levels' FROM tournament_schedules WHERE id='"+event['id']+"'")==str(event['terms']['late_reg_levels']),event['name']
         # Generic stored boundary covers exact25 (22.5+2.5), higher prices,
         # running games, and preservation of other caps, terminal and diamonds.
@@ -368,6 +376,126 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
             assert actual['late_reg_levels']==10 and actual['late_reg_mins']==0
             assert json.loads(actual['blind_structure'])==document['profiles'][event['blindProfile']]
         print('PASS: four revised schedules spawn 15,000 at 25/50 with every subsequent level preserved')
+        # Dan 2026-11-11: the 7 PM Nightly becomes the Nightly 20K with a 20K
+        # guarantee. Before the migration: one open instance nobody entered,
+        # one with an entrant.
+        nightly=target['id']
+        feeder_ids=sorted(e['id'] for e in document['events'] if e['config'].get('satelliteTargetName')=='Nightly 20K (NLH)')
+        assert len(feeder_ids)==2,feeder_ids
+        open_id,held_id='92000000-0000-4000-8000-000000000001','92000000-0000-4000-8000-000000000002'
+        for event_id in (open_id,held_id):
+            insert_event(event_id,nightly)
+        sql("UPDATE tournaments SET start_time=now()+interval '1 day' WHERE id IN ('"+open_id+"','"+held_id+"')")
+        sql("INSERT INTO tournament_players(id,tournament_id) VALUES(gen_random_uuid(),'"+held_id+"')")
+        assert sql("SELECT string_agg(name||'/'||trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='Nightly 10K (NLH)/10000,Nightly 10K (NLH)/10000'
+        # The two registered-contract guards the migration amends, reduced to
+        # the exact production anchors it edits.
+        sql("""CREATE OR REPLACE FUNCTION fn_guard_managed_game_lifecycle() RETURNS trigger LANGUAGE plpgsql AS $g$
+BEGIN
+  IF TG_TABLE_NAME='tournaments' THEN
+    IF session_user='postgres' THEN NULL; END IF;
+  END IF;
+  RETURN NEW;
+END $g$;
+CREATE OR REPLACE FUNCTION trg_freeze_registered_tournament_settlement_contract() RETURNS trigger LANGUAGE plpgsql AS $g$
+BEGIN
+  IF TG_TABLE_NAME='tournaments' AND public.fn_ca_midway_free_buy_conversion_transition(to_jsonb(OLD),to_jsonb(NEW)) THEN RETURN NEW; END IF;
+  RETURN NEW;
+END $g$;
+DO $d$BEGIN IF to_regprocedure('public.fn_ca_midway_free_buy_conversion_transition(jsonb,jsonb)') IS NULL THEN
+  CREATE FUNCTION public.fn_ca_midway_free_buy_conversion_transition(jsonb,jsonb) RETURNS boolean LANGUAGE sql AS $f$SELECT false$f$; END IF; END$d$;""")
+        sql("DROP TABLE IF EXISTS before_nightly; CREATE TABLE before_nightly AS SELECT id,name,config FROM tournament_schedules")
+        nightly_sql=next((root/'supabase/migrations').glob('*nightly_10k_guarantees_20k.sql')).read_text()
+        sql(installer(nightly_sql))
+        changed=sql("SELECT string_agg(s.id::text,',' ORDER BY s.id) FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.config IS DISTINCT FROM b.config OR s.name IS DISTINCT FROM b.name")
+        assert changed==','.join(sorted([nightly]+feeder_ids)),changed
+        assert sql("SELECT name||','||(config->>'guaranteedPrize')||','||(config#>>'{midwayWeeklyTerms,guaranteed_prize}')||','||start_times_utc[1] FROM tournament_schedules WHERE id='"+nightly+"'")=='Nightly 20K (NLH),20000,20000,19:00'
+        # On the Nightly only the name and guarantee moved; the feeders now name it.
+        assert sql("SELECT (replace(b.config::text,'Nightly 10K','Nightly 20K')::jsonb-'guaranteedPrize'-'midwayWeeklyTerms')=(s.config::jsonb-'guaranteedPrize'-'midwayWeeklyTerms') AND ((replace(b.config::text,'Nightly 10K','Nightly 20K')::jsonb->'midwayWeeklyTerms')-'guaranteed_prize')=((s.config::jsonb->'midwayWeeklyTerms')-'guaranteed_prize') FROM tournament_schedules s JOIN before_nightly b USING(id) WHERE s.id='"+nightly+"'")=='t'
+        assert sql("SELECT count(*) FROM tournament_schedules WHERE id IN ('"+"','".join(feeder_ids)+"') AND name='Nightly 20K Satellite 5' AND config->>'satelliteTargetName'='Nightly 20K (NLH)'")=='2'
+        missing_targets=sql("SELECT feeder.name FROM tournament_schedules feeder WHERE feeder.active AND feeder.config ? 'satelliteTargetName' AND NOT EXISTS (SELECT 1 FROM tournament_schedules target WHERE target.active AND target.name=feeder.config->>'satelliteTargetName' AND target.union_id=feeder.union_id)")
+        assert not missing_targets,missing_targets
+        assert sql("SELECT string_agg(name||'/'||trim_scale(guaranteed_prize)::text,',' ORDER BY id) FROM tournaments WHERE id IN ('"+open_id+"','"+held_id+"')")=='Nightly 20K (NLH)/20000,Nightly 10K (NLH)/10000'
+        spawned=sql("SELECT gen_random_uuid()")
+        insert_event(spawned,nightly)
+        assert sql("SELECT name||','||trim_scale(guaranteed_prize)::text||','||(fn_ca_midway_weekly_terms(t.schedule_id)->>'guaranteed_prize') FROM tournaments t WHERE id='"+spawned+"'")=='Nightly 20K (NLH),20000,20000'
+        assert sql("SELECT count(*) FROM pg_proc WHERE proname IN ('fn_guard_managed_game_lifecycle','trg_freeze_registered_tournament_settlement_contract') AND prosrc LIKE '%fn_ca_owner_nightly_20k_admitted(OLD, NEW)%'")=='2'
+        # The owner admission is exact: wrong setting, wrong values or another id are not admitted.
+        assert sql("SELECT public.fn_ca_owner_nightly_20k_admitted(o,n) FROM (SELECT t AS o, (jsonb_populate_record(t, jsonb_build_object('name','Nightly 20K (NLH)','guaranteed_prize',20000))) AS n FROM tournaments t WHERE id='"+held_id+"') x")=='f'
+        assert target['config']['guaranteedPrize']==20000 and target['terms']['guaranteed_prize']==20000 and target['name']=='Nightly 20K (NLH)'
+        try: sql(installer(nightly_sql))
+        except RuntimeError as error: assert 'changed since qualification' in str(error),str(error)
+        else: raise AssertionError('a second install of the Nightly 20K migration was not refused')
+        print('PASS: the Nightly is renamed Nightly 20K and guarantees 20,000 on its schedule, feeders, new spawns and unentered instances; an entered instance keeps its contract unless exactly admitted')
+        # Overwatch 2026-11-15, on the owner's delegation: the sheet gains one
+        # fixed-limit Hold'em and one fixed-limit Omaha hi-lo freezeout MTT, each
+        # a copy of the PLO8 Morning Stack's price, guarantee, ladder, seating and
+        # staffing, on Thursday either side of its 09:00 slot.
+        morning='e6953809-af43-4397-a15c-4ea2ce50aa14'
+        fixed_events=[e for e in document['events'] if e['id'] in FIXED_LIMIT]
+        assert [FIXED_LIMIT[e['id']] for e in fixed_events]==['FLH','FLO8'] and document['events'][-2:]==fixed_events
+        fixed_sql=next((root/'supabase/migrations').glob('*_midway_weekly_sheet_schedules_fixed_limit_*.sql')).read_text()
+        catalog_md5="SELECT md5(pg_get_functiondef('public.fn_ca_midway_weekly_catalog()'::regprocedure))"
+        catalog_events="(split_part(pg_get_functiondef('public.fn_ca_midway_weekly_catalog()'::regprocedure),'$catalog$',2)::jsonb->'events')"
+        sql("DROP TABLE IF EXISTS before_fixed_limit; CREATE TABLE before_fixed_limit AS SELECT * FROM tournament_schedules")
+        catalog_before=sql(catalog_md5)
+        # A refused install leaves the catalog and every schedule as they were.
+        occupied="INSERT INTO tournament_schedules(id,club_id,union_id,name,active,time_zone,config,days_of_week,start_times_utc) VALUES('93000000-0000-4000-8000-000000000001','"+scope+"','"+scope+"','Occupied slot',true,'America/Chicago','{}',ARRAY[4],ARRAY['08:45'])"
+        cheaper="INSERT INTO tournament_schedules(id,club_id,union_id,name,active,time_zone,config,days_of_week,start_times_utc) VALUES('93000000-0000-4000-8000-000000000002','"+scope+"','"+scope+"','Cheaper PLO8',true,'America/Chicago','{\"gameVariant\":\"plo8\",\"buyIn\":5,\"guaranteedPrize\":0}',ARRAY[2],ARRAY['07:00'])"
+        for setup,expected in [(occupied,'is taken or outside'),(cheaper,'a smaller active PLO8 row exists')]:
+            sql(setup)
+            try: sql(installer(fixed_sql))
+            except RuntimeError as error: assert expected in str(error),str(error)
+            else: raise AssertionError('fixed-limit install was not refused: '+expected)
+            sql("DELETE FROM tournament_schedules WHERE id::text LIKE '93000000-%'")
+            assert sql(catalog_md5)==catalog_before,'a refused install changed the catalog'
+            assert sql("SELECT count(*) FROM tournament_schedules s FULL JOIN before_fixed_limit b USING(id) WHERE to_jsonb(s) IS DISTINCT FROM to_jsonb(b)")=='0','a refused install changed a schedule'
+        sql(installer(fixed_sql))
+        added=sql("SELECT string_agg(s.id::text,',' ORDER BY s.id) FROM tournament_schedules s LEFT JOIN before_fixed_limit b USING(id) WHERE b.id IS NULL")
+        assert added==','.join(sorted(FIXED_LIMIT)),added
+        assert sql("SELECT count(*) FROM tournament_schedules s JOIN before_fixed_limit b USING(id) WHERE to_jsonb(s) IS DISTINCT FROM to_jsonb(b)")=='0','an existing schedule changed'
+        assert sql("SELECT jsonb_array_length("+catalog_events+")")==str(len(before_fixed_limit)+2)
+        source=json.loads(sql("SELECT config FROM tournament_schedules WHERE id='"+morning+"'"))
+        plo8_spawn=sql("SELECT gen_random_uuid()")
+        insert_event(plo8_spawn,morning)
+        plo8=json.loads(sql("SELECT to_jsonb(t) FROM tournaments t WHERE id='"+plo8_spawn+"'"))
+        for event in fixed_events:
+            game=FIXED_LIMIT[event['id']]
+            # The installed catalog entry is the fixture's event, byte for byte as JSON.
+            assert sql("SELECT e=$event$"+json.dumps(event)+"$event$::jsonb FROM jsonb_array_elements("+catalog_events+") e WHERE e->>'id'='"+event['id']+"'")=='t',event['name']
+            row=json.loads(sql("SELECT to_jsonb(s) FROM tournament_schedules s WHERE id='"+event['id']+"'"))
+            assert row['active'] and row['name']==event['name'] and row['days_of_week']==[4] and row['start_times_utc']==event['times'] and row['time_zone']=='America/Chicago',row
+            config=dict(row['config']); terms=dict(config.pop('midwayWeeklyTerms')); ladder=config.pop('blindStructure')
+            assert config==event['config'],{k:(config.get(k),event['config'].get(k)) for k in config.keys()|event['config'].keys() if config.get(k)!=event['config'].get(k)}
+            assert ladder==json.loads(terms.pop('blind_structure'))==document['profiles'][event['blindProfile']] and terms==event['terms']
+            # The decided copy, read back from the installed rows, not the fixture.
+            for key in ['buyIn','tableSize','maxPlayers','minPlayers','blindPreset','payoutPreset','startingStack','guaranteedPrize','horsesToRegister','lateRegistrationLevels','lateRegistrationMode','lateRegistrationMinutes','blindStructure']:
+                assert row['config'][key]==source[key],key
+            for key in ['buy_in_amount','buy_in_fee','guaranteed_prize','table_size','starting_chips','late_reg_levels','late_reg_mins','blind_speed','blind_structure','bounty_amount']:
+                assert row['config']['midwayWeeklyTerms'][key]==source['midwayWeeklyTerms'][key],key
+            assert row['config']['gameVariant']==game.lower() and row['config']['midwayWeeklyTerms']['game_type']==game
+            assert row['config']['type']=='freezeout' and not any(row['config']['midwayWeeklyTerms'][k] for k in ('is_rebuy','is_reentry','add_on_available','is_bounty','is_pko','is_mystery_bounty'))
+            # A spawn takes the fixed-limit game and the PLO8 row's economics.
+            spawned=sql("SELECT gen_random_uuid()")
+            insert_event(spawned,event['id'])
+            assert sql("SELECT to_jsonb(t) @> fn_ca_midway_weekly_terms(t.schedule_id) FROM tournaments t WHERE id='"+spawned+"'")=='t',event['name']
+            actual=json.loads(sql("SELECT to_jsonb(t) FROM tournaments t WHERE id='"+spawned+"'"))
+            assert actual['game_type']==game and actual['variant']=='freezeout' and actual['tournament_type']=='MTT' and actual['name']==event['name']
+            assert actual['is_rebuy'] is False and actual['is_reentry'] is False and actual['add_on_available'] is False
+            for key in ['buy_in_amount','buy_in_fee','guaranteed_prize','table_size','starting_chips','late_reg_levels','late_reg_mins','blind_structure','blind_speed','synchronized_breaks','big_blind_ante','bounty_amount']:
+                assert actual[key]==plo8[key],(key,actual[key],plo8[key])
+            assert (actual['buy_in_amount'],actual['buy_in_fee'],actual['guaranteed_prize'],actual['table_size'],actual['starting_chips'],actual['late_reg_levels'])==(9,1,250,9,5000,12)
+            # Its own Thursday occurrence matches the schedule: nothing to cancel or refund.
+            local_start={'FLH':'2026-11-19 14:45:00+00','FLO8':'2026-11-19 15:15:00+00'}[game]
+            sql("UPDATE tournaments SET start_time='"+local_start+"' WHERE id='"+spawned+"'")
+            assert 'already_matches' in sql("SELECT fn_ca_install_midway_weekly_occurrence('"+spawned+"')"),event['name']
+        assert sql("SELECT count(*) FROM tournament_schedules a JOIN tournament_schedules b ON a.id<>b.id AND b.active AND a.days_of_week && b.days_of_week AND a.start_times_utc && b.start_times_utc WHERE a.id IN ('"+"','".join(FIXED_LIMIT)+"')")=='0'
+        assert sql('SELECT sum(cardinality(days_of_week)*cardinality(start_times_utc)) FROM tournament_schedules WHERE active')=='380'
+        assert sql("SELECT count(*) FROM tournament_schedules CROSS JOIN LATERAL unnest(days_of_week) d WHERE active AND d=4")=='53'
+        try: sql(installer(fixed_sql))
+        except RuntimeError as error: assert 'changed since qualification' in str(error),str(error)
+        else: raise AssertionError('a second install of the fixed-limit migration was not refused')
+        print("PASS: Fixed Limit Hold'em (Thursday 08:45) and Fixed Limit Omaha Hi-Lo (Thursday 09:15) freezeouts install from the catalog as exact copies of the PLO8 Morning Stack's price, guarantee, ladder, seats and staffing; no existing schedule moves; a taken slot, a cheaper PLO8 row or a second install is refused")
         # Execute the maintained snapshot against this production-shaped schema.
         # Empty read inputs do not emulate cancellation or certify a refund.
         sql("""ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS user_id uuid;
@@ -376,12 +504,12 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
          CREATE TABLE tournament_tickets(source_refund_entitlement_id uuid);""")
         snapshot_sql=(root/'scripts/tournament-schedules/midway-live-snapshot.sql').read_text()
         snapshot=json.loads(sql('BEGIN READ ONLY;'+snapshot_sql+'COMMIT;'))
-        assert len(snapshot['events'])==143
-        assert len(snapshot['statuses'])==378
+        assert len(snapshot['events'])==145
+        assert len(snapshot['statuses'])==380
         assert datetime.fromisoformat(snapshot['asOf']).tzinfo is not None
         assert snapshot['occurrences'] and all(o['refundAuthorityVerified'] is False for o in snapshot['occurrences'])
         assert all(o['cancellationRefundStatus']=='requires_exact_authority' for o in snapshot['occurrences'])
-        print('PASS: maintained snapshot executes read-only with 143 definitions, 378 statuses, timestamp and explicitly unverified refund authority')
+        print('PASS: maintained snapshot executes read-only with 145 definitions, 380 statuses, timestamp and explicitly unverified refund authority')
         print('PASS: exact production defaults/NOT NULL/CHECKs and creation normalizers enforce invalid inputs, admission state, actual capacity and all 143 weekly contracts')
         print('PASS: legacy drift reproduced; all 143 canonical insert contracts, 378 weekly starts, creator overwrite, actual table blinds, unrelated-club isolation, running-game preservation and operator protection verified')
     finally:

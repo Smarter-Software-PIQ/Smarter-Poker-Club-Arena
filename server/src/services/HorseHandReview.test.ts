@@ -455,3 +455,216 @@ describe('Omaha straight into a flush board', () => {
     expect(tags).toContain('dominated_straight_stackoff');
   });
 });
+
+describe('V87 Hold em cash and tournament leak detectors', () => {
+  const dryBoard = [c('K', s), c('9', d), c('4', cl), c('7', h), c('2', s)];
+
+  it('flags nlh_deep_onepair_stackoff on >= 120bb postflop bare one-pair stackoff and mirrors _won', () => {
+    const lost = detectLeaks({
+      netBB: -150,
+      invested: 300,
+      bigBlind: 2,
+      variant: 'nlh',
+      holeCards: [c('K', h), c('Q', d)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'raise', stage: 'preflop', amount: 6, isFullRaise: true },
+        { action: 'bet', stage: 'flop', amount: 12 },
+        { action: 'call', stage: 'turn', amount: 50 },
+        { action: 'all_in', stage: 'river', amount: 232 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(lost).toContain('nlh_deep_onepair_stackoff');
+
+    const won = detectLeaks({
+      netBB: 150,
+      invested: 300,
+      bigBlind: 2,
+      variant: 'nlh',
+      holeCards: [c('K', h), c('Q', d)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'raise', stage: 'preflop', amount: 6, isFullRaise: true },
+        { action: 'bet', stage: 'flop', amount: 12 },
+        { action: 'call', stage: 'turn', amount: 50 },
+        { action: 'all_in', stage: 'river', amount: 232 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(won).toContain('nlh_deep_onepair_stackoff_won');
+    expect(won).not.toContain('nlh_deep_onepair_stackoff');
+
+    // Two pair or better is NOT bare one pair.
+    const twoPair = detectLeaks({
+      netBB: -150,
+      invested: 300,
+      bigBlind: 2,
+      variant: 'nlh',
+      holeCards: [c('K', h), c('9', h)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'raise', stage: 'preflop', amount: 6, isFullRaise: true },
+        { action: 'all_in', stage: 'river', amount: 294 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(twoPair).not.toContain('nlh_deep_onepair_stackoff');
+  });
+
+  it('flags nlh_passive_oop_coldcall_bleed on OOP cold-call + flop check-fold and skips IP flats', () => {
+    const oopTags = detectLeaks({
+      netBB: -3.5,
+      invested: 7,
+      bigBlind: 2,
+      variant: 'nlh',
+      position: 'SB',
+      holeCards: [c('Q', h), c('T', d)],
+      board: dryBoard.slice(0, 3),
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 6 },
+        { action: 'check', stage: 'flop' },
+        { action: 'fold', stage: 'flop' },
+      ],
+      wentToShowdown: false,
+    });
+    expect(oopTags).toContain('nlh_passive_oop_coldcall_bleed');
+
+    const ipTags = detectLeaks({
+      netBB: -3.5,
+      invested: 7,
+      bigBlind: 2,
+      variant: 'nlh',
+      position: 'BTN',
+      holeCards: [c('Q', h), c('T', d)],
+      board: dryBoard.slice(0, 3),
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 6 },
+        { action: 'check', stage: 'flop' },
+        { action: 'fold', stage: 'flop' },
+      ],
+      wentToShowdown: false,
+    });
+    expect(ipTags).not.toContain('nlh_passive_oop_coldcall_bleed');
+  });
+
+  it('flags nlh_ep_limp_passivity on weak non-trap open-limps or EP limp-folds to <=5bb iso, while sparing QQ+ traps and defended 54s-T9s', () => {
+    const weakLimp = detectLeaks({
+      netBB: -25,
+      invested: 50,
+      bigBlind: 2,
+      variant: 'nlh',
+      position: 'early',
+      holeCards: [c('K', h), c('8', d)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 2 },
+        { action: 'call', stage: 'flop', amount: 16 },
+        { action: 'call', stage: 'turn', amount: 32 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(weakLimp).toContain('nlh_ep_limp_passivity');
+
+    const epSmallIsoFold = detectLeaks({
+      netBB: -1,
+      invested: 2,
+      bigBlind: 2,
+      variant: 'nlh',
+      position: 'early',
+      isoRaiseBB: 4,
+      holeCards: [c('7', h), c('6', h)],
+      board: null,
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 2 },
+        { action: 'fold', stage: 'preflop' },
+      ],
+      wentToShowdown: false,
+    });
+    expect(epSmallIsoFold).toContain('nlh_ep_limp_passivity');
+
+    const defendedSuitedConnector = detectLeaks({
+      netBB: -22,
+      invested: 44,
+      bigBlind: 2,
+      variant: 'nlh',
+      position: 'early',
+      holeCards: [c('7', h), c('6', h)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 2 },
+        { action: 'call', stage: 'preflop', amount: 6 },
+        { action: 'call', stage: 'flop', amount: 36 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(defendedSuitedConnector).not.toContain('nlh_ep_limp_passivity');
+
+    const trapQueens = detectLeaks({
+      netBB: -30,
+      invested: 60,
+      bigBlind: 2,
+      variant: 'nlh',
+      position: 'early',
+      holeCards: [c('Q', s), c('Q', h)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 2 },
+        { action: 'call', stage: 'flop', amount: 20 },
+        { action: 'call', stage: 'river', amount: 38 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(trapQueens).not.toContain('nlh_ep_limp_passivity');
+  });
+
+  it('flags nlh_bubble_covered_calloff on covered tournament bubble/pay-jump call-offs with bare one-pair or non-premium preflop', () => {
+    const postflopBust = detectLeaks({
+      netBB: -28,
+      invested: 56,
+      bigBlind: 2,
+      variant: 'nlh',
+      format: 'tournament',
+      nearBubbleOrPayJump: true,
+      coveredStack: true,
+      holeCards: [c('K', d), c('J', cl)],
+      board: dryBoard,
+      heroActions: [
+        { action: 'call', stage: 'preflop', amount: 4 },
+        { action: 'all_in', stage: 'river', amount: 52 },
+      ],
+      wentToShowdown: true,
+    });
+    expect(postflopBust).toContain('nlh_bubble_covered_calloff');
+
+    const preflopNonPremiumBust = detectLeaks({
+      netBB: -22,
+      invested: 44,
+      bigBlind: 2,
+      variant: 'nlh',
+      format: 'tournament',
+      tournamentStage: 'bubble',
+      coveredStack: true,
+      holeCards: [c('A', h), c('J', d)],
+      board: dryBoard,
+      heroActions: [{ action: 'all_in', stage: 'preflop', amount: 44 }],
+      wentToShowdown: true,
+    });
+    expect(preflopNonPremiumBust).toContain('nlh_bubble_covered_calloff');
+
+    const preflopAcesCalloff = detectLeaks({
+      netBB: -22,
+      invested: 44,
+      bigBlind: 2,
+      variant: 'nlh',
+      format: 'tournament',
+      tournamentStage: 'bubble',
+      coveredStack: true,
+      holeCards: [c('A', h), c('A', d)],
+      board: dryBoard,
+      heroActions: [{ action: 'all_in', stage: 'preflop', amount: 44 }],
+      wentToShowdown: true,
+    });
+    expect(preflopAcesCalloff).not.toContain('nlh_bubble_covered_calloff');
+  });
+});

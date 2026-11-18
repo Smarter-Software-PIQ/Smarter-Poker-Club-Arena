@@ -10,6 +10,8 @@ import {
   horsePlo5DepartureEvidence,
   recordHorsePlo5Departure,
 } from '../services/HorsePlo5DepartureEvidence.js';
+import { horseWorkScheduleEvidence } from '../services/HorseWorkSchedule.js';
+import { overlayCoverEvidence } from '../services/horseOverlayCover.js';
 
 describe('handleHealth', () => {
   // 2026-09-26: the default journal source reports every state, including
@@ -26,6 +28,8 @@ describe('handleHealth', () => {
     horseJournal: expect.objectContaining({ mode: 'disabled', lastFailureReason: null }),
     horseDiamondSpins: expect.objectContaining({ active: false, spins: 0, errors: 0 }),
     horsePlo5Departure: horsePlo5DepartureEvidence(),
+    horseWorkSchedule: horseWorkScheduleEvidence(),
+    overlayCover: overlayCoverEvidence(),
   });
   function statusCodeFor(status: Record<string, unknown>): number {
     const { res, captured } = mockRes();
@@ -112,6 +116,8 @@ describe('handleHealth', () => {
       heldBytes: 0,
       holdBudgetBytes: 4 * 1024 * 1024 * 1024,
       holdTrimmedSegments: 0,
+      minRetentionMs: 108_000_000,
+      retentionBreaches: 0,
       compressedBytes: 6_476_021_020,
       maxBytes: 8 * 1024 * 1024 * 1024,
       records: 7_000_000,
@@ -133,6 +139,8 @@ describe('handleHealth', () => {
       ...status,
       horseJournal,
       horsePlo5Departure: horsePlo5DepartureEvidence(),
+      horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
   });
 
@@ -148,6 +156,8 @@ describe('handleHealth', () => {
     expect(parseJson(captured)).toEqual({
       ...status,
       horsePlo5Departure: horsePlo5DepartureEvidence(),
+      horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
     expect(parseJson(captured)).not.toHaveProperty('horseJournal');
   });
@@ -193,6 +203,8 @@ describe('handleHealth', () => {
       ...status,
       horseDiamondSpins,
       horsePlo5Departure: horsePlo5DepartureEvidence(),
+      horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
   });
 
@@ -230,8 +242,14 @@ describe('handleHealth', () => {
       horseDiamondSpins: () => null,
     });
     expect(captured.statusCode).toBe(200);
-    expect(parseJson(captured)).toEqual({ ...status, horsePlo5Departure: after });
+    expect(parseJson(captured)).toEqual({
+      ...status,
+      horsePlo5Departure: after,
+      horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
+    });
     expect(status).not.toHaveProperty('horsePlo5Departure');
+    expect(status).not.toHaveProperty('horseWorkSchedule');
   });
 
   it('requests the scoped table snapshot without weakening dealer routing readiness', () => {

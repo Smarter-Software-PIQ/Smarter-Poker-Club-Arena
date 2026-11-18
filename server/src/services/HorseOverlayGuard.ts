@@ -1,5 +1,6 @@
 /** Owner November 1: small regular prestart groups; random arrivals continue through late entry. */
 import {
+  FREE_ENTRY_FIELD_MAX,
   mttPlannedField,
   mttGuaranteeEntryAmount,
   mttLevelWindowMs,
@@ -97,7 +98,18 @@ import {
  * wallet, the field cap, and late registration closing.
  */
 
-import { horseOverlayRescueDue, horseOverlayRescueEntries } from './horseOverlayRescue.js';
+import {
+  OVERLAY_WARNING_WINDOW_MS,
+  horseOverlayRescueDue,
+  horseOverlayRescueEntries,
+} from './horseOverlayRescue.js';
+import {
+  coveragePaceEntries,
+  markGuaranteeShort,
+  overlayCoverPoolFor,
+} from './horseOverlayCover.js';
+import { raiseFinancialAlert } from './financialAlerts.js';
+import { guaranteeSupplyFindings, type SupplyEvent } from './tournamentHorseSupply.js';
 import { supabase } from './supabase/client.js';
 import { reportError } from './errorReporter.js';
 import { TournamentRecurringService } from './TournamentRecurringService.js';
@@ -134,18 +146,68 @@ export function overlayHostsFrom(
   return arena && arena !== MIDWAY_UNION_ID ? [MIDWAY_UNION_ID, arena] : [MIDWAY_UNION_ID];
 }
 
-/** The hosts this cycle guards: Midway, and the Diamond Arena while it runs events. */
-export async function overlayGuardHosts(): Promise<string[]> {
+/**
+ * Pure: every host the cycle guards. The base hosts (Midway, and the arena
+ * while it runs events) plus the union - or the standalone club - of every
+ * guaranteed paid MTT on the board. Until 2026-11-13 the list was only the
+ * base hosts, so a guarantee published anywhere else had no cover at all. The
+ * arena's own club stays out unless its switch put it in the base list.
+ */
+export function guardHostsWithGuarantees(
+  base: readonly string[],
+  events: ReadonlyArray<{ club_id?: unknown; union_id?: unknown }>,
+  arenaClubId: string | null
+): string[] {
+  const hosts = [...base];
+  for (const e of events) {
+    const host =
+      typeof e.union_id === 'string' && e.union_id
+        ? e.union_id
+        : typeof e.club_id === 'string' && e.club_id
+          ? e.club_id
+          : null;
+    if (!host || hosts.includes(host)) continue;
+    if (arenaClubId && host === arenaClubId) continue;
+    hosts.push(host);
+  }
+  return hosts;
+}
+
+/** The hosts this cycle guards: see guardHostsWithGuarantees. */
+export async function overlayGuardHosts(nowMs: number = Date.now()): Promise<string[]> {
+  let base = [MIDWAY_UNION_ID];
+  let arenaClubId: string | null = null;
   try {
     const { data, error } = await supabase
       .from('ca_arena_settings')
       .select('club_id, tournaments_enabled')
       .eq('id', 1)
       .maybeSingle();
-    return overlayHostsFrom(data as Record<string, unknown> | null, error);
+    base = overlayHostsFrom(data as Record<string, unknown> | null, error);
+    const club = (data as { club_id?: unknown } | null)?.club_id;
+    arenaClubId = typeof club === 'string' && club ? club : null;
   } catch (err) {
     reportError(err, 'HorseOverlayGuard.arena_settings_read_failed');
-    return [MIDWAY_UNION_ID];
+  }
+  try {
+    const { data, error } = await supabase
+      .from('tournaments')
+      .select('club_id, union_id')
+      .gt('guaranteed_prize', 0)
+      .gt('buy_in_amount', 0)
+      .in('format_contract', ['mtt-v1', 'mtt-v2'])
+      .in('status', ['ANNOUNCED', 'REGISTERING', 'RUNNING'])
+      .eq('prize_pool_finalized', false)
+      .gt('start_time', new Date(nowMs - LATE_REG_LOOKBACK_MS).toISOString())
+      .lt('start_time', new Date(nowMs + 3 * 60 * 60_000).toISOString())
+      .limit(1000);
+    if (error) throw new Error(error.message);
+    // An unknown arena club cannot be told apart from a host: keep the base list.
+    if (arenaClubId === null) return base;
+    return guardHostsWithGuarantees(base, (data ?? []) as never[], arenaClubId);
+  } catch (err) {
+    reportError(err, 'HorseOverlayGuard.guaranteed_hosts_read_failed');
+    return base;
   }
 }
 
@@ -557,6 +619,27 @@ export async function lateRegisterHorsesOnce(
       const startedAtMs = Date.parse(String(t.started_at ?? ''));
       if (!Number.isFinite(startedAtMs)) continue;
 
+      /* What the guarantee still needs, read before the door: a rebuy or an
+         add-on can still cover it after entry has closed, so the reading is
+         published (markGuaranteeShort) whether or not a new entry is legal. */
+      const entryAmount = mttGuaranteeEntryAmount(t);
+      let missing = 0;
+      if (Number(t.guaranteed_prize) > 0) {
+        const { data: funding, error: fundingError } = await supabase.rpc(
+          'fn_ca_guarantee_funding',
+          { p_tournament_id: t.id }
+        );
+        if (!shouldContinue() || isMaintenanceFrozen()) return added;
+        try {
+          if (fundingError) throw new Error(fundingError.message);
+          missing = horseOverlayRescueEntries(funding, mttGuaranteeEntryAmount(t));
+          markGuaranteeShort(t.id, missing, nowMs);
+        } catch (error) {
+          reportError(error, 'HorseOverlayGuard.net_overlay_funding_unreadable');
+          // An unavailable rescue read cannot cancel ordinary legal arrivals.
+        }
+      }
+
       // The doors' own answer: level window, clock window, field cap, pool.
       const { data: open, error: openErr } = await supabase.rpc(
         'fn_tournament_late_registration_open',
@@ -605,26 +688,50 @@ export async function lateRegisterHorsesOnce(
         ),
         lateEntries: late,
       });
-      // Owner November 7: independently rescue net guarantee coverage in the
-      // final ten minutes, even when the ordinary arrival plan is satisfied.
-      if (Number(t.guaranteed_prize) > 0 && horseOverlayRescueDue(t, nowMs)) {
-        const { data: funding, error: fundingError } = await supabase.rpc(
-          'fn_ca_guarantee_funding',
-          { p_tournament_id: t.id }
+      /* Owner November 13 (after a 7,295 overlay on the Nightly 20K): while a
+         guarantee is not covered by net entries, every horse is on call for
+         it - off shift and rest day included (overlayCover) - and in the final
+         twenty minutes everything still missing is asked for at once,
+         with no per-cycle ceiling. Owner November 7's rescue was ten minutes,
+         capped at 40 a cycle, and drew only from on-shift horses. */
+      const overlayCover = missing > 0;
+      const closing = overlayCover && horseOverlayRescueDue(t, nowMs);
+      if (overlayCover) {
+        /* Cover keeps pace with the window (coveragePaceEntries) so the final
+           twenty minutes top a field up instead of building it. */
+        const needed = entryAmount > 0 ? Math.ceil(Number(t.guaranteed_prize) / entryAmount) : 0;
+        want = Math.max(
+          want,
+          coveragePaceEntries({
+            neededEntries: needed,
+            missingEntries: missing,
+            progress: lateRegProgress({
+              tournament_id: t.id,
+              startedAtMs,
+              nowMs,
+              lateRegMins: Number(t.late_reg_mins) || 0,
+              lateRegLevels: Number(t.late_reg_levels ?? t.rebuy_levels ?? 0) || 0,
+              currentLevel: Number(t.current_level) || 0,
+              entriesAtStart: total - late,
+              levelWindowMs: mttLevelWindowMs(
+                t.blind_structure,
+                Number(t.late_reg_levels ?? t.rebuy_levels ?? 0)
+              ),
+              lateEntries: late,
+            }),
+          })
         );
-        if (!shouldContinue() || isMaintenanceFrozen()) return added;
-        try {
-          if (fundingError) throw new Error(fundingError.message);
-          want = Math.max(
-            want,
-            Math.min(
-              MAX_TOPUP_PER_CYCLE,
-              horseOverlayRescueEntries(funding, mttGuaranteeEntryAmount(t))
-            )
+        if (closing) want = Math.max(want, missing);
+        if (horseOverlayRescueDue(t, nowMs, OVERLAY_WARNING_WINDOW_MS)) {
+          // One open alert per event (dedupe key), read on Production Alerts.
+          void raiseFinancialAlert(
+            'warning',
+            'HorseOverlayGuard.guarantee_tracking_short',
+            `${t.name} is ${missing} entries short of its ${Number(t.guaranteed_prize)} guarantee with under 30 minutes of registration left`,
+            { tournament_id: t.id, missing_entries: missing, entry_amount: entryAmount },
+            `${t.id}:guarantee_tracking_short`,
+            t.id
           );
-        } catch (error) {
-          reportError(error, 'HorseOverlayGuard.net_overlay_funding_unreadable');
-          // An unavailable rescue read cannot cancel ordinary legal arrivals.
         }
       }
       if (want <= 0) continue;
@@ -632,13 +739,36 @@ export async function lateRegisterHorsesOnce(
       // topUpWithHorses counts the live field (registered + playing), so the
       // target is that field plus this cycle's arrivals.
       const isFree = (Number(t.buy_in_amount) || 0) <= 0;
-      const n = await seeder.topUpWithHorses(t.id, live + want, { allLanes: isFree });
+      const n = await seeder.topUpWithHorses(t.id, live + want, {
+        allLanes: isFree,
+        ...(overlayCover ? { overlayCover: true } : {}),
+      });
       added += n;
       if (!shouldContinue()) return added;
       if (n > 0) {
         console.log(
           `[HorseOverlayGuard] late registration ${t.name}: +${n} horse(s) ` +
             `(${late} late entries so far, level ${t.current_level ?? 0})`
+        );
+      }
+      if (closing && n < want) {
+        /* The failure that cost 7,295 on 2026-11-13 was a console line nobody
+           read. This one is a durable alert, with the pool the ask met. */
+        const pool = overlayCoverPoolFor(t.id);
+        reportError(
+          new Error(
+            `[HorseOverlayGuard] ${t.name} (${t.id.slice(0, 8)}) is short of its guarantee: ` +
+              `asked for ${want} horse(s), registered ${n}`
+          ),
+          'HorseOverlayGuard.overlay_cover_short'
+        );
+        void raiseFinancialAlert(
+          'warning',
+          'HorseOverlayGuard.overlay_cover_short',
+          `${t.name}: overlay cover asked for ${want} horses in the closing window and registered ${n}`,
+          { tournament_id: t.id, asked: want, registered: n, pool: pool ?? null },
+          `${t.id}:overlay_cover_short`,
+          t.id
         );
       }
     }
@@ -649,16 +779,167 @@ export async function lateRegisterHorsesOnce(
   }
 }
 
-/** One full cycle: guaranteed events, then freerolls, then late registration. */
+/* ─── A GUARANTEE THAT CLOSED WITH HOUSE MONEY IS SAID ONCE ────────────────
+   On 2026-11-13 the house posted 7,295 and the owner learned it from a
+   screenshot; ten more events had closed the same way in the fortnight before
+   and nobody had been told about any of them. One durable alert per event. */
+const fundedOverlaysSeen = new Set<string>();
+export async function reportFundedOverlaysOnce(
+  unionId: string = MIDWAY_UNION_ID,
+  shouldContinue: () => boolean = () => true,
+  nowMs: number = Date.now()
+): Promise<number> {
+  let reported = 0;
+  try {
+    if (!shouldContinue()) return reported;
+    const { data: clubs, error: clubErr } = await supabase
+      .from('clubs')
+      .select('id')
+      .or(`id.eq.${unionId},union_id.eq.${unionId}`);
+    if (clubErr) throw new Error(clubErr.message);
+    const clubIds = ((clubs ?? []) as Array<{ id?: string }>)
+      .map((c) => c.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (clubIds.length === 0) return reported;
+    const { data: rows, error } = await supabase
+      .from('tournaments')
+      .select('id, name, guaranteed_prize')
+      .gt('guaranteed_prize', 0)
+      .gt('buy_in_amount', 0)
+      .eq('prize_pool_finalized', true)
+      .in('format_contract', ['mtt-v1', 'mtt-v2'])
+      .in('club_id', clubIds)
+      .gt('started_at', new Date(nowMs - LATE_REG_LOOKBACK_MS).toISOString())
+      .limit(500);
+    if (error) throw new Error(error.message);
+    for (const t of (rows ?? []) as Array<{
+      id: string;
+      name: string;
+      guaranteed_prize: unknown;
+    }>) {
+      if (!shouldContinue()) return reported;
+      if (fundedOverlaysSeen.has(t.id)) continue;
+      const { data: funding, error: fundingError } = await supabase.rpc('fn_ca_guarantee_funding', {
+        p_tournament_id: t.id,
+      });
+      // Unreadable is not "none": leave it unseen and ask again next cycle.
+      if (fundingError || !funding || typeof funding !== 'object') continue;
+      const posted = Number((funding as Record<string, unknown>).house_posted);
+      if (!Number.isFinite(posted)) continue;
+      fundedOverlaysSeen.add(t.id);
+      if (posted <= 0) continue;
+      reported++;
+      await raiseFinancialAlert(
+        'warning',
+        'Tournament.guarantee_closed_with_house_money',
+        `${t.name} closed registration short: the house posted ${posted} toward its ${Number(t.guaranteed_prize)} guarantee`,
+        { tournament_id: t.id, house_posted: posted, funding },
+        `${t.id}:guarantee_closed_with_house_money`,
+        t.id
+      );
+    }
+    return reported;
+  } catch (err) {
+    reportError(err, 'HorseOverlayGuard.funded_overlay_report');
+    return reported;
+  }
+}
+
+/* ─── CAN THE FLEET COVER WHAT IS ON THE BOARD? ────────────────────────────
+   Asked once an hour per host for the next day's guaranteed and free events
+   (tournamentHorseSupply). A guarantee the fleet cannot reach is a warning
+   while there is still time to change the schedule, not a rescue at close. */
+const SUPPLY_CHECK_EVERY_MS = 60 * 60_000;
+const supplyCheckedAt = new Map<string, number>();
+export async function checkGuaranteeSupplyOnce(
+  unionId: string = MIDWAY_UNION_ID,
+  shouldContinue: () => boolean = () => true,
+  nowMs: number = Date.now()
+): Promise<number> {
+  try {
+    if (!shouldContinue()) return 0;
+    if (nowMs - (supplyCheckedAt.get(unionId) ?? 0) < SUPPLY_CHECK_EVERY_MS) return 0;
+    const { data: clubs, error: clubErr } = await supabase
+      .from('clubs')
+      .select('id')
+      .or(`id.eq.${unionId},union_id.eq.${unionId}`);
+    if (clubErr) throw new Error(clubErr.message);
+    const clubIds = ((clubs ?? []) as Array<{ id?: string }>)
+      .map((c) => c.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (clubIds.length === 0) return 0;
+    const { data: rows, error } = await supabase
+      .from('tournaments')
+      .select(
+        'id, name, start_time, guaranteed_prize, buy_in_amount, buy_in_fee, bounty_amount, blind_structure, late_reg_levels, rebuy_levels, late_reg_mins'
+      )
+      .in('format_contract', ['mtt-v1', 'mtt-v2'])
+      .in('status', ['ANNOUNCED', 'REGISTERING', 'RUNNING'])
+      .eq('prize_pool_finalized', false)
+      .in('club_id', clubIds)
+      .gt('start_time', new Date(nowMs - 3 * 60 * 60_000).toISOString())
+      .lt('start_time', new Date(nowMs + 24 * 60 * 60_000).toISOString())
+      .limit(1000);
+    if (error) throw new Error(error.message);
+    const board = (rows ?? []) as Array<Record<string, unknown>>;
+    if (board.length === 0) {
+      supplyCheckedAt.set(unionId, nowMs);
+      return 0;
+    }
+    const supply = await seeder.horseSupplyFor(String(board[0].id));
+    // Unknown supply is not zero supply: say nothing and ask again next cycle.
+    if (!supply) return 0;
+    supplyCheckedAt.set(unionId, nowMs);
+    const events: SupplyEvent[] = board.map((t) => {
+      const levels = Number(t.late_reg_levels ?? t.rebuy_levels ?? 0) || 0;
+      const windowMs =
+        mttLevelWindowMs(t.blind_structure, levels) ??
+        (Number(t.late_reg_mins) > 0 ? Number(t.late_reg_mins) * 60_000 : 60 * 60_000);
+      const start = Date.parse(String(t.start_time ?? ''));
+      const entry = mttGuaranteeEntryAmount(t);
+      const free = (Number(t.buy_in_amount) || 0) <= 0;
+      return {
+        id: String(t.id),
+        name: String(t.name ?? ''),
+        startMs: start,
+        closeMs: start + windowMs,
+        neededEntries: free
+          ? FREE_ENTRY_FIELD_MAX
+          : entry > 0
+            ? Math.ceil((Number(t.guaranteed_prize) || 0) / entry)
+            : 0,
+        guaranteed: !free && Number(t.guaranteed_prize) > 0,
+      };
+    });
+    const findings = guaranteeSupplyFindings(events, supply.fleet);
+    for (const f of findings) {
+      await raiseFinancialAlert(
+        'warning',
+        'HorseOverlayGuard.guarantee_exceeds_horse_supply',
+        f.message,
+        { tournament_id: f.id, ...f.detail, fleet: supply.fleet, free_now: supply.free },
+        `${f.id}:guarantee_exceeds_horse_supply`,
+        f.id
+      );
+    }
+    return findings.length;
+  } catch (err) {
+    reportError(err, 'HorseOverlayGuard.supply_check');
+    return 0;
+  }
+}
+
+/** One full cycle: guaranteed events, then late registration, then freerolls. */
 export async function runEventFillCycle(
   unionId: string = MIDWAY_UNION_ID,
   shouldContinue: () => boolean = () => true
 ): Promise<number> {
   const guaranteed = await runOverlayGuardOnce(unionId, shouldContinue);
   if (!shouldContinue()) return guaranteed;
-  const freerolls = await fillFreerollsOnce(unionId, shouldContinue);
-  if (!shouldContinue()) return guaranteed + freerolls;
+  // A short guarantee is covered before free seats are filled (2026-11-13).
   const late = await lateRegisterHorsesOnce(unionId, shouldContinue);
+  if (!shouldContinue()) return guaranteed + late;
+  const freerolls = await fillFreerollsOnce(unionId, shouldContinue);
   return guaranteed + freerolls + late;
 }
 
@@ -681,14 +962,21 @@ function launchOwnedCycle(context: string): void {
     // Shutdown revokes this scheduler between its two independent mutation
     // passes. The already-started pass is joined by stop(); the second one is
     // never launched by a stale generation.
+    /* Late registration keeps arriving whether or not the guarantee is met,
+       and runs BEFORE the freeroll fill (2026-11-13): on the night the Nightly
+       20K overlaid, the Free Buy had taken 440 horses ahead of it. */
+    for (const host of hosts) {
+      if (!lifecycleIsCurrent(generation)) return;
+      await lateRegisterHorsesOnce(host, () => lifecycleIsCurrent(generation));
+    }
     for (const host of hosts) {
       if (!lifecycleIsCurrent(generation)) return;
       await fillFreerollsOnce(host, () => lifecycleIsCurrent(generation));
     }
-    // Late registration keeps arriving whether or not the guarantee is met.
     for (const host of hosts) {
       if (!lifecycleIsCurrent(generation)) return;
-      await lateRegisterHorsesOnce(host, () => lifecycleIsCurrent(generation));
+      await reportFundedOverlaysOnce(host, () => lifecycleIsCurrent(generation));
+      await checkGuaranteeSupplyOnce(host, () => lifecycleIsCurrent(generation));
     }
   })()
     .catch((err: unknown) => reportError(err, context))

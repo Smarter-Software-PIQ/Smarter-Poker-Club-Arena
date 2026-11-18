@@ -15,7 +15,12 @@ const read = (f: string) => readFileSync(resolve(MIG_DIR, f), 'utf8');
 
 /** The body of the LAST migration that (re)defines `fn`, from its CREATE to the end of its $fn$ body. */
 function lastDefinition(fn: string): { file: string; body: string } {
-  const needle = new RegExp(`create\\s+or\\s+replace\\s+function\\s+public\\.${fn}\\s*\\(`, 'i');
+  // A definition quoted as a string literal (a checked text patch builds one
+  // inside $t$...$t$, e.g. 20261112154904) is not a definition; skip it.
+  const needle = new RegExp(
+    `(?<!\\$\\w*\\$)create\\s+or\\s+replace\\s+function\\s+public\\.${fn}\\s*\\(`,
+    'i'
+  );
   for (let i = files.length - 1; i >= 0; i--) {
     const sql = read(files[i]);
     const m = needle.exec(sql);
@@ -67,17 +72,22 @@ describe('scheduled hours remain authoritative for the full fleet', () => {
   it('does not bypass hours for ranked cash horses', () => {
     const source = readFileSync(resolve(REPO, 'server/src/services/HorseFleetManager.ts'), 'utf8');
     expect(source).toMatch(
-      /let pool = sittable\.filter\(\s*\(h\) => availableNow\(h\.id, regularsNowMs\)/
+      /const pool = sittable\.filter\(\s*\(h\) => availableNow\(h\.id, regularsNowMs\)/
     );
     // Regulars (2026-11-07): a horse's weekly pattern is an hour too, never a bypass.
     expect(source).not.toContain('cashRosterAllows(h.id) === true || availableNow');
     expect(source).not.toContain('cashRosterAllows(h.id) === true || isActiveNow');
-    expect(source).toContain('if (!humanNeedsRescue && isRestDayFor(st, chicagoWeekday))');
-    expect(source).toContain('if (!humanNeedsRescue && dailyCapReached(st, todayKey))');
+    // Owner 2026-11-12 (HorseWorkSchedule): no waiver and no widening at all.
+    expect(source).toContain('if (isRestDayFor(st, chicagoWeekday)) {');
+    expect(source).toContain('if (dailyCapReached(st, todayKey)) {');
+    expect(source).not.toMatch(/\bpool = sittable;/);
   });
 });
 
 describe('cash cluster capacity retains its historical baseline and dated owner reduction', () => {
+  // The CAPPED two-argument tick, which every engine that does not pass
+  // p_uncapped still calls (20261112154904 adds the uncapped overload and
+  // leaves this one untouched).
   it('includes feeders and retains a playable minimum without a second writer', () => {
     const body = flat(lastDefinition('fn_cash_cluster_tick').body);
     expect(body).toContain('v_table_cap := g.cap_mains + 1');

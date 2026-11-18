@@ -12,7 +12,7 @@
  *
  * LIGHTNING PHASE 10 adds two more:
  *
- *   fn_lightning_stop_playing(p_cluster_id)  the responsible-gaming door: the
+ *   fn_lightning_stop_room_playing(p_cluster_id)  the responsible-gaming door: the
  *     caller stops after the current hand; the database ends the session
  *   fn_lightning_pool_status(p_cluster_id).auto_rebuy  LIGHTNING PHASE 12:
  *     the auto-rebuy status line (the operator's configuration and the
@@ -120,6 +120,10 @@ export interface LightningSessionStats {
   handsPerHour: number | null;
   durationS: number | null;
   startingStack: number | null;
+  /** Chips Auto Top Up applied during the session (null on an older answer). */
+  topUps: number | null;
+  /** Starting stack plus applied top ups: everything put on the table. */
+  totalBuyIn: number | null;
   currentStack: number | null;
   net: number | null;
   bbPer100: number | null;
@@ -153,6 +157,8 @@ export function parseLightningSessionStats(raw: unknown): LightningSessionStats 
     handsPerHour: num(row.hands_per_hour),
     durationS: num(row.duration_s),
     startingStack: num(row.starting_stack),
+    topUps: num(row.top_ups),
+    totalBuyIn: num(row.total_buy_in) ?? num(row.starting_stack),
     currentStack: num(row.current_stack),
     net: num(row.net),
     bbPer100: num(row.bb_per_100),
@@ -351,7 +357,7 @@ export async function fetchLightningRecentHands(
   return parseLightningRecentHands(data);
 }
 
-// ─── fn_lightning_stop_playing (LIGHTNING PHASE 10) ────────────────────────
+// ─── fn_lightning_stop_room_playing (LIGHTNING PHASE 10) ────────────────────────
 
 /**
  * PostgREST's "no such function": the Phase 10 migration has not landed yet.
@@ -402,16 +408,52 @@ export function parseLightningStopPlaying(raw: unknown): LightningStopPlayingRes
  * any) settles - the room then closes and the Phase 9 ended flow takes over.
  */
 export async function stopLightningPlaying(
-  clusterId: string
+  clusterId: string,
+  poolSessionId: string
 ): Promise<LightningStopPlayingResult | null> {
-  const { data, error } = await supabase.rpc('fn_lightning_stop_playing', {
+  const { data, error } = await supabase.rpc('fn_lightning_stop_room_playing', {
     p_cluster_id: clusterId,
+    p_pool_session_id: poolSessionId,
   });
   if (error) {
     if (isLightningRpcMissing(error)) return null;
     throw error;
   }
   return parseLightningStopPlaying(data);
+}
+
+export interface LightningResumePlayingResult {
+  ok: boolean;
+  /** True when a standing stop was taken back; false when none stood. */
+  withdrawn: boolean;
+  /** NO_SESSION, EXITED, FROZEN or RG_LIMIT when refused. */
+  reason: string | null;
+}
+
+export function parseLightningResumePlaying(raw: unknown): LightningResumePlayingResult {
+  const row = objectOf(raw);
+  if (!row) return { ok: false, withdrawn: false, reason: null };
+  return { ok: row.ok === true, withdrawn: row.withdrawn === true, reason: text(row.reason) };
+}
+
+/**
+ * Dan 2026-11-12: a queued Leave Next Hand can be cancelled. Withdraws the
+ * caller's own stop mark (fn_lightning_resume_room_playing) so they keep being
+ * dealt in. `null` means the function is not deployed yet.
+ */
+export async function resumeLightningPlaying(
+  clusterId: string,
+  poolSessionId: string
+): Promise<LightningResumePlayingResult | null> {
+  const { data, error } = await supabase.rpc('fn_lightning_resume_room_playing', {
+    p_cluster_id: clusterId,
+    p_pool_session_id: poolSessionId,
+  });
+  if (error) {
+    if (isLightningRpcMissing(error)) return null;
+    throw error;
+  }
+  return parseLightningResumePlaying(data);
 }
 
 /** The control's words. Title Case, no em dashes. */
@@ -528,7 +570,9 @@ export function lightningDurationText(seconds: number | null): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   if (h > 0) return `${h}h ${m < 10 ? '0' : ''}${m.toLocaleString()}m`;
-  if (m > 0) return `${m}m`;
+  // Dan 2026-11-12: the exact duration, "8m 49s", not "8m".
+  const sec = s % 60;
+  if (m > 0) return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
   return `${s}s`;
 }
 

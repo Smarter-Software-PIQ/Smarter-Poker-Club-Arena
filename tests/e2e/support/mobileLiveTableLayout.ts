@@ -1,7 +1,89 @@
+import { TABLE_ART_MAX_COVER_MS } from '../../../src/hooks/useTableArt';
 import { AVATAR_CROWN_TOP } from '../../../src/components/table/avatarCrownBounds';
+import {
+  NINE_SEAT_PHONE_RAIL_BUST,
+  PHONE_AVATAR_MIN_HEIGHT_PX,
+} from '../../../src/components/table/mobileAvatarSize';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+
+/** A resize clears paint while decoded art and protected rows settle. Two
+ * animation frames can still be that baseline, not the published result.
+ *
+ * Dan 2026-11-18: the proof is ABSOLUTE. For a week every check here asked
+ * only "bigger than 1x", which the CSS base alone satisfies, so a deploy that
+ * lost the whole enlargement still certified. Every character portrait the
+ * table painted must reach the approved height for its ring
+ * (src/components/table/mobileAvatarSize.ts), measured in layout px so the
+ * same floor holds at every phone width. */
+export async function waitForMobileAvatarGrowth(page: Page) {
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator('.table-page:visible')
+          .first()
+          .evaluate(
+            (table, floors) => {
+              const page = table as HTMLElement;
+              const supported =
+                matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)')
+                  .matches &&
+                ['6', '9'].includes(page.dataset.seats || '') &&
+                page.dataset.killEnabled === 'false' &&
+                [2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount));
+              if (!supported) return 'unsupported';
+              const scaler = page.querySelector<HTMLElement>('.table-scaler');
+              const ratio =
+                scaler && scaler.offsetWidth
+                  ? scaler.getBoundingClientRect().width / scaler.offsetWidth
+                  : 1;
+              const nine = page.dataset.seats === '9';
+              const watching = page.dataset.hero === 'false';
+              const painted = Array.from(
+                page.querySelectorAll<HTMLElement>('.seat:not(.seat--empty) .seat__avatar--bust')
+              ).filter((avatar) => avatar.style.getPropertyValue('--sp-mobile-art-scale'));
+              if (!painted.length) return 'no painted portrait';
+              const short: string[] = [];
+              for (const avatar of painted) {
+                const image = avatar.querySelector<HTMLElement>('.seat__avatar-img');
+                if (!image) continue;
+                const hero = Boolean(avatar.closest('.seat--hero'));
+                const floor = nine
+                  ? hero
+                    ? floors.nineSeatHero
+                    : floors.nineSeatOpponent
+                  : watching
+                    ? floors.sixSeatSpectator
+                    : floors.sixSeat;
+                // A full-ring chair whose own art is too wide for the rail beside
+                // the board takes its own smaller rail size by design; its floor
+                // scales with it. Every other chair takes the approved size.
+                const ownRail = parseFloat(
+                  avatar
+                    .closest<HTMLElement>('.seat-wrapper')
+                    ?.style.getPropertyValue('--sp-seat-rail-bust') ?? ''
+                );
+                const allowance = nine && ownRail > 0 ? ownRail / floors.nineSeatRailBust : 1;
+                const height = image.getBoundingClientRect().height / ratio;
+                if (height + 0.5 < floor * allowance)
+                  short.push(
+                    `${avatar.closest<HTMLElement>('.seat')?.dataset.seatNum ?? '?'}:${height.toFixed(1)}<${(floor * allowance).toFixed(1)}`
+                  );
+              }
+              return short.length ? `below the approved size: ${short.join(' ')}` : 'ok';
+            },
+            { ...PHONE_AVATAR_MIN_HEIGHT_PX, nineSeatRailBust: NINE_SEAT_PHONE_RAIL_BUST }
+          ),
+      {
+        timeout: 15_000,
+        message:
+          'Supported live table must paint every character portrait at the approved phone size',
+      }
+    )
+    .toMatch(/^(ok|unsupported)$/);
+}
 
 /** JSON reporter bodies are embedded, so retain files for the release artifact too. */
 async function attachMobileProof(
@@ -20,14 +102,29 @@ async function attachMobileProof(
 export async function certifyMobileLiveTableLayout(
   page: Page,
   testInfo: TestInfo,
-  options: { widths?: number[]; seatChangeToggle?: boolean } = {}
+  options: {
+    widths?: number[];
+    seatChangeToggle?: boolean;
+    requireAvatarGrowth?: boolean;
+    /** The page holds no seat here: the menu must offer no seat-only row. */
+    spectator?: boolean;
+  } = {}
 ) {
   const capacity = await page.locator('.table-page:visible').first().getAttribute('data-seats');
   const proofTag = `mobile-live-table-${capacity || 'unknown'}max`;
   const originalViewport = page.viewportSize();
+  let proofFailure: { error: unknown } | undefined;
+  const changeViewport = async (size: { width: number; height: number }) => {
+    const current = page.viewportSize();
+    if (current?.width !== size.width || current.height !== size.height)
+      await page.setViewportSize(size);
+  };
   try {
-    for (const width of options.widths || [320, 375, 393, 430]) {
-      await page.setViewportSize({ width, height: width === 320 ? 568 : 852 });
+    // The dedicated physical-phone cases own the four-width matrix. Keep an
+    // existing hand/reconnect witness on its real device and stable canvas.
+    for (const width of options.widths || [originalViewport?.width || 393]) {
+      if (options.widths || !originalViewport)
+        await changeViewport({ width, height: width === 320 ? 568 : 852 });
       // Commit the resize and its observer-driven layout before measuring.
       await page.evaluate(
         () =>
@@ -35,7 +132,9 @@ export async function certifyMobileLiveTableLayout(
             requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))
           )
       );
-      await expect(page.locator('.table-art-cover:visible')).toHaveCount(0);
+      await expect(page.locator('.table-art-cover:visible')).toHaveCount(0, {
+        timeout: TABLE_ART_MAX_COVER_MS + 5000,
+      });
       await page.locator('.table-page:visible .seat__avatar-img').evaluateAll(async (images) => {
         await Promise.all(
           images.map(async (image) => {
@@ -47,6 +146,7 @@ export async function certifyMobileLiveTableLayout(
           })
         );
       });
+      if (options.requireAvatarGrowth) await waitForMobileAvatarGrowth(page);
       const read = () => page.evaluate(readMobileTableLayout, AVATAR_CROWN_TOP);
       await expect
         .poll(async () => (await read()).violations, {
@@ -87,25 +187,80 @@ export async function certifyMobileLiveTableLayout(
     if (options.seatChangeToggle === false) return;
     const menu = page.getByRole('button', { name: 'Table Menu', exact: true });
     await menu.click();
-    const toggle = page.getByRole('menuitemcheckbox', { name: /Seat Change/ });
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await toggle.click();
-    await expect(page.locator('.cch-seat-change-control:visible')).toHaveCount(0);
-    await menu.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    await toggle.click();
-    await menu.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    /* SEAT CHANGE IS EITHER A SWITCH OR SAYS WHY IT IS NOT (2026-11-15). A
+       Lightning game withholds seat change on purpose (#10818), and this proof
+       used to demand the switch at whatever occupied table production was
+       running, so it failed whenever that table was a Lightning game. The row
+       is now there either way: a switch at a Classic table, a disabled row
+       naming Lightning at a Lightning table. Both are proved. */
+    const toggle = page.getByRole('menuitemcheckbox', { name: /^Seat Change/ });
+    const offInLightning = page.getByRole('menuitem', {
+      name: 'Seat Change Off In Lightning',
+      exact: true,
+    });
+    await expect(toggle.or(offInLightning)).toBeVisible();
+    if (await toggle.count()) {
+      await expect(toggle).toHaveAttribute('aria-checked', 'true');
+      await toggle.click();
+      /* A SWITCH LEAVES THE MENU OPEN (2026-11-14, #10924). This used to press
+         the hamburger again after every switch, because every row closed the
+         menu. With the menu still open that second press CLOSED it, and the
+         read of the switch below found nothing. The switch is read where the
+         player now sees it change: in the open menu. */
+      await expect(toggle).toHaveAttribute('aria-checked', 'false');
+      await expect(page.locator('.cch-seat-change-control:visible')).toHaveCount(0);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    } else {
+      await expect(offInLightning).toBeDisabled();
+    }
+    if (options.spectator) {
+      /* A spectator holds no seat, so the menu offers nothing that acts on
+         one (#10947). Leave Table stays: it is how a spectator closes it. */
+      for (const label of ['Sit Out', 'Stand Up Next Big Blind', 'Leave Table Next Hand']) {
+        await expect(page.getByRole('menuitem', { name: label, exact: true })).toHaveCount(0);
+      }
+      await expect(page.getByRole('menuitemcheckbox', { name: /^Stand Up Next/ })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: 'Leave Table', exact: true })).toBeVisible();
+    }
+    /* THE SOUNDS SWITCH ANSWERS THE PRESS, AT A REAL TABLE (owner report
+       2026-11-14: "THE SOUNDS BUTTON ... SILENTLY FAIL"). Flipped and flipped
+       back, so the account leaves with the preference it arrived with. */
+    const sounds = page.getByRole('menuitemcheckbox', { name: /^Sounds/ });
+    const soundWas = (await sounds.getAttribute('aria-checked')) === 'true';
+    await sounds.click();
+    await expect(sounds).toHaveAttribute('aria-checked', String(!soundWas));
+    await sounds.click();
+    await expect(sounds).toHaveAttribute('aria-checked', String(soundWas));
     await attachMobileProof(
       testInfo,
       `${proofTag}-seat-change-toggle`,
       await page.screenshot(),
       'image/png'
     );
+    /* And a row that opens something closes the menu and opens it. */
+    await page.getByRole('menuitem', { name: 'Game Rules', exact: true }).click();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    const closeRules = page.getByRole('button', { name: 'Close Table Rules', exact: true });
+    await expect(closeRules).toBeVisible();
+    await closeRules.click();
+    await expect(closeRules).toHaveCount(0);
     await page.keyboard.press('Escape');
-  } finally {
-    if (originalViewport) await page.setViewportSize(originalViewport);
+  } catch (error) {
+    proofFailure = { error };
   }
+  if (originalViewport && !page.isClosed()) {
+    try {
+      await changeViewport(originalViewport);
+    } catch (error) {
+      if (!proofFailure) throw error;
+      testInfo.annotations.push({
+        type: 'viewport restoration failed',
+        description: String(error),
+      });
+    }
+  }
+  if (proofFailure) throw proofFailure.error;
 }
 
 /** Observe real payouts during the existing hand/reconnect case; never inject a hand. */
@@ -276,13 +431,18 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   const plates = Array.from(table.querySelectorAll('.seat__info')).filter(visible);
   const protectedNodes = Array.from(
     table.querySelectorAll(
-      '.community-area, .pot-display, .seat__info, .seat__bet-chips, .seat__strength, .action-panel'
+      '.community-area, .pot-display, .table-brand, .seat__info, .seat__bet-chips, .seat__strength, .dealer-button, .action-panel'
     )
   ).filter(visible);
-  const cards = Array.from(table.querySelectorAll('.seat__cards--revealed .seat__card')).filter(
-    visible
-  );
+  const cards = Array.from(table.querySelectorAll('.seat__cards .seat__card')).filter(visible);
   const violations: string[] = [];
+  const restingCollectionEndpoints: Array<{
+    seat: string | null;
+    target: 'pot-pile' | 'pot-area';
+    projected: { x: number; y: number };
+    expected: { x: number; y: number };
+    distance: number;
+  }> = [];
   let crownProof: {
     gap: number;
     maximumGap: number;
@@ -320,14 +480,216 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         if (a.n < b.n && Math.hypot(a.x - b.x, a.y - b.y) < 24)
           violations.push(`Chairs ${a.n} And ${b.n} Drawn On One Spot`);
   }
+  if (
+    table.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  ) {
+    const surface = table.querySelector('.table-surface');
+    if (surface && visible(surface)) {
+      const f = box(surface),
+        radius = f.width / 2;
+      for (const chip of table.querySelectorAll('.seat__bet-chips,.pot-display__pile--pot')) {
+        if (!visible(chip)) continue;
+        const r = box(chip);
+        const clear = [r.left, r.right].every((x) =>
+          [r.top, r.bottom].every(
+            (y) =>
+              Math.hypot(
+                x - (f.left + radius),
+                y - Math.max(f.top + radius, Math.min(f.bottom - radius, y))
+              ) <=
+              radius - 7.5
+          )
+        );
+        let clearsGold = true;
+        if (ring && table.dataset.feltTheme === 'classic_green') {
+          const art = box(ring);
+          const x = Math.max(
+            302.5 - ((r.left - art.left) * 605) / art.width,
+            ((r.right - art.left) * 605) / art.width - 302.5
+          );
+          const y = Math.max(
+            275 - ((r.top - art.top) * 1000) / art.height,
+            ((r.bottom - art.top) * 1000) / art.height - 725,
+            0
+          );
+          clearsGold = (x / 200.5) ** 2 + (y / 186) ** 2 < 1;
+        }
+        if (!clear || !clearsGold) violations.push('Nine-Max Chips Encroach On Rail');
+      }
+    }
+    // Record the endpoint encoded on actual resting wagers. An already moving
+    // stack cannot supply its resting origin. A hand without wagers contributes
+    // no endpoint evidence.
+    const pile = table.querySelector('.pot-display__pile--pot');
+    const pot = pile ?? table.querySelector('.pot-area');
+    if (ring instanceof HTMLElement && pot && visible(pot) && ring.offsetWidth) {
+      const scale = box(ring).width / ring.offsetWidth;
+      const target = box(pot);
+      const expected = { x: target.left + target.width / 2, y: target.top + target.height / 2 };
+      for (const bet of table.querySelectorAll<HTMLElement>('.seat__bet-chips')) {
+        const stack = bet.querySelector('.cp-stacks');
+        if (
+          !stack ||
+          !visible(stack) ||
+          stack.getAnimations().some((a) => a.playState === 'running')
+        )
+          continue;
+        const from = box(stack);
+        const style = getComputedStyle(bet);
+        const dx = parseFloat(style.getPropertyValue('--collect-dx'));
+        const dy = parseFloat(style.getPropertyValue('--collect-dy'));
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+          violations.push('Nine-Max Resting Wager Missing Collection Offset');
+          continue;
+        }
+        const projected = {
+          x: from.left + from.width / 2 + dx * scale,
+          y: from.top + from.height / 2 + dy * scale,
+        };
+        const distance = Math.hypot(projected.x - expected.x, projected.y - expected.y);
+        restingCollectionEndpoints.push({
+          seat: bet.closest('.seat')?.getAttribute('data-seat-num') ?? null,
+          target: pile ? 'pot-pile' : 'pot-area',
+          projected,
+          expected,
+          distance,
+        });
+        if (distance > 2) violations.push('Nine-Max Resting Wager Collection Misses Pot');
+      }
+    }
+    const heroAvatar = table.querySelector<HTMLElement>('.seat--hero .seat__avatar');
+    if (heroAvatar && ring instanceof HTMLElement && ring.offsetWidth) {
+      const base = Math.min(124, Math.max(50, ring.offsetWidth * 0.158));
+      if (parseFloat(getComputedStyle(heroAvatar).height) < (base * 4) / 3 - 1)
+        violations.push('Nine-Max Hero Avatar Below Full Diameter');
+    }
+    for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
+      const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
+      if (!seat || !visible(seat) || !visible(wrapper)) continue;
+      const cap = wrapper.matches('.seat-wrapper--cap,.seat-wrapper--top');
+      if (ring && cap) {
+        const plate = seat.querySelector('.seat__info');
+        if (plate && visible(plate)) {
+          const chassis = box(ring),
+            label = box(plate);
+          const centre = (label.top + label.height / 2 - chassis.top) / chassis.height;
+          if (centre < 0.045 || centre > 0.08)
+            violations.push(`Chair ${seat.dataset.seatNum} Misses Nine-Max Top Rail`);
+        }
+      }
+      const anchor = box(wrapper);
+      const pod = box(seat);
+      const art = table.querySelector('.table-art');
+      if (!cap && art && visible(art)) {
+        const skin = box(art);
+        const x = (pod.left + pod.width / 2 - skin.left) / skin.width;
+        const y = (pod.top + pod.height / 2 - skin.top) / skin.height;
+        // The outer edge at the lower shoulder is farther in than the
+        // straight side. Compare with the actual painted chassis bounds.
+        const inset = Math.min(x, 1 - x);
+        if (inset < (y > 0.75 ? 0.065 : 0.033) - 1 / skin.width || inset > 0.16)
+          violations.push(`Chair ${seat.dataset.seatNum} Outside Painted Nine-Max Rail`);
+      }
+      const dx = pod.left + pod.width / 2 - (anchor.left + anchor.width / 2);
+      const dy = pod.top + pod.height / 2 - (anchor.top + anchor.height / 2);
+      if (Math.abs(dx) > 2 || (!cap && Math.abs(dy) > 2))
+        violations.push(`Chair ${seat.dataset.seatNum} Left Its Nine-Max Rail Anchor`);
+    }
+  }
+  const footerControls = Array.from(
+    table.querySelectorAll('.waitlist-cta, .action-panel, .pre-action-bar')
+  ).filter(visible);
+  for (const wrap of table.querySelectorAll(
+    '.seat--folded > .seat__avatar-wrap:has(.seat__avatar--bust)'
+  )) {
+    if (
+      visible(wrap) &&
+      (getComputedStyle(wrap).filter !== 'none' ||
+        getComputedStyle(wrap).opacity !== '1' ||
+        (matchMedia('(max-width: 768px) and (orientation: portrait)').matches &&
+          (getComputedStyle(wrap.parentElement!).filter !== 'none' ||
+            getComputedStyle(wrap.parentElement!).opacity !== '1')))
+    )
+      violations.push('Folded Portrait Has A Clipping Compositing Group');
+  }
+  for (const seat of table.querySelectorAll('.seat-wrapper--spot .seat:has(.seat__avatar--bust)')) {
+    if (visible(seat) && getComputedStyle(seat).filter !== 'none')
+      violations.push('Acting Portrait Has A Clipping Compositing Group');
+  }
+  if (matchMedia('(max-width: 768px) and (orientation: portrait)').matches) {
+    for (const seat of table.querySelectorAll('.seat:has(.seat__avatar--bust)')) {
+      const wrapper = seat.closest('.seat-wrapper');
+      if (
+        !table.classList.contains('table-page--winner-flash') &&
+        !wrapper?.classList.contains('seat-wrapper--dim')
+      )
+        continue;
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      const parents = [wrapper, seat, avatar.parentElement!, avatar].filter(Boolean) as Element[];
+      if (
+        visible(avatar) &&
+        parents.some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Celebration Or Dim Portrait Has A Clipping Compositing Group');
+    }
+
+    for (const seat of table.querySelectorAll(
+      '.seat:is(.seat--away, .seat--sitting_out):has(.seat__avatar--bust)'
+    )) {
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      if (
+        visible(avatar) &&
+        [seat, avatar.parentElement!, avatar].some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Inactive Portrait Has A Clipping Compositing Group');
+    }
+  }
+  // This is the enlarged phone-canvas contract, exercised at every physical
+  // phone width by production. Legacy raw-width fixtures use another caption
+  // layout and retain their existing containment/board/card checks.
+  if (
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches &&
+    ['6', '9'].includes(table.dataset.seats || '')
+  ) {
+    for (const action of table.querySelectorAll('.seat > .seat__action')) {
+      if (!visible(action)) continue;
+      const caption = box(action);
+      const header = document.querySelector('.multi-table-page__tab-bar-wrapper');
+      if (caption.top < (header ? box(header).bottom : 0) - 0.5 || caption.bottom > innerHeight + 1)
+        violations.push('Action Caption Outside Playable Viewport');
+      for (const protectedNode of [
+        ...cards,
+        ...plates,
+        ...table.querySelectorAll('.chat-collapsed,.mtp-lobby-btn'),
+      ])
+        if (intersects(box(action), box(protectedNode)))
+          violations.push(`Action Caption Covers ${protectedNode.className}`);
+    }
+  }
   for (const plate of plates) {
     const rect = box(plate);
+    for (const control of footerControls)
+      if (intersects(rect, box(control)))
+        violations.push('Player Plate Covered By Bottom Controls');
     if (rect.width > innerWidth * 0.3 || rect.left < -1 || rect.right > innerWidth + 1)
       violations.push('Player Plate Outside Its Mobile Lane');
   }
   for (const card of cards) {
     const rect = box(card);
-    if (rect.left < -1 || rect.right > innerWidth + 1) violations.push('Card Outside Viewport');
+    if (
+      rect.left < -1 ||
+      rect.right > innerWidth + 1 ||
+      rect.top < -1 ||
+      rect.bottom > innerHeight + 1
+    )
+      violations.push('Card Outside Viewport');
     for (const node of protectedNodes)
       if (intersects(rect, box(node))) violations.push(`Card Covers ${node.className}`);
   }
@@ -745,10 +1107,23 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   return {
     violations,
     crownProof,
+    restingCollectionEndpoints,
     occupied: plates.length,
     width: innerWidth,
     plateWidths: plates.map((plate) => box(plate).width),
-    revealedCards: cards.length,
+    // Record actual production enlargement, not containment alone.
+    avatarPaint: avatars.map((image) => {
+      const avatar = image.closest<HTMLElement>('.seat__avatar');
+      return {
+        seat: image.closest('.seat')?.getAttribute('data-seat-num'),
+        source: image instanceof HTMLImageElement ? image.currentSrc || image.src : null,
+        scale: Number(avatar?.style.getPropertyValue('--sp-mobile-art-scale') || 1),
+        clip: getComputedStyle(image).clipPath,
+        bounds: box(image).toJSON(),
+      };
+    }),
+    revealedCards: cards.filter((card) => card.closest('.seat__cards--revealed')).length,
+    visibleCards: cards.length,
     allInMarkers: markers.length,
     height: innerHeight,
     topGap,

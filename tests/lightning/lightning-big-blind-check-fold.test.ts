@@ -75,7 +75,7 @@ describe('the host releases a held fold the moment a bet prices it', () => {
       HOST.indexOf('setPreAction(', HOST.indexOf('private releasePricedCheckFolds(): void {'))
     );
     expect(body).toMatch(
-      /if \(this\.pendingFolds\.has\(userId\)\) \{\s+if \(!this\.releasedOrRecorded\.has\(userId\)\) this\.afterFold\(userId, 'fast'\);/
+      /if \(this\.pendingFolds\.has\(userId\)\) \{\s+if \(!this\.releasedOrRecorded\.has\(userId\)\) \{\s+this\.afterFold\(userId, 'fast'\);/
     );
   });
 });

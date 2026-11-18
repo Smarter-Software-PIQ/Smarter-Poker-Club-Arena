@@ -71,7 +71,7 @@ describe('Must Move wakes retain ownership until the actual request settles', ()
       pending.resolve(wakeResult);
       await vi.advanceTimersByTimeAsync(CLUSTER_WAKE_DEBOUNCE_MS);
       expect(rpc).toHaveBeenCalledTimes(2);
-      expect(rpc.mock.calls.every(([name]) => name === 'fn_cash_cluster_tick')).toBe(true);
+      expect(rpc.mock.calls.every(([name]) => name === 'fn_cash_cluster_tick_uncapped')).toBe(true);
       expect(controller.wakeStats.pending).toBe(0);
     } finally {
       pending.resolve(wakeResult);

@@ -75,16 +75,21 @@ describe('LAW: a seat opens for a person, and for nothing else', () => {
       /const holdsFull =\s*!windingDown && fill === 'full' && releaseWanted === 0/
     );
     expect(ROTATOR).toMatch(/!holdsFull &&[\s\S]{0,160}wantsTableChange\(/);
-    expect(ROTATOR).toMatch(/if \(holdsFull\) p = 0;/);
+    // 2026-11-13: a table that just had a shift change is held the same way.
+    expect(ROTATOR).toMatch(/if \(holdsFull \|\| shiftChangedHere\) p = 0;/);
   });
 
   it('but a money decision still gets a horse out of its seat', () => {
     /* Booking a win and stopping a loss are NOT held. A horse that plays past
        its stop-loss because the table wanted to look full is a bug in the
        bankroll law, and this rule does not get to break that one. */
-    const idxVerdict = ROTATOR.indexOf("bankrollEvent(verdict === 'book_win'");
+    /* BANK THE WIN (owner 2026-11-10): the winning exit now belongs to the
+       engine's settlement (HorseBankTheWin: 4-6x the starting stack, one
+       orbit after a big pot, before the next big blind), which no full-table
+       hold reaches. The rotator's own verdict books the stop loss. */
+    const idxVerdict = ROTATOR.indexOf("bankrollEvent('session_stop_loss')");
     expect(idxVerdict).toBeGreaterThan(-1);
-    const idxHold = ROTATOR.indexOf('if (holdsFull) p = 0;');
+    const idxHold = ROTATOR.indexOf('if (holdsFull || shiftChangedHere) p = 0;');
     expect(idxHold).toBeGreaterThan(idxVerdict);
   });
 });

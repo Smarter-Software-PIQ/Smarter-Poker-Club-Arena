@@ -707,3 +707,53 @@
     animation: none;
   }
 }
+
+/* Cut stone above a recessed socket. The unopened steel engraving is deliberately
+   distinct from an earned gem; only an authoritative reveal illuminates a stone. */
+.sealedEmblem {
+  width: 82%;
+  height: 82%;
+  transform: rotate(-45deg);
+  fill: #071524;
+  stroke: #9ac8e8;
+  stroke-width: 1.4;
+  filter: drop-shadow(1px 1px 0 #e1f4ff55) drop-shadow(0 3px 1px #000);
+}
+.tile[data-revealed='true'] {
+  background: radial-gradient(ellipse at 40% 32%, #2372bb 0%, #092d53 32%, #020813 72%);
+  box-shadow:
+    inset 2px 2px 5px #000,
+    inset -1px -1px #bce9ff66,
+    3px 3px 0 #02060e;
+}
+.gem[data-cut-diamond='true'] {
+  width: 110%;
+  height: 110%;
+  max-width: none;
+  filter: drop-shadow(3px 5px 2px #000b) drop-shadow(0 0 4px #2186ef66);
+}
+.gem[data-cut-diamond='true'] {
+  object-fit: contain;
+  animation: cut-stone-reveal calc(680ms * var(--animation-speed, 1)) cubic-bezier(0.2, 0.8, 0.2, 1)
+    both;
+}
+@keyframes cut-stone-reveal {
+  0% {
+    opacity: 0;
+    transform: rotate(-65deg) translateY(8px) scale(0.35);
+  }
+  65% {
+    opacity: 1;
+    transform: rotate(-39deg) translateY(-3px) scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-45deg) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gem[data-cut-diamond='true'] {
+    animation: none;
+    transform: rotate(-45deg);
+  }
+}

@@ -3,11 +3,12 @@ import { StrictMode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { useTableAnimations } from '../../src/hooks/useTableAnimations';
 import type { Throwable } from '../../src/services/ThrowableService';
-const state = vi.hoisted(() => ({ send: vi.fn(), id: 0 }));
+const state = vi.hoisted(() => ({ send: vi.fn(), record: vi.fn(), id: 0 }));
 vi.mock('../../src/services/RoomService', () => ({ roomService: { sendChat: state.send } }));
 vi.mock('../../src/components/table/ThrowableImage', () => ({ preloadThrowableImages: vi.fn() }));
 vi.mock('../../src/services/ThrowableService', () => ({
   throwableService: {
+    recordThrowTarget: state.record,
     createThrowEvent: (
       fromSeat: number,
       toSeat: number,
@@ -25,6 +26,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   state.send.mockClear();
+  state.record.mockClear();
   state.id = 0;
 });
 it('plays both server-approved throws even when responses arrive less than 1500 ms apart', async () => {
@@ -51,6 +53,8 @@ it('carries the approved receipt identity to the local event and the receiving p
     sender.result.current.handleThrowableSelect({ id: 'magic_8_ball' } as Throwable, receipt)
   );
   expect(state.send).toHaveBeenCalledWith('table-a', 'sender', '[THROW:magic_8_ball:2]', receipt);
+  // Who was hit is recorded against the same receipt (Dan 2026-11-13).
+  expect(state.record).toHaveBeenCalledWith(receipt, 'table-a', 2);
   act(() => receiver.result.current.receiveThrow(1, 2, 'magic_8_ball', receipt));
   expect(sender.result.current.activeThrows[0].id).toBe(receipt);
   expect(receiver.result.current.activeThrows[0].id).toBe(receipt);

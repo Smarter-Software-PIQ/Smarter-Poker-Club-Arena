@@ -23,6 +23,7 @@
 import { execFileSync } from 'node:child_process';
 import { supabaseServerHeaders } from '../../scripts/ci/supabase-auth-headers.mjs';
 import { assertClubArenaRepository } from '../../scripts/ci/repository-identity.mjs';
+import { promoDigestLines } from './promo-digest.mjs';
 import { digestRecipients } from './estate-digest-recipients.mjs';
 
 const REPO = process.env.REPO || 'Smarter-Poker/Smarter-Poker-Club-Arena';
@@ -266,6 +267,16 @@ await tryStep('seat-first starts', async () => {
       `  ${r.kind}: ${r.starts} starts - outside both the target and the feeder line; check whether it belongs in one.`
     );
   }
+});
+
+section('Promo play-through');
+await tryStep('promo play-through', async () => {
+  const res = await sb('/rest/v1/rpc/fn_ca_promo_daily_digest', {
+    method: 'POST',
+    body: JSON.stringify({ p_day: null }),
+  });
+  if (!res.ok) throw Error(`promo digest rpc ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  for (const line of promoDigestLines(await res.json())) item(line);
 });
 
 if (problems.length) {

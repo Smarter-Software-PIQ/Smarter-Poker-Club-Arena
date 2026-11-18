@@ -1,5 +1,15 @@
+import { countdownPlacementError } from './support/countdownFeltGeometry';
+import {
+  verifyPublishedControllerSettings,
+  expectPublishedControllerSettings,
+} from './support/actionControllerSettingsProof';
+import { verifyLightningStaleCashout } from './support/lightningStaleCashout';
+import { verifyLightningPreviousHandReview } from './support/lightningPreviousHandReview';
+import { tapLightningFold, verifyLightningFoldFrames } from './support/lightningFoldFrames';
+import { verifyHeroCelebrations } from './support/heroCelebrationProof';
 import {
   devices,
+  webkit,
   expect,
   test,
   type BrowserContext,
@@ -164,6 +174,7 @@ async function installEngineProjection(
             {
               seat: 1,
               user_id: heroId,
+              hit_run_hands_remaining: 2,
               username: 'RuntimeHero',
               stack: 500,
               bet: 1,
@@ -203,10 +214,19 @@ async function installEngineProjection(
         onerror: ((event: Event) => void) | null = null;
         onclose: ((event: CloseEvent) => void) | null = null;
         private heartbeat: number | null = null;
+        private celebrationProof = (event: Event) => {
+          this.push({
+            type: 'EVENT',
+            tableId: selectedTableId,
+            ts: Date.now(),
+            payload: (event as CustomEvent).detail,
+          });
+        };
 
         constructor(url: string | URL, protocols?: string | string[]) {
           super();
           this.url = String(url);
+          window.addEventListener('ca-test-celebration', this.celebrationProof);
           this.protocol = Array.isArray(protocols) ? protocols[0] || '' : protocols || '';
           window.setTimeout(() => {
             if (this.readyState !== EngineWebSocket.CONNECTING) return;
@@ -255,6 +275,7 @@ async function installEngineProjection(
         close(code = 1000, reason = '') {
           if (this.readyState === EngineWebSocket.CLOSED) return;
           this.readyState = EngineWebSocket.CLOSED;
+          window.removeEventListener('ca-test-celebration', this.celebrationProof);
           if (this.heartbeat != null) window.clearInterval(this.heartbeat);
           this.emit(new CloseEvent('close', { code, reason, wasClean: code === 1000 }));
         }
@@ -476,6 +497,30 @@ async function publishTableAppearanceSignal(
   }
 }
 
+async function blockProjectedTableWrites(page: Page) {
+  await page.route('**/*', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const projectedRead = [
+      '/rest/v1/rpc/fn_cash_effective_buyin',
+      '/rest/v1/rpc/fn_time_bank_allowance',
+      '/rest/v1/rpc/fn_maintenance_break_state',
+    ].includes(path);
+    if (!projectedRead && !['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
+      await route.abort('blockedbyclient');
+      return;
+    }
+    await route.fallback();
+  });
+}
+
+async function expectClassicCountdownOnFelt(root: Locator) {
+  const classicCount = root.locator('.table-brand .table-brand__line--hand + [role="status"]');
+  await expect(
+    classicCount.getByRole('button', { name: /Hands Before You Can Leave: 2/ })
+  ).toBeVisible();
+  await expect(root.getByText('Hands Before You Can Leave', { exact: true })).toHaveCount(1);
+}
+
 async function signIn(page: Page, baseURL: string, account: TemporaryCustomizationAccount) {
   const protectedURL = new URL('notifications', baseURL).toString();
   await page.goto(protectedURL, { waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
@@ -612,6 +657,895 @@ async function readCosmetics(
   return rows[0] ?? null;
 }
 
+async function projectedGameplayTable(environment: CustomizationCertificationEnvironment) {
+  // Private `table-appearance:<id>` authorization requires an existing,
+  // readable tables row. Use one retained row from the joined club only as
+  // that authorization anchor, then project deterministic cash metadata,
+  // seats and hand state in-browser. No production game is woken, seated,
+  // mutated or required to be live for this certificate.
+  const anchors = await readServiceRows<TableAuthorizationAnchor>(
+    environment,
+    'tables',
+    new URLSearchParams({
+      select: 'id,club_id,union_id,arena:clubs!fk_tables_club_id(id,asset,is_platform,union_id)',
+      club_id: `eq.${CLUB_ID}`,
+      is_deleted: 'eq.false',
+      deleted_at: 'is.null',
+      // Prefer the oldest retained row: short-lived Spin rows are recycled
+      // aggressively, while this id must survive until the private channel
+      // has joined and received its signal.
+      order: 'created_at.asc,id.asc',
+      limit: '1',
+    })
+  );
+  const anchor = anchors[0];
+  if (!anchor || !/^[0-9a-f-]{36}$/i.test(anchor.id)) {
+    throw new Error('The certification club has no readable table authorization anchor.');
+  }
+  const tableId = anchor.id;
+  const arena = Array.isArray(anchor.arena) ? anchor.arena[0] : anchor.arena;
+  if (!arena || arena.id !== anchor.club_id) {
+    throw new Error('The table authorization anchor has no valid arena identity.');
+  }
+  const tableRow: Record<string, unknown> = {
+    id: tableId,
+    club_id: anchor.club_id,
+    union_id: anchor.union_id,
+    arena,
+    name: 'Customization Certification Table',
+    game_variant: 'nlh',
+    game_type: 'cash',
+    tournament_id: null,
+    stakes: '1/2',
+    small_blind: 1,
+    big_blind: 2,
+    min_buy_in: 40,
+    max_buy_in: 400,
+    max_players: 6,
+    current_players: 2,
+    status: 'running',
+    settings: {},
+    is_deleted: false,
+    is_private: true,
+    straddle_enabled: false,
+    bomb_pot_enabled: false,
+    bomb_pot_frequency: null,
+    bomb_pot_ante_multiplier: null,
+    bomb_pot_double_board: false,
+    bomb_pot_board_count: null,
+    bomb_pot_trigger_mode: null,
+    bomb_pot_interval_seconds: null,
+    bomb_pot_variant: null,
+    bomb_pot_announce_seconds: null,
+    bomb_pot_ante_fixed: null,
+    bomb_pot_min_players: null,
+    bomb_pot_button_policy: null,
+    cluster_id: null,
+    nit_game: false,
+    maintain_percent_min: null,
+    maintain_hands: null,
+    created_at: '2026-10-05T00:00:00.000Z',
+  };
+  return { tableId, tableRow };
+}
+
+/** The actual published Lightning consumer, with only this browser's hand/read inputs projected. */
+async function verifyPublishedLightning(
+  context: BrowserContext,
+  page: Page,
+  account: TemporaryCustomizationAccount,
+  anchorTableId: string,
+  testInfo: import('@playwright/test').TestInfo
+) {
+  const room = '11a70000-0000-4000-8000-0000000000a1';
+  const cluster = 'c1a50000-0000-4000-8000-0000000000c1';
+  const cards = [
+    { rank: 'A', suit: 's' },
+    { rank: 'K', suit: 'd' },
+    { rank: '10', suit: 'h' },
+    { rank: '9', suit: 'c' },
+    { rank: '8', suit: 's' },
+  ];
+  let seat = 1;
+  let hand = 10;
+  let decisionAt = 0;
+  let seq = 0;
+  let vpipReads = 0;
+  const stopRequests: { hand: string | null; visibleCards: number }[] = [];
+  let resumes = 0;
+  let countReads = 0;
+  let countFailures = 0;
+  let uncertainFold = false;
+  let foldPosts = 0;
+  let receiptSentAt = 0;
+  const receiptToReadMs: number[] = [];
+  let handsOwed = 4;
+  let handsPlayed = 6;
+  const sockets = new Set<import('@playwright/test').WebSocketRoute>();
+  const snapshot = () => ({
+    type: 'SNAPSHOT',
+    tableId: room,
+    seq: ++seq,
+    state: {
+      table_id: room,
+      hand_id: `4a4d0000-0000-4000-8000-${String(hand).padStart(12, '0')}`,
+      hand_number: hand,
+      lightning_original_top_up: true,
+      lightning: {
+        cluster_id: cluster,
+        hand_id: `4a4d0000-0000-4000-8000-${String(hand).padStart(12, '0')}`,
+        name: 'PLO5 1/2 Lightning Games',
+        small_blind: 1,
+        big_blind: 2,
+        variant: 'plo5',
+        fast_fold_available: !decisionAt,
+        fold_on_turn: true,
+      },
+      pot: 3,
+      community_cards: [],
+      community_cards2: [],
+      community_cards3: [],
+      current_bet: 2,
+      hand_variant: 'plo5',
+      current_player: decisionAt ? account.id : VILLAIN_ID,
+      action_context: decisionAt ? `hand-${hand}:preflop:hero` : null,
+      dealer_seat: 6,
+      stage: 'preflop',
+      min_raise: 4,
+      last_raise: 2,
+      betting_structure: 'pot_limit',
+      max_seats: 6,
+      turn_start_time_ms: decisionAt || Date.now(),
+      turn_duration_ms: 30_000,
+      turn_deadline_ms: (decisionAt || Date.now()) + 30_000,
+      server_time_ms: Date.now(),
+      time_bank_active: false,
+      pots: [],
+      action_history: [],
+      disconnect_states: {},
+      players: Array.from({ length: 6 }, (_, index) => {
+        const number = index + 1;
+        const hero = number === seat;
+        return {
+          seat: number,
+          user_id: hero
+            ? account.id
+            : number === (seat === 6 ? 1 : 6)
+              ? VILLAIN_ID
+              : `66666666-7777-4888-8999-aaaaaaaaaaa${number}`,
+          username: hero ? 'RuntimeHero' : `Opponent${number}`,
+          stack: hero ? 500 : 400,
+          bet: 0,
+          totalInvested: 0,
+          cards: [],
+          avatar_url: hero ? HERO_AVATAR : VILLAIN_AVATAR,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+          is_disconnected: false,
+          is_waiting_for_bb: false,
+          time_bank_remaining: 30,
+          time_bank_uses_remaining: 3,
+          hit_run_hands_remaining: hand === 10 ? 1 : 0,
+          hit_run_hands_required: 10,
+        };
+      }),
+    },
+  });
+  const holeCards = () => ({
+    type: 'USER_EVENT',
+    tableId: room,
+    payload: {
+      kind: 'hole_cards',
+      row: { table_id: room, user_id: account.id, seat_number: seat, hand_number: hand, cards },
+    },
+  });
+  const send = (frame: unknown) => {
+    for (const socket of sockets) socket.send(JSON.stringify(frame));
+  };
+  await context.addInitScript(
+    ({ room, cluster, club }) => {
+      sessionStorage.setItem(
+        'ca.lightning.pool-sessions.v1',
+        JSON.stringify([
+          {
+            poolSessionId: room,
+            clusterId: cluster,
+            meta: {
+              clusterId: cluster,
+              clubId: club,
+              name: 'PLO5 1/2 Lightning Games',
+              variant: 'plo5',
+              smallBlind: 1,
+              bigBlind: 2,
+              maxPlayers: 6,
+              minBuyIn: 80,
+              maxBuyIn: 200,
+              handedness: 6,
+              templateName: null,
+              clusterMode: 'lightning',
+              enabled: true,
+            },
+          },
+        ])
+      );
+    },
+    { room, cluster, club: CLUB_ID }
+  );
+  await page.routeWebSocket(
+    (url) => url.hostname === 'engine.smarter.poker',
+    (socket) => {
+      socket.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === 'SUBSCRIBE') {
+          sockets.add(socket);
+          socket.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: room }));
+          socket.send(JSON.stringify(snapshot()));
+          socket.send(JSON.stringify(holeCards()));
+        } else if (message.type === 'RESYNC' && !uncertainFold) {
+          socket.send(JSON.stringify(snapshot()));
+          socket.send(JSON.stringify(holeCards()));
+        } else if (message.type === 'UNSUBSCRIBE') sockets.delete(socket);
+      });
+      socket.onClose(() => sockets.delete(socket));
+    }
+  );
+  // All POSTs are blocked before the synthetic seat mounts. Only these local
+  // read responses may pass; none is forwarded to production.
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (new URL(request.url()).hostname === 'engine.smarter.poker' && path === '/action') {
+      foldPosts++;
+      return fulfillJson(
+        route,
+        uncertainFold ? { success: false, code: 'ACTION_STATE_PENDING' } : { success: true }
+      );
+    }
+    if (path.endsWith('/fn_lightning_my_session')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
+      return fulfillJson(route, {
+        pool_session_id: room,
+        anchor_table_id: anchorTableId,
+        cluster_mode: 'lightning',
+        state: 'active',
+        stack: 500,
+        in_hand: true,
+        seat_number: 1,
+        occupancy_id: '55555555-5555-4555-8555-555555555555',
+      });
+    }
+    if (path.endsWith('/fn_my_hit_run_status')) {
+      countReads++;
+      if (receiptSentAt > 0) {
+        receiptToReadMs.push(Math.round(performance.now() - receiptSentAt));
+        receiptSentAt = 0;
+      }
+      expect(request.postDataJSON()).toEqual({ p_table_id: anchorTableId });
+      if (countFailures > 0) {
+        countFailures--;
+        return route.fulfill({ status: 400, json: { message: 'Status temporarily unavailable' } });
+      }
+      return fulfillJson(route, [
+        {
+          table_id: anchorTableId,
+          hands_remaining: handsOwed,
+          hands_required: 10,
+          hands_played: handsPlayed,
+          completed: handsPlayed === 10,
+          hands_reason: handsOwed > 0 ? 'hit_run' : null,
+        },
+      ]);
+    }
+    if (path.endsWith('/fn_lightning_resume_room_playing')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster, p_pool_session_id: room });
+      resumes++;
+      if (resumes === 1)
+        return route.fulfill({ status: 400, json: { code: 'PGRST202', message: 'No receipt' } });
+      return fulfillJson(route, { ok: true, withdrawn: true });
+    }
+    if (path.endsWith('/fn_lightning_stop_room_playing')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster, p_pool_session_id: room });
+      stopRequests.push(
+        await page.evaluate(() => ({
+          hand: document.querySelector('.table-brand__hand')?.textContent?.trim() ?? null,
+          visibleCards: [
+            ...document.querySelectorAll('.seat--hero .seat__cards--hero .seat__card--face'),
+          ].filter(
+            (card) =>
+              getComputedStyle(card).opacity === '1' && card.getBoundingClientRect().width > 0
+          ).length,
+        }))
+      );
+      return fulfillJson(route, { ok: true, stopping: true, exited: false, in_hand: true });
+    }
+    if (path.endsWith('/fn_cash_vpip_status')) {
+      expect(request.postDataJSON()).toEqual({ p_table_id: anchorTableId });
+      vpipReads++;
+      return fulfillJson(route, {
+        ok: true,
+        seated: true,
+        required: 40,
+        window: 10,
+        hands: hand,
+        vpip: 60,
+        rolling: false,
+        warned: false,
+      });
+    }
+    if (path.endsWith('/fn_maintenance_break_state')) return fulfillJson(route, []);
+    if (path.endsWith('/fn_cash_effective_buyin'))
+      return fulfillJson(route, { min: 80, floor_applied: false });
+    if (path.endsWith('/fn_time_bank_allowance'))
+      return fulfillJson(route, { uses_remaining: 3, duration_seconds: 30 });
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method()))
+      return route.abort('blockedbyclient');
+    await route.fallback();
+  });
+  await page.goto(`table/${room}`, { waitUntil: 'domcontentloaded' });
+  const hero = page.locator(`.seat--hero[data-player-id="${account.id}"]`);
+  const faces = hero.locator('.seat__cards--hero .seat__card--face');
+  await expect(hero.locator('.seat__avatar-img')).toBeVisible();
+  await expect(faces).toHaveCount(5);
+  const picks = hero.locator('.seat__card-pick');
+  await expect(page.locator('.table-art-cover')).toBeHidden({ timeout: 15_000 });
+  const geometry = await picks.evaluateAll((nodes) =>
+    nodes.map((node, i) => {
+      const rect = node.getBoundingClientRect();
+      const next = nodes[i + 1]?.getBoundingClientRect();
+      const exposed = next ? next.left - rect.left : rect.width;
+      const hit = document.elementFromPoint(rect.left + exposed / 2, rect.top + rect.height / 2);
+      return {
+        width: rect.width,
+        height: rect.height,
+        exposed,
+        right: rect.right,
+        viewport: innerWidth,
+        hit: hit?.closest('.seat__card-pick') === node,
+      };
+    })
+  );
+  for (const card of geometry) {
+    expect(card.hit).toBe(true);
+    expect(card.exposed).toBeGreaterThanOrEqual(card.width * 0.45 - 1);
+    expect(card.right).toBeLessThanOrEqual(card.viewport);
+  }
+  await testInfo.attach('lightning-plo5-cards.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await expect(page.getByTestId('vpip-badge')).toContainText('60%');
+  await expect(page.locator('.hero-vpip')).not.toContainText('Hands Before You Can Leave');
+  const countdown = page.getByTestId('hit-run-count-pill');
+  await expect(countdown).toBeVisible();
+  await expect(page.locator('.table-brand').getByRole('status')).toContainText(
+    'Hands Before You Can Leave'
+  );
+  expect(
+    await countdown.evaluate((node) =>
+      node.previousElementSibling?.classList.contains('table-brand__line--hand')
+    )
+  ).toBe(true);
+  await countdown.getByRole('button').click();
+  const rules = page.getByRole('dialog', { name: 'Hand Count Rules' });
+  await expect(rules).toBeVisible();
+  await expect(rules).toContainText('Losing Your Profit Pauses This Count');
+  await rules.getByRole('button', { name: 'Close' }).click();
+  await expect(rules).toBeHidden();
+  const vpip = page.getByTestId('vpip-badge');
+  const initialBox = await vpip.boundingBox();
+  if (!initialBox) throw new Error('Lightning VPIP has no rendered bounds');
+  const portrait = await hero.locator('.seat__avatar-img').elementHandle();
+  const card = await faces.first().elementHandle();
+  if (!portrait || !card) throw new Error('Lightning hero nodes were not rendered');
+  const cardWords = await faces
+    .locator('img')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt));
+  for (const assignedSeat of [3, 2, 1]) {
+    seat = assignedSeat;
+    send(snapshot());
+    send(holeCards());
+    await expect(hero).toHaveAttribute('data-seat-num', String(seat));
+    expect(
+      await hero
+        .locator('.seat__avatar-img')
+        .evaluate((node, original) => node === original, portrait)
+    ).toBe(true);
+    expect(await faces.first().evaluate((node, original) => node === original, card)).toBe(true);
+    expect(
+      await faces
+        .locator('img')
+        .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt))
+    ).toEqual(cardWords);
+  }
+  await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+  const waitingLeave = page.getByRole('button', { name: 'Playing One More Hand', exact: true });
+  await waitingLeave.click();
+  expect(resumes).toBe(0);
+  await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+  await expect(waitingLeave).toBeVisible();
+  const queuedNotice = page
+    .locator('.toast')
+    .filter({ hasText: 'You Will Play One More Hand Before Leaving' });
+  await expect(queuedNotice).toBeVisible();
+  expect(
+    await queuedNotice.evaluate((node) => {
+      const bar = document.querySelector('.action-panel-wrapper');
+      const bounds = node.getBoundingClientRect();
+      return (
+        !!bar &&
+        bounds.top >= 0 &&
+        bounds.bottom < innerHeight / 2 &&
+        bounds.bottom <= bar.getBoundingClientRect().top
+      );
+    })
+  ).toBe(true);
+  expect(stopRequests).toHaveLength(0);
+  // An early folder's previous hands may settle while the current hand stays
+  // on screen. Only the committed status read determines what the felt shows.
+  const sendSettlement = (settledHand: number) => {
+    receiptSentAt = performance.now();
+    const id = `4a4d0000-0000-4000-8000-${String(settledHand).padStart(12, '0')}`;
+    send({
+      type: 'EVENT',
+      tableId: room,
+      ts: Date.now(),
+      payload: {
+        type: 'hand_history_saved',
+        table_id: room,
+        pool_session_id: room,
+        player_id: account.id,
+        hand_number: settledHand,
+        hand_id: id,
+        lightning_hand_id: id,
+      },
+    });
+  };
+  const count = page.locator('.table-brand__meta').getByTestId('hit-run-count-pill');
+  await expect(count.locator('.hit-run-pill__count')).toHaveText('4');
+  handsOwed = 3;
+  handsPlayed = 7;
+  countFailures = 1;
+  sendSettlement(8);
+  await expect(count.locator('.hit-run-pill__count')).toHaveText('3');
+  countFailures = 2;
+  sendSettlement(8);
+  const retry = page.getByRole('button', { name: 'Hand Count Unavailable · Retry' });
+  await expect(retry).toBeVisible();
+  await retry.click();
+  await expect(count.locator('.hit-run-pill__count')).toHaveText('3');
+  handsOwed = 0;
+  sendSettlement(9);
+  const paused = page.locator('.table-brand__meta').getByTestId('hit-run-paused-pill');
+  await expect(paused.locator('.hit-run-pill__count')).toHaveText('3');
+  handsPlayed = 10;
+  sendSettlement(10);
+  await expect(paused).toHaveCount(0);
+  await expect(count).toHaveCount(0);
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #10');
+  const updatedBox = await vpip.boundingBox();
+  if (!updatedBox) throw new Error('Lightning VPIP disappeared during settlement');
+  expect(Math.abs(updatedBox.x - initialBox.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(updatedBox.y - initialBox.y)).toBeLessThanOrEqual(1);
+  expect(stopRequests).toHaveLength(0);
+  uncertainFold = true;
+  await page.locator('.pre-action-btn.fold').click();
+  await expect(page.getByText(/Your Action Could Not Be Confirmed/i)).toBeVisible();
+  const priorSockets = [...sockets];
+  sockets.clear();
+  await Promise.all(
+    priorSockets.map((socket) => socket.close({ code: 1012, reason: 'Service Restart' }))
+  );
+  await expect.poll(() => sockets.size).toBeGreaterThan(0);
+  expect(foldPosts).toBe(1);
+  uncertainFold = false;
+  await tapLightningFold(page, room, '4a4d0000-0000-4000-8000-000000000010');
+  const folded = snapshot();
+  send({
+    ...folded,
+    state: {
+      ...folded.state,
+      stage: 'waiting',
+      hand_id: null,
+      players: [],
+      current_bet: 0,
+      current_player: null,
+      dealer_seat: 0,
+      pot: 0,
+      action_context: null,
+      turn_start_time_ms: 0,
+      turn_duration_ms: 0,
+      turn_deadline_ms: 0,
+      lightning: {
+        ...folded.state.lightning,
+        hand_id: null,
+        fast_fold_available: false,
+        player_balance: { user_id: account.id, stack: 500 },
+      },
+    },
+  });
+  await expect(page.locator('.pre-action-btn.fold')).toHaveCount(0);
+
+  hand = 11;
+  cards[0] = { rank: 'Q', suit: 'c' };
+  send({
+    type: 'EVENT',
+    tableId: room,
+    ts: Date.now(),
+    payload: {
+      type: 'hand_started',
+      table_id: room,
+      hand_number: hand,
+      dealer_seat: 6,
+      timestamp: Date.now(),
+      lightning_arrival_ms: 420,
+    },
+  });
+  send(snapshot());
+  send(holeCards());
+  await expect(hero.locator('.seat__cards--deal-pending')).toBeAttached();
+  await expect(page.locator('.pre-action-bar, .action-panel--active')).toHaveCount(0);
+  expect(stopRequests).toHaveLength(0);
+  await page.waitForFunction(() =>
+    window.lightningFoldProof?.frames.some((frame) => frame.flight === 30)
+  );
+  decisionAt = Date.now();
+  send(snapshot());
+  const action = page.locator('.action-panel--active button:enabled').first();
+  await expect(action).toBeVisible();
+  const decisionVisibleAt = await page.evaluate(() => Date.now());
+  for (const boundary of [10, 11]) {
+    send({
+      type: 'EVENT',
+      tableId: room,
+      ts: Date.now(),
+      payload: {
+        type: 'hand_started',
+        table_id: room,
+        hand_number: boundary,
+        dealer_seat: 6,
+        timestamp: Date.now(),
+      },
+    });
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+  }
+  await verifyLightningFoldFrames(
+    page,
+    hand,
+    decisionAt,
+    30_000,
+    ['Queen Of Clubs', 'King Of Diamonds', 'Ten Of Hearts', 'Nine Of Clubs', 'Eight Of Spades'],
+    testInfo
+  );
+  await testInfo.attach('lightning-plo5-decision.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('lightning-decision-timing.json', {
+    body: JSON.stringify({
+      decisionAt,
+      observedAt: decisionVisibleAt,
+      deadline: decisionAt + 30_000,
+      observedRemainingMs: decisionAt + 30_000 - decisionVisibleAt,
+      geometry,
+    }),
+    contentType: 'application/json',
+  });
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #11');
+  await expect(page.getByTestId('vpip-badge')).toContainText('60%');
+  await expect.poll(() => stopRequests).toEqual([{ hand: 'Hand #11', visibleCards: 5 }]);
+  await expect(faces.first()).toHaveCSS('opacity', '1');
+  expect(
+    await faces
+      .locator('img')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt))
+  ).not.toEqual(cardWords);
+  await expect(page.getByTestId('hero-hand-count')).toHaveCount(0);
+  await expect.poll(() => vpipReads).toBeGreaterThanOrEqual(2);
+  const stack = await hero.locator('.seat__stack').innerText();
+  const finishingLeave = page.getByRole('button', { name: 'Leaving After This Hand', exact: true });
+  await finishingLeave.click();
+  await expect.poll(() => resumes).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ id, room }) =>
+          localStorage.getItem('ca:lightning-leave-after-hand:v1:' + id + ':' + room),
+        { id: account.id, room }
+      )
+    )
+    .toBe('resuming');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect.poll(() => resumes).toBe(2);
+  await expect(page.getByRole('button', { name: 'Leave Next Hand', exact: true })).toBeVisible();
+  const readsBeforeReplay = countReads;
+  // A delayed earlier settlement must refresh the authoritative count without
+  // painting its finished hand over the cards, stack, or hand number on B.
+  for (const event of ['pot_win', 'hand_complete']) {
+    send({
+      type: 'EVENT',
+      tableId: room,
+      ts: Date.now(),
+      payload: { type: event, table_id: room, hand_number: 8, winner_ids: [account.id], pot: 40 },
+    });
+  }
+  sendSettlement(8);
+  await expect.poll(() => countReads).toBeGreaterThan(readsBeforeReplay);
+  await expect(count).toHaveCount(0);
+  await expect(paused).toHaveCount(0);
+  await expect(hero.locator('.seat__stack')).toHaveText(stack);
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #11');
+  await expect(faces).toHaveCount(5);
+  const award = {
+    type: 'EVENT',
+    tableId: room,
+    ts: Date.now(),
+    payload: {
+      type: 'bbj_payout_complete',
+      table_id: anchorTableId,
+      hand_number: 10,
+      emitted_at: Date.now(),
+      totalPayout: 1000,
+      loser: { userId: VILLAIN_ID, share: 500 },
+      winner: { userId: '66666666-7777-4888-8999-aaaaaaaaaaa3', share: 250 },
+      tableShare: 250,
+      perPlayerShare: 125,
+      tablePlayerIds: [account.id, '66666666-7777-4888-8999-aaaaaaaaaaa4'],
+      updatedStacks: [{ userId: account.id, stack: 9999 }],
+    },
+  };
+  send(award);
+  const notice = page.getByText(/Bad Beat Jackpot: You Won 125(?:\.00)? From Hand #10\./).first();
+  await expect(notice).toBeVisible();
+  const celebration = page.getByRole('dialog', { name: /^Bad Beat Jackpot Hit\. Total Payout/ });
+  await expect(celebration).toBeVisible();
+  await expect(celebration.locator('.bbj-hero-share')).toContainText('125.00');
+  await expect(celebration).toContainText('Payout Destination: Your Club Wallet');
+  await expect(celebration).not.toContainText('Table Balance');
+  expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
+  await expect(notice).toHaveCount(0, { timeout: 10_000 });
+  send(award);
+  // The following consumed hand is an acknowledgement after the replay,
+  // so this assertion cannot pass just because the socket has not run yet.
+  decisionAt = 0;
+  hand = 12;
+  send(snapshot());
+  send(holeCards());
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #12');
+  await expect(notice).toHaveCount(0);
+  expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
+  console.log(
+    '[hero-celebration] published Lightning: stable hero/cards, locked VPIP, settlement countdown, top toast, next deal visible before stop, old-hand BBJ125, current stack unchanged'
+  );
+  if (await celebration.isVisible()) await page.keyboard.press('Escape');
+  await verifyLightningPreviousHandReview(page, {
+    room,
+    viewer: account.id,
+    number: 11,
+    dealId: '4a4d0000-0000-4000-8000-000000000011',
+    advance: () => {
+      hand = 13;
+      send(snapshot());
+      send(holeCards());
+    },
+    disconnect: async () => {
+      const active = [...sockets];
+      sockets.clear();
+      await Promise.all(
+        active.map((socket) => socket.close({ code: 1012, reason: 'Service Restart' }))
+      );
+    },
+  });
+  await verifyLightningStaleCashout(page, {
+    tableId: anchorTableId,
+    seatNumber: 1,
+    occupancyId: '55555555-5555-4555-8555-555555555555',
+    poolSessionId: room,
+  });
+  expect(receiptToReadMs.length).toBeGreaterThanOrEqual(4);
+  return receiptToReadMs;
+}
+
+test.describe('published hero showdown celebrations', () => {
+  test.skip(
+    !CERTIFICATION_ENABLED,
+    'Set GAMEPLAY_CUSTOMIZATION_CERTIFICATION=1 in the trusted post-deploy job.'
+  );
+
+  test('only an awarded hero celebrates a published showdown, including chops', async ({
+    browser,
+    baseURL,
+    request,
+  }, testInfo) => {
+    test.setTimeout(180_000 + CLEANUP_FREEZE_ALLOWANCE_MS);
+    if (!baseURL) throw new Error('A deployed BASE_URL is required.');
+    const expectedSha = process.env.LIVE_SHA || '';
+    if (!/^[0-9a-f]{40}$/.test(expectedSha))
+      throw new Error('The exact published LIVE_SHA is required for celebration proof.');
+    const environment = requireCustomizationCertificationEnvironment();
+    let account: TemporaryCustomizationAccount | undefined;
+    let context: BrowserContext | undefined;
+    let journeyFailure: unknown;
+    const cleanupFailures: unknown[] = [];
+    const verifyPublication = async (point: string) => {
+      for (const origin of [
+        'https://ca-static.smarter.poker/build-info.json',
+        'https://smarter.poker/hub/club-arena/build-info.json',
+      ]) {
+        const response = await request.get(`${origin}?hero-celebration=${Date.now()}`, {
+          timeout: 15_000,
+          headers: { 'Cache-Control': 'no-cache' },
+        });
+        expect(response.ok(), `${point}: public build provenance is readable`).toBe(true);
+        expect((await response.json()).ca_sha, `${point}: ${origin}`).toBe(expectedSha);
+      }
+    };
+
+    try {
+      await test.step(
+        'verify the served hero celebration with local hand events',
+        async () => {
+          await verifyPublication('before');
+          account = await createTemporaryCustomizationAccount(environment, 'hero-celebration', 0);
+          const joined = await account.client.rpc('fn_join_club', { p_club_id: CLUB_ID });
+          if (joined.error) throw joined.error;
+          if (joined.data && typeof joined.data === 'object' && 'error' in joined.data)
+            throw new Error(String(joined.data.error));
+          const { tableId, tableRow } = await projectedGameplayTable(environment);
+          const runtime: RuntimeProfile = { avatar: HERO_AVATAR, frame: null, aura: null };
+          // This opponent exists only in the projected browser hand.
+          VILLAIN_ID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
+          context = await browser.newContext({
+            ...devices['iPhone 13'],
+            baseURL,
+            serviceWorkers: 'block',
+            storageState: { cookies: [], origins: [] },
+          });
+          context.setDefaultTimeout(15_000);
+          context.setDefaultNavigationTimeout(30_000);
+          await installEngineProjection(context, tableId, account.id, runtime);
+          await installRuntimeDataProjection(
+            context,
+            tableRow,
+            account.id,
+            runtime,
+            new OneShotRequestGate(),
+            new OneShotRequestGate()
+          );
+          const page = await context.newPage();
+          await signIn(page, baseURL, account);
+          // Block writes before the synthetic seat first renders: TablePage
+          // starts an HTTP heartbeat independently of its projected socket.
+          // These three reads are fulfilled locally by the projection above.
+          await blockProjectedTableWrites(page);
+          await page.goto(`table/${tableId}`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30_000,
+          });
+          const root = page.locator('.multi-table-page__table-slot--active .table-page');
+          await expect(root).toBeVisible({ timeout: 30_000 });
+          await expect(root.locator('.seat-wrapper--hero .seat__avatar')).toBeVisible();
+          await expect(root.locator('.community-cards .card-image').first()).toBeVisible();
+          await verifyHeroCelebrations(page, tableId, account.id, VILLAIN_ID);
+          await context.close();
+          context = await browser.newContext({
+            ...devices['iPhone 13'],
+            baseURL,
+            serviceWorkers: 'block',
+            storageState: { cookies: [], origins: [] },
+          });
+          context.setDefaultTimeout(15_000);
+          context.setDefaultNavigationTimeout(30_000);
+          const lightningPage = await context.newPage();
+          await signIn(lightningPage, baseURL, account);
+          const receiptToReadMs = await verifyPublishedLightning(
+            context,
+            lightningPage,
+            account,
+            tableId,
+            testInfo
+          );
+          // The virtual browser hand cannot write a real settlement. Independently
+          // time the actual read RPC with the same disposable authenticated account.
+          // A new, unfunded account has no pool session. The deployed database
+          // must refuse both commands before calling either underlying mutation.
+          for (const rpc of [
+            'fn_lightning_stop_room_playing',
+            'fn_lightning_resume_room_playing',
+          ]) {
+            const result = await account.client.rpc(rpc, {
+              p_cluster_id: crypto.randomUUID(),
+              p_pool_session_id: crypto.randomUUID(),
+            });
+            expect(result.error, rpc).toBeNull();
+            expect(result.data, rpc).toMatchObject({ ok: false, reason: 'SESSION_CHANGED' });
+          }
+          const stoppedAnchor = await account.client.rpc('fn_lightning_stopped_leave_anchor', {
+            p_cluster_id: crypto.randomUUID(),
+            p_pool_session_id: crypto.randomUUID(),
+            p_occupancy_id: crypto.randomUUID(),
+          });
+          expect(stoppedAnchor.error).toBeNull();
+          expect(stoppedAnchor.data).toBeNull();
+          const auth = await account.client.auth.getSession();
+          if (auth.error || !auth.data.session)
+            throw new Error('The witness account lost its session');
+          // No identifiers are sent: this exercises the deployed authenticated
+          // ingress, which must refuse before looking up a seat or moving chips.
+          const missingRoom = await fetch(
+            'https://engine.smarter.poker/leave-lightning-occupancy',
+            {
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + auth.data.session.access_token,
+                'Content-Type': 'application/json',
+              },
+              body: '{}',
+              signal: AbortSignal.timeout(10_000),
+            }
+          );
+          expect(missingRoom.status).toBe(400);
+          expect(await missingRoom.json()).toMatchObject({
+            success: false,
+            error: 'Original Lightning room required',
+          });
+          const rpcStarted = performance.now();
+          const actualRead = await account.client.rpc('fn_my_hit_run_status', {
+            p_table_id: tableId,
+          });
+          const readRoundTripMs = Math.round(performance.now() - rpcStarted);
+          expect(actualRead.error).toBeNull();
+          expect(Array.isArray(actualRead.data)).toBe(true);
+          console.log(
+            '[lightning-countdown-timing]',
+            JSON.stringify({ receiptToReadMs, readRoundTripMs })
+          );
+          await testInfo.attach('lightning-countdown-timing', {
+            body: JSON.stringify({
+              projectedReceiptToReadRequestMs: receiptToReadMs,
+              authenticatedRpcRoundTripMs: readRoundTripMs,
+            }),
+            contentType: 'application/json',
+          });
+          await testInfo.attach('published-lightning-hero-vpip-bbj', {
+            body: await lightningPage.screenshot(),
+            contentType: 'image/png',
+          });
+          await verifyPublication('after');
+          console.log(`[hero-celebration] exact served client verified: ${expectedSha}`);
+        },
+        { timeout: 180_000 }
+      );
+    } catch (error) {
+      journeyFailure = error;
+    } finally {
+      // Keep the helper's page-specific write blocker installed until close.
+      // Its native WebSocket patch belongs only to this disposable browser.
+      await context?.close().catch((error) => cleanupFailures.push(error));
+      if (account) {
+        await cleanupTemporaryCustomizationAccount(environment, account).catch((error) =>
+          cleanupFailures.push(error)
+        );
+        if (cleanupFailures.length === 0)
+          console.log('[hero-celebration] owned zero-balance fixture cleanup passed');
+      }
+    }
+    if (journeyFailure || cleanupFailures.length)
+      throw new AggregateError(
+        [...(journeyFailure ? [journeyFailure] : []), ...cleanupFailures],
+        withCauses('Hero celebration proof or cleanup failed:', [
+          ...(journeyFailure ? [journeyFailure] : []),
+          ...cleanupFailures,
+        ])
+      );
+  });
+});
+
 test.describe('production routed gameplay customization', () => {
   const JOURNEY_TIMEOUT_MS = 600_000;
   const CASE_TIMEOUT_MS = JOURNEY_TIMEOUT_MS + CLEANUP_FREEZE_ALLOWANCE_MS;
@@ -664,75 +1598,7 @@ test.describe('production routed gameplay customization', () => {
         .eq('id', account.id);
       if (baselineProfile.error) throw baselineProfile.error;
 
-      // Private `table-appearance:<id>` authorization requires an existing,
-      // readable tables row. Use one retained row from the joined club only as
-      // that authorization anchor, then project deterministic cash metadata,
-      // seats and hand state in-browser. No production game is woken, seated,
-      // mutated or required to be live for this certificate.
-      const anchors = await readServiceRows<TableAuthorizationAnchor>(
-        environment,
-        'tables',
-        new URLSearchParams({
-          select:
-            'id,club_id,union_id,arena:clubs!fk_tables_club_id(id,asset,is_platform,union_id)',
-          club_id: `eq.${CLUB_ID}`,
-          is_deleted: 'eq.false',
-          deleted_at: 'is.null',
-          // Prefer the oldest retained row: short-lived Spin rows are recycled
-          // aggressively, while this id must survive until the private channel
-          // has joined and received its signal.
-          order: 'created_at.asc,id.asc',
-          limit: '1',
-        })
-      );
-      const anchor = anchors[0];
-      if (!anchor || !/^[0-9a-f-]{36}$/i.test(anchor.id)) {
-        throw new Error('The certification club has no readable table authorization anchor.');
-      }
-      const tableId = anchor.id;
-      const arena = Array.isArray(anchor.arena) ? anchor.arena[0] : anchor.arena;
-      if (!arena || arena.id !== anchor.club_id) {
-        throw new Error('The table authorization anchor has no valid arena identity.');
-      }
-      const tableRow: Record<string, unknown> = {
-        id: tableId,
-        club_id: anchor.club_id,
-        union_id: anchor.union_id,
-        arena,
-        name: 'Customization Certification Table',
-        game_variant: 'nlh',
-        game_type: 'cash',
-        tournament_id: null,
-        stakes: '1/2',
-        small_blind: 1,
-        big_blind: 2,
-        min_buy_in: 40,
-        max_buy_in: 400,
-        max_players: 6,
-        current_players: 2,
-        status: 'running',
-        settings: {},
-        is_deleted: false,
-        is_private: true,
-        straddle_enabled: false,
-        bomb_pot_enabled: false,
-        bomb_pot_frequency: null,
-        bomb_pot_ante_multiplier: null,
-        bomb_pot_double_board: false,
-        bomb_pot_board_count: null,
-        bomb_pot_trigger_mode: null,
-        bomb_pot_interval_seconds: null,
-        bomb_pot_variant: null,
-        bomb_pot_announce_seconds: null,
-        bomb_pot_ante_fixed: null,
-        bomb_pot_min_players: null,
-        bomb_pot_button_policy: null,
-        cluster_id: null,
-        nit_game: false,
-        maintain_percent_min: null,
-        maintain_hands: null,
-        created_at: '2026-10-05T00:00:00.000Z',
-      };
+      const { tableId, tableRow } = await projectedGameplayTable(environment);
 
       const runtime: RuntimeProfile = { avatar: HERO_AVATAR, frame: null, aura: null };
       const writerThemeGate = new OneShotRequestGate();
@@ -787,6 +1653,80 @@ test.describe('production routed gameplay customization', () => {
       );
       await signIn(writer, baseURL, account);
       await signIn(reader, baseURL, account);
+
+      await test.step('open the cash table from the lobby on 393px WebKit', async () => {
+        const phone = await webkit.launch();
+        let context: BrowserContext | undefined;
+        try {
+          const size = { width: 393, height: 852 };
+          context = await phone.newContext({
+            ...devices['iPhone 13'],
+            screen: size,
+            viewport: size,
+            serviceWorkers: 'block',
+            baseURL,
+            storageState: await writerContext!.storageState(),
+          });
+          await installEngineProjection(context, tableId, account!.id, runtime);
+          await installRuntimeDataProjection(
+            context,
+            tableRow,
+            account!.id,
+            runtime,
+            new OneShotRequestGate(),
+            new OneShotRequestGate()
+          );
+          const page = await context.newPage();
+          await page.goto(`clubs/${CLUB_ID}`, { waitUntil: 'domcontentloaded' });
+          await expect(page.locator('.club-home')).toBeVisible();
+          await blockProjectedTableWrites(page);
+          await page.goto(`table/${tableId}`, { waitUntil: 'domcontentloaded' });
+          expect(await page.evaluate(() => screen.width)).toBe(393);
+          const root = page.locator('.multi-table-page__table-slot--active .table-page');
+          await expectClassicCountdownOnFelt(root);
+          await expect(root.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+          await expect(root.locator('.seat-wrapper--hero .seat__info')).toBeVisible();
+          const geometry = await root.evaluate((el) => {
+            const rect = (selector: string) => {
+              const target = el.querySelector(selector);
+              if (!target) throw new Error('Missing layout element: ' + selector);
+              return target.getBoundingClientRect().toJSON();
+            };
+            return {
+              pill: rect('[data-testid="hit-run-count-pill"] button'),
+              felt: rect('.table-surface'),
+              hand: rect('.table-brand__line--hand'),
+              heroPanels: [
+                rect('.seat-wrapper--hero .seat__info'),
+                ...Array.from(
+                  el.querySelectorAll('.hero-vpip [data-testid="vpip-badge"]'),
+                  (badge) => badge.getBoundingClientRect().toJSON()
+                ).filter((box) => box.width && box.height),
+              ],
+            };
+          });
+          console.log('[393px-countdown-geometry]', JSON.stringify(geometry));
+          await test.info().attach('393px-countdown-geometry', {
+            contentType: 'application/json',
+            body: JSON.stringify(geometry),
+          });
+          expect(
+            countdownPlacementError(
+              geometry.pill,
+              geometry.felt,
+              geometry.hand,
+              geometry.heroPanels
+            ),
+            JSON.stringify(geometry)
+          ).toBeNull();
+        } finally {
+          // Match the two main projection contexts below. A pending profile
+          // route.fetch must not replace this journey's assertion with a
+          // browser-disposal exception. Page-level write refusal stays armed.
+          await context?.unrouteAll({ behavior: 'ignoreErrors' });
+          await phone.close();
+        }
+      });
 
       await Promise.all([
         writer.goto(`table/${tableId}`, {
@@ -881,6 +1821,7 @@ test.describe('production routed gameplay customization', () => {
 
       await expect(writerRoot).toBeVisible({ timeout: 30_000 });
       await expect(readerRoot).toBeVisible({ timeout: 30_000 });
+      await expectClassicCountdownOnFelt(writerRoot);
       await expect(writerTableArt).toBeVisible({ timeout: 30_000 });
       await expect
         .poll(
@@ -1002,6 +1943,21 @@ test.describe('production routed gameplay customization', () => {
 
       const settings = await openTableSettings(writer);
       const studio = await openStudio(settings);
+      await verifyPublishedControllerSettings(studio, async () => {
+        const result = await account!.client
+          .from('user_page_preferences')
+          .select('value')
+          .eq('user_id', account!.id)
+          .eq('preference_key', 'action-controller:global')
+          .maybeSingle();
+        if (result.error) throw result.error;
+        return result.data?.value ?? null;
+      });
+      await expect(
+        studio
+          .getByRole('region', { name: 'Action Controller', exact: true })
+          .getByRole('button', { name: 'Casino Emerald', exact: true })
+      ).toHaveAttribute('aria-pressed', 'true');
       await tapReady(studio.getByRole('tab', { name: 'Buttons', exact: true }));
       await expect(studio.getByRole('button', { name: 'White D', exact: true })).toHaveAttribute(
         'aria-pressed',
@@ -1232,6 +2188,15 @@ test.describe('production routed gameplay customization', () => {
         '[gameplay-customization] private authenticated table signal reconciled the second table'
       );
       console.log('[gameplay-customization] every selected graphic survived a cold route reload');
+      await expectPublishedControllerSettings(await openTableSettings(writer));
+      await reader.reload({ waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
+      await expect(
+        reader.locator('.multi-table-page__table-slot--active .table-page')
+      ).toHaveAttribute('data-felt-theme', 'carbon_red', { timeout: RESPONSE_TIMEOUT });
+      await expectPublishedControllerSettings(await openTableSettings(reader));
+      console.log(
+        '[action-controller] all six palettes rendered; custom preflop/postflop amounts persisted in the account and cold-rehydrated on both devices'
+      );
     } catch (error) {
       journeyFailure = error;
       // Evidence must not replace the original journey failure, retry its

@@ -44,7 +44,7 @@ export interface ChoiceRound {
    *  5: a loss keeps half the last safe prize (2026-10-10).
    *  6: Donkey Cross only, a fair coin on every street (2026-10-11).
    *  7: Donkey Cross only, street one always safe, a fair coin after (2026-10-15). */
-  payout_version?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  payout_version?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   server_seed_hash: string;
   client_seed: string;
   nonce: number;
@@ -155,6 +155,8 @@ export function parseChoiceRound(value: unknown): ChoiceRound {
   // contract-6 road whose prizes are not its own floor's coin ladder, is not a
   // receipt this client accepts. The ladder is checked exactly (to the fifth of
   // a cent) and may be cut short by the round's limit, never altered.
+  if (version === 9 && v.game !== 'mines')
+    throw new Error('The Game Response Could Not Be Verified');
   if (isRoadCoinVersion(version)) {
     if (v.game !== 'crossing') throw new Error('The Game Response Could Not Be Verified');
     let ladder: number[];
@@ -177,7 +179,7 @@ export function parseChoiceRound(value: unknown): ChoiceRound {
       v.payout_chips !==
         Math.max(
           wheelFloor ?? 0,
-          version === 5 || isRoadCoinVersion(version)
+          version === 5 || version === 9 || isRoadCoinVersion(version)
             ? choiceLossGuarantee(
                 v.prizes as number[],
                 v.picked.length - 1,

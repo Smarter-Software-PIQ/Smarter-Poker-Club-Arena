@@ -1,0 +1,7 @@
+{
+  "_owner": "feat/lightning-dedicated-db-lane-20261110; qualified source, NOT installed; apply exact merged 20261110213713 through apply-merged-migration before engine adoption",
+  "functions": [
+    "smarter_private.fn_engine_lightning_lane",
+    "fn_engine_lightning_lane_session_url"
+  ]
+}

@@ -138,6 +138,8 @@ export function useTableAnimations(
           `[THROW:${throwable.id}:${throwTargetSeat}]`,
           event.id
         );
+        // Who was hit is recorded beside the receipt; it never gates the throw.
+        void throwableService.recordThrowTarget(requestId, tableId, throwTargetSeat);
       }
 
       setShowThrowableSelector(false);

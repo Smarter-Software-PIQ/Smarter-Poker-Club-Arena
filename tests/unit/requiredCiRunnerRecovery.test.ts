@@ -36,6 +36,22 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
   job.steps.splice(index, 1);
 };
 
+const hourlyCashStep = {
+  name: 'Hourly cash caps preserve humans and pace starts and closures',
+  if: 'matrix.shard == 1',
+  'working-directory': '.',
+  run: 'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py',
+};
+const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
+  expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(hourlyCashStep);
+  expect(job.steps[index - 1]?.name).toBe('TypeScript Check (server scripts)');
+  expect(job.steps[index + 1]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
+  // Pin this exact added proof; every original engine job field stays fingerprinted.
+  job.steps.splice(index, 1);
+};
+
 const backupSequenceStep = {
   name: 'Backup restore aligns standalone sequence owners',
   if: 'matrix.shard == 4',
@@ -248,6 +264,47 @@ const normalizeLightningHeroCardsAddition = (job: { steps: Array<Record<string, 
   job.steps.splice(start, 1);
 };
 
+const tournamentRebuyHeroCardsGate = {
+  name: 'Tournament rebuy hero cards gate',
+  if: "matrix.partition == 'general' && matrix.shard == 1",
+  env: { LIVE_TURN_DIST: 'dist' },
+  run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/tournament-rebuy-hero-cards.pw.ts --project=chromium',
+};
+
+const normalizeTournamentRebuyHeroCardsAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const start = job.steps.findIndex((step) => step.name === tournamentRebuyHeroCardsGate.name);
+  expect(job.steps.filter((step) => step.name === tournamentRebuyHeroCardsGate.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[start - 1]?.name).toBe(lightningHeroCardsGate.name);
+  expect(job.steps[start]).toStrictEqual(tournamentRebuyHeroCardsGate);
+  expect(job.steps[start + 1]?.name).toBe('Stop the shared preview');
+  // Enforce the exact added browser gate (2026-11-10, a tournament rebuy is
+  // taking a seat again), retaining every historical job hash.
+  job.steps.splice(start, 1);
+};
+
+const phoneTableLayoutGate = {
+  name: 'Phone table bottom row, hero seat and notch gate',
+  if: "matrix.partition == 'general' && matrix.shard == 3",
+  env: { LIVE_TURN_DIST: 'dist' },
+  run: 'npx playwright test -c playwright.live-turn.config.ts tests/live-turn/phone-table-layout.pw.ts --project=chromium',
+};
+
+const normalizePhoneTableLayoutAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === phoneTableLayoutGate.name);
+  expect(job.steps.filter((step) => step.name === phoneTableLayoutGate.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(tournamentRebuyHeroCardsGate.name);
+  expect(job.steps[start]).toStrictEqual(phoneTableLayoutGate);
+  expect(job.steps[start + 1]?.name).toBe('Stop the shared preview');
+  // Enforce the exact added browser gate (2026-11-11, the phone table's
+  // bottom row, hero seat, action pill and notch), retaining every
+  // historical job hash.
+  job.steps.splice(start, 1);
+};
+
 const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const start = job.steps.findIndex((step) => step.name === cashDecisionGate.name);
   expect(job.steps.filter((step) => step.name === cashDecisionGate.name)).toHaveLength(1);
@@ -322,6 +379,28 @@ const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unkno
   expect(job.steps.filter((step) => step.name === stallProgressStep.name)).toHaveLength(1);
   expect(job.steps[index - 1]?.name).toBe('Retain original Breakfast witness qualification');
   expect(job.steps[index]).toStrictEqual(stallProgressStep);
+  expect(job.steps[index + 1]?.name).toBe('Certified V31 PostgreSQL 17 behavior gate');
+  // Enforce the exact additional gate, preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
+// HA-10878-1 (#10878): the Horse option switch evidence guard, proven on a throwaway PostgreSQL 17 beside the stall
+// proof on shard 7.
+const horseOptionSwitchEvidenceStep = {
+  name: 'The Horse option switch writes on only with its authority, and keeps off and clear',
+  if: 'matrix.shard == 7',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'bash scripts/ci/test-horse-option-switch-evidence-postgres.sh',
+};
+const normalizeHorseOptionSwitchEvidenceAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === horseOptionSwitchEvidenceStep.name);
+  expect(job.steps.filter((step) => step.name === horseOptionSwitchEvidenceStep.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[index - 1]?.name).toBe('Stall closure requires an exact recorded hand');
+  expect(job.steps[index]).toStrictEqual(horseOptionSwitchEvidenceStep);
   expect(job.steps[index + 1]?.name).toBe('Certified V31 PostgreSQL 17 behavior gate');
   // Enforce the exact additional gate, preserving every historical job fingerprint.
   job.steps.splice(index, 1);
@@ -542,6 +621,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    {
+      // Moved 2026-11-11 (merge queue, review finding 3): typecheck_compile passes
+      // a merge group's own base to its diff gates. Normalize those additions
+      // back to the reviewed pull-request form before the pinned hashes below.
+      const job = normalized.jobs.typecheck_compile;
+      expect(job.env).toEqual({ CA_GATE_BASE: '${{ github.event.merge_group.base_sha }}' });
+      delete job.env;
+      const bindIndex = job.steps.findIndex(
+        (step: { name?: string }) => step.name === 'Bind the merge group base for the diff gates'
+      );
+      expect(bindIndex).toBeGreaterThan(0);
+      expect(job.steps[bindIndex].if).toBe("github.event_name == 'merge_group'");
+      job.steps.splice(bindIndex, 1);
+      const gateArg = ' ${CA_GATE_BASE:+"$CA_GATE_BASE"}';
+      let gateArgs = 0;
+      for (const step of job.steps as { run?: string }[]) {
+        if (!step.run?.includes(gateArg)) continue;
+        gateArgs += step.run.split(gateArg).length - 1;
+        step.run = step.run.split(gateArg).join('');
+      }
+      expect(gateArgs).toBe(8);
+    }
     const hostingSteps = normalized.jobs.accounting_postgres.steps.filter(
       (step: { name?: string }) => step.name === 'Data console native PostgreSQL contracts'
     );
@@ -594,6 +695,34 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     const keySetup = normalized.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) =>
         step.name === 'Install PostgreSQL 17 tools without a default database service'
+    );
+    // The exact native fixture version owns its package tuple and readiness.
+    // Normalize only this tested addition; retain all prior workflow pins.
+    const pinnedFixtureBlock =
+      '  3|4)\n    # The native source/checksum and fixture manifests own this exact minor.\n    pg_ci_fixture_version="$(python3 -B scripts/ci/build_pg17_isolationtester.py --print-version)"\n    [[ "$pg_ci_fixture_version" =~ ^17\\.[0-9]+$ ]]\n    pg_ci_server_packages=("postgresql-17=$pg_ci_fixture_version-*" "postgresql-client-17=$pg_ci_fixture_version-*" postgresql-17-cron)\n    pg_ci_build_packages=("postgresql-server-dev-17=$pg_ci_fixture_version-*" build-essential bison flex perl bzip2 patch)\n    for pg_ci_binary in postgres psql pg_config; do\n      pg_ci_actual="$(/usr/lib/postgresql/17/bin/"$pg_ci_binary" --version 2>/dev/null)" || pg_ci_actual=\n      case "$pg_ci_actual" in\n        "PostgreSQL $pg_ci_fixture_version"|"PostgreSQL $pg_ci_fixture_version "*|*" (PostgreSQL) $pg_ci_fixture_version"|*" (PostgreSQL) $pg_ci_fixture_version "*) ;;\n        *) pg_ci_build_tools_ready=false ;;\n      esac\n    done\n';
+    const pinnedBbjBlock = pinnedFixtureBlock
+      .replace('  3|4)', '  1)')
+      .replace('build-essential bison flex perl bzip2 patch)', 'build-essential)');
+    expect(keySetup.run.split(pinnedBbjBlock)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      pinnedBbjBlock,
+      '  1)\n    pg_ci_build_packages=(postgresql-server-dev-17 build-essential)\n'
+    );
+    expect(keySetup.run.split(pinnedFixtureBlock)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      pinnedFixtureBlock,
+      '  3|4)\n    pg_ci_build_packages=(postgresql-server-dev-17 build-essential bison flex perl bzip2 patch)\n'
+    );
+    const fixtureDefaults =
+      'pg_ci_server_packages=(postgresql-17 postgresql-17-cron)\npg_ci_fixture_version=\n';
+    expect(keySetup.run.split(fixtureDefaults)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(fixtureDefaults, '');
+    const fixtureInstall =
+      'PG_UBUNTU_MIRROR=true PG_FIXTURE_VERSION="$pg_ci_fixture_version" PG_PACKAGES="${pg_ci_server_packages[*]} ${pg_ci_build_packages[*]-}" \\';
+    expect(keySetup.run.split(fixtureInstall)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      fixtureInstall,
+      'PG_UBUNTU_MIRROR=true PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}" \\'
     );
     // The install itself is the one shared installer (2026-11-07,
     // .github/actions/install-postgres-17, pinned by
@@ -715,6 +844,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     );
     // Require the exact new native gate before preserving every historical job hash.
     entrySteps.splice(entryIndex, 1);
+    normalizeHorseOptionSwitchEvidenceAddition(normalized.jobs.accounting_postgres);
     normalizeStallProgressAddition(normalized.jobs.accounting_postgres);
     // Enforce the exact new reporting regression before retaining all prior job hashes.
     const chicagoStep = {
@@ -889,12 +1019,36 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       selected[0].if = previous;
     }
+    // A bad booking cannot merge (2026-11-10): one exact added step, pinned
+    // here and by tests/operations/owner-window-booking-gate.test.mjs.
+    {
+      const validStep = {
+        name: 'Owner maintenance bookings are valid before they merge',
+        env: {
+          CI_BASE_SHA:
+            '${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}',
+        },
+        run:
+          'node --test tests/operations/owner-window-booking-gate.test.mjs\n' +
+          'node scripts/ci/check-owner-window-booking.mjs\n',
+      };
+      const steps = normalized.jobs.typecheck_compile.steps;
+      const index = steps.findIndex((s: { name: string }) => s.name === validStep.name);
+      expect(steps.filter((s: { name: string }) => s.name === validStep.name)).toHaveLength(1);
+      expect(steps[index]).toStrictEqual(validStep);
+      expect(steps[index - 1].name).toBe('Native fixture gate rejects missing and skipped proof');
+      expect(steps[index + 1].name).toBe('Owner maintenance bookings give notice after they merge');
+      steps.splice(index, 1);
+    }
     // A booking cannot start in the past (2026-11-07): one exact added step,
     // pinned here and by tests/a-booking-cannot-start-in-the-past.law.test.ts.
     {
       const bookingStep = {
         name: 'Owner maintenance bookings give notice after they merge',
-        env: { CI_BASE_SHA: '${{ github.event.pull_request.base.sha }}' },
+        env: {
+          CI_BASE_SHA:
+            '${{ (github.event.pull_request.base.sha || github.event.merge_group.base_sha) }}',
+        },
         run: 'node scripts/ci/check-owner-window-notice-after-merge.mjs',
       };
       const steps = normalized.jobs.typecheck_compile.steps;
@@ -909,6 +1063,24 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // original build command, browser assertion, timeout and step ordering.
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
+    // Require the added Report regression exactly once, preserving every
+    // historical command and gate fingerprint after this single addition.
+    const reportBeat = browserJob.steps.find((step: { id?: string }) => step.id === 'css-beats');
+    const reportSpec = 'tests/e2e/css/club-data-report.spec.ts ';
+    expect(reportBeat.run.split(reportSpec)).toHaveLength(2);
+    reportBeat.run = reportBeat.run.replace(reportSpec, '');
+    // Preserve the historical gate fingerprint after checking this exact addition.
+    const install = browserJob.steps.findIndex(
+      (step: { name: string }) => step.name === 'Install Chromium and WebKit'
+    );
+    const reloadProbe = browserJob.steps[install + 1];
+    expect(reloadProbe.name).toBe('Verify bounded table reloads in Linux WebKit');
+    expect(createHash('sha256').update(JSON.stringify(reloadProbe)).digest('hex')).toBe(
+      'c93386856823824ac3ae62dfb9a7046c2b9dcafbb38724ff04a9229785666560'
+    );
+    browserJob.steps.splice(install + 1, 1);
+    normalizePhoneTableLayoutAddition(browserJob);
+    normalizeTournamentRebuyHeroCardsAddition(browserJob);
     normalizeLightningHeroCardsAddition(browserJob);
     normalizeCashDecisionAddition(browserJob);
     // Verify the producer-owned identity delta, then compare every retained
@@ -961,8 +1133,10 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     browserJob.steps.splice(guardIndex, 1);
     const exactHash = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    // Moved 2026-11-11 (merge queue): the build job also runs for merge_group,
+    // its if/CA_BUILD_PURPOSE name that event; nothing else in the job changed.
     expect(exactHash(browserBuild)).toBe(
-      '1d75a0c1c211190a532d247c4f6009f2c876ffe0f0775465ab0732f4005462bc'
+      'e5524e6e97074ff751fe1a1da7a0a7f4d1797d9a92fdc5e28e3a368655db8644'
     );
     expect(browserJob.needs).toEqual(['changes', 'css-beats-build']);
     browserJob.needs = 'changes';
@@ -1010,6 +1184,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     accountingSteps.splice(fixedLimitIndex, 1);
     expect(normalized.jobs.server_shards['timeout-minutes']).toBe(40);
     normalized.jobs.server_shards['timeout-minutes'] = 25;
+    normalizeHourlyCashAddition(normalized.jobs.server_shards);
     normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
@@ -1073,28 +1248,37 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(Object.keys(normalized)).toEqual(['name', 'on', 'concurrency', 'jobs']);
     expect(
       fingerprint(Object.fromEntries(Object.entries(normalized).filter(([key]) => key !== 'jobs')))
-    ).toBe('bf371889e58c11a6f6178fd7405b0cb3a484ed6016b88629bc790f4b4ed83d0e');
+      // Moved 2026-11-11 (merge queue): `on` gains merge_group checks_requested.
+    ).toBe('c8518da7c0e1bb0e366b4c6c8868a9fd2bd080edbeffadd2d3789c611602f18c');
+    // Moved 2026-11-11 (merge queue): every job gated on the pull request
+    // event now also names merge_group and the merge group's base/head SHA;
+    // no command, budget, permission or partition changed.
     const expectedJobs = {
-      changes: 'fe673573c5f5db526c93c086e911b58b9c956ac1f5070d10f29aa78158b86d5f',
+      // Moved 2026-11-11 (job-token boundary): `changes` no longer holds
+      // actions: write; the cancel moved to retire_superseded, which runs only
+      // default-branch code on same-repository pull requests.
+      changes: 'b9a459646b7051a1c001fba30bec0ff866ad563fe460961052a13e369b2d56cf',
+      retire_superseded: 'fa5219bebe82fd707e0a7f21dac8b96902727de56d63f864986b252a0720425b',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
-      stub_gate: '166528cc83e7d0c075c59b6facb1a6782f3e2eda6c334f9608b933319aca9c80',
-      fixture_native: '8949ac7f86b74f267efb996eecddb67f8c59f93d3e40a8bc407530ec3b1644ec',
-      typecheck: '07758ff6fff680beb77a9e38725eecc5776b94db14cdc3499783c049ce771750',
-      typecheck_compile: '88a03bf85dc749608900101f598720ad93c957e5b5bf75791c589c9e25228168',
-      unit_shards: 'dee27f1ca77441b7044d7044f7fc5d5eb428376fe6a175bf0310a9d1f4d413ef',
-      unit: '1a7b2d6c8f6c6fb045124997bf1780d296cd4a7c9d3241bdb4cc52ba82cddd08',
+      stub_gate: '118f1b051bd24a3616cea41a6892985553c577d67f9cb39b2120f3d5a74391ca',
+      fixture_native: '5ad4eff1fd198db8bd3f8a95e763496520ddff7c63c0b380afd7a49d4b6a82a6',
+      typecheck: '9befab7487852fbbf2c6991d1e7e781c4c5a4391d070ef617dd4dfe193895e61',
+      typecheck_compile: '6039cd213a4591c076a1454d4d1ef598d3e8bc0833d63e5c3f1ee7c67d684aaa',
+      unit_shards: '2f4cffd8880df0e5826ecc79361500b4dae7da7d23698d7a211772f351863649',
+      unit: '7b3caf98ff41bbe5f1e52ff0cb65323b1ec587ed45a768e81de2051bb1906de5',
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
-      accounting_postgres: '8fe0309bc5f9c00d2987d02020e9ef6aa0a13eb2dcbcd16ae69e21274d5735a3',
-      server_shards: '9b89b7ee75080d4d8b5aafd55d35adf888bd49c30720aa96ad2225bad240ee41',
-      server: '086cab96ac6e24b0ced5ab9407a2c406eddfa451de33d6b614953b1f9f94bd1d',
-      verdict: 'cbcc5b069cdc625a6fb5a5c23b6a5c6a4ed2c3669f37bf74163c3eea6c5fbd0f',
-      build: '1b0ed1fea04c1e6ef74fcde68387787cf36b0fe589539caf71cdfe7e314fa76b',
+      // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
+      accounting_postgres: 'f2cde001f3fe6542ceb807b51c0fce3d65f26610fdc43a8234a995f9bda29620',
+      server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
+      server: '2f21fe942c1e2397520fe372a5b46b95e252bc6276e017f95013a2a24a62d9c1',
+      verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',
+      build: '5d384174da91ace2f98e73648c13fe44208e7cf8d02d79b7e875e5eef458b4b3',
       'live-e2e': 'fae9db0fd7b5ad3a502a34981574aa5ac43c01d763d2a0c518a7d98572ae796d',
       'post-deploy-check': '86936192ff526aab46d57a6e263e27475c3e60da754b0f04f4948ec40b8b4fcd',
-      'css-beats-e2e': 'b225827a172512b9fdd48b87a912767d27abc02cfe24428c735d47c9eb4d4d22',
-      'diamond-playfield-e2e': '2802fb1377e89b20cfd5dfd89155194bd41921da2b014220040728d27e4d690d',
-      'css-beats-gate': '71e08443dc0eee58fbb9055054e02643edbe532aeae3c3073fcf04ae8e35a944',
+      'css-beats-e2e': '3e68cd87692edbdbd19e4700fadd4841af06bc04b59ed970d72420c0e50e802f',
+      'diamond-playfield-e2e': '42e350a9ed24cccd9539ca47631848f9022b027839632712c71070531802957e',
+      'css-beats-gate': '79747df21d67d09db6eaee0451c2e2cb8befbfdac82fc45c497760bb4d8521f2',
     };
     expect(Object.keys(normalized.jobs)).toEqual(Object.keys(expectedJobs));
     expect(
@@ -1162,6 +1346,41 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       mutate(job.steps, index);
       expect(() => normalizeStallProgressAddition(job)).toThrow();
+    }
+  });
+
+  it('rejects a missing, duplicate, displaced or weakened Horse option switch evidence proof', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, index: number) => steps.splice(index, 1),
+      (steps: Array<Record<string, unknown>>, index: number) =>
+        steps.push(structuredClone(steps[index])),
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].run = String(steps[index].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].env = { PG_BIN: '/usr/lib/postgresql/17/bin' };
+      },
+    ];
+    const pristine = structuredClone(ci.jobs.accounting_postgres);
+    expect(() =>
+      normalizeHorseOptionSwitchEvidenceAddition(structuredClone(pristine))
+    ).not.toThrow();
+    for (const mutate of mutations) {
+      const job = structuredClone(pristine);
+      const index = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === horseOptionSwitchEvidenceStep.name
+      );
+      mutate(job.steps, index);
+      expect(() => normalizeHorseOptionSwitchEvidenceAddition(job)).toThrow();
     }
   });
 
@@ -1372,6 +1591,23 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
+    {
+      // Moved 2026-11-11 (merge queue, review finding 2): the ordinary mode also
+      // admits a main merge group. Normalize that clause back to the reviewed form.
+      const groupClause =
+        "(!inputs.connected_ui_observations && github.event_name == 'merge_group' && " +
+        "github.event.merge_group.base_ref == 'refs/heads/main' && " +
+        "github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena' && " +
+        'inputs.source_sha == github.event.merge_group.head_sha) || ';
+      const job = normalized.jobs['native-smoke'];
+      expect(job.if.split(groupClause)).toHaveLength(2);
+      job.if = job.if.replace(groupClause, '');
+      // Moved 2026-11-11 (secrets leave repository scope): only the connected
+      // mode reads DATABASE_URL, from the main-only ci-main environment; the
+      // ordinary and merge-group modes name no environment.
+      expect(job.environment).toBe("${{ inputs.connected_ui_observations && 'ci-main' || '' }}");
+      delete job.environment;
+    }
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
     expect(normalized.on.workflow_call.inputs.connected_ui_observations.default).toBe(false);
     expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });
@@ -1487,7 +1723,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       'sudo curl --fail --silent --show-error --location --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc'
     );
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
-      '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
+      '246c3981caf1382bf9d4e77c637f448882105e154b5570a43601a9222a562965'
     );
   });
 });
@@ -1515,28 +1751,39 @@ it('refuses missing, duplicated, moved or broadened retained-owner scheduling', 
   }
 });
 
-it('refuses a missing, duplicated, moved or weakened cash queue regression', () => {
-  for (const mutate of [
-    (job: any, index: number) => job.steps.splice(index, 1),
-    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
-    (job: any, index: number) => {
-      job.steps[index].if = 'false';
-    },
-    (job: any, index: number) => {
-      job.steps[index]['continue-on-error'] = true;
-    },
-    (job: any, index: number) => {
-      job.steps[index].run += ' || true';
-    },
-    (job: any, index: number) => {
-      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
-    },
-  ]) {
-    const job = structuredClone(ci.jobs.accounting_postgres);
-    mutate(
-      job,
-      job.steps.findIndex((step: any) => step.name === cashQueueFeedbackStep.name)
-    );
-    expect(() => normalizeCashQueueFeedbackAddition(job)).toThrow();
+it.each([
+  [
+    'cash queue',
+    ci.jobs.accounting_postgres,
+    cashQueueFeedbackStep,
+    normalizeCashQueueFeedbackAddition,
+  ],
+  ['hourly cash cap', ci.jobs.server_shards, hourlyCashStep, normalizeHourlyCashAddition],
+] as const)(
+  'refuses a missing, duplicated, moved or weakened %s regression',
+  (_name, original, step, normalize) => {
+    for (const mutate of [
+      (job: any, index: number) => job.steps.splice(index, 1),
+      (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+      (job: any, index: number) => {
+        job.steps[index].if = 'false';
+      },
+      (job: any, index: number) => {
+        job.steps[index]['continue-on-error'] = true;
+      },
+      (job: any, index: number) => {
+        job.steps[index].run += ' || true';
+      },
+      (job: any, index: number) => {
+        [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+      },
+    ]) {
+      const job = structuredClone(original);
+      mutate(
+        job,
+        job.steps.findIndex((actual: any) => actual.name === step.name)
+      );
+      expect(() => normalize(job)).toThrow();
+    }
   }
-});
+);

@@ -731,29 +731,29 @@
   {
     "id": "donkey",
     "bucket": 192,
-    "filename": "donkey-192-7830375f2e64.webp",
-    "bytes": 5664,
+    "filename": "donkey-192-b65b7c8b9cd1.webp",
+    "bytes": 12626,
     "width": 192,
     "height": 192,
-    "sha256": "7830375f2e6426638f907cb351b24ae28ca9c4889eaef7b766a0324d7530ea4a"
+    "sha256": "b65b7c8b9cd1af6c3d99d4105bd3849cf4a777b511f1e8b41652ef3bfaf47f73"
   },
   {
     "id": "donkey",
     "bucket": 320,
-    "filename": "donkey-320-47103e97c4b4.webp",
-    "bytes": 9672,
+    "filename": "donkey-320-31bac6aa89c7.webp",
+    "bytes": 26692,
     "width": 320,
     "height": 320,
-    "sha256": "47103e97c4b422d70691c5688e2c9d2e1445fb323b4e79c09870af3ff755d59c"
+    "sha256": "31bac6aa89c716d52ce0cf5680849bc444ca005a54f208777bf23ed064d6122c"
   },
   {
     "id": "donkey",
     "bucket": 640,
-    "filename": "donkey-640-5ccac4908d1b.webp",
-    "bytes": 20246,
+    "filename": "donkey-640-8acf6519655b.webp",
+    "bytes": 77388,
     "width": 640,
     "height": 640,
-    "sha256": "5ccac4908d1b5c401f44fa61792dc64c6598ad890d3fe179eda6d86a8096a513"
+    "sha256": "8acf6519655b9045a6e8ed6d4f06f0515fc28e868c0fc8a746394b91171ca824"
   },
   {
     "id": "energy_ball",

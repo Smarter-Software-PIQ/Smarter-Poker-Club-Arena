@@ -1,0 +1,7 @@
+{
+  "_owner": "feat/lightning-join-outcomes-20261110",
+  "_comment": "Migration 20261110225742: every Lightning join ending (refused, failed, abandoned, timeout) with its stage and reason, and the per-outcome sample-size report. PROMISED, not yet observed: installed after the protected merge through Apply Merged Migration.",
+  "tables": [],
+  "functions": ["fn_lightning_join_outcome_report"],
+  "columns": {}
+}

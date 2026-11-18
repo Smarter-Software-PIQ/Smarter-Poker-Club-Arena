@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, statfsSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 /** A closed window of capture time whose published segments the ring never
  * retires. Resolved once, when a writer opens with it, to the published
@@ -18,6 +18,17 @@ export interface HorseJournalArchiveOptions {
   /** Absent or null: nothing is held and every published segment is a ring
    * candidate. */
   hold?: HorseJournalArchiveHold | null;
+  /** RETENTION BY TIME (2026-11-15). Published segments younger than this are
+   * not retired for the byte allocation while the filesystem keeps more than
+   * diskFloorBytes free. Absent or 0: the byte allocation binds as before. */
+  minRetentionMs?: number;
+  /** Free filesystem bytes below which the time guarantee yields and the byte
+   * allocation binds again (journal_retention_guarantee_breached). */
+  diskFloorBytes?: number;
+  /** TESTS ONLY (never set by the runtime options): the ring's per-append
+   * retirement bound, 1 to 1,024 (store.ts RING_RETIRE_LIMIT, the default), so a
+   * drain far over the allocation can be tested without thousands of appends. */
+  ringRetireLimit?: number;
 }
 
 // Separate durable archive allocation; the original 64 MiB journal remains
@@ -35,7 +46,9 @@ export interface HorseJournalArchiveOptions {
 // unpublished segments can ever hold capture at a quota; the filesystem's own
 // free space is not a ring quota and still pauses capture, by name, because
 // the archive retires within its allocation and not for whatever else filled
-// the disk. No quota describes an incomplete window as complete: a retired
+// the disk. (Since 2026-11-15 the live writer's time guarantee lets the byte
+// allocation yield while free space stays above a floor; see RETENTION IS
+// GUARANTEED BY TIME below.) No quota describes an incomplete window as complete: a retired
 // record is a missing record to every reader.
 //
 // THE ARCHIVE DID NOT HOLD EIGHT DAYS (measured read-only 2026-09-27). The
@@ -121,6 +134,76 @@ export const horseJournalHoldBudget = (
 // shared by writer enforcement and reader diagnostics; SQLite grows on demand.
 export const HORSE_JOURNAL_ARCHIVE_CATALOG_BYTES = 6 * 1024 * 1024 * 1024;
 
+/* RETENTION IS GUARANTEED BY TIME, NOT ONLY BY BYTES (2026-11-15). The byte
+   allocation above was sized when one writer captured the fleet. With eight
+   decision-worker shards (shards 2-7 at 4 GiB each) the ring kept what its
+   bytes held, and as records grew that fell to 15-23 hours per shard (14.8 h
+   on the busiest, measured read-only 2026-11-15 14:10Z; about 10 h on
+   2026-11-14), shorter than one daily-break cycle. A capture window between
+   two releases (up to about 24 hours) aged out before it could be read, and
+   the capture owner byte-copied the journal hourly to keep it: a watcher in
+   place of a fix. Now a published segment younger than the minimum retention
+   (default 30 h: one daily-break cycle plus six hours to read it) is not
+   retired for the byte allocation; the ring retires it only for a hard quota
+   (segments, records, catalog pages), or when the filesystem's free space
+   would fall below the disk floor (default 32 GiB), and then says so by name
+   (journal_retention_guarantee_breached) in its log and its status, oldest
+   first as before. Measured need at 30 h: about 2 GiB/h for the fleet, about
+   60 GiB of segments against about 40 GiB allocated today and 170 GiB free on
+   the engine host's 338 GB disk. HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS
+   (0 to 168; 0 turns the guarantee off) and
+   HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES override both. */
+export const HORSE_JOURNAL_MIN_RETENTION_HOURS = 30;
+export const HORSE_JOURNAL_MAX_MIN_RETENTION_HOURS = 168;
+export const HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES = 32 * 1024 * 1024 * 1024;
+/* TURNING IT OFF, LOWERING IT, OR ROLLING BACK (2026-11-15, Hand Analysis B1).
+   With the guarantee on, each shard normally holds well above its byte
+   allocation (about 50-57 GiB of segments for the fleet at 30 h against about
+   40 GiB allocated). This release drains safely when that ends (the hours set to
+   0 or lowered, or the disk floor reached): the ring retires 1,024 segments per
+   append and still accepts the batch while the filesystem keeps more than
+   HORSE_JOURNAL_DRAIN_MIN_FREE_BYTES (store.ts drainMayAccept), so nothing is
+   dropped. A RELEASE WITHOUT THIS CHANGE does not: it retires 1,024 segments and
+   refuses the batch on every append until the bytes fit, dropping capture for
+   the whole drain. Before rolling back to such a release (or before turning the
+   guarantee off on one that predates the drain), FIRST set
+   HORSE_DECISION_JOURNAL_ARCHIVE_MAX_BYTES at least to the largest shard's
+   current compressedBytes (writer status / horseJournal in /health) plus one
+   hour of writes (about 2 GiB), restart once on that setting, and KEEP that
+   raised value for as long as a release without the drain is serving: lowering
+   it there, even in steps, refuses capture again for every step (about 3 h lost
+   per GiB lowered; Hand Analysis D1 on #10996). Lower it only after rolling
+   forward to a release that has this drain. */
+/** The free space a draining ring always leaves on the archive filesystem
+ * (or the disk floor, when a smaller floor is configured). */
+export const HORSE_JOURNAL_DRAIN_MIN_FREE_BYTES = 1024 * 1024 * 1024;
+export type HorseJournalByteQuotaVerdict = 'retire' | 'keep' | 'breach';
+/** Pure. Whether the oldest retirable segment may be retired for the byte
+ * allocation. 'keep': it is younger than the guarantee and the disk has room,
+ * so the byte allocation yields. 'breach': it is younger, but the disk floor
+ * would be crossed, so it is retired anyway and the breach is named.
+ * 'retire': no guarantee applies (off, no candidate age, or old enough). */
+export function horseJournalByteQuotaVerdict(input: {
+  minRetentionMs: number;
+  oldestAgeMs: number | null;
+  freeBytes: number | null;
+  incomingBytes: number;
+  diskFloorBytes: number;
+}): HorseJournalByteQuotaVerdict {
+  const { minRetentionMs, oldestAgeMs, freeBytes, incomingBytes, diskFloorBytes } = input;
+  if (!(minRetentionMs > 0) || oldestAgeMs === null || !Number.isFinite(oldestAgeMs))
+    return 'retire';
+  if (oldestAgeMs >= minRetentionMs) return 'retire';
+  if (freeBytes === null || !Number.isFinite(freeBytes)) return 'breach';
+  return freeBytes - Math.max(0, incomingBytes) > diskFloorBytes ? 'keep' : 'breach';
+}
+function retentionHours(value: string | undefined): number {
+  if (value === undefined) return HORSE_JOURNAL_MIN_RETENTION_HOURS;
+  if (!/^(0|[1-9][0-9]*)$/.test(value) || Number(value) > HORSE_JOURNAL_MAX_MIN_RETENTION_HOURS)
+    throw Error('Invalid Horse archive resource allocation');
+  return Number(value);
+}
+
 function positiveInteger(value: string | undefined, fallback: number, ceiling: number): number {
   if (value === undefined) return fallback;
   if (!/^[1-9][0-9]*$/.test(value)) throw Error('Invalid Horse archive resource allocation');
@@ -147,6 +230,92 @@ function evidenceHold(value: string | undefined): HorseJournalArchiveHold | null
   )
     throw Error('Invalid Horse archive evidence hold');
   return { fromMs, untilMs };
+}
+
+/* A DECLARED CAPTURE HOLD (2026-11-15). The hold above is one environment
+   variable, read when a writer opens, and on production it still names the
+   2026-09 Phase 6A/6B window: a capture declared for a later release had no
+   protection from the ring. On 2026-11-14 the oldest journal files were
+   retired at up to 1.3 times real time, and the capture owner byte-copied
+   every segment file of a twelve-hour window hourly to keep it.
+   A declared hold is a file `<journal>/holds/<id>.json`, beside the archive
+   directories, so every shard's writer sees the same declarations:
+     {"version":1,"fromUtc":"2026-11-14T22:10:00Z","untilUtc":"2026-11-15T10:10:00Z",
+      "expiresUtc":"2026-11-22T10:10:00Z","operator":"Human-vs-Horse capture owner"}
+   Exactly those five keys; whole UTC seconds; untilUtc after fromUtc and at
+   most 48 hours later; expiresUtc after untilUtc and at most 14 days later,
+   so no declaration can hold anything for good. The file must be a private
+   regular file of at most 2 KiB with one link, owned by the writer's user,
+   in a private directory, like every other archive path. Each writer reads
+   the directory at most once every HORSE_JOURNAL_DECLARED_HOLD_REFRESH_MS,
+   outside its write transaction; at most four declarations apply (the first
+   four valid ones by file name). A file that fails any rule is refused by
+   name in the writer's log and changes nothing; capture never stops for one.
+   The declared windows share the hold budget below with the configured hold
+   (that one first), keep their oldest segments when it is reached, and are
+   released to the ring when they expire. Read-only readers never read them. */
+export const HORSE_JOURNAL_DECLARED_HOLDS_DIRECTORY = 'holds';
+export const HORSE_JOURNAL_DECLARED_HOLD_REFRESH_MS = 30_000;
+export const HORSE_JOURNAL_DECLARED_HOLD_MAX_WINDOW_MS = 48 * 3_600_000;
+export const HORSE_JOURNAL_DECLARED_HOLD_MAX_RETENTION_MS = 14 * 86_400_000;
+export const HORSE_JOURNAL_DECLARED_HOLDS_MAX = 4;
+export const HORSE_JOURNAL_DECLARED_HOLD_FILE_BYTES = 2048;
+export interface HorseJournalDeclaredHold {
+  id: string;
+  fromMs: number;
+  untilMs: number;
+  expiresAtMs: number;
+}
+const DECLARED_HOLD_NAME = /^([a-z0-9][a-z0-9-]{0,62})\.json$/;
+const DECLARED_HOLD_KEYS = ['expiresUtc', 'fromUtc', 'operator', 'untilUtc', 'version'];
+function holdInstant(value: unknown): number | null {
+  if (typeof value !== 'string' || !HOLD_INSTANT.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isSafeInteger(ms) && new Date(ms).toISOString() === value.replace('Z', '.000Z')
+    ? ms
+    : null;
+}
+/** The declared hold in one file, or the reason it is refused. Pure: no
+ * clock, no filesystem; expiry and file safety are the writer's checks. */
+export function parseHorseJournalDeclaredHold(
+  fileName: string,
+  text: string
+): HorseJournalDeclaredHold | string {
+  const name = DECLARED_HOLD_NAME.exec(fileName);
+  if (!name) return 'name';
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return 'json';
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'schema';
+  const value = body as Record<string, unknown>;
+  if (Object.keys(value).sort().join(',') !== DECLARED_HOLD_KEYS.join(',')) return 'schema';
+  if (value.version !== 1) return 'version';
+  if (typeof value.operator !== 'string' || !/^[\x20-\x7e]{1,200}$/.test(value.operator))
+    return 'operator';
+  const fromMs = holdInstant(value.fromUtc),
+    untilMs = holdInstant(value.untilUtc),
+    expiresAtMs = holdInstant(value.expiresUtc);
+  if (fromMs === null || untilMs === null || expiresAtMs === null) return 'instant';
+  if (!(fromMs < untilMs)) return 'window';
+  if (untilMs - fromMs > HORSE_JOURNAL_DECLARED_HOLD_MAX_WINDOW_MS) return 'window_too_long';
+  if (
+    !(expiresAtMs > untilMs) ||
+    expiresAtMs - untilMs > HORSE_JOURNAL_DECLARED_HOLD_MAX_RETENTION_MS
+  )
+    return 'expiry';
+  return { id: name[1]!, fromMs, untilMs, expiresAtMs };
+}
+/** Where a shard's writer looks for declared holds: `holds` beside the shard's
+ * archive directory, the journal directory every shard shares. Null for an
+ * archive directory that is not one of the journal's own shard names (a
+ * test or tool layout), which then has no declared holds. */
+export function horseJournalDeclaredHoldsDirectory(archiveDirectory: string): string | null {
+  return /^archive(-shard-[1-9][0-9]*)?$/.test(basename(archiveDirectory))
+    ? join(dirname(archiveDirectory), HORSE_JOURNAL_DECLARED_HOLDS_DIRECTORY)
+    : null;
 }
 
 /** ONE CATALOG PER DECISION-SHARD WRITER (2026-09-28). Every Horse decision
@@ -226,6 +395,28 @@ export function runtimeHorseJournalArchiveOptions(
       HORSE_JOURNAL_ARCHIVE_SEGMENTS
     ),
     hold: evidenceHold(environment.HORSE_DECISION_JOURNAL_ARCHIVE_HOLD),
+  };
+}
+
+/** The live writer's archive options: the allocation above plus the time
+ * guarantee (default 30 h, 32 GiB disk floor). Only the engine's own writer
+ * (startHorseDecisionJournal / prespawnHorseDecisionJournalWriter) opens with
+ * these; every reader, tool and test that builds runtimeHorseJournalArchiveOptions
+ * keeps byte-bound retirement exactly as before. */
+export function runtimeHorseJournalWriterArchiveOptions(
+  directory: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  shard: HorseJournalArchiveShard = { index: 0 }
+): HorseJournalArchiveOptions {
+  return {
+    ...runtimeHorseJournalArchiveOptions(directory, environment, shard),
+    minRetentionMs:
+      retentionHours(environment.HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS) * 3_600_000,
+    diskFloorBytes: positiveInteger(
+      environment.HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES,
+      HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES,
+      Number.MAX_SAFE_INTEGER
+    ),
   };
 }
 
@@ -472,6 +663,9 @@ export async function horseJournalShardCapacityMeasured(
 
 /** Existing archives consume free space as they grow towards their quotas.
  * Reserve that remaining growth before admitting fresh full-size shards.
+ * (The live writer's time guarantee lets a shard grow past its byte quota
+ * while free space stays above the disk floor, so this reserve understates
+ * that growth; the floor, not this sizing, bounds the disk in that case.)
  * Retain existing workers when their previous allocation already exceeds the
  * disk budget; this guard never retires archives or changes their retention. */
 export function horseJournalShardsAffordable(input: {

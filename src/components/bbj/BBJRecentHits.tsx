@@ -3,18 +3,16 @@
  *  BBJ RECENT HITS — "Last 5 Bad Beat Jackpot Winners"
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * The Winner tab of the jackpot popup: one row per hit, PokerBros grammar -
- * avatar, name, player number, the five-card hand that won it, the payout, the
- * timestamp. Tapping a row opens the full hand rundown (BBJHandDetail).
+ * The Winner tab of the jackpot popup: one row per hit - the total paid, the
+ * game and the stakes it was hit at, the jackpot winner's avatar, name, player
+ * number and share, then hole cards against hole cards with each player's name
+ * underneath, and the board. Tapping a row opens the full hand rundown
+ * (BBJHandDetail).
  *
- * THE FIVE CARDS ARE DERIVED, and that matters. hand_history stores hole cards
- * and a board but never which five made the hand, so the row used to be able to
- * show only a Hold'em player's two hole cards where the reference shows five.
- * bestFive() reconstructs the made hand under the variant's own rules (Omaha
- * must use exactly two from hand), and returns null rather than guessing when
- * the stored cards are incomplete - in which case the row falls back to the hole
- * cards, and then to the engine's own hand name. It never draws a hand it cannot
- * prove.
+ * THE ROW DRAWS STORED CARDS ONLY (Dan 2026-11-13). It used to derive each
+ * player's five-card hand with bestFive() and print it as "Bad Beat Hand" and
+ * "Lost To"; both are removed. hand_history stores the hole cards, the board
+ * and the blinds, and that is exactly what a player now reads here.
  *
  * THE AVATAR IS THE CLUB AVATAR (Dan, 2026-08-27: "you need to use there club
  * avatar as the image, not there profile pics"). fn_bbj_recent_hits serves
@@ -39,13 +37,13 @@ import { supabase } from '../../lib/supabase';
 import CardImage from '../table/CardImage';
 import { toDeckCards } from '../../utils/deckCards';
 import type { Card as DeckCard } from '../table/CardImage';
-import { bestFive } from '../../utils/handEvaluator';
 import { getAvatarWithFallback } from '../../utils/avatarGenerator';
 import { titleCase } from '../../utils/handReplay';
 import { reportError } from '../../utils/errorReporter';
 import './BBJRecentHits.css';
 import { jackpotChips, jackpotSplit, jackpotTotalAtPercent } from '../../utils/jackpotExact';
 import { gameTypeLabel, stamp } from '../../utils/handFormat';
+import { stakesLabel } from '../../lib/bettingStructure';
 
 export interface BBJRecentHitsProps {
   poolId: string | null;
@@ -99,6 +97,9 @@ interface Hit {
   hand_winner_cards: HistoryCard[] | null;
   board: HistoryCard[] | null;
   game_variant: string | null;
+  /** The hand's own blinds, as hand_history stored them. */
+  small_blind?: number | string | null;
+  big_blind?: number | string | null;
   table_player_count: number | null;
   recipients: Recipient[];
   /** How many jackpots this pool has paid in total, not just on this page. */
@@ -395,35 +396,25 @@ export function BBJRecentHits({
     }
   };
 
-  // Reconstructing a made hand walks up to 150 combinations per row. Cheap, but
-  // there is no reason to redo it on every keystroke-level re-render.
+  /**
+   * WHAT A WINNER ROW SHOWS (Dan 2026-11-13): "REMOVE THE BAD BEAT HAND AND
+   * LOST TO HAND. JUST SHOW THE HOLE CARDS VS HOLE CARDS AND THE BOARD. (MAKE
+   * SURE EACH 'HOLE CARDS' HAS THE PLAYERS NAME UNDER IT.)"
+   *
+   * So the row draws only what hand_history stored: each player's dealt cards
+   * and the board. The derived five-card hands are gone from the row, and with
+   * them the per-row bestFive() walk. The hand names the engine recorded stay
+   * in the row's accessible name.
+   */
   const shown = useMemo(() => {
-    return (hits || []).map((hit) => {
-      const hole = toDeckCards(hit.bad_beat_cards);
-      const board = toDeckCards(hit.board);
-      const made = bestFive(hole, board, hit.game_variant);
-      const winnerHole = toDeckCards(hit.hand_winner_cards);
-      const winnerMade = bestFive(winnerHole, board, hit.game_variant);
-      return {
-        hit,
-        hole,
-        winnerHole,
-        cards: made ? made.cards : hole,
-        /**
-         * THE HAND THAT BEAT IT. `fn_bbj_recent_hits` has always returned
-         * `hand_winner_cards`, `hand_winner_hand` and `hand_winner_name`, and
-         * this row rendered none of them — so a list headed "Bad Beat Jackpot
-         * Winners" showed the losing hand and left out the beat that made it
-         * a jackpot at all.
-         */
-        beatBy: winnerMade ? winnerMade.cards : winnerHole,
-        beatByLabel: titleCase(hit.hand_winner_hand || winnerMade?.name || ''),
-        // Prefer what the engine actually recorded; fall back to what we derived.
-        // Title Cased per the house rule, so "Four of a Kind" reads
-        // "Four Of A Kind" the way every other label on this surface does.
-        label: titleCase(hit.bad_beat_hand || made?.name || 'Qualifying Hand'),
-      };
-    });
+    return (hits || []).map((hit) => ({
+      hit,
+      hole: toDeckCards(hit.bad_beat_cards),
+      winnerHole: toDeckCards(hit.hand_winner_cards),
+      board: toDeckCards(hit.board),
+      beatByLabel: titleCase(hit.hand_winner_hand || ''),
+      label: titleCase(hit.bad_beat_hand || 'Qualifying Hand'),
+    }));
   }, [hits]);
 
   /**
@@ -552,7 +543,7 @@ export function BBJRecentHits({
         </div>
       )}
 
-      {shown.map(({ hit, hole, winnerHole, cards, label, beatBy, beatByLabel }) => {
+      {shown.map(({ hit, hole, winnerHole, board, label, beatByLabel }) => {
         // Id first: two players can share a display name, and lighting up the
         // wrong row on a money surface is not a cosmetic mistake.
         const isYou = currentUserId
@@ -576,6 +567,21 @@ export function BBJRecentHits({
             : Number(hit.bad_beat_amount);
         const shareLabel = Number.isFinite(share) && share >= 0 ? `+${jackpotChips(share)}` : null;
         const gameType = gameTypeLabel(hit.game_variant);
+        /* THE STAKES IT WAS HIT AT (Dan 2026-11-13: "IT SHOULD SAY 1/2 PLO OR
+           .50/1.00 NLH ... THE STAKES THAT IT WAS HIT AT SHOULD BE DISPLAYED
+           AS WELL AS THE GAME"). Read from the hand's own stored blinds and
+           printed with the lobby's stakesLabel, so a fixed-limit game reads
+           the bet sizes its lobby card reads. No stored blinds, no stakes:
+           the game type stands alone, never a guessed level. */
+        const blind = (v: number | string | null | undefined) =>
+          v == null || String(v).trim() === '' ? NaN : Number(v);
+        const sb = blind(hit.small_blind);
+        const bb = blind(hit.big_blind);
+        const stakes =
+          Number.isFinite(sb) && Number.isFinite(bb) && sb >= 0 && bb > 0
+            ? stakesLabel(sb, bb, hit.game_variant)
+            : null;
+        const gameTag = [stakes, gameType].filter(Boolean).join(' ');
 
         return (
           <div
@@ -647,38 +653,28 @@ export function BBJRecentHits({
               </time>
             </div>
 
-            <div className="bbj-hits__hand">
-              <div className="bbj-hits__made">
-                <span className="bbj-hits__hand-label">Bad Beat Hand</span>
-                {cards.length > 0 && (
-                  <div className="bbj-hits__cards" title={label}>
-                    {cards.map((card, i) => (
-                      <CardImage key={`${hit.payout_id}-${i}`} card={card} size="xs" />
+            <div className="bbj-hits__hand bbj-hits__hand--versus">
+              <HoleCards cards={hole} player={hit.bad_beat_name} />
+              <span className="bbj-hits__vs" aria-hidden="true">
+                VS
+              </span>
+              <HoleCards cards={winnerHole} player={hit.hand_winner_name} />
+              <div className="bbj-hits__board" role="group" aria-label="Board">
+                <span className="bbj-hits__hand-label">Board</span>
+                {board.length > 0 ? (
+                  <div className="bbj-hits__cards">
+                    {board.map((card, i) => (
+                      <CardImage key={`${hit.payout_id}-b-${i}`} card={card} size="xs" />
                     ))}
                   </div>
+                ) : (
+                  <span className="bbj-hits__hand-label">Unavailable</span>
                 )}
-                <span className="bbj-hits__handname">{label}</span>
-                <HoleCards cards={hole} player={hit.bad_beat_name} />
               </div>
-              {(beatBy.length > 0 || beatByLabel || hit.hand_winner_name) && (
-                <div className="bbj-hits__beat">
-                  <span className="bbj-hits__beat-label">Lost To</span>
-                  {beatBy.length > 0 && (
-                    <div className="bbj-hits__cards" title={beatByLabel}>
-                      {beatBy.map((card, i) => (
-                        <CardImage key={`${hit.payout_id}-w-${i}`} card={card} size="xs" />
-                      ))}
-                    </div>
-                  )}
-                  <span className="bbj-hits__handname">{beatByLabel}</span>
-                  <HoleCards cards={winnerHole} player={hit.hand_winner_name} />
-                  <span className="bbj-hits__beat-name">{hit.hand_winner_name}</span>
-                </div>
-              )}
             </div>
 
             <div className="bbj-hits__right">
-              {gameType && <span className="bbj-hits__gametype">{gameType}</span>}
+              {gameTag && <span className="bbj-hits__gametype">{gameTag}</span>}
               <span className="bbj-hits__total-label">Total Paid Out</span>
               <span className="bbj-hits__amt">{amountLabel}</span>
             </div>
@@ -706,10 +702,11 @@ export function BBJRecentHits({
   );
 }
 
-/** These are the stored dealt cards, never the derived five-card made hand. */
+/** The stored dealt cards, with the name of the player who held them underneath. */
 function HoleCards({ cards, player }: { cards: DeckCard[]; player: string }) {
+  const name = player || 'Player';
   return (
-    <div className="bbj-hits__hole" role="group" aria-label={`${player} Hole Cards`}>
+    <div className="bbj-hits__hole" role="group" aria-label={`${name} Hole Cards`}>
       <span className="bbj-hits__hand-label">Hole Cards</span>
       {cards.length > 0 ? (
         <div className="bbj-hits__cards">
@@ -720,6 +717,7 @@ function HoleCards({ cards, player }: { cards: DeckCard[]; player: string }) {
       ) : (
         <span className="bbj-hits__hand-label">Unavailable</span>
       )}
+      <span className="bbj-hits__hole-name">{name}</span>
     </div>
   );
 }

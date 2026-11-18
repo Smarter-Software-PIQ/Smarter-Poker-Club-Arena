@@ -66,13 +66,37 @@ export const PER_FILE_SLACK_MINUTES = 1;
  */
 export const DAILY_GUARD_CHICAGO = { from: [3, 50], until: [4, 10] };
 /**
- * The one bounded wait the merger may spend (job timeout 30 minutes). It
- * covers every ordinary file at any minute of the day: the worst hourly case
- * is a merge at :49 waiting to :04 (15 min), the worst daily case a merge at
- * 03:50 Chicago waiting to 04:10 (20 min). Only a CONCURRENTLY-preamble file
- * merged late in the hour can exceed it, and that is refused out loud.
+ * THE NIGHTLY COPY MUST STILL EQUAL PRODUCTION AT 03:30 (owner instruction,
+ * 11:04 Chicago 2026-11-17: the 04:00 cutover "IS SUPPOSED TO RUN
+ * AUTOMATICALLY AT 4AM CST EVERY DAY"). The 03:30 selector admits only a
+ * Backup certificate whose restored copy holds every migration production has
+ * installed (select-daily-engine.py: "Backup copy lacks installed
+ * migration"). On 2026-11-16 and 2026-11-17 ordinary installs after the last
+ * copy stranded every candidate, and the routine run kept serving. The
+ * nightly Backup refresh runs at 00:07 Chicago (backup-engine.yml schedule,
+ * three chances to 00:41), so an ordinary merged migration is held from 23:45
+ * until the seal has had its chance (04:15): it waits once, inside this same
+ * dispatcher run, and installs at 04:15. Nothing is retried or watched; the
+ * merge's own run is the one bounded wait. Window files keep their 04:00
+ * route; a hand dispatch of Apply Merged Migration stays the outage route
+ * (it stales that night's certificate, and the selector then keeps serving).
+ * The range wraps midnight.
+ */
+export const RELEASE_SCHEMA_FREEZE_CHICAGO = { from: [23, 45], until: [4, 15] };
+/**
+ * The one bounded wait the merger may spend outside the nightly release
+ * schema freeze. It covers every ordinary file at any minute of the day: the
+ * worst hourly case is a merge at :49 waiting to :04 (15 min). Only a
+ * CONCURRENTLY-preamble file merged late in the hour can exceed it, and that
+ * is refused out loud. A hold by RELEASE_SCHEMA_FREEZE_CHICAGO (worst: a
+ * merge at 23:45 Chicago held to 04:15, 270 min) has its own bound,
+ * RELEASE_FREEZE_WAIT_BUDGET_MINUTES (job timeout 300 minutes).
  */
 export const WAIT_BUDGET_MINUTES = 22;
+/** The longer bounded wait allowed only for a hold by the nightly release schema freeze. */
+export const RELEASE_FREEZE_WAIT_BUDGET_MINUTES = 285;
+/** How far ahead the planner looks for an admitted instant. */
+export const SEARCH_HORIZON_MINUTES = 360;
 
 const chicago = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Chicago',
@@ -90,6 +114,13 @@ const inDailyGuard = (ms) => {
   const [uh, um] = DAILY_GUARD_CHICAGO.until;
   return m >= fh * 60 + fm && m < uh * 60 + um;
 };
+/** True inside the nightly release schema freeze (wraps midnight). */
+export function inReleaseSchemaFreeze(ms) {
+  const m = chicagoMinuteOfDay(ms);
+  const from = RELEASE_SCHEMA_FREEZE_CHICAGO.from[0] * 60 + RELEASE_SCHEMA_FREEZE_CHICAGO.from[1];
+  const until = RELEASE_SCHEMA_FREEZE_CHICAGO.until[0] * 60 + RELEASE_SCHEMA_FREEZE_CHICAGO.until[1];
+  return from > until ? m >= from || m < until : m >= from && m < until;
+}
 
 /** Minutes needed before :50 UTC for `count` files, preamble or not. */
 export function minutesNeeded(count, preamble) {
@@ -104,16 +135,16 @@ export function admissibleAt(ms, count, preamble) {
   const minute = d.getUTCMinutes() + d.getUTCSeconds() / 60;
   if (minute < FIRST_ADMITTED_MINUTE) return false;
   if (WINDOW_OPENS_MINUTE - minute < minutesNeeded(count, preamble)) return false;
-  return !inDailyGuard(ms);
+  return !inDailyGuard(ms) && !inReleaseSchemaFreeze(ms);
 }
 
 /**
- * The earliest instant at or after `now` (15 s resolution, two hours ahead)
+ * The earliest instant at or after `now` (15 s resolution, six hours ahead)
  * at which a dispatch of `count` files is admitted, or null if none is.
  */
 export function earliestDispatch(now, count, preamble) {
   if (count === 0) return now;
-  for (let t = now; t <= now + 2 * 3_600_000; t += 15_000) {
+  for (let t = now; t <= now + SEARCH_HORIZON_MINUTES * 60_000; t += 15_000) {
     if (admissibleAt(t, count, preamble)) return t;
   }
   return null;
@@ -204,6 +235,11 @@ export function planDispatch(added, readSql, now, modified = []) {
   }
   const at = earliestDispatch(now, dispatch.length, preamble);
   const waitSeconds = at === null ? null : Math.ceil((at - now) / 1000);
+  const heldForDailyRelease =
+    dispatch.length > 0 &&
+    at !== null &&
+    (inReleaseSchemaFreeze(now) || (at > now && inReleaseSchemaFreeze(at - 60_000)));
+  const budget = (heldForDailyRelease ? RELEASE_FREEZE_WAIT_BUDGET_MINUTES : WAIT_BUDGET_MINUTES) * 60;
   return {
     dispatch,
     // The dispatched files this PR modified rather than added: the applier
@@ -215,7 +251,10 @@ export function planDispatch(added, readSql, now, modified = []) {
     preamble,
     dispatchAt: at === null ? null : new Date(at).toISOString(),
     waitSeconds,
-    withinBudget: waitSeconds !== null && waitSeconds <= WAIT_BUDGET_MINUTES * 60,
+    // The wait (if any) is the nightly release schema freeze, not the
+    // ordinary :50-:03 break: the shell says so on the PR.
+    heldForDailyRelease,
+    withinBudget: waitSeconds !== null && waitSeconds <= budget,
   };
 }
 

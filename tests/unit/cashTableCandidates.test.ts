@@ -4,6 +4,7 @@ import {
   CASH_TABLE_CARD_SELECTOR,
   collectVisibleCashCandidates,
   selectClassicCashCandidate,
+  takeNextLayoutCandidate,
 } from '../e2e/support/cashTableCandidates';
 
 const TABLE = '11111111-1111-4111-8111-111111111111';
@@ -18,6 +19,8 @@ function card({
   hidden = false,
   width = 44,
   compact = false,
+  capacity = 0,
+  tableCapacity = 0,
 } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'club-home__games';
@@ -28,6 +31,8 @@ function card({
   entry.dataset.target = target;
   entry.dataset.live = String(live);
   entry.dataset.players = String(players);
+  entry.dataset.capacity = String(capacity);
+  if (tableCapacity) entry.dataset.tableCapacity = String(tableCapacity);
   const button = document.createElement('button');
   button.setAttribute('aria-label', label);
   if (compact) button.className = 'compact-lobby__open';
@@ -56,6 +61,24 @@ function card({
 afterEach(() => document.body.replaceChildren());
 
 describe('production cash spectator candidate selection', () => {
+  it.each([false, true])(
+    'reads the layout hint from compact=%s without trusting cluster totals',
+    (compact) => {
+      expect(card({ compact, capacity: 9 })[0].capacityHint).toBe('9');
+      expect(card({ compact, capacity: 18 })[1].capacityHint).toBeUndefined();
+      expect(card({ compact, capacity: 0, tableCapacity: 6 })[2].capacityHint).toBe('6');
+    }
+  );
+  it('prefers an unverified capacity and keeps unknown and mismatched hints eligible', () => {
+    const remaining = ['9', undefined, '6', '9'].map((capacityHint, i) => ({
+      i,
+      candidate: { capacityHint },
+    }));
+    const verified = new Set(['9']);
+    expect([0, 1, 2, 3].map(() => takeNextLayoutCandidate(remaining, verified)?.i)).toEqual([
+      2, 1, 0, 3,
+    ]);
+  });
   it('accepts read-only Details on a compact row before the separate View action', () => {
     expect(card({ compact: true, label: 'Details: NLH 1/2' })).toHaveLength(1);
   });

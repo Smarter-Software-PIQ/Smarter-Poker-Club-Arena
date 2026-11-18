@@ -868,7 +868,10 @@ describe('the referral funnel the ads point at does not drop the referral', () =
 
   it('the clipboard fallback carries the link too', () => {
     const share = DASH.slice(DASH.indexOf('const handleShare'), DASH.indexOf('if (loading)'));
-    expect(share).toMatch(/writeText\(`\$\{shareText\} \$\{url\}`\)/);
+    /* 2026-11-14: the share goes through src/lib/share.ts, whose clipboard
+       step writes the sentence and then the link (shareClipboardText). */
+    expect(share).toMatch(/shareLink\(\{[\s\S]*text: shareText,\s*url,/);
+    expect(read('src/lib/share.ts')).toMatch(/return t \? `\$\{t\} \$\{url\}` : url;/);
   });
 });
 

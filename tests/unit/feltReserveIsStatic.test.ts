@@ -89,6 +89,13 @@ const ALL_CSS = SRC_FILES.filter((f) => f.endsWith('.css'))
   .map((f) => readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
   .join('\n');
 const CODE_FILES = SRC_FILES.filter((f) => /\.tsx?$/.test(f));
+// This immutable suite reads the same source corpus in seven assertions.
+// Snapshot it once, as ALL_CSS already does, so shared-SSD contention cannot
+// turn repeated disk reads into a per-test timeout. Every file stays covered.
+const CODE_SOURCE = new Map(
+  CODE_FILES.map((file) => [file, stripComments(readFileSync(file, 'utf8'))])
+);
+const code = (file: string) => CODE_SOURCE.get(file)!;
 
 /**
  * Every custom property any JavaScript in src/ writes to the DOM.
@@ -101,7 +108,7 @@ const CODE_FILES = SRC_FILES.filter((f) => /\.tsx?$/.test(f));
 function jsWrittenProperties(): Map<string, string[]> {
   const written = new Map<string, string[]>();
   for (const file of CODE_FILES) {
-    const src = stripComments(readFileSync(file, 'utf8'));
+    const src = code(file);
     const rel = file.slice(ROOT.length + 1);
     for (const re of [
       /setProperty\(\s*['"`](--[a-zA-Z0-9-]+)['"`]/g,
@@ -199,6 +206,11 @@ describe('the felt reserves stay fixed through hand and action states', () => {
     // table is doing right now, and the table must look the same doing any of it.
     const STATE =
       /\[data-|:has\(|\.ca-raising|--hero-turn|--allin|--winner|--active|--open|:hover|:focus|:active|\bbody\./;
+    const sixSeatSelector = ".table-page[data-seats='6'] .table-container";
+    const sixSeatReserves = [
+      '64px',
+      'min( calc(0.0811667 * 88vw + 51px), calc( (0.0568167 * (var(--sp-page-h) - var(--sp-table-top) - var(--sp-action-reserve)) + 51px) / 1.0568167 ) )',
+    ];
     const offenders: string[] = [];
     for (const prop of GEOMETRY_PROPS) {
       for (const d of declarationsOf(prop)) {
@@ -206,17 +218,22 @@ describe('the felt reserves stay fixed through hand and action states', () => {
         // reserve clears the permanent hero plate, independent of hand state.
         const fixedShortRing =
           prop === '--sp-hero-clear' &&
-          d.selector === ".table-page[data-seats='6'] .table-container" &&
-          d.value === '64px';
-        if (!fixedShortRing && STATE.test(d.selector))
+          d.selector === sixSeatSelector &&
+          sixSeatReserves.includes(d.value.replace(/\s+/g, ' '));
+        const observerUsesSeatedRow =
+          prop === '--sp-action-reserve' &&
+          d.selector ===
+            ".table-page--tournament[data-seats='9'][data-hero='false'] .table-container" &&
+          d.value === 'var(--sp-seated-row-reserve)';
+        if (!fixedShortRing && !observerUsesSeatedRow && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);
       }
     }
     expect(
-      declarationsOf('--sp-hero-clear').filter(
-        (d) => d.selector === ".table-page[data-seats='6'] .table-container"
-      )
-    ).toEqual([{ selector: ".table-page[data-seats='6'] .table-container", value: '64px' }]);
+      declarationsOf('--sp-hero-clear')
+        .filter((d) => d.selector === sixSeatSelector)
+        .map((d) => d.value.replace(/\s+/g, ' '))
+    ).toEqual(sixSeatReserves);
     expect(ALL_CSS).toMatch(
       /@media\s*\(max-width:\s*375px\)\s*and\s*\(max-height:\s*700px\)\s*and\s*\(orientation:\s*portrait\)\s*\{\s*\.table-page\[data-seats='6'\]\s+\.table-container\s*\{\s*--sp-hero-clear:\s*64px;/
     );
@@ -268,7 +285,16 @@ describe('the felt reserves stay fixed through hand and action states', () => {
     // unused hero-card space. It must never redefine either reserve or make
     // hand/action state feed the dimensions.
     expect(ALL_CSS).not.toMatch(/\[data-hero='false'\][^{]*\{[^}]*--sp-hero-clear\s*:/);
-    expect(ALL_CSS).not.toMatch(/\[data-hero='false'\][^{]*\{[^}]*--sp-action-reserve\s*:/);
+    expect(
+      declarationsOf('--sp-action-reserve').filter((d) =>
+        d.selector.includes("[data-hero='false']")
+      )
+    ).toEqual([
+      {
+        selector: ".table-page--tournament[data-seats='9'][data-hero='false'] .table-container",
+        value: 'var(--sp-seated-row-reserve)',
+      },
+    ]);
   });
 });
 
@@ -311,10 +337,9 @@ describe("the felt's geometry is declared, never measured", () => {
     // Whitespace-insensitive: Prettier wraps a long var() across lines.
     expect(ALL_CSS).not.toMatch(/var\(\s*--sp-action-h\b/);
     for (const file of CODE_FILES) {
-      expect(
-        stripComments(readFileSync(file, 'utf8')),
-        `${file} still writes --sp-action-h`
-      ).not.toMatch(/setProperty\(\s*['"`]--sp-action-h/);
+      expect(code(file), `${file} still writes --sp-action-h`).not.toMatch(
+        /setProperty\(\s*['"`]--sp-action-h/
+      );
     }
   });
 
@@ -333,7 +358,7 @@ describe("the felt's geometry is declared, never measured", () => {
        a ref, or `document.documentElement` for a genuinely global token — never
        to the first match of its own class name. */
     for (const file of CODE_FILES) {
-      const src = stripComments(readFileSync(file, 'utf8'));
+      const src = code(file);
       const bad = [...src.matchAll(/document\.querySelector\(\s*['"`]\.table-page['"`]\s*\)/g)];
       expect(
         bad.length,
@@ -341,5 +366,76 @@ describe("the felt's geometry is declared, never measured", () => {
           "tables mounted that is another instance's root."
       ).toBe(0);
     }
+  });
+});
+
+describe('the device constants the phone table publishes', () => {
+  /* The one sanctioned exception to "never measured", made explicit (Dan
+     2026-11-11). A portrait phone lays the table out at the desktop width
+     and the browser scales it down (useTableEnvironment). Three facts about
+     the DEVICE cannot be expressed in CSS at that scale and are read once,
+     before the switch, then published on <html> in desktop-layout px:
+
+       --sp-table-stable-viewport-h   the small viewport height (2026-10-25)
+       --sp-phone-safe-top            the notch / Dynamic Island band
+       --sp-phone-safe-bottom         the home indicator band
+
+     They feed the felt's budget, and that is correct for the same reason a
+     breakpoint may: they describe the screen, not the hand. Nothing a hand,
+     an action or a dock can do reaches them. Their writes name the property
+     through a constant, which the setProperty scan above does not see, so
+     this pins the exception by name instead of leaving it invisible: exactly
+     these three, declared and written only by the viewport hook. A fourth,
+     or a write from anywhere else, is a measurement in the felt's graph. */
+  const HOOK = resolve(ROOT, 'src/hooks/useTableEnvironment.ts');
+  const DEVICE_CONSTANTS = [
+    '--sp-phone-safe-bottom',
+    '--sp-phone-safe-top',
+    '--sp-table-stable-viewport-h',
+  ];
+
+  it('declares exactly these, and only the viewport hook does', () => {
+    const hook = code(HOOK);
+    const declared = [...hook.matchAll(/const\s+[A-Z_]+\s*=\s*['"`](--[a-z0-9-]+)['"`]/g)]
+      .map((m) => m[1])
+      .sort();
+    expect(declared).toEqual(DEVICE_CONSTANTS);
+    for (const file of CODE_FILES) {
+      if (file === HOOK) continue;
+      const src = code(file);
+      for (const name of DEVICE_CONSTANTS)
+        expect(src.includes(name), `${file.slice(ROOT.length + 1)} names ${name}`).toBe(false);
+    }
+  });
+
+  it('reads them inside the one viewport writer and clears them with the last table', () => {
+    const hook = code(HOOK);
+    const writer = hook.slice(hook.indexOf('function writeTableViewport'));
+    for (const constant of [
+      'STABLE_TABLE_VIEWPORT_HEIGHT',
+      'PHONE_SAFE_TOP',
+      'PHONE_SAFE_BOTTOM',
+    ]) {
+      expect(writer).toMatch(new RegExp(`setProperty\\(\\s*${constant}\\b`));
+      expect(writer).toMatch(new RegExp(`removeProperty\\(\\s*${constant}\\s*\\)`));
+    }
+    // Read once per mount: only while nothing has been captured yet.
+    expect(writer).toMatch(/if \(phoneSafeTop === null\)/);
+  });
+});
+
+describe('the phone table rests just above the complete hero box', () => {
+  it('moves the six and nine seat canvas down without changing its height budget', () => {
+    const css = stripComments(read('src/pages/TablePage.css'));
+    const lowered = css.match(
+      /\.table-page:where\(\[data-seats='6'\], \[data-seats='9'\]\) \.table-container\s*\{\s*padding-top:\s*calc\(var\(--sp-table-top\) \+ ([\d.]+)px\);\s*padding-bottom:\s*calc\(var\(--sp-table-bottom\) - ([\d.]+)px\);\s*\}/
+    );
+    expect(lowered, 'a lower table keeps its existing static height and width').not.toBeNull();
+    const down = Number(lowered![1]);
+    expect(down).toBe(Number(lowered![2]));
+    expect(down).toBeGreaterThan(0);
+    // The full built-app phone witness has a 6.1px minimum gap, including the
+    // hand label. Retain 2px of clearance for subpixel rounding at the rail.
+    expect(down).toBeLessThanOrEqual(6.1 - 2);
   });
 });

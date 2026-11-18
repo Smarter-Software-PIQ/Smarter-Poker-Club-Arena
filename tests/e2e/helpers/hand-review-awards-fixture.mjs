@@ -31,6 +31,8 @@ export function handReviewAwardsFixture() {
     `,
     },
     bundle: true,
+    loader: { '.png': 'file', '.jpg': 'file', '.webp': 'file' },
+    assetNames: 'table-art/[name]-[hash]',
     jsx: 'automatic',
     write: false,
     outdir: process.env.TMPDIR || process.cwd(),
@@ -45,7 +47,7 @@ export function handReviewAwardsFixture() {
         name: 'no-account-io',
         setup(b) {
           b.onResolve({ filter: /useAuthUser$/ }, () => ({ path: 'auth', namespace: 'fixture' }));
-          b.onResolve({ filter: /SoundService$/ }, () => ({ path: 'sound', namespace: 'fixture' }));
+          b.onResolve({ filter: /\/SoundService$/ }, () => ({ path: 'sound', namespace: 'fixture' }));
           b.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({
             contents:
               path === 'auth'
@@ -58,6 +60,7 @@ export function handReviewAwardsFixture() {
     logLevel: 'silent',
   }).then((result) => ({
     javascript: result.outputFiles.find((f) => f.path.endsWith('.js')).text,
+    assets: Object.fromEntries(result.outputFiles.filter((f) => f.path.includes('/table-art/')).map((f) => [f.path.slice(f.path.lastIndexOf('/table-art/')), Buffer.from(f.contents)])),
     css: result.outputFiles.find((f) => f.path.endsWith('.css')).text,
   })));
 }

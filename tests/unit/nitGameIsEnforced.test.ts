@@ -90,7 +90,12 @@ describe('the rule is enforced where it can actually bite', () => {
     // kind was consulted. The shared method is called from both loops, so this
     // rule now bites in strictly more places than it did.
     const evict = src('server/src/engine/ServerTableEngineBase.ts');
-    expect(evict).toContain('collectNitEvictions');
+    // WARN, THEN BOOT (Dan 2026-11-10): the dealing loop now calls the
+    // enforcement, which opens and clears the warning and returns a seat only
+    // once its grace is spent. Warning is a write, so the STABLE read it
+    // replaced could not record it. Grace is 0 on Action and Madness, where
+    // this returns exactly what collectNitEvictions returned.
+    expect(evict).toContain('collectNitEnforce');
     // Same atomicCashout + unregister path as sit-out and away-blind, with its
     // own reason on the seat_left event.
     expect(evict).toContain("'nit_game_vpip'");

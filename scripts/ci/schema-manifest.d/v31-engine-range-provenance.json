@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/v31-engine-refuses-cells-without-range-provenance: gto_v31_round_registrations is LIVE (migration 20261110213931, #10465, service_role SELECT); the nightly snapshot has not absorbed it yet. The live V31 loader reads it once per load.",
+  "tables": ["gto_v31_round_registrations"]
+}

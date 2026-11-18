@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   FILTER_SPECS,
+  variantKey,
   emptyFilterValue,
   rowPassesFilter,
   type FilterableRow,
@@ -242,8 +243,16 @@ describe('the MTT variant chips can all match something', () => {
       'short_deck',
       'flh',
       'flo8',
+      // Owner November 14, 2026: the limit Omahas, which variantKey learns
+      // from their code (flo4 / flo5 / flo6) and from their names.
+      'flo4',
+      'flo5',
+      'flo6',
       'sat',
     ]);
+    for (const raw of ['flo4', 'FLO5', 'Omaha 6 Card Fixed Limit', 'Omaha 8o Fixed Limit']) {
+      expect(reachable.has(variantKey(raw)), raw).toBe(true);
+    }
     for (const spec of Object.values(FILTER_SPECS)) {
       for (const g of spec.games ?? []) {
         expect(reachable.has(g.key), `${g.key} is a chip no variant can produce`).toBe(true);

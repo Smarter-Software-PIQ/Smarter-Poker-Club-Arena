@@ -1,0 +1,9 @@
+# Weekly union invoices retain player results by activity
+
+New weekly invoices quote cash and tournament player net losses from their existing immutable original activity records. They show the signed total, club rakeback credit, recorded ECO charge or credit, and full weekly net. The full net is an informational summary; the existing external amount, direction and unpaid balance remain separate. Positive player net loss means players lost; negative means they won.
+
+The existing invoice issuer verifies the original result and rakeback totals, stores the snapshot in its breakdown, and includes the same figures in its existing delivery notes. Union statements, their CSV export, and the receiving club's statement detail read that snapshot. Historical invoices lacking it display unavailable. No wallet movement, rate, schedule, original component, delivered invoice or historical payment is changed.
+
+The existing required agreement-history/dual-ECO PostgreSQL route loads the exact successor and tests the actual private reader, issuer and board with synthetic qualified source inputs. It checks signed arithmetic, independent ECO, unchanged external debt, immutable retry, absent historical evidence, private access and changed-input refusal. Focused client tests reject inconsistent totals and preserve the distinction between full net and unpaid balance. Production installation and live proof remain separate delivery gates.
+
+Hosted qualification exposed signed PGDG extension compatibility and PostgreSQL minor mismatches before native tests ran. Protected deliveries #10598 and #10609 supplied the maintained installer corrections during qualification. This PR reuses their installer and tests unchanged; no workflow, qualification manifest, unsigned source, omitted extension or weakened gate is introduced. The existing native tool remains bound to its reviewed version and source digest.

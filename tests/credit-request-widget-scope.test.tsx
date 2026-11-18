@@ -239,7 +239,7 @@ describe('Credit requests belong to an account and club', () => {
       gate.resolve({ ...pending, status: 'approved', approvedAmount: 200.25 });
       await gate.promise;
     });
-    expect(mocks.toast.success).toHaveBeenCalledWith('Credit limit updated to 200');
+    expect(mocks.toast.success).toHaveBeenCalledWith('Credit limit updated to 200.25');
     expect(mocks.emit).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,7 @@
 -- Independent empty-state and source readback, outside the primary rollback transaction.
 \set ON_ERROR_STOP on
 DO $$ BEGIN
- IF current_user<>'postgres' OR current_setting('server_version_num')::integer<>170011
+ IF current_user<>'postgres' OR current_setting('server_version_num')::integer<>170012
     OR current_database()<>'class4_native_'||replace(current_setting('app.class4_execution_uuid'),'-','')
     OR current_setting('session_replication_role')<>'origin'
     OR NOT has_parameter_privilege('postgres','session_replication_role','SET')

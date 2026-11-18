@@ -7,6 +7,8 @@
  * them.
  */
 
+import { exactChips } from './format';
+
 /**
  * THE FIGURE A USER CONFIRMS IS THE FIGURE THAT MOVES (launch audit
  * 2026-10-09, P-10). `fmt` floors to one decimal of K/M/B for head zones and
@@ -15,18 +17,13 @@
  * amount - the exact two-decimal figure prints instead, grouped by thousands:
  * 5 x 1,999.99 is "9,999.95", never "9.9K". Whole chips print whole.
  */
-export function exactChipFigure(value: number): string {
-  const safe = Number.isFinite(value) ? value : 0;
-  const cents = Math.round(Math.abs(safe) * 100);
-  const whole = Math.floor(cents / 100);
-  const fraction = cents % 100;
-  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const sign = safe < 0 && cents > 0 ? '-' : '';
-  // Two cent digits by arithmetic: the Trade page's one padStart is its
-  // mm:ss clock, and the role-scoping law counts call sites.
-  return fraction === 0
-    ? `${sign}${grouped}`
-    : `${sign}${grouped}.${fraction < 10 ? '0' : ''}${fraction}`;
+export function exactChipFigure(value: number | string): string {
+  // Decimal text from the database prints digit for digit (Dan 2026-11-13).
+  // A number here is a cashier amount: every source is a scale-2 chip column
+  // (chip_transactions.amount numeric(14,2), wallets numeric(20,2)), or a sum
+  // of them, so its explicit precision is cents and chipCents applies it.
+  if (typeof value === 'string') return exactChips(value);
+  return exactChips(Number.isFinite(value) ? chipCents(value) : 0);
 }
 
 /**
@@ -35,6 +32,16 @@ export function exactChipFigure(value: number): string {
  * displayed sum on the Trade page goes through here so a figure can never carry
  * drift the ledger does not have.
  */
+/**
+ * The result of client-side chip arithmetic, at the platform's stored chip
+ * precision: cents (every chip column is scale 2). The explicit rounding rule
+ * for a sum, difference or average computed in the browser, applied before a
+ * formatter prints it (the formatter itself never guesses at noise).
+ */
+export function chipCents(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
 export function sumChips(values: Iterable<number>): number {
   let cents = 0;
   for (const value of values) cents += Math.round((Number(value) || 0) * 100);

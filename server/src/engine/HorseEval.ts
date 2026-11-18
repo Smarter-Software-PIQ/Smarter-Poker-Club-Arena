@@ -1,4 +1,5 @@
 import type { HorseRangeSampleUse } from './HorseRangeConsumptionReceipt.js';
+import { noteFire } from './BrainTelemetry.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE EVAL — Hand Evaluators, Monte Carlo Equity, Preflop Scores (V7 split)
@@ -537,7 +538,8 @@ export function nextCardOutlook(
   hole: Card[],
   board: Card[],
   vi: VariantInfo,
-  quality = true
+  quality = true,
+  omahaFourStraightScare = false
 ): NextCardOutlook {
   const out: NextCardOutlook = { good: [], scare: [], madeNow: 0 };
   if (!hole || hole.length < 2 || !board || board.length < 3 || board.length >= 5) return out;
@@ -657,7 +659,7 @@ export function nextCardOutlook(
       continue;
     }
     // The documented four-straight scare was missing from the implementation.
-    if (holdem && after < CAT_STRAIGHT) {
+    if ((holdem || (omahaFourStraightScare && vi.isOmaha && !vi.isHiLo)) && after < CAT_STRAIGHT) {
       const ranks = new Set(next.map((card) => RANK_VALUES[card.rank]));
       if (ranks.has(14)) ranks.add(1);
       let connected = false;
@@ -677,6 +679,76 @@ export function nextCardOutlook(
     }
   }
   return out;
+}
+
+// ── Precomputed 5-card board-triple prime & suit cache (Wave 2 #4) ───────────
+// For one 5-card trial board, the 10 C(5,3) board triples are invariant across
+// hero and every opponent (up to 6 players x 15 hole pairs = 900 five-card
+// evaluations in 6-max PLO6!). Precomputing the 10 triple prime products and
+// 3-card flush suit indices once per board cuts inner-loop multiplications and
+// suit checks ~3x while remaining 100% bit-identical to scoreOmahaHi.
+const bTriplePrimes = new Int32Array(10);
+const bTripleSuits = new Int8Array(10);
+const hCardPrimes = new Int32Array(6);
+const hCardSuits = new Int8Array(6);
+
+function populateBoardTripleCache(board: Card[]): void {
+  const p0 = RANK_PRIME_BY_VALUE[RANK_VALUES[board[0].rank]];
+  const p1 = RANK_PRIME_BY_VALUE[RANK_VALUES[board[1].rank]];
+  const p2 = RANK_PRIME_BY_VALUE[RANK_VALUES[board[2].rank]];
+  const p3 = RANK_PRIME_BY_VALUE[RANK_VALUES[board[3].rank]];
+  const p4 = RANK_PRIME_BY_VALUE[RANK_VALUES[board[4].rank]];
+  const s0 = SUIT_INDEX[board[0].suit];
+  const s1 = SUIT_INDEX[board[1].suit];
+  const s2 = SUIT_INDEX[board[2].suit];
+  const s3 = SUIT_INDEX[board[3].suit];
+  const s4 = SUIT_INDEX[board[4].suit];
+  const bp = [p0, p1, p2, p3, p4];
+  const bs = [s0, s1, s2, s3, s4];
+  for (let t = 0; t < 10; t++) {
+    const tr = BOARD_TRIPLES[t];
+    const x = tr[0];
+    const y = tr[1];
+    const z = tr[2];
+    bTriplePrimes[t] = bp[x] * bp[y] * bp[z];
+    bTripleSuits[t] = bs[x] === bs[y] && bs[x] === bs[z] ? bs[x] : -1;
+  }
+}
+
+function scoreOmahaHiCachedBoard(hole: Card[], board: Card[]): number {
+  const len = hole.length;
+  if (len > 6) return scoreOmahaHi(hole, board);
+  for (let i = 0; i < len; i++) {
+    hCardPrimes[i] = RANK_PRIME_BY_VALUE[RANK_VALUES[hole[i].rank]];
+    hCardSuits[i] = SUIT_INDEX[hole[i].suit];
+  }
+  const pairs = PAIR_COMBOS[len] || PAIR_COMBOS[4];
+  let best = 0;
+  for (let p = 0; p < pairs.length; p++) {
+    const pair = pairs[p];
+    const a = pair[0];
+    const b = pair[1];
+    const hp = hCardPrimes[a] * hCardPrimes[b];
+    const hs = hCardSuits[a] === hCardSuits[b] ? hCardSuits[a] : -1;
+    for (let t = 0; t < 10; t++) {
+      const key = hp * bTriplePrimes[t];
+      const flush = hs >= 0 && hs === bTripleSuits[t];
+      const sc = flush ? fiveCardFlushNormal.get(key) : fiveCardNormal.get(key);
+      if (sc !== undefined) {
+        if (sc > best) best = sc;
+      } else {
+        const tr = BOARD_TRIPLES[t];
+        omahaScratch[0] = hole[a];
+        omahaScratch[1] = hole[b];
+        omahaScratch[2] = board[tr[0]];
+        omahaScratch[3] = board[tr[1]];
+        omahaScratch[4] = board[tr[2]];
+        const fb = scoreFiveCards(omahaScratch);
+        if (fb > best) best = fb;
+      }
+    }
+  }
+  return best;
 }
 
 export function scoreOmahaHi(hole: Card[], board: Card[]): number {
@@ -944,9 +1016,11 @@ export function omahaDrawQuality(
 
     const bigWrap = straightOuts >= 9;
 
-    // V16 plo8: a NUT-LOW draw (A-2 in hand, two distinct low board cards,
-    // one more low card needed) is half the pot with the best possible low —
-    // real semi-bluff equity the high-only grader scored as nothing.
+    // V16 plo8: a NUT-LOW draw (the two lowest un-boarded low ranks in hand,
+    // two distinct low board cards, one more low card needed) is half the pot
+    // with the best possible low — including A-3 when 2 is on board or 2-3
+    // when A is on board! On a flop, bare A-2 without 3/4 counterfeit protection
+    // requires at least nut-flush or straight backup before counting as nutty.
     let nutLowDraw = false;
     if (isHiLo) {
       const lowRank = (r: number): number => (r === 14 ? 1 : r);
@@ -957,16 +1031,25 @@ export function omahaDrawQuality(
       }
       const holeRanks = new Set<number>();
       for (const c of hole) holeRanks.add(lowRank(RANK_VALUES[c.rank]));
-      // A + 2 live (not counterfeit by the board) with exactly 2 distinct
-      // board lows = one card from the nut low.
-      if (
-        boardLows.size === 2 &&
-        holeRanks.has(1) &&
-        holeRanks.has(2) &&
-        !boardLows.has(1) &&
-        !boardLows.has(2)
-      ) {
-        nutLowDraw = true;
+      if (boardLows.size === 2) {
+        let lowestUnboarded1 = 0;
+        let lowestUnboarded2 = 0;
+        for (let lr = 1; lr <= 8; lr++) {
+          if (boardLows.has(lr)) continue;
+          if (lowestUnboarded1 === 0) lowestUnboarded1 = lr;
+          else if (lowestUnboarded2 === 0) {
+            lowestUnboarded2 = lr;
+            break;
+          }
+        }
+        if (
+          lowestUnboarded1 > 0 &&
+          lowestUnboarded2 > 0 &&
+          holeRanks.has(lowestUnboarded1) &&
+          holeRanks.has(lowestUnboarded2)
+        ) {
+          nutLowDraw = true;
+        }
       }
     }
 
@@ -1422,9 +1505,23 @@ export interface OppPostflopRead {
   lastFrac?: number;
   /** V40: this opponent RAISED on the newest street (over a bet). */
   raised?: boolean;
+  /** omahaBigBetIsPotShare (opt-in, HorseLogic): the newest wager is on the
+   * turn or river and under 70 percent of the pot it went into, so the Omaha
+   * aggressor tier does not count the 20 big blind mark (`bigBet`) for it.
+   * Only omahaAggressorTier reads this; `bigBet` itself is left as it was
+   * for every other consumer. */
+  tierByPotShare?: boolean;
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
+  /** Fixed limit (SPEC-FL-01, opt-in; HorseFixedLimitWagerRead.ts): this
+   * opponent made a full fixed-limit wager on the river. The size reads
+   * cannot see it (a fixed bet is never 0.7 pot or 20 big blinds), so the
+   * samplers take their largest-bet setting from this mark instead. */
+  fullBet?: boolean;
+  /** Fixed limit (SPEC-FL-01): the pot cannot split on this board (no low is
+   * possible), so the exact pressure stratum may be drawn in a hi-lo game. */
+  highOnlyBoard?: boolean;
   /** V62: the newest postflop street on which this opponent bet or raised. */
   lastStage?: 'flop' | 'turn' | 'river';
   /** V62 (Hold'em, attached by HorseLogic on the river only): this opponent
@@ -1442,6 +1539,11 @@ export interface OppPostflopRead {
    * from the river raise stratum (V67_RIVER_RAISE_BLUFF_SHARE /
    * V67_RIVER_RAISE_VALUE_MIX) instead of the any-contact read. */
   raisePolar67?: boolean;
+  /** STYLE READ #4b (2026-11-14): this turn or river raiser is sampled from
+   * the value-raise stratum (STYLE_VALUE_RAISE_*). Set only on the second,
+   * blended estimate of HorseLogic's value-raise arm, together with
+   * raisePolar66 (turn) or raisePolar67 (river). Absent: V66 / V67 exactly. */
+  raiseValueHeavy?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1496,6 +1598,27 @@ export function v66RaiseTargetClass(street: 0 | 1, r1: number, r2: number): 0 | 
   const mix = V66_RAISE_VALUE_MIX[street];
   if (r2 < mix[0]) return 3;
   if (r2 < mix[0] + mix[1]) return 2;
+  return 1;
+}
+
+/** STYLE READ #4b (2026-11-14): the raise stratum of a credibly passive
+ * raiser, by street (turn, river): the bluff share and the two-pair-or-better
+ * share of value. A passive player who raises over a bet on the turn or river
+ * holds two pair or better nearly always. The flop has no such stratum.
+ * CALIBRATE: chosen from one reviewed hand and its enumeration, not yet
+ * validated in a league. */
+export const STYLE_VALUE_RAISE_BLUFF_SHARE = [0.03, 0.03] as const;
+export const STYLE_VALUE_RAISE_STRONG_SHARE = [0.92, 0.95] as const;
+
+/** STYLE READ #4b: the target stratum of one value-raise sample (0 = bluff,
+ * else the value class 1..3). `street` 0 = turn, 1 = river. Same two uniform
+ * draws as the strata it stands in for. Exported for the test. */
+export function styleValueRaiseTargetClass(street: 0 | 1, r1: number, r2: number): 0 | 1 | 2 | 3 {
+  if (r1 < STYLE_VALUE_RAISE_BLUFF_SHARE[street]) return 0;
+  const strong = STYLE_VALUE_RAISE_STRONG_SHARE[street];
+  if (r2 < strong) return 3;
+  const base = street === 1 ? V67_RIVER_RAISE_VALUE_MIX : V66_RAISE_VALUE_MIX[1];
+  if (r2 < strong + (1 - strong) * (base[1] / (base[1] + base[2]))) return 2;
   return 1;
 }
 
@@ -1869,7 +1992,9 @@ export function omahaAggressorTier(read: OppPostflopRead): number {
   if (streets <= 0 && !read.raised) return 0;
   const frac = read.lastFrac ?? (read.bigBet ? 1 : 0.5);
   let tier = 1;
-  if (frac >= 0.7 || read.bigBet) tier++;
+  // omahaBigBetIsPotShare (opt-in): the 20 big blind mark does not tier a
+  // turn or river wager the decision marked as under 70 percent of the pot.
+  if (frac >= 0.7 || (read.bigBet && read.tierByPotShare !== true) || read.fullBet === true) tier++;
   if (streets >= 2) tier++;
   if (streets >= 3 || read.raised) tier++;
   return Math.min(3, tier);
@@ -1885,21 +2010,64 @@ export function omahaAggressorTier(read: OppPostflopRead): number {
 export function omahaTierRequirement(
   tier: number,
   boardLen: number,
-  shape: { paired: boolean; straightPossible: boolean; flushPossible: boolean }
+  shape: { paired: boolean; straightPossible: boolean; flushPossible: boolean },
+  holeCount = 4
 ): { minCat: number; drawMinCat: number; pStrong: number } {
   const river = boardLen >= 5;
   const noDraw = 99;
-  if (tier <= 1) return { minCat: 2, drawMinCat: river ? noDraw : 1, pStrong: 0.7 };
+  const extraCardTightening = holeCount >= 6 ? 0.05 : holeCount === 5 ? 0.03 : 0;
+  if (tier <= 1) {
+    return {
+      minCat: holeCount >= 6 && shape.paired ? 3 : 2,
+      drawMinCat: river ? noDraw : 1,
+      pStrong: Math.min(0.92, 0.7 + extraCardTightening),
+    };
+  }
   if (tier === 2) {
-    if (river) return { minCat: shape.paired ? 4 : 3, drawMinCat: noDraw, pStrong: 0.78 };
-    return { minCat: 3, drawMinCat: 2, pStrong: 0.75 };
+    if (river) {
+      const baseCat = shape.paired
+        ? holeCount >= 6
+          ? 7
+          : 4
+        : holeCount >= 6 && shape.flushPossible
+          ? 5
+          : 3;
+      return {
+        minCat: baseCat,
+        drawMinCat: noDraw,
+        pStrong: Math.min(0.92, 0.78 + extraCardTightening),
+      };
+    }
+    return {
+      minCat: holeCount >= 6 && shape.paired ? 4 : 3,
+      drawMinCat: 2,
+      pStrong: Math.min(0.9, 0.75 + extraCardTightening),
+    };
   }
   // tier 3
   if (river) {
-    const minCat = shape.paired ? 4 : shape.straightPossible || shape.flushPossible ? 5 : 3;
-    return { minCat, drawMinCat: noDraw, pStrong: 0.85 };
+    const minCat = shape.paired
+      ? holeCount >= 5
+        ? 7
+        : 4
+      : shape.straightPossible || shape.flushPossible
+        ? holeCount >= 6 && shape.flushPossible
+          ? 6
+          : 5
+        : holeCount >= 6
+          ? 4
+          : 3;
+    return { minCat, drawMinCat: noDraw, pStrong: Math.min(0.94, 0.85 + extraCardTightening) };
   }
-  return { minCat: shape.paired ? 4 : 3, drawMinCat: 3, pStrong: 0.8 };
+  return {
+    minCat: shape.paired
+      ? 4
+      : holeCount >= 6 && (shape.flushPossible || shape.straightPossible)
+        ? 4
+        : 3,
+    drawMinCat: 3,
+    pStrong: Math.min(0.92, 0.8 + extraCardTightening),
+  };
 }
 
 /**
@@ -2173,6 +2341,8 @@ function lowerBound(a: Float64Array, v: number): number {
 /** Availability scratch, indexed by card id — reused, never allocated. */
 const cardAvail = new Uint8Array(64);
 const cardId = (c: Card): number => ((RANK_VALUES[c.rank] - 2) << 2) | (SUIT_INDEX[c.suit] ?? 0);
+const CARD_BY_ID: Card[] = new Array(52);
+for (const c of FULL_DECK) CARD_BY_ID[cardId(c)] = c;
 
 /**
  * Place an in-band two-card hand into deck[windowStart..windowStart+1] by
@@ -2239,11 +2409,19 @@ function placeBandCombo(
 // lazily per (holeCount, hiLo) with a PRIVATE deterministic RNG so building
 // never disturbs the live fastRandom stream mid-decision.
 
-type OmahaReservoir = { scores: Float64Array; combos: Card[][] };
+type OmahaReservoir = {
+  scores: Float64Array;
+  /** Packed flat `[i * holeCount + k] -> cardId(0..51)` array (zero boxed Card[][] arrays). */
+  cardIds: Uint8Array;
+  holeCount: number;
+};
 const omahaReservoirs = new Map<string, OmahaReservoir>();
 const OMAHA_RESERVOIR_SIZE = 16384;
 
 function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir {
+  // Evidence, once per process and reservoir: which reservoirs this process
+  // built and therefore ranks Omaha hands against.
+  noteFire(`upgrade04_omaha_reservoir_${holeCount}${isHiLo ? '_hilo' : ''}_seen`);
   let s = (0x9e3779b9 ^ (holeCount * 2654435761) ^ (isHiLo ? 0x85ebca6b : 0)) >>> 0 || 1;
   const rnd = (): number => {
     s ^= s << 13;
@@ -2253,7 +2431,7 @@ function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir
     return s / 0x100000000;
   };
   const deck = FULL_DECK.slice();
-  const entries: Array<{ score: number; cards: Card[] }> = [];
+  const entries: Array<{ score: number; ids: number[] }> = [];
   for (let i = 0; i < OMAHA_RESERVOIR_SIZE; i++) {
     for (let j = 0; j < holeCount; j++) {
       const k = j + Math.floor(rnd() * (deck.length - j));
@@ -2261,19 +2439,23 @@ function buildOmahaReservoir(holeCount: number, isHiLo: boolean): OmahaReservoir
       deck[j] = deck[k];
       deck[k] = t;
     }
-    // References into FULL_DECK, deliberately: simulateEquity's deck is a
-    // filter of FULL_DECK, so identity comparison works for the swap-in.
     const cards = deck.slice(0, holeCount);
-    entries.push({ score: omahaPreflopScore(cards, isHiLo), cards });
+    const ids = new Array<number>(holeCount);
+    for (let k = 0; k < holeCount; k++) ids[k] = cardId(cards[k]);
+    entries.push({ score: omahaPreflopScore(cards, isHiLo), ids });
   }
   entries.sort((x, y) => x.score - y.score);
   const scores = new Float64Array(entries.length);
-  const combos: Card[][] = new Array(entries.length);
+  const cardIds = new Uint8Array(entries.length * holeCount);
   for (let i = 0; i < entries.length; i++) {
     scores[i] = entries[i].score;
-    combos[i] = entries[i].cards;
+    const ids = entries[i].ids;
+    const base = i * holeCount;
+    for (let k = 0; k < holeCount; k++) {
+      cardIds[base + k] = ids[k];
+    }
   }
-  return { scores, combos };
+  return { scores, cardIds, holeCount };
 }
 
 /**
@@ -2564,6 +2746,220 @@ export function omahaPreflopStrength(cards: Card[], isHiLo: boolean): number {
   return cdf[idx];
 }
 
+/**
+ * V86 Elite Omaha Preflop Strength (PLO4 / PLO5 / PLO6 / PLO8).
+ * Preserves `omahaPreflopStrength` / `omahaReservoirs` bit-for-bit for range
+ * construction while breaking 5/6-card score-cap saturation, rewarding clean
+ * double-suited 4-card rundowns (`JT98ds`, `KQJTds`, `AQJTds`) and nut+king
+ * suit combinations, and penalizing 3+-of-a-suit self-blockers and 5/6-card
+ * disconnected danglers.
+ */
+function isPlayableFourCardTripsSubcore(sub: Card[]): boolean {
+  const rc = new Map<number, number>();
+  const sc = new Map<string, number>();
+  for (const c of sub) {
+    const r = RANK_VALUES[c.rank];
+    rc.set(r, (rc.get(r) || 0) + 1);
+    sc.set(c.suit, (sc.get(c.suit) || 0) + 1);
+  }
+  let maxCnt = 0;
+  for (const cnt of rc.values()) {
+    if (cnt > maxCnt) maxCnt = cnt;
+  }
+  if (maxCnt >= 3) return false;
+
+  let suitPairs = 0;
+  for (const cnt of sc.values()) {
+    if (cnt >= 2) suitPairs++;
+  }
+  if (suitPairs < 2) return false;
+
+  const aces = rc.get(14) || 0;
+  if (aces === 2) {
+    const side = sub.filter((x) => x.rank !== 'A').map((x) => RANK_VALUES[x.rank]);
+    return (
+      side.length === 2 && (side.every((r) => r >= 10) || (side[0] === side[1] && side[0] >= 8))
+    );
+  }
+
+  const highCards = [...rc.keys()].filter((r) => r >= 10).length;
+  if (highCards >= 4) return true;
+
+  if (maxCnt === 1 && rc.size === 4) {
+    const ranks = [...rc.keys()].sort((a, b) => a - b);
+    const span = ranks[3] - ranks[0];
+    if (span <= 4 && ranks[3] >= 9 && ranks[0] >= 6) return true;
+  }
+
+  return (rc.get(13) || 0) === 2 || (rc.get(12) || 0) === 2;
+}
+
+export function omahaElitePreflopStrength(cards: Card[], isHiLo: boolean): number {
+  const base = omahaPreflopStrength(cards, isHiLo);
+  if (cards.length < 4) return base;
+
+  const sc = new Map<string, number>();
+  const rc = new Map<number, number>();
+  for (const c of cards) {
+    sc.set(c.suit, (sc.get(c.suit) || 0) + 1);
+    const r = RANK_VALUES[c.rank];
+    rc.set(r, (rc.get(r) || 0) + 1);
+  }
+
+  // Trips/quads in hand remain near-unplayable unless 5/6-card Omaha holds a
+  // genuine double-suited playable 4-card sub-core alongside a single extra trip blocker.
+  let maxRankCount = 0;
+  for (const cnt of rc.values()) {
+    if (cnt > maxRankCount) maxRankCount = cnt;
+  }
+  if (maxRankCount >= 3) {
+    if (cards.length >= 5 && maxRankCount === 3) {
+      let bestSubScore = -1;
+      const n = cards.length;
+      for (let a = 0; a < n - 3; a++) {
+        for (let b = a + 1; b < n - 2; b++) {
+          for (let c = b + 1; c < n - 1; c++) {
+            for (let d = c + 1; d < n; d++) {
+              const sub = [cards[a], cards[b], cards[c], cards[d]];
+              if (!isPlayableFourCardTripsSubcore(sub)) continue;
+              const s = omahaElitePreflopStrength(sub, isHiLo);
+              if (s > bestSubScore) bestSubScore = s;
+            }
+          }
+        }
+      }
+      if (bestSubScore >= 0) {
+        return clamp01(Math.max(0.55, bestSubScore - 0.06));
+      }
+    }
+    return Math.min(base, 0.18);
+  }
+
+  let cleanTwoCardSuits = 0;
+  let threeOfSuitCount = 0;
+  let fourPlusSuitCount = 0;
+  let nutAceCleanSuit = false;
+  let kingSecondarySuit = false;
+
+  for (const [suit, cnt] of sc) {
+    if (cnt === 2) cleanTwoCardSuits++;
+    else if (cnt === 3) threeOfSuitCount++;
+    else if (cnt >= 4) fourPlusSuitCount++;
+
+    if (cnt >= 2 && cnt <= 3) {
+      const hasA = cards.some((c) => c.suit === suit && c.rank === 'A');
+      const hasK = cards.some((c) => c.suit === suit && c.rank === 'K');
+      if (hasA && cnt === 2) nutAceCleanSuit = true;
+      else if (hasK && !hasA && cnt === 2) kingSecondarySuit = true;
+    }
+  }
+
+  // Tightest 4-card distinct-rank window (Ace also plays low for wheel rundowns)
+  const uniq = [...rc.keys()].sort((a, b) => a - b);
+  const wheelAware = uniq.includes(14) ? [1, ...uniq] : uniq;
+  let bestSpan = 99;
+  let bestWindowTop = 0;
+  for (let i = 0; i + 3 < wheelAware.length; i++) {
+    const span = wheelAware[i + 3] - wheelAware[i];
+    if (span < bestSpan || (span === bestSpan && wheelAware[i + 3] > bestWindowTop)) {
+      bestSpan = span;
+      bestWindowTop = wheelAware[i + 3];
+    }
+  }
+
+  let delta = 0;
+
+  // Reward clean rundowns & connected broadways that Hutchison/percentile ladders underrate
+  if (!isHiLo && bestSpan === 3 && bestWindowTop >= 8) {
+    delta += cleanTwoCardSuits >= 2 ? 0.085 : cleanTwoCardSuits === 1 ? 0.055 : 0.03;
+  } else if (!isHiLo && bestSpan === 4 && bestWindowTop >= 9) {
+    delta += cleanTwoCardSuits >= 2 ? 0.06 : cleanTwoCardSuits === 1 ? 0.035 : 0.015;
+  }
+
+  // Nut-flush + secondary King-flush exclusivity bonus
+  if (nutAceCleanSuit) delta += 0.028;
+  if (kingSecondarySuit && cleanTwoCardSuits >= 2) delta += 0.018;
+
+  // Self-blocked suit penalties (3+ cards of same suit eat hero's own flush outs)
+  if (threeOfSuitCount > 0) delta -= threeOfSuitCount * (cards.length >= 6 ? 0.028 : 0.035);
+  if (fourPlusSuitCount > 0) delta -= fourPlusSuitCount * 0.085;
+
+  // PLO5 / PLO6 saturation de-clustering: punish loose multi-card hands that lack
+  // both a tight 4-card core and clean nut/double-suited coordination
+  if (cards.length >= 5) {
+    const hasAA = (rc.get(14) || 0) === 2;
+    if (!hasAA && bestSpan >= 6 && !nutAceCleanSuit && cleanTwoCardSuits < 2) {
+      delta -= cards.length >= 6 ? 0.065 : 0.045;
+    }
+  }
+
+  // PLO8 two-way scoop boost (A2 + nut suit / wheel backup + high connectivity)
+  if (isHiLo) {
+    const hasA = rc.has(14);
+    const has2 = rc.has(2);
+    const has3 = rc.has(3);
+    if (hasA && has2 && (nutAceCleanSuit || cleanTwoCardSuits >= 2 || has3)) {
+      delta += 0.055;
+    } else if (!hasA && !has2 && bestSpan >= 5) {
+      // Middle one-way hands in PLO8 get quartered or scooped
+      delta -= 0.05;
+    }
+  }
+
+  return clamp01(base + delta);
+}
+
+/**
+ * V86 Short Deck (6+) Preflop Shape Strength.
+ * Boosts suited Aces and suited connectors/one-gappers (where straights & flushes
+ * dominate in 36-card decks and flushes beat full houses) while re-centering small
+ * pocket pairs (66-99), dominated offsuit Aces, and disconnected offsuit/rag hands
+ * onto the Hold'em preflop threshold scale (rank 6 is the bottom rank of the 36-card deck).
+ */
+export function shortDeckElitePreflopStrength(cards: readonly Card[]): number {
+  if (cards.length !== 2) return holdemPreflopScore(cards[0], cards[1], true);
+  const base = holdemPreflopScore(cards[0], cards[1], true);
+  const r1 = RANK_VALUES[cards[0].rank];
+  const r2 = RANK_VALUES[cards[1].rank];
+  const hi = Math.max(r1, r2);
+  const lo = Math.min(r1, r2);
+  const suited = cards[0].suit === cards[1].suit;
+  // In 6+, Ace plays as 5 next to 6 (A-6-7-8-9 straight)
+  const gap = hi === 14 && lo <= 9 ? Math.min(hi - lo, lo - 5) : hi - lo;
+
+  let delta = 0;
+  if (r1 === r2) {
+    if (hi <= 7)
+      delta -= 0.14; // 66-77: bottom pairs of 36-card deck; sets lose to flushes
+    else if (hi === 8) delta -= 0.11;
+    else if (hi === 9) delta -= 0.075;
+    else if (hi === 10) delta -= 0.03;
+  } else if (suited) {
+    if (hi === 14)
+      delta += 0.065; // Nut flush draw is king in 6+
+    else if (gap <= 1 && lo >= 7)
+      delta += 0.07; // KQs, QJs, JTs, T9s, 98s, 87s
+    else if (gap === 1 && lo === 6)
+      delta += 0.04; // 76s
+    else if (gap === 2 && lo >= 8)
+      delta += 0.045; // KJs, QTs, J9s, T8s
+    else if (gap >= 3 && lo <= 8) delta -= 0.1; // Disconnected low suited gappers
+  } else {
+    if (hi === 14 && lo <= 9)
+      delta -= 0.14; // A6o-A9o lack nut flush equity & face reverse implied odds
+    else if (lo >= 10) {
+      if (hi === 14 && lo === 13) delta += 0;
+      else if (gap === 1) delta -= 0.02;
+      else delta -= 0.06;
+    } else if (gap === 1 && lo >= 7) {
+      delta -= 0.09; // T9o, 98o, 87o
+    } else {
+      delta -= 0.15; // Disconnected offsuit rags (K6o-K9o, Q6o-Q9o, J6o-J9o, T6o-T8o, 76o, etc.)
+    }
+  }
+  return clamp01(base + delta);
+}
+
 export function omahaPreflopPercentile(cards: Card[], isHiLo: boolean): number {
   const raw = omahaPreflopScore(cards, isHiLo);
   const holeCount = cards.length;
@@ -2615,7 +3011,7 @@ export function placeOmahaBandCombo(
     rv = buildOmahaReservoir(holeCount, isHiLo);
     omahaReservoirs.set(key, rv);
   }
-  const size = rv.combos.length;
+  const size = rv.scores.length;
   // Percentile (CDF-index) mapping, clamped to a legal slice.
   const lo = Math.max(0, Math.min(size - 1, Math.floor(clamp01(band[0]) * size)));
   const hi = Math.max(lo + 1, Math.min(size, Math.ceil(clamp01(band[1]) * size)));
@@ -2627,10 +3023,10 @@ export function placeOmahaBandCombo(
 
   for (let attempt = 0; attempt < 24; attempt++) {
     const idx = lo + Math.floor(fastRandom() * span);
-    const combo = rv.combos[idx];
+    const idBase = idx * rv.holeCount;
     let ok = true;
-    for (const c of combo) {
-      if (!cardAvail[cardId(c)]) {
+    for (let k = 0; k < rv.holeCount; k++) {
+      if (!cardAvail[rv.cardIds[idBase + k]]) {
         ok = false;
         break;
       }
@@ -2640,8 +3036,8 @@ export function placeOmahaBandCombo(
     // guaranteed to be the reservoir's references, and an identity mismatch
     // here would silently leave the uniform window in place while reporting
     // success (the exact shape of silent failure this codebase hunts).
-    for (let k = 0; k < combo.length; k++) {
-      const wantId = cardId(combo[k]);
+    for (let k = 0; k < rv.holeCount; k++) {
+      const wantId = rv.cardIds[idBase + k];
       const slot = windowStart + k;
       if (cardId(deck[slot]) === wantId) continue;
       for (let j = slot + 1; j < n; j++) {
@@ -2689,7 +3085,7 @@ export function placeOmahaPressureCombo(
     reservoir = buildOmahaReservoir(holeCount, false);
     omahaReservoirs.set(key, reservoir);
   }
-  const size = reservoir.combos.length;
+  const size = reservoir.scores.length;
   const range = band ?? [0, 1];
   if (!range.every(Number.isFinite) || range[1] <= range[0] || range[0] >= 1 || range[1] <= 0)
     return false;
@@ -2701,11 +3097,22 @@ export function placeOmahaPressureCombo(
   if (!pool) {
     const publicCards = new Set(board.map(cardId));
     const indices: number[] = [];
+    const scratch = new Array<Card>(holeCount);
+    const cIds = reservoir.cardIds;
     for (let i = lo; i < hi; i++) {
-      const combo = reservoir.combos[i];
-      if (combo.some((c) => publicCards.has(cardId(c)))) continue;
-      const category = omahaQuickCategory(combo, board);
-      if (category >= minCat || (category >= drawMinCat && omahaStrongDrawShape(combo, board)))
+      const base = i * holeCount;
+      let collided = false;
+      for (let k = 0; k < holeCount; k++) {
+        const cid = cIds[base + k];
+        if (publicCards.has(cid)) {
+          collided = true;
+          break;
+        }
+        scratch[k] = CARD_BY_ID[cid];
+      }
+      if (collided) continue;
+      const category = omahaQuickCategory(scratch, board);
+      if (category >= minCat || (category >= drawMinCat && omahaStrongDrawShape(scratch, board)))
         indices.push(i);
     }
     pool = { reservoir, indices };
@@ -2716,8 +3123,15 @@ export function placeOmahaPressureCombo(
   if (pool.indices.length === 0) return false;
   cardAvail.fill(0);
   for (let i = windowStart; i < n; i++) cardAvail[cardId(deck[i])] = 1;
-  const available = (index: number): boolean =>
-    pool!.reservoir.combos[index].every((c) => cardAvail[cardId(c)] === 1);
+  const hc = pool.reservoir.holeCount;
+  const cIds = pool.reservoir.cardIds;
+  const available = (index: number): boolean => {
+    const base = index * hc;
+    for (let k = 0; k < hc; k++) {
+      if (cardAvail[cIds[base + k]] !== 1) return false;
+    }
+    return true;
+  };
   let selected = -1;
   for (let attempt = 0; attempt < 24; attempt++) {
     const index = pool.indices[Math.floor(fastRandom() * pool.indices.length)];
@@ -2734,9 +3148,9 @@ export function placeOmahaPressureCombo(
       if (available(index) && fastRandom() < 1 / ++seen) selected = index;
   }
   if (selected < 0) return false;
-  const combo = pool.reservoir.combos[selected];
-  for (let k = 0; k < combo.length; k++) {
-    const want = cardId(combo[k]);
+  const selBase = selected * hc;
+  for (let k = 0; k < hc; k++) {
+    const want = cIds[selBase + k];
     const slot = windowStart + k;
     if (cardId(deck[slot]) === want) continue;
     for (let j = slot + 1; j < n; j++) {
@@ -3026,7 +3440,8 @@ export function simulateEquity(
     // Hero high score
     let heroHi: number;
     if (vi.isOmaha) {
-      heroHi = scoreOmahaHi(holeCards, board);
+      populateBoardTripleCache(board);
+      heroHi = scoreOmahaHiCachedBoard(holeCards, board);
     } else if (holeCards.length === 3) {
       // V35 pineapple: only two of the three ever play.
       heroHi = scoreBestTwoOfThree(holeCards, board, vi.isShortDeck);
@@ -3049,21 +3464,27 @@ export function simulateEquity(
     const continuationStreets: TournamentContinuationStreet[] = [];
     if (
       outcomeOut?.captureContinuation &&
-      !vi.isOmaha &&
       !vi.isShortDeck &&
-      holeCards.length === 2 &&
+      !vi.isHiLo &&
+      (vi.isOmaha ? holeCards.length >= 4 : holeCards.length === 2) &&
       boardCards.length >= 3 &&
       outcomeOut.samples.length <
         Math.min(outcomeOut.maxSamples, CONTINUATION_POLICY.maxOutcomeSamples)
     ) {
+      const heroPreflop = vi.isOmaha
+        ? omahaPreflopScore(holeCards, false)
+        : holdemPreflopScore(holeCards[0], holeCards[1], false);
       for (let size = boardCards.length; size <= 5; size++) {
         const publicBoard = board.slice(0, size);
+        const contactCat = vi.isOmaha
+          ? Math.max(
+              1,
+              Math.min(9, Math.floor(scoreOmahaHiPartial(holeCards, publicBoard) / 0x100000))
+            )
+          : connectsBoard(holeCards, publicBoard, false);
         continuationStreets.push({
           street: size === 3 ? 'flop' : size === 4 ? 'turn' : 'river',
-          heroStrength: continuationStrength(
-            connectsBoard(holeCards, publicBoard, false),
-            holdemPreflopScore(holeCards[0], holeCards[1], false)
-          ),
+          heroStrength: continuationStrength(contactCat, heroPreflop),
           opponentStrength: [],
         });
       }
@@ -3208,7 +3629,7 @@ export function simulateEquity(
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
           const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
-          if (read.strictPressureRange === true && !vi.isHiLo) {
+          if (read.strictPressureRange === true && (!vi.isHiLo || read.highOnlyBoard === true)) {
             if (
               fastRandom() < req.pStrong &&
               placeOmahaPressureCombo(
@@ -3307,9 +3728,15 @@ export function simulateEquity(
           }
           // V16: a BIG bet is sampled toward REAL strength (two pair+), not
           // just any contact — an overbettor's range is not middle pair.
-          const wantCat = read.bigBet ? 3 : 2;
-          const pConnect = Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
-          const tries = read.bigBet ? 4 : 3;
+          // SPEC-FL-01 (opt-in mark): a full fixed-limit river wager takes
+          // the model's own ceiling (0.9 contact, four draws); a fixed-limit
+          // raise is sampled toward two pair or better, as a big bet is.
+          const full = read.fullBet === true;
+          const wantCat = read.bigBet || (full && read.raised === true) ? 3 : 2;
+          const pConnect = full
+            ? 0.9
+            : Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
+          const tries = read.bigBet || full ? 4 : 3;
           for (let t = 0; t < tries; t++) {
             if (connectsBoard(oppCards, boardCards, vi.isShortDeck) >= wantCat) break;
             if (fastRandom() >= pConnect) break; // some of the range IS air
@@ -3342,11 +3769,11 @@ export function simulateEquity(
         if (read.raisePolar66 === true && raisePolar66Board && oppHole === 2) {
           const index66 = v62Indexes ? v62Indexes[o] : null;
           if (index66) {
-            const target66 = v66RaiseTargetClass(
-              boardCards.length === 4 ? 1 : 0,
-              fastRandom(),
-              fastRandom()
-            );
+            const street66 = boardCards.length === 4 ? 1 : 0;
+            const target66 =
+              read.raiseValueHeavy === true && street66 === 1
+                ? styleValueRaiseTargetClass(0, fastRandom(), fastRandom())
+                : v66RaiseTargetClass(street66, fastRandom(), fastRandom());
             if (placeV62Combo(deck, windowStart, n, index66, target66, vi.isShortDeck)) {
               oppCards[0] = deck[windowStart];
               oppCards[1] = deck[windowStart + 1];
@@ -3358,7 +3785,10 @@ export function simulateEquity(
         if (read.raisePolar67 === true && boardCards.length === 5 && oppHole === 2) {
           const index67 = v62Indexes ? v62Indexes[o] : null;
           if (index67) {
-            const target67 = v67RiverRaiseTargetClass(fastRandom(), fastRandom());
+            const target67 =
+              read.raiseValueHeavy === true
+                ? styleValueRaiseTargetClass(1, fastRandom(), fastRandom())
+                : v67RiverRaiseTargetClass(fastRandom(), fastRandom());
             if (placeV62Combo(deck, windowStart, n, index67, target67, vi.isShortDeck)) {
               oppCards[0] = deck[windowStart];
               oppCards[1] = deck[windowStart + 1];
@@ -3369,7 +3799,7 @@ export function simulateEquity(
 
       let oppHi: number;
       if (vi.isOmaha) {
-        oppHi = scoreOmahaHi(oppCards, board);
+        oppHi = scoreOmahaHiCachedBoard(oppCards, board);
       } else if (oppHole === 3) {
         oppHi = scoreBestTwoOfThree(oppCards, board, vi.isShortDeck);
       } else {
@@ -3381,14 +3811,22 @@ export function simulateEquity(
       if (outcomeOut) {
         opponentHigh.push(oppHi);
         opponentDecisionStrength.push(decisionStrength(oppCards));
+        const oppPreflopCont =
+          continuationStreets.length > 0
+            ? vi.isOmaha
+              ? omahaPreflopScore(oppCards, false)
+              : holdemPreflopScore(oppCards[0], oppCards[1], false)
+            : 0;
         for (const next of continuationStreets) {
           const size = next.street === 'flop' ? 3 : next.street === 'turn' ? 4 : 5;
-          next.opponentStrength.push(
-            continuationStrength(
-              connectsBoard(oppCards, board.slice(0, size), false),
-              holdemPreflopScore(oppCards[0], oppCards[1], false)
-            )
-          );
+          const pubBoard = board.slice(0, size);
+          const oppCat = vi.isOmaha
+            ? Math.max(
+                1,
+                Math.min(9, Math.floor(scoreOmahaHiPartial(oppCards, pubBoard) / 0x100000))
+              )
+            : connectsBoard(oppCards, pubBoard, false);
+          next.opponentStrength.push(continuationStrength(oppCat, oppPreflopCont));
         }
       }
 
@@ -4197,4 +4635,270 @@ export function estimateRiverRangeComposition(
   while (riverCompositionCache.size > 512)
     riverCompositionCache.delete(riverCompositionCache.keys().next().value!);
   return { ...read };
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * CORRELATED MULTI-BOARD BOMB-POT EQUITY EVALUATOR (Wave 2 Enhancement #3)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Evaluates 2-board or 3-board pots (`communityCards`, `communityCards2`,
+ * `communityCards3`) on the **SAME** sampled opponent hand(s) and **SAME**
+ * single shared-deck deal per Monte Carlo iteration, instead of running `N`
+ * uncorrelated `simulateEquity` passes that miss joint scoop/quarter variance
+ * and shared card removal across boards.
+ */
+export interface CorrelatedMultiBoardEquity {
+  /** Overall pot-share equity across all boards (`0..1`). */
+  meanEquity: number;
+  /** Individual board equities (`length === boards.length`). */
+  boardEquities: number[];
+  /** Probability hero wins >= 85% of the total pot (scooping 2/2 or 3/3 boards). */
+  pScoop: number;
+  /** Probability hero wins >= 48% of the total pot (at least splitting a 2-board pot or 1.5/3). */
+  pHalfOrBetter: number;
+  /** Probability hero wins > 0% but <= 28% (2-board) or <= 35% (3-board: 1/3 share or worse). */
+  pQuarteredOrWorse: number;
+  /** Probability hero is completely scooped (`0%` pot share). */
+  pZero: number;
+  /** Executed iteration count. */
+  samples: number;
+}
+
+export function simulateCorrelatedMultiBoardEquity(
+  holeCards: Card[],
+  boards: Card[][],
+  numOpponents: number,
+  vi: VariantInfo,
+  iterations: number,
+  oppBands?: Array<[number, number] | null>,
+  knownDeadCards: readonly Card[] = [],
+  oppReads?: Array<OppPostflopRead | null>
+): CorrelatedMultiBoardEquity {
+  const validBoards = boards.filter((b) => Array.isArray(b) && b.length > 0);
+  const kBoards = validBoards.length;
+  if (kBoards === 0 || holeCards.length < 2) {
+    return {
+      meanEquity: 0.5,
+      boardEquities: [],
+      pScoop: 0,
+      pHalfOrBetter: 0.5,
+      pQuarteredOrWorse: 0,
+      pZero: 0.5,
+      samples: 0,
+    };
+  }
+  if (kBoards === 1) {
+    const eq = simulateEquity(
+      holeCards,
+      validBoards[0],
+      numOpponents,
+      vi,
+      iterations,
+      oppBands,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      knownDeadCards
+    );
+    return {
+      meanEquity: eq,
+      boardEquities: [eq],
+      pScoop: eq,
+      pHalfOrBetter: eq,
+      pQuarteredOrWorse: 0,
+      pZero: Math.max(0, 1 - eq),
+      samples: equitySampleSizeOfLastCall(),
+    };
+  }
+
+  let iters = iterations;
+  if (equityDepth > 1) iters = Math.floor(iters * equityDepth);
+  const govScale = equityGovernor.current();
+  iters = governedIterations(iters, govScale);
+  lastEquitySampleSize = iters;
+  equityCallsTotal++;
+  equitySamplesTotal += iters;
+
+  const known = new Set<string>();
+  for (const c of holeCards) known.add(cardKey(c));
+  for (const b of validBoards) for (const c of b) known.add(cardKey(c));
+  for (const c of knownDeadCards) known.add(cardKey(c));
+
+  const base = vi.isShortDeck ? SHORT_DECK_CARDS : FULL_DECK;
+  const deck = base.filter((c) => !known.has(cardKey(c)));
+
+  let totalBoardCardsNeeded = 0;
+  for (let b = 0; b < kBoards; b++) {
+    totalBoardCardsNeeded += Math.max(0, 5 - validBoards[b].length);
+  }
+  const oppHole = vi.isOmaha ? vi.holeCount : holeCards.length;
+  const opps = Math.max(1, numOpponents);
+  const cardsNeeded = totalBoardCardsNeeded + opps * oppHole;
+  if (deck.length < cardsNeeded) {
+    return {
+      meanEquity: 0.5,
+      boardEquities: validBoards.map(() => 0.5),
+      pScoop: 0,
+      pHalfOrBetter: 0.5,
+      pQuarteredOrWorse: 0,
+      pZero: 0.5,
+      samples: 0,
+    };
+  }
+
+  const n = deck.length;
+  const trialBoards: Card[][] = validBoards.map((src) => {
+    const tb = new Array<Card>(5);
+    for (let i = 0; i < Math.min(5, src.length); i++) tb[i] = src[i];
+    return tb;
+  });
+  const oppHands: Card[][] = Array.from({ length: opps }, () => new Array<Card>(oppHole));
+  const boardSums = new Float64Array(kBoards);
+
+  let totalShareSum = 0;
+  let scoops = 0;
+  let halfPlus = 0;
+  let quartered = 0;
+  let zeros = 0;
+
+  for (let iter = 0; iter < iters; iter++) {
+    // 1. Shuffle `cardsNeeded` cards from the single shared deck:
+    for (let i = 0; i < cardsNeeded; i++) {
+      const j = i + Math.floor(fastRandom() * (n - i));
+      const tmp = deck[i];
+      deck[i] = deck[j];
+      deck[j] = tmp;
+    }
+
+    let dealIdx = 0;
+    for (let b = 0; b < kBoards; b++) {
+      const tb = trialBoards[b];
+      for (let i = validBoards[b].length; i < 5; i++) {
+        tb[i] = deck[dealIdx++];
+      }
+    }
+
+    // 2. Deal & range-condition each opponent ONCE for all boards simultaneously:
+    for (let o = 0; o < opps; o++) {
+      const windowStart = dealIdx;
+      const hand = oppHands[o];
+      for (let c = 0; c < oppHole; c++) hand[c] = deck[dealIdx++];
+      const band = oppBands ? oppBands[o] : null;
+      if (band) {
+        if (!vi.isOmaha && oppHole === 2) {
+          if (placeBandCombo(deck, windowStart, n, band, vi.isShortDeck)) {
+            hand[0] = deck[windowStart];
+            hand[1] = deck[windowStart + 1];
+          }
+        } else if (
+          vi.isOmaha &&
+          placeOmahaBandCombo(deck, windowStart, n, band, oppHole, vi.isHiLo)
+        ) {
+          for (let c = 0; c < oppHole; c++) hand[c] = deck[windowStart + c];
+        }
+      }
+      const read = oppReads ? oppReads[o] : null;
+      if (read && vi.isOmaha && validBoards[0].length >= 3 && (read.aggrW > 0 || read.raised)) {
+        for (let t = 0; t < 2; t++) {
+          let anyStrong = false;
+          for (let b = 0; b < kBoards; b++) {
+            if (omahaQuickCategory(hand, validBoards[b]) >= 3) {
+              anyStrong = true;
+              break;
+            }
+          }
+          if (anyStrong || fastRandom() >= 0.72) break;
+          if (band != null && placeOmahaBandCombo(deck, windowStart, n, band, oppHole, vi.isHiLo)) {
+            for (let c = 0; c < oppHole; c++) hand[c] = deck[windowStart + c];
+          }
+        }
+      }
+    }
+
+    // 3. Score every board on the exact same opponent holdings:
+    let iterPotShare = 0;
+    for (let b = 0; b < kBoards; b++) {
+      const tb = trialBoards[b];
+      let heroHi: number;
+      if (vi.isOmaha) {
+        populateBoardTripleCache(tb);
+        heroHi = scoreOmahaHiCachedBoard(holeCards, tb);
+      } else if (holeCards.length === 3) {
+        heroHi = scoreBestTwoOfThree(holeCards, tb, vi.isShortDeck);
+      } else {
+        const all = holeCards.concat(tb);
+        heroHi = scoreHoldem(all, all.length, vi.isShortDeck);
+      }
+      const heroLow = vi.isHiLo ? scoreOmahaLow(holeCards, tb) : Infinity;
+
+      let heroBestHi = true;
+      let hiTies = 1;
+      let bestLow = heroLow;
+      let heroBestLow = heroLow !== Infinity;
+      let lowTies = 1;
+      let anyLow = heroLow !== Infinity;
+
+      for (let o = 0; o < opps; o++) {
+        const hand = oppHands[o];
+        let oppHi: number;
+        if (vi.isOmaha) {
+          oppHi = scoreOmahaHiCachedBoard(hand, tb);
+        } else if (oppHole === 3) {
+          oppHi = scoreBestTwoOfThree(hand, tb, vi.isShortDeck);
+        } else {
+          const all = hand.concat(tb);
+          oppHi = scoreHoldem(all, all.length, vi.isShortDeck);
+        }
+        if (oppHi > heroHi) heroBestHi = false;
+        else if (oppHi === heroHi) hiTies++;
+
+        if (vi.isHiLo) {
+          const oppLow = scoreOmahaLow(hand, tb);
+          if (oppLow !== Infinity) {
+            anyLow = true;
+            if (oppLow < bestLow) {
+              bestLow = oppLow;
+              heroBestLow = false;
+              lowTies = 1;
+            } else if (oppLow === bestLow && bestLow !== Infinity) {
+              lowTies++;
+            }
+          }
+        } else if (!heroBestHi) {
+          break;
+        }
+      }
+
+      const hiShare = heroBestHi ? 1 / hiTies : 0;
+      const bShare =
+        !vi.isHiLo || !anyLow
+          ? hiShare
+          : hiShare * 0.5 + (heroBestLow && bestLow !== Infinity ? 0.5 / lowTies : 0);
+      boardSums[b] += bShare;
+      iterPotShare += bShare / kBoards;
+    }
+
+    totalShareSum += iterPotShare;
+    if (iterPotShare >= 0.85) scoops++;
+    if (iterPotShare >= 0.48) halfPlus++;
+    const quarterCeil = kBoards >= 3 ? 0.35 : 0.28;
+    if (iterPotShare > 0.001 && iterPotShare <= quarterCeil) quartered++;
+    if (iterPotShare <= 0.001) zeros++;
+  }
+
+  const inv = 1 / Math.max(1, iters);
+  const boardEquities: number[] = new Array(kBoards);
+  for (let b = 0; b < kBoards; b++) boardEquities[b] = boardSums[b] * inv;
+
+  return {
+    meanEquity: totalShareSum * inv,
+    boardEquities,
+    pScoop: scoops * inv,
+    pHalfOrBetter: halfPlus * inv,
+    pQuarteredOrWorse: quartered * inv,
+    pZero: zeros * inv,
+    samples: iters,
+  };
 }

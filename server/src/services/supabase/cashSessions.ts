@@ -46,6 +46,24 @@ export interface CashSessionRow {
   hit_run_doubles: number;
   hit_run_completed: boolean;
   blind_off: boolean;
+  /**
+   * THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): a hand netting
+   * +250 BB or more owes ten subsequent hands, whatever the countdown above
+   * says. Absent fields (a database without the rule) read as none owed.
+   */
+  big_win_required?: number;
+  big_win_played?: number;
+  /** Why hands are owed: 'hit_run', 'big_win', 'both', or null. */
+  hands_reason?: 'hit_run' | 'big_win' | 'both' | null;
+  /** The +250 BB win, in big blinds, that started the big-win count. */
+  big_win_bb_won?: number | null;
+  /**
+   * BANK THE WIN (durable, 20261111174148): the session's opening buy-in
+   * capped at the table maximum, and eligible hands since a big pot (null =
+   * none). Absent before the migration installs.
+   */
+  start_basis?: number | null;
+  hands_since_big_pot?: number | null;
 }
 
 export interface CashSessionEntry {
@@ -81,7 +99,34 @@ function toRow(raw: unknown): CashSessionRow | null {
     hit_run_doubles: nonNegativeInt(o.hit_run_doubles),
     hit_run_completed: o.hit_run_completed === true,
     blind_off: o.blind_off === true,
+    big_win_required: nonNegativeInt(o.big_win_required),
+    big_win_played: nonNegativeInt(o.big_win_played),
+    hands_reason:
+      o.hands_reason === 'hit_run' || o.hands_reason === 'big_win' || o.hands_reason === 'both'
+        ? o.hands_reason
+        : null,
+    big_win_bb_won: (() => {
+      const net = Number(o.big_win_net);
+      const bb = Number(o.big_win_bb);
+      return Number.isFinite(net) && Number.isFinite(bb) && bb > 0
+        ? Math.round((net / bb) * 10) / 10
+        : null;
+    })(),
+    // Present-but-null (no big pot yet) differs from absent (no such column yet).
+    ...('start_basis' in o ? { start_basis: finiteOrNull(o.start_basis) } : {}),
+    ...('hands_since_big_pot' in o
+      ? {
+          hands_since_big_pot:
+            o.hands_since_big_pot === null ? null : nonNegativeInt(o.hands_since_big_pot),
+        }
+      : {}),
   };
+}
+
+function finiteOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function nonNegativeInt(v: unknown): number {
@@ -210,6 +255,114 @@ export async function setCashSessionBlindOff(
 }
 
 /**
+ * #10740: a queued Lightning leave whose cash-out the hand count refused goes
+ * back to the pool as a blind off (fn_lightning_owed_leave_returns_to_pool).
+ * The database asks the leave door itself whether hands are owed and refuses,
+ * writing nothing, for a forced request, a live hand, a stale occupancy or
+ * nothing owed. Null on any failure: nothing changed, ask again next pass.
+ */
+let lastOwedLeaveWarnAt = 0;
+export async function returnOwedLightningLeaveToPool(
+  userId: string,
+  tableId: string,
+  seatNumber: number,
+  occupancyId: string
+): Promise<{ returned: boolean; handsRemaining: number; reason: string | null } | null> {
+  try {
+    const { data, error } = await supabase.rpc('fn_lightning_owed_leave_returns_to_pool', {
+      p_user_id: userId,
+      p_table_id: tableId,
+      p_seat_number: seatNumber,
+      p_occupancy_id: occupancyId,
+    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+      // Asked every release pass while a seat is held; say so once a minute.
+      if (error && Date.now() - lastOwedLeaveWarnAt > 60_000) {
+        lastOwedLeaveWarnAt = Date.now();
+        console.warn(
+          `[cashSessions] owed Lightning leave for ${tableId.slice(0, 8)} not returned: ${error.message}`
+        );
+      }
+      return null;
+    }
+    const row = data as { returned?: unknown; hands_remaining?: unknown; reason?: unknown };
+    const hands = Number(row.hands_remaining);
+    return {
+      returned: row.returned === true,
+      handsRemaining: Number.isFinite(hands) ? Math.max(0, Math.floor(hands)) : 0,
+      reason: typeof row.reason === 'string' ? row.reason : null,
+    };
+  } catch (err: any) {
+    console.warn(
+      `[cashSessions] owed Lightning leave transport failure for ${tableId.slice(0, 8)}:`,
+      err?.message
+    );
+    return null;
+  }
+}
+
+let lastPlaysOnWarnAt = 0;
+
+/**
+ * AN OWED LEAVE ALONE AT ITS TABLE PLAYS ON IN ITS GAME (2026-11-14).
+ *
+ * Asked before a held leave that still owes hands is released for having
+ * nobody left at its table. The database answers whether the same game is
+ * still dealing at another table; if it is, the seat stops pending and keeps
+ * its blind off so the game moves it to that table, and `keep` is true. Null
+ * (function missing, transport, refusal) keeps the established behaviour: the
+ * caller releases the seat as before. Engine-only.
+ */
+export async function owedLeavePlaysOnInGame(
+  userId: string,
+  tableId: string,
+  seatNumber: number,
+  occupancyId: string
+): Promise<{
+  keep: boolean;
+  returned: boolean;
+  handsRemaining: number;
+  reason: string | null;
+} | null> {
+  try {
+    const { data, error } = await supabase.rpc('fn_owed_leave_plays_on_in_game', {
+      p_user_id: userId,
+      p_table_id: tableId,
+      p_seat_number: seatNumber,
+      p_occupancy_id: occupancyId,
+    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+      if (error && Date.now() - lastPlaysOnWarnAt > 60_000) {
+        lastPlaysOnWarnAt = Date.now();
+        console.warn(
+          `[cashSessions] owed leave at ${tableId.slice(0, 8)} not kept in its game: ${error.message}`
+        );
+      }
+      return null;
+    }
+    const row = data as {
+      keep?: unknown;
+      returned?: unknown;
+      hands_remaining?: unknown;
+      reason?: unknown;
+    };
+    const hands = Number(row.hands_remaining);
+    return {
+      keep: row.keep === true,
+      returned: row.returned === true,
+      handsRemaining: Number.isFinite(hands) ? Math.max(0, Math.floor(hands)) : 0,
+      reason: typeof row.reason === 'string' ? row.reason : null,
+    };
+  } catch (err: any) {
+    console.warn(
+      `[cashSessions] owed leave transport failure for ${tableId.slice(0, 8)}:`,
+      err?.message
+    );
+    return null;
+  }
+}
+
+/**
  * HIT AND RUN (Lightning): which of these pool sessions are being blinded off
  * and still owe hands. An unreadable answer is the empty set: the seat then
  * plays on its ordinary clock, which is never a reason to fold a player.
@@ -220,10 +373,17 @@ export async function lightningBlindOffPlayers(
   const out = new Set<string>();
   if (poolSessionIds.length === 0) return out;
   try {
-    const { data, error } = await supabase.rpc('fn_lightning_blind_off_players', {
-      p_pool_session_ids: [...poolSessionIds],
-    });
-    if (error || !Array.isArray(data)) return out;
+    const { data, error } = await supabase
+      .rpc('fn_lightning_blind_off_players', {
+        p_pool_session_ids: [...poolSessionIds],
+      })
+      .abortSignal(AbortSignal.timeout(8000));
+    if (error || !Array.isArray(data)) {
+      console.warn(
+        '[cashSessions] Lightning blind-off authority unavailable; ordinary action clocks retained'
+      );
+      return out;
+    }
     for (const row of data as unknown[]) {
       const id =
         typeof row === 'string'
@@ -234,7 +394,9 @@ export async function lightningBlindOffPlayers(
       if (id) out.add(id);
     }
   } catch {
-    /* empty set */
+    console.warn(
+      '[cashSessions] Lightning blind-off authority unavailable; ordinary action clocks retained'
+    );
   }
   return out;
 }

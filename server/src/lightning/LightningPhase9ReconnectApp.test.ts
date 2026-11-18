@@ -292,12 +292,16 @@ describe('a hand whose players are gone (disconnect after hand start)', () => {
       const s = t.calls.settle[0];
       const sum = s.results.reduce((a: number, r: { stackAfter: number }) => a + r.stackAfter, 0);
       expect(Math.round((sum + s.rake + s.bbj) * 100)).toBe(30_000);
-      // Every timeout came from the clock, never a player submission.
-      const acted = (t.host as never as { actions: Array<{ origin?: string }> }).actions.filter(
-        (a) => a.origin && a.origin !== 'forced'
-      );
-      expect(acted.length).toBeGreaterThan(0);
-      expect(acted.every((a) => a.origin === 'unknown')).toBe(true);
+      // The button and small blind both timed out facing the big blind.
+      const actions = s.handRow.actions as Array<{
+        action: string;
+        userId: string;
+        origin?: string;
+      }>;
+      expect(actions.filter((a) => a.action === 'fold')).toMatchObject([
+        { userId: formed.btn, origin: 'forced' },
+        { userId: formed.sb, origin: 'forced' },
+      ]);
     } finally {
       vi.useRealTimers();
     }

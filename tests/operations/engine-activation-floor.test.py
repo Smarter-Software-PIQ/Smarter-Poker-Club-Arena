@@ -165,7 +165,7 @@ class ActivationFloor(unittest.TestCase):
         record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
                       manifestSha256=__import__('hashlib').sha256(raw).hexdigest(), targetSha=target,
                       activationEpoch=start, expiresEpoch=end)
-        stamp = int(datetime.fromisoformat('2026-11-10T09:10:00+00:00').timestamp()) * 1000
+        stamp = int(datetime.fromisoformat('2026-11-18T16:48:00+00:00').timestamp()) * 1000
         state = {'pending': None, 'finalization': None, 'desired': {'sha': seal.NOV7_PREDECESSOR}, 'highWaterSha': seal.NOV7_PREDECESSOR}
         args = argparse.Namespace(sha=target, run_id='650-1', repo=str(self.repo), cause='urgent',
                  control_sha=target, deadline=end, nov7_owner=True, scheduled_cycle_start=None,
@@ -187,12 +187,27 @@ class ActivationFloor(unittest.TestCase):
             stack.enter_context(patch.object(seal, 'audit_once'))
             stack.enter_context(patch.object(seal.subprocess, 'run', side_effect=authority))
             stack.enter_context(patch.object(seal.time, 'time', return_value=stamp/1000))
+            old_claim = self.repo / 'engine-release-owner-2026-11-10-owner-asap-engine-0650z.json'
+            old_claim.write_text('consumed historical claim')
+            receipt_claim = self.repo / 'engine-release-owner-2026-11-11-horse-clock-receipts-engine-0050z.json'
+            receipt_claim.write_text('consumed receipt claim')
+            clone_claim = self.repo / 'engine-release-owner-2026-11-11-horse-clock-clone-engine-0650z.json'
+            clone_claim.write_text('consumed clone claim')
+            realtime_claim = self.repo / 'engine-release-owner-2026-11-11-horse-realtime-10454-engine-1930z.json'
+            realtime_claim.write_text('expired realtime claim')
+            corrections_claim = self.repo / 'engine-release-owner-2026-11-12-horse-corrections-10525-engine-0030z.json'
+            corrections_claim.write_text('expired corrections claim')
             out = io.StringIO()
             with contextlib.redirect_stdout(out): seal.cmd_reserve_recovery_window(args)
             self.assertEqual(out.getvalue().strip(), str(stamp))
             self.assertEqual(seal.NOV7_OWNER_CLAIM, 'engine-release-owner-' + floor.NOV7_OWNER_ID + '.json')
             claim = json.loads((self.repo / seal.NOV7_OWNER_CLAIM).read_text())
             self.assertEqual(claim, seal.nov7_claim(args.run_id, target, target, stamp))
+            self.assertEqual(old_claim.read_text(), 'consumed historical claim')
+            self.assertEqual(receipt_claim.read_text(), 'consumed receipt claim')
+            self.assertEqual(clone_claim.read_text(), 'consumed clone claim')
+            self.assertEqual(realtime_claim.read_text(), 'expired realtime claim')
+            self.assertEqual(corrections_claim.read_text(), 'expired corrections claim')
             replay = io.StringIO()
             with contextlib.redirect_stdout(replay): seal.cmd_reserve_recovery_window(args)
             self.assertEqual(replay.getvalue().strip(), 'unavailable')
@@ -215,7 +230,7 @@ class ActivationFloor(unittest.TestCase):
             old = dict(record, ownerWindowId='2026-11-09-owner-asap-engine-2230z')
             with self.assertRaises(ValueError): floor.nov7_owner(str(self.repo), old, stamp//1000, end)
         transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
-        self.assertEqual(transaction.count('2026-11-10-owner-asap-engine-0650z'), 4)
+        self.assertEqual(transaction.count('2026-11-18-owner-no-notice-engine-1630z'), 4)
         self.assertNotIn('2026-11-09-owner-asap-engine-2230z', transaction)
         gate = transaction.split('nov7_owner_admitted() {', 1)[1].split('\n}', 1)[0]
         shell = 'python3() { return 0; }; nov7_owner_admitted() {' + gate + '\n}; nov7_owner_admitted'
@@ -906,23 +921,562 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hashlib.sha256(migration.read_bytes()).hexdigest(),
                          'f0093f6afa8347dc122a1ed95060bfb73339ef89d34208ac9f36b82562ede266')
 
-    def test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry(self):
+    def test_receipt_successor_binds_a_fresh_floor_and_preserves_single_use_custody(self):
         import hashlib
+        window, raw = self.historical_floor('2026-11-11-horse-clock-receipts-engine-0050z')
+        self.assertEqual(window['id'], '2026-11-11-horse-clock-receipts-engine-0050z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'a14a5f26ebc79a55708f7f6d78f82832e20b10483ea6b96b7cca058a7e1b4d10')
+        self.assertEqual(window['releaseWitness']['sha256'], 'a14a5f26ebc79a55708f7f6d78f82832e20b10483ea6b96b7cca058a7e1b4d10')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '8d78a5a08db6d3ee5e1dbb8b33edf65db6df3064122e0f2cee4346e6ee8a0fba')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-11T03:40:00Z', '2026-11-11T06:30:00Z'))
+        self.assertEqual(window['playerNoticeAt'], '2026-11-11T03:20:00Z')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertIn('#10346', window['ownerOrder'])
+        self.assertIn('15:34 America/Chicago', window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-18-owner-no-notice-engine-1630z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-18-owner-no-notice-engine-1030z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-18-owner-no-notice-engine-0705z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-17-owner-no-notice-engine-2330z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-16-owner-offcycle-engine-2320z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-16-owner-offcycle-engine-1906z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-16-owner-offcycle-engine-0106z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-2245z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-1806z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-1206z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-0806z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-14-owner-offcycle-engine-1706z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-14-owner-offcycle-engine-0506z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-asap-engine-0736z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0538z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0338z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-complete-missed-engine-1700z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-engine-0700z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-10525-engine-0030z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-11-horse-realtime-10454-engine-1930z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-11-horse-clock-clone-engine-0650z')
+        self.assertEqual(windows['windows'][-1]['id'], '2026-11-11-horse-clock-receipts-engine-0050z')
+        current = self.owner_record(window_id='2026-11-11-horse-clock-receipts-engine-0050z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 10200)
+
+    def test_clone_clock_successor_binds_a_fresh_floor_and_preserves_consumed_receipt_order(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-11-horse-clock-clone-engine-0650z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602')
+        self.assertEqual(window['releaseWitness']['sha256'], 'aeecae49960eb9659ab5bc86710d330bb6a58a47a7c732f94fe74c894002b602')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '33667f78814157db34d96578c6c8d4362ce1582781a9f9d32775145ba8b61d4f')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-11T08:00:00Z', '2026-11-11T10:30:00Z'))
+        self.assertEqual(window['playerNoticeAt'], '2026-11-11T07:40:00Z')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertIn('#10346', window['ownerOrder'])
+        self.assertIn('#10457', window['ownerOrder'])
+        self.assertEqual(window['contains'], '57d56c0d6417b08fbb847fb842c03c968a25f698')
+        self.assertIn('15:34 America/Chicago', window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-21]['id'], '2026-11-11-horse-clock-clone-engine-0650z')
+        current = self.owner_record(window_id='2026-11-11-horse-clock-clone-engine-0650z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 9000)
+
+    def test_realtime_10454_binds_fresh_authority_and_preserves_consumed_clock_order(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-11-horse-realtime-10454-engine-1930z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'd94ebce03e481c7af3c8cce08eac33f43724099626794ab770a07624d9b38e5c')
+        self.assertEqual(window['releaseWitness']['sha256'], 'd94ebce03e481c7af3c8cce08eac33f43724099626794ab770a07624d9b38e5c')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'e16b0ff230da53a50145768f1dbb5ee9944eaa74f3e5616698759c68942c8950')
+        self.assertEqual(window['contains'], '1094cd8ca7a6e99abc29bdfe89aa26c2964bd4df')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-11T19:10:00Z', '2026-11-11T19:30:00Z', '2026-11-11T22:30:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('#10454', '11:36:59-06:00', 'f7735cca6862b9add06841b8a41c305b3f3ebe01', 'twenty minutes', '1800-second', '285s', 'zero opportunities'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-20]['id'], '2026-11-11-horse-realtime-10454-engine-1930z')
+        self.assertEqual(windows['windows'][-21]['id'], '2026-11-11-horse-clock-clone-engine-0650z')
+        current = self.owner_record(window_id='2026-11-11-horse-realtime-10454-engine-1930z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 10800)
+
+    def test_corrections_10525_binds_fresh_authority_and_preserves_unconsumed_realtime_order(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-12-horse-corrections-10525-engine-0030z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '9f2b6fba58ca37c6aaf77c8aa429e34e781655d49a65d15f1dafaf0386671aaa')
+        self.assertEqual(window['releaseWitness']['sha256'], '9f2b6fba58ca37c6aaf77c8aa429e34e781655d49a65d15f1dafaf0386671aaa')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '2fbe75654cb2711288b44ae3c9ef2dcc49953509643ca07e800729c1345af8b6')
+        self.assertEqual(window['contains'], 'd58e1c206a521dbb33583fbb94ac7a64eceda647')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-12T00:10:00Z', '2026-11-12T00:30:00Z', '2026-11-12T05:30:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('#10525', 'ASAP tonight (Recommended)', 'f7735cca6862b9add06841b8a41c305b3f3ebe01', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-19]['id'], '2026-11-12-horse-corrections-10525-engine-0030z')
+        self.assertEqual(windows['windows'][-20]['id'], '2026-11-11-horse-realtime-10454-engine-1930z')
+        current = self.owner_record(window_id='2026-11-12-horse-corrections-10525-engine-0030z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 18000)
+
+    def test_rebooked_corrections_bind_fresh_authority_and_preserve_expired_orders(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-12-horse-corrections-engine-0700z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '5d710e3fb907d61da071f7f31f91105afdd155bb1e5a40983bb2d119c11eaa48')
+        self.assertEqual(window['releaseWitness']['sha256'], '5d710e3fb907d61da071f7f31f91105afdd155bb1e5a40983bb2d119c11eaa48')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'a82f04621340386100a498794d9667497d2f43f4633828e33d3f9b0f45609422')
+        self.assertEqual(window['contains'], '465afb718c91e2339ec880f9bd7f580d515ced14')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-12T06:40:00Z', '2026-11-12T07:00:00Z', '2026-11-12T09:15:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('#10574', 'Book Thursday 1:00-3:15 AM (Recommended)', 'f7735cca6862b9add06841b8a41c305b3f3ebe01', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-18]['id'], '2026-11-12-horse-corrections-engine-0700z')
+        self.assertEqual(windows['windows'][-19]['id'], '2026-11-12-horse-corrections-10525-engine-0030z')
+        current = self.owner_record(window_id='2026-11-12-horse-corrections-engine-0700z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 8100)
+
+    def test_missed_engine_takeover_binds_fresh_authority_and_separate_prerequisites(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-12-complete-missed-engine-1700z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '47a95571773260c616b214320ef988f2f12b6def63c387a40a03cf96a9cc6b12')
+        self.assertEqual(window['releaseWitness']['sha256'], '47a95571773260c616b214320ef988f2f12b6def63c387a40a03cf96a9cc6b12')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'cdda1d1a93852920765c84b1214330562c5350e7a0e0e30858014a1173d5ee07')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-12T16:40:00Z', '2026-11-12T17:00:00Z', '2026-11-12T22:00:00Z'))
+        self.assertEqual(window['contains'], '7608c4721d136aa7f3a8b1e5f3457ea68de64b39')
+        self.assertEqual(window['migrations'], [])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-18]['id'], '2026-11-12-horse-corrections-engine-0700z')
+        entries = [next(w for w in windows['databaseWindows'] if w['id'] == window_id)
+                   for window_id in ('2026-11-12-missed-engine-db-bank-win', '2026-11-12-missed-engine-db-rebuy')]
+        for entry, version in zip(entries, ['20261111174148', '20261112013925']):
+            self.assertEqual(len(entry['migrations']), 1)
+            self.assertTrue(entry['migrations'][0].startswith(version + '_'))
+            self.assertIn('TAKE OWNERSHIP OF THIS NOW', entry['ownerOrder'])
+            self.assertIn('rolling-hour spacing', entry['ownerOrder'])
+
+    def test_owner_now_55_break_binds_fresh_authority_to_the_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-13-owner-now-55-break-engine-0338z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'b2adbd711563d2d8ccd5084639497f1926794e28344159704a43b70d59f1b26c')
+        self.assertEqual(window['releaseWitness']['sha256'], 'b2adbd711563d2d8ccd5084639497f1926794e28344159704a43b70d59f1b26c')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '9905e0fa58d69572d1c2b5083bc88c79ea9e3d328a4674ad7e0e2821f3e7bfb0')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-13T03:15:00Z', '2026-11-13T03:38:00Z', '2026-11-13T04:00:00Z'))
+        self.assertEqual(window['contains'], 'c6b61cd577290bf7652ee69dd81ca0bf69184a78')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('CUT OVER NOW', 'ONLY AT A NORMAL BREAK AT THE :55', '08c27924101c63621263d291279cae2dca5aa9cf', '#10650', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-16]['id'], '2026-11-13-owner-now-55-break-engine-0338z')
+        self.assertEqual(windows['windows'][-17]['id'], '2026-11-12-complete-missed-engine-1700z')
+        # The window closes before a next-hour announcement could fit, so only a break ending before :55 is admitted.
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertLess(end, start - start % 3600 + 3600 + 330 + 420)
+        self.assertEqual(end - start, 1320)
+
+    def test_owner_now_rebooking_binds_the_next_55_break_after_the_schema_moved(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-13-owner-now-55-break-engine-0538z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '5f61191b09e37505b064e30f0a3b71e8c3117b59b0db276edb85b298d191f8cb')
+        self.assertEqual(window['releaseWitness']['sha256'], '5f61191b09e37505b064e30f0a3b71e8c3117b59b0db276edb85b298d191f8cb')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '63c899762f90e98d34fd063bd4cde4452b61bf7973d92620d5fc7dd3c753afef')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-13T05:15:00Z', '2026-11-13T05:38:00Z', '2026-11-13T06:00:00Z'))
+        self.assertEqual(window['contains'], 'c6b61cd577290bf7652ee69dd81ca0bf69184a78')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('CUT OVER NOW', 'ONLY AT A NORMAL BREAK AT THE :55', '08c27924101c63621263d291279cae2dca5aa9cf', '#10650', '20261113021529', 'lapses unused', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-15]['id'], '2026-11-13-owner-now-55-break-engine-0538z')
+        self.assertEqual(windows['windows'][-16]['id'], '2026-11-13-owner-now-55-break-engine-0338z')
+        # The window closes before a next-hour announcement could fit, so only a break ending before :55 is admitted.
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertLess(end, start - start % 3600 + 3600 + 330 + 420)
+        self.assertEqual(end - start, 1320)
+
+    def test_owner_asap_booking_binds_the_earliest_certifiable_admission_after_two_lapses(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-13-owner-asap-engine-0736z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '41c48717563b7319468c1d1125661e3a71bd60fb9c7f0ec88d6a6d950688bde3')
+        self.assertEqual(window['releaseWitness']['sha256'], '41c48717563b7319468c1d1125661e3a71bd60fb9c7f0ec88d6a6d950688bde3')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '17f10f48b7a4536d0ddfb59e873ecba5ad295c87fa3f41012e24931ed9985d54')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-13T07:15:00Z', '2026-11-13T07:36:00Z', '2026-11-13T09:00:00Z'))
+        self.assertEqual(window['contains'], 'c6b61cd577290bf7652ee69dd81ca0bf69184a78')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('CUT OVER NOW', 'AS SOON AS POSSIBLE', '08c27924101c63621263d291279cae2dca5aa9cf', '#10650', '#10672', '20261113021529', 'lapse unused', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-14]['id'], '2026-11-13-owner-asap-engine-0736z')
+        self.assertEqual(windows['windows'][-15]['id'], '2026-11-13-owner-now-55-break-engine-0538z')
+        # The admission ends before the 03:30 America/Chicago routine preparation (09:30 UTC).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertEqual(end - start, 5040)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-13T09:30:00+00:00').timestamp()))
+
+    def test_owner_offcycle_booking_binds_fresh_authority_to_the_new_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-14-owner-offcycle-engine-0506z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '47a78921825c7e64eb1a4f497b7c44c5cc9c20e632961b20d9c06f5184dd5ed8')
+        self.assertEqual(window['releaseWitness']['sha256'], '47a78921825c7e64eb1a4f497b7c44c5cc9c20e632961b20d9c06f5184dd5ed8')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '88001cdf9c2a27fe42af8d2fc55c7864afa9c31977cbf8b56d30f212f9539fd5')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-14T04:40:00Z', '2026-11-14T05:06:00Z', '2026-11-14T07:30:00Z'))
+        self.assertEqual(window['contains'], '566b7fcbd1a2f0e2a8ad93d199a39bb8af573817')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('EARLIEST SAFE, QUALIFIED TIME', 'Do not default to the routine', '533608409f2b05e702c9fbd097bcab48b9e59dad', '#10683', '#10750', '#10768', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-13]['id'], '2026-11-14-owner-offcycle-engine-0506z')
+        self.assertEqual(windows['windows'][-14]['id'], '2026-11-13-owner-asap-engine-0736z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (09:30 UTC).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 8640)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-14T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_14_owner_offcycle_engine_1706z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-14-owner-offcycle-engine-1706z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'b10fae7096ac38e638c1ef135718712f50c0ec5844374b3c37e8d337565fab9c')
+        self.assertEqual(window['releaseWitness']['sha256'], 'b10fae7096ac38e638c1ef135718712f50c0ec5844374b3c37e8d337565fab9c')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'fb530dfd2b42d3b32c5827908c8d2ca22cb036a40a9149e61a8993f0fc6fc459')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-14T16:40:00Z', '2026-11-14T17:06:00Z', '2026-11-14T23:00:00Z'))
+        self.assertEqual(window['contains'], '6203a79bc9eaa8386fbb91da880e22f1c35749c6')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('06d45e7d5b64c1e6f0ff4a318c7eed5dcd935ec1', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-12]['id'], '2026-11-14-owner-offcycle-engine-1706z')
+        self.assertEqual(windows['windows'][-13]['id'], '2026-11-14-owner-offcycle-engine-0506z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-15T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 21240)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-15T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_15_owner_offcycle_engine_0806z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-15-owner-offcycle-engine-0806z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '17f91cf399b0380355eb422d60a5c1ae27568fd0e400ebba58c883d185e20f00')
+        self.assertEqual(window['releaseWitness']['sha256'], '17f91cf399b0380355eb422d60a5c1ae27568fd0e400ebba58c883d185e20f00')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '486e85df08a9ff6ca7decfa1a8158a2773e0a0451d3ace2a951ffab321db646a')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-15T07:45:00Z', '2026-11-15T08:06:00Z', '2026-11-15T09:25:00Z'))
+        self.assertEqual(window['contains'], '2b57621aa92bc8a20ce0150c4ad701568761d7ff')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('a796551420a5f1adc4ba0fa34adb0ae9f88007bd', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-11]['id'], '2026-11-15-owner-offcycle-engine-0806z')
+        self.assertEqual(windows['windows'][-12]['id'], '2026-11-14-owner-offcycle-engine-1706z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-15T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 4740)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-15T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_15_owner_offcycle_engine_1206z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-15-owner-offcycle-engine-1206z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'c800ccd0b2069570d3f0e451d88073ad158dbbc4f3b63da60df32893380d51cb')
+        self.assertEqual(window['releaseWitness']['sha256'], 'c800ccd0b2069570d3f0e451d88073ad158dbbc4f3b63da60df32893380d51cb')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '2eff55673f727eab5caff18a1ce22e285205961fb463fd69786ad9a026f843c3')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-15T11:40:00Z', '2026-11-15T12:06:00Z', '2026-11-15T15:00:00Z'))
+        self.assertEqual(window['contains'], '065ef6a7cccb32952c90c38c6bb0ef28de124378')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('54c9aac87f7804b41b0a6278e99d068396f08f9b', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-10]['id'], '2026-11-15-owner-offcycle-engine-1206z')
+        self.assertEqual(windows['windows'][-11]['id'], '2026-11-15-owner-offcycle-engine-0806z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-16T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 10440)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-16T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_15_owner_offcycle_engine_1806z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-15-owner-offcycle-engine-1806z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '9dcd6f35b6ace503c6841f5d18c3176d9533d4638fc7852cbba4ea6cbde62b5c')
+        self.assertEqual(window['releaseWitness']['sha256'], '9dcd6f35b6ace503c6841f5d18c3176d9533d4638fc7852cbba4ea6cbde62b5c')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '4f36ec23016ff4f7753fece5d7398fd65197c0e541e6aca0fbd8f6b1ab2ad7af')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-15T17:40:00Z', '2026-11-15T18:06:00Z', '2026-11-15T21:00:00Z'))
+        self.assertEqual(window['contains'], 'f28f70557c43831acabf9d08d66980106d6f6909')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('7e8688d360ebe4316f2fcd37eb60753f73af99b5', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-9]['id'], '2026-11-15-owner-offcycle-engine-1806z')
+        self.assertEqual(windows['windows'][-10]['id'], '2026-11-15-owner-offcycle-engine-1206z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-16T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 10440)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-16T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_15_owner_offcycle_engine_2245z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-15-owner-offcycle-engine-2245z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'f2adda241059edb6876b28c6501c4a62741ad2f49d9ff02b625b1a3ef6f66030')
+        self.assertEqual(window['releaseWitness']['sha256'], 'f2adda241059edb6876b28c6501c4a62741ad2f49d9ff02b625b1a3ef6f66030')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '3b688e26b56d39f41cb9db1de0240154a2af4915b02cdfff09306a78d25b0bf5')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-15T22:25:00Z', '2026-11-15T22:45:00Z', '2026-11-16T02:30:00Z'))
+        self.assertEqual(window['contains'], 'dc54e9c04224539734d4d0938769233f21af121c')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('652726c8b793403b020e46b9c3c61be6ec73fa01', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-8]['id'], '2026-11-15-owner-offcycle-engine-2245z')
+        self.assertEqual(windows['windows'][-9]['id'], '2026-11-15-owner-offcycle-engine-1806z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-16T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 13500)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-16T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_16_owner_offcycle_engine_0106z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-16-owner-offcycle-engine-0106z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'e7c55d77b69bdf083bf0877eb600f5021769682563fbf1a04eb7c2ae98087eea')
+        self.assertEqual(window['releaseWitness']['sha256'], 'e7c55d77b69bdf083bf0877eb600f5021769682563fbf1a04eb7c2ae98087eea')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '543b2a89cf9da9fa4c0ca28efffbd983b5e13f8420929470d7857cdea705edb7')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-16T00:45:00Z', '2026-11-16T01:06:00Z', '2026-11-16T05:00:00Z'))
+        self.assertEqual(window['contains'], '630a109651cf348e8c9332afeaed79db941c0869')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('630a109651cf348e8c9332afeaed79db941c0869', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-7]['id'], '2026-11-16-owner-offcycle-engine-0106z')
+        self.assertEqual(windows['windows'][-8]['id'], '2026-11-15-owner-offcycle-engine-2245z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-16T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 14040)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-16T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_16_owner_offcycle_engine_1906z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-16-owner-offcycle-engine-1906z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '6ee5bc5788057aa2f6e8ee9b9b42beb9e598bcbd4684133a59e7e1b02e146d70')
+        self.assertEqual(window['releaseWitness']['sha256'], '6ee5bc5788057aa2f6e8ee9b9b42beb9e598bcbd4684133a59e7e1b02e146d70')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'c7810334a094d388ab3faecb199dae56612ebc2a3419935824909d98370581ae')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-16T18:40:00Z', '2026-11-16T19:06:00Z', '2026-11-16T23:00:00Z'))
+        self.assertEqual(window['contains'], 'e64245636f838352751f79ce7e2e366e972685b8')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('3529e86663daa427b380a8ab9bd09347270c670e', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-6]['id'], '2026-11-16-owner-offcycle-engine-1906z')
+        self.assertEqual(windows['windows'][-7]['id'], '2026-11-16-owner-offcycle-engine-0106z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-17T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 14040)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-17T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_16_owner_offcycle_engine_2320z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-16-owner-offcycle-engine-2320z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '0f58078b9945600b91aa0a131b762874ac117b1b601a1e9136cc2fd8eae81336')
+        self.assertEqual(window['releaseWitness']['sha256'], '0f58078b9945600b91aa0a131b762874ac117b1b601a1e9136cc2fd8eae81336')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '970806ebf01e06cc7f9675e57bf103b0173ef473eecf240569e49b6cd5067cc2')
+        self.assertEqual((window['playerNoticeAt'], window['notBefore'], window['notAfter']), ('2026-11-16T23:00:00Z', '2026-11-16T23:20:00Z', '2026-11-17T02:00:00Z'))
+        self.assertEqual(window['contains'], '692e5371b251831cee08e61a3b7ae419f2fb630e')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('3529e86663daa427b380a8ab9bd09347270c670e', 'twenty minutes', '1800-second', '285s', 'zero opportunities', 'not extended'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-5]['id'], '2026-11-16-owner-offcycle-engine-2320z')
+        self.assertEqual(windows['windows'][-6]['id'], '2026-11-16-owner-offcycle-engine-1906z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-17T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 9600)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-17T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_17_owner_no_notice_engine_2330z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-17-owner-no-notice-engine-2330z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '59d1cf18a8c9ec91350e747b875fd9c6a78982e07f210bcd7cf3ff152a4b999f')
+        self.assertEqual(window['releaseWitness']['sha256'], '59d1cf18a8c9ec91350e747b875fd9c6a78982e07f210bcd7cf3ff152a4b999f')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '4878d658f22027faba57ca905f4f68a411d1919ebfb343cc3afd0a694d1a5720')
+        self.assertNotIn('playerNoticeAt', window)
+        self.assertEqual((window['ownerNoticeWaiver'], window['notBefore'], window['notAfter']), ('For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.', '2026-11-17T23:30:00Z', '2026-11-18T05:20:00Z'))
+        self.assertEqual(window['contains'], 'ba6a272537260ff35f516a58fac20346d1f6423a')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('28372c9a1750934d1c39839bc551b050da6f4b8d', '1800-second', '285s', 'zero opportunities', 'not extended', 'For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-4]['id'], '2026-11-17-owner-no-notice-engine-2330z')
+        self.assertEqual(windows['windows'][-5]['id'], '2026-11-16-owner-offcycle-engine-2320z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-18T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 21000)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-18T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_18_owner_no_notice_engine_0705z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-18-owner-no-notice-engine-0705z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '95014b05db7bc249a2dae27e0ccd9e07b79eaefdadf0aca9b448d2371c0e2594')
+        self.assertEqual(window['releaseWitness']['sha256'], '95014b05db7bc249a2dae27e0ccd9e07b79eaefdadf0aca9b448d2371c0e2594')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '7e2a786b6ca080b0afce9d1e0522c6c18e77c130db815bb765cb78e57c8ce2db')
+        self.assertNotIn('playerNoticeAt', window)
+        self.assertEqual((window['ownerNoticeWaiver'], window['notBefore'], window['notAfter']), ('For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.', '2026-11-18T07:05:30Z', '2026-11-18T09:20:00Z'))
+        self.assertEqual(window['contains'], 'ba6a272537260ff35f516a58fac20346d1f6423a')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('28372c9a1750934d1c39839bc551b050da6f4b8d', '1800-second', '285s', 'zero opportunities', 'not extended', 'For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-3]['id'], '2026-11-18-owner-no-notice-engine-0705z')
+        self.assertEqual(windows['windows'][-4]['id'], '2026-11-17-owner-no-notice-engine-2330z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-18T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 8070)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-18T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_18_owner_no_notice_engine_1030z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
+        window, raw = self.historical_floor('2026-11-18-owner-no-notice-engine-1030z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '3346e47593049e0be053b7405a2310a867fec0c9087710229dc2fa647afb932b')
+        self.assertEqual(window['releaseWitness']['sha256'], '3346e47593049e0be053b7405a2310a867fec0c9087710229dc2fa647afb932b')
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '3eed5423b75b1330689b97c71af51caad46103fd6537ab4f31d57d44eb87c521')
+        self.assertNotIn('playerNoticeAt', window)
+        self.assertEqual((window['ownerNoticeWaiver'], window['notBefore'], window['notAfter']), ('For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.', '2026-11-18T10:30:00Z', '2026-11-18T16:20:00Z'))
+        self.assertEqual(window['contains'], 'ba6a272537260ff35f516a58fac20346d1f6423a')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('28372c9a1750934d1c39839bc551b050da6f4b8d', '1800-second', '285s', 'zero opportunities', 'not extended', 'For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-2]['id'], '2026-11-18-owner-no-notice-engine-1030z')
+        self.assertEqual(windows['windows'][-3]['id'], '2026-11-18-owner-no-notice-engine-0705z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-19T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 21000)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-19T09:30:00+00:00').timestamp()))
+
+    def test_owner_window_2026_11_18_owner_no_notice_engine_1630z_binds_fresh_authority_to_its_serving_predecessor(self):
+        import hashlib
+        from datetime import datetime
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
-        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-10-owner-asap-engine-0650z')
+        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-18-owner-no-notice-engine-1630z')
         self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
+        self.assertEqual(hashlib.sha256(json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), floor.NOV7_ORDER_DIGEST)
+        self.assertNotIn('playerNoticeAt', window)
+        self.assertEqual((window['ownerNoticeWaiver'], window['notBefore'], window['notAfter']), ('For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.', '2026-11-18T16:30:00Z', '2026-11-18T22:20:00Z'))
+        self.assertEqual(window['contains'], 'e315035b867992bf7faa4dfde234fbd53587c0b6')
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        for required in ('fc86566676b4364704f174331992b7700c744095', '1800-second', '285s', 'zero opportunities', 'not extended', 'For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.'):
+            self.assertIn(required, window['ownerOrder'])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
+        self.assertEqual(windows['windows'][-2]['id'], '2026-11-18-owner-no-notice-engine-1030z')
+        # The admission opens inside the announcement band and ends before the 03:30 America/Chicago routine preparation (2026-11-19T09:30:00Z).
+        start, end = [int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp()) for k in ('notBefore', 'notAfter')]
+        self.assertTrue(330 <= start % 3600 <= 2940)
+        self.assertEqual(end - start, 21000)
+        self.assertLess(end, int(datetime.fromisoformat('2026-11-19T09:30:00+00:00').timestamp()))
+        seal_source = (ROOT / 'server/scripts/engine-release-seal.py').read_text()
+        self.assertIn("NOV7_PREDECESSOR = 'fc86566676b4364704f174331992b7700c744095'", seal_source)
+        self.assertIn("datetime.fromisoformat('2026-11-18T22:20:00+00:00')", seal_source)
+        transaction = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+        self.assertEqual(transaction.count('fc86566676b4364704f174331992b7700c744095'), 2)
+        self.assertNotIn('28372c9a1750934d1c39839bc551b050da6f4b8d', transaction)
+
+    def test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-10-owner-asap-engine-2350z')
+        self.assertEqual(window['id'], '2026-11-10-owner-asap-engine-2350z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48')
+        self.assertEqual(window['releaseWitness']['sha256'], '72bbb5fe8f245ad98d7b78f883009a16a2289816bd50cf4edd3258a121dffa48')
         canonical = json.dumps(window, sort_keys=True, separators=(',', ':')).encode()
-        self.assertEqual(hashlib.sha256(canonical).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T08:50:00Z', '2026-11-10T10:30:00Z'))
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), '18b1ca2d8b8ab54ec36380c623687bbd5ba6f249e4fbdf04095e1a02a0cd2c23')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-10T23:50:00Z', '2026-11-11T05:00:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
-        self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
-        self.assertEqual(windows['windows'][-3]['id'], '2026-11-09-owner-asap-engine-2230z')
-        self.assertEqual(windows['windows'][-2]['id'], '2026-11-10-owner-asap-engine-0440z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-18-owner-no-notice-engine-1630z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-18-owner-no-notice-engine-1030z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-18-owner-no-notice-engine-0705z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-17-owner-no-notice-engine-2330z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-16-owner-offcycle-engine-2320z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-16-owner-offcycle-engine-1906z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-16-owner-offcycle-engine-0106z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-2245z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-1806z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-1206z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-15-owner-offcycle-engine-0806z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-14-owner-offcycle-engine-1706z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-14-owner-offcycle-engine-0506z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-asap-engine-0736z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0538z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-13-owner-now-55-break-engine-0338z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-complete-missed-engine-1700z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-engine-0700z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-12-horse-corrections-10525-engine-0030z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-11-horse-realtime-10454-engine-1930z')
+        self.assertEqual(windows['windows'].pop()['id'], '2026-11-11-horse-clock-clone-engine-0650z')
+        self.assertEqual(windows['windows'][-2]['id'], '2026-11-10-owner-asap-engine-2350z')
+        self.assertEqual(windows['windows'][-3]['id'], '2026-11-10-owner-asap-engine-0650z')
+        previous_asap, previous_asap_raw = self.historical_floor('2026-11-10-owner-asap-engine-0650z')
+        self.assertEqual(hashlib.sha256(previous_asap_raw).hexdigest(), 'a171baede07efd880c67e623e896fb4cee13a0fd0bb1be10310911127dd560cb')
+        self.assertEqual(hashlib.sha256(json.dumps(previous_asap, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), 'e36fddfe1a9504881a218b416efb65902699efed4deb476a099eaf56e21d58fa')
+        self.assertEqual(windows['windows'][-5]['id'], '2026-11-09-owner-asap-engine-2230z')
+        self.assertEqual(windows['windows'][-4]['id'], '2026-11-10-owner-asap-engine-0440z')
         corrected, corrected_raw = self.historical_floor('2026-11-10-owner-asap-engine-0440z')
         self.assertEqual(hashlib.sha256(corrected_raw).hexdigest(), '62de2ae6621f8654973670bbc6d79d8595b3514773c18a498b261e0d374c5981')
         self.assertEqual(hashlib.sha256(json.dumps(corrected, sort_keys=True, separators=(',', ':')).encode()).hexdigest(), '7c90789c59b1f4d10993f9e6246ae191e4fb941afaa5e4eba2ba7b58d14ac861')
@@ -930,29 +1484,29 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(hashlib.sha256(original_raw).hexdigest(), 'eab1577724880e91ae89a4f0e73fb5e3cd88bf5a7355331503f6ead38e93b2af')
         original_order = json.dumps(original, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(original_order).hexdigest(), '8f54705ab0a0ffc15398a4633944f24d166999c6b304bec4491ad4f376d461b9')
-        self.assertEqual(window['playerNoticeAt'], '2026-11-10T08:30:00Z')
-        self.assertIn('Authorize through 10:30 UTC', window['ownerOrder'])
-        self.assertIn('root Codex agent', window['ownerOrder'])
-        self.assertEqual(windows['windows'][-4]['id'], '2026-11-09-owner-asap-engine-1530z')
+        self.assertEqual(window['playerNoticeAt'], '2026-11-10T23:30:00Z')
+        self.assertIn('ASAP today (Recommended)', window['ownerOrder'])
+        self.assertIn('63c9285865a395ff3d333938e2af518b67a45288', window['ownerOrder'])
+        self.assertEqual(windows['windows'][-6]['id'], '2026-11-09-owner-asap-engine-1530z')
         asap, asap_raw = self.historical_floor('2026-11-09-owner-asap-engine-1530z')
         self.assertEqual(hashlib.sha256(asap_raw).hexdigest(), '8cfd5e5343b7d688bb5249bb21efabd45d313de9b80e673d19aa829eb565037a')
         asap_order = json.dumps(asap, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(asap_order).hexdigest(), 'f15bd75c7ce4e2866c87cd307af89fb162f0d9156407c5629f2cfb3a64ffaba4')
-        self.assertEqual(windows['windows'][-5]['id'], '2026-11-08-horse-study-successor-engine-1820z')
+        self.assertEqual(windows['windows'][-7]['id'], '2026-11-08-horse-study-successor-engine-1820z')
         successor, successor_raw = self.historical_floor('2026-11-08-horse-study-successor-engine-1820z')
         self.assertEqual(hashlib.sha256(successor_raw).hexdigest(), 'b0cd81bf0f6cff39992da1f8918bce916e112e78ee7f69a33f840b5bc5b687f0')
         successor_order = json.dumps(successor, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(successor_order).hexdigest(), '25f70505f62297bf845e1bb068507de89ca14e78be0c3b56f09fb7e7b236984a')
-        self.assertEqual(windows['windows'][-6]['id'], '2026-11-07-cash-room-realism-engine-2230z')
+        self.assertEqual(windows['windows'][-8]['id'], '2026-11-07-cash-room-realism-engine-2230z')
         previous, previous_raw = self.historical_floor('2026-11-07-cash-room-realism-engine-2230z')
         self.assertEqual(hashlib.sha256(previous_raw).hexdigest(), '4e75ef16ef642d53e69139e045cabd23064a5baa55a50d0e2f13c5272ce22769')
         previous_order = json.dumps(previous, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(previous_order).hexdigest(), '990c9ccdeb5e42b95176194099f2dac8557e207e6a7656c80c9ce8f2d481bad3')
-        self.assertEqual(windows['windows'][-7]['id'], '2026-11-07-horse-fold-provenance-engine-1800z')
-        current = self.owner_record(window_id=floor.NOV7_OWNER_ID)
-        self.assertEqual(current['ownerWindowId'], floor.NOV7_OWNER_ID)
+        self.assertEqual(windows['windows'][-9]['id'], '2026-11-07-horse-fold-provenance-engine-1800z')
+        current = self.owner_record(window_id='2026-11-10-owner-asap-engine-2350z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-10-owner-asap-engine-2350z')
         self.assertTrue(current['supersedesPhase1Schedule'])
-        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 6000)
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 18600)
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
         import hashlib

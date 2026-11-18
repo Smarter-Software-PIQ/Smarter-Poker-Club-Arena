@@ -118,6 +118,7 @@ export interface OmahaVariantInputBinding {
   readonly geometry: Readonly<{
     bettingStructure: 'pot_limit';
     chipUnit: 0.01 | 1;
+    asset?: 'diamonds';
     bigBlind: number;
     pot: number;
     currentBet: number;
@@ -406,7 +407,9 @@ export function omahaVariantInputBindingIsValid(value: unknown): value is OmahaV
   const packDef = OMAHA_VARIANT_PACKS[variant];
   const { pack, approximation, census, positions, geometry, depth, board, range } = value;
   if (!object(geometry) || (geometry.chipUnit !== 0.01 && geometry.chipUnit !== 1)) return false;
-  const tournament = geometry.chipUnit === 1;
+  const diamondCash = geometry.asset === 'diamonds';
+  if (diamondCash && geometry.chipUnit !== 1) return false;
+  const tournament = !diamondCash && geometry.chipUnit === 1;
   const cap = omahaVariantSeatCap(variant, tournament ? 'tournament' : 'cash');
   if (
     !exact(pack, [
@@ -528,6 +531,7 @@ export function omahaVariantInputBindingIsValid(value: unknown): value is OmahaV
     !exact(geometry, [
       'bettingStructure',
       'chipUnit',
+      ...(diamondCash ? ['asset'] : []),
       'bigBlind',
       'pot',
       'currentBet',
@@ -1013,7 +1017,8 @@ export function evaluateOmahaVariantPolicy(
   receipt.fired = true;
   receipt.confidence = 'explicit_variant_heuristic';
   // Pot-limit geometry the proposal enforces, computed once and recorded.
-  const chipUnit: 0.01 | 1 = tournamentTable ? 1 : 0.01;
+  const chipUnit: 0.01 | 1 =
+    s.chipUnit === 1 || tournamentTable || s.asset === 'diamonds' ? 1 : 0.01;
   const potLimitRaiseTo = s.currentBet + s.pot + callCost;
   const stackRaiseTo = hero.bet + hero.stack;
   const wagerCap =
@@ -1123,6 +1128,7 @@ export function evaluateOmahaVariantPolicy(
       geometry: Object.freeze({
         bettingStructure: 'pot_limit',
         chipUnit,
+        ...(!tournamentTable && chipUnit === 1 ? { asset: 'diamonds' as const } : {}),
         ...scalars,
         callCost,
         potLimitRaiseTo,
@@ -1158,14 +1164,22 @@ export function evaluateOmahaVariantPolicy(
         return { action: 'all_in', thinkTime: baseline.thinkTime };
       return call();
     }
-    if (wagerCap < s.minRaiseTo) return call();
-    const amount =
+    if (wagerCap < s.minRaiseTo) {
+      if (s.legalActions!.includes('all_in') && stackRaiseTo <= potLimitRaiseTo + 0.001)
+        return { action: 'all_in', thinkTime: baseline.thinkTime };
+      return call();
+    }
+    let amount =
       Math.floor(
         Math.max(s.minRaiseTo, Math.min(wagerCap, s.currentBet + (s.pot + callCost) * fraction)) /
           chipUnit +
           1e-7
       ) * chipUnit;
-    if (amount < s.minRaiseTo) return call();
+    if (amount < s.minRaiseTo) {
+      const minLegalStep = Math.ceil(s.minRaiseTo / chipUnit - 1e-7) * chipUnit;
+      if (minLegalStep <= wagerCap + 1e-7) amount = minLegalStep;
+      else return call();
+    }
     return { action, amount: Math.round(amount * 100) / 100, thinkTime: baseline.thinkTime };
   };
   /**

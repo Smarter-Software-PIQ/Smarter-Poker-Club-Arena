@@ -1,10 +1,8 @@
 # Club Arena CODEOWNERS
-# These owners are automatically requested for review on PRs
-
-# CI/CD and deployment
-/.github/                    @SmarterPoker
-vercel.json                  @SmarterPoker
-
-# Core architecture
-/src/core/                   @SmarterPoker
-/src/components/common/      @SmarterPoker
+#
+# Currently empty (2026-11-11). The automatic review requests to @SmarterPoker
+# were emailing the owner on every pull request and merge, and the main ruleset
+# requires no code owner review and no approvals, so they protected nothing.
+# An owner may be added here when a real review requirement exists; each entry
+# requests that account's review and sends GitHub review and merge emails, so
+# pair it with an owner notification setting that routes them deliberately.

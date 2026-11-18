@@ -57,13 +57,7 @@
 import React, { useCallback, useMemo, useEffect, useRef } from 'react';
 import { warmTable, observeLobbyTableWarmups } from '../../../services/tableWarmup';
 import { useToast } from '../../common/Toast';
-import {
-  chips,
-  chipsCompact,
-  isPlayerLive,
-  shortTableName,
-  type TournamentTabProps,
-} from './types';
+import { chips, stackChips, isPlayerLive, shortTableName, type TournamentTabProps } from './types';
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
 /* `TournamentEntry` was imported here too and referenced nowhere in the file. */
 import type { TournamentTable } from './types';
@@ -262,17 +256,17 @@ const TableRow = React.memo(function TableRow({
       <span className="tt-figures">
         <span className="tt-fig">
           <span className="tl-stat__label">Smallest</span>
-          <span className="tl-num tt-figvalue">{hasStacks ? chipsCompact(minStack) : '-'}</span>
+          <span className="tl-num tt-figvalue">{hasStacks ? stackChips(minStack) : '-'}</span>
         </span>
         <span className="tt-fig">
           <span className="tl-stat__label">Average</span>
           <span className="tl-num tt-figvalue tl-num--accent">
-            {hasStacks ? chipsCompact(avgStack) : '-'}
+            {hasStacks ? stackChips(avgStack) : '-'}
           </span>
         </span>
         <span className="tt-fig">
           <span className="tl-stat__label">Biggest</span>
-          <span className="tl-num tt-figvalue">{hasStacks ? chipsCompact(maxStack) : '-'}</span>
+          <span className="tl-num tt-figvalue">{hasStacks ? stackChips(maxStack) : '-'}</span>
         </span>
       </span>
 
@@ -387,7 +381,8 @@ export default function TablesTab({
     () => livingEntries.reduce((sum, e) => sum + (Number(e.chips) || 0), 0),
     [livingEntries]
   );
-  const fieldAvg = livingEntries.length > 0 ? fieldTotal / livingEntries.length : 0;
+  // Whole chips, the house average-stack rule.
+  const fieldAvg = livingEntries.length > 0 ? Math.trunc(fieldTotal / livingEntries.length) : 0;
 
   const scaleMax = useMemo(() => {
     let top = 0;
@@ -436,7 +431,8 @@ export default function TablesTab({
         seated: seatCountIsFallback ? rowSeated : derivedSeated,
         seatCountIsFallback,
         minStack,
-        avgStack: hasStacks ? total / stacks.length : 0,
+        // Whole chips, the house average-stack rule (Dan 2026-11-14).
+        avgStack: hasStacks ? Math.trunc(total / stacks.length) : 0,
         maxStack,
         hasStacks,
         isHeroTable: !!heroTableId && table.id === heroTableId,
@@ -517,7 +513,13 @@ export default function TablesTab({
               : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
     return (
       <div className="tl-panel tt-panel">
-        {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+        {myPlayers.ready && (
+          <MyPlayersCard
+            summary={myPlayers.summary}
+            tournamentId={tournament.id}
+            onWatchPlayer={onWatchPlayer}
+          />
+        )}
         <div className="tl-empty">
           <span>{empty.title}</span>
           <span className="tl-empty__hint">{empty.hint}</span>
@@ -531,7 +533,13 @@ export default function TablesTab({
   return (
     <div className="tl-panel tt-panel">
       {/* Your players first (Dan 2026-11-08), then the field. */}
-      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+      {myPlayers.ready && (
+        <MyPlayersCard
+          summary={myPlayers.summary}
+          tournamentId={tournament.id}
+          onWatchPlayer={onWatchPlayer}
+        />
+      )}
 
       <div className="tl-stat-grid tt-stats">
         <div className="tl-stat">
@@ -546,7 +554,7 @@ export default function TablesTab({
         </div>
         <div className="tl-stat">
           <span className="tl-stat__label">Average Stack</span>
-          <span className="tl-stat__value">{chipsCompact(fieldAvg)}</span>
+          <span className="tl-stat__value">{stackChips(fieldAvg)}</span>
           <span className="tl-stat__sub">Across The Field</span>
         </div>
       </div>

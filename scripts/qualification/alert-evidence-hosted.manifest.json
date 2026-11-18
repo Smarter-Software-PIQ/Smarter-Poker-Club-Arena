@@ -17,8 +17,8 @@
       "sha256": "83f446d55f5271998338ddc66bd85ad705bcc44ac13eb836bbf4470c9214c189"
     },
     "scripts/ci/test_alert_evidence_wrapper.py": {
-      "sha256": "e33e27c4a0d777663fb863b17a66782481011ccfa57713b0408eea22d45c6017",
-      "bytes": 3579
+      "sha256": "b91126656e7ac214f4c688d991d08a1658abc504cbae5b121eb13b587e7dcc7c",
+      "bytes": 3652
     },
     "scripts/qualification/duplicate-structure-record-evidence.manifest.json": {
       "sha256": "fc2095a5728c2bca0991e922b54e6dbdba6265cc898bc41811ca62fb8a07bfe3",
@@ -113,8 +113,8 @@
       "bytes": 21668
     },
     "scripts/ci/build_pg17_isolationtester.py": {
-      "sha256": "cddc77a78c529c218398af4aabd6bf5311bf840559ae6e03a3c4d63ee3a22ef4",
-      "bytes": 7390
+      "sha256": "759d81b46eff3e37ba475f97b473adf4f500b5913fed63555241a13fe1771230",
+      "bytes": 7519
     },
     "scripts/qualification/fixtures/spin-repair-evidence/race-setup.sql": {
       "bytes": 64094,
@@ -128,12 +128,47 @@
     "No production execution or native qualification claimed"
   ],
   "nativeIsolationTool": {
-    "version": "17.11",
-    "serverVersionNum": 170011,
-    "sourceUrl": "https://ftp.postgresql.org/pub/source/v17.11/postgresql-17.11.tar.bz2",
-    "sourceSha256": "dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d42979",
+    "version": "17.12",
+    "serverVersionNum": 170012,
+    "sourceUrl": "https://ftp.postgresql.org/pub/source/v17.12/postgresql-17.12.tar.bz2",
+    "sourceSha256": "9cf136a703d8ee2f83465c43be4e9e8e7930c82b0bfba13be7e2537be769ac55",
     "path": "artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester",
     "provisioning": "scripts/ci/build_pg17_isolationtester.py",
     "execution": "unrun proposal; existing accounting_postgres only"
-  }
+  },
+"f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "files/scripts/ci/build_pg17_isolationtester.py/sha256",
+        "previous": "cddc77a78c529c218398af4aabd6bf5311bf840559ae6e03a3c4d63ee3a22ef4",
+        "current": "1ad0df47f94f7c9a586364b2f0315986f62f152a6bc05084ea1d75cad2644861"
+      },
+      {
+        "path": "files/scripts/ci/build_pg17_isolationtester.py/bytes",
+        "previous": 7390,
+        "current": 7519
+      }
+    ]
+  },
+"f06ProtectedNativeIntegration20261112": {
+  "reason": "Retain protected main #10600 PostgreSQL17.12 native source, checksum and actual comparisons, plus reviewed F06 side-effect-free version query and exact package readiness. Current input identity only; historical evidence and financial assertions preserved.",
+  "changes": [
+    {
+      "path": "scripts/ci/build_pg17_isolationtester.py",
+      "kind": "sha256",
+      "previous": "a2cadd40c7bcca64907e67d01fc7e3e9133d62f67041fc1415844796ddddbce8",
+      "current": "759d81b46eff3e37ba475f97b473adf4f500b5913fed63555241a13fe1771230"
+    },
+    {
+      "path": "scripts/ci/build_pg17_isolationtester.py",
+      "kind": "bytes",
+      "previous": 7390,
+      "current": 7519
+    }
+  ],
+  "financialRecertification": false,
+  "executionPerformed": false
+}
 }

@@ -1,0 +1,5 @@
+{
+  "_owner": "claude/mystery-ladder-enhancements (migration 20261114072509)",
+  "tables": [],
+  "functions": ["fn_mystery_sealed_ladder_for_open"]
+}

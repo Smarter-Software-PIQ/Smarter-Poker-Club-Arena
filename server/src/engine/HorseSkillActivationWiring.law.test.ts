@@ -113,6 +113,9 @@ describe('barrelContinuationOutlook reaches the river barrel', () => {
       telemetry: true,
       barrelContinuationOutlook: flag,
       riverBluffBaseline: false,
+      // Dan 2026-11-15: the Omaha one-pair river rule checks a one-pair
+      // river value bet later; pinned in HorseOmahaOnePair.test.ts.
+      omahaOnePairDiscipline: false,
     };
     const t = HorseMind.captureDecisionEffects(() =>
       HorseLogic.decide(f.hero, f.gs as never, 'balanced', {}, { ...opts, decisionTimeMs: CLOCK })

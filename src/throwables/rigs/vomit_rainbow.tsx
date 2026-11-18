@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -26,9 +27,9 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 1300, sample: 'comic_burp', gain: 0.7 },
-    { at: 1600, sample: 'squirt_start', gain: 0.3 },
-    { at: 1800, sample: 'sparkle_bed', gain: 0.18 },
+    { at: 1300, sample: 'comic_burp', gain: 0.62 },
+    { at: 1600, sample: 'comic_gulp', gain: 0.85 },
+    { at: 2600, sample: 'sparkle_bed', gain: 0.36 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -80,7 +81,18 @@ function Payload(_props: RigProps) {
         <g className="thr-vomit_rainbow__green-end">
           <g className="thr-vomit_rainbow__green">
             <g className="thr-vomit_rainbow__puff">
-              <Tile tile={1} x={-65} y={-65} width={130} height={130} />
+              <PerformancePose
+                src="vomit_rainbow-acting"
+                row={0}
+                rows={1}
+                x={-65.0}
+                y={-65.0}
+                width={130.0}
+                height={130.0}
+                duration={330}
+                delay={970}
+                repeats={2}
+              />
             </g>
           </g>
         </g>

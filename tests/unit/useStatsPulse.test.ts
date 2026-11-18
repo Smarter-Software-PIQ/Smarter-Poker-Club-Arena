@@ -41,7 +41,9 @@ async function flush() {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  // Ordinary pulse cases must not inherit a runner clock beside midnight.
+  // The calendar-boundary cases below explicitly choose their own clock.
+  vi.useFakeTimers({ now: new Date(2026, 9, 29, 12, 0, 0) });
   visibility = 'visible';
   Object.defineProperty(document, 'visibilityState', {
     configurable: true,

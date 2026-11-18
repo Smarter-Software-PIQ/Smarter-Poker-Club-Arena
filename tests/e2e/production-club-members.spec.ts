@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { redactedConsoleFailure } from './support/redactedConsoleFailure';
 import {
   HISTORY_ADMISSION_MS,
   HISTORY_JOIN_ACK_MS,
@@ -25,6 +26,7 @@ type MembersProbe = {
   pageErrorCount: number;
   consoleErrorCount: number;
   criticalConsoleErrorCount: number;
+  criticalConsoleFailures: string[];
   timeline: Array<{
     atMs: number;
     requestId: number;
@@ -57,6 +59,7 @@ function observeMembersPath(page: Page): MembersProbe {
     pageErrorCount: 0,
     consoleErrorCount: 0,
     criticalConsoleErrorCount: 0,
+    criticalConsoleFailures: [],
     timeline: [],
   };
   let nextRequestId = 0;
@@ -152,6 +155,8 @@ function observeMembersPath(page: Page): MembersProbe {
       )
     ) {
       probe.criticalConsoleErrorCount += 1;
+      if (probe.criticalConsoleFailures.length < 5)
+        probe.criticalConsoleFailures.push(redactedConsoleFailure(message.text()));
     }
   });
   return probe;
@@ -591,7 +596,11 @@ test.describe('Production Kings Club Players', () => {
     await expect(history.getByRole('alert')).toHaveCount(0);
     await history.locator('summary').click();
 
-    await directory.getByRole('listitem').first().getByRole('button').click();
+    await directory
+      .getByRole('listitem')
+      .first()
+      .getByRole('button', { name: /^Open / })
+      .click();
     await expect(page).toHaveURL(/\/clubs\/kings-club\/members\/[0-9a-f-]{36}(?:[/?#]|$)/i);
     expect(probe.responseFailures).toEqual([]);
     expect(probe.requestFailureCount).toBe(0);
@@ -695,7 +704,11 @@ test.describe('Production Kings Club Players', () => {
     await expect(directory.getByRole('listitem').first().locator('.member-alias')).toContainText(
       alias
     );
-    await directory.getByRole('listitem').first().getByRole('button').click();
+    await directory
+      .getByRole('listitem')
+      .first()
+      .getByRole('button', { name: /^Open / })
+      .click();
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible();
     await expect(page.locator('#mm-player-name')).toContainText(alias);
     await page.locator('.mm-back').click();
@@ -757,6 +770,7 @@ test.describe('Production Kings Club Players', () => {
       const consoleFrame = await page.locator('.members-console').boundingBox();
       expect(consoleFrame).not.toBeNull();
       for (const control of await page
+        .locator('.members-console')
         .locator(
           '.members-search input, .members-view-filter select, .members-sort select, .members-columns, .members-export, .members-select-loaded'
         )
@@ -867,15 +881,51 @@ test.describe('Production Kings Club Players', () => {
     await clubHistory.locator('summary').click();
 
     const directory = page.getByRole('list', { name: 'Club Member Directory' });
-    await directory.getByRole('listitem').first().getByRole('button').click();
+    await directory
+      .getByRole('listitem')
+      .first()
+      .getByRole('button', { name: /^Open / })
+      .click();
     await expect(page).toHaveURL(/\/clubs\/kings-club\/members\/[0-9a-f-]{36}(?:[/?#]|$)/i);
     await expect(page.getByRole('heading', { name: 'Player Record', exact: true })).toBeVisible({
       timeout: 45_000,
     });
     await expect(page.locator('#mm-player-name')).toBeVisible();
+    const memberRecordUrl = page.url();
+    const today = () =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Chicago',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    // Owner direction 2026-11-11 (#10579): every visit opens on today's Chicago
+    // day, never on Overall, so the caption names that one day.
     await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
-      'Recorded Activity'
+      `Showing ${today()} To ${today()} Chicago Time`
     );
+    const ledgerDates = page.locator('.mm-range__custom input[type="date"]');
+    await expect(ledgerDates.nth(0)).toHaveValue(today());
+    await expect(ledgerDates.nth(1)).toHaveValue(today());
+    await ledgerDates.nth(0).fill('2026-01-01');
+    await ledgerDates.nth(1).fill('2026-01-31');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
+      'Showing 2026-01-01 To 2026-01-31 Chicago Time'
+    );
+    // Leave via the real router, then return without reloading the application.
+    await page.locator('.mm-back').click();
+    await expect(page).not.toHaveURL(memberRecordUrl);
+    await page.goForward();
+    await expect(page).toHaveURL(memberRecordUrl);
+    await expect(ledgerDates.nth(0)).toHaveValue(today());
+    await expect(ledgerDates.nth(1)).toHaveValue(today());
+    await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
+      `Showing ${today()} To ${today()} Chicago Time`
+    );
+    await page.reload();
+    await expect(ledgerDates.nth(0)).toHaveValue(today());
+    await expect(ledgerDates.nth(1)).toHaveValue(today());
     const playerHistory = page.locator('.player-history');
     await playerHistory.locator('summary').focus();
     await page.keyboard.press('Enter');
@@ -936,8 +986,9 @@ test.describe('Production Kings Club Players', () => {
     await page.locator('.mm-range__custom input[type="date"]').first().fill('2026-01-01');
     await expect(page.locator('.mm-range')).toContainText('Chicago Time, DST Automatic.');
     await expect(page.locator('.mm-range__draft')).toContainText('Draft Dates Not Applied');
+    // A draft date is not applied, so the caption still names the applied day.
     await expect(page.getByRole('status', { name: 'Displayed Activity Scope' })).toContainText(
-      'Recorded Activity'
+      `Showing ${today()} To ${today()} Chicago Time`
     );
     for (const width of [375, 393, 768]) {
       await page.setViewportSize({ width, height: 812 });

@@ -38,8 +38,14 @@ def manifest(repository, environment, event, head):
                 pr.get('base', {}).get('repo', {}).get('full_name') != full_name or
                 not re.fullmatch('[0-9a-f]{40}', str(source))):
             raise ValueError('Same repository PR source required')
+    elif environment.get('GITHUB_EVENT_NAME') == 'merge_group':
+        # Merge queue (2026-11-11): the queued main group commit is the checkout.
+        group = event.get('merge_group', {})
+        source = group.get('head_sha')
+        if group.get('base_ref') != 'refs/heads/main' or source != head:
+            raise ValueError('Main merge-queue group at the checkout required')
     elif environment.get('GITHUB_EVENT_NAME') != 'schedule':
-        raise ValueError('Existing PR or scheduled accounting invocation required')
+        raise ValueError('Existing PR, merge group or scheduled accounting invocation required')
     output = repository/'artifacts/bbj-bank-replay'
     if any(p.is_symlink() for p in (repository/'artifacts', output)):
         raise ValueError('Evidence root cannot be a symlink')

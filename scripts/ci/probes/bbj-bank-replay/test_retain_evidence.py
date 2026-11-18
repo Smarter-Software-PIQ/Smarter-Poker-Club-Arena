@@ -45,6 +45,15 @@ class RetainedEvidenceTests(unittest.TestCase):
         self.assertEqual(row['missing_required_receipts'], [])
         self.assertFalse(row['financial_acceptance'])
 
+    def test_merge_group_binds_its_own_head(self):
+        # Merge queue (2026-11-11): source is the queued main group head, the checkout itself.
+        self.env.update(GITHUB_EVENT_NAME='merge_group', BBJ_STEP_OUTCOME='failure')
+        event = {'merge_group': {'head_sha': self.head, 'base_ref': 'refs/heads/main'}}
+        self.assertEqual(manifest(self.root, self.env, event, self.head)['source_commit'], self.head)
+        for bad in ({'head_sha': 'c'*40, 'base_ref': 'refs/heads/main'}, {'head_sha': self.head, 'base_ref': 'refs/heads/x'}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                manifest(self.root, self.env, {'merge_group': bad}, self.head)
+
     def test_skipped_or_wrong_revision_is_not_an_attempt(self):
         for changed in ({'BBJ_STEP_OUTCOME': 'skipped'}, {'GITHUB_SHA': 'c'*40},
                         {'GITHUB_JOB': 'another_job'}, {'GITHUB_RUN_ATTEMPT': '0'}):

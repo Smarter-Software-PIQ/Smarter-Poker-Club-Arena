@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
@@ -140,10 +140,126 @@ export function accountingJobInputs(root = REPO_ROOT) {
       ) || []
     );
     if (!named.size) return null;
-    return (p) => named.has(p);
+    const reads = accountingHarnessReadsManifest(root);
+    return (p) => named.has(p) || p === ACCOUNTING_HARNESS_READS || reads.files.has(p);
   } catch {
     return null;
   }
+}
+
+// WHAT A HARNESS READS IS AN INPUT OF THE JOB THAT RUNS IT (2026-11-15).
+//
+// #10888 changed scripts/verification-harness/cashier-release-contract.sql and
+// its fixture scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json.
+// Neither is named in the accounting_postgres block, so the change admitted
+// no job at all, and scripts/ci/test-promo-downline-limit-postgres.py, which
+// reads both (and is itself reached only through
+// scripts/ci/test-cashier-authority-exact-intent-postgres.py), was not run. It
+// broke on main. Restating the list by hand is how the gap opened, so the job
+// is read once more: every repository path a named harness spells out as a
+// literal, followed through the harnesses it starts, admits the job. A literal
+// that names an existing file admits that file; a directory admits nothing by
+// itself (a harness that lists a whole fixture tree would otherwise buy the
+// job for every neighbour the routing laws keep out); anything else (a partial
+// name built at run time) admits nothing. Only widens admission; never skips a
+// job.
+//
+// Reading several hundred harnesses takes seconds on a busy disk, so the set
+// is generated into ACCOUNTING_HARNESS_READS (node
+// scripts/ci/accounting-harness-reads.mjs --write) and the classifier reads
+// that file. tests/unit/theAccountingJobNamesItsOwnInputs.test.ts regenerates
+// it and fails when it differs. That law runs wherever the unit suite runs,
+// including the daily whole-branch run; a harness-only change does not run it
+// (the routing laws keep the unit suite out of accounting-only changes), so a
+// harness that starts reading a new file is caught there, not in its own PR.
+// Only harnesses the job starts are followed: a named one, or a
+// scripts/ci|dev/test-* harness one of them names.
+export const ACCOUNTING_HARNESS_READS = 'scripts/ci/accounting-harness-reads.json';
+export function accountingHarnessReadsManifest(root = REPO_ROOT) {
+  try {
+    const value = JSON.parse(readFileSync(resolve(root, ACCOUNTING_HARNESS_READS), 'utf8'));
+    return { files: new Set(value.files) };
+  } catch {
+    return { files: new Set() };
+  }
+}
+export function accountingJobNamedInputs(root = REPO_ROOT) {
+  const workflow = readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8');
+  const start = workflow.search(/^  accounting_postgres:\s*$/m);
+  if (start < 0) return new Set();
+  const rest = workflow.slice(start + 1);
+  const next = rest.search(/^  [A-Za-z0-9_-]+:\s*$/m);
+  const block = next < 0 ? rest : rest.slice(0, next);
+  return new Set(
+    block.match(
+      /(?:scripts|tests|server\/scripts|operations)\/[A-Za-z0-9_./-]+\.(?:py|sh|mjs|sql|ts|js|json)/g
+    ) || []
+  );
+}
+const STARTED_HARNESS = /^scripts\/(?:ci|dev)\/test-[^/]+\.(?:py|sh|mjs)$/;
+const HARNESS_SOURCE = /\.(?:py|sh|mjs|js|ts|mts)$/;
+// A law test spells paths as routing data (which path admits which lane), not
+// as files it reads: tests/ci-tells-the-truth-faster.law.test.ts lists the
+// Diamond screenshot tools precisely to keep them OUT of this job.
+const ROUTING_LAW = /\.law\.test\.[cm]?[jt]s$/;
+// A test file is a unit-suite input whose routing those laws pin; a harness
+// that names one hashes it as data (tests/unit/fixtureNativeCi.test.ts in the
+// f06 qualification probes), so naming it does not admit this job.
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.test\.py$/;
+// A harness usually reads a fixture as `FIXTURES / 'name.sql'`: the directory
+// and the file name are two literals. A quoted relative name is joined to each
+// directory the same harness spells out, and admits the file only when that
+// joined path is an existing file (a name built at run time still admits
+// nothing).
+const QUOTED_NAME = /(['"`])([A-Za-z0-9_][\w.\/-]*\.[A-Za-z0-9]{1,8})\1/g;
+const HARNESS_LITERAL = /\b(?:scripts|tests|server\/scripts|operations|supabase)\/[\w./-]+/g;
+export function accountingHarnessReads(root, named) {
+  const files = new Set();
+  const queue = [...named];
+  const seen = new Set(queue);
+  while (queue.length) {
+    const harness = queue.shift();
+    if (!HARNESS_SOURCE.test(harness) || ROUTING_LAW.test(harness)) continue;
+    let source;
+    try {
+      source = readFileSync(resolve(root, harness), 'utf8');
+    } catch {
+      continue;
+    }
+    const directories = new Set();
+    const admit = (path) => {
+      if (!named.has(path) && !TEST_FILE.test(path)) files.add(path);
+      if (!seen.has(path) && STARTED_HARNESS.test(path)) {
+        seen.add(path);
+        queue.push(path);
+      }
+    };
+    for (const literal of source.match(HARNESS_LITERAL) || []) {
+      const path = literal.replace(/[./]+$/, '');
+      let stat;
+      try {
+        stat = statSync(resolve(root, path));
+      } catch {
+        continue;
+      }
+      if (stat.isFile()) admit(path);
+      else if (stat.isDirectory()) directories.add(path);
+    }
+    if (directories.size) {
+      for (const [, , name] of source.matchAll(QUOTED_NAME)) {
+        if (name.startsWith('/') || name.includes('..')) continue;
+        for (const directory of directories) {
+          const path = `${directory}/${name}`;
+          try {
+            if (statSync(resolve(root, path)).isFile()) admit(path);
+          } catch {
+            // not a file under that directory
+          }
+        }
+      }
+    }
+  }
+  return { files: [...files].sort() };
 }
 const accountingJobInput =
   accountingJobInputs() || ((p) => /^scripts\/(?:ci|dev)\/test-[^/]+$/.test(p));
@@ -215,7 +331,7 @@ const nativeRecovery =
 // wrapper, its wiring test, and every fixture are executable inputs; a change
 // to any one of them must select that job even without a migration beside it.
 const dataConsolePostgres =
-  /^(scripts\/ci\/(?:test-full-session-hands-postgres\.py|test-data-console-postgres-contracts\.sh|test-bug-report-routing\.sh|test-member-jackpot-win-loss\.sh|test-club-data-(?:union-mtt|fact-db|report-db)-postgres\.py)$|tests\/(?:data-console-postgres-contracts-wired|rake-agent-report-native-contract)\.test\.ts$|tests\/fixtures\/(?:player-throwable-favorites|bug-report-routing|member-jackpot-win-loss|club-data-(?:fact-db|report-db)|rake-agent-report|financial-admin-revenue|union-ops-financial-admin|union-statement-availability|stats-(?:cash-opportunities|club-scope|evidence-session|exact-cash-sessions|facts-phase2|financial-reports|operational-quality|owner-workspace))\/)/;
+  /^(scripts\/ci\/(?:test-full-session-hands-postgres\.py|test-data-console-postgres-contracts\.sh|test-bug-report-routing\.sh|test-member-jackpot-win-loss\.sh|test-club-data-(?:(?:union-mtt|fact-db|report-db|legacy-pacific)-postgres|pacific-fees)\.py)$|tests\/(?:data-console-postgres-contracts-wired|rake-agent-report-native-contract)\.test\.ts$|tests\/fixtures\/(?:player-throwable-favorites|throw-targets|bug-report-routing|member-jackpot-win-loss|club-data-(?:fact-db|report-db|pacific)|rake-agent-report|financial-admin-revenue|union-ops-financial-admin|union-statement-availability|stats-(?:cash-opportunities|club-scope|evidence-session|exact-cash-sessions|facts-phase2|financial-reports|operational-quality|owner-workspace))\/)/;
 // Every input to the managed-game one-door fixture must select the hosted
 // PostgreSQL job, including a fixture-only correction.
 const managedGameOneDoor =

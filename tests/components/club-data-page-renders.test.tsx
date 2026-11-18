@@ -9,10 +9,10 @@ const FIXTURE_NOW = vi.hoisted(() => {
   return now;
 });
 
-// Club Data counts America/Chicago days (20261022120121): today is the Chicago date.
-const chicagoToday = (): string =>
+// Current Data reports count Pacific calendar dates for every club.
+const pacificToday = (): string =>
   new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
+    timeZone: 'America/Los_Angeles',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -20,21 +20,21 @@ const chicagoToday = (): string =>
 
 const CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
-const TEST_END_DATE = chicagoToday();
+const TEST_END_DATE = pacificToday();
 const testRangeStart = new Date(`${TEST_END_DATE}T00:00:00Z`);
-testRangeStart.setUTCDate(testRangeStart.getUTCDate() - 13);
+testRangeStart.setUTCDate(testRangeStart.getUTCDate());
 const TEST_START_DATE = testRangeStart.toISOString().slice(0, 10);
 const testPreviousEnd = new Date(testRangeStart);
 testPreviousEnd.setUTCDate(testPreviousEnd.getUTCDate() - 1);
 const testPreviousStart = new Date(testPreviousEnd);
-testPreviousStart.setUTCDate(testPreviousStart.getUTCDate() - 13);
+testPreviousStart.setUTCDate(testPreviousStart.getUTCDate());
 
 const snapshot = {
-  range: { start: TEST_START_DATE, end: TEST_END_DATE, days: 14 },
+  range: { start: TEST_START_DATE, end: TEST_END_DATE, days: 1 },
   previous_range: {
     start: testPreviousStart.toISOString().slice(0, 10),
     end: testPreviousEnd.toISOString().slice(0, 10),
-    days: 14,
+    days: 1,
   },
   filters: { game: 'ALL', stakes: 'ALL', search: null },
   summary: {
@@ -78,7 +78,9 @@ const snapshot = {
     },
   ],
   row_count: 1,
-  union_id: 'union-1',
+  // A club in no union: it answers on Chicago midnight days and its "today"
+  // is the calendar day (stage 2 readers: a union club states union_id).
+  union_id: null,
   data_updated_at: '2026-08-30T12:05:00Z',
   generated_at: '2026-08-30T12:05:02Z',
 };
@@ -231,7 +233,10 @@ const authState = vi.hoisted(() => ({
   current: { user: { id: 'owner-1' } as { id: string } | null, isHydrating: false },
 }));
 
-const routeState = vi.hoisted(() => ({ clubId: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' }));
+const routeState = vi.hoisted(() => ({
+  clubId: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+  search: new URLSearchParams(),
+}));
 const rpcMock = vi.hoisted(() => vi.fn());
 const fromMock = vi.hoisted(() => vi.fn());
 const downloadMock = vi.hoisted(() => vi.fn(() => true));
@@ -248,7 +253,12 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ clubId: routeState.clubId }),
-  useSearchParams: () => [new URLSearchParams()],
+  useSearchParams: () => [
+    routeState.search,
+    (next: URLSearchParams) => {
+      routeState.search = next;
+    },
+  ],
 }));
 
 // Its own reads are pinned in ClubRakebackVerifiedSoFar.test.tsx; here it would
@@ -316,6 +326,7 @@ beforeEach(() => {
   vi.setSystemTime(FIXTURE_NOW);
   authState.current = { user: { id: 'owner-1' }, isHydrating: false };
   routeState.clubId = CLUB_ID;
+  routeState.search = new URLSearchParams();
   rpcMock.mockReset();
   downloadMock.mockClear();
   sessionStorage.clear();
@@ -344,6 +355,45 @@ beforeEach(() => {
 });
 
 describe('ClubDataPage', () => {
+  it('renders invoice reconciliation on the existing performance console', async () => {
+    const report = {
+      ...snapshot,
+      accounting_basis: 'union_invoice_accounting',
+      accounting_coverage: {
+        complete: true,
+        provisional: true,
+        awaiting_boundary_days: [TEST_END_DATE],
+      },
+      summary: {
+        ...snapshot.summary,
+        reconciliation: {
+          complete: true,
+          missing_days: [],
+          bbj_gross: 42.25,
+          bbj_awards: 10,
+          bbj_net: 32.25,
+          cash_fee: 250,
+          cash_winnings: 1950,
+          tournament_fee: 71.5,
+          tournament_winnings: 500,
+          cash_residual: -2232.25,
+          tournament_flow_difference: -571.5,
+        },
+      },
+    };
+    const prior = rpcMock.getMockImplementation()!;
+    rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) =>
+      fn === 'ca_club_data_snapshot_v2'
+        ? Promise.resolve({ data: report, error: null })
+        : prior(fn, args)
+    );
+    render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
+    expect(screen.getByText('42.25')).toBeInTheDocument();
+    expect(screen.getByText('Posted Totals Verified')).toBeInTheDocument();
+    expect(screen.getByText('Final Billing Pending')).toBeInTheDocument();
+  });
   it('uses the club host instead of an individual creator or identifier', async () => {
     const unnamedCreator = {
       ...snapshot.rows[0],
@@ -371,9 +421,9 @@ describe('ClubDataPage', () => {
   });
 
   it('paints a recent verified snapshot immediately while the live RPC revalidates', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(`${endDate}T00:00:00Z`);
-    start.setUTCDate(start.getUTCDate() - 13);
+    start.setUTCDate(start.getUTCDate());
     const cachedSnapshot = {
       ...snapshot,
       rows: [{ ...snapshot.rows[0], id: 'cached-game', name: 'Cached Table' }],
@@ -410,9 +460,9 @@ describe('ClubDataPage', () => {
   });
 
   it('rejects a cached game ledger that claims another page without a cursor', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(`${endDate}T00:00:00Z`);
-    start.setUTCDate(start.getUTCDate() - 13);
+    start.setUTCDate(start.getUTCDate());
     const queryKey = clubDataQueryKey({
       kind: 'games',
       startDate: start.toISOString().slice(0, 10),
@@ -469,11 +519,11 @@ describe('ClubDataPage', () => {
           const end = new Date(`${snapshot.previous_range.start}T00:00:00Z`);
           end.setUTCDate(end.getUTCDate() - 1);
           const start = new Date(end);
-          start.setUTCDate(start.getUTCDate() - 13);
+          start.setUTCDate(start.getUTCDate());
           return {
             start: start.toISOString().slice(0, 10),
             end: end.toISOString().slice(0, 10),
-            days: 14,
+            days: 1,
           };
         })(),
         rows: [{ ...snapshot.rows[0], name: 'Wrong Window Cached Game' }],
@@ -498,9 +548,9 @@ describe('ClubDataPage', () => {
   });
 
   it('rejects a cached player ledger that claims another page without a cursor', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(`${endDate}T00:00:00Z`);
-    start.setUTCDate(start.getUTCDate() - 13);
+    start.setUTCDate(start.getUTCDate());
     const queryKey = clubDataQueryKey({
       kind: 'players',
       startDate: start.toISOString().slice(0, 10),
@@ -643,7 +693,7 @@ describe('ClubDataPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
 
     expect(screen.getByRole('heading', { name: /Read The Room/i })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('2.4K')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('2,450')).toBeInTheDocument());
     expect(screen.getByText('Shark Table One')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Games' })).toHaveAttribute('tabindex', '0');
     expect(screen.getByRole('heading', { name: 'Data Integrity' })).toBeInTheDocument();
@@ -759,6 +809,24 @@ describe('ClubDataPage', () => {
     ).toHaveLength(2);
     expect(downloadMock.mock.calls[0][1].split('\n')).toHaveLength(3);
     expect(downloadMock.mock.calls[0][1].split('\n')[2].split(',')[8]).toBe('0.0049');
+    // Every row names its window by its two exact instants (this club counts
+    // Chicago midnight days), and the file name carries the picked pair.
+    const [head, row] = downloadMock.mock.calls[0][1].split('\n');
+    expect(head.endsWith(',window_start,window_end')).toBe(true);
+    expect(head).toContain(
+      'report_club_id,report_start_date_inclusive,report_end_date_inclusive,game_filter,stakes_filter,search_filter,report_time_zone'
+    );
+    expect(row).toContain('America/Chicago');
+    const [windowStart, windowEnd] = row.split(',').slice(-2);
+    expect(Date.parse(windowEnd) - Date.parse(windowStart)).toBeGreaterThanOrEqual(
+      24 * 3_600_000 - 3_600_000
+    );
+    expect(new Date(windowStart).toLocaleString('en-US', { timeZone: 'America/Chicago' })).toMatch(
+      /12:00:00 AM$/
+    );
+    expect(downloadMock.mock.calls[0][0]).toMatch(
+      /^club_data_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}\.csv$/
+    );
     expect(downloadMock.mock.calls[0][2]).toEqual(expect.any(Function));
     expect(rpcMock).toHaveBeenCalledWith(
       'ca_club_game_export_start',
@@ -1168,6 +1236,78 @@ describe('ClubDataPage', () => {
     resolveNextSnapshot({ data: snapshot, error: null });
     resolveNextInvoices({ data: [], error: null });
     await screen.findByText('Shark Table One');
+  });
+
+  it('retires a pending game response when a date link is rejected and reloads after returning', async () => {
+    const defaultRpc = rpcMock.getMockImplementation()!;
+    const pending: Array<(value: unknown) => void> = [];
+    rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) =>
+      fn === 'ca_club_data_snapshot_v2'
+        ? new Promise((finish) => pending.push(finish))
+        : defaultRpc(fn, args)
+    );
+    const view = render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    await waitFor(() => expect(pending).toHaveLength(1));
+    routeState.search = new URLSearchParams(
+      'view=advanced&dataStart=2020-01-01&dataEnd=2020-01-01'
+    );
+    view.rerender(<ClubDataPage />);
+    expect(screen.getByText('Choose Dates Within The Past 90 Days.')).toBeInTheDocument();
+    await act(async () => pending[0]({ data: snapshot, error: null }));
+    expect(screen.queryByText('Shark Table One')).not.toBeInTheDocument();
+    expect(pending).toHaveLength(1);
+    routeState.search = new URLSearchParams('view=advanced');
+    view.rerender(<ClubDataPage />);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => pending[1]({ data: snapshot, error: null }));
+    await screen.findByText('Shark Table One');
+  });
+
+  it('retires a hidden pending player response before an invalid date link can show it', async () => {
+    const defaultRpc = rpcMock.getMockImplementation()!;
+    const pending: Array<{
+      fn: string;
+      args: Record<string, unknown>;
+      finish: (value: unknown) => void;
+    }> = [];
+    rpcMock.mockImplementation((fn: string, args: Record<string, unknown> = {}) =>
+      fn === 'ca_club_player_breakdown' || fn === 'ca_club_player_page'
+        ? new Promise((finish) => pending.push({ fn, args, finish }))
+        : defaultRpc(fn, args)
+    );
+    const view = render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    await screen.findByText('Shark Table One');
+    fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    fireEvent.click(screen.getByRole('tab', { name: 'Games' }));
+    routeState.search = new URLSearchParams(
+      'view=advanced&dataTab=games&dataStart=2020-01-01&dataEnd=2020-01-01'
+    );
+    view.rerender(<ClubDataPage />);
+    routeState.search.set('dataTab', 'players');
+    view.rerender(<ClubDataPage />);
+    await act(async () => {
+      for (const read of pending)
+        read.finish({
+          data: read.fn === 'ca_club_player_breakdown' ? playerBreakdown : playerPageFor(read.args),
+          error: null,
+        });
+    });
+    expect(screen.queryByText('Table Regular')).not.toBeInTheDocument();
+    expect(pending).toHaveLength(2);
+    routeState.search = new URLSearchParams('view=advanced&dataTab=players');
+    view.rerender(<ClubDataPage />);
+    await waitFor(() => expect(pending).toHaveLength(4));
+    await act(async () => {
+      for (const read of pending.slice(2))
+        read.finish({
+          data: read.fn === 'ca_club_player_breakdown' ? playerBreakdown : playerPageFor(read.args),
+          error: null,
+        });
+    });
+    await screen.findByText('Table Regular');
   });
 
   it('supports arrow-key tab navigation with a roving tab stop', async () => {
@@ -1660,16 +1800,16 @@ describe('ClubDataPage', () => {
       'another reporting window',
       {
         ...snapshot,
-        range: { start: snapshot.previous_range.start, end: snapshot.previous_range.end, days: 14 },
+        range: { start: snapshot.previous_range.start, end: snapshot.previous_range.end, days: 1 },
         previous_range: (() => {
           const end = new Date(`${snapshot.previous_range.start}T00:00:00Z`);
           end.setUTCDate(end.getUTCDate() - 1);
           const start = new Date(end);
-          start.setUTCDate(start.getUTCDate() - 13);
+          start.setUTCDate(start.getUTCDate());
           return {
             start: start.toISOString().slice(0, 10),
             end: end.toISOString().slice(0, 10),
-            days: 14,
+            days: 1,
           };
         })(),
       },
@@ -1893,9 +2033,9 @@ describe('ClubDataPage', () => {
   });
 
   it('revalidates a cached player sort without accepting the previous sort response', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(endDate + 'T00:00:00Z');
-    start.setUTCDate(start.getUTCDate() - 13);
+    start.setUTCDate(start.getUTCDate());
     const loser = {
       ...playerBreakdown.players[0],
       user_id: 'loser-1',
@@ -2283,7 +2423,7 @@ describe('ClubDataPage', () => {
 
   it('keeps an expanded recent ledger through the 60-second verified refresh', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now: FIXTURE_NOW });
-    expect(chicagoToday()).toBe(snapshot.range.end);
+    expect(pacificToday()).toBe(snapshot.range.end);
     const recentRows = Array.from({ length: 200 }, (_, index) => ({
       ...snapshot.rows[0],
       id: `heartbeat-game-${index + 1}`,
@@ -2345,7 +2485,7 @@ describe('ClubDataPage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(chicagoToday()).toBe(snapshot.range.end);
+      expect(pacificToday()).toBe(snapshot.range.end);
 
       // Two hundred ledger rows render after the page lands; under a loaded CI
       // runner that took longer than the default 1s (publish run 38981365558).
@@ -2360,9 +2500,9 @@ describe('ClubDataPage', () => {
   });
 
   it('revalidates a cached game sort without accepting the previous sort response', async () => {
-    const endDate = chicagoToday();
+    const endDate = pacificToday();
     const start = new Date(endDate + 'T00:00:00Z');
-    start.setUTCDate(start.getUTCDate() - 13);
+    start.setUTCDate(start.getUTCDate());
     const cachedFee = { ...snapshot.rows[0], id: 'cached-fee', name: 'Cached Fee Game' };
     for (const sort of ['recent', 'fee'] as const) {
       writeClubDataCache(
@@ -2838,4 +2978,107 @@ describe('ClubDataPage', () => {
       )
     );
   });
+});
+
+it('updates an open report from legacy exclusive links to inclusive single-day navigation', async () => {
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
+  routeState.search = new URLSearchParams('dataStart=2026-11-09&dataUntil=2026-11-16');
+  rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+    if (fn === 'ca_club_data_snapshot_v2') {
+      const start = String(args!.p_start);
+      const end = String(args!.p_end);
+      const days =
+        Math.round((Date.parse(end + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86400000) +
+        1;
+      const previousEnd = new Date(start + 'T00:00:00Z');
+      previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+      const previousStart = new Date(previousEnd);
+      previousStart.setUTCDate(previousStart.getUTCDate() + 1 - days);
+      return {
+        data: {
+          ...snapshot,
+          range: { start, end, days },
+          previous_range: {
+            start: previousStart.toISOString().slice(0, 10),
+            end: previousEnd.toISOString().slice(0, 10),
+            days,
+          },
+        },
+        error: null,
+      };
+    }
+    if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+    return { data: null, error: null };
+  });
+  const view = render(<ClubDataPage />);
+  await screen.findByText('Shark Table One');
+  expect(rpcMock).toHaveBeenCalledWith(
+    'ca_club_data_snapshot_v2',
+    expect.objectContaining({ p_start: '2026-11-09', p_end: '2026-11-15' })
+  );
+  routeState.search = new URLSearchParams('dataStart=2026-11-10&dataEnd=2026-11-10');
+  view.rerender(<ClubDataPage />);
+  await waitFor(() =>
+    expect(
+      rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2').at(-1)?.[1]
+    ).toMatchObject({ p_start: '2026-11-10', p_end: '2026-11-10' })
+  );
+});
+
+it('rejects a future Pacific date before its first read', async () => {
+  vi.setSystemTime(new Date('2026-11-16T07:30:00Z'));
+  routeState.search = new URLSearchParams('dataStart=2026-11-16&dataEnd=2026-11-16');
+  rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+    if (fn === 'ca_club_data_snapshot_v2') {
+      const start = String(args!.p_start);
+      const end = String(args!.p_end) > '2026-11-15' ? '2026-11-15' : String(args!.p_end);
+      const days =
+        Math.round((Date.parse(end + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86400000) +
+        1;
+      const previousEnd = new Date(start + 'T00:00:00Z');
+      previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+      const previousStart = new Date(previousEnd);
+      previousStart.setUTCDate(previousStart.getUTCDate() + 1 - days);
+      return {
+        data: {
+          ...snapshot,
+          union_id: 'u-1',
+          accounting_basis: 'union_invoice_accounting',
+          day_basis: 'America/Chicago 02:00',
+          range: { start, end, days },
+          previous_range: {
+            start: previousStart.toISOString().slice(0, 10),
+            end: previousEnd.toISOString().slice(0, 10),
+            days,
+          },
+        },
+        error: null,
+      };
+    }
+    if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+    return { data: null, error: null };
+  });
+  render(<ClubDataPage />);
+  expect(screen.getByText('Choose Dates On Or Before Today.')).toHaveAttribute('role', 'alert');
+  const calls = rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2');
+  expect(calls).toHaveLength(0);
+});
+
+it('clears Advanced totals and cached rows when Pacific source coverage becomes incomplete', async () => {
+  render(<ClubDataPage />);
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+  await screen.findByText('Shark Table One');
+  expect(Object.keys(sessionStorage).some((key) => key.includes('kind=games'))).toBe(true);
+  const previousRpc = rpcMock.getMockImplementation()!;
+  rpcMock.mockImplementation(async (name: string, args?: Record<string, unknown>) =>
+    name === 'ca_club_data_snapshot_v2' || name === 'ca_club_game_page'
+      ? { data: null, error: { code: 'P0001', message: 'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE' } }
+      : previousRpc(name, args)
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
+  await screen.findByText(
+    'Pacific Day Data Is Not Yet Complete. Totals Are Unavailable Until The Selected Days Are Verified.'
+  );
+  expect(screen.queryByText('Shark Table One')).toBeNull();
+  expect(Object.keys(sessionStorage).some((key) => key.includes('kind=games'))).toBe(false);
 });

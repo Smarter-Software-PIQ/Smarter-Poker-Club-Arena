@@ -49,8 +49,27 @@ export const MAX_ROSTER_RETURN_TOP = ROSTER_ROW_HEIGHT * 10_000;
 /* Fees lead, wallets are opt-in: Player Management always shows fees
    generated, never a wallet balance by default (Dan, 2026-10-14). */
 export const DEFAULT_ROSTER_COLUMNS: RosterColumn[] = ['fees', 'downlines', 'activity'];
+/* Active Now leads (Dan, 2026-11-12): players at a table, then players online
+   watching, then everyone else by last active. Newest Players First is no
+   longer the default. */
+export const DEFAULT_ROSTER_SORT: RosterSort = 'activity';
+/* A stored workspace below this version predates the Active Now default and
+   adopts it once; the operator's search, filter and columns are kept. */
+const WORKSPACE_VERSION = 3;
 export function defaultRosterWorkspace(): RosterWorkspace {
-  return { search: '', filter: 'all', sort: 'newest', columns: [...DEFAULT_ROSTER_COLUMNS] };
+  return {
+    search: '',
+    filter: 'all',
+    sort: DEFAULT_ROSTER_SORT,
+    columns: [...DEFAULT_ROSTER_COLUMNS],
+  };
+}
+function adoptCurrentDefaults(value: unknown, workspace: RosterWorkspace | null) {
+  if (!workspace) return null;
+  const version = (value as { version?: unknown } | null)?.version;
+  return typeof version === 'number' && version >= WORKSPACE_VERSION
+    ? workspace
+    : { ...workspace, sort: DEFAULT_ROSTER_SORT };
 }
 export function rosterWorkspaceKey(viewer: string, club: string): string {
   return `roster_workspace_v1_${encodeURIComponent(viewer)}_${encodeURIComponent(club)}`;
@@ -97,11 +116,8 @@ export function readRosterWorkspace(viewer: string, club: string): RosterWorkspa
     }
     if (raw.length > 2048) return null;
     const value = JSON.parse(raw);
-    if (value?.version !== 1 && value?.version !== 2) return null;
-    const workspace = decodeWorkspace(value);
-    // Apply the new join-order default once when upgrading the old workspace.
-    // Keep the operator's search, filter and columns; subsequent choices persist.
-    return workspace && value.version === 1 ? { ...workspace, sort: 'newest' } : workspace;
+    if (![1, 2, WORKSPACE_VERSION].includes(value?.version)) return null;
+    return adoptCurrentDefaults(value, decodeWorkspace(value));
   } catch {
     return null;
   }
@@ -110,7 +126,7 @@ function cacheWorkspace(viewer: string, club: string, workspace: RosterWorkspace
   try {
     sessionStorage.setItem(
       rosterWorkspaceKey(viewer, club),
-      JSON.stringify({ version: 2, ...workspace })
+      JSON.stringify({ version: WORKSPACE_VERSION, ...workspace })
     );
   } catch {
     /* The account row remains authoritative if browser storage is unavailable. */
@@ -126,13 +142,14 @@ async function saveWorkspace(
   await orderTableSettingWrite(viewer, `page:${key}`, async () => {
     /* Revision-checked like every page preference (2026-11-05): a refused
        save means the account holds a newer workspace, which is shown. */
-    const outcome = await savePagePreference(viewer, key, workspace, id, () => {
+    const stored = { ...workspace, version: WORKSPACE_VERSION };
+    const outcome = await savePagePreference(viewer, key, stored, id, () => {
       const pending = readTableSettingIntent(viewer, `page:${key}`);
       const held = pending && decodeWorkspace(pending.value);
       if (held && pending) void saveWorkspace(viewer, club, held, pending.id);
     });
     if (outcome.status === 'conflict') {
-      const newer = decodeWorkspace(outcome.value);
+      const newer = adoptCurrentDefaults(outcome.value, decodeWorkspace(outcome.value));
       if (newer) cacheWorkspace(viewer, club, newer);
     }
   });
@@ -161,7 +178,7 @@ export async function loadRosterWorkspace(viewer: string, club: string): Promise
     if (data) notePagePreferenceRevision(viewer, `roster:workspace:${club}`, data.revision);
     if ((workspaceRevisions.get(rosterWorkspaceKey(viewer, club)) ?? 0) !== revision)
       return readRosterWorkspace(viewer, club) ?? workspace;
-    workspace = decodeWorkspace(data?.value) ?? workspace;
+    workspace = adoptCurrentDefaults(data?.value, decodeWorkspace(data?.value)) ?? workspace;
   } catch (error) {
     reportError(error, 'RosterWorkspace.load');
   }

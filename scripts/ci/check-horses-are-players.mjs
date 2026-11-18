@@ -100,12 +100,26 @@ const REGISTER = {
       PRESUME_ROSTER +
       ' The explicit offline human-field profile passes the same roster to the real decision consumer; horse-only populations remain unchanged.',
   },
+  'server/src/benchmark/LeagueDecisionState.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why:
+      PRESUME_ROSTER +
+      ' The duplicate league builds each Horse decision with the state production hands HorseLogic.decide (ServerTableEngineTurns), so it passes the same roster of seats a person plays. It decides nothing about any horse: it only builds the league decision input (ALeagueDecisionStateIsProductions.law.test.ts).',
+  },
   'server/src/benchmark/OmahaAdversarialStress.test.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',
     why:
       PRESUME_ROSTER +
       ' This regression independently identifies the expected human-field seats and verifies the decision input excludes the hero and all opponent private cards. It excludes no horse from play or results.',
+  },
+  'server/src/engine/ACommittedStackIsNotFoldedAtAPrice.test-support.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why:
+      PRESUME_ROSTER +
+      ' This test support rebuilds the decision-time request for six recorded tournament spots and passes the same roster the live decision received (ServerTableEngineTurns), so the rebuilt brain sees the table it saw. It decides nothing about any horse: it only rebuilds the request for the committed-stack law test.',
   },
   'server/src/services/HorseReplacementBoarding.ts': {
     allowed: 1,
@@ -123,10 +137,10 @@ const REGISTER = {
     why: 'humansSeated() drives the DEPLOY DRAIN gate: a server push restarts engines and voids the hand in flight. Chips are preserved either way, so nothing is taken from the horse; and because this platform is horse-heavy, counting horses here would mean no deploy could ever drain, which is an outage, not equal treatment. Raised for Dan in the 2026-08-27 audit.',
   },
   'server/src/engine/ServerTableEngineDealing.ts': {
-    allowed: 3,
+    allowed: 4,
     kind: 'IDENTIFICATION',
     why: [
-      "ALL THREE are the horse INPUT DEVICE, which is the law's second sanctioned exemption, and in each the horse ends up BETTER served than a human rather than worse.",
+      "ALL FOUR leave the horse on its own input device (the law's second sanctioned exemption) or on the recovery path that serves it at least as well, and in each the horse ends up BETTER served than a human rather than worse.",
       '',
       "(0) the V48 voluntary straddle round - `if (!seated?.is_horse) continue`. A human enrolls in the voluntary straddle by clicking the table setting, which reaches toggleAutoStraddle through the seating route. A horse has no browser, so the engine supplies the same click from its persona before the straddle round. The loop only ever calls toggleAutoStraddle FOR A HORSE; a human's own enrollment is never read, written or overridden by it. Removing the guard would have the engine overwriting every human's straddle setting every hand, which is the actual bug this line prevents.",
       '',
@@ -134,8 +148,15 @@ const REGISTER = {
       '',
       '(2) standUpBustedCashPlayers - `const seated = this.seatedPlayers.filter(p => p.user_id && !p.is_horse)`. Busted horses are removed by recoverBustedSeatedHorses(), which runs on the SAME tick a few lines above this and is strictly more generous: it retries a treasury rebuy every 30s and only stands the horse up at stop-loss or on an empty treasury. Including horses here would let this sweep remove a horse DURING that 30s throttle, before its next funding attempt - taking a rebuy away that a human in the same position would have kept. The exclusion is what makes the two equal; removing it would be the bug.',
       '',
-      'Neither branch withholds anything a human receives. Both were added 2026-08-28 with the busted-seat release (Dan: "make sure that the user gets removed from the table as soon as they have no chips"), which until then existed for horses and not for humans at all.',
+      "(3) offerCashBustWindows - `const humans = busted.filter(p => p.user_id && !p.is_horse)` (2026-11-11). It judges a human's member wallet at the bust and sends the rebuy sheet its 20 second deadline, arming that deadline's expiry. A horse has no member wallet and no sheet, and it answers at the bust through recoverBustedSeatedHorses exactly as branch (2) describes. Judging it here would arm a 20 second expiry that releases the horse through a path built for a human who never clicked, taking away the treasury rebuy that recovery would have made. The horse is still counted in the table pause, through branch (1), on the same answer as before.",
+      '',
+      'None of these branches withholds anything a human receives. (1) and (2) were added 2026-08-28 with the busted-seat release (Dan: "make sure that the user gets removed from the table as soon as they have no chips"), which until then existed for horses and not for humans at all.',
     ].join('\n'),
+  },
+  'server/src/lightning/LightningBankTheWin.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: "Bank the win on Lightning (owner 2026-11-10): picks the horses whose committed pool hand put them at their 4-6x line, one orbit after a big pot and due for the big blind, and stands them up through the ordinary Leave door a person uses (hit-and-run included). The same fleet steering the Classic settlement step does; it denies a horse nothing.",
   },
   'server/src/engine/ServerTableEngineSettlement.ts': {
     allowed: 2,
@@ -156,6 +177,11 @@ const REGISTER = {
       "offerHorseEarlyLooks() (Dan 2026-10-24, \"HORSES SHOULD FOLD RIGHT AWAY IF THEY WERE ALREADY FOLDING\") skips a non-horse participant because it is the horse INPUT DEVICE pressing Lightning Fold: a person presses the same fast_fold door with their own button, and the horse's press goes through that identical door (handlePlayerAction 'fast_fold', foldAvailable, the operator switch). Nothing is withheld from either. See docs/changelog/2026-10-24-lightning-horses-four-games-and-fast-fold.md.",
       `Both decideLightningHorse calls (two filters): ${PRESUME_ROSTER}`,
     ].join('\n'),
+  },
+  'server/src/engine/ServerTableEngineHandEvents.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'Only a Horse seat has a private Horse decision receipt. Human and Horse seats continue through the same turn clock and action handling.',
   },
   'server/src/engine/ServerTableEngineTurns.ts': {
     allowed: 4,
@@ -179,6 +205,11 @@ const REGISTER = {
       'The third predicate, in pineappleDiscardJournalContext, identifies the matching seated Horse before attaching private Horse decision/execution evidence. A human forced-runout discard still uses the same request and controller commit with null Horse journal context; observePineappleDiscardAcceptance then skips only Horse attribution, not the discard. This prevents human actions from being mislabeled as Horse evidence and changes no player entitlement or outcome.',
       'PineappleDiscardJournalContext.test.ts retains the actual-controller mixed Horse/human forced-runout case (both discard, only the Horse gets a private receipt) and the human-context preparation control.',
     ].join('\n'),
+  },
+  'server/src/services/HorseTableGestures.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why: 'The annoy needle picks its TARGET from the people at the table, on the owner\u2019s own words (Dan 2026-11-11: "OR JUST TO ANNOY A PLAYER" - the point is a person\u2019s reaction, and a needle thrown horse-to-horse at a railed table spends the throw budget on nobody). It identifies the audience, not a beneficiary: no horse is denied anything by not being pelted, horses remain full targets of the won/lost/all-in throws exactly like any player, and every horse is equally eligible to BE the thrower.',
   },
   'server/src/services/HorseHandReview.ts': {
     allowed: 2,

@@ -52,7 +52,10 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
-vi.mock('../../src/services/tableWarmup', () => ({ warmTable: vi.fn() }));
+vi.mock('../../src/services/tableWarmup', () => ({
+  warmTable: vi.fn(),
+  warmLightningRoom: vi.fn(),
+}));
 const toast = { info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() };
 vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toast }));
 vi.mock('../../src/services/SoundService', () => ({
@@ -215,7 +218,11 @@ describe('the Lightning route', () => {
         ? { data: { pool_session_id: null, state: null, cluster_mode: 'lightning' }, error: null }
         : { data: null, error: null }
     );
-    buyIntoLightning.mockResolvedValue({ kind: 'rejected', message: 'Not Enough Chips.' });
+    buyIntoLightning.mockResolvedValue({
+      kind: 'rejected',
+      message: 'Not Enough Chips.',
+      code: 'INSUFFICIENT_CHIPS',
+    });
     renderAt(`/lightning/${CLUSTER}`);
     fireEvent.click(await screen.findByRole('button', { name: /join lightning/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Buy Chips' }));

@@ -85,7 +85,74 @@ export const HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS: readonly string[] = Obje
  * Heads-up NLH only (HorseLeague refuses it anywhere else).
  */
 export const HU_WIDE_SB_AGGRESSOR_PERSONA = 'hu_wide_sb_aggressor_v1' as const;
-export type HumanFieldPersona = typeof HU_WIDE_SB_AGGRESSOR_PERSONA;
+/**
+ * THE HEADS-UP EXPLOITERS (2026-11-12, HU-NLH-001). The wide small blind opens
+ * about 2.5bb to 3.75x and stabs; it does not play the lines a real opponent
+ * uses to grind a Horse heads-up, and nothing on the nightly set did, which is
+ * how a heads-up big blind folding 58.7% to a min-raise at 50bb or less went
+ * unseen. Each persona is the wide small blind with one exploit pushed to the
+ * limit, so a card against it shows the Horse's answer to that line:
+ *  - hu_minraise_every_button_v1: the small blind raises every hand first in,
+ *    to 2x (the minimum).
+ *  - hu_limp_every_button_v1: the small blind limps every hand first in and
+ *    never raises first in.
+ *  - hu_three_bet_every_hand_v1: facing a raise it re-raises every hand.
+ *  - hu_small_stab_every_street_v1: checked to, it bets every street at a
+ *    third of the pot.
+ * Development personas, not calibrated populations. Heads-up NLH only.
+ */
+export const HU_MINRAISE_EVERY_BUTTON_PERSONA = 'hu_minraise_every_button_v1' as const;
+export const HU_LIMP_EVERY_BUTTON_PERSONA = 'hu_limp_every_button_v1' as const;
+export const HU_THREE_BET_EVERY_HAND_PERSONA = 'hu_three_bet_every_hand_v1' as const;
+export const HU_SMALL_STAB_EVERY_STREET_PERSONA = 'hu_small_stab_every_street_v1' as const;
+/**
+ * THE HEADS-UP TIGHT BIG BLINDS (2026-11-15, D6, huSmallBlindStealsVsTightBigBlind).
+ * Every heads-up persona above defends its big blind wide; none folds it, so a
+ * small blind that never steals from a nit could not be seen. Each is the
+ * calibrated NLH profile (not the wide one) with its preflop entry replaced:
+ *  - hu_nit_big_blind_v1: a heads-up nit. First in it raises the top 10% and
+ *    never limps; facing a raise it continues with the top 9% (calls 8%,
+ *    re-raises the top 1%), so it folds its big blind about 91% of the time;
+ *    over a limp it raises 3% of big blinds.
+ *  - hu_fold_sb_defend_bb_v1: the case the steal's fold-share estimate is built
+ *    for: it opens only the top 3% of small blinds but defends 45% of big
+ *    blinds (re-raises 8%), so its VPIP looks tight while its big blind does
+ *    not fold. A steal that misreads it as a folder pays here.
+ * Postflop nodes keep the calibrated cutoffs. Development personas, not
+ * calibrated populations. Heads-up NLH only.
+ */
+export const HU_NIT_BIG_BLIND_PERSONA = 'hu_nit_big_blind_v1' as const;
+export const HU_FOLD_SB_DEFEND_BB_PERSONA = 'hu_fold_sb_defend_bb_v1' as const;
+/**
+ * THE OMAHA TIGHT FIELD (2026-11-13, the omahaTightOpponent evaluation). The
+ * Omaha development field's own profile (HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID)
+ * with its preflop entry pushed to a proven nit: first in it raises the top 2%
+ * of hands and limps the next 0.5%, facing a raise it re-raises the top 1% and
+ * calls the next 2%, and over a limp it raises 2% of big blinds (calibrated:
+ * fold < 0.63 / raise >= 0.72 first in, < 0.63 / >= 0.83 facing a raise, 25%
+ * free raises). Postflop nodes keep the calibrated cutoffs. It exists so a
+ * Horse can meet players whose public history PROVES tight preflop play at
+ * six-handed tables, where the Horse envelope's low edge is very low; a
+ * development persona, not a calibrated population. Omaha development field
+ * only (HorseLeague refuses it anywhere else).
+ */
+export const OMAHA_TIGHT_FIELD_PERSONA = 'omaha_tight_field_v1' as const;
+export type HumanFieldPersona =
+  | typeof OMAHA_TIGHT_FIELD_PERSONA
+  | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
+  | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
+  | typeof HU_LIMP_EVERY_BUTTON_PERSONA
+  | typeof HU_THREE_BET_EVERY_HAND_PERSONA
+  | typeof HU_SMALL_STAB_EVERY_STREET_PERSONA
+  | typeof HU_NIT_BIG_BLIND_PERSONA
+  | typeof HU_FOLD_SB_DEFEND_BB_PERSONA;
 export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze([
   HU_WIDE_SB_AGGRESSOR_PERSONA,
+  HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  HU_LIMP_EVERY_BUTTON_PERSONA,
+  HU_THREE_BET_EVERY_HAND_PERSONA,
+  HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_NIT_BIG_BLIND_PERSONA,
+  HU_FOLD_SB_DEFEND_BB_PERSONA,
+  OMAHA_TIGHT_FIELD_PERSONA,
 ]);

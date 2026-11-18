@@ -53,6 +53,9 @@ const row = (id: string, amount: number) => ({
   clubId: 'club-a',
   amount,
   status: 'pending' as const,
+  canDecide: true,
+  canEscalate: true,
+  isEscalated: false,
   playerName: id,
   createdAt: '2026-09-15T00:00:00Z',
 });

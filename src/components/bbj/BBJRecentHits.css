@@ -464,5 +464,56 @@
   gap: 1cqw;
   width: 100%;
   min-width: 0;
-  margin-top: 1.4cqw;
+}
+
+/* Dan 2026-11-13: "JUST SHOW THE HOLE CARDS VS HOLE CARDS AND THE BOARD", each
+   set of hole cards with its player's name underneath. The five-card "Bad Beat
+   Hand" and "Lost To" strips are no longer drawn on a winner row. */
+.bbj-hits__hand--versus {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas:
+    'bad vs winner'
+    'board board board';
+  /* Top-aligned so a name that wraps under one hand never drops the other. */
+  align-items: start;
+  gap: 3cqw 2cqw;
+}
+
+.bbj-hits__hand--versus > .bbj-hits__hole {
+  grid-area: winner;
+}
+
+.bbj-hits__hand--versus > .bbj-hits__hole:first-child {
+  grid-area: bad;
+}
+
+.bbj-hits__vs {
+  grid-area: vs;
+  align-self: center;
+  color: #ff5b6e;
+  font-size: 3cqw;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 1cqw rgb(240 40 73 / 80%);
+}
+
+.bbj-hits__board {
+  grid-area: board;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1cqw;
+  min-width: 0;
+}
+
+.bbj-hits__hole-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: #f4f7fb;
+  font-size: 2.8cqw;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }

@@ -1,76 +1,37 @@
-import { useEffect, useRef, useState } from 'react';
 import { useFitText } from '../lobby/game-cards/useFitText';
-import { stopLightningPlaying } from '../../lightning/lightningSessionApi';
-import { useToast } from '../common/Toast';
-import { reportError } from '../../utils/errorReporter';
 import './LightningLeaveControl.css';
 
-/** Stop matchmaking before the original anchor-seat leave can await cash-out. */
 export function LightningLeaveControl({
-  clusterId,
+  queued,
+  waitingForDeal = false,
+  pending,
   onLeave,
-  ensureStopped,
-  onLeaveIntentChange,
+  onCancel,
 }: {
-  clusterId: string;
-  onLeave: () => Promise<void>;
-  ensureStopped?: () => Promise<boolean>;
-  onLeaveIntentChange?: (leaving: boolean) => void;
+  queued: boolean;
+  waitingForDeal?: boolean;
+  pending: boolean;
+  onLeave: () => void | Promise<void>;
+  onCancel: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [stopped, setStopped] = useState(false);
-  const inFlight = useRef(false);
-  const mounted = useRef(false);
-  const toast = useToast();
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  /* Dan 2026-11-09: 'it should just say, "Leave Next Hand"'. The behaviour is
-     unchanged - the durable stop refuses every new deal and the hand in front
-     of the player still finishes through the original leave owner - so the
-     label now says what the button has always done. */
-  const label = busy ? 'Leaving...' : 'Leave Next Hand';
+  const label = queued
+    ? waitingForDeal
+      ? 'Playing One More Hand'
+      : 'Leaving After This Hand'
+    : 'Leave Next Hand';
   const labelRef = useFitText<HTMLSpanElement>(label, 1, 0.5);
-  const leave = async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    setBusy(true);
-    try {
-      onLeaveIntentChange?.(true);
-      if (!stopped) {
-        const confirmed = ensureStopped
-          ? await ensureStopped()
-          : (await stopLightningPlaying(clusterId))?.ok === true;
-        if (!mounted.current) return;
-        if (!confirmed) {
-          onLeaveIntentChange?.(false);
-          toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
-          return;
-        }
-        setStopped(true);
-      }
-      // The durable stop already refuses every new deal. The old hand and
-      // its committed chips still finish through the original leave owner.
-      if (mounted.current) await onLeave();
-    } catch (error) {
-      if (mounted.current) onLeaveIntentChange?.(false);
-      reportError(error, 'LightningLeaveControl.leave');
-      if (mounted.current) toast.warning('Could Not Confirm Your Leave. Please Try Again.');
-    } finally {
-      inFlight.current = false;
-      if (mounted.current) setBusy(false);
-    }
-  };
   return (
     <button
       type="button"
       className="lightning-leave-control"
-      disabled={busy}
-      aria-busy={busy}
-      onClick={() => void leave()}
+      disabled={pending}
+      aria-busy={pending}
+      data-queued={queued ? 'true' : undefined}
+      title={queued ? 'Tap To Keep Playing' : undefined}
+      onClick={() => {
+        if (queued) onCancel();
+        else void onLeave();
+      }}
     >
       <img
         className="lightning-leave-control__chip"
@@ -82,3 +43,5 @@ export function LightningLeaveControl({
     </button>
   );
 }
+
+export { LightningLeaveControl as LightningFeederLeaveControl };

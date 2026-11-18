@@ -23,6 +23,7 @@ IDENTITY_TESTS = {
     'test_wrong_route_and_missing_current_identity_are_refused',
     'test_fork_and_unrelated_parent_cannot_authorize_checkout',
     'test_existing_scheduled_main_path_remains_exact',
+    'test_merge_group_is_its_own_checkout',
     'test_exclusive_attempt_preserves_uncertain_original',
     'test_case_identity_is_fresh_and_cannot_be_reused_or_mutated',
     'test_seed_is_claimed_before_callback_and_never_repeated',
@@ -141,7 +142,7 @@ def execute_funded_cases(repository, pg_bin, output, temp_parent):
                        'evidence': str(run_path.relative_to(Path(output))),
                        'sha256': hashlib.sha256(run_path.read_bytes()).hexdigest(),
                        'case_attempt_id': authorization['case_attempt_id'], 'cleanup': run.get('cleanup'),
-                       'deadline': budget.report()}
+                       'deadline': budget.report(), 'source_adaptations': bound.source_changes}
             report['cases'].append(summary)
             require(result == 0 and run.get('status') == 'PASS_IMPLEMENTED_SUBSETS_ONLY' and
                     len(run.get('cases', [])) == 1 and run['cases'][0]['case'] == case and

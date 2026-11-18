@@ -176,6 +176,35 @@ whichever test the next agent notices first.
   must-move, break or balance moves as a 10.6 violation, and do not cite this
   ruling to add any client-side auto-switch.
 
+- **A moved player never posts to enter (ruled 2026-11-15, Dan):** "WHEN A
+  PLAYER IS MOVED ON A MUST MOVE GAME TO A NEW TABLE, THEY NEVER NEED TO POST
+  TO RECEIVE A HAND, IF THEY ARE COMING FROM A PREVIOUS TABLE. THEY ONLY POST
+  IF THEY ARE IN THE BB OR IF THEY ARE SITTING OUT AND MISS THE BLINDS." This
+  replaces the 2026-09-05 rule "SEAT CHANGE ALWAYS RE POSTS THE BB WHEN GETTING
+  TO A NEW TABLE". Every seat move (`must_move`, `break`, `balance` and
+  `seat_change`, swaps included) arrives `entry_hold = 'moved'`, not agreed
+  (`20261115170236_a_moved_player_never_posts_to_enter_a_new_table.sql`),
+  pinned by `tests/a-moved-player-never-posts-to-enter.law.test.ts`. The
+  seat-change assertions in `TheTablesOpenAndCloseThemselves.law.test.ts` and
+  `PresenceFollowsTheMove.test.ts` read the immutable 2026-09-05 migration
+  files and describe history only. Do not restore a post for a moved player.
+
+- **An entry post is one obligation (2026-11-15, hand 59634000):** a new cash
+  seat waits for the big blind or posts ONE live big blind (Dan 2026-08-26).
+  The dead small blind plus live big blind belongs only to a seat that was
+  dealt a hand here, sat out and came back. From 2026-11-07 to 2026-11-15, 24
+  new players were billed both, or the missed-blind charge alone, because I'm
+  Back marked a never-dealt seat as returning from sit-out. Three things hold
+  it: `owesMissedBlindsOnReturn` (Seating) marks a return only for a seat in
+  `dealtInUserIds`, never one still entering; `entryChargeSeats` (Dealing)
+  puts a seat on one charge list or neither, the entry post winning; and
+  `HandController.postBlinds` bills a seat one entry charge, the entry post
+  when a caller names it on both lists. Pinned by `AnEntryPostIsOneObligation.test.ts`, which
+  drives the real requests in every order. A moved arrival is unchanged (the
+  ruling above). Do not mark a return on I'm Back without that oracle, and do
+  not build either list anywhere else. Record and per-case ledger:
+  `docs/changelog/2026-11-15-an-entry-post-is-one-obligation.md`.
+
 - **Lightning is six-seat Action and Madness only (ruled 2026-10-19, Dan):**
   "classic games never get lightning games, only action and madness, make all
   lightning games 6 handed." (19:44 Central). Classic never gets Lightning
@@ -209,6 +238,16 @@ whichever test the next agent notices first.
   it is Dan's call, made by changing `fn_lightning_variant_allowed` and
   `LIGHTNING_EXCLUDED_VARIANTS` together.
 
+- **Real figures are never rounded or abbreviated (ruled 2026-11-13, Dan):**
+  "IN THE PLAYER MANAGEMENT OR ANYWHERE REAL DATA IS STORED. I DON'T WANT
+  ROUNDED UP NUMBERS LIKE 393 OR 1.5K OR 1K USE WHOLE NUMBERS AND DECIMALS
+  ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE POKER ARENA." This retires the
+  2026-09-09 forward-facing compact rule everywhere (the jackpot ruling below
+  was its first narrower exception). Every figure prints through `exactChips`
+  (`compactChips` and `fmtChips` are aliases): separators, cents kept, never a
+  K/M/B suffix; Player Management win / loss is `winLossChips`, always two
+  decimals. Pinned by `tests/real-figures-are-never-abbreviated.law.test.ts`.
+
 - **The Bad Beat Jackpot is printed to the cent (ruled 2026-11-09, Dan):** "for
   the bbj display the full amount down to the decimal and the exact amounts for
   the payouts... no rounded numbers. use exact numbers 100% of the time." This
@@ -221,6 +260,28 @@ whichever test the next agent notices first.
   `compactChips`, `Math.trunc` or `Math.round` on a jackpot surface when
   applying #ClubArenaConsole. Diamond jackpots are whole by custody and
   unchanged. Pinned by `tests/the-jackpot-is-printed-to-the-cent.law.test.ts`.
+
+- **The Charles Rule after a +250 BB win (owner direction 2026-11-11):**
+  even after a player has finished every hand the hit-and-run countdown asked
+  of them, a hand that NETS them 250 big blinds or more owes ten subsequent
+  hands before they may leave. Humans and Horses alike, Classic and Lightning
+  chip cash games, wherever the club's hit-and-run switch is on (tournaments
+  and Diamond tables stay outside it, as before). The win is the settled
+  hand's own net (Classic `poker_delta`, Lightning `net_result`) against that
+  hand's recorded big blind, never the displayed pot or a wallet movement;
+  exactly +250 BB applies; the triggering hand is not counted; another
+  qualifying win resets what is left to ten, never adding ten. The leave door
+  holds the larger of this and the countdown, and finishing one never clears
+  the other. A voluntary leave requested at or before the win's settlement
+  stamp is honoured (the existing pre-existing-leave exemption); a request
+  after it is held. System exits (closure, admin and forced removal, VPIP
+  eviction, a bust) never wait on it, and the responsible-gaming waive
+  finishes it. Prospective only from the installation of
+  `20261111174148_charles_rule_big_win_and_durable_bank_the_win_state.sql`
+  (daily-maintenance window) and the engine release that reads it. Pinned by
+  `tests/unit/charlesRuleBigWin.pg.test.ts` (native PostgreSQL) and
+  `server/src/engine/ChipContinuityBigWin.test.ts`; record in
+  `docs/changelog/2026-11-11-charles-rule-after-a-big-win.md`.
 
 ## Registry
 

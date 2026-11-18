@@ -3,7 +3,7 @@
  * hidden-information review (spec Phases 16 and 17).
  *
  *   - STOP PLAYING in the room's own tools: one tap asks
- *     fn_lightning_stop_playing; a database without the function yet gets a
+ *     fn_lightning_stop_room_playing; a database without the function yet gets a
  *     graceful "not available"; while the current hand finishes the control
  *     says so; the ending then carries the player's own words ("You Stopped
  *     Playing") through the Phase 9 ended notice.
@@ -74,7 +74,7 @@ afterEach(cleanup);
 
 // ─── 1. The Stop Playing door ──────────────────────────────────────────────
 
-describe('fn_lightning_stop_playing, read defensively', () => {
+describe('fn_lightning_stop_room_playing, read defensively', () => {
   it('parses the migration’s answer; a malformed one refuses, never a guess', () => {
     // In a live hand: the stop is standing, the exit waits for the settle.
     expect(
@@ -106,10 +106,13 @@ describe('fn_lightning_stop_playing, read defensively', () => {
 
   it('a database without the function answers null (deploy window); a real failure throws', async () => {
     rpc.mockResolvedValueOnce({ data: null, error: MISSING });
-    expect(await stopLightningPlaying(CLUSTER)).toBeNull();
-    expect(rpc.mock.calls[0]).toEqual(['fn_lightning_stop_playing', { p_cluster_id: CLUSTER }]);
+    expect(await stopLightningPlaying(CLUSTER, 'room')).toBeNull();
+    expect(rpc.mock.calls[0]).toEqual([
+      'fn_lightning_stop_room_playing',
+      { p_cluster_id: CLUSTER, p_pool_session_id: 'room' },
+    ]);
     rpc.mockResolvedValueOnce({ data: null, error: { code: '57014', message: 'canceled' } });
-    await expect(stopLightningPlaying(CLUSTER)).rejects.toMatchObject({ code: '57014' });
+    await expect(stopLightningPlaying(CLUSTER, 'room')).rejects.toMatchObject({ code: '57014' });
     expect(isLightningRpcMissing(MISSING)).toBe(true);
     expect(isLightningRpcMissing({ code: '42883' })).toBe(true);
     expect(isLightningRpcMissing({ code: '57014' })).toBe(false);

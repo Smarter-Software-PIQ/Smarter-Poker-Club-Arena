@@ -50,6 +50,8 @@ export type LiveHorseDecideOpts = Omit<
 >;
 
 export interface LiveHorseDecisionSnapshot extends HorseDecisionFence {
+  /** Private original-seat classification. Omitted legacy snapshots cannot prove eligibility. */
+  savedProfileHumanIds?: string[];
   /** Private accepted-history prefix captured beside the live turn. Diagnostic
    * binding only; excluded from strategy sampling, included in input validation. */
   handJournalContext?: import('../HorseDecisionHandBinding.js').HorseHandJournalContext | null;
@@ -193,6 +195,8 @@ export function validatedHorsePolicySamplingKey(
 }
 
 export interface FastHorseDecisionRequest extends LiveHorseDecisionSnapshot {
+  /** Private diagnostic on the original journal snapshot, never a strategy input. */
+  savedProfilePresence?: import('./savedProfilePresence.js').SavedPresenceReceipt;
   /** Private individual read hydration, not a caller policy control or action authority. */
   ownPublicHistory?: import('./ownPublicHistory.js').HorseOwnPublicHistoryPacket;
   ownPublicHistoryState?: 'pending' | 'available' | 'unavailable';
@@ -215,14 +219,30 @@ export interface DeepHorseDecisionRequest extends LiveHorseDecisionSnapshot {
 }
 
 export interface CompletedHandObservation extends HorseDecisionFence {
+  /** Accepted durable original terminal only: never learn, mirror, or replay effects. */
+  terminalOnlySourceRelease?: string;
+  horseTurnClocks?: Array<
+    import('../HorseTurnClockReceipt.js').HorseTurnClockReceipt & { actionIndex: number }
+  >;
   /** Public rules captured in the original accepted hand, never current table config. */
   publicMemoryDomain?: import('../HorsePublicMemoryDomain.js').HorsePublicMemoryDomain | null;
+  /** STYLE READ learner (2026-11-13): the hand's format, set for every hand that carries a public memory domain,
+   *  so the in-format style evidence is learned whether or not any durable profile row exists. */
+  styleMemoryMode?: 'cash' | 'tournament';
+  /** STYLE READ Horse reference (F2): the same value the hand_history row stores as has_human, so the live Horse
+   *  reference counts exactly the hands the boot rebuild can read (has_human hands). Absent: not counted. */
+  styleHasHuman?: boolean;
   /** Pool-owned original observer routing; separate from the accepted Phase 14 roster. */
   observerParticipants?: import('./observerParticipants.js').HorseObserverParticipants;
   /** Validated public-action profiles from the accepted hand path, back-filled or not
    * (HorseOpponentMemory.opponentProfileVersion).
    * Empty means unavailable; presence suppresses non-durable family pooling. */
   durableOpponentProfiles?: import('../HorseOpponentMemory.js').DurableOpponentProfile[];
+  /** 'failed' only when the completed-hand profile read itself failed (busy, timeout, query error or
+   * an invalid receipt). An empty durableOpponentProfiles is then not a successful read that found no
+   * saved row, and pooledPublicProfiles keeps a briefly stale shared row instead of dropping it.
+   * Absent: the read succeeded or was not attempted. */
+  durableOpponentProfilesRead?: 'failed';
   /** UUID returned by the accepted hand transaction; absent on legacy replay. */
   committedHandId?: string;
   handKey: string;
@@ -352,13 +372,26 @@ export type HorseDecisionJobRequest =
   | HorseDecisionStatusRequest
   | DecidePineappleDiscardRequest;
 
+export interface PrewarmStreetWorkerRequest {
+  type: 'PREWARM_STREET';
+  fence: string;
+  street: 'flop' | 'turn' | 'river';
+  board: ReadonlyArray<{ rank: string; suit: string }>;
+  variant?: string;
+  mode?: 'cash' | 'tournament';
+  effectiveStackBB?: number;
+}
+
 export type HorseDecisionWorkerRequest =
   | HorseDecisionJobRequest
+  | PrewarmStreetWorkerRequest
   | { type: 'CANCEL'; requestId: number; reason?: 'cancelled' | 'expired' }
   | { type: 'SHUTDOWN' };
 
 export interface HorseDecisionWorkerReady {
   phase8GuardAuthority?: import('../HorseQualifiedAuthority.js').HorseAuthorityReceipt;
+  upgradeManifest?: import('../HorseUpgradeActivationManifest.js').HorseUpgradeActivationManifest;
+  watchcounterDeltas?: import('../BrainTelemetry.js').HorseWatchcounterEntry[];
   type: 'READY';
   solverStores: {
     charts: number;
@@ -565,6 +598,11 @@ export interface HorseDecisionWorkerError {
   planRefusal?: HorsePlanRefusal;
 }
 
+export interface WatchcounterDeltaWorkerMessage {
+  type: 'WATCHCOUNTER_DELTA';
+  watchcounterDeltas: import('../BrainTelemetry.js').HorseWatchcounterEntry[];
+}
+
 export type HorseDecisionWorkerResponse =
   | HorseDecisionWorkerReady
   | FastHorseDecisionResult
@@ -574,6 +612,7 @@ export type HorseDecisionWorkerResponse =
   | PineappleDiscardResult
   | HorseDecisionWorkerCancelled
   | HorseDecisionWorkerError
+  | WatchcounterDeltaWorkerMessage
   | { type: 'STOPPED' };
 
 /** Administrative control is separate from fenced action/FIFO request types. */

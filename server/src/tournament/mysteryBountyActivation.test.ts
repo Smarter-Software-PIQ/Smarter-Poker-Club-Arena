@@ -21,6 +21,7 @@ import {
   totalEntriesFromRows,
   shouldActivateMysteryBounty,
   mysteryBountyThresholdReached,
+  mysteryBountyThresholdPlayers,
   mysteryPoolCents,
   mysteryBountyFieldTooSmall,
   type MysteryBountyActivationInputs,
@@ -271,5 +272,32 @@ describe('a mystery bounty of 10 or fewer entries never opens chests', () => {
     expect(mysteryBountyFieldTooSmall(null)).toBe(false);
     expect(mysteryBountyFieldTooSmall(0)).toBe(false);
     expect(mysteryBountyFieldTooSmall(Number.NaN)).toBe(false);
+  });
+});
+
+/* Dan, 2026-11-13: "ONCE THE PRIZE POOL IS 'FINALIZED' (AFTER THE ADD ON
+   PERIOD) ALL MYSTERY BOUNTY PRIZES SHOULD BE SHOWN... DO NOT WAIT UNTIL
+   PLAYERS ARE ITM". The ladder is sealed at the entry close for the players
+   who will be left when the phase opens, so that number has to be the same
+   boundary the threshold test uses. */
+describe('mysteryBountyThresholdPlayers', () => {
+  it('is the field size at which the threshold is first reached, in every mode', () => {
+    const cases: Array<[Parameters<typeof mysteryBountyThresholdPlayers>, number]> = [
+      [['at_the_money', null, 180, 27], 27],
+      [['percent_field', 20, 27, 4], 6],
+      [['player_count', 12, 180, 27], 12],
+    ];
+    for (const [[mode, value, entries, paid], players] of cases) {
+      expect(mysteryBountyThresholdPlayers(mode, value, entries, paid)).toBe(players);
+      expect(mysteryBountyThresholdReached(mode, value, players, entries, paid)).toBe(true);
+      expect(mysteryBountyThresholdReached(mode, value, players + 1, entries, paid)).toBe(false);
+    }
+  });
+
+  it('is zero when the mode cannot be resolved, so nothing is sealed', () => {
+    expect(mysteryBountyThresholdPlayers('at_the_money', null, 180, 0)).toBe(0);
+    expect(mysteryBountyThresholdPlayers('percent_field', 0, 180, 27)).toBe(0);
+    expect(mysteryBountyThresholdPlayers('percent_field', 20, 0, 27)).toBe(0);
+    expect(mysteryBountyThresholdPlayers('player_count', 0, 180, 27)).toBe(0);
   });
 });

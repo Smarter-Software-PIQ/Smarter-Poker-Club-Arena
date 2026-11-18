@@ -1,4 +1,9 @@
-import { usePlayerPreference } from '../../hooks/usePlayerPreference';
+import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
+import ClubDataSourceDetails, {
+  type ClubDataSourceRow,
+} from '../../components/club/ClubDataSourceDetails';
+import ClubDataReportGuide from '../../components/club/ClubDataReportGuide';
+import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDataFilters';
 /**
  * CLUB DATA (the owner's everyday screen)
  * ============================================================================
@@ -21,11 +26,20 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * tab comes back into view. A read that fails keeps the last good figures on
  * screen and says so; it never paints zeros.
  *
- * Days are America/Chicago calendar days, daylight saving included (Dan,
- * 2026-10-22), because the server buckets every figure by the Chicago day
- * (20261022103651, 20261022120121). Times on the page are Chicago time too.
- * MTT Winnings are finished MTTs only; a running MTT's entries are shown as
- * Unfinished MTT Entries, and both are inside Total Winnings.
+ * THE DAY (stage 2 reader contract, 2026-11-15). For a Midway Union member
+ * club, or the union itself, a day is the union invoice's ACCOUNTING day,
+ * midnight to midnight America/Los_Angeles, including daylight-saving
+ * boundaries, and every figure comes from the invoice's own accounting
+ * records: Fee is the rake credited to the club, Total Winnings the players'
+ * accounting result. Standalone and pre-union net-flow reports also use Pacific
+ * midnight. The reader
+ * says which basis it answered on, and the page labels and counts by it.
+ * The page and calendar carry the first and last day, inclusive, just as the
+ * readers do. Nov 9 through Nov 15 is Monday through Sunday, seven days.
+ * New URLs carry dataStart/dataEnd; older exclusive dataUntil links remain readable.
+ * The calendar selects inclusive dates: the same date twice selects one day.
+ * A fresh visit and every 1 Day preset start on today; explicit links retain their range.
+ * Boundary timestamps on the page are Chicago time.
  * The full operator report (union statement, per-player breakdown, export)
  * lives one tap away at ./advanced.
  */
@@ -38,8 +52,14 @@ import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
-import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
+import { clubDataRangeDays, clubDataRangeError, readClubDataRange } from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
+import DataHelpTip from '../../components/club/DataHelpTip';
+import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
+import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
+import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
+import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
+import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ClubRosterService, type RosterMember } from '../../services/ClubRosterService';
@@ -47,18 +67,36 @@ import { titleCase } from '../../utils/titleCase';
 import { playerDisplayName } from '../../utils/playerDisplayName';
 import { useFitText } from '../../components/lobby/game-cards/useFitText';
 import {
+  ACCOUNTING_DAY_BASIS,
   CLUB_DATA_ZONE_LABEL,
   addCalendarDays,
   chicagoClock,
-  chicagoDay,
   chicagoStamp,
+  clubDataBoundaryClock,
+  clubDataDayBasis,
+  clubDataDayOn,
+  clubDataDayRule,
+  clubDataWindowLabel,
+  coverageNotices,
+  coverageWindowLabel,
+  isCalendarDate,
+  isUnionClubAnswer,
+  UNION_BASIS_DEFINITIONS,
+  type ClubDataCoverage,
+  type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
+import {
+  CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+  isClubDataPacificIncomplete,
+} from './clubDataReadOutcome';
+import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/format';
 
 type Preset = 1 | 7 | 14;
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
 type StakesFilter = 'ALL' | 'MICRO' | 'SMALL' | 'MID' | 'HIGH';
 
 export interface ClubDataSummary {
+  reconciliation?: Reconciliation | null;
   games: number;
   total_winnings: number;
   mtt_winnings: number;
@@ -101,7 +139,11 @@ interface Snapshot {
     cash_fees: number;
     tournament_fees: number;
     total_fees: number;
+    /** 'UTC' (the viewer's own earned fees) or 'America/Chicago 02:00'. */
     day_basis: string;
+    /** 'downline_accounting_fees' on the union basis (stage 2). */
+    definition?: string;
+    source?: string;
   } | null;
   rows: ClubDataRow[];
   generated_at?: string;
@@ -109,9 +151,20 @@ interface Snapshot {
   scope?: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
-  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow';
+  /** The club's union, when it is in one (or is one). Decides "today". */
+  union_id?: string | null;
+  accounting_basis?:
+    | 'utc_net_money_flow'
+    | 'chicago_net_money_flow'
+    | 'pacific_net_money_flow'
+    | 'union_invoice_accounting';
+  day_basis?: string;
+  /** fn_ca_club_acct_coverage (union basis only). */
+  accounting_coverage?: ClubDataCoverage | null;
   /** First day the per-club facts cover. */
   facts_from?: string | null;
+  /** The union's own answer only (20261115205153): each club's and the union account's figures. */
+  clubs?: ClubDataClubRow[];
 }
 
 const PRESETS: Preset[] = [1, 7, 14];
@@ -136,43 +189,47 @@ export function refreshIntervalMs(preset: Preset): number {
   return preset === 1 ? 15_000 : 60_000;
 }
 
-/** Today on the Club Data clock: the America/Chicago calendar day. */
-export function clubDataToday(now: Date = new Date()): string {
-  return chicagoDay(now);
+/**
+ * Today on the Pacific Club Data clock. Explicit older responses can still
+ * state a Chicago calendar basis during a compatible rollout.
+ */
+export function clubDataToday(now: Date = new Date(), basis: ClubDataDayBasis = 'pacific'): string {
+  return clubDataDayOn(basis, now);
 }
 
 export function addDays(iso: string, days: number): string {
   return addCalendarDays(iso, days);
 }
 
-export function formatMoney(n: number | null | undefined): string {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '-';
-  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/**
+ * Legacy exclusive-boundary links stop at the start of `until`, so their
+ * last day is `until - 1`. The visible calendar uses inclusive dates instead.
+ */
+export function clubDataWindowError(start: string, until: string, today: string): string | null {
+  if (!isCalendarDate(until)) return 'Choose A Start And End Date.';
+  if (start && until <= start) return 'The End Must Be After The Start.';
+  if (addDays(until, -1) > today) return 'The Window Can End No Later Than When Today Closes.';
+  return clubDataRangeError(start, addDays(until, -1), today);
 }
 
 /**
- * A total in a quarter of a 375px strip. Seen on a phone on 2026-10-15:
- * SHARK CLUB's day read "-55,66..." and "149,60..." because six digits and two
- * decimals do not fit. Below 10,000 the figure is exact to the cent; above it
- * the tile shows 149.6K / 3.54M and the exact amount stays in the title and
- * the accessible name, and in every game row below.
+ * Money exactly as the reader sent it, digit for digit with separators and at
+ * least two decimals (decimal text prints with no float in between); a dash
+ * when there is no figure. Never K/M (Dan 2026-11-13).
  */
-export function formatTotal(n: number | null | undefined): string {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '-';
-  const a = Math.abs(v);
-  if (a < 10_000) return formatMoney(v);
-  const sign = v < 0 ? '-' : '';
-  if (a < 1_000_000)
-    return `${sign}${(Math.floor(a / 100) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}K`;
-  return `${sign}${(Math.floor(a / 10_000) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+export function formatMoney(n: FigureInput): string {
+  return formatWalletChips(n);
 }
 
-function inkFor(n: number | null | undefined): string {
-  const v = Number(n);
-  if (!Number.isFinite(v) || v === 0) return styles.inkNeutral;
-  return v > 0 ? styles.inkWin : styles.inkLoss;
+/** A tile total: the same exact figure as everywhere else on the page. */
+export function formatTotal(n: FigureInput): string {
+  return formatMoney(n);
+}
+
+function inkFor(n: FigureInput): string {
+  const d = figureDigits(n);
+  if (!d || !/[1-9]/.test(d.whole + d.fraction)) return styles.inkNeutral;
+  return d.negative ? styles.inkLoss : styles.inkWin;
 }
 
 function kindLabel(row: ClubDataRow): string {
@@ -202,7 +259,8 @@ export function isSnapshot(value: unknown): value is Snapshot {
     ['games', 'total_winnings', 'mtt_winnings', 'fee'].every((k) =>
       Number.isFinite(Number(s[k]))
     ) &&
-    Array.isArray(v.rows)
+    Array.isArray(v.rows) &&
+    (v.clubs === undefined || isClubRows(v.clubs))
   );
 }
 
@@ -216,44 +274,39 @@ export default function ClubDataSimplePage() {
   const clubParam = params.clubId || searchParams.get('club') || '';
 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
-  const [preset, setPreset] = usePlayerPreference<Preset>('club/ClubDataSimplePage:preset', 1);
+  // A fresh visit starts today, regardless of a previously saved preset.
+  const [preset, setPreset] = useState<Preset>(1);
+  // Current reports share Pacific midnight; financial definitions remain distinct.
+  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
+  const dayBasisRef = useRef<ClubDataDayBasis>('pacific');
+  dayBasisRef.current = dayBasis;
   const [currentDay, setCurrentDay] = useState(() => clubDataToday());
+  const today = clubDataToday(new Date(), dayBasis);
   // Access hydration can unmount this page. Public date filters belong to the
   // route so refreshes and browser history retain the requested reporting window.
-  const requestedEnd = searchParams.get('dataEnd') ?? '';
-  const requestedStart = searchParams.get('dataStart');
-  const validRange = !clubDataRangeError(
-    requestedStart ?? requestedEnd,
-    requestedEnd,
-    clubDataToday()
-  );
-  const endDate = validRange ? requestedEnd : currentDay;
-  const customStart = validRange ? requestedStart : null;
+  // Inclusive dataEnd is the last selected day. Older dataUntil links remain exclusive.
+  const requestedRange = readClubDataRange(searchParams, today);
+  const endDate = requestedRange?.end ?? currentDay;
+  const customStart = requestedRange?.start ?? null;
   const selectDates = (start: string | null, end: string) => {
+    if (end === clubDataToday(new Date(), dayBasisRef.current)) setCurrentDay(end);
     const next = new URLSearchParams(searchParams);
     if (start !== null) next.set('dataStart', start);
     else next.delete('dataStart');
-    if (start !== null || end !== clubDataToday()) next.set('dataEnd', end);
-    else next.delete('dataEnd');
+    next.delete('dataUntil');
+    if (start !== null || end !== clubDataToday(new Date(), dayBasisRef.current)) {
+      next.set('dataEnd', end);
+    } else next.delete('dataEnd');
     setSearchParams(next);
   };
+  const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
-  const [draftStart, setDraftStart] = useState('');
-  const [draftEnd, setDraftEnd] = useState('');
-  const [rangeError, setRangeError] = useState<string | null>(null);
   const [breakdown, setBreakdown] = useState<'total_winnings' | 'mtt_winnings' | 'fee' | null>(
     null
   );
-  const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataSimplePage:game', 'ALL');
-  const [stakes, setStakes] = usePlayerPreference<StakesFilter>(
-    'club/ClubDataSimplePage:stakes',
-    'ALL'
-  );
-  const [searchInput, setSearchInput] = usePlayerPreference(
-    'club/ClubDataSimplePage:searchInput',
-    ''
-  );
-  const [search, setSearch] = useState('');
+  const { game, setGame, stakes, setStakes, searchInput, setSearchInput } =
+    useClubDataFilters('club/ClubDataSimplePage');
+  const [search, setSearch] = useState(() => searchInput.trim());
   const [playerResults, setPlayerResults] = useState<{
     key: string;
     items: RosterMember[];
@@ -261,6 +314,7 @@ export default function ClubDataSimplePage() {
   } | null>(null);
   const [playerSearchAccess, setPlayerSearchAccess] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [sourceRow, setSourceRow] = useState<{ key: string; row: ClubDataSourceRow } | null>(null);
   const [snapshotScope, setSnapshotScope] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -271,7 +325,6 @@ export default function ClubDataSimplePage() {
   const [clubName, setClubName] = useState<string | null>(null);
 
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
-  const today = clubDataToday();
   const isToday = endDate >= today;
   const startDate = customStart ?? addDays(endDate, -(preset - 1));
   const rangeDays = clubDataRangeDays(startDate, endDate);
@@ -285,13 +338,15 @@ export default function ClubDataSimplePage() {
     game,
     stakes,
     search,
+    reportRangeError,
   ]);
   const identityKey = JSON.stringify([userId, clubParam, clubUuid]);
   const playerSearchReady =
     !isHydrating && !!userId && playerSearchAccess === identityKey && !denied;
   const activeScopeRef = useRef(scopeKey);
   activeScopeRef.current = scopeKey;
-  const visibleSnapshot = !isHydrating && userId && snapshotScope === scopeKey ? snapshot : null;
+  const visibleSnapshot =
+    !isHydrating && userId && !reportRangeError && snapshotScope === scopeKey ? snapshot : null;
 
   // Retire private figures and pending completions before another account or
   // club can paint. A request number alone does not cover an account switch
@@ -368,7 +423,11 @@ export default function ClubDataSimplePage() {
   }, [clubUuid, preset, endDate, game, stakes, search]);
 
   const load = useCallback(async () => {
-    if (!clubUuid || isHydrating || !userId) return;
+    if (reportRangeError) {
+      setLoading(false);
+      return;
+    }
+    if (!clubUuid || isHydrating || !userId || reportRangeError) return;
     const mine = ++requestRef.current;
     const requestScope = scopeKey;
     const isCurrent = () => mine === requestRef.current && activeScopeRef.current === requestScope;
@@ -389,7 +448,12 @@ export default function ClubDataSimplePage() {
       const { data, error: rpcError } = await Promise.race([Promise.resolve(read), timeout]);
       if (!isCurrent()) return;
       if (rpcError) {
-        if (isAuthzError(rpcError)) {
+        if (isClubDataPacificIncomplete(rpcError)) {
+          reportError(rpcError, 'ClubDataSimplePage.pacific_coverage');
+          setSnapshot(null);
+          setSnapshotScope(null);
+          setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        } else if (isAuthzError(rpcError)) {
           setSnapshot(null);
           setSnapshotScope(null);
           setDenied(true);
@@ -406,6 +470,9 @@ export default function ClubDataSimplePage() {
         return;
       }
       setSnapshot(data);
+      // Both verified Data bases use the same Pacific calendar day.
+      if (isUnionClubAnswer(data)) setDayBasis('accounting');
+      else if (clubDataDayBasis(data) === 'pacific') setDayBasis('pacific');
       setPlayerSearchAccess(identityKey);
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
@@ -432,6 +499,7 @@ export default function ClubDataSimplePage() {
     search,
     scopeKey,
     identityKey,
+    reportRangeError,
   ]);
 
   // Server roster permissions remain authoritative. Bind results to the exact
@@ -483,22 +551,19 @@ export default function ClubDataSimplePage() {
     };
   }, [load, preset, isToday]);
 
-  // When the Chicago day turns over on an open "today" view, follow it.
+  // Every new club or account begins on the current Pacific day.
   useEffect(() => {
-    const followDay = () => {
-      const now = clubDataToday();
-      setCurrentDay(now);
-    };
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') followDay();
-    };
-    const id = window.setInterval(followDay, 30_000);
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      window.clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, []);
+    setDayBasis('pacific');
+  }, [identityKey]);
+
+  // A club whose answer says it counts the 02:00 accounting day moves "today"
+  // to that day at once (they differ between midnight and 02:00 Chicago).
+  useEffect(() => {
+    setCurrentDay(clubDataToday(new Date(), dayBasis));
+  }, [dayBasis]);
+
+  // Explicit URL dates stay fixed; only an unpinned today view follows midnight.
+  useClubDataDayRollover(dayBasis, setCurrentDay);
 
   // Search waits for the typing to stop.
   useEffect(() => {
@@ -514,6 +579,28 @@ export default function ClubDataSimplePage() {
 
   const summary = visibleSnapshot?.summary ?? null;
   const isDownline = visibleSnapshot?.scope === 'downline';
+  // Every label states the basis the visible answer was given on.
+  const answerBasis: ClubDataDayBasis = visibleSnapshot
+    ? clubDataDayBasis(visibleSnapshot)
+    : dayBasis;
+  const unionBasis = answerBasis === 'accounting';
+  // Stage 2: on the union basis member_fees is the downline's fees from the
+  // accounting records on the same 02:00 days (equal to the screen's fee),
+  // not the viewer's own earned share on UTC days.
+  const downlineAccountingFees =
+    unionBasis &&
+    (visibleSnapshot?.member_fees?.definition === 'downline_accounting_fees' ||
+      visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS ||
+      visibleSnapshot?.member_fees?.day_basis === 'America/Chicago 02:00');
+  const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
+  const completeWindowLabel =
+    (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const windowLabel = isToday
+    ? completeWindowLabel.replace(/ To .*$/, ' To Now')
+    : completeWindowLabel;
+  const startClock = clubDataBoundaryClock(answerBasis, startDate);
+  const boundaryClock = clubDataBoundaryClock(answerBasis, addDays(endDate, 1));
   const feeText = isDownline
     ? formatMoney(visibleSnapshot?.member_fees?.total_fees)
     : summary
@@ -544,13 +631,25 @@ export default function ClubDataSimplePage() {
 
   return (
     <div className={styles.page}>
+      {sourceRow?.key === scopeKey && clubUuid && (
+        <ClubDataSourceDetails
+          row={sourceRow.row}
+          clubId={clubUuid}
+          start={startDate}
+          end={endDate}
+          onClose={() => setSourceRow(null)}
+        />
+      )}
       <Header
         onBack={() => navigate(-1)}
         clubName={clubName}
         /* The full report is the whole club's; an agent's view is his own. */
         onAdvanced={
           visibleSnapshot?.scope === 'club'
-            ? () => navigate(`/clubs/${clubKey}/data/advanced`)
+            ? () =>
+                navigate(
+                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced' })}`
+                )
             : undefined
         }
       />
@@ -566,6 +665,7 @@ export default function ClubDataSimplePage() {
           className={styles.arrow}
           onClick={() => shift(-1)}
           aria-label="Previous Period"
+          disabled={addDays(startDate, -rangeDays) < clubDataOldestDay(today)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M16 3 L5 12 L16 21 Z" />
@@ -578,15 +678,10 @@ export default function ClubDataSimplePage() {
           aria-expanded={editingDates}
           aria-controls="club-data-date-range"
           onClick={() => {
-            setDraftStart(startDate);
-            setDraftEnd(endDate);
-            setRangeError(null);
             setEditingDates((open) => !open);
           }}
         >
-          <span>{startDate}</span>
-          <span className={styles.rangeDash}>-</span>
-          <span>{endDate}</span>
+          <span>{windowLabel}</span>
           <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
         </button>
         <button
@@ -602,51 +697,31 @@ export default function ClubDataSimplePage() {
         </button>
       </div>
 
+      {reportRangeError && (
+        <p role="alert" className={styles.liveLine}>
+          {reportRangeError}
+        </p>
+      )}
+      <ClubDataReportGuide start={startDate} end={endDate} basis={answerBasis} union={unionBasis} />
+
       {editingDates && (
-        <form
-          id="club-data-date-range"
-          className={styles.dateEditor}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const problem = clubDataRangeError(draftStart, draftEnd, today);
-            setRangeError(problem);
-            if (problem) return;
-            selectDates(draftStart, draftEnd);
+        <ClubDataRangeCalendar
+          start={startDate}
+          end={endDate}
+          today={today}
+          zoneLabel={
+            answerBasis === 'accounting'
+              ? 'Pacific Accounting Dates'
+              : answerBasis === 'pacific'
+                ? 'Pacific Calendar Dates'
+                : 'Chicago Calendar Dates'
+          }
+          onClose={() => setEditingDates(false)}
+          onApply={(first, last) => {
+            selectDates(first, last);
             setEditingDates(false);
           }}
-        >
-          <label>
-            Start Date
-            <input
-              type="date"
-              aria-label="Start Date"
-              value={draftStart}
-              max={draftEnd || today}
-              onChange={(event) => setDraftStart(event.target.value)}
-              required
-            />
-          </label>
-          <label>
-            End Date
-            <input
-              type="date"
-              aria-label="End Date"
-              value={draftEnd}
-              min={draftStart}
-              max={today}
-              onChange={(event) => setDraftEnd(event.target.value)}
-              required
-            />
-          </label>
-          <p>Chicago Time. Up To 93 Days.</p>
-          {rangeError && <p role="alert">{rangeError}</p>}
-          <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
-            Cancel
-          </button>
-          <button type="submit" className={styles.retry}>
-            Apply Dates
-          </button>
-        </form>
+        />
       )}
       <div className={styles.segment} role="group" aria-label="Date Range">
         {PRESETS.map((p) => (
@@ -656,7 +731,7 @@ export default function ClubDataSimplePage() {
             aria-pressed={customStart === null && preset === p}
             className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
             onClick={() => {
-              selectDates(null, endDate);
+              selectDates(null, clubDataToday(new Date(), dayBasisRef.current));
               setPreset(p);
               setEditingDates(false);
             }}
@@ -716,7 +791,11 @@ export default function ClubDataSimplePage() {
         <div className={styles.stat}>
           <dt className={styles.statLabel}>
             {isDownline ? (
-              'My Fees Earned'
+              downlineAccountingFees ? (
+                'Downline Fees'
+              ) : (
+                'My Fees Earned'
+              )
             ) : (
               <button
                 type="button"
@@ -732,43 +811,49 @@ export default function ClubDataSimplePage() {
           <dd
             className={styles.statValue}
             ref={feeRef}
-            title={
-              visibleSnapshot?.scope === 'downline'
-                ? formatMoney(visibleSnapshot.member_fees?.total_fees)
-                : summary
-                  ? formatMoney(summary.fee)
-                  : undefined
-            }
-            aria-label={
-              visibleSnapshot?.scope === 'downline'
-                ? formatMoney(visibleSnapshot.member_fees?.total_fees)
-                : summary
-                  ? formatMoney(summary.fee)
-                  : undefined
-            }
+            title={isDownline || summary ? feeText : undefined}
+            aria-label={isDownline || summary ? feeText : undefined}
           >
             {feeText}
           </dd>
         </div>
       </dl>
+      {visibleSnapshot && !isDownline && (
+        <ClubDataReconciliation
+          basis={visibleSnapshot.accounting_basis}
+          coverage={visibleSnapshot.accounting_coverage}
+          range={visibleSnapshot.range}
+          reconciliation={summary?.reconciliation}
+          generatedAt={visibleSnapshot?.generated_at}
+          onPlayers={() => setBreakdown('total_winnings')}
+          onGames={() =>
+            navigate(
+              `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced', dataTab: 'games' })}#club-data-panel-games`
+            )
+          }
+        />
+      )}
+      {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
+        <ClubDataByClub
+          clubs={visibleSnapshot.clubs}
+          end={endDate}
+          start={startDate}
+          filters={{ game, stakes, search: searchInput }}
+        />
+      )}
       {breakdown && visibleSnapshot && clubUuid && userId && (
         <ClubDataTotalsBreakdown
           key={scopeKey}
           clubId={clubUuid}
           start={startDate}
           end={endDate}
+          basis={answerBasis}
           game={game}
           stakes={stakesApply ? stakes : 'ALL'}
           search={search || null}
           metric={breakdown}
           onClose={() => setBreakdown(null)}
         />
-      )}
-      {visibleSnapshot?.scope === 'downline' && (
-        <p className={styles.liveLine}>
-          Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game Rows
-          Show Downline Fees Generated.
-        </p>
       )}
       {summary &&
         summary.running_mtt_entries !== undefined &&
@@ -783,36 +868,83 @@ export default function ClubDataSimplePage() {
             </dd>
           </dl>
         )}
+      {unionBasis && summary && typeof summary.on_felt === 'number' && (
+        <dl className={styles.runningLine} aria-label="Chips On The Felt">
+          <dt>On The Felt Now</dt>
+          <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
+        </dl>
+      )}
 
-      <div className={styles.liveLine} role="status">
-        {error ? (
-          <span className={styles.inkLoss}>{error}</span>
-        ) : loading && !snapshot ? (
-          <span>Reading Live Data</span>
-        ) : (
-          <>
-            <span className={styles.liveDot} aria-hidden="true" />
-            <span>
-              Live{updatedLabel ? ` - Updated ${updatedLabel} ${CLUB_DATA_ZONE_LABEL}` : ''}
-              {liveCount > 0 ? ` - ${liveCount} Game${liveCount === 1 ? '' : 's'} In Play` : ''}
-            </span>
-          </>
-        )}
+      <div className={styles.liveRow}>
+        <div className={styles.liveLine} role="status">
+          {error ? (
+            <span className={styles.inkLoss}>{error}</span>
+          ) : loading && !snapshot ? (
+            <span>Reading Live Data</span>
+          ) : (
+            <>
+              <span className={styles.liveDot} aria-hidden="true" />
+              <span>
+                Live{updatedLabel ? ` - Updated ${updatedLabel} ${CLUB_DATA_ZONE_LABEL}` : ''}
+                {liveCount > 0 ? ` - ${liveCount} Game${liveCount === 1 ? '' : 's'} In Play` : ''}
+              </span>
+            </>
+          )}
+        </div>
+        <DataHelpTip alert={Boolean(notices.incomplete)}>
+          <p>
+            {clubDataDayRule(answerBasis)}. The Window Starts At {startClock} On The Start Date And
+            Stops At {boundaryClock} After The Last Selected Day. Both Selected Dates Are Included.
+            Within The Past 90 Days.
+          </p>
+          {visibleSnapshot && unionBasis && <p>{UNION_BASIS_DEFINITIONS}</p>}
+          {unionBasis && (
+            <p>
+              Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total
+              Winnings. On The Felt Now Is Not In Total Winnings.
+            </p>
+          )}
+          {visibleSnapshot?.scope === 'downline' &&
+            (downlineAccountingFees ? (
+              <p>
+                Downline Fees Are The Rake Credited For You And Your Downline On The Union Invoice
+                Basis, Before Agent Shares, Across All Games For This Window.
+              </p>
+            ) : visibleSnapshot?.member_fees?.definition === 'pacific_earned_fees' ? (
+              <p>
+                Your Fees After Shares And Adjustments, Across All Games In This Pacific Window.
+                Game Rows Show Downline Fees Generated.
+              </p>
+            ) : (
+              <p>
+                Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game
+                Rows Show Downline Fees Generated.
+              </p>
+            ))}
+          {notices.provisional && <p role="status">{notices.provisional}</p>}
+          {notices.incomplete && (
+            <p className={styles.inkLoss} role="alert">
+              {notices.incomplete}
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'pacific_net_money_flow' && (
+            <p>
+              Net Entries And Payouts In Pacific Time. MTT Winnings Count Finished MTTs Only.
+              Unfinished MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
+            <p>
+              Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only.
+              Unfinished MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
+            <p>Net Entries And Payouts In UTC. Unfinished Event Entries Included.</p>
+          )}
+          {factsFrom && startDate < factsFrom && <p>Figures Begin {factsFrom}</p>}
+        </DataHelpTip>
       </div>
-      {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
-        <p className={styles.liveLine}>
-          Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only. Unfinished
-          MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
-        </p>
-      )}
-      {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
-        <p className={styles.liveLine}>
-          Net Entries And Payouts In UTC. Unfinished Event Entries Included.
-        </p>
-      )}
-      {factsFrom && startDate < factsFrom && (
-        <p className={styles.liveLine}>Figures Begin {factsFrom}</p>
-      )}
 
       <label className={styles.search}>
         <input
@@ -846,7 +978,7 @@ export default function ClubDataSimplePage() {
                       className={`${styles.row} ${styles.playerResult}`}
                       onClick={() =>
                         navigate(
-                          `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}`
+                          `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}?${clubDataContextQuery(new URLSearchParams({ ...Object.fromEntries(searchParams), dataClub: clubKey }), { start: startDate, end: endDate, game, stakes, search: searchInput })}`
                         )
                       }
                     >
@@ -912,7 +1044,13 @@ export default function ClubDataSimplePage() {
             <li key={`${row.kind}-${row.id}`} className={styles.row}>
               <div className={styles.rowMain}>
                 <div className={styles.rowTitle}>
-                  <span className={styles.rowName}>{row.name}</span>
+                  <button
+                    type="button"
+                    className={styles.sourceName}
+                    onClick={() => setSourceRow({ key: scopeKey, row })}
+                  >
+                    {row.name}
+                  </button>
                   {row.live && <span className={styles.badgeLive}>Live</span>}
                 </div>
                 <div className={styles.rowMeta}>

@@ -18,12 +18,15 @@ export interface DurableTerminalRequest {
 // Every attempted prepare rolled back on a held lock. No payment command was sent.
 // This says nothing about earlier operations; the next pass re-enters the
 // original durable authority, which adopts an existing request or receipt.
-export class SatelliteTerminalPrepareBusyError extends Error {
+export class TerminalPrepareBusyError extends Error {
   constructor() {
-    super('Satellite terminal preparation deferred by a held database lock (55P03)');
-    this.name = 'SatelliteTerminalPrepareBusyError';
+    super('Terminal preparation deferred by a held database lock (55P03)');
+    this.name = 'TerminalPrepareBusyError';
   }
 }
+
+// Existing satellite callers share the same proven pre-send refusal.
+export { TerminalPrepareBusyError as SatelliteTerminalPrepareBusyError };
 
 export class TerminalIntentUnknownError extends Error {
   readonly originalRequest: TerminalRequestIdentity;
@@ -170,11 +173,10 @@ export async function prepareDurableTerminalRequest(
       /* Remain unsent until the same identity is acknowledged. */
     }
   }
-  if (
-    busyResponses === 2 &&
-    (identity.kind === 'satellite' || identity.kind === 'satellite_qualifiers')
-  ) {
-    throw new SatelliteTerminalPrepareBusyError();
+  // Both RPCs positively rolled back. No settlement was sent, regardless
+  // of tournament format. A lost reply mixed with contention stays unknown.
+  if (busyResponses === 2) {
+    throw new TerminalPrepareBusyError();
   }
   throw new TerminalIntentUnknownError(
     'Original terminal intent acknowledgement is unknown',

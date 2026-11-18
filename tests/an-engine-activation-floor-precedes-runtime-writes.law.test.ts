@@ -25,6 +25,28 @@ const groups = [
       'test_current_owner_reservation_reaches_countdown_and_refuses_replay',
       'test_provenance_worker_and_database_windows_bind_the_same_corrective_release',
       'test_provenance_archive_gate_refuses_absent_and_unreadable_catalogs',
+      'test_receipt_successor_binds_a_fresh_floor_and_preserves_single_use_custody',
+      'test_clone_clock_successor_binds_a_fresh_floor_and_preserves_consumed_receipt_order',
+      'test_realtime_10454_binds_fresh_authority_and_preserves_consumed_clock_order',
+      'test_corrections_10525_binds_fresh_authority_and_preserves_unconsumed_realtime_order',
+      'test_rebooked_corrections_bind_fresh_authority_and_preserve_expired_orders',
+      'test_missed_engine_takeover_binds_fresh_authority_and_separate_prerequisites',
+      'test_owner_now_55_break_binds_fresh_authority_to_the_serving_predecessor',
+      'test_owner_now_rebooking_binds_the_next_55_break_after_the_schema_moved',
+      'test_owner_asap_booking_binds_the_earliest_certifiable_admission_after_two_lapses',
+      'test_owner_offcycle_booking_binds_fresh_authority_to_the_new_serving_predecessor',
+      'test_owner_window_2026_11_14_owner_offcycle_engine_1706z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_15_owner_offcycle_engine_0806z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_15_owner_offcycle_engine_1206z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_15_owner_offcycle_engine_1806z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_15_owner_offcycle_engine_2245z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_16_owner_offcycle_engine_0106z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_16_owner_offcycle_engine_1906z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_16_owner_offcycle_engine_2320z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_17_owner_no_notice_engine_2330z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_18_owner_no_notice_engine_0705z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_18_owner_no_notice_engine_1030z_binds_fresh_authority_to_its_serving_predecessor',
+      'test_owner_window_2026_11_18_owner_no_notice_engine_1630z_binds_fresh_authority_to_its_serving_predecessor',
       'test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry',
       'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
       'test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority',
@@ -121,7 +143,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(56);
+  expect(selected).toHaveLength(78);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 420_000);

@@ -1,3 +1,5 @@
+import { encodePresentation, decodePresentation } from '../../lib/sharedPresentationCodec';
+import { cosmeticClassName } from '../../cosmetics/avatarCosmetics';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  SHARE HAND — Premium-Style Shareable Hand Replay
@@ -10,7 +12,7 @@
  * - Preview card
  */
 
-import { copyToClipboard } from '../../lib/copyToClipboard';
+import { copyText, hasShareSheet, shareLink } from '../../lib/share';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { haptic } from '../../services/SoundService';
 import { CardImage, type Card } from '../table/CardImage';
@@ -18,6 +20,7 @@ import './ShareHand.css';
 import { reportError } from '../../utils/errorReporter';
 import { normalizeInviteCode } from '../../lib/inviteCode';
 import { openInBrowser } from '../../lib/openExternal';
+const ShareTablePreview = React.lazy(() => import('./ShareTablePreview'));
 import ShareAsVideoPanel from './ShareAsVideoPanel';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -29,7 +32,15 @@ export interface ShareableCard {
   suit: 'h' | 'd' | 'c' | 's';
 }
 
+import {
+  sharedAvatar,
+  readSharedTableAppearance,
+  type SharedTableAppearance,
+} from '../../lib/sharedTableAppearance';
+
 export interface ShareableAction {
+  /** Milliseconds since this client observed the deal. */
+  atMs?: number;
   seat: number;
   /**
    * v3 (2026-09-05) adds the FORCED money and the returned bet. A shared hand
@@ -64,6 +75,9 @@ export interface ShareableAction {
 }
 
 export interface ShareablePlayer {
+  avatar?: string;
+  frame?: string;
+  aura?: string;
   seat: number;
   name: string;
   /**
@@ -109,6 +123,7 @@ export interface ShareablePlayer {
 }
 
 export interface ShareableHand {
+  appearance?: SharedTableAppearance;
   /** Recorded event identity. Undefined on older shared links. */
   tournamentId?: string | null;
   id: string;
@@ -329,6 +344,8 @@ function encodeAction(action: ShareableAction): string {
   if (action.amount !== undefined) {
     str += encodeMoney(action.amount);
   }
+  if (Number.isSafeInteger(action.atMs) && action.atMs! >= 0)
+    str += '.' + action.atMs!.toString(36);
   if (action.dead) str += DEAD_MARK;
   return str;
 }
@@ -354,7 +371,7 @@ function decodeActions(str: string | undefined, version: string): ShareableActio
   if (!str) return out;
   for (const rawToken of str.split(',')) {
     const dead = rawToken.endsWith(DEAD_MARK);
-    const token = dead ? rawToken.slice(0, -1) : rawToken;
+    const [token, timing] = (dead ? rawToken.slice(0, -1) : rawToken).split('.');
     const m = token.match(/^(\d+)([A-Z])(.*)$/);
     if (!m) continue;
     const seat = parseInt(m[1], 10);
@@ -368,6 +385,7 @@ function decodeActions(str: string | undefined, version: string): ShareableActio
       const amt = decodeMoney(m[3], version);
       if (Number.isFinite(amt)) action.amount = amt;
     }
+    if (timing && /^[0-9a-z]{1,6}$/.test(timing)) action.atMs = parseInt(timing, 36);
     if (dead) action.dead = true;
     out.push(action);
   }
@@ -481,7 +499,14 @@ export function encodeHand(hand: ShareableHand): string {
       const stack = p.stack == null ? '' : encodeMoney(p.stack);
       /* What this seat was PAID, after rake. Empty when they won nothing. */
       const won = p.won ? encodeMoney(p.won) : '';
-      return `${p.seat}:${b64utf8(clip(p.name, CAP_NAME))}:${stack}:${cards}:${flags}:${handName}:${won}`;
+      const avatar = sharedAvatar(p.avatar);
+      const art = [
+        avatar ? b64utf8(avatar) : '',
+        cosmeticClassName(p.frame, 'frame'),
+        cosmeticClassName(p.aura, 'aura'),
+      ];
+      while (art.length && !art[art.length - 1]) art.pop();
+      return `${p.seat}:${b64utf8(clip(p.name, CAP_NAME))}:${stack}:${cards}:${flags}:${handName}:${won}${art.length ? ':' + art.join(':') : ''}`;
     })
     .join(';');
   parts.push(playerStr);
@@ -557,6 +582,14 @@ export function encodeHand(hand: ShareableHand): string {
   // Recorded identity is optional; legacy links remain unclassified.
   parts.push(hand.tournamentId ? b64utf8(clip(hand.tournamentId, 64)) : '');
 
+  const appearance = readSharedTableAppearance(hand.appearance);
+  if (appearance) {
+    const { seatPaints, throws, deal, chips, ...table } = appearance;
+    parts.push(b64utf8(JSON.stringify(table)));
+    if (seatPaints || throws || deal || chips)
+      parts.push(encodePresentation({ seatPaints, throws, deal, chips }));
+  }
+
   // Base64 URL-safe encode. Everything above is ASCII by construction (names
   // are base64'd), so btoa cannot throw here.
   const encoded = btoa(parts.join('~')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -589,7 +622,18 @@ export function decodeHandFromUrl(encoded: string): ShareableHand | null {
       .split(';')
       .filter(Boolean)
       .map((ps) => {
-        const [seat, nameB64, stackB36, cardsStr, flags, handNameB64, wonB36] = ps.split(':');
+        const [
+          seat,
+          nameB64,
+          stackB36,
+          cardsStr,
+          flags,
+          handNameB64,
+          wonB36,
+          avatarB64,
+          frame,
+          aura,
+        ] = ps.split(':');
         const player: ShareablePlayer = {
           seat: parseInt(seat, 10) || 0,
           name: unb64utf8(nameB64) || `Seat ${seat}`,
@@ -605,6 +649,12 @@ export function decodeHandFromUrl(encoded: string): ShareableHand | null {
         }
         const handName = unb64utf8(handNameB64);
         if (handName) player.handName = handName;
+        const avatar = sharedAvatar(unb64utf8(avatarB64));
+        if (avatar) player.avatar = avatar;
+        const equippedFrame = cosmeticClassName(frame, 'frame');
+        const equippedAura = cosmeticClassName(aura, 'aura');
+        if (equippedFrame) player.frame = equippedFrame;
+        if (equippedAura) player.aura = equippedAura;
         if (wonB36) player.won = decodeMoney(wonB36, version);
         return player;
       });
@@ -703,6 +753,21 @@ export function decodeHandFromUrl(encoded: string): ShareableHand | null {
       winners,
       wireVersion: version,
     };
+    if (parts[20]) {
+      const table = JSON.parse(unb64utf8(parts[20]));
+      const recording = parts[21] ? decodePresentation(parts[21]) : undefined;
+      hand.appearance = readSharedTableAppearance(
+        recording
+          ? {
+              ...table,
+              seatPaints: recording.seatPaints,
+              deal: recording.deal,
+              chips: recording.chips,
+              throws: recording.throws,
+            }
+          : table
+      );
+    }
     if (extraBoards.length) hand.extraBoards = extraBoards;
     if (rakeStr) hand.rake = decodeMoney(rakeStr, version);
     if (bbjStr) hand.bbjFee = decodeMoney(bbjStr, version);
@@ -750,6 +815,23 @@ export function ShareHand({
 }: ShareHandProps) {
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [copied, setCopied] = useState(false);
+  /*
+   * A copy that did not happen is said on screen (2026-11-15). Until then a
+   * refused copy only reached the error log and the Copy button looked like
+   * it had done nothing. The link is selected so it can be copied by hand.
+   */
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [embedState, setEmbedState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const embedRef = useRef<HTMLTextAreaElement | null>(null);
+  const selectForHand = (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+    try {
+      el?.focus();
+      el?.select();
+    } catch {
+      /* the text is still on screen */
+    }
+  };
   // CA-2 BUG FIX: track the "Copied" dismiss timer so it can be cancelled on
   // unmount — was calling setCopied on an already-unmounted component.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -786,15 +868,18 @@ export function ShareHand({
   // Copy link
   const handleCopy = useCallback(async () => {
     haptic.light();
-    // copyToClipboard falls back to a selection copy when the Clipboard API
-    // is present but refused, and only a copy that happened counts as sent.
-    if (await copyToClipboard(shareUrl)) {
+    // copyText falls back to a selection copy when the Clipboard API is
+    // present but refused, reports a copy that did not happen, and counts the
+    // outcome. Only a copy that happened counts as sent.
+    if (await copyText(shareUrl, 'ShareHand.copy')) {
       onShared?.();
+      setCopyFailed(false);
       setCopied(true);
       clearTimeout(copiedTimerRef.current!);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } else {
-      reportError(new Error('Clipboard refused and selection copy failed'), 'ShareHand.Copy_failed');
+      setCopyFailed(true);
+      selectForHand(urlInputRef.current);
     }
   }, [shareUrl, onShared]);
 
@@ -819,19 +904,22 @@ export function ShareHand({
 
   // Native share (mobile)
   const handleNativeShare = useCallback(async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Hand Replay - ' + clubName,
-          text: shareText,
-          url: shareUrl,
-        });
-        onShared?.();
-      } catch (error) {
-        if ((error as { name?: string } | null)?.name !== 'AbortError') {
-          reportError(error, 'ShareHand.Share_failed');
-        }
-      }
+    const outcome = await shareLink({
+      source: 'ShareHand.share',
+      title: 'Hand Replay - ' + clubName,
+      text: shareText,
+      url: shareUrl,
+    });
+    // Sent means the sheet took it or the link reached the clipboard.
+    if (outcome === 'shared' || outcome === 'copied') onShared?.();
+    if (outcome === 'copied') {
+      setCopyFailed(false);
+      setCopied(true);
+      clearTimeout(copiedTimerRef.current!);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    } else if (outcome === 'failed') {
+      setCopyFailed(true);
+      selectForHand(urlInputRef.current);
     }
   }, [shareText, shareUrl, clubName, onShared]);
 
@@ -856,25 +944,42 @@ export function ShareHand({
   }, [activeTab]);
 
   if (!isOpen) return null;
+  const winnerSeats = new Set(hand.winners.map((award) => award.seat));
+  const winners = hand.players.filter((player) => winnerSeats.has(player.seat));
 
   return (
     <div className="share-hand-overlay" onClick={onClose}>
-      <div className="share-hand-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Share Hand"
+        className="share-hand-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="share-hand__header">
           <h2 className="share-hand__title"> Share Hand</h2>
-          <button className="share-hand__close" onClick={onClose}>
+          <button className="share-hand__close" aria-label="Close Share Hand" onClick={onClose}>
             ×
           </button>
         </div>
 
         {/* Preview Card */}
         <div className="share-hand__preview">
-          <div className="share-hand__preview-header">
-            <span className="share-hand__variant">{hand.variant}</span>
-            <span className="share-hand__stakes">{hand.stakes}</span>
+          <div className="share-hand__game">
+            {hand.tableName || hand.variant}
+            {hand.handNumber ? ` · #${hand.handNumber}` : ''}
           </div>
-
+          <div className="share-hand__result">
+            <div>
+              <small>{winners.length > 1 ? 'Winners' : 'Winner'}</small>
+              <strong>{winners.map((p) => p.name).join(' · ') || 'Unrecorded'}</strong>
+            </div>
+            <div>
+              <small>Pot</small>
+              <strong>{hand.potTotal.toLocaleString()}</strong>
+            </div>
+          </div>
           {/* Board Preview — Custom PNG Deck */}
           <div className="share-hand__board">
             {hand.flop && (
@@ -898,10 +1003,9 @@ export function ShareHand({
             )}
           </div>
 
-          <div className="share-hand__pot">
-            <span className="share-hand__pot-label">Pot</span>
-            <span className="share-hand__pot-value">{hand.potTotal.toLocaleString()}</span>
-          </div>
+          <React.Suspense fallback={null}>
+            <ShareTablePreview hand={hand} />
+          </React.Suspense>
         </div>
 
         {/* Tabs */}
@@ -931,17 +1035,29 @@ export function ShareHand({
           {activeTab === 'link' && (
             <div className="share-hand__link-tab">
               <div className="share-hand__url-box">
-                <input type="text" value={shareUrl} readOnly className="share-hand__url-input" />
+                <input
+                  ref={urlInputRef}
+                  type="text"
+                  value={shareUrl}
+                  readOnly
+                  className="share-hand__url-input"
+                  aria-label="Hand Link"
+                />
                 <button
                   className={`share-hand__copy-btn ${copied ? 'share-hand__copy-btn--success' : ''}`}
                   aria-label={copied ? 'Link Copied' : 'Copy Link'}
                   onClick={handleCopy}
                 >
-                  {copied ? '' : ''}
+                  {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
+              {copyFailed && (
+                <p className="share-hand__copy-failed" role="alert">
+                  Copy Is Blocked Here. The Link Is Selected, Copy It By Hand.
+                </p>
+              )}
 
-              {'share' in navigator && (
+              {hasShareSheet() && (
                 <button className="share-hand__native-share" onClick={handleNativeShare}>
                   Share
                 </button>
@@ -1000,26 +1116,36 @@ export function ShareHand({
 
           {activeTab === 'embed' && (
             <div className="share-hand__embed-tab">
-              <textarea className="share-hand__embed-code" value={embedCode} readOnly rows={3} />
+              <textarea
+                ref={embedRef}
+                className="share-hand__embed-code"
+                value={embedCode}
+                readOnly
+                rows={3}
+                aria-label="Embed Code"
+              />
               <button
                 className="share-hand__copy-embed"
-                onClick={() => navigator.clipboard.writeText(embedCode)}
+                onClick={() => {
+                  void copyText(embedCode, 'ShareHand.embed').then((ok) => {
+                    setEmbedState(ok ? 'copied' : 'failed');
+                    if (!ok) selectForHand(embedRef.current);
+                  });
+                }}
               >
-                Copy Embed Code
+                {embedState === 'copied' ? 'Embed Code Copied' : 'Copy Embed Code'}
               </button>
+              {embedState === 'failed' && (
+                <p className="share-hand__copy-failed" role="alert">
+                  Copy Is Blocked Here. The Code Is Selected, Copy It By Hand.
+                </p>
+              )}
             </div>
           )}
         </div>
 
         {/* Share As Video (Phase 9.1): only for a hand with a stored row id. */}
         {handId && <ShareAsVideoPanel handId={handId} />}
-
-        {/* Footer */}
-        <div className="share-hand__footer">
-          <span className="share-hand__footer-text">
-            Click The Link To Watch A Video Replay Of This Hand
-          </span>
-        </div>
       </div>
     </div>
   );

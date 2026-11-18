@@ -104,7 +104,7 @@ export function RunItTwicePrompt({
   boardCards = [],
   potAmount,
   players = [],
-  totalSeconds = 25,
+  totalSeconds = 10,
   heroAccepted = false,
   currency = '',
 }: RunItTwicePromptProps) {

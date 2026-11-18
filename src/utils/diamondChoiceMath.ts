@@ -332,8 +332,14 @@ export async function verifyChoiceRoundDetailed(
   const stake = () =>
     round.game === 'mines'
       ? (picks: number) =>
-          version === 5
-            ? minePrizeV5(round.bet_chips, Number(round.mode), picks, floor)
+          version === 5 || version === 9
+            ? minePrizeV5(
+                round.bet_chips,
+                Number(round.mode),
+                picks,
+                floor,
+                version === 9 ? (round.wheel_minimum_payout_chips ?? 0) : 0
+              )
             : sealedV4
               ? minePrizeV4(round.bet_chips, Number(round.mode), picks, floor)
               : minePrize(round.bet_chips, Number(round.mode), picks, floor)
@@ -349,7 +355,7 @@ export async function verifyChoiceRoundDetailed(
         (await sha256Hex(proof.server_seed)) === proof.server_seed_hash &&
         // A receipt is sealed under one contract, and says which one it was.
         sealedV4 === (proof.payout_version ?? 0) >= CHOICE_PAYOUT_VERSION &&
-        (version !== 5 || proof.payout_version === 5) &&
+        (![5, 9].includes(version) || proof.payout_version === version) &&
         isRoadCoinVersion(version) === isRoadCoinVersion(proof.payout_version) &&
         (!isRoadCoinVersion(version) || proof.payout_version === version)
     ),
@@ -389,7 +395,7 @@ export async function verifyChoiceRoundDetailed(
           round.payout_chips ===
           Math.max(
             wheelFloor,
-            version === 5 || coinRoad
+            version === 5 || version === 9 || coinRoad
               ? choiceLossGuarantee(round.prizes, round.picked.length - 1, floor)
               : floor
           )

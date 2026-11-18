@@ -47,6 +47,51 @@
 
 import { supabase } from './supabase.js';
 import { reportError } from './errorReporter.js';
+import { HUMAN_ARRIVAL_MAX_MS, SPIN_LADDER } from '../config/seatFirstLadder.js';
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  THE LADDER'S OWN ENVELOPE, ON A GAUGE (2026-11-10)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * SpinFleetProducingNothing used to read
+ * `poker_spin_seconds_since_last_start > 1800`: half an hour of nothing
+ * starting, written on 2026-09-02 against a fleet whose boards filled
+ * themselves inside six minutes.
+ *
+ * Dan's seat-first ladder retired that fleet on 2026-11-08. One horse opens a
+ * Spin and the board waits 60-80 minutes for a second and 30-60 more for a
+ * third, so a HEALTHY board can legitimately produce nothing for over two
+ * hours, and eleven boards at those odds leave gaps past half an hour as a
+ * matter of design. The rule paged critical on the product working, and the
+ * 1800 sat in a YAML file that no change to the ladder could ever reach.
+ *
+ * So the threshold is not written in the rule any more: it is EMITTED, from
+ * the ladder constants themselves. The rule compares one gauge against the
+ * other, which means changing SPIN_LADDER or HUMAN_ARRIVAL_MAX_MS moves the
+ * alert with it, in the same commit, with nothing to remember.
+ *
+ * Both are constants rather than measurements, so they are emitted on every
+ * scrape including the very first - a collector that has never read the
+ * database still knows what the ladder says.
+ */
+
+/**
+ * The longest a horse-only Spin may legitimately take to deal: every rung of
+ * SPIN_LADDER at its maximum. Nothing starting for longer than this, with
+ * boards open, is the empty factory of 2026-09-01 rather than the ladder.
+ */
+export const SPIN_LADDER_FULL_ENVELOPE_SECONDS = Math.round(
+  SPIN_LADDER.reduce((total, rung) => total + rung.maxMs, 0) / 1000
+);
+
+/**
+ * The outside edge of the promise made to a PERSON who sits down: "IF A HUMAN
+ * SITS AT AN EMPTY TABLE, OTHERS SHOULD JOIN ... WITHIN 3-7 MIN." A human seat
+ * that has waited longer than this is the fill path failing, whatever the
+ * ladder is doing on the boards nobody has sat at.
+ */
+export const HUMAN_ARRIVAL_MAX_SECONDS = Math.round(HUMAN_ARRIVAL_MAX_MS / 1000);
 
 export interface SpinMetricsSnapshot {
   /** Spins that STARTED inside the lag window and recorded a lag. */
@@ -377,6 +422,20 @@ export class SpinMetrics {
       'poker_spin_open_boards',
       'Spin boards sitting in REGISTERING. Pairs with the staleness above: boards open and nothing starting is a fault, no boards open is a quiet room.',
       s.openBoards
+    );
+    /* THE LADDER'S OWN CLOCK, so the alert never carries a stale number of its
+       own. SpinFleetProducingNothing compares the staleness above against
+       this, and SpinHumanWaitingForOpponents compares a human's wait against
+       the arrival promise below. Change the ladder and both thresholds move. */
+    gauge(
+      'poker_spin_ladder_full_envelope_seconds',
+      'Longest a horse-only Spin may legitimately take to deal: every SPIN_LADDER rung at its maximum (server/src/config/seatFirstLadder.ts). The stall threshold, emitted rather than written into a rule.',
+      SPIN_LADDER_FULL_ENVELOPE_SECONDS
+    );
+    gauge(
+      'poker_spin_human_arrival_max_seconds',
+      'Outside edge of the 3-7 minute promise to a person who sits down (HUMAN_ARRIVAL_MAX_MS). A human seat waiting longer than this is the fill path failing, not the ladder.',
+      HUMAN_ARRIVAL_MAX_SECONDS
     );
     gauge(
       'poker_spin_unfilled_waits',

@@ -1,4 +1,6 @@
 import { sameUnchangedLobbyOrder } from './support/lobbyFavoriteOrderProof';
+import { tableRouteIdentity } from './support/tableRouteIdentity';
+import { isOwnedLiveSeatRead } from './support/ownedSeatRefreshRead';
 import {
   closedBoardEvidence,
   isLobbyCatalogResponse,
@@ -424,6 +426,191 @@ test.describe('the mobile lobby chrome on production', () => {
     await expect(gameTypes.getByRole('tab')).toHaveText(['ALL', 'NLH', 'PLO', 'LIMIT']);
   });
 
+  test('View Game opens four spectator games while preserving the lobby page', async ({
+    page,
+  }, testInfo) => {
+    expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
+      true
+    );
+    const participation: string[] = [];
+    await page.route(
+      /\/(?:action|leave|rest\/v1\/(?:table_seats|tournament_players|wallet_transactions|rpc\/(?:fn_cash_game_join|fn_table_waitlist_join|atomic_table_buyin|fn_lightning_join|fn_lightning_buy_in|fn_take_seat_and_buy_in)))(?:[/?#]|$)/,
+      async (route) => {
+        const request = route.request();
+        if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.continue();
+        participation.push(new URL(request.url()).pathname);
+        await route.abort('blockedbyclient');
+      }
+    );
+    await openLobby(page);
+    await openLobbyGameSection(page, 'ALL');
+    await page.getByRole('tab', { name: 'ALL', exact: true }).click();
+    const cards = page.locator(`${CASH_TABLE_CARD_SELECTOR}:visible`);
+    await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(4);
+    const ids = await cards.evaluateAll((rows) =>
+      rows.slice(0, 4).map((row) => row.getAttribute('data-id'))
+    );
+    expect(new Set(ids).size).toBe(4);
+    const actionBar = page.locator('.table-tab-bar:visible').first();
+    for (let i = 0; i < ids.length; i++) {
+      if (i === 1) {
+        await actionBar.getByRole('button', { name: 'Open Another Table', exact: true }).click();
+        await page
+          .getByRole('dialog', { name: 'Quick Join', exact: true })
+          .getByRole('button', { name: 'Browse Full Lobby', exact: true })
+          .click();
+      } else if (i > 1) {
+        await actionBar.locator('[data-tabid^="lobby:"]').click();
+      }
+      const lobby =
+        i === 0
+          ? page.locator('.club-home:visible')
+          : page.locator('.multi-table-page__lobby-tab .club-home:visible');
+      await expect(lobby).toBeVisible();
+      await openLobbyGameSection(lobby, 'ALL');
+      await lobby.getByRole('tab', { name: 'ALL', exact: true }).click();
+      // Chromium's native scrolling of a grid-styled table row repeatedly
+      // moved this nested lobby and its auto-hiding footer in the live trace.
+      // Click the visible painted style text; its normal event reaches the
+      // same row onSelect(entry), without table-fragment scroll geometry.
+      const heading = lobby.locator(`tr[data-id="${ids[i]}"]:visible .premium-cash-style`);
+      await heading.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await heading.click();
+      const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
+      await panel.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
+      await expect(actionBar.locator(`[data-tabid="${ids[i]}"]`)).toHaveAttribute(
+        'aria-current',
+        'true',
+        { timeout: 20_000 }
+      );
+      await expect(panel).toHaveCount(0);
+    }
+    await expect(actionBar.locator('[data-tabid]')).toHaveCount(5);
+    await expect(actionBar.locator('[data-tabid^="lobby:"]')).toHaveCount(1);
+    expect(participation).toEqual([]);
+    await testInfo.attach('four-spectator-games-and-lobby', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+  });
+
+  test('clustered cash admission explains wallet requirements and preserves observation', async ({
+    page,
+  }, testInfo) => {
+    expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
+      true
+    );
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const publishableKey =
+      process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+    if (!supabaseUrl || !publishableKey)
+      throw new Error('Public admission client configuration is missing');
+    const client = createClient(supabaseUrl, publishableKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const { data: auth, error: authError } = await client.auth.signInWithPassword({
+      email: process.env.SP_EMAIL!,
+      password: process.env.SP_PASS!,
+    });
+    if (authError || !auth.user)
+      throw new Error('Reserved admission witness could not authenticate');
+    const forbidden: string[] = [];
+    await page.route(
+      /\/(?:action|leave|buyin|addchips|rebuy|cashout|rest\/v1\/(?:table_seats|wallet_transactions|rpc\/(?:fn_table_waitlist_join|atomic_table_buyin|fn_take_seat_and_buy_in|fn_lightning_join|fn_lightning_buy_in)))(?:[/?#]|$)/,
+      async (route) => {
+        if (['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) return route.continue();
+        forbidden.push(new URL(route.request().url()).pathname);
+        await route.abort('blockedbyclient');
+      }
+    );
+    let gameId: string | undefined;
+    try {
+      // The isolated certificate account is never funded. Fail before admission
+      // if any membership can pay; this is a real refusal, never a bought seat.
+      const wallets = await client
+        .from('club_members')
+        .select('club_id,chip_balance')
+        .eq('user_id', auth.user.id);
+      expect(wallets.error).toBeNull();
+      expect(wallets.data?.length).toBeGreaterThan(0);
+      expect(wallets.data?.every((row) => Number(row.chip_balance) === 0)).toBe(true);
+      await openLobby(page);
+      const allGames = page.getByRole('tab', { name: 'ALL', exact: true });
+      await allGames.click();
+      await expect(allGames).toHaveAttribute('aria-selected', 'true');
+      const cards = page.locator(`${CASH_TABLE_CARD_SELECTOR}:visible`);
+      await expect(cards.first()).toBeVisible();
+      const ids = await cards.evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute('data-id')).filter((id): id is string => Boolean(id))
+      );
+      const catalogue = await client
+        .from('tables')
+        .select('id,cluster_id,cluster:cash_games!tables_cluster_id_fkey(cluster_mode,must_move)')
+        .in('id', ids);
+      expect(catalogue.error).toBeNull();
+      const table = catalogue.data?.find((row) => {
+        const cluster = row.cluster as unknown as {
+          cluster_mode?: string;
+          must_move?: boolean;
+        } | null;
+        return (
+          row.cluster_id && cluster?.cluster_mode === 'must_move' && cluster.must_move === true
+        );
+      });
+      expect(table, 'A live clustered cash game must be available').toBeTruthy();
+      gameId = table!.cluster_id!;
+      const openDetails = async () => {
+        const row = page.locator(`tr[data-id="${table!.id}"]:visible`);
+        await row.getByRole('button', { name: /^Details:/ }).click();
+        const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
+        await expect(panel).toBeVisible();
+        return panel;
+      };
+      const panel = await openDetails();
+      await expect(panel.getByRole('button', { name: /^(Join|Leave) Waitlist$/i })).toHaveCount(0);
+      const admission = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith('/rpc/fn_cash_game_join')
+      );
+      await panel.getByRole('button', { name: 'Join Game', exact: true }).click();
+      const response = await admission;
+      expect(response.request().postDataJSON()).toEqual({ p_game_id: gameId });
+      const refusal = await response.json();
+      expect(refusal.message).toMatch(/^INSUFFICIENT_CHIPS(?::|$)/);
+      await expect(
+        page.getByText(/Not Enough Chips In Your Active Club Wallet/).first()
+      ).toBeVisible();
+      const state = await client.rpc('fn_cash_game_lobby', { p_game_id: gameId });
+      expect(state.error).toBeNull();
+      expect(state.data?.game?.id).toBe(gameId);
+      expect(state.data?.me?.user_id).toBe(auth.user.id);
+      expect(state.data?.me?.seated).toBe(false);
+      expect(state.data?.me?.waitlist?.on_list).toBe(false);
+      expect(state.data?.me?.waitlist?.reserved_table_id).toBeNull();
+      const view = await openDetails();
+      await view.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
+      await expect(
+        page.locator(`.table-tab-bar:visible [data-tabid="${table!.id}"]`)
+      ).toHaveAttribute('aria-current', 'true', { timeout: 20_000 });
+      await expect(page.getByTestId('spectator-footer-bar')).toBeVisible({ timeout: 20_000 });
+      expect(forbidden).toEqual([]);
+      await testInfo.attach('clustered-admission-and-observation', {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+    } finally {
+      if (gameId) {
+        // Normal, authenticated cleanup also releases an unexpected admission
+        // offer. Never delete seats or change a wallet to clean up a witness.
+        const left = await client.rpc('fn_cash_game_leave_waitlist', { p_game_id: gameId });
+        expect(left.error).toBeNull();
+        expect(left.data?.ok).toBe(true);
+      }
+      await client.auth.signOut({ scope: 'local' });
+    }
+  });
+
   test('tournament Details stays inside the spectator table lobby tab', async ({
     page,
   }, testInfo) => {
@@ -524,15 +711,11 @@ test.describe('the mobile lobby chrome on production', () => {
       );
       await expect(lobbyTab).toHaveAttribute('aria-current', 'true');
       const ownerId = await readLobbyPreferenceOwner(page);
-      const seatRefresh = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          response.request().method() === 'GET' &&
-          url.pathname.endsWith('/table_seats') &&
-          url.searchParams.get('select') === 'table_id' &&
-          url.searchParams.get('user_id') === `eq.${ownerId}`
-        );
-      });
+      // The account's live-seat read, matched by role rather than a frozen
+      // column list (#10887 added joined_at; the unit pin holds the two together).
+      const seatRefresh = page.waitForResponse((response) =>
+        isOwnedLiveSeatRead(response.request().method(), new URL(response.url()), ownerId)
+      );
       // Exercise the real visibility recovery read, without a seat or purchase.
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       const refreshed = await seatRefresh;
@@ -549,9 +732,9 @@ test.describe('the mobile lobby chrome on production', () => {
         body: await page.screenshot(),
         contentType: 'image/png',
       });
-      expect(page.url()).toBe(tableUrl);
+      expect(tableRouteIdentity(page.url())).toBe(tableRouteIdentity(tableUrl));
       expect(
-        routeTrace.every((url) => url === tableUrl),
+        routeTrace.every((url) => tableRouteIdentity(url) === tableRouteIdentity(tableUrl)),
         'Details left the running table route'
       ).toBe(true);
       // Only the player's explicit Close Lobby gesture removes this page.
@@ -564,9 +747,9 @@ test.describe('the mobile lobby chrome on production', () => {
         'aria-current',
         'true'
       );
-      expect(page.url()).toBe(tableUrl);
+      expect(tableRouteIdentity(page.url())).toBe(tableRouteIdentity(tableUrl));
       expect(
-        routeTrace.every((url) => url === tableUrl),
+        routeTrace.every((url) => tableRouteIdentity(url) === tableRouteIdentity(tableUrl)),
         'Closing The Lobby Left The Running Table Route'
       ).toBe(true);
       expect(participation, 'spectator navigation attempted participation').toEqual([]);
@@ -1009,9 +1192,13 @@ test.describe('the mobile lobby chrome on production', () => {
     // board reads in the same order as the unstarred one under the same sort,
     // with the chosen run marked. Live player-count changes may legitimately
     // move other rows; compare peers whose rendered sort inputs stayed unchanged.
+    // Only tournaments not yet started are compared: a running event reorders
+    // on current_players, which its rendered Entries cell does not show. The
+    // clock is read right after the DOM read, so an event that started during
+    // the read is left out rather than compared.
     type Snapshot = Awaited<ReturnType<typeof snapshot>>;
     const sameOrder = (current: Snapshot, reference: Snapshot) =>
-      sameUnchangedLobbyOrder(current, reference, chosen);
+      sameUnchangedLobbyOrder(current, reference, chosen, Date.now());
     const assertStarredInPlace = async (phase: string, reference?: Snapshot) => {
       await expect
         .poll(async () => {

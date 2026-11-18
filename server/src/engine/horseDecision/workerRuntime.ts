@@ -1,3 +1,5 @@
+import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
 import { HorsePlanReadCapture } from '../HorsePlanReadReceipt.js';
@@ -19,6 +21,7 @@ import {
   admittedTournamentFlag,
   type HorseTournamentFlagAdmission,
 } from '../HorseTournamentFlagAuthority.js';
+import { computeHorseUpgradeActivationManifest } from '../HorseUpgradeActivationManifest.js';
 import {
   readHorsePooledPublicBootstrap,
   type HorsePooledPublicBootstrap,
@@ -115,6 +118,7 @@ import {
 
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
+import { publicMemoryDomainIsValid } from '../HorsePublicMemoryDomain.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
 import { HorseMindMirror, type HorseMindMirrorOutcome } from './mindMirror.js';
 import { readReturnedRosterTransport } from '../../services/horseAcceptedRoster/schema.js';
@@ -150,7 +154,14 @@ import {
   TOURNAMENT_CONTEXT_INCOMPLETE,
   TOURNAMENT_CONTEXT_STATUSES,
 } from '../HorseTournamentPreflop.js';
-import { noteDecisionMs, noteFire } from '../BrainTelemetry.js';
+import {
+  armWorkerWatchcounterRelay,
+  drainBrainWatchcounterDeltas,
+  noteDecisionMs,
+  noteFire,
+  noteHorseStreetPrewarm,
+  noteHorseTelemetryOpportunity,
+} from '../BrainTelemetry.js';
 import type { HorseDecision } from '../../types.js';
 import {
   admitHorsePhase8ReleaseAuthority,
@@ -203,10 +214,13 @@ import {
 import { isJointVariant, type JointVariant } from '../multiway/JointInputBinding.js';
 import type { JointPolicyMode } from '../multiway/JointLivePolicy.js';
 import { gtoChartCount, gtoChartStoreIdentity } from '../GtoCharts.js';
-import { gtoPostflopCount, gtoPostflopStoreIdentity } from '../GtoPostflop.js';
+import { gtoPostflopCount, gtoPostflopStoreIdentity, textureClass } from '../GtoPostflop.js';
 import { gtoPostflopV31Count, gtoPostflopV31Dataset } from '../GtoPostflopV31.js';
 import { hydrateHorseMind } from '../../services/HorseMindHydrator.js';
-import { hydrateHorseExploitReads } from '../../services/HorseExploitHydrator.js';
+import {
+  hydrateHorseExploitReads,
+  type ExploitHydrationResult,
+} from '../../services/HorseExploitHydrator.js';
 import {
   hydrateHorseMindFromDb,
   startHorseMindPersistence,
@@ -216,6 +230,10 @@ import {
   startBrainTelemetryFlush,
   stopBrainTelemetryFlush,
 } from '../../services/BrainTelemetryFlush.js';
+import {
+  startHorseUpgradeEvidenceFlush,
+  stopHorseUpgradeEvidenceFlush,
+} from '../../services/HorseUpgradeEvidenceFlush.js';
 import {
   loadGtoCharts,
   startGtoChartLoader,
@@ -232,6 +250,7 @@ import {
   startGtoPostflopV31Loader,
   stopGtoPostflopV31Loader,
 } from '../../services/GtoPostflopV31Loader.js';
+import { noteGtoV31CellContractV3ServingSwitch } from '../GtoV31CellContractV3Serving.js';
 import {
   solverPolicyArtifactStatus,
   startSolverPolicyArtifactLoader,
@@ -256,6 +275,46 @@ import {
   horseCorrectiveReplayState,
   currentHorseDecisionRuntime,
 } from './replayState.js';
+import {
+  ABSENT_STYLE_SWITCH_SOURCE,
+  StyleSwitchHolder,
+  styleSwitchBrainOpts,
+  styleSwitchDecisionOpts,
+} from '../HorseStyleSwitch.js';
+import {
+  ABSENT_OPTION_SWITCH_SOURCE,
+  OptionSwitchHolder,
+  optionSwitchDecisionOpts,
+} from '../HorseOptionSwitch.js';
+import {
+  clearStyleOptionsApplied,
+  clearStyleShadowEngaged,
+  styleActionReceiptOf,
+  styleActionReceiptPick,
+  takeStyleOptionsApplied,
+  type StyleActionReceiptOption,
+  STYLE_READ_BUDGET_MS,
+  STYLE_SHADOW_REDECIDE_BUDGET_MS,
+  styleReceiptFormat,
+  styleReceiptFormatCode,
+  styleShadowAggregateKey,
+  styleShadowOptionCode,
+  styleShadowPick,
+  takeStyleLiveEngaged,
+  takeStyleReadMs,
+  takeStyleShadowEngaged,
+  type StyleShadowEngagement,
+} from '../HorseStyleShadow.js';
+import {
+  decisionRuleReceiptsSoFar,
+  noteSecondLookFires,
+  withBrainTelemetrySuspended,
+  withDecisionFireScope,
+  withOncePerDecisionReceiptsSuppressed,
+  withSecondLookFireCapture,
+} from '../BrainTelemetry.js';
+import { noteHorseUpgradeDecision } from '../HorseUpgradeEvidence.js';
+import { reportError } from '../../services/errorReporter.js';
 
 /** Trusted in-process construction seam; never part of the live wire protocol. */
 export type HorseDecisionWorkerAuthorityHolderFactory = (
@@ -275,6 +334,16 @@ export type HorseDecisionWorkerAuthorityHolderFactory = (
 
 export interface HorseDecisionWorkerDependencies {
   isolateMemory?(): IsolateMemorySample | null;
+  /**
+   * 2026-11-13 STYLE READ LIVE SWITCH: the per-option runtime state (HorseStyleSwitch). Absent: a holder over the
+   * absent source, so every option stays at its source default (off).
+   */
+  styleSwitch?: StyleSwitchHolder;
+  /**
+   * 2026-11-14 EVERY DECISION UPGRADE HAS A LIVE SWITCH: the switched values of the registered non-style options
+   * (HorseOptionSwitch). Absent: a holder over the absent source, so every option runs at its release default.
+   */
+  optionSwitch?: OptionSwitchHolder;
   admitFeatureAuthority?(): HorseAuthorityAdmission;
   /** v53PloTourneyIcm activation: the shipped tournament-flag selection only. */
   admitTournamentFlagAuthority?(): HorseTournamentFlagAdmission;
@@ -293,11 +362,16 @@ export interface HorseDecisionWorkerDependencies {
   sourceRelease?: () => string | null;
   startServices(): Promise<HorseDecisionWorkerReadiness>;
   publicProfileBootstrap?(): HorsePooledPublicBootstrap | null;
+  exploitFloorBootstrap?(): ExploitHydrationResult | null;
   stopServices(): Promise<void>;
   decide: typeof HorseLogic.decide;
   prepareOriginalReads?: typeof HorseLogic.prepareOriginalReads;
   decideDiscard: typeof HorseLogic.decideDiscard;
-  runDecisionReadView?<T>(request: FastHorseDecisionRequest, fn: () => T): T;
+  runDecisionReadView?<T>(
+    request: FastHorseDecisionRequest,
+    fn: () => T,
+    carriedOpts?: FastHorseDecisionRequest['opts']
+  ): T;
   captureDecisionEffects<T>(fn: () => T): CapturedHorseMindDecision<T>;
   applyDecisionEffects(effects: readonly HorseMindDecisionEffect[]): void;
   /**
@@ -385,6 +459,7 @@ export interface HorseDecisionWorkerDependencies {
 }
 
 let publicProfileBootstrap: HorsePooledPublicBootstrap | null = null;
+let exploitFloorBootstrap: ExploitHydrationResult | null = null;
 let ownedServicesStarted = false;
 
 /** The exact chart and open-node stores this worker decides with (Phase 6C G4). */
@@ -446,11 +521,13 @@ export async function startOwnedServices(shard?: {
       solverStoreIdentity: horseSolverStoreIdentity(),
       solverPolicyArtifact: solverPolicyArtifactStatus(),
       governor: equityGovernor.snapshot(),
+      upgradeManifest: computeHorseUpgradeActivationManifest(),
     };
   }
   ownedServicesStarted = true;
 
   try {
+    armWorkerWatchcounterRelay(true);
     // A decision worker whose Monte Carlo can be cut by its own loop delay
     // is not the brain the packs qualified with (client.ts,
     // horseDecisionWorkerEnv). Refuse readiness rather than decide with it.
@@ -462,6 +539,8 @@ export async function startOwnedServices(shard?: {
     // a slow read may never prevent newly learned rows from becoming flushable.
     startHorseMindPersistence();
     startBrainTelemetryFlush();
+    // Per-Horse upgrade evidence (2026-11-14): armed and drained beside the fleet counters it refines.
+    startHorseUpgradeEvidenceFlush();
     startHorseDecisionJournal(shard);
     equityGovernor.startSampling();
     startSolverPolicyArtifactLoader();
@@ -498,7 +577,10 @@ export async function startOwnedServices(shard?: {
       ),
       // 2026-10-22: the maniac read survives the daily reset - replay the
       // recent human hands into the decayed exploit counters before READY.
-      step('exploit_reads', () => hydrateHorseExploitReads()),
+      step('exploit_reads', async () => {
+        exploitFloorBootstrap = await hydrateHorseExploitReads();
+        return exploitFloorBootstrap;
+      }),
       step('gto_charts', () => loadGtoCharts()),
       step('gto_postflop', () => loadGtoPostflop()),
       step('gto_postflop_v31', () => {
@@ -535,6 +617,7 @@ export async function startOwnedServices(shard?: {
       solverStoreIdentity: horseSolverStoreIdentity(),
       solverPolicyArtifact: solverPolicyArtifactStatus(),
       governor: equityGovernor.snapshot(),
+      upgradeManifest: computeHorseUpgradeActivationManifest(),
     };
   } catch (error) {
     await stopOwnedServices();
@@ -563,7 +646,11 @@ async function stopOwnedServices(): Promise<void> {
   stopSolverPolicyArtifactLoader();
   equityGovernor.stopSampling();
   await stopHorseDecisionJournal();
-  await Promise.all([stopBrainTelemetryFlush(), stopHorseMindPersistence()]);
+  await Promise.all([
+    stopBrainTelemetryFlush(),
+    stopHorseMindPersistence(),
+    stopHorseUpgradeEvidenceFlush(),
+  ]);
 }
 
 /** The worker's completed-hand learner: whichever HorseMind state is current
@@ -577,7 +664,16 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     const previousScope = HorseMind.currentScope();
     HorseMind.setDecisionScope(completed.scope);
     try {
-      HorseMind.observe(completed.actions, [], identity, undefined, request.bigBlind);
+      HorseMind.observe(
+        completed.actions,
+        [],
+        identity,
+        undefined,
+        request.bigBlind,
+        // FIXED-LIMIT BETS ARE NEVER PROBES: every accepted-hand sender names the
+        // hand's variant in riverCallContext (handHistory.ts, LightningHorseObservation.ts).
+        request.riverCallContext ? bettingStructureFor(request.riverCallContext.variant) : null
+      );
     } finally {
       HorseMind.setDecisionScope(previousScope);
     }
@@ -590,8 +686,35 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.scope,
     request.durableOpponentProfiles !== undefined,
     request.riverCallContext,
-    request.retainedRiverCalls
+    request.retainedRiverCalls,
+    styleMemoryModeOf(request),
+    request.styleHasHuman === true,
+    styleSpeedOf(request)
   );
+}
+
+/**
+ * L-016 (2026-11-15): the hand's public memory domain speed for the style learner, from the accepted hand's own
+ * public rules (the Lightning host sends {speed:'lightning'}, a Classic table {speed:'table'}). Absent or invalid:
+ * undefined, and the learner files the hand into the pooled maps only, as before. Exported for the wiring test.
+ */
+export function styleSpeedOf(request: {
+  publicMemoryDomain?: unknown;
+}): 'table' | 'lightning' | undefined {
+  return publicMemoryDomainIsValid(request.publicMemoryDomain)
+    ? request.publicMemoryDomain.speed
+    : undefined;
+}
+
+/**
+ * STYLE READ: the hand's own format (sent for every hand with a valid public memory domain); the exact-context
+ * profile rows are only a fallback for an older sender. Exported for the wiring test.
+ */
+export function styleMemoryModeOf(request: {
+  styleMemoryMode?: 'cash' | 'tournament';
+  durableOpponentProfiles?: ReadonlyArray<{ mode: 'cash' | 'tournament' }>;
+}): 'cash' | 'tournament' | undefined {
+  return request.styleMemoryMode ?? request.durableOpponentProfiles?.[0]?.mode;
 }
 
 /** Whether a decision's observer receipt says this horse's own public history
@@ -627,6 +750,11 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   publicProfileBootstrap: () => {
     const saved = publicProfileBootstrap;
     publicProfileBootstrap = null;
+    return saved;
+  },
+  exploitFloorBootstrap: () => {
+    const saved = exploitFloorBootstrap;
+    exploitFloorBootstrap = null;
     return saved;
   },
   stopServices: stopOwnedServices,
@@ -666,6 +794,7 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
     solverStoreIdentity: horseSolverStoreIdentity(),
     solverPolicyArtifact: solverPolicyArtifactStatus(),
     governor: equityGovernor.snapshot(),
+    upgradeManifest: computeHorseUpgradeActivationManifest(),
   }),
   observeCompletedHand: observeCompletedHandInMind,
   learnPersistedMemory: learnCompletedHandInPersistedMemory,
@@ -716,6 +845,15 @@ export function acceptedRosterBindsToHand(request: ObserveCompletedHandRequest):
  * HorseLogic calls can interleave while they temporarily install their
  * fence-derived RNG stream or read and update worker-owned HorseMind state.
  */
+/** The table a fence belongs to: the part before its first colon (the shard key). */
+export const streetPrewarmTable = (fence: string): string => {
+  const colon = fence.indexOf(':');
+  return colon > 0 ? fence.slice(0, colon) : fence;
+};
+
+/** One report per process for a per-Horse evidence fold that threw (executeFastWithUpgradeEvidence). */
+let upgradeEvidenceFoldFailureReported = false;
+
 export class HorseDecisionWorkerRuntime {
   /** Private, actor-bounded read views; never included in IPC or telemetry.
    * Repeated identical fast identities are ambiguous and disable that second
@@ -833,6 +971,60 @@ export class HorseDecisionWorkerRuntime {
   private phase8GuardAuthorityAdmitted = false;
   private phase8AuthorityAdmitted = false;
   private readonly featureAuthority: HorseQualifiedAuthorityHolder;
+  /** 2026-11-13 STYLE READ LIVE SWITCH (HorseStyleSwitch): the source default (off) unless a source is supplied. */
+  private get styleSwitch(): StyleSwitchHolder {
+    return (this.styleSwitchHolder ??=
+      this.deps.styleSwitch ??
+      new StyleSwitchHolder(ABSENT_STYLE_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
+  }
+  private styleSwitchHolder: StyleSwitchHolder | undefined;
+  /** 2026-11-14 (HorseOptionSwitch): nothing switched (every release default) unless a source is supplied. */
+  /**
+   * THE READ VIEW SEES THE OPTION THE DECISION WILL RUN (2026-11-15). The observer reads carry the durable shown river
+   * record (and, for holdemProfileCompletenessCap, the incomplete-row names) into the decision's detached state only for a decision whose options turn that option on
+   * (observerReads.run). The live option switch delivers its value inside the worker, after the request was built,
+   * so the read view is given the EFFECTIVE value: the switch row when there is one (on or off), else the request's
+   * own. With no row for the option the request's own options are returned, so nothing changes.
+   */
+  private readViewOpts(request: FastHorseDecisionRequest): FastHorseDecisionRequest['opts'] {
+    // The options whose evidence the observer reads carry only when the decision's options turn them on.
+    const carried = ['styleLongShownMemory', 'holdemProfileCompletenessCap'] as const;
+    let switched: Partial<Record<(typeof carried)[number], boolean | undefined>>;
+    try {
+      // fleet-wide, like the decision's own read of the switched set
+      const readViewStates = this.optionSwitch.refresh(performance.now());
+      switched = optionSwitchDecisionOpts(readViewStates);
+    } catch {
+      return request.opts;
+    }
+    let opts = request.opts;
+    for (const name of carried) {
+      const value = switched[name];
+      if (value === undefined || value === (request.opts?.[name] === true)) continue;
+      opts = { ...opts, [name]: value };
+    }
+    // Only the options are handed on. The request object itself is never copied: the observer view is stored under
+    // the original object, and the receipt, the history acknowledgement and every effect commit look it up there.
+    return opts;
+  }
+
+  private get optionSwitch(): OptionSwitchHolder {
+    return (this.optionSwitchHolder ??=
+      this.deps.optionSwitch ??
+      new OptionSwitchHolder(ABSENT_OPTION_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
+  }
+  private optionSwitchHolder: OptionSwitchHolder | undefined;
+  /**
+   * 2026-11-15 (owner rule 11:26, every option switchable live): the registered options that are PROCESS switches
+   * rather than decision options. One today: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
+   * counts, inside a decision or not. The read is the decision's own holder on the same clock (it re-reads only
+   * when the poll window has passed), so an off row reaches the counts at the next job, and no row, an unreadable,
+   * invalid or stale read put back the source default, never the last value.
+   */
+  private applyProcessSwitches(): void {
+    const states = this.optionSwitch.refresh(performance.now());
+    HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionSwitchDecisionOpts(states));
+  }
   private featureAuthorityAdmitted = false;
   private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
   /** v53PloTourneyIcm is worker-owned: on only inside an admitted card's
@@ -897,15 +1089,16 @@ export class HorseDecisionWorkerRuntime {
     else if (verdict.reason !== 'no_authority')
       this.deps.noteFeature(`horse_feature_authority_refused_${verdict.reason}`);
     const flags = verdict.flags;
+    const domain = a?.featureDomain;
     return {
       flags,
       receipt:
-        Object.values(flags).some(Boolean) && a?.featureDomain && a.featureCompositionDigest
+        Object.values(flags).some(Boolean) && domain && a?.featureCompositionDigest
           ? {
               version: 'horse-feature-decision-v1',
               authority: receipt,
               flags,
-              domain: a.featureDomain,
+              domain,
               compositionDigest: a.featureCompositionDigest,
             }
           : undefined,
@@ -926,10 +1119,12 @@ export class HorseDecisionWorkerRuntime {
   private readonly phase14Authority: Readonly<Record<string, HorseQualifiedAuthorityHolder>>;
   private readonly phase14Catalogs = new Map<string, Readonly<CorrectiveKernelCatalog>>();
   private phase14AuthorityAdmitted = false;
+  /** Bounded idle-time prewarm cache (board texture + solver cell matrix). */
+  private readonly prewarmedStreets = new Map<string, string | null>();
   /** Each observer's own public history; no floor-wide read inheritance. */
   private readonly observerReads = new HorseObserverReads();
   constructor(
-    private readonly send: (message: HorseDecisionWorkerResponse) => void,
+    private readonly emitResponse: (message: HorseDecisionWorkerResponse) => void,
     private readonly deps: HorseDecisionWorkerDependencies = defaultHorseDecisionWorkerDependencies,
     /** Test seam; production always yields to a real event-loop turn. */
     private readonly turnEventLoop: () => Promise<void> = nextEventLoopTurn,
@@ -942,6 +1137,7 @@ export class HorseDecisionWorkerRuntime {
       epoch
     ) => new HorseQualifiedAuthorityHolder(epoch, version)
   ) {
+    armWorkerWatchcounterRelay(true);
     this.featureAuthority = authorityHolder(
       'features',
       null,
@@ -1032,6 +1228,8 @@ export class HorseDecisionWorkerRuntime {
       const saved = this.deps.publicProfileBootstrap?.();
       if (saved && !this.observerReads.bootstrapPublicProfiles(saved))
         this.deps.noteFeature('horse_pooled_public_bootstrap_refused');
+      const floorBoot = this.deps.exploitFloorBootstrap?.();
+      if (floorBoot) this.observerReads.bootstrapFloorExploitReads(floorBoot);
       this.noteAuthorityAdmissions();
       return { ...readiness, phase8GuardAuthority: this.phase8GuardAuthority.receipt() };
     });
@@ -1044,7 +1242,95 @@ export class HorseDecisionWorkerRuntime {
     return this.readyPromise;
   }
 
+  private send(message: HorseDecisionWorkerResponse): void {
+    const deltas = drainBrainWatchcounterDeltas();
+    if (deltas.length > 0 && message.type !== 'STOPPED' && message.type !== 'ERROR') {
+      this.emitResponse({
+        ...message,
+        watchcounterDeltas: deltas,
+      } as unknown as HorseDecisionWorkerResponse);
+      return;
+    }
+    if (deltas.length > 0) {
+      this.emitResponse({
+        type: 'WATCHCOUNTER_DELTA',
+        watchcounterDeltas: deltas,
+      });
+    }
+    this.emitResponse(message);
+  }
+
+  private executeStreetPrewarm(raw: {
+    fence?: unknown;
+    street?: unknown;
+    board?: unknown;
+    variant?: unknown;
+    mode?: unknown;
+    effectiveStackBB?: unknown;
+  }): void {
+    if (!this.accepting || this.stopped || this.pendingRequestIds.size > 0) return;
+    if (!Array.isArray(raw.board) || raw.board.length < 3 || raw.board.length > 5) return;
+    const street =
+      raw.street === 'flop' || raw.street === 'turn' || raw.street === 'river'
+        ? raw.street
+        : raw.board.length === 3
+          ? 'flop'
+          : raw.board.length === 4
+            ? 'turn'
+            : 'river';
+    const fence = typeof raw.fence === 'string' ? raw.fence : 'table';
+    const variant =
+      typeof raw.variant === 'string' && raw.variant.trim() ? raw.variant.toLowerCase() : 'nlh';
+    const mode = raw.mode === 'tournament' ? 'tournament' : 'cash';
+    const boardCards = raw.board as Array<{ rank: string; suit: string }>;
+    const boardKey = `${streetPrewarmTable(fence)}|${street}|${boardCards
+      .map((c) => `${String(c?.rank ?? '')}${String(c?.suit ?? '')}`)
+      .join('')}`;
+    if (this.prewarmedStreets.has(boardKey)) return;
+    const savedRng = this.deps.saveRng();
+    try {
+      const tex = textureClass(boardCards as never);
+      if (this.prewarmedStreets.size >= 256) {
+        const oldest = this.prewarmedStreets.keys().next().value;
+        if (oldest !== undefined) this.prewarmedStreets.delete(oldest);
+      }
+      this.prewarmedStreets.set(boardKey, tex);
+      // What a prewarm warms is the board texture memo above, nothing else.
+      // It used to end with a V31 cell lookup given arguments that are not
+      // that function's parameters; the lookup matched no key, returned null
+      // and warmed nothing (removed 2026-11-12). effectiveStackBB is still
+      // accepted on the message and is unused.
+      noteHorseStreetPrewarm(variant, mode, street);
+    } catch {
+      /* idle prewarm never fails the worker */
+    } finally {
+      this.deps.restoreRng(savedRng);
+    }
+    const deltas = drainBrainWatchcounterDeltas();
+    if (deltas.length > 0) {
+      this.emitResponse({
+        type: 'WATCHCOUNTER_DELTA',
+        watchcounterDeltas: deltas,
+      });
+    }
+  }
+
   receive(message: HorseDecisionWorkerRequest): void {
+    if (message.type === 'PREWARM_STREET') {
+      if (!this.accepting || this.stopped || this.pendingRequestIds.size > 0) return;
+      this.operation = this.operation
+        .then(async () => {
+          try {
+            await this.turnEventLoop();
+          } catch {
+            /* yield guard */
+          }
+          this.executeStreetPrewarm(message as unknown as Record<string, unknown>);
+        })
+        .catch(() => undefined);
+      return;
+    }
+
     if (message.type === 'CANCEL') {
       // A cancellation delivered after synchronous work returned is a normal
       // race. Retain it only while that exact request is known pending. This
@@ -1160,11 +1446,15 @@ export class HorseDecisionWorkerRuntime {
         return;
       }
 
+      // FIXED-LIMIT BETS ARE NEVER PROBES, live switch (2026-11-15): set this thread's process switch from the
+      // registry before the job runs, so everything it counts (the read view's history, the in-decision
+      // observation, the completed-hand learner and the persisted memory) counts with one value.
+      this.applyProcessSwitches();
       let outcome: HorseLifecycleOutcome = 'success';
       if (request.type === 'DECIDE_FAST')
         outcome = (
           this.deps.runDecisionReadView ?? this.observerReads.run.bind(this.observerReads)
-        )(request, () => this.executeFast(request));
+        )(request, () => this.executeFastWithUpgradeEvidence(request), this.readViewOpts(request));
       else if (request.type === 'DECIDE_DEEP') outcome = this.executeDeep(request);
       else if (request.type === 'OBSERVE_REQUEST_RETIREMENT') {
         // Canonical shape and attribution are checked without executing a
@@ -2498,6 +2788,8 @@ export class HorseDecisionWorkerRuntime {
   ): {
     evaluator: CorrectiveKernelEvaluator | null;
     receipt: HorseAuthorityReceipt | null;
+    /** Admitted domain, decision outside the kernel: the first refusing check. */
+    refusal: string | null;
   } {
     this.admitPhase14Authority();
     const d = correctiveDecisionDomain(request.gameState),
@@ -2555,7 +2847,7 @@ export class HorseDecisionWorkerRuntime {
         ),
       ]);
     };
-    const stillUsable = () =>
+    const candidate = () =>
       !!holder &&
       !!receipt &&
       horsePhase14CorrectiveMode({
@@ -2564,14 +2856,28 @@ export class HorseDecisionWorkerRuntime {
         packDomain: domain,
         verdict: holder.verdict(receipt, Date.now()),
         catalog,
-      }).mode === 'candidate' &&
-      // Unselected decisions do not allocate or inspect a corrective snapshot.
-      // The shared fields are identical for FAST and DEEP; normalize only type.
-      functionalKernelSnapshotRefusal({ ...request, type: 'DECIDE_FAST' }, catalog) === null &&
-      baselineUsable();
+      }).mode === 'candidate';
+    // Unselected decisions do not allocate or inspect a corrective snapshot.
+    // The shared fields are identical for FAST and DEEP; normalize only type.
+    const snapshotRefusal = () =>
+      functionalKernelSnapshotRefusal({ ...request, type: 'DECIDE_FAST' }, catalog);
+    const stillUsable = () => candidate() && snapshotRefusal() === null && baselineUsable();
+    // The first evaluation keeps WHY an admitted domain's decision is outside
+    // the kernel, as evidence (2026-11-13): the same three checks in the same
+    // order as stillUsable, each run at most once here.
+    let refusal: string | null = null;
+    let usable = false;
+    if (candidate()) {
+      refusal = snapshotRefusal();
+      if (refusal === null) {
+        usable = baselineUsable();
+        if (!usable) refusal = 'baseline_unusable';
+      }
+    }
     return {
       receipt,
-      evaluator: stillUsable()
+      refusal,
+      evaluator: usable
         ? createCorrectiveKernelEvaluator({
             catalog,
             original,
@@ -2619,7 +2925,8 @@ export class HorseDecisionWorkerRuntime {
   ): Readonly<Record<string, HorseAuthorityReceipt>> {
     const d = correctiveDecisionDomain(request.gameState),
       domain = d ? correctiveDomainKey(d) : null;
-    return Object.freeze(domain ? { [domain]: this.phase14Authority[domain].receipt() } : {});
+    const holder = domain ? this.phase14Authority[domain] : undefined;
+    return Object.freeze(domain && holder ? { [domain]: holder.receipt() } : {});
   }
 
   /** Bind the admission receipt to the returned Phase 8 ledger. */
@@ -2637,13 +2944,51 @@ export class HorseDecisionWorkerRuntime {
     return { value: fn(), scale };
   }
 
+  /**
+   * PER-HORSE UPGRADE EVIDENCE (2026-11-14). The one fold: the FAST execution
+   * runs inside a fire scope, and when it has returned (the decision is made
+   * and sent) the counters it fired are recorded against this request's Horse,
+   * variant and lane. Measurement only: the scope is read after executeFast
+   * returns, and nothing in executeFast can see it.
+   *
+   * Counted: every FAST decision whose execution returned, the brain-exception
+   * fallback included. Not counted: an execution that threw (no decision), the
+   * style-shadow re-decision (it runs with the counters suspended, so its
+   * fires never reach the scope), DEEP second looks (executeDeep is outside
+   * the scope; its fires are collected and counted under second_look_) and
+   * discards.
+   */
+  private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
+    const scoped = withDecisionFireScope(() => this.executeFast(request));
+    // The decision has been answered (FAST_RESULT is sent inside executeFast). A fold that threw
+    // here would reach execute()'s catch, mark the lifecycle `exception` and send an ERROR for an
+    // answered request, so it is contained: counted, reported once per process, never rethrown.
+    try {
+      noteHorseUpgradeDecision(
+        request.player.user_id,
+        request.gameState.gameVariant,
+        request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+        scoped.fired
+      );
+    } catch (error) {
+      this.deps.noteFeature('per_horse_evidence_fold_failed_seen');
+      if (!upgradeEvidenceFoldFailureReported) {
+        upgradeEvidenceFoldFailureReported = true;
+        reportError(error, 'HorseDecisionWorker.upgrade_evidence_fold_failed');
+      }
+    }
+    return scoped.value;
+  }
+
   private executeFast(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
+    let deepDiveCapture: HorseDeepDiveCapture | undefined;
     try {
       if (this.deps.journalDecision && (this.deps.journalEnabled?.() ?? true)) {
         rangeCapture = new HorseRangeConsumptionCapture(request);
         planReadCapture = new HorsePlanReadCapture(request);
+        deepDiveCapture = new HorseDeepDiveCapture(request);
       }
     } catch {
       /* diagnostic capture cannot change admission or selection */
@@ -2671,6 +3016,28 @@ export class HorseDecisionWorkerRuntime {
     );
     this.deps.restoreRng(rngBefore);
     const startedAt = this.deps.now();
+    const fastStage = request.gameState.stage;
+    if (
+      (fastStage === 'flop' || fastStage === 'turn' || fastStage === 'river') &&
+      Array.isArray(request.gameState.communityCards) &&
+      request.gameState.communityCards.length >= 3
+    ) {
+      // A prewarm is posted for a table; a decision's fence is
+      // table:hand:seat:lease:token. Keyed by the whole fence (until
+      // 2026-11-13) this check could never match: 4,502 prewarms and no hit on
+      // release 08c27924. Both sides now key by the table.
+      const prewarmKey = `${streetPrewarmTable(request.fence)}|${fastStage}|${request.gameState.communityCards
+        .slice(0, 5)
+        .map((c) => `${c.rank}${c.suit}`)
+        .join('')}`;
+      if (this.prewarmedStreets.has(prewarmKey)) {
+        noteHorseStreetPrewarm(
+          request.gameState.gameVariant,
+          request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+          `hit_${fastStage}`
+        );
+      }
+    }
     const phase8 = this.phase8Admission(request);
     const phase8Guard = this.phase8GuardAdmission(request);
     const phase10 = this.phase10Admission(request);
@@ -2687,6 +3054,20 @@ export class HorseDecisionWorkerRuntime {
           throw Error('original corrective frame unavailable');
         })(),
     }));
+    // STYLE READ LIVE SWITCH (2026-11-13): read once per decision on the monotonic clock (L2), journaled with the
+    // replay state (M3); every option off gives {} and the decision options are what they were.
+    const styleStates = this.styleSwitch.refresh(performance.now());
+    const styleOpts = styleSwitchDecisionOpts(styleStates, request.player.user_id, true);
+    const styleBrainOpts = styleSwitchBrainOpts(styleOpts);
+    // EVERY DECISION UPGRADE HAS A LIVE SWITCH (2026-11-14): the registered non-style options that have a row, read
+    // once per decision on the same clock and journaled with the replay state. No row gives {}: the option key is
+    // not passed and the code default decides, exactly as before. The same for every Horse (no Horse id is read).
+    const optionStates = this.optionSwitch.refresh(performance.now());
+    const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
+    // the decision's own observation counts with the state this decision journals (process switch, see above)
+    HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionBrainOpts);
+    // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
+    noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // P15-A step 4: the worker-owned state this decision reads besides its
     // request and read frame, journaled beside it for exact replay. Capture
     // only; the decision below reads the same values it always has.
@@ -2701,10 +3082,21 @@ export class HorseDecisionWorkerRuntime {
       },
       liveHorsePhase8Safety.disabledReason,
       currentHorseDecisionRuntime(),
-      horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator)
+      horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator),
+      styleStates,
+      optionStates
     );
     let phase14ObservationPrepared = false;
+    // Evidence only: an admitted domain's decision that the kernel's declared
+    // family refuses, by the first refusing check (closed reason strings from
+    // kernelEligibility.ts and kernelTournamentEligibility.ts).
+    if (phase14.refusal) this.deps.noteFeature(`phase14_kernel_refused_${phase14.refusal}_seen`);
     if (phase14.evaluator) {
+      // Evidence only: how often a live decision is inside the corrective
+      // kernel's declared family at all. Applications are counted at commit
+      // (phase14_selection_*, phase14_execution_*); without this, zero of
+      // those cannot be told from zero eligible spots.
+      this.deps.noteFeature('phase14_kernel_eligible_seen');
       try {
         (this.deps.prepareOriginalReads ?? HorseLogic.prepareOriginalReads.bind(HorseLogic))(
           request.player,
@@ -2713,6 +3105,11 @@ export class HorseDecisionWorkerRuntime {
             ...request.opts,
             ...features.flags,
             multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+            // the options ON for this Horse read as the decision will (no shadow list here)
+            ...styleSwitchBrainOpts(
+              styleSwitchDecisionOpts(styleStates, request.player.user_id, false)
+            ),
+            ...optionBrainOpts,
             observeMind: true,
             mindObservationHand: horseMindHandFromDecision(request),
           }
@@ -2728,9 +3125,20 @@ export class HorseDecisionWorkerRuntime {
     let captured: CapturedHorseMindDecision<ReturnType<typeof HorseLogic.decide>>;
     let rngAfter: number;
     let governorScale: number;
+    const styleActive = Object.keys(styleBrainOpts).length > 0;
+    if (styleActive) {
+      clearStyleShadowEngaged();
+      takeStyleReadMs();
+    }
+    // R1 (2026-11-15): the applied-option registry is per decision; a decision that applies nothing leaves it empty.
+    clearStyleOptionsApplied();
+    let styleApplied: StyleActionReceiptOption[] = [];
+    let styleEngaged: StyleShadowEngagement[] = [];
+    let styleLiveEngaged: StyleShadowEngagement[] = [];
+    let fastOpts: Parameters<HorseDecisionWorkerDependencies['decide']>[4] | undefined;
+    const player = deepFreeze(request.player);
+    const gameState = deepFreeze(request.gameState);
     try {
-      const player = deepFreeze(request.player);
-      const gameState = deepFreeze(request.gameState);
       this.deps.noteFeature('phase5_canonical_state');
       const run = this.atGovernorScale(() =>
         this.deps.captureDecisionEffects(() =>
@@ -2739,10 +3147,12 @@ export class HorseDecisionWorkerRuntime {
             gameState,
             request.style,
             request.mods,
-            {
+            (fastOpts = {
               ...request.opts,
               ...features.flags,
               multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+              ...styleBrainOpts,
+              ...optionBrainOpts,
               v53PloTourneyIcm: this.tournamentFlagOn(request),
               phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
               phase8PolicyFamily: phase8Guard.selected ? 'catastrophe_guard_v1' : 'continuation_v2',
@@ -2756,9 +3166,10 @@ export class HorseDecisionWorkerRuntime {
               observeMind: !phase14ObservationPrepared,
               mindObservationHand: horseMindHandFromDecision(request),
               mindPlanContext: planContext,
-            },
+            }),
             rangeCapture,
-            planReadCapture
+            planReadCapture,
+            deepDiveCapture
           )
         )
       );
@@ -2767,7 +3178,28 @@ export class HorseDecisionWorkerRuntime {
       rngAfter = this.deps.saveRng();
     } finally {
       this.deps.restoreRng(canonicalRng);
+      styleApplied = takeStyleOptionsApplied();
+      if (styleActive) {
+        styleEngaged = takeStyleShadowEngaged();
+        styleLiveEngaged = takeStyleLiveEngaged();
+        // LATENCY (2026-11-13): the style read's own time in this decision, against the 0.25 ms budget. Counted only
+        // when a consumer read a style (M2 note: a decision where none ran would dilute the over-budget share).
+        const styleMs = takeStyleReadMs();
+        if (styleMs > 0) {
+          this.deps.noteDecision('style_read', styleMs);
+          this.deps.noteFeature('style_read_timed_seen');
+          if (styleMs > STYLE_READ_BUDGET_MS) this.deps.noteFeature('style_read_over_budget_seen');
+        }
+      }
     }
+    // One telemetry-on brain evaluation finished: the denominator of the
+    // brain-stage clamps it may have counted. Deep second looks record no
+    // watchcounter and are not counted (BrainTelemetry opportunity reasons).
+    noteHorseTelemetryOpportunity(
+      request.gameState.gameVariant,
+      request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+      'decision_evaluated'
+    );
     if (
       !captured.value.policyFallback &&
       horseHybridDecisionMatches(request.gameState.gameMode, request.style, request.mods)
@@ -2784,6 +3216,44 @@ export class HorseDecisionWorkerRuntime {
     this.bindPhase12Authority(captured.value, phase12.receipt);
     this.bindPhase13Authority(captured.value, phase13.receipt);
     this.bindPhase14Authority(captured.value, phase14.receipt);
+    // R1 ACTION-CHANGE RECEIPT (2026-11-15): before the decision is journaled and sent. Hand Analysis B1: the same
+    // three skip rules as the shadow re-decision (never with work queued behind this one, never once this decision
+    // has spent the shadow budget, only at the committed governor scale); every skip is receipted. Like the shadow,
+    // the receipt is a work-budget observation, so exact replay does not compare it (HorseDecisionReplay.stableReceipt).
+    let receiptScaleMoved = true;
+    if (
+      styleApplied.length > 0 &&
+      fastOpts &&
+      captured.value.policyFallback !== 'brain_exception'
+    ) {
+      try {
+        receiptScaleMoved = this.deps.governorScale() !== governorScale;
+      } catch {
+        /* an unreadable scale is a moved scale: skip */
+      }
+    }
+    if (
+      styleApplied.length === 0 ||
+      !fastOpts ||
+      captured.value.policyFallback === 'brain_exception'
+    ) {
+      /* nothing applied: no receipt */
+    } else if (this.pendingRequestIds.size > 1)
+      this.deps.noteFeature('style_action_receipt_skipped_backlog_seen');
+    else if (!(Math.max(0, this.deps.now() - startedAt) <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
+      this.deps.noteFeature('style_action_receipt_skipped_budget_seen');
+    else if (receiptScaleMoved) this.deps.noteFeature('style_action_receipt_skipped_scale_seen');
+    else
+      this.styleActionReceipt(
+        request,
+        player,
+        gameState,
+        fastOpts,
+        styleApplied,
+        captured.value,
+        rngBefore,
+        governorScale
+      );
     if (!horseDecisionEffectsAreValid(captured.effects)) {
       throw new Error('Horse decision captured invalid plan effects');
     }
@@ -2870,13 +3340,20 @@ export class HorseDecisionWorkerRuntime {
     const computeMs = Math.max(0, this.deps.now() - startedAt);
     this.deps.noteDecision(request.gameState.gameVariant || 'nlh', computeMs);
     try {
+      const ruleReceipts = decisionRuleReceiptsSoFar();
       if (this.deps.journalEnabled?.() ?? true)
         this.deps.journalDecision?.(request, {
-          snapshot: request,
+          snapshot: request.savedProfilePresence
+            ? {
+                ...request,
+                savedProfilePresence: verifiedSavedPresence(request, request.savedProfilePresence),
+              }
+            : request,
           observerReads: this.observerReads.receipt(request),
           readFrame,
           rangeConsumption: rangeCapture?.finish(readFrame?.sha256 ?? null),
           planReads: planReadCapture?.finish(readFrame?.sha256 ?? null),
+          deepDive: deepDiveCapture?.finish(captured.value, readFrame?.sha256 ?? null),
           planContext,
           planBinding,
           decision: captured.value,
@@ -2889,6 +3366,11 @@ export class HorseDecisionWorkerRuntime {
           runtimePins: 'incomplete',
           replayState,
           lifecycleVersion: 1,
+          // RULE RECEIPTS (2026-11-15): each receipted rule that changed this decision, with the action it was
+          // given and the action it left, in order (BrainTelemetry.noteDecisionRuleReceipt). This record's fence
+          // names the table and hand, so every such firing can be opened at the hand. Absent when no receipted
+          // rule changed the decision: every other record is byte for byte what it was.
+          ...(ruleReceipts ? { ruleReceipts } : {}),
         });
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');
@@ -2945,16 +3427,227 @@ export class HorseDecisionWorkerRuntime {
       throw error;
     }
     this.deps.noteFeature(`phase15_plan_issue_${planIssueDisposition}`);
+    // LIVE ENGAGEMENT RECEIPTS (2026-11-15): an option that is ON and applied its adjustment in this decision is
+    // counted by format, once per engaged option per decision. Telemetry only: nothing re-decides because of an ON
+    // option (the live counterfactual is Hold'em Strategy's R1), and the shadow below is unchanged.
+    const styleFormat =
+      styleLiveEngaged.length > 0 ? styleReceiptFormat(request.gameState) : 'cash';
+    // style_engaged_<opt>_<c|t|l>_seen: 7 options x 3 formats = 21 keys
+    for (const e of styleLiveEngaged)
+      this.deps.noteFeature(
+        `style_engaged_${styleShadowOptionCode(e.option)}_${styleReceiptFormatCode(styleFormat)}_seen`
+      );
+    // SHADOW (2026-11-13): after the committed result is sent, before this turn of the loop ends (so Horse memory
+    // is exactly what the decision read). M2: at most ONE re-decision per decision, never with work queued behind
+    // this one, never when the committed decision already took longer than the budget, and only at the committed
+    // governor scale; every skip is receipted.
+    if (styleEngaged.length > 0 && fastOpts) {
+      let scaleMoved = true;
+      try {
+        scaleMoved = this.deps.governorScale() !== governorScale;
+      } catch {
+        /* an unreadable scale is a moved scale: skip */
+      }
+      if (this.pendingRequestIds.size > 1)
+        this.deps.noteFeature('style_shadow_skipped_backlog_seen');
+      else if (!(computeMs <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
+        this.deps.noteFeature('style_shadow_skipped_budget_seen');
+      else if (scaleMoved) this.deps.noteFeature('style_shadow_skipped_scale_seen');
+      else {
+        const pick = styleShadowPick(styleEngaged, request.decisionKey)!;
+        for (let i = 1; i < styleEngaged.length; i++)
+          this.deps.noteFeature('style_shadow_rotated_out_seen');
+        this.styleShadowRedecide(
+          request,
+          player,
+          gameState,
+          fastOpts,
+          pick,
+          captured.value,
+          rngBefore,
+          governorScale,
+          (styleOpts.styleCanaryOptions ?? []).includes(pick.option)
+        );
+      }
+    }
     return captured.value.policyFallback === 'brain_exception' ? 'exception' : 'success';
+  }
+
+  /**
+   * R1 STYLE ACTION-CHANGE RECEIPT (2026-11-15). The decision applied at least one ON style option (or a
+   * tight-player response). ONE of them, picked from the decision key, is taken out and the same request is decided
+   * again: from the same RNG position, at the committed governor scale, with the counters suspended, the once-per-
+   * decision read receipts suppressed, observation off, no shadow list, and the Horse-memory effects captured and
+   * discarded. The committed decision is not changed except for the journal field styleActionReceipt; the RNG and the
+   * per-decision registries are restored after. Deterministic (no clock, no queue state), so the runtime replay
+   * re-derives the same receipt. Counted once per FAST decision: <option>_changed_action_seen when the final action
+   * or amount differs.
+   */
+  private styleActionReceipt(
+    request: FastHorseDecisionRequest,
+    player: FastHorseDecisionRequest['player'],
+    gameState: FastHorseDecisionRequest['gameState'],
+    base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>,
+    applied: readonly StyleActionReceiptOption[],
+    committed: HorseDecision,
+    rngBefore: number,
+    committedScale: number
+  ): void {
+    const option = styleActionReceiptPick(applied, request.decisionKey);
+    if (!option) return;
+    const saved = this.deps.saveRng();
+    let without: HorseDecision | null = null;
+    try {
+      this.deps.restoreRng(rngBefore);
+      const opts = {
+        ...base,
+        [option]: false,
+        styleShadow: [],
+        telemetry: false,
+        observeMind: false,
+      } as typeof base;
+      const run = this.atGovernorScale(() =>
+        withBrainTelemetrySuspended(() =>
+          withOncePerDecisionReceiptsSuppressed(
+            () =>
+              this.deps.captureDecisionEffects(() =>
+                this.deps.decide(player, gameState, request.style, request.mods, opts)
+              ).value
+          )
+        )
+      );
+      without = run.scale === committedScale ? run.value : null;
+    } catch {
+      without = null;
+    } finally {
+      this.deps.restoreRng(saved);
+      // the re-decision's own registry entries belong to no decision
+      clearStyleOptionsApplied();
+      clearStyleShadowEngaged();
+      takeStyleReadMs();
+    }
+    const receipt = styleActionReceiptOf(option, applied, committed, without);
+    committed.styleActionReceipt = receipt;
+    if (!receipt.changed) return;
+    switch (option) {
+      case 'styleValueBettorNotManiac':
+        this.deps.noteFeature('style_value_bettor_not_maniac_changed_action_seen');
+        break;
+      case 'styleBigBetHonesty':
+        this.deps.noteFeature('style_big_bet_honesty_changed_action_seen');
+        break;
+      case 'styleRaiseRespect':
+        this.deps.noteFeature('style_raise_respect_changed_action_seen');
+        break;
+      case 'styleTightReRaiserRespect':
+        this.deps.noteFeature('style_tight_reraiser_respect_changed_action_seen');
+        break;
+      case 'styleFoldRatePreRepair':
+        this.deps.noteFeature('style_fold_rate_pre_repair_changed_action_seen');
+        break;
+      case 'styleValueExtraction':
+        this.deps.noteFeature('style_value_extraction_changed_action_seen');
+        break;
+      case 'styleFoldBluff':
+        this.deps.noteFeature('style_fold_bluff_changed_action_seen');
+        break;
+      case 'styleTightPlayerExploit':
+        this.deps.noteFeature('style_tight_player_exploit_changed_action_seen');
+        break;
+      case 'styleStealTightBlinds':
+        this.deps.noteFeature('style_steal_tight_blinds_changed_action_seen');
+        break;
+    }
+  }
+
+  /**
+   * STYLE READ SHADOW (2026-11-13). ONE re-decision (M2) for the picked engaged option, from the same RNG position
+   * and frozen state with only that option on, at the committed governor scale (L3), its Horse-memory effects
+   * captured and discarded, observation and telemetry off. The committed decision is already sent and is never
+   * touched; the RNG is restored after. A changed action fires one AGGREGATE style_shadow.* counter (H1).
+   */
+  private styleShadowRedecide(
+    request: FastHorseDecisionRequest,
+    player: FastHorseDecisionRequest['player'],
+    gameState: FastHorseDecisionRequest['gameState'],
+    base: NonNullable<Parameters<HorseDecisionWorkerDependencies['decide']>[4]>,
+    engaged: StyleShadowEngagement,
+    committed: HorseDecision,
+    rngBefore: number,
+    committedScale: number,
+    canary: boolean
+  ): void {
+    const saved = this.deps.saveRng();
+    const t0 = performance.now();
+    try {
+      const baseShadow = (base as { styleShadow?: readonly string[] }).styleShadow ?? [];
+      let would: HorseDecision;
+      try {
+        this.deps.restoreRng(rngBefore);
+        const opts = {
+          ...base,
+          [engaged.option]: true,
+          styleShadow: baseShadow.filter((o) => o !== engaged.option),
+          telemetry: false,
+          observeMind: false,
+        } as typeof base;
+        const run = this.atGovernorScale(() =>
+          withBrainTelemetrySuspended(() =>
+            withOncePerDecisionReceiptsSuppressed(
+              () =>
+                this.deps.captureDecisionEffects(() =>
+                  this.deps.decide(player, gameState, request.style, request.mods, opts)
+                ).value
+            )
+          )
+        );
+        clearStyleOptionsApplied();
+        if (run.scale !== committedScale) {
+          this.deps.noteFeature('style_shadow_scale_mismatch_seen');
+          return;
+        }
+        would = run.value;
+      } catch {
+        this.deps.noteFeature('style_shadow_redecide_failed_seen');
+        return;
+      }
+      if (would.action === committed.action && (would.amount ?? 0) === (committed.amount ?? 0)) {
+        this.deps.noteFeature('style_shadow_unchanged_seen');
+        return;
+      }
+      try {
+        const receipt = styleShadowAggregateKey({
+          option: engaged.option,
+          format:
+            gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash',
+          variant: gameState.gameVariant || 'nlh',
+          street: gameState.stage,
+          actualAction: committed.action,
+          wouldBeAction: would.action,
+          arm: canary ? 'canary' : 'shadow',
+        });
+        this.deps.noteFeature(receipt);
+      } catch {
+        this.deps.noteFeature('style_shadow_unencodable_seen');
+      }
+    } finally {
+      this.deps.restoreRng(saved);
+      const ms = performance.now() - t0;
+      this.deps.noteDecision('style_shadow_redecide', ms);
+      if (ms > STYLE_SHADOW_REDECIDE_BUDGET_MS)
+        this.deps.noteFeature('style_shadow_redecide_over_budget_seen');
+    }
   }
 
   private executeDeep(request: DeepHorseDecisionRequest): HorseLifecycleOutcome {
     let rangeCapture: HorseRangeConsumptionCapture | undefined;
     let planReadCapture: HorsePlanReadCapture | undefined;
+    let deepDiveCapture: HorseDeepDiveCapture | undefined;
     try {
       if (this.deps.journalDecision && (this.deps.journalEnabled?.() ?? true)) {
         rangeCapture = new HorseRangeConsumptionCapture(request);
         planReadCapture = new HorsePlanReadCapture(request);
+        deepDiveCapture = new HorseDeepDiveCapture(request);
       }
     } catch {
       /* diagnostic capture cannot change admission or selection */
@@ -3016,6 +3709,15 @@ export class HorseDecisionWorkerRuntime {
       snapshot: retained.snapshot,
       readFrame: retained.frame,
     }));
+    // Evidence only: a DEEP second look that reached the admitted kernel. Kept
+    // apart from the FAST count, which may have counted the same turn.
+    if (phase14.evaluator) this.deps.noteFeature('phase14_kernel_eligible_deep_seen');
+    // M3: the second look journals the switch state it ran with. It REFRESHES rather than reading the last
+    // state (review 06968005 M1): a second look can run up to 60 s after the fast look that last refreshed, so
+    // without this an option could act up to 180 s after deliveries stopped instead of the stated 120 s.
+    const deepStyleStates = this.styleSwitch.refresh(performance.now());
+    // the second look refreshes and journals the switched non-style options too (same 120 s bound)
+    const deepOptionStates = this.optionSwitch.refresh(performance.now());
     const replayState = horseDecisionReplayState(
       {
         phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
@@ -3027,7 +3729,9 @@ export class HorseDecisionWorkerRuntime {
       },
       liveHorsePhase8Safety.disabledReason,
       currentHorseDecisionRuntime(),
-      horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator)
+      horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator),
+      deepStyleStates,
+      deepOptionStates
     );
     // The latest worker stream is canonical. The second look borrows the fast
     // decision's starting point, then restores the canonical stream even if
@@ -3037,44 +3741,62 @@ export class HorseDecisionWorkerRuntime {
     let decision;
     let rngAfter: number | null = null;
     let governorScale!: number;
+    const secondLook: { fired: ReadonlySet<string> | null } = { fired: null };
     try {
       const player = deepFreeze(request.player);
       const gameState = deepFreeze(request.gameState);
+      // R1 (2026-11-15, audit C 7): the read-time style receipts are not telemetry-gated; the FAST look already
+      // counted them, so here they are suppressed.
+      // SECOND-LOOK RECEIPTS (2026-11-16): the second look decides with telemetry on INSIDE a capture, so no
+      // receipt is counted under its own name here (the FAST look is that count); the keys it fired are
+      // collected and counted once each under second_look_<key>_seen after the decision is made.
       const run = this.atGovernorScale(() =>
-        HorseMind.runInSandbox(
-          readView,
-          () =>
-            this.deps.captureDecisionEffects(() =>
-              this.deps.decide(
-                player,
-                gameState,
-                request.style,
-                request.mods,
-                {
-                  ...request.opts,
-                  ...features.flags,
-                  multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
-                  v53PloTourneyIcm: this.tournamentFlagOn(request),
-                  phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
-                  phase8PolicyFamily: phase8Guard.selected
-                    ? 'catastrophe_guard_v1'
-                    : 'continuation_v2',
-                  phase10Plo4: phase10.mode,
-                  phase11Omaha: phase11.mode,
-                  phase12Remaining: phase12.mode,
-                  phase13Joint: phase13.mode,
-                  phase14Corrective: phase14.evaluator ?? undefined,
-                  decisionTimeMs: request.decisionTimeMs,
-                  telemetry: false,
-                  deepEquity: request.deepEquity,
-                  observeMind: false,
-                  mindPlanContext: planContext,
-                },
-                rangeCapture,
-                planReadCapture
-              )
-            ).value
-        )
+        withOncePerDecisionReceiptsSuppressed(() => {
+          const captured = withSecondLookFireCapture(() =>
+            HorseMind.runInSandbox(
+              readView,
+              () =>
+                this.deps.captureDecisionEffects(() =>
+                  this.deps.decide(
+                    player,
+                    gameState,
+                    request.style,
+                    request.mods,
+                    {
+                      ...request.opts,
+                      ...features.flags,
+                      multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+                      // STYLE READ LIVE SWITCH: the second look runs the options ON; shadow is evaluated on the fast look
+                      ...styleSwitchBrainOpts(
+                        styleSwitchDecisionOpts(deepStyleStates, request.player.user_id, false)
+                      ),
+                      ...optionSwitchDecisionOpts(deepOptionStates),
+                      v53PloTourneyIcm: this.tournamentFlagOn(request),
+                      phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
+                      phase8PolicyFamily: phase8Guard.selected
+                        ? 'catastrophe_guard_v1'
+                        : 'continuation_v2',
+                      phase10Plo4: phase10.mode,
+                      phase11Omaha: phase11.mode,
+                      phase12Remaining: phase12.mode,
+                      phase13Joint: phase13.mode,
+                      phase14Corrective: phase14.evaluator ?? undefined,
+                      decisionTimeMs: request.decisionTimeMs,
+                      telemetry: true,
+                      deepEquity: request.deepEquity,
+                      observeMind: false,
+                      mindPlanContext: planContext,
+                    },
+                    rangeCapture,
+                    planReadCapture,
+                    deepDiveCapture
+                  )
+                ).value
+            )
+          );
+          secondLook.fired = captured.fired;
+          return captured.value;
+        })
       );
       decision = run.value;
       governorScale = run.scale;
@@ -3093,6 +3815,12 @@ export class HorseDecisionWorkerRuntime {
     const computeMs = Math.max(0, this.deps.now() - startedAt);
     this.deps.noteDecision(`deep:${request.gameState.gameVariant || 'nlh'}`, computeMs);
     this.deps.noteFeature('v44_second_look');
+    // Measurement only, after the decision is made; a failure here must not lose the second look.
+    try {
+      if (secondLook.fired) noteSecondLookFires(secondLook.fired);
+    } catch {
+      this.deps.noteFeature('second_look_receipt_fold_failed_seen');
+    }
     if (decision.tournamentUtility?.evidence) {
       decision = {
         ...decision,
@@ -3115,6 +3843,7 @@ export class HorseDecisionWorkerRuntime {
           readFrame: retained.frame,
           rangeConsumption: rangeCapture?.finish(retained.frame.sha256),
           planReads: planReadCapture?.finish(retained.frame.sha256),
+          deepDive: deepDiveCapture?.finish(decision, retained.frame.sha256),
           observerReads: retained.observerReads ?? null,
           planContext,
           decision,
@@ -3171,6 +3900,19 @@ export class HorseDecisionWorkerRuntime {
         request = rest;
         this.deps.noteFeature('phase14_accepted_roster_refused');
       }
+    }
+    if (request.terminalOnlySourceRelease !== undefined) {
+      if (request.terminalOnlySourceRelease !== this.deps.sourceRelease?.())
+        throw new Error('accepted_terminal_source_mismatch');
+      this.deps.journalAcceptedHand?.(request);
+      this.send({
+        type: 'ACK',
+        requestId: request.requestId,
+        generation: request.generation,
+        fence: request.fence,
+        operation: 'OBSERVE_COMPLETED_HAND',
+      });
+      return;
     }
     const learned = this.observerReads.complete(request, (hand) =>
       this.deps.observeCompletedHand(hand)

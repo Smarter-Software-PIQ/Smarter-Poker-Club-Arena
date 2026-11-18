@@ -74,6 +74,15 @@ export interface EnginePublicPlayer {
   hit_run_hands_remaining?: number | null;
   hit_run_hands_required?: number | null;
   hit_run_blind_off?: boolean;
+  hit_run_reason?: 'hit_run' | 'big_win' | 'both' | null;
+  hit_run_big_win_bb?: number | null;
+  /**
+   * A CHAIR IS SHOWN THE MOMENT IT IS TAKEN (Dan 2026-11-17): set only on a
+   * seat the engine shows before the hand boundary adopts it. `buying_in` is
+   * the + tap's sixty-second window (no chips yet); `seated` is a committed
+   * buy-in waiting for its first hand. Absent on every other seat.
+   */
+  seat_arrival?: 'buying_in' | 'seated';
 }
 
 export interface EngineActionRecord {
@@ -249,6 +258,10 @@ export interface MappedTableStatePatch {
     waitingForButton?: boolean;
     /** SHOWDOWN SYSTEM 2026-08-25: engine-decided muck — seat shows MUCKED. */
     isMucked?: boolean;
+    /** Engine-shown chair not yet adopted by a hand (see EnginePublicPlayer.seat_arrival). */
+    seatArrival?: 'buying_in' | 'seated';
+    /** No chips have moved yet: the seat draws no stack. */
+    stackPending?: boolean;
   } | null>;
   /** Current bet for action panel. */
   currentBet: number;
@@ -346,6 +359,9 @@ export interface MappedTableStatePatch {
   heroHandsOwed: number | null | undefined;
   /** HIT AND RUN: this countdown's total (10 plus 10 per double), when owed. */
   heroHandsRequired: number | null | undefined;
+  /** Why the hero's hands are owed (owner 2026-11-11); undefined from an older engine. */
+  heroHandsReason?: 'hit_run' | 'big_win' | 'both' | null;
+  heroBigWinBb?: number | null;
 }
 
 // ─── Mapping ──────────────────────────────────────────────────────────────────
@@ -477,6 +493,12 @@ export function mapEngineSnapshot(
   for (const p of s.players) {
     const idx = p.seat - 1;
     if (idx < 0 || idx >= effectiveMaxSeats) continue;
+    /* The hero's own + tap is drawn by this device the instant it is made
+       (TablePage pendingSeat). The engine's echo of it is for everyone else:
+       read here it would mark the hero seated before any chips moved. */
+    if (p.seat_arrival === 'buying_in' && p.user_id === heroUserId) continue;
+    const seatArrival =
+      p.seat_arrival === 'buying_in' || p.seat_arrival === 'seated' ? p.seat_arrival : undefined;
     players[idx] = {
       id: p.user_id,
       name: p.username ?? '',
@@ -497,6 +519,8 @@ export function mapEngineSnapshot(
       isHero: p.user_id === heroUserId,
       waitingForButton: p.is_waiting_for_button === true,
       isMucked: p.is_mucked === true,
+      ...(seatArrival ? { seatArrival } : {}),
+      ...(seatArrival === 'buying_in' ? { stackPending: true } : {}),
     };
     positions[idx] = p.position ?? null;
   }
@@ -652,6 +676,18 @@ export function mapEngineSnapshot(
           ? Math.floor(heroRaw.hit_run_hands_required)
           : null
         : undefined,
+    heroHandsReason:
+      heroRaw && 'hit_run_reason' in heroRaw
+        ? heroRaw.hit_run_reason === 'hit_run' ||
+          heroRaw.hit_run_reason === 'big_win' ||
+          heroRaw.hit_run_reason === 'both'
+          ? heroRaw.hit_run_reason
+          : null
+        : undefined,
+    heroBigWinBb:
+      heroRaw && typeof heroRaw.hit_run_big_win_bb === 'number' && heroRaw.hit_run_big_win_bb > 0
+        ? heroRaw.hit_run_big_win_bb
+        : null,
     sidePots,
     disconnectStates: s.disconnect_states ?? {},
     // Phase 2 T1-01: winners with net amount. Server emits winners[] with

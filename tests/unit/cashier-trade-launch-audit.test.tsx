@@ -92,22 +92,31 @@ const state = vi.hoisted(() => ({
   agentWallet: 500,
   myRole: 'owner',
   myBalance: 250,
+  promoFloat: 300,
+  promoRemaining: null as null | number,
+  /** Per player overrides of promoRemaining, by user id. */
+  promoRemainingBy: {} as Record<string, number>,
+  tickets: [] as Array<Record<string, unknown>>,
   roster: [] as Array<Record<string, unknown>>,
   chipRequests: [] as Array<Record<string, unknown>>,
   recentMoves: [] as Array<Record<string, unknown>>,
+  lastTransactionAt: {} as Record<string, string>,
   pendingHead: 0,
   reversible: null as null | ((clubId: string) => Promise<unknown>),
   batch: null as null | ((args: Record<string, unknown>) => Promise<unknown>),
   rpcCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   tableCalls: [] as TableCall[],
 }));
-const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 
 vi.mock('../../src/hooks/useMasterBusChannel', () => ({ useMasterBusChannel: vi.fn() }));
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: USER_ID }, isHydrating: false }),
 }));
-vi.mock('../../src/components/common/Toast', () => ({ useToast: () => toastMocks }));
+vi.mock('../../src/components/common/Toast', () => ({
+  useToast: () => toastMocks,
+  useOptionalToast: () => toastMocks,
+}));
 vi.mock('../../src/components/wallet/WalletCashierModal', () => ({ default: () => null }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 /**
@@ -142,7 +151,7 @@ vi.mock('../../src/services/cashierBalanceRead', async (original) => ({
   readCashierBalances: vi.fn(async () => ({
     bank: state.agentWallet,
     clubBank: 1000,
-    promoFloat: 300,
+    promoFloat: state.promoFloat,
     promoPot: 400,
     credit: 0,
     hasFloat: true,
@@ -172,6 +181,7 @@ import {
 import CashierTradePage from '../../src/pages/CashierTradePage';
 import { exactChipFigure, parseTradeAmount, sumChips } from '../../src/utils/cashierAmount';
 import { WalletPlate } from '../../src/pages/PlayerWalletPage';
+import { figureDigits } from '../../src/utils/format';
 
 const read = (path: string) => readFileSync(path, 'utf8');
 const TRADE = read('src/pages/CashierTradePage.tsx');
@@ -274,9 +284,14 @@ beforeEach(async () => {
   state.agentWallet = 500;
   state.myRole = 'owner';
   state.myBalance = 250;
+  state.promoFloat = 300;
+  state.promoRemaining = null;
+  state.promoRemainingBy = {};
+  state.tickets = [];
   state.roster = [player(0, 75)];
   state.chipRequests = [];
   state.recentMoves = [];
+  state.lastTransactionAt = {};
   state.pendingHead = 0;
   state.reversible = null;
   state.batch = null;
@@ -349,6 +364,8 @@ beforeEach(async () => {
         value = { data: null, error: null, count: state.pendingHead };
       } else if (table === 'chip_requests') {
         value = { data: state.chipRequests.slice(0, call.cap), error: null };
+      } else if (table === 'tournament_tickets') {
+        value = { data: state.tickets, error: null };
       } else if (table === 'chip_transactions') {
         value = { data: state.recentMoves, error: null };
       } else if (table === 'profiles') {
@@ -413,6 +430,16 @@ beforeEach(async () => {
         error: null,
       }) as never;
     }
+    if (name === 'fn_cashier_roster_sort_keys')
+      return Promise.resolve({
+        data: state.roster.map((row) => ({
+          user_id: row.user_id,
+          player_wallet: row.chip_balance,
+          agent_wallet: row.role !== 'player' ? 340 : null,
+          last_transaction_at: state.lastTransactionAt[row.user_id] ?? null,
+        })),
+        error: null,
+      }) as never;
     if (name === 'fn_club_cashier_members_page_v3') {
       const after = params.p_after_user_id
         ? state.roster.findIndex((row) => row.user_id === params.p_after_user_id) + 1
@@ -454,13 +481,41 @@ beforeEach(async () => {
     if (name === 'fn_respond_chip_request') {
       return Promise.resolve({ data: { success: true }, error: null }) as never;
     }
-    if (name === 'fn_cashier_batch_transfer') {
+    if (name === 'fn_cashier_batch_transfer' || name === 'fn_cashier_agent_ticket_batch') {
       if (state.batch) return state.batch(params) as never;
       const items = params.p_items as Array<{ user_id: string }>;
       return Promise.resolve({
         data: {
           success: true,
           results: items.map((item) => ({ user_id: item.user_id, success: true })),
+        },
+        error: null,
+      }) as never;
+    }
+    if (name === 'fn_cashier_promo_allowance' && state.promoRemaining !== null) {
+      return Promise.resolve({
+        data: {
+          success: true,
+          capped: true,
+          allowances: (params.p_user_ids as string[]).map((id) => ({
+            user_id: id,
+            remaining_chips: state.promoRemainingBy[id] ?? state.promoRemaining,
+          })),
+        },
+        error: null,
+      }) as never;
+    }
+    if (name === 'fn_cashier_promo_ticket_batch') {
+      const items = params.p_items as Array<{ user_id: string }>;
+      return Promise.resolve({
+        data: {
+          success: true,
+          batch_id: params.p_batch_id,
+          results: items.map((item, index) => ({
+            user_id: item.user_id,
+            success: true,
+            ticket_id: `55555555-5555-4555-8555-55555555555${index}`,
+          })),
         },
         error: null,
       }) as never;
@@ -722,7 +777,7 @@ describe('P-10: the figure a user confirms is the figure that moves', () => {
     expect(exactChipFigure(0.1 + 0.2)).toBe('0.30');
     expect(exactChipFigure(-42.1)).toBe('-42.10');
     expect(exactChipFigure(Number.NaN)).toBe('0');
-    expect(TRADE).toContain('{exactChipFigure(receipt.amount)}');
+    expect(TRADE).toContain('{exactChipFigure(receipt.amountText ?? receipt.amount)}');
     // Head zones and list rows keep the console reading.
     expect(TRADE).toContain('const fmt = compactChips;');
   });
@@ -882,7 +937,12 @@ describe('P-16: money on the page is summed in cents', () => {
   it('computes the ledger net in cents so cancelling legs read +0, never -0', () => {
     expect(TRADE).toContain("supabase.rpc('fn_cashier_history_summary'");
     expect(TRADE).not.toContain("sumChips(amountsIn('in'))");
-    expect(TRADE).toContain("wallet.net >= 0 ? '+' : '-'");
+    // The net is the RPC's exact text since 2026-11-14; its sign is read from
+    // the digits, and historyTotalAmount drops the sign of any zero, so a
+    // cancelled pair still reads +0.00, never -0.00.
+    expect(TRADE).toContain("!totalIsNegative(wallet.net) ? '+' : '-'");
+    expect(TRADE).toContain("`${digits.negative ? '-' : ''}${digits.whole}");
+    expect(figureDigits('-0.00')).toEqual({ negative: false, whole: '0', fraction: '' });
     const incoming = sumChips([100.1, 200.2]);
     const outgoing = sumChips([300.3]);
     const net = (Math.round(incoming * 100) - Math.round(outgoing * 100)) / 100;
@@ -2052,26 +2112,32 @@ it('the sender chooses a recipient agent player wallet and the batch retains tha
   ]);
 });
 
-it('preloads the most recent own ticket, send and claim counterparties before high balances', async () => {
+/* Dan 2026-11-13: the roster defaults to each member's LAST TRANSACTION in
+   the club ledger (fn_cashier_roster_sort_keys), newest first, and members
+   who never transacted fall to the end by balance. Agent Wallet and Player
+   Wallet sort High To Low on the first tap and flip on the next. */
+it('defaults to last transaction, then sorts by player wallet both ways', async () => {
   state.roster = [player(0, 9000), player(1, 5), player(2, 10)];
-  state.recentMoves = [
-    {
-      from_user_id: USER_ID,
-      to_user_id: PLAYER_IDS[2],
-      transaction_type: 'tournament_ticket_issue',
-    },
-    { from_user_id: USER_ID, to_user_id: PLAYER_IDS[1], transaction_type: 'agent_wallet_send' },
-    { from_user_id: PLAYER_IDS[0], to_user_id: USER_ID, transaction_type: 'agent_wallet_send' },
-    { from_user_id: PLAYER_IDS[2], to_user_id: USER_ID, transaction_type: 'club_bank_claim_back' },
-  ];
+  state.lastTransactionAt = {
+    [PLAYER_IDS[2]]: '2026-11-13T16:00:00Z',
+    [PLAYER_IDS[1]]: '2026-11-12T16:00:00Z',
+  };
   mountCashier();
   await synchronized();
+  const order = () =>
+    screen
+      .getAllByRole('checkbox', { name: /^Include Player/ })
+      .map((button) => button.getAttribute('aria-label'));
   await waitFor(() =>
-    expect(
-      screen
-        .getAllByRole('checkbox', { name: /^Include Player/ })
-        .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['Include Player 3', 'Include Player 2', 'Include Player 1'])
+    expect(order()).toEqual(['Include Player 3', 'Include Player 2', 'Include Player 1'])
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Sort By Player Wallet High To Low' }));
+  await waitFor(() =>
+    expect(order()).toEqual(['Include Player 1', 'Include Player 3', 'Include Player 2'])
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Sort By Player Wallet Low To High' }));
+  await waitFor(() =>
+    expect(order()).toEqual(['Include Player 2', 'Include Player 3', 'Include Player 1'])
   );
 });
 
@@ -2106,7 +2172,7 @@ it.each(['player', 'agent'])(
     await waitFor(() => expect(entry).toHaveTextContent('6,000.00 Chips'));
     fireEvent.click(entry);
     const sheet = await screen.findByRole('dialog', { name: 'Request Cashout' });
-    expect(within(sheet).getByText('Available Balance')).toBeInTheDocument();
+    expect(within(sheet).getByText('Balance')).toBeInTheDocument();
     expect(within(sheet).getByText('6,000.00 Chips')).toBeInTheDocument();
     expect(within(sheet).getByRole('textbox', { name: /Amount/i })).toBeInTheDocument();
     expect(
@@ -2420,3 +2486,272 @@ it.each(['send', 'ticket'] as const)(
     );
   }
 );
+
+/**
+ * November16 owner rule: new tickets spend cashable Player or Agent Wallet
+ * chips. Direct promo-chip sends retain their original recipient allowance.
+ */
+describe('Send Ticket uses cashable Player or Agent Wallet chips', () => {
+  const namesCalled = (name: string) => state.rpcCalls.filter((call) => call.name === name);
+
+  async function openTicket(role: string) {
+    state.myRole = role;
+    mountCashier();
+    await synchronized();
+    const dialog = await openSendOut('10', 1);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Send Ticket', exact: true }));
+    await within(dialog).findByRole('combobox', { name: 'Send Ticket From' });
+    return dialog;
+  }
+
+  function chooseAgentWallet(dialog: HTMLElement) {
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Send Ticket From' }), {
+      target: { value: 'agent_wallet' },
+    });
+  }
+
+  it('offers only cashable player and agent funding for a new ticket', async () => {
+    state.promoRemaining = 15;
+    const dialog = await openTicket('agent');
+    const source = within(dialog).getByRole('combobox', { name: 'Send Ticket From' });
+    expect(source).toHaveValue('player_wallet');
+    expect(
+      within(source)
+        .getAllByRole('option')
+        .map((option) => (option as HTMLOptionElement).value)
+    ).toEqual(['player_wallet', 'agent_wallet']);
+    expect(within(source).queryByRole('option', { name: /Promo/ })).toBeNull();
+    expect(namesCalled('fn_cashier_promo_allowance')).toHaveLength(0);
+    expect(within(dialog).queryByTitle('Promo Allowance Remaining')).toBeNull();
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+  });
+
+  it('sends an agent-funded ticket through its explicit compatible source RPC only', async () => {
+    const dialog = await openTicket('agent');
+    chooseAgentWallet(dialog);
+    await chooseTournament(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(namesCalled('fn_cashier_agent_ticket_batch')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const args = namesCalled('fn_cashier_agent_ticket_batch')[0].args as {
+      p_club_id: string;
+      p_kind: string;
+      p_batch_id: string;
+      p_items: Array<{ user_id: string; amount: number; source: string; idempotency_key: string }>;
+    };
+    expect(args.p_club_id).toBe(CLUB_A);
+    expect(args.p_kind).toBe('ticket');
+    expect(args.p_items).toHaveLength(1);
+    expect(args.p_items[0]).toEqual(
+      expect.objectContaining({ user_id: PLAYER_IDS[0], amount: 10, source: 'agent_wallet' })
+    );
+    expect(args.p_items[0].idempotency_key).toBe(
+      `ticket:${CLUB_A}:${args.p_batch_id}:${PLAYER_IDS[0]}:10`
+    );
+    expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps a default Player Wallet ticket on the wallet batch', async () => {
+    state.promoRemaining = 15;
+    const dialog = await openTicket('agent');
+    expect(within(dialog).getByRole('combobox', { name: 'Send Ticket From' })).toHaveValue(
+      'player_wallet'
+    );
+    await chooseTournament(dialog);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const calls = namesCalled('fn_cashier_batch_transfer');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args.p_club_id).toBe(CLUB_A);
+    expect(calls[0].args.p_kind).toBe('ticket');
+    expect(calls[0].args.p_items).toEqual([
+      expect.objectContaining({ user_id: PLAYER_IDS[0], amount: 10 }),
+    ]);
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_promo_allowance')).toHaveLength(0);
+  });
+
+  it('refuses a ticket larger than the selected agent wallet without a money call', async () => {
+    state.agentWallet = 5;
+    const dialog = await openTicket('agent');
+    chooseAgentWallet(dialog);
+    await chooseTournament(dialog);
+    expect(dialog).toHaveTextContent('Insufficient Chips In The Funding Wallet');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        'Insufficient Chips: Sending 10 Needs More Than 5'
+      )
+    );
+    expect(within(dialog).getByRole('combobox', { name: 'Send Ticket From' })).toHaveValue(
+      'agent_wallet'
+    );
+    expect(namesCalled('fn_cashier_agent_ticket_batch')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_batch_transfer')).toHaveLength(0);
+  });
+
+  const EIGHT_IDS = [
+    ...PLAYER_IDS,
+    '44444444-4444-4444-8444-444444444446',
+    '44444444-4444-4444-8444-444444444447',
+    '44444444-4444-4444-8444-444444444448',
+  ];
+  const eightPlayers = () =>
+    EIGHT_IDS.map((id, index) => ({
+      ...player(0, 75, `Player ${index + 1}`),
+      user_id: id,
+      username: `player_${index + 1}`,
+      player_number: `P-${index + 1}`,
+    }));
+
+  it('keeps promo-funded ticket creation unavailable for a multi-player batch', async () => {
+    state.roster = eightPlayers();
+    state.promoRemaining = 4;
+    state.myRole = 'agent';
+    mountCashier();
+    await synchronized();
+    const dialog = await openSendOut('10', 8);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Send Ticket', exact: true }));
+    const source = await within(dialog).findByRole('combobox', { name: 'Send Ticket From' });
+    expect(within(source).queryByRole('option', { name: /Promo/ })).toBeNull();
+    expect(within(dialog).queryByTitle('Promo Allowance Remaining')).toBeNull();
+    expect(namesCalled('fn_cashier_promo_allowance')).toHaveLength(0);
+    expect(namesCalled('fn_cashier_promo_ticket_batch')).toHaveLength(0);
+  });
+
+  it('caps the named players at five and counts the rest in Send Out', async () => {
+    state.roster = eightPlayers();
+    state.promoRemaining = 4;
+    state.promoRemainingBy = { [PLAYER_IDS[0]]: 50 };
+    state.myRole = 'agent';
+    mountCashier();
+    await synchronized();
+    const dialog = await openSendOut('10', 8);
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Send From' }), {
+      target: { value: 'promo_wallet' },
+    });
+    const below = await within(dialog).findByTitle('Promo Allowance Below This Send');
+    expect(below).toHaveTextContent(
+      'Can Not Receive Their Amount: Player 2 (4 Remaining), Player 3 (4 Remaining), Player 4 (4 Remaining), Player 5 (4 Remaining), Player 6 (4 Remaining), And 2 More.'
+    );
+    expect(below).not.toHaveTextContent('Player 1 ');
+    expect(within(dialog).getByTitle('Promo Allowance Remaining')).toHaveTextContent(
+      'Lowest Remaining Allowance Among The Selected Players: 4 Of 50 Promo Chips.'
+    );
+  });
+
+  it('keeps the single player sentence and lists nobody for one recipient', async () => {
+    state.promoRemaining = 5;
+    state.myRole = 'agent';
+    mountCashier();
+    await synchronized();
+    const dialog = await openSendOut('10', 1);
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Send From' }), {
+      target: { value: 'promo_wallet' },
+    });
+    expect(await within(dialog).findByTitle('Promo Allowance Remaining')).toHaveTextContent(
+      'Player 1 Can Still Receive 5 Of 50 Promo Chips.'
+    );
+    expect(within(dialog).queryByTitle('Promo Allowance Below This Send')).toBeNull();
+  });
+});
+
+/**
+ * The Tickets tab knows a promo funded ticket by the note its door writes
+ * (20261113021529) and tells the issuer where a cancel returns the chips.
+ */
+describe('Tickets tab names a promo funded ticket', () => {
+  const ticket = (id: string, over: Record<string, unknown>) => ({
+    id,
+    holder_id: PLAYER_IDS[0],
+    issued_by: USER_ID,
+    value: 20,
+    note: 'Cashier Ticket',
+    status: 'issued',
+    redemption_mode: 'wallet_chips',
+    created_at: '2026-11-12T18:00:00Z',
+    ...over,
+  });
+
+  async function openTickets() {
+    mountCashier();
+    await synchronized();
+    fireEvent.click(screen.getByRole('tab', { name: /Tickets/ }));
+    return screen.findByRole('tabpanel', { name: /Tickets/ });
+  }
+
+  it('labels an issued promo ticket and says its cancel returns to the Promo Wallet', async () => {
+    state.tickets = [
+      ticket('a0000000-0000-4000-8000-000000000001', { note: 'Promo Cashier Ticket' }),
+      ticket('a0000000-0000-4000-8000-000000000002', { value: 40 }),
+    ];
+    const panel = await openTickets();
+    const rows = await within(panel).findAllByText('To Player 1');
+    expect(rows).toHaveLength(2);
+    const promoRow = rows[0].parentElement!.parentElement!;
+    const plainRow = rows[1].parentElement!.parentElement!;
+    expect(promoRow).toHaveTextContent(/Promo · Issued · .+ · Cancel Returns To Your Promo Wallet/);
+    // The label replaces the raw note; it is not printed twice.
+    expect(promoRow).not.toHaveTextContent('Promo Cashier Ticket');
+    const promoCancel = within(promoRow).getByRole('button', {
+      name: 'Cancel: Returns To Your Promo Wallet',
+    });
+    expect(promoCancel).toHaveTextContent('Cancel');
+    expect(promoCancel).toHaveAttribute('title', 'Cancel: Returns To Your Promo Wallet');
+    expect(plainRow).toHaveTextContent('Cashier Ticket');
+    expect(plainRow).not.toHaveTextContent('Promo');
+    const plainCancel = within(plainRow).getByRole('button', { name: 'Cancel', exact: true });
+    expect(plainCancel).not.toHaveAttribute('title');
+    expect(plainCancel).not.toHaveAttribute('aria-label');
+  });
+
+  it('shows the holder a promo ticket as Promo with Redeem and no cancel wording', async () => {
+    state.tickets = [
+      ticket('a0000000-0000-4000-8000-000000000003', {
+        holder_id: USER_ID,
+        issued_by: PLAYER_IDS[1],
+        note: 'Promo Cashier Ticket',
+      }),
+      ticket('a0000000-0000-4000-8000-000000000004', {
+        note: 'Promo Cashier Ticket',
+        status: 'cancelled',
+      }),
+    ];
+    const panel = await openTickets();
+    const held = (await within(panel).findByText('From Player 2')).parentElement!.parentElement!;
+    expect(held).toHaveTextContent(/Promo · Issued/);
+    expect(held).not.toHaveTextContent('Promo Wallet');
+    expect(within(held).getByRole('button', { name: 'Redeem' })).toBeInTheDocument();
+    const cancelled = within(panel).getByText('To Player 1').parentElement!.parentElement!;
+    expect(cancelled).toHaveTextContent(/Promo · Cancelled/);
+    expect(cancelled).not.toHaveTextContent('Promo Wallet');
+    expect(within(cancelled).queryByRole('button')).toBeNull();
+  });
+
+  it('cancels a promo ticket through the cancel door and names the Promo Wallet', async () => {
+    const id = 'a0000000-0000-4000-8000-000000000005';
+    state.tickets = [ticket(id, { note: 'Promo Cashier Ticket' })];
+    const panel = await openTickets();
+    const rpc = vi.mocked(supabase.rpc).getMockImplementation()!;
+    vi.mocked(supabase.rpc).mockImplementation(((name: string, args?: unknown) =>
+      name === 'fn_cancel_tournament_ticket'
+        ? (state.rpcCalls.push({ name, args: args as Record<string, unknown> }),
+          Promise.resolve({ data: { success: true, refund_wallet: 'promo_wallet' }, error: null }))
+        : rpc(name, args as never)) as never);
+    fireEvent.click(
+      await within(panel).findByRole('button', { name: 'Cancel: Returns To Your Promo Wallet' })
+    );
+    await waitFor(() =>
+      expect(toastMocks.success).toHaveBeenCalledWith(
+        'Cancelled The Ticket. 20 Chips Are Back In Your Promo Wallet'
+      )
+    );
+    expect(state.rpcCalls.filter((call) => call.name === 'fn_cancel_tournament_ticket')).toEqual([
+      { name: 'fn_cancel_tournament_ticket', args: { p_ticket_id: id } },
+    ]);
+  });
+});

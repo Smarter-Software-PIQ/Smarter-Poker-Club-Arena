@@ -197,9 +197,39 @@ describe('the Share sheet', () => {
         ) as HTMLInputElement
       ).value
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy Link' }));
+    const copyButton = screen.getByRole('button', { name: 'Copy Link' });
+    expect(copyButton.textContent).toBe('Copy');
+    fireEvent.click(copyButton);
     await waitFor(() => expect(onShared).toHaveBeenCalledTimes(1));
     expect(writeText).toHaveBeenCalledWith('https://smarter.poker/hub/club-arena/h/AbCd2345');
+    expect(screen.getByRole('button', { name: 'Link Copied' }).textContent).toBe('Copied');
+  });
+
+  it('a copy that did not happen is said on screen, with the link selected (2026-11-15)', async () => {
+    const onShared = vi.fn();
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn(() => Promise.reject(new DOMException('x', 'NotAllowedError'))) },
+      configurable: true,
+    });
+    (document as unknown as { execCommand: unknown }).execCommand = vi.fn(() => false);
+    render(
+      <ShareHand
+        isOpen
+        onClose={() => {}}
+        hand={hand()}
+        shortUrl="https://smarter.poker/hub/club-arena/h/AbCd2345"
+        onShared={onShared}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Link' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Copy Is Blocked Here. The Link Is Selected, Copy It By Hand.'
+    );
+    const input = screen.getByRole('textbox', { name: 'Hand Link' }) as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    expect(onShared).not.toHaveBeenCalled();
   });
 
   it('a short link embeds with ?embed=true, a long one with &embed=true', () => {

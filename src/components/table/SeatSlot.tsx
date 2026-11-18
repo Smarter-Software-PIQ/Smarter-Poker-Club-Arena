@@ -1,3 +1,5 @@
+import { SharedSeatObserver } from '../../lib/sharedSeatPresentation';
+import { TableAnimationClock } from './tableAnimationClock';
 /**
  * ♠ CLUB ARENA — Seat Slot Component
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -32,7 +34,7 @@ import {
   useActionClockSeconds,
   type ActionClockStore,
 } from '../../hooks/actionClockStore';
-import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
+import { prefersReducedMotion } from '../../utils/animationSpeed';
 import RiveAvatar from './RiveAvatar';
 import { ActionTimerRing } from './ActionTimerRing';
 import { SeatPlayerName } from './SeatPlayerName';
@@ -209,6 +211,8 @@ const CELEBRATE_MS = 940;
 
 export interface SeatPlayer {
   waitingForButton?: boolean;
+  /** Dan 2026-11-17: an engine-shown chair not yet adopted by a hand. */
+  seatArrival?: 'buying_in' | 'seated';
   id: string;
   name: string;
   avatar?: string;
@@ -250,6 +254,8 @@ export interface SeatPlayer {
 }
 
 export interface SeatSlotProps {
+  recordedGesture?: AvatarGesture;
+  recordedCardsCovered?: boolean;
   arrival?: SeatArrival;
   /**
    * `table_seats.sit_out_at` in epoch ms, and ONLY when a deadline applies.
@@ -589,12 +595,24 @@ export interface SeatSlotProps {
    *                     and they have not asked to post: the badge says so.
    *   'posting_bb'      held, and they agreed to post: nothing is wrong with
    *                     this seat and no badge is drawn.
+   *   'buying_in'       Dan 2026-11-17: the player tapped + and has the
+   *                     sixty-second buy-in window. Their face is in the
+   *                     chair for every viewer; no chips have moved.
+   *   'joining'         the buy-in committed and the chair waits for the
+   *                     engine's next hand boundary to adopt it.
    *   null / undefined  not an entry hold - a sat-out seat is sat out.
    *
    * Decided by the parent from the engine's waiting_for_bb_user_ids and
-   * post_bb_deferred_user_ids, the same two lists the hero's footer reads.
+   * post_bb_deferred_user_ids, the same two lists the hero's footer reads,
+   * and the engine's per-seat seat_arrival.
    */
-  entryWait?: 'waiting_for_button' | 'waiting_for_bb' | 'posting_bb' | null;
+  entryWait?:
+    | 'waiting_for_button'
+    | 'waiting_for_bb'
+    | 'posting_bb'
+    | 'buying_in'
+    | 'joining'
+    | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -975,6 +993,8 @@ export const SeatSlot = memo(
       showPickedCardIndexes,
       onToggleShowCard,
     } = props;
+    const getAnimationSpeed = React.useContext(TableAnimationClock);
+    const observePaint = React.useContext(SharedSeatObserver);
     const wagerFmt = (n: number) => formatSeatWager(n, showStackInBB, bigBlind);
 
     /**
@@ -1609,7 +1629,8 @@ export const SeatSlot = memo(
     }, []);
 
     const [rigActive, setRigActive] = useState(false);
-    const [avatarGesture, setAvatarGesture] = useState<AvatarGesture>(null);
+    const [liveGesture, setAvatarGesture] = useState<AvatarGesture>(null);
+    const avatarGesture = props.recordedGesture === undefined ? liveGesture : props.recordedGesture;
     const gestureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const prevGestureActionRef = useRef<LastAction>(null);
     const prevGestureWinnerRef = useRef(false);
@@ -2512,6 +2533,23 @@ export const SeatSlot = memo(
     ]);
 
     // ─── EMPTY SEAT ────────────────────────────────────────────────────────
+    const squeezeDown =
+      props.recordedCardsCovered ??
+      (cardSqueezeActive &&
+        !squeezeRevealed &&
+        player?.status !== 'all_in' &&
+        !player?.showCards &&
+        !isWinner &&
+        !isMucking);
+    useLayoutEffect(() => {
+      if (observePaint)
+        observePaint({
+          ...props,
+          recordedGesture: avatarGesture,
+          recordedCardsCovered: !!squeezeDown,
+        });
+    }, [observePaint, props, avatarGesture, squeezeDown]);
+
     if (!player) {
       // This used to short-circuit on `isTournament` and return a bare div: no
       // label, no affordance, no click handler. That was survivable at an MTT,
@@ -2651,13 +2689,6 @@ export const SeatSlot = memo(
 
     // COMPETITOR-PARITY 2026-08-19 (Card Squeeze): single source of truth for
     // "the hero's cards are currently face down awaiting a squeeze".
-    const squeezeDown =
-      cardSqueezeActive &&
-      !squeezeRevealed &&
-      player.status !== 'all_in' &&
-      !player.showCards &&
-      !isWinner &&
-      !isMucking;
 
     /**
      * IS THE HERO'S HAND BEING SHOWN TO THE TABLE?
@@ -3326,8 +3357,9 @@ export const SeatSlot = memo(
                 : undefined
             }
           >
-            {showHolo && <span className="seat__holo" aria-hidden="true" />}
-            {/* Bible V8 §11.1 show_avatars: when the toggle is OFF the image is
+            <div className="seat__avatar-paint">
+              {showHolo && <span className="seat__holo" aria-hidden="true" />}
+              {/* Bible V8 §11.1 show_avatars: when the toggle is OFF the image is
                 not rendered at all. It used to render and be hidden with
                 `visibility: hidden` on the wrap, so a player who turned avatars
                 off to save data still downloaded nine of them every table. The
@@ -3336,34 +3368,34 @@ export const SeatSlot = memo(
                 `alt=""`: the seat is a labelled region that already announces
                 the player's name, so a duplicate here is pure screen-reader
                 noise. The avatar carries no information the name does not. */}
-            {/* RIVE 2026-08-21 — a rigged character, when one exists.
+              {/* RIVE 2026-08-21 — a rigged character, when one exists.
                 Renders nothing and costs nothing while no avatar is rigged,
                 which is every avatar today: the registry's manifest 404s once
                 per session and every seat falls through to the <img> below.
                 When a rig IS present it hides the img and drives the same
                 gesture value the CSS choreography uses, so rigged and unrigged
                 seats stay in lockstep. Contract: docs/RIVE-AVATAR-CONTRACT.md */}
-            {showAvatar && !avatarBroken && isBustArt ? (
-              <RiveAvatar
-                avatarUrl={avatarUrl}
-                gesture={avatarGesture}
-                /* isActingNow, not isActive. `hasFolded` exists precisely so
+              {showAvatar && !avatarBroken && isBustArt ? (
+                <RiveAvatar
+                  avatarUrl={avatarUrl}
+                  gesture={avatarGesture}
+                  /* isActingNow, not isActive. `hasFolded` exists precisely so
                    that ONE value answers "is this seat acting" for the ring,
                    the urgency colours, the tense idle, the alert gesture and
                    the screen-reader label - and the rig was the one consumer
                    still reading the raw snapshot flag. A player who has just
                    folded kept telling their rig it was still on the clock for
                    the whole round trip. */
-                isActive={isActingNow}
-                isFolded={hasFolded}
-                size={player.isHero ? SEAT_AVATAR_PX_HERO : SEAT_AVATAR_PX}
-                onRigActive={setRigActive}
-              />
-            ) : null}
-            {showAvatar && !avatarBroken && !rigActive ? (
-              <img
-                src={avatarUrl}
-                /* RETINA 2026-08-23 (root cause of "avatars don't show on
+                  isActive={isActingNow}
+                  isFolded={hasFolded}
+                  size={player.isHero ? SEAT_AVATAR_PX_HERO : SEAT_AVATAR_PX}
+                  onRigActive={setRigActive}
+                />
+              ) : null}
+              {showAvatar && !avatarBroken && !rigActive ? (
+                <img
+                  src={avatarUrl}
+                  /* RETINA 2026-08-23 (root cause of "avatars don't show on
                    mobile"): 193 profiles stored their library art as
                    /avatars/table/X@2x.webp. The old unconditional replace
                    built X@2x@2x.webp as the 2x candidate — a 404 — and every
@@ -3372,38 +3404,38 @@ export const SeatSlot = memo(
                    the 1x URL and looked fine, which is why this only ever hurt
                    phones. Only offer a 2x twin when the URL is base table art
                    that is not already @2x. */
-                srcSet={
-                  /^https?:\/\/[^\s]+\/avatars\/table\/[^@\s]+\.webp$/.test(avatarUrl)
-                    ? `${avatarUrl} 1x, ${avatarUrl.replace(/\.webp$/, '@2x.webp')} 2x`
-                    : undefined
-                }
-                alt=""
-                className="seat__avatar-img"
-                /* Per-avatar size correction (--sp-bust-gain) is NOT set here.
+                  srcSet={
+                    /^https?:\/\/[^\s]+\/avatars\/table\/[^@\s]+\.webp$/.test(avatarUrl)
+                      ? `${avatarUrl} 1x, ${avatarUrl.replace(/\.webp$/, '@2x.webp')} 2x`
+                      : undefined
+                  }
+                  alt=""
+                  className="seat__avatar-img"
+                  /* Per-avatar size correction (--sp-bust-gain) is NOT set here.
                    It is declared on `.seat__avatar` above so the Rive rig and
                    the holo mask inherit the same value; see the note there. */
-                /* WebKit can defer lazy portraits on the transformed felt until
+                  /* WebKit can defer lazy portraits on the transformed felt until
                    a viewport change. A visible table requests every portrait
                    immediately, including spectators with no hero. TablePage
                    keeps retained hidden tables lazy and updates this prop when
                    they become visible. Hero and Lightning arrival overrides
                    remain eager. */
-                /* An arriving Lightning opponent (`arrival`) is on the felt
+                  /* An arriving Lightning opponent (`arrival`) is on the felt
                    in front of the player right now, so it loads at once: its
                    fade waits for this image (the arrival effect above). */
-                loading={player.isHero || props.arrival ? 'eager' : avatarLoading}
-                decoding="async"
-                fetchPriority={player.isHero ? 'high' : 'auto'}
-                onError={() => setFailedAvatarUrl(avatarUrl)}
-              />
-            ) : null}
-            {showAvatar && avatarBroken ? (
-              <span className="seat__avatar-fallback seat__avatar-initial">
-                {player.name.charAt(0).toUpperCase() || '?'}
-              </span>
-            ) : null}
+                  loading={player.isHero || props.arrival ? 'eager' : avatarLoading}
+                  decoding="async"
+                  fetchPriority={player.isHero ? 'high' : 'auto'}
+                  onError={() => setFailedAvatarUrl(avatarUrl)}
+                />
+              ) : null}
+              {showAvatar && avatarBroken ? (
+                <span className="seat__avatar-fallback seat__avatar-initial">
+                  {player.name.charAt(0).toUpperCase() || '?'}
+                </span>
+              ) : null}
 
-            {/* Equipped frame + aura — Bible V8 §11 cosmetics.
+              {/* Equipped frame + aura — Bible V8 §11 cosmetics.
                 Inside `.seat__avatar` on purpose: that element owns the circle
                 and the `position: relative`, so the overlay inherits both and
                 stays a circle without knowing the seat's geometry.
@@ -3412,10 +3444,11 @@ export const SeatSlot = memo(
                 infinite keyframe loops behind the cards, and `aura-glitch`
                 repeats six times a second. The aura still reads as an aura; it
                 just stops repainting. */}
-            {showAvatar && <AvatarCosmetics frame={player.frame} aura={player.aura} still />}
+              {showAvatar && <AvatarCosmetics frame={player.frame} aura={player.aura} still />}
 
-            {/* Folded overlay */}
-            {lastAction === 'fold' && <div className="seat__avatar-fold-overlay" />}
+              {/* Folded overlay */}
+              {lastAction === 'fold' && <div className="seat__avatar-fold-overlay" />}
+            </div>
           </div>
 
           {/* THE POST-IT (Dan 2026-11-04): the viewer has a private note on
@@ -3476,7 +3509,20 @@ export const SeatSlot = memo(
               Waiting For The Button To Pass
             </div>
           )}
+          {/* Dan 2026-11-17: a chair is shown the moment it is taken. */}
+          {entryWait === 'buying_in' && (
+            <div className="seat__sitout-badge" data-testid="seat-buying-in-badge">
+              Buying In
+            </div>
+          )}
+          {entryWait === 'joining' && (
+            <div className="seat__sitout-badge" data-testid="seat-joining-badge">
+              Joining
+            </div>
+          )}
           {entryWait !== 'waiting_for_button' &&
+            entryWait !== 'buying_in' &&
+            entryWait !== 'joining' &&
             (player.status === 'sitting_out' || entryWait === 'waiting_for_bb') &&
             entryWait !== 'posting_bb' &&
             (entryWait === 'waiting_for_bb' ? (
@@ -4068,6 +4114,11 @@ export const SeatSlot = memo(
     if (prev.handStrength !== next.handStrength) return false;
     if (prev.netWinAmount !== next.netWinAmount) return false;
     if (prev.bbjCreditAmount !== next.bbjCreditAmount) return false;
+    if (
+      prev.recordedGesture !== next.recordedGesture ||
+      prev.recordedCardsCovered !== next.recordedCardsCovered
+    )
+      return false;
     if (prev.lastAction !== next.lastAction) return false;
     if (prev.lastBetAmount !== next.lastBetAmount) return false;
     // UI-AUDIT P1: collect-to-pot animation is driven solely by this flag on

@@ -76,8 +76,12 @@ describe('PLO suited aces 4-bet a single 3-bet', () => {
   });
 
   it('deeper than 250 big blinds effective the anchor stands aside', () => {
-    const st = fourBetNode('3h9dAdKdAc');
-    for (const p of st.gs.players) p.stack = p.stack + 600;
+    // Deepen every seat in the recorded snapshot, not in the built state: the
+    // deciding player is its own object, built from its seat row as the live
+    // decisionPlayer is (a-replay-keeps-the-card-firewall.law.test.ts).
+    const st = fourBetNode('3h9dAdKdAc', (fx) => {
+      for (const a of fx.actions) for (const seat of a.publicNode?.seats ?? []) seat[1] += 600;
+    });
     expect(kinds(st).raise ?? 0).toBe(kinds(st, { ploSuitedAcesFourBet: false }).raise ?? 0);
   });
 });

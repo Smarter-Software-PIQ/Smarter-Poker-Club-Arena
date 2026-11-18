@@ -11,16 +11,17 @@
  * reads true here. Nothing is decided from the URL.
  *
  * A chip club renders MemberManagementPage exactly as it did before this door
- * existed: same component, no props, nothing wrapped around it.
+ * existed: same component, with each member route owning a fresh visit.
  */
-import { Navigate } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { useAutomaticArenaMembership } from '../components/arena/arenaAccess';
 import MemberManagementPage from './MemberManagementPage';
 
 export default function ClubMemberDoor() {
+  const { clubId, userId } = useParams();
   return useAutomaticArenaMembership() ? (
     <Navigate to=".." relative="path" replace />
   ) : (
-    <MemberManagementPage />
+    <MemberManagementPage key={`${clubId}:${userId}`} />
   );
 }

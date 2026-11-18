@@ -1,0 +1,5 @@
+{
+  "_owner": "Hold'em Strategy, migration 20261113201841_the_horse_style_read_has_a_live_switch.sql (PR #10734): the Horse style read live switch.",
+  "tables": ["ca_horse_style_switch", "ca_horse_style_switch_audit"],
+  "functions": ["fn_ca_horse_style_switch_effective", "fn_ca_horse_style_switch_set"]
+}

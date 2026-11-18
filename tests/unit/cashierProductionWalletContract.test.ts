@@ -49,6 +49,7 @@ describe('production Cashier roster balance selection', () => {
   it('uses the maintained locator in the production certificate', () => {
     const source = readFileSync(resolve(__dirname, '../e2e/production-cashier.spec.ts'), 'utf8');
     expect(source).toContain('cashierRosterWalletValue(rosterWalletLabels.nth(index))');
+    expect(source).toContain(`.locator('[class*="rosterBalanceLine"]')`);
   });
 });
 

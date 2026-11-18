@@ -30,6 +30,14 @@ import {
 } from './independentQualification.js';
 import { checkCitedReferences, type ReplaySolverStores } from './references.js';
 import { replayThroughWorkerRuntime } from './runtimeReplay.js';
+import type { StyleSwitchStates } from '../../HorseStyleSwitch.js';
+import type { OptionSwitchStates } from '../../HorseOptionSwitch.js';
+import {
+  HORSE_DECISION_REPLAY_STATE_V4,
+  HORSE_DECISION_REPLAY_STATE_V5,
+  HORSE_DECISION_REPLAY_STATE_VERSION,
+  isHorseDecisionReplayState,
+} from '../replayState.js';
 import type {
   HorseDecisionReplayVerdict,
   HorseReplayAction,
@@ -131,6 +139,9 @@ export function stableReceipt(value: unknown): unknown {
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       const item = (value as Record<string, unknown>)[key];
       if (VOLATILE_KEY.test(key) || key === 'executionWitness') continue;
+      // R1 style action receipt (Hand Analysis B1): skipped under backlog, budget or a moved scale, like the shadow,
+      // so it is a work-budget observation the frozen replay cannot reproduce; the decision itself is compared.
+      if (key === 'styleActionReceipt') continue;
       if (
         key === 'policyMs' &&
         (value as Record<string, unknown>).policyFamily === 'catastrophe_guard_v1' &&
@@ -292,6 +303,59 @@ function baseVerdict(
   };
 }
 
+/**
+ * The style read switch states a decision ran with, from its record, after the replay state's version is checked
+ * (review bd7a5cc2, finding 5):
+ *   - a v3 or v4 state must validate (isHorseDecisionReplayState): v4 carries complete states, not all off, and v3
+ *     carries none. A v4 state that lost its style, or a v3 state carrying one, is refused, never restored as all off
+ *     or trusted as recorded;
+ *   - an older state (v1, v2) predates the switch and ran with every option off; one that carries a style is refused.
+ * `null` states mean every option off.
+ */
+export function recordedStyleStates(
+  raw: unknown
+): { ok: true; states: StyleSwitchStates | null } | { ok: false } {
+  const recorded = recordedSwitchStates(raw);
+  return recorded.ok ? { ok: true, states: recorded.states } : recorded;
+}
+
+/**
+ * The same check, returning also the switched non-style options a v5 record carries (HorseOptionSwitch; `null`:
+ * none, every option at its release default). A record older than v5 that carries `options` is refused, exactly as
+ * one older than v4 that carries a style.
+ */
+export function recordedSwitchStates(
+  raw: unknown
+):
+  | { ok: true; states: StyleSwitchStates | null; options: OptionSwitchStates | null }
+  | { ok: false } {
+  let replayState: unknown;
+  try {
+    replayState = JSON.parse(String((raw as { body?: unknown })?.body ?? ''))?.replayState;
+  } catch {
+    return { ok: false };
+  }
+  const version =
+    replayState && typeof replayState === 'object'
+      ? (replayState as { version?: unknown }).version
+      : undefined;
+  if (
+    version === HORSE_DECISION_REPLAY_STATE_V5 ||
+    version === HORSE_DECISION_REPLAY_STATE_V4 ||
+    version === HORSE_DECISION_REPLAY_STATE_VERSION
+  ) {
+    if (!isHorseDecisionReplayState(replayState)) return { ok: false };
+    return { ok: true, states: replayState.style ?? null, options: replayState.options ?? null };
+  }
+  if (
+    replayState &&
+    typeof replayState === 'object' &&
+    (Object.hasOwn(replayState, 'style') || Object.hasOwn(replayState, 'options'))
+  )
+    return { ok: false };
+  return { ok: true, states: null, options: null };
+}
+
 /** Replay one journal record (steps b through h) and return the fixed-shape verdict. */
 export async function replayHorseDecisionRecord(
   raw: unknown,
@@ -338,7 +402,17 @@ export async function replayHorseDecisionRecord(
     return verdict;
   }
 
-  const outcome = await replayThroughWorkerRuntime(input);
+  // the style read switch state the decision ran with (absent: every option off), restored from its record only
+  // after its replay-state version is checked
+  const style = recordedSwitchStates(raw);
+  if (!style.ok) {
+    verdict.reason = 'replay_input_incomplete:replay_state';
+    return verdict;
+  }
+  const outcome = await replayThroughWorkerRuntime(input, {
+    styleStates: style.states,
+    optionStates: style.options,
+  });
   verdict.latency.wallMs = outcome.wallMs;
   verdict.work.equityCalls = outcome.work.equityCalls;
   verdict.work.equitySamples = outcome.work.equitySamples;

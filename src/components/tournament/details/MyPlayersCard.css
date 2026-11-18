@@ -97,7 +97,8 @@
 
 .mp-card__row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
   padding: 4px 0;
@@ -153,4 +154,21 @@
   .mp-card__top > .rk-filter {
     width: 100%;
   }
+}
+
+/* Keep the existing player line readable, with the painted watch control beside
+   it on desktop and on its own line when the phone has no room. */
+.mp-card__player {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.mp-card__watch {
+  display: block;
+  flex: 0 0 190px;
+  margin-left: auto;
 }

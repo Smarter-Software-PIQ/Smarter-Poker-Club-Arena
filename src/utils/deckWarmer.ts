@@ -76,11 +76,24 @@ export function drawDecodedCardImage(url: string, canvas: HTMLCanvasElement): bo
   const image = decoded.get(url);
   if (!image || !image.naturalWidth || !image.naturalHeight) return false;
   try {
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
+    // CSS shrinking a full-size canvas uses compositor sampling, unlike an img's
+    // filtered reduction. Fine court-card lines then alias into distorted faces.
+    // Reduce once at the displayed device resolution with high-quality filtering.
+    // Hidden tables retain native pixels until ResizeObserver sees their real size.
+    const box = canvas.parentElement ?? canvas;
+    const scale =
+      box.clientWidth && box.clientHeight
+        ? Math.min(box.clientWidth / image.naturalWidth, box.clientHeight / image.naturalHeight)
+        : 1;
+    const density = window.devicePixelRatio || 1;
+    const ratio = Math.min(1, scale * density);
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('card_artwork_context_unavailable');
-    context.drawImage(image, 0, 0);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
     canvas.dataset.cardArtworkReady = 'true';
     return true;
   } catch {

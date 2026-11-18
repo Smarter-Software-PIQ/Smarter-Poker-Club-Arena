@@ -170,8 +170,11 @@ describe('the eviction runs where the table actually is', () => {
        moving the block cannot quietly re-point it at the deal again. */
     const at = DEALING.indexOf('const orbitComplete =');
     expect(at, 'the orbit-wrap detector has moved or gone').toBeGreaterThan(-1);
+    // 2026-11-13 (HU-EXE-002): the one hand the cash button STAYS for, when a
+    // heads-up game goes back to three or more, is not a wrap. The button did
+    // not move, so it is excluded here by name.
     expect(DEALING).toMatch(
-      /const orbitComplete =\s*prevButtonSeat > 0 && dealerSeat <= prevButtonSeat;/
+      /const orbitComplete =\s*prevButtonSeat > 0 && dealerSeat <= prevButtonSeat && !buttonStays;/
     );
     expect(DEALING).toMatch(/if \(orbitComplete && !this\.isTournamentTable\(\)\)/);
     const after = sliceEnclosingBlock(DEALING, 'orbitComplete && !this.isTournamentTable()');

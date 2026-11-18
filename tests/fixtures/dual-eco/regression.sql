@@ -49,6 +49,7 @@ INSERT INTO union_accounting_runs VALUES('union','fade0000-0000-0000-0000-000000
 SELECT assert_eco(NOT(SELECT fn_ca_governance_eco_proven(m)FROM governance_eco),'original obligation remains open before actual invoice delivery');
 UPDATE settlement_invoices SET message_sent=true;
 SELECT assert_eco((SELECT fn_ca_governance_eco_proven(m)FROM governance_eco),'original governance accepts finalized book and exact delivered immutable activity records');
+\ir governance-regression.sql
 SELECT assert_eco((SELECT b#>'{totals,eco_components_complete}'='true'::jsonb AND(b#>>'{totals,cash_eco_amount}')::numeric=8 AND(b#>>'{totals,tournament_eco_amount}')::numeric=-15 FROM(SELECT ca_union_statement_board('fade0000-0000-0000-0000-000000000001','2026-11-02',8)b)x),'actual invoice to board preserves separate immutable activity totals');
 UPDATE settlement_invoices SET breakdown=jsonb_set(breakdown,'{eco_components,0,record_id}',to_jsonb(md5('wrong record')::uuid));
 SELECT assert_eco(NOT(SELECT fn_ca_governance_eco_proven(m)FROM governance_eco),'wrong invoice component identity cannot close original obligation');

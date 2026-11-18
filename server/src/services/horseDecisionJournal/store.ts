@@ -19,6 +19,7 @@ import {
   unlinkSync,
   constants,
   readSync,
+  readdirSync,
   statfsSync,
   type Stats,
 } from 'node:fs';
@@ -28,9 +29,17 @@ import {
   HORSE_JOURNAL_ARCHIVE_CATALOG_BYTES,
   HORSE_JOURNAL_ARCHIVE_RECORDS,
   HORSE_JOURNAL_ARCHIVE_SEGMENTS,
+  HORSE_JOURNAL_DECLARED_HOLD_FILE_BYTES,
+  HORSE_JOURNAL_DECLARED_HOLD_REFRESH_MS,
+  HORSE_JOURNAL_DECLARED_HOLDS_MAX,
   archiveRecordCap,
+  horseJournalDeclaredHoldsDirectory,
   horseJournalHoldBudget,
+  horseJournalByteQuotaVerdict,
+  HORSE_JOURNAL_DRAIN_MIN_FREE_BYTES,
+  parseHorseJournalDeclaredHold,
   type HorseJournalArchiveOptions,
+  type HorseJournalDeclaredHold,
 } from './config.js';
 import { isAbsolute, join } from 'node:path';
 import { horseJournalJson, validateHorseJournalRecord, type HorseJournalRecord } from './record.js';
@@ -320,6 +329,11 @@ const SQL_RETIRABLE_COLUMNS =
   'SELECT sha,compressed_sha,bytes,decoded_bytes,records FROM archive_segments';
 const SQL_OLDEST_BELOW_HOLD = SQL_RETIRABLE_COLUMNS + ' WHERE rowid<? ORDER BY rowid LIMIT 1';
 const SQL_OLDEST_ABOVE_HOLD = SQL_RETIRABLE_COLUMNS + ' WHERE rowid>? ORDER BY rowid LIMIT 1';
+/** With a declared capture hold the held rowids are at most two runs (the
+ * configured hold's and the declared windows'); the oldest retirable segment
+ * is searched below, between and above them, one rowid seek each. */
+const SQL_OLDEST_BETWEEN_HOLDS =
+  SQL_RETIRABLE_COLUMNS + ' WHERE rowid>? AND rowid<? ORDER BY rowid LIMIT 1';
 /** Every catalog statement a retirement runs, for the no-scan proof. */
 export const RING_STATEMENTS: readonly string[] = Object.freeze([
   SQL_OLDEST_EVENT,
@@ -329,6 +343,7 @@ export const RING_STATEMENTS: readonly string[] = Object.freeze([
   SQL_DELETE_SEGMENT,
   SQL_OLDEST_BELOW_HOLD,
   SQL_OLDEST_ABOVE_HOLD,
+  SQL_OLDEST_BETWEEN_HOLDS,
   'INSERT OR REPLACE INTO archive_retired VALUES(?,?)',
   'UPDATE archive_meta SET bytes=bytes-?,segments=segments-1,records=records-? WHERE id=1',
 ]);
@@ -589,9 +604,54 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
   private appliedCatalogPages: number | undefined;
   /** One log line per writer lifetime, the first time the ring retires. */
   private ringAnnounced = false;
+  /** RETENTION BY TIME (2026-11-15; config.ts says why). The oldest retirable
+   * segment's file time, remembered by digest so the byte check is one rowid
+   * seek per append and one lstat per new oldest segment; the filesystem's
+   * free bytes, read at most once a second; and the breaches of the time
+   * guarantee since this writer opened (each named once a minute at most). */
+  private oldestAge: { sha: string; mtimeMs: number | null } | null = null;
+  private freeRead: { atMs: number; bytes: number | null } | null = null;
+  private retentionBreaches = 0;
+  private retentionBreachLoggedAtMs = Number.NEGATIVE_INFINITY;
+  /** A breach is counted once per append (Hand Analysis N4), not once per
+   * retirement inside it; the capacity probe never counts. */
+  private appendBreachCounted = false;
   /** The archive_segments rowids the evidence hold keeps, resolved by this
    * writer at open; [1, 0] holds nothing. */
   private held: { first: number; last: number } = { first: 1, last: 0 };
+  /** Segments, records and bytes of the configured hold's run, from resolveHold. */
+  private envHeld = { segments: 0, records: 0, bytes: 0 };
+  /** DECLARED CAPTURE HOLDS (2026-11-15; config.ts says why and the file
+   * rules). This writer's own view, never written to the catalog: where it
+   * reads declarations, when it last did, the valid set it applied, and the
+   * one run of segment rowids they keep. first is null until a segment of the
+   * earliest window exists; last is null while the latest window is still
+   * being captured, so segments appended in it are held as they arrive. The
+   * totals are exact at each refresh and grow by each appended batch between
+   * refreshes, for the budget. */
+  private declaredDirectory: string | null = null;
+  private declaredCheckedAtMs = Number.NEGATIVE_INFINITY;
+  private readonly declaredRefusals = new Map<string, string>();
+  private declaredHolds: HorseJournalDeclaredHold[] = [];
+  private declared: {
+    key: string;
+    fromMs: number;
+    untilMs: number;
+    first: number | null;
+    last: number | null;
+    segments: number;
+    records: number;
+    bytes: number;
+    scannedTo: number;
+    pendingSegments: number;
+    pendingRecords: number;
+    pendingBytes: number;
+    trimmed: number;
+    budgetClosed: boolean;
+  } | null = null;
+  /** The held rowid runs, sorted and merged, when a declared hold applies;
+   * null leaves retirement exactly as before (the configured hold alone). */
+  private heldRuns: Array<{ first: number; last: number }> | null = null;
   /** MEMORY GOVERNOR (Phase 6, 2026-10-31): while process RSS is over the
    * soft ceiling the ring is bounded to this many segments instead of its
    * configured allocation, so appends retire the oldest published segments
@@ -605,7 +665,7 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
   }
   /** Published segments the evidence hold keeps (contiguous rowids). */
   heldSegmentCount(): number {
-    return Math.max(0, this.held.last - this.held.first + 1);
+    return Math.max(0, this.held.last - this.held.first + 1) + (this.declared?.segments ?? 0);
   }
   /** The ring's effective segment bound: the allocation, or the pressure one. */
   private effectiveMaxSegments(): number {
@@ -642,6 +702,14 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
             archive.hold.fromMs >= 0 &&
             archive.hold.fromMs < archive.hold.untilMs
           )) ||
+        (archive.minRetentionMs !== undefined &&
+          (!Number.isSafeInteger(archive.minRetentionMs) || archive.minRetentionMs < 0)) ||
+        (archive.diskFloorBytes !== undefined &&
+          (!Number.isSafeInteger(archive.diskFloorBytes) || archive.diskFloorBytes < 0)) ||
+        (archive.ringRetireLimit !== undefined &&
+          (!Number.isSafeInteger(archive.ringRetireLimit) ||
+            archive.ringRetireLimit < 1 ||
+            archive.ringRetireLimit > RING_RETIRE_LIMIT)) ||
         archive.directory === directory)
     )
       throw Error('Invalid Horse archive configuration');
@@ -763,6 +831,8 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
         this.finishRetired();
         this.finishPending();
         this.resolveHold();
+        this.declaredDirectory = horseJournalDeclaredHoldsDirectory(archive.directory);
+        this.refreshDeclaredHolds(true);
       }
     } catch (e) {
       if (this.catalog) {
@@ -939,6 +1009,9 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
       throw Error('Horse journal batch exceeds bounds');
     this.finishRetired();
     this.finishPending();
+    // Outside the write transaction: at most one directory read per refresh
+    // interval, and a binary search only when a declaration first applies.
+    this.refreshDeclaredHolds();
     const db = this.catalog!;
     db.exec('BEGIN IMMEDIATE');
     let outcomes: Array<'recorded' | 'replayed'>;
@@ -1010,6 +1083,7 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
       // anything is written: the oldest published segments are retired until
       // this batch fits every named quota. Only when nothing published is left
       // to retire does a quota still refuse, by name, and the publisher pauses.
+      this.noteDeclaredBatch(fresh, bytes, segments.length);
       const quota = this.makeRoom(bytes, segments, fresh.length);
       if (quota) {
         // Whatever the ring retired stays retired: the refusal is this batch's
@@ -1061,11 +1135,23 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
    * comes back and the publisher pauses on it. A batch that could not fit an
    * empty archive is refused before anything is retired. The filesystem's free
    * space is not a ring quota: the archive retires within its own allocation,
-   * never to make room for whatever else filled the disk. Page counts are read
-   * on every pass rather than remembered: an operator connection can lower the
-   * catalog ceiling, and the freelist changes with every retirement. */
+   * never to make room for whatever else filled the disk; free space enters only
+   * through the time guarantee's floor (byteQuotaYieldsToAge) and the drain
+   * below. Page counts are read on every pass rather than remembered: an
+   * operator connection can lower the catalog ceiling, and the freelist changes
+   * with every retirement.
+   * DRAIN (2026-11-15, Hand Analysis B1 on f38ca7b7): an archive far above its
+   * byte allocation (the time guarantee turned off or lowered, or the disk
+   * floor reached) used to retire RING_RETIRE_LIMIT segments and then refuse
+   * the batch, so capture dropped records for as long as the drain lasted. Now,
+   * after RING_RETIRE_LIMIT retirements, a batch refused ONLY by the byte quota
+   * is accepted while segments, records and catalog pages fit and the
+   * filesystem keeps more than the drain minimum after it; the next appends keep
+   * draining, RING_RETIRE_LIMIT at a time, until the bytes fit again.
+   * (archive.ringRetireLimit lowers that bound in tests only.) */
   private makeRoom(bytes: number, segments: readonly Segment[], fresh: number): RingRefusal | null {
     if (!fresh) return null;
+    this.appendBreachCounted = false;
     const db = this.catalog!;
     const empty = this.archiveQuotaRefusal(
       { bytes: 0, segments: 0, records: 0 },
@@ -1079,9 +1165,16 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
       const refusal: RingRefusal | null =
         this.archiveQuotaRefusal(usage, bytes, segments.length, fresh) ??
         (this.catalogHasRoom(fresh, segments) ? null : 'archive_catalog_capacity');
-      if (!refusal || retired >= RING_RETIRE_LIMIT) return refusal;
+      if (!refusal) return null;
+      if (retired >= (this.archive!.ringRetireLimit ?? RING_RETIRE_LIMIT))
+        return refusal === 'archive_bytes' && this.drainMayAccept(usage, bytes, segments, fresh)
+          ? null
+          : refusal;
       const oldest = this.oldestRetirable();
       if (!oldest) return refusal;
+      // A hard quota (segments, records, catalog pages) retiring a segment the
+      // time guarantee covers is a breach too, named (Hand Analysis N2).
+      if (refusal !== 'archive_bytes') this.noteHardQuotaRetirement(oldest);
       this.retireSegment(oldest);
     }
   }
@@ -1090,10 +1183,293 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
    * held segments. */
   private oldestRetirable(): Record<string, SQLOutputValue> | undefined {
     const db = this.catalog!;
-    return (
-      db.prepare(SQL_OLDEST_BELOW_HOLD).get(this.held.first) ??
-      db.prepare(SQL_OLDEST_ABOVE_HOLD).get(this.held.last)
+    const runs = this.heldRuns;
+    if (!runs)
+      return (
+        db.prepare(SQL_OLDEST_BELOW_HOLD).get(this.held.first) ??
+        db.prepare(SQL_OLDEST_ABOVE_HOLD).get(this.held.last)
+      );
+    // Below, between and above at most two held runs: a rowid seek each.
+    let previous = 0;
+    for (const run of runs) {
+      if (run.first > previous + 1) {
+        const row = db.prepare(SQL_OLDEST_BETWEEN_HOLDS).get(previous, run.first);
+        if (row) return row;
+      }
+      previous = run.last;
+    }
+    return previous >= Number.MAX_SAFE_INTEGER
+      ? undefined
+      : db.prepare(SQL_OLDEST_ABOVE_HOLD).get(previous);
+  }
+  /** Re-read the declared holds, at most once per refresh interval (always at
+   * open). Never throws: a hold is never worth a stopped capture, so on any
+   * failure the last applied run stays and the writer says so once. */
+  private refreshDeclaredHolds(force = false): void {
+    if (!this.declaredDirectory || this.archiveReadOnly || !this.catalog) return;
+    const now = Date.now();
+    if (!force && now - this.declaredCheckedAtMs < HORSE_JOURNAL_DECLARED_HOLD_REFRESH_MS) return;
+    this.declaredCheckedAtMs = now;
+    try {
+      this.declaredHolds = this.readDeclaredHolds(now);
+      this.applyDeclaredHolds();
+    } catch {
+      this.refuseDeclared('*', 'unavailable');
+    }
+  }
+  /** One log line per file and reason; names only, never contents. */
+  private refuseDeclared(name: string, reason: string): void {
+    if (this.declaredRefusals.get(name) === reason) return;
+    this.declaredRefusals.set(name, reason);
+    const shown = name.replace(/[^A-Za-z0-9._*-]/g, '?').slice(0, 80);
+    console.warn(
+      `[HorseDecisionJournal] declared capture hold refused: ${shown} (${reason}); capture continues without it`
     );
+  }
+  /** The valid, unexpired declarations, at most HORSE_JOURNAL_DECLARED_HOLDS_MAX
+   * of them, first by file name. Every other file is refused by name. */
+  private readDeclaredHolds(now: number): HorseJournalDeclaredHold[] {
+    const dir = this.declaredDirectory!;
+    let names: string[];
+    try {
+      privatePath(dir, true);
+      names = readdirSync(dir).sort();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.declaredRefusals.clear();
+        return [];
+      }
+      this.refuseDeclared('holds', 'directory_not_private');
+      return [];
+    }
+    const valid: HorseJournalDeclaredHold[] = [];
+    for (const name of names) {
+      let reason: string | null = null;
+      try {
+        const path = join(dir, name);
+        const s = lstatSync(path);
+        if (
+          s.isSymbolicLink() ||
+          !s.isFile() ||
+          s.nlink !== 1 ||
+          (s.mode & 0o077) !== 0 ||
+          (process.getuid && s.uid !== process.getuid())
+        )
+          reason = 'not_private';
+        else if (s.size > HORSE_JOURNAL_DECLARED_HOLD_FILE_BYTES) reason = 'too_large';
+        else {
+          const hold = parseHorseJournalDeclaredHold(name, readFileSync(path, 'utf8'));
+          if (typeof hold === 'string') reason = hold;
+          else if (now > hold.expiresAtMs) reason = 'expired';
+          else if (valid.length >= HORSE_JOURNAL_DECLARED_HOLDS_MAX) reason = 'too_many';
+          else valid.push(hold);
+        }
+      } catch {
+        reason = 'unreadable';
+      }
+      if (reason) this.refuseDeclared(name, reason);
+      else this.declaredRefusals.delete(name);
+    }
+    for (const name of [...this.declaredRefusals.keys()])
+      if (name !== '*' && name !== 'holds' && !names.includes(name))
+        this.declaredRefusals.delete(name);
+    return valid;
+  }
+  private segmentAt(rowid: number): Record<string, SQLOutputValue> | undefined {
+    return this.catalog!.prepare(
+      'SELECT rowid AS id,sha,compressed_sha,bytes,decoded_bytes,records FROM archive_segments WHERE rowid>=? ORDER BY rowid LIMIT 1'
+    ).get(rowid);
+  }
+  private segmentTimes(segment: Record<string, SQLOutputValue>): { min: number; max: number } {
+    const t = this.readSegment(segment).records.map((r) => r.atMs);
+    return { min: Math.min(...t), max: Math.max(...t) };
+  }
+  /** The first rowid in [lo, hi] whose segment satisfies a predicate that is
+   * false then true in rowid order (segments are appended in capture order);
+   * hi + 1 when none does. One decoded segment per probe. */
+  private firstSegmentWhere(
+    lo: number,
+    hi: number,
+    ok: (segment: Record<string, SQLOutputValue>) => boolean
+  ): number {
+    let a = lo,
+      b = hi + 1;
+    while (a < b) {
+      const segment = this.segmentAt(Math.floor((a + b) / 2));
+      if (!segment || ok(segment)) b = Math.floor((a + b) / 2);
+      else a = Number(segment.id) + 1;
+    }
+    return Number(this.segmentAt(a)?.id ?? hi + 1);
+  }
+  /** What the declared windows may keep: the hold budget less the configured
+   * hold's run, which keeps its priority. */
+  private declaredBudget(): { bytes: number; segments: number; records: number } {
+    const b = horseJournalHoldBudget(this.archive!.maxBytes, this.effectiveMaxSegments());
+    return {
+      bytes: Math.max(0, b.bytes - this.envHeld.bytes),
+      segments: Math.max(0, b.segments - this.envHeld.segments),
+      records: Math.max(0, b.records - this.envHeld.records),
+    };
+  }
+  /** Resolve the declared windows into one run of rowids: from the first
+   * segment with a record at or after the earliest start, to the last segment
+   * before the first one wholly after the latest end (open while that end has
+   * not been passed). Totals are summed only over rowids not yet counted. */
+  private applyDeclaredHolds(): void {
+    const holds = this.declaredHolds;
+    if (!holds.length) {
+      if (this.declared)
+        console.info(
+          `[HorseDecisionJournal] declared capture holds released; the ring may retire their ${this.declared.segments} segments`
+        );
+      this.declared = null;
+      this.rebuildHeldRuns();
+      return;
+    }
+    const key = holds.map((h) => `${h.id}:${h.fromMs}:${h.untilMs}`).join('|');
+    const fromMs = Math.min(...holds.map((h) => h.fromMs)),
+      untilMs = Math.max(...holds.map((h) => h.untilMs));
+    if (!this.declared || this.declared.key !== key)
+      this.declared = {
+        key,
+        fromMs,
+        untilMs,
+        first: null,
+        last: null,
+        segments: 0,
+        records: 0,
+        bytes: 0,
+        scannedTo: 0,
+        pendingSegments: 0,
+        pendingRecords: 0,
+        pendingBytes: 0,
+        trimmed: 0,
+        budgetClosed: false,
+      };
+    const d = this.declared,
+      db = this.catalog!;
+    const bounds = db
+      .prepare(
+        'SELECT coalesce(min(rowid),1) AS lo,coalesce(max(rowid),0) AS hi FROM archive_segments'
+      )
+      .get()!;
+    const lo = Number(bounds.lo),
+      hi = Number(bounds.hi);
+    if (d.first === null && hi >= lo) {
+      const newest = this.segmentAt(hi);
+      if (newest && this.segmentTimes(newest).max >= fromMs) {
+        d.first = this.firstSegmentWhere(lo, hi, (s) => this.segmentTimes(s).max >= fromMs);
+        d.scannedTo = d.first - 1;
+        console.info(
+          `[HorseDecisionJournal] declared capture hold applied from segment ${d.first} (${holds.length} declaration(s))`
+        );
+      }
+    }
+    if (d.first !== null && d.last === null && hi >= d.first) {
+      const newest = this.segmentAt(hi);
+      if (newest && this.segmentTimes(newest).min > untilMs) {
+        const after = this.firstSegmentWhere(
+          d.first,
+          hi,
+          (s) => this.segmentTimes(s).min > untilMs
+        );
+        d.last = Number(
+          db
+            .prepare('SELECT coalesce(max(rowid),0) AS n FROM archive_segments WHERE rowid<?')
+            .get(after)!.n
+        );
+      }
+    }
+    if (d.first !== null) {
+      const end = d.last ?? hi;
+      if (end > d.scannedTo) {
+        const t = this.rangeTotals(d.scannedTo + 1, end);
+        d.segments += t.segments;
+        d.records += t.records;
+        d.bytes += t.bytes;
+        d.scannedTo = end;
+      }
+      d.pendingSegments = d.pendingRecords = d.pendingBytes = 0;
+      const budget = this.declaredBudget();
+      if (d.segments > budget.segments || d.bytes > budget.bytes || d.records > budget.records) {
+        const kept = this.lastWithin(d.first, end, budget);
+        const keptTotals = this.rangeTotals(d.first, kept);
+        const released = d.segments - keptTotals.segments;
+        d.trimmed += released;
+        d.segments = keptTotals.segments;
+        d.records = keptTotals.records;
+        d.bytes = keptTotals.bytes;
+        d.last = kept;
+        d.scannedTo = Math.max(kept, d.first - 1);
+        d.budgetClosed = true;
+        console.warn(
+          `[HorseDecisionJournal] declared capture hold exceeds its budget of half the archive less the configured hold; kept its oldest ${d.segments} segments (${d.bytes} bytes) and released ${released} to the ring so capture keeps running`
+        );
+      }
+    }
+    this.rebuildHeldRuns();
+  }
+  /** Inside the reservation transaction, before the ring makes room, with the
+   * batch's own record times (nothing decoded): the first batch wholly after
+   * the latest window ends the open run at the segment before it, and a batch
+   * that would carry the run past its budget ends it there too, keeping the
+   * oldest. Window segments the budget turned away are counted as trimmed. */
+  private noteDeclaredBatch(
+    fresh: readonly HorseJournalRecord[],
+    bytes: number,
+    segments: number
+  ): void {
+    const d = this.declared;
+    if (!d || d.first === null || !fresh.length) return;
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const r of fresh) if (r.atMs < earliest) earliest = r.atMs;
+    if (d.budgetClosed && earliest <= d.untilMs) d.trimmed += segments;
+    if (d.last !== null) return;
+    const newest = () =>
+      Number(
+        this.catalog!.prepare('SELECT coalesce(max(rowid),0) AS n FROM archive_segments').get()!.n
+      );
+    if (earliest > d.untilMs) {
+      d.last = newest();
+      this.rebuildHeldRuns();
+      return;
+    }
+    const budget = this.declaredBudget();
+    if (
+      d.segments + d.pendingSegments + segments > budget.segments ||
+      d.bytes + d.pendingBytes + bytes > budget.bytes ||
+      d.records + d.pendingRecords + fresh.length > budget.records
+    ) {
+      d.last = newest();
+      d.budgetClosed = true;
+      d.trimmed += segments;
+      console.warn(
+        `[HorseDecisionJournal] declared capture hold reached its budget of half the archive less the configured hold; it keeps its oldest segments and the rest of its window is the ring's so capture keeps running`
+      );
+      this.rebuildHeldRuns();
+      return;
+    }
+    d.pendingSegments += segments;
+    d.pendingRecords += fresh.length;
+    d.pendingBytes += bytes;
+  }
+  private rebuildHeldRuns(): void {
+    const d = this.declared;
+    if (!d || d.first === null || (d.last !== null && d.last < d.first)) {
+      this.heldRuns = null;
+      return;
+    }
+    const runs = [{ first: d.first, last: d.last ?? Number.MAX_SAFE_INTEGER }];
+    if (this.held.last >= this.held.first) runs.push({ ...this.held });
+    runs.sort((a, b) => a.first - b.first);
+    const merged: Array<{ first: number; last: number }> = [];
+    for (const run of runs) {
+      const previous = merged[merged.length - 1];
+      if (previous && run.first <= previous.last + 1)
+        previous.last = Math.max(previous.last, run.last);
+      else merged.push({ ...run });
+    }
+    this.heldRuns = merged;
   }
   /** Resolve the evidence hold at open, once per window. The published
    * segments whose records fall inside [fromMs, untilMs] are a contiguous run
@@ -1222,6 +1598,7 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
       }
     }
     this.held = { first, last };
+    this.envHeld = totals;
   }
   /** Published segments, records and bytes in a rowid range: one rowid range
    * read of archive_segments (about 240,000 rows for the default hold). */
@@ -1360,11 +1737,18 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
     usage: Record<string, SQLOutputValue>,
     bytes: number,
     segments: number,
-    fresh: number
+    fresh: number,
+    options: { byteQuota?: boolean; probe?: boolean } = {}
   ): 'archive_bytes' | 'archive_segments' | null {
     const archive = this.archive!;
     const maxSegments = this.effectiveMaxSegments();
-    if (fresh && Number(usage.bytes) + bytes > archive.maxBytes) return 'archive_bytes';
+    if (
+      options.byteQuota !== false &&
+      fresh &&
+      Number(usage.bytes) + bytes > archive.maxBytes &&
+      !(Number(usage.bytes) > 0 && this.byteQuotaYieldsToAge(bytes, options.probe === true))
+    )
+      return 'archive_bytes';
     if (
       fresh &&
       (Number(usage.segments) + segments > maxSegments ||
@@ -1372,6 +1756,111 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
     )
       return 'archive_segments';
     return null;
+  }
+  /** True while the oldest retirable segment is younger than the minimum
+   * retention and the filesystem keeps more than the disk floor after this
+   * batch: the byte allocation then yields and nothing is retired for it.
+   * Hard quotas (segments, records, catalog pages) never yield. */
+  private byteQuotaYieldsToAge(incomingBytes: number, probe = false): boolean {
+    const archive = this.archive!;
+    const minRetentionMs = archive.minRetentionMs ?? 0;
+    if (!(minRetentionMs > 0)) return false;
+    const oldest = this.oldestRetirable();
+    if (!oldest) return false;
+    const ageMs = this.segmentAgeMs(oldest);
+    const freeBytes = this.freeBytes();
+    const verdict = horseJournalByteQuotaVerdict({
+      minRetentionMs,
+      oldestAgeMs: ageMs,
+      freeBytes,
+      incomingBytes,
+      diskFloorBytes: archive.diskFloorBytes ?? 0,
+    });
+    if (verdict === 'breach' && !probe)
+      this.noteRetentionBreach(freeBytes === null ? 'disk_unreadable' : 'disk_floor');
+    return verdict === 'keep';
+  }
+  /** Age of a published segment from its file time (a segment file is written
+   * once and never touched again), remembered by digest; null when unreadable. */
+  private segmentAgeMs(segment: Record<string, SQLOutputValue>): number | null {
+    const sha = String(segment.sha);
+    if (this.oldestAge?.sha !== sha) {
+      let mtimeMs: number | null = null;
+      try {
+        mtimeMs = lstatSync(join(this.archive!.directory, 'segments', sha + '.ndjson.gz')).mtimeMs;
+      } catch {
+        mtimeMs = null;
+      }
+      this.oldestAge = { sha, mtimeMs };
+    }
+    const m = this.oldestAge.mtimeMs;
+    return m === null ? null : Math.max(0, Date.now() - m);
+  }
+  /** The archive filesystem's free bytes, read at most once a second; null
+   * when statfs fails. */
+  private freeBytes(): number | null {
+    const now = Date.now();
+    if (!this.freeRead || now - this.freeRead.atMs >= 1000) {
+      let free: number | null = null;
+      try {
+        const fs = statfsSync(this.archive!.directory);
+        free = Number(fs.bavail) * Number(fs.bsize);
+        if (!Number.isFinite(free)) free = null;
+      } catch {
+        free = null;
+      }
+      this.freeRead = { atMs: now, bytes: free };
+    }
+    return this.freeRead.bytes;
+  }
+  /** B1: whether a batch the byte quota alone refuses after RING_RETIRE_LIMIT
+   * retirements may be written while the ring keeps draining. Every other
+   * quota must fit, and the filesystem must keep more than the drain minimum
+   * (1 GiB, or the disk floor when that is configured lower) after the batch;
+   * an unreadable filesystem refuses, as before. */
+  private drainMayAccept(
+    usage: Record<string, SQLOutputValue>,
+    bytes: number,
+    segments: readonly Segment[],
+    fresh: number
+  ): boolean {
+    if (this.archiveQuotaRefusal(usage, bytes, segments.length, fresh, { byteQuota: false }))
+      return false;
+    if (!this.catalogHasRoom(fresh, segments)) return false;
+    const free = this.freeBytes();
+    if (free === null) return false;
+    const floor = this.archive!.diskFloorBytes;
+    const minimum =
+      floor !== undefined && floor > 0
+        ? Math.min(HORSE_JOURNAL_DRAIN_MIN_FREE_BYTES, floor)
+        : HORSE_JOURNAL_DRAIN_MIN_FREE_BYTES;
+    return free - Math.max(0, bytes) > minimum;
+  }
+  private noteHardQuotaRetirement(segment: Record<string, SQLOutputValue>): void {
+    const minRetentionMs = this.archive!.minRetentionMs ?? 0;
+    if (!(minRetentionMs > 0)) return;
+    const ageMs = this.segmentAgeMs(segment);
+    if (ageMs !== null && ageMs < minRetentionMs) this.noteRetentionBreach('hard_quota');
+  }
+  /** Counts a breach once per append and names it at most once a minute.
+   * Counts and causes only; no paths, digests or record bodies. */
+  private noteRetentionBreach(cause: 'disk_floor' | 'disk_unreadable' | 'hard_quota'): void {
+    if (this.appendBreachCounted) return;
+    this.appendBreachCounted = true;
+    this.retentionBreaches++;
+    const now = Date.now();
+    if (now - this.retentionBreachLoggedAtMs < 60_000) return;
+    this.retentionBreachLoggedAtMs = now;
+    const hours = Math.round((this.archive!.minRetentionMs ?? 0) / 3_600_000);
+    const why =
+      cause === 'disk_floor'
+        ? 'free disk is at the floor'
+        : cause === 'disk_unreadable'
+          ? 'free disk is unreadable'
+          : 'a segment, record or catalog quota is full';
+    console.warn(
+      `[HorseDecisionJournal] journal_retention_guarantee_breached: ${why}, so the ring retires segments younger than ${hours} h (breaches since open: ${this.retentionBreaches})`
+    );
   }
   private catalogPagesNeeded(records: number, segments: readonly Segment[]): number {
     return (
@@ -1435,7 +1924,7 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
     // A ring quota answers room when the append would retire published
     // segments to make it; a reserved (unpublished) batch is never room.
     const quota: RingRefusal | null =
-      this.archiveQuotaRefusal(usage, bytes, segments.length, captured.length) ??
+      this.archiveQuotaRefusal(usage, bytes, segments.length, captured.length, { probe: true }) ??
       (this.catalogHasRoom(captured.length + pending, segments)
         ? null
         : 'archive_catalog_capacity');
@@ -1569,6 +2058,12 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
       heldBytes: number;
       holdBudgetBytes: number;
       holdTrimmedSegments: number;
+      /** Declared capture holds this writer applies, and files it refuses. */
+      declaredHolds: number;
+      declaredHoldRefusals: number;
+      /** The time guarantee in force (0: off) and its breaches since open. */
+      minRetentionMs: number;
+      retentionBreaches: number;
       catalogBytes: number;
       maxRowid: number;
       maxBytes: number;
@@ -1625,16 +2120,21 @@ export class HorseDecisionJournalStore extends LegacyHorseJournalStore {
           publishedSegments: Math.max(0, Number(usage.segments) - pendingSegments),
           retiredSegments: Number(ring?.retired_segments ?? 0),
           retiredRecords: Number(ring?.retired_records ?? 0),
-          heldSegments: Number(hold?.segments ?? 0),
-          heldRecords: Number(hold?.records ?? 0),
+          // The configured hold's row plus this writer's declared capture holds.
+          heldSegments: Number(hold?.segments ?? 0) + (this.declared?.segments ?? 0),
+          heldRecords: Number(hold?.records ?? 0) + (this.declared?.records ?? 0),
           // Absent from a hold row an earlier writer made until a writer of
           // this release opens the catalog.
-          heldBytes: Number(hold?.bytes ?? 0),
+          heldBytes: Number(hold?.bytes ?? 0) + (this.declared?.bytes ?? 0),
           holdBudgetBytes: horseJournalHoldBudget(
             Number(usage.max_bytes),
             Number(usage.max_segments)
           ).bytes,
-          holdTrimmedSegments: Number(hold?.trimmed_segments ?? 0),
+          holdTrimmedSegments: Number(hold?.trimmed_segments ?? 0) + (this.declared?.trimmed ?? 0),
+          declaredHolds: this.declaredHolds.length,
+          declaredHoldRefusals: [...this.declaredRefusals.keys()].length,
+          minRetentionMs: this.archive?.minRetentionMs ?? 0,
+          retentionBreaches: this.retentionBreaches,
           catalogBytes:
             Number(this.catalog.prepare('PRAGMA page_count').get()!.page_count) *
             CATALOG_PAGE_BYTES,

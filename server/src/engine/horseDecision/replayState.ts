@@ -25,11 +25,34 @@
  */
 import { correctiveKernelEvaluatorIdentity } from '../../services/horseCorrectiveReview/liveKernel.js';
 import {
+  styleSwitchStatesAreDefault,
+  styleSwitchStatesFrom,
+  type StyleSwitchStates,
+} from '../HorseStyleSwitch.js';
+import {
+  optionSwitchNothingSwitched,
+  optionSwitchStatesFrom,
+  type OptionSwitchStates,
+} from '../HorseOptionSwitch.js';
+import {
   correctiveDecisionDomain,
   correctiveDomainKey,
   CORRECTIVE_DOMAIN_KEYS,
 } from '../../services/horseCorrectiveReview/domain.js';
 export const HORSE_DECISION_REPLAY_STATE_VERSION = 'horse-decision-replay-state-v3';
+/**
+ * A replay state that carries the style read switch state (`style`). A new version, not an optional key on v3, so a
+ * reader that predates it refuses such a record by its version (non_replayable:replay_state) instead of misreading
+ * it; a record with every option off stays v3, byte-identical to before.
+ */
+export const HORSE_DECISION_REPLAY_STATE_V4 = 'horse-decision-replay-state-v4';
+/**
+ * A replay state that carries the switched non-style options (`options`, HorseOptionSwitch) and, when any style
+ * option was not off, `style` as v4 does. A new version for the same reason v4 is one: a reader that predates it
+ * refuses the record by its version instead of replaying it without the switched options. A decision with nothing
+ * switched stays v3 (or v4 with a style state), byte-identical to before.
+ */
+export const HORSE_DECISION_REPLAY_STATE_V5 = 'horse-decision-replay-state-v5';
 export const HORSE_DECISION_REPLAY_STATE_V2 = 'horse-decision-replay-state-v2';
 export interface HorseCorrectiveReplayState {
   mode: 'off' | 'shadow' | 'candidate';
@@ -91,12 +114,29 @@ export interface HorseDecisionRuntimeIdentity {
 }
 
 export interface HorseDecisionReplayState {
-  version: typeof HORSE_DECISION_REPLAY_STATE_VERSION | typeof HORSE_DECISION_REPLAY_STATE_V2;
+  version:
+    | typeof HORSE_DECISION_REPLAY_STATE_V5
+    | typeof HORSE_DECISION_REPLAY_STATE_V4
+    | typeof HORSE_DECISION_REPLAY_STATE_VERSION
+    | typeof HORSE_DECISION_REPLAY_STATE_V2;
   /** Absent only on retained v2 records. */
   corrective?: HorseCorrectiveReplayState;
   admission: HorseDecisionReplayAdmission;
   phase8SafetyDisabledReason: string | null;
   runtime: HorseDecisionRuntimeIdentity;
+  /**
+   * M3 (2026-11-13): the style read switch states the decision ran with, present only when any option was not off
+   * (absent = every option at its source default). The per-Horse options are a pure function of these states and the
+   * Horse id (HorseStyleSwitch.styleSwitchDecisionOpts), so the states replay them exactly.
+   */
+  style?: StyleSwitchStates;
+  /**
+   * 2026-11-14: the registered non-style options that had a row when the decision ran, each `on` or `off`
+   * (HorseOptionSwitch), present only when there was at least one (v5). The options the brain was handed are a pure
+   * function of this set (optionSwitchDecisionOpts), the same for every Horse, so the set replays them exactly. An
+   * option not named ran at the release default of the build that made the record.
+   */
+  options?: OptionSwitchStates;
 }
 
 /** This process's runtime identity. */
@@ -144,14 +184,24 @@ export function horseDecisionReplayState(
   admission: HorseDecisionReplayAdmission,
   phase8SafetyDisabledReason: string | null,
   runtime: HorseDecisionRuntimeIdentity = currentHorseDecisionRuntime(),
-  corrective: HorseCorrectiveReplayState = { mode: 'shadow', domain: null, catalogDigest: null }
+  corrective: HorseCorrectiveReplayState = { mode: 'shadow', domain: null, catalogDigest: null },
+  style: StyleSwitchStates | null = null,
+  options: OptionSwitchStates | null = null
 ): HorseDecisionReplayState {
+  const withStyle = !!style && !styleSwitchStatesAreDefault(style);
+  const withOptions = !optionSwitchNothingSwitched(options);
   return {
-    version: HORSE_DECISION_REPLAY_STATE_VERSION,
+    version: withOptions
+      ? HORSE_DECISION_REPLAY_STATE_V5
+      : withStyle
+        ? HORSE_DECISION_REPLAY_STATE_V4
+        : HORSE_DECISION_REPLAY_STATE_VERSION,
     admission: { ...admission },
     corrective: { ...corrective },
     phase8SafetyDisabledReason,
     runtime: { node: runtime.node, v8: runtime.v8, arch: runtime.arch },
+    ...(withStyle ? { style: { ...style } } : {}),
+    ...(withOptions ? { options: { ...options } } : {}),
   };
 }
 
@@ -173,10 +223,32 @@ export function isHorseDecisionReplayState(value: unknown): value is HorseDecisi
     ((Object.keys(v).length === 4 && v.version === HORSE_DECISION_REPLAY_STATE_V2) ||
       (Object.keys(v).length === 5 &&
         v.version === HORSE_DECISION_REPLAY_STATE_VERSION &&
-        validCorrective(v.corrective))) &&
+        validCorrective(v.corrective)) ||
+      (Object.keys(v).length === 6 &&
+        v.version === HORSE_DECISION_REPLAY_STATE_V4 &&
+        validCorrective(v.corrective) &&
+        validStyle(v.style)) ||
+      // v5: the switched options, and a style state exactly when one was recorded
+      (v.version === HORSE_DECISION_REPLAY_STATE_V5 &&
+        Object.keys(v).length === (Object.hasOwn(v, 'style') ? 7 : 6) &&
+        validCorrective(v.corrective) &&
+        validOptions(v.options) &&
+        (!Object.hasOwn(v, 'style') || validStyle(v.style)))) &&
     isRuntime(v.runtime) &&
     validStateFields(v)
   );
+}
+
+/** M3: a recorded style state is complete and not all off (all off is recorded by absence). */
+function validStyle(value: unknown): boolean {
+  const states = styleSwitchStatesFrom(value);
+  return states !== null && !styleSwitchStatesAreDefault(states);
+}
+
+/** A recorded switched set is a valid one and names at least one option (none is recorded by absence). */
+function validOptions(value: unknown): boolean {
+  const states = optionSwitchStatesFrom(value);
+  return states !== null && !optionSwitchNothingSwitched(states);
 }
 
 function validStateFields(v: Record<string, unknown>): boolean {

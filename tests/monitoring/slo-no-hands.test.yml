@@ -1,0 +1,259 @@
+{
+  "rule_files": [
+    "../../infra/monitoring/slo-alerts.yml"
+  ],
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "name": "Low volume is dealing, even below the obsolete estate floor",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.5929824561403508+0x25"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "6+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "20m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "One small table advancing is dealing",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.008333333333333333+0x25"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "1+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "20m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Zero dealing needs ten uninterrupted minutes then clears on progress",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x10 0.1+0x14"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "6+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "9m",
+          "exp_samples": []
+        },
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "11m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "No dealable capacity is not a dealing stall",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "20m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "Labelled maintenance guards a zero-dealing fleet",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "6+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "1+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "20m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "An owner park retains its guard",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "6+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.5+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "20m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "A partial park cannot conceal stopped dealing",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "sp:hands_dealt:rate5m{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_dealable_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "6+0x25"
+        },
+        {
+          "series": "poker_maintenance_break_active{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0+0x25"
+        },
+        {
+          "series": "poker_operator_floor_park_share{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.49+0x25"
+        },
+        {
+          "series": "poker_active_tables{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "144+0x25"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"SLOHandsAreNotBeingDealt\",alertstate=\"firing\"})",
+          "eval_time": "10m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

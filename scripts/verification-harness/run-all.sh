@@ -23,7 +23,7 @@ run_sql() {
     return
   fi
   echo "─── RUN  ${label} ───"
-  if psql "${DATABASE_URL}" -f "${DIR}/${script}" 2>&1 | tee /tmp/verify-out.log | grep -q '^FAIL'; then
+  if (source "$(git rev-parse --show-toplevel)/scripts/lib/pg-env-from-url.sh" && pg_env_from_url DATABASE_URL && psql -f "${DIR}/${script}") 2>&1 | tee /tmp/verify-out.log | grep -q '^FAIL'; then
     echo "FAIL  ${label}"
     FAIL=$((FAIL+1))
   else

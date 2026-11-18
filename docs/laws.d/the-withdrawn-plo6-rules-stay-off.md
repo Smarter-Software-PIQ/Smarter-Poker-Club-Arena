@@ -1,0 +1,3 @@
+# server/src/engine/HorseWithdrawnRulesStayOff.law.test.ts
+
+Two PLO6 decision rules, #10628 (a deep Omaha seat's stack-off bar read without the VPIP floor) and #10626 (an Omaha preflop call of 40% of the stack with action behind not priced as a final all-in), were merged on a demonstrated mechanism and switched to opt-in for lack of value support (#10650, #10669); the value study since points against both. The law pins that HorseLogic reads both options as `=== true` and that no production source sets either one. Turning either back on needs the evidence in docs/HORSE-DECISION-CHANGE-EVIDENCE.md and the retirement of this law in the same pull request.

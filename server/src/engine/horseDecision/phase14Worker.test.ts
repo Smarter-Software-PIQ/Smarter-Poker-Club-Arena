@@ -71,6 +71,7 @@ describe('real worker Phase14 capability and original-state execution', () => {
     const a = harness(false),
       b = harness(false),
       r = request();
+    const quiet = vi.spyOn(a.deps, 'noteFeature');
     const one = await run(a, r),
       two = await run(b, structuredClone(r));
     expect(one.decision.action).toBe('fold');
@@ -78,11 +79,15 @@ describe('real worker Phase14 capability and original-state execution', () => {
     expect(two.rngAfter).toBe(one.rngAfter);
     expect(one.decision.correctivePolicy).toBeUndefined();
     expect(a.deps.correctiveDraw).not.toHaveBeenCalled();
+    expect(quiet).not.toHaveBeenCalledWith('phase14_kernel_eligible_seen');
   });
   it('runs the admitted calculator inside the actual brain graph and binds the worker authority', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(now);
-    const h = harness(),
-      r = await run(h);
+    const h = harness();
+    const noted = vi.spyOn(h.deps, 'noteFeature');
+    const r = await run(h);
+    // Evidence: the decision is counted once as inside the kernel's family.
+    expect(noted.mock.calls.filter((c) => c[0] === 'phase14_kernel_eligible_seen')).toHaveLength(1);
     const diagnostic = buildOriginalRiverDecision({
       snapshot: request(),
       readFrame: (h.records[0] as any).readFrame,

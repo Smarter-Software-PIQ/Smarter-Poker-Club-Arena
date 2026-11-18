@@ -1,3 +1,4 @@
+import { wheelV5MainWeights, WHEEL_V5_WEIGHTS } from './wheelV5Model';
 import type {
   WheelCardPick,
   WheelDrawDomain,
@@ -267,12 +268,17 @@ export async function verifyWheelReceiptFairness(
     receipt.fairness,
     receipt.segments ?? legacySegments,
     receipt.outcome.ord,
-    wheelV4MainWeights(previous)
+    receipt.contract_version === 5 ? wheelV5MainWeights(previous) : wheelV4MainWeights(previous)
   );
   const publishedTable =
-    receipt.contract_version === 4
-      ? (receipt.segments ?? []).reduce((sum, s) => sum + s.weight, 0) === WHEEL_V4_TOTAL
-      : true;
+    receipt.contract_version === 5
+      ? receipt.segments?.length === 12 &&
+        receipt.segments.every(
+          (s) => s.weight === WHEEL_V5_WEIGHTS[s.ord - 1] && s.probability === s.weight / 100000
+        )
+      : receipt.contract_version === 4
+        ? (receipt.segments ?? []).reduce((sum, s) => sum + s.weight, 0) === WHEEL_V4_TOTAL
+        : true;
   if (!receipt.secondary)
     return publishedTable ? first : { ...first, lawMatches: false, fair: false };
   const second = await verify(

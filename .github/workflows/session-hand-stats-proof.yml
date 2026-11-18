@@ -7,10 +7,11 @@ permissions:
   contents: read
 jobs:
   session-hand-stats-proof:
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-session-hand-stats-proof'
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-session-hand-stats-proof' && (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Exact published session hand statistics proof
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 15
     permissions:
       contents: read
@@ -55,7 +56,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/ci/production-e2e-account.mjs create
+        run: node scripts/ci/production-e2e-account.mjs create-spectator
       - name: Prepare the reserved zero-balance spectator membership
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

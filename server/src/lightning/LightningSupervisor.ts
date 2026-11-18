@@ -66,6 +66,7 @@
  * this file behaves exactly as before.
  */
 import { supabase } from '../services/supabase.js';
+import { isLightningLaneFunction, lightningLaneCall } from '../services/lightningLaneSession.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import {
   LIGHTNING_DISCOVERY_INTERVAL_MS,
@@ -281,13 +282,30 @@ function normalizeDiscovered(
 
 // Every Lightning RPC says this engine posts the entry big blind
 // (LIGHTNING_ENTRY_BIG_BLIND_HEADER): the matcher and the barrier read it.
-const defaultRpc: LightningRpcClient = (fn, args) =>
+// LIGHTNING'S OWN DATABASE LANE (2026-11-10): the matcher's writer goes on
+// the dedicated engine_lightning_lane login first (lightningLaneSession.ts), so
+// a storm on the shared PostgREST pool cannot hold up formation. null means
+// nothing reached the database, so the same call is made through PostgREST.
+const postgrestRpc: LightningRpcClient = (fn, args) =>
   supabase
     .rpc(fn, args)
     .setHeader(LIGHTNING_ENTRY_BIG_BLIND_HEADER, '1') as unknown as PromiseLike<{
     data: unknown;
     error: unknown;
   }>;
+export function lightningLaneFirstRpc(
+  lane: typeof lightningLaneCall,
+  fallback: LightningRpcClient
+): LightningRpcClient {
+  return async (fn, args) => {
+    if (isLightningLaneFunction(fn)) {
+      const direct = await lane(fn, args, { entryBigBlind: true });
+      if (direct !== null) return direct;
+    }
+    return fallback(fn, args);
+  };
+}
+const defaultRpc: LightningRpcClient = lightningLaneFirstRpc(lightningLaneCall, postgrestRpc);
 
 const consoleLogger: LightningWorkerLogger = {
   log: (m) => console.log(m),
@@ -332,6 +350,24 @@ export class LightningSupervisor {
   /** Cluster ids with a running worker, sorted. */
   activeClusters(): string[] {
     return [...this.workers.keys()].sort();
+  }
+
+  /**
+   * The durable table ids under which occupied Lightning pools commit hands.
+   * Anchor engines are deliberately halted while these workers deal, so the
+   * ordinary table-loop census cannot see them. Count each pool once, never
+   * its transient hand hosts; the verifier still asks hand_history for proof.
+   */
+  expectedDealingTableIds(): string[] {
+    if (this.frozen()) return [];
+    const tables = new Set<string>();
+    for (const [clusterId, worker] of this.workers) {
+      if (!worker.isRunning || worker.mode !== 'form' || worker.currentHold !== null) continue;
+      const front = this.cachedFrontTable(clusterId);
+      if (!front || !this.deps.hosting?.leaseFor(front)) continue;
+      if (this.presence.snapshot(clusterId).connected.length >= 2) tables.add(front);
+    }
+    return [...tables].sort();
   }
 
   workerFor(clusterId: string): LightningClusterWorker | undefined {

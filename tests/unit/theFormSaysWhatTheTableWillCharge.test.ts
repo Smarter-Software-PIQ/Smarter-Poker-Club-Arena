@@ -44,7 +44,7 @@ describe('the panel resolves the price rather than restating a default', () => {
     // fn_cash_game_create writes rake_percent -1 / rake_cap_bb -1 (inherit),
     // so RAKE_INHERIT here is the same precedence the engine will apply.
     expect(FORM).toContain('resolveRakeOverride(null, rakeClub)');
-    expect(FORM).toMatch(/cashPolicyVersion === 1\s*\? override/);
+    expect(FORM).toMatch(/policyVersion: cashPolicyVersion/);
     const sql = fs.readFileSync(
       path.join(
         process.cwd(),
@@ -78,7 +78,7 @@ describe('what it would show is what the schedule charges', () => {
         rakeCapBB: RAKE_INHERIT,
       });
       expect(priced.rakePercent).toBe(10);
-      expect(priced.rakeCap).toBe(Math.floor(bb * 2.5 * 100 + 1e-8) / 100);
+      expect(priced.rakeCap).toBe(Math.min(12.5, Math.floor(bb * 2.5 * 100 + 1e-8) / 100));
       expect(priced._exactMatch).toBe(true);
       expect(priced.bbjFeeBB).toBeGreaterThan(0);
     }

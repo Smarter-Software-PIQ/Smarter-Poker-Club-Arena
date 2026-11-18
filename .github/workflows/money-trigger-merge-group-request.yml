@@ -1,0 +1,22 @@
+name: Money Trigger Merge Group Request
+# MERGE QUEUE (2026-11-11). This workflow runs from the queued merge-group
+# commit and therefore holds no secret and does nothing but exist: its start
+# is the workflow_run event that tells the trusted verifier in
+# money-trigger-recovery.yml (default-branch code, environment
+# money-trigger-recovery-trusted) which merge-group head to verify. The
+# verifier trusts only GitHub's own workflow_run fields (event, head_sha,
+# head_branch, head_repository), never anything this run writes.
+on:
+  merge_group:
+    types: [checks_requested]
+permissions: {}
+jobs:
+  request:
+    name: Request the trusted money trigger verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Name the queued head
+        env:
+          GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: echo "Trusted verdict requested for merge group head $GROUP_HEAD_SHA"

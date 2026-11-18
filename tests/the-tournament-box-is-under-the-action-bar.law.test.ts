@@ -61,12 +61,8 @@ describe('the box is not on the felt', () => {
     const dock = rule(DOCK_CSS, '.tournament-dock {');
     expect(dock).toMatch(/position:\s*fixed/);
     expect(dock).toMatch(/bottom:\s*0/);
-    expect(dock).toMatch(
-      /padding-bottom:\s*var\(--sp-bar-inset, env\(safe-area-inset-bottom, 0px\)\)/
-    );
-    expect(dock).toContain(
-      'height: calc(var(--sp-tdock-now, 50px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)))'
-    );
+    expect(dock).toContain('height: var(--sp-tdock-now, 80px)');
+    expect(dock).not.toMatch(/padding-bottom:/);
     expect(dock).toMatch(/left:\s*0/);
     expect(dock).toMatch(/right:\s*0/);
     expect(dock).not.toMatch(/(^|[\s;{])top:/);
@@ -76,7 +72,7 @@ describe('the box is not on the felt', () => {
 
   it('the action bar and the pre-action bar stand on top of it', () => {
     expect(DOCK_CSS).toMatch(
-      /\.table-page--tournament \.action-panel,\s*\.table-page--tournament \.pre-action-bar,\s*\.table-page--tournament \.action-panel-wrapper \{\s*padding-bottom:\s*calc\(\s*var\(--sp-bar-inset, env\(safe-area-inset-bottom, 0px\)\)\s*\+\s*var\(--sp-tdock-now\)\s*\) !important;/
+      /\.table-page--tournament \.action-panel,\s*\.table-page--tournament \.pre-action-bar,\s*\.table-page--tournament \.action-panel-wrapper \{\s*padding-bottom:\s*calc\(\s*var\(--sp-tdock-clearance\)\s*\+\s*var\(--sp-tdock-now\)\s*\) !important;/
     );
   });
 });
@@ -100,7 +96,7 @@ describe('it is collapsible, and collapsing it never resizes the felt', () => {
       /--sp-tdock-reserve:\s*calc\(var\(--sp-tdock-line-h\) \+ var\(--sp-tdock-row-h\)\)/
     );
     expect(base).toMatch(
-      /--sp-action-reserve:\s*calc\(\s*var\(--sp-bottom-row-h, 96px\) \+ var\(--sp-bar-inset, env\(safe-area-inset-bottom, 0px\)\)\s*\+\s*var\(--sp-tdock-reserve\)\s*\)/
+      /--sp-action-reserve:\s*calc\(\s*var\(--sp-bottom-row-h, 96px\) \+ max\(8px, var\(--sp-bar-inset, env\(safe-area-inset-bottom, 0px\)\)\)\s*\+\s*var\(--sp-tdock-reserve\)\s*\)/
     );
     const collapsed = rule(DOCK_CSS, ".table-page--tournament[data-tdock='collapsed'] {");
     expect(collapsed).toMatch(/--sp-tdock-now:/);
@@ -139,7 +135,8 @@ describe('the action bar corner holds the lobby button (Dan 2026-11-01)', () => 
   it('a tournament tab shows the hamburger-sized LOBBY plate in the strip and it opens the tournament lobby', () => {
     expect(MTP).toMatch(/\(activeClusterId \|\| activeIsTournament\) && !isTileView && \(/);
     expect(MTP).toMatch(/masterBus\.emit\('OPEN_TOURNAMENT_LOBBY', \{ tableId: activeTableId \}\)/);
-    expect(MTP).toMatch(/activeIsTournament \? 'Open Tournament Lobby' : 'Open Must Move Lobby'/);
+    expect(MTP).toMatch(/const tableLobbyTitle = activeIsTournament\s*\? 'Tournament Lobby'/);
+    expect(MTP).toContain('aria-label={`Open ${tableLobbyTitle}`}');
     expect(MTP).toMatch(/import lobbyButtonArt from '\.\.\/assets\/lobby-button\.webp';/);
     const size = rule(MTP_CSS, '.multi-table-page__tab-bar-wrapper,\n.mtp-lobby-btn {');
     expect(size).toMatch(/--mtp-lobby-w:\s*var\(--sp-tabbar-control\)/);

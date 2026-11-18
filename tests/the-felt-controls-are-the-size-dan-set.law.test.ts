@@ -84,7 +84,22 @@ describe('the phone action buttons are double', () => {
     // the count is pinned as well as the values.
     expect(ACTION_CSS).toMatch(/--sp-action-btn-h:\s*52px/);
     expect(ACTION_CSS).toMatch(/--sp-action-btn-h:\s*48px/);
-    expect((ACTION_CSS.match(/--sp-action-btn-h:\s*\d+px/g) ?? []).length).toBe(3);
+    // The fourth is the phone TABLE (Dan 2026-11-11): a portrait phone lays the
+    // table out at the 600px desktop width, where none of the <=480px blocks
+    // above can match, so the doubled row is declared in the one query that
+    // names that layout.
+    expect((ACTION_CSS.match(/--sp-action-btn-h:\s*\d+px/g) ?? []).length).toBe(4);
+  });
+
+  it('doubles the row at the phone table, the 600px layout a portrait phone plays in', () => {
+    const query =
+      '@media (max-device-width: 480px) and (min-width: 481px) and (orientation: portrait) {';
+    const at = ACTION_CSS.lastIndexOf(query);
+    expect(at, 'the phone table query is declared').toBeGreaterThan(-1);
+    // It must be the LAST height declaration, or a later block out-orders it.
+    const after = ACTION_CSS.slice(at);
+    expect(after).toMatch(/--sp-action-btn-h:\s*104px/);
+    expect(ACTION_CSS.slice(at + after.indexOf('104px'))).not.toMatch(/--sp-action-btn-h:\s*\d+px/);
   });
 
   it('and the reserve is still derived from it rather than restated', () => {

@@ -212,7 +212,8 @@ test.describe('with Reduce Motion on, the perk survives - only the motion collap
 
 test.describe('the river squeeze, with a real mouse', () => {
   test('holds the river FACE DOWN under an interactive host', async ({ page }) => {
-    await openRiver(page);
+    // Geometry/hit-testing must not race the separately tested auto-open ceiling.
+    await openRiver(page, { manualClock: true });
     const host = page.locator(HOST);
     await expect(host, 'the river must mount the squeeze host').toHaveCount(1, { timeout: 4000 });
     await expect(host).toHaveAttribute('data-rs-hold', 'drag');

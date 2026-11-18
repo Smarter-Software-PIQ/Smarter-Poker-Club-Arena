@@ -31,6 +31,54 @@ const always = () => 0;
 const never = () => 0.999999;
 
 describe('vpipFloorCallDown', () => {
+  it('does not buy extra Classic hands after the actual thirty-hand target is satisfied', () => {
+    const classic = table({ vpipFloor: 20, vpipWindowHands: 30, ownVpip: { hands: 30, vpip: 30 } });
+    expect(vpipFloorCallDown(fold, player, classic, always)).toBe(fold);
+    expect(
+      vpipFloorCallDown(fold, player, { ...classic, vpipWindowHands: 10 }, always).action
+    ).toBe('call');
+  });
+
+  it('preserves the non-NLH cold-start behavior', () => {
+    expect(
+      vpipFloorCallDown(
+        fold,
+        player,
+        table({ gameVariant: 'plo4', vpipWindowHands: 30, ownVpip: undefined }),
+        always
+      ).action
+    ).toBe('call');
+  });
+
+  it.each([
+    undefined,
+    { hands: 0, vpip: null },
+    { hands: 2, vpip: 0 },
+    { hands: 30, vpip: null },
+    { hands: 30, vpip: Number.NaN },
+  ])('does not mistake a missing or immature Classic sample for zero VPIP: %s', (ownVpip) => {
+    expect(
+      vpipFloorCallDown(
+        fold,
+        player,
+        table({ vpipFloor: 20, vpipWindowHands: 30, ownVpip }),
+        always
+      )
+    ).toBe(fold);
+  });
+
+  it('keeps genuinely under-target Classic adaptation bounded by price and refusal guards', () => {
+    const classic = table({
+      vpipFloor: 20,
+      vpipWindowHands: 30,
+      ownVpip: { hands: 30, vpip: 16.6666667 },
+    });
+    expect(vpipFloorCallDown(fold, player, classic, always).action).toBe('call');
+    const priced = { ...fold, continuationGuard: 'preflop_priced_refusal' as const };
+    expect(vpipFloorCallDown(priced, player, classic, always)).toBe(priced);
+    expect(vpipFloorCallDown(fold, player, { ...classic, currentBet: 2 }, always)).toBe(fold);
+  });
+
   it('a horse under its target calls a small price it was about to fold', () => {
     expect(vpipFloorCallDown(fold, player, table(), always)).toEqual({
       action: 'call',

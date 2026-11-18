@@ -288,7 +288,7 @@ it('labels lifetime fee criteria Overall while preserving current-week display a
     await vi.advanceTimersByTimeAsync(400);
   });
   expect(screen.getByRole('combobox', { name: 'Win And Loss Period' })).toHaveValue('week');
-  expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('newest');
+  expect(screen.getByRole('combobox', { name: 'Sort Players' })).toHaveValue('activity');
   fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
   expect(screen.getByRole('option', { name: 'Overall Fees 100+' })).toHaveValue('high_fees');
   expect(screen.getByRole('option', { name: 'Most Overall Fees' })).toHaveValue('fees');
@@ -308,7 +308,7 @@ it('labels lifetime fee criteria Overall while preserving current-week display a
   ).toBeInTheDocument();
 });
 
-it('shows the authorized period fees, never the wallet, and opens the existing management route', async () => {
+it('shows authorized period fees and player wallet, and opens the existing management route', async () => {
   f.period.mockResolvedValue(
     new Map([['player-1', { cash: 0, mtt: 0, net: 0, fees: 12345, downline_fees: 0 }]])
   );
@@ -354,7 +354,7 @@ it('shows the authorized period fees, never the wallet, and opens the existing m
   expect(screen.getByText('12,345.00')).toBeInTheDocument();
   expect(screen.getByText('Fees This Week')).toBeInTheDocument();
   expect(screen.queryByText('98.7K')).not.toBeInTheDocument();
-  expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+  expect(screen.getByText('Wallet Balance 98,765.00')).toBeInTheDocument();
   expect(screen.getByText(/ID: 3258017/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Applicants' })).toHaveAttribute(
     'href',
@@ -581,8 +581,8 @@ it('keeps a cold record feed connecting after verified HTTP reads and requires e
 });
 
 it.each([
-  [9300, '+9.3K'],
-  [-9300, '-9.3K'],
+  [9300, '+9,300.00'],
+  [-9300, '-9,300.00'],
 ])('prints a signed net without a visible metric label for %s', (net, label) => {
   const { container } = render(
     <MemberRow
@@ -655,8 +655,8 @@ it('shows automatic name relevance during search and restores the selected manua
 });
 
 it.each([
-  { advanced: false, sort: 'newest' },
-  { advanced: true, sort: 'newest' },
+  { advanced: false, sort: 'activity' },
+  { advanced: true, sort: 'activity' },
   { advanced: false, sort: 'oldest' },
   { advanced: true, sort: 'oldest' },
 ])(
@@ -689,7 +689,7 @@ it.each([
     }
     const expected =
       '/clubs/shark-club/members?view=online&' +
-      (sort === 'newest' ? '' : 'sort=oldest&') +
+      (sort === 'activity' ? '' : 'sort=oldest&') +
       'keep=1';
     render(
       <MemoryRouter
@@ -772,7 +772,7 @@ it('keeps workspace controls unavailable until the account workspace resolves, t
     resolve({
       search: '',
       filter: 'all',
-      sort: 'newest',
+      sort: 'activity',
       columns: ['fees', 'downlines', 'activity'],
     })
   );

@@ -421,3 +421,204 @@ function fitScopedOpponentModel(
     intervalMethod: 'bounded-session-hoeffding-v1',
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// FAST INTRA-SESSION GEAR-SHIFT BLENDING (Enhancement #10)
+// ─────────────────────────────────────────────────────────────────────────
+
+export const FAST_SESSION_GEAR_SHIFT_POLICY = Object.freeze({
+  version: 'fast-session-gear-shift-v1',
+  recencyWindowOpportunities: 16,
+  fastHalfLifeOpportunities: 12,
+  minRecencyOpportunities: 8,
+  shiftTotalVariationThreshold: 0.2,
+  snapbackTotalVariationThreshold: 0.1,
+  maxRecencyBlendWeight: 0.78,
+});
+
+export interface SessionGearShiftSummary {
+  readonly shifted: boolean;
+  readonly direction: 'aggressive_shift' | 'passive_shift' | 'snapped_back' | 'stable';
+  readonly recencyWeight: number;
+  readonly totalVariationShift: number;
+  readonly recentOpportunities: number;
+  readonly recentProbabilities: Readonly<Record<AdaptiveAction, number>>;
+  readonly blendedProbabilities: Readonly<Record<AdaptiveAction, number>>;
+}
+
+export interface GearShiftScopedOpponentEstimate extends ScopedOpponentEstimate {
+  readonly gearShift: SessionGearShiftSummary;
+}
+
+export type GearShiftScopedOpponentModelResult =
+  | Extract<ScopedOpponentModelResult, { status: 'unavailable' }>
+  | GearShiftScopedOpponentEstimate;
+
+/**
+ * Evaluates `buildScopedOpponentModel(input)` for the lifetime session-bounded
+ * posterior, then overlays a fast exponential recency window over the latest
+ * 12-20 opportunities (optionally scoped to `activeSessionKey`) so horses adapt
+ * immediately to mid-session gear shifts and snap back when recent play reverts.
+ */
+export function buildGearShiftAwareScopedOpponentModel(
+  input: ScopedOpponentModelInput,
+  activeSessionKey?: string
+): GearShiftScopedOpponentModelResult {
+  const base = buildScopedOpponentModel(input);
+  if (base.status === 'unavailable') return base;
+
+  const stableSummary = (
+    probs: Readonly<Record<AdaptiveAction, number>>
+  ): SessionGearShiftSummary =>
+    Object.freeze({
+      shifted: false,
+      direction: 'stable',
+      recencyWeight: 0,
+      totalVariationShift: 0,
+      recentOpportunities: 0,
+      recentProbabilities: probs,
+      blendedProbabilities: probs,
+    });
+
+  interface RecencyItem {
+    readonly observedAtMs: number;
+    readonly tieKey: string;
+    readonly action: AdaptiveAction;
+    readonly observations: number;
+  }
+  const items: RecencyItem[] = [];
+  for (const o of input.observations ?? []) {
+    if (activeSessionKey !== undefined && o.sessionKey !== activeSessionKey) continue;
+    items.push({
+      observedAtMs: o.observedAtMs,
+      tieKey: o.observationId,
+      action: o.action,
+      observations: 1,
+    });
+  }
+  for (const s of input.statistics ?? []) {
+    if (
+      (s as { disposition?: string }).disposition &&
+      (s as { disposition?: string }).disposition !== 'settled'
+    )
+      continue;
+    if (activeSessionKey !== undefined && s.sessionKey !== activeSessionKey) continue;
+    items.push({
+      observedAtMs: s.observedAtMs,
+      tieKey: s.handDigest,
+      action: s.action,
+      observations: s.observations,
+    });
+  }
+  items.sort((a, b) => a.observedAtMs - b.observedAtMs || a.tieKey.localeCompare(b.tieKey));
+
+  const windowSlice = items.slice(-20);
+  const totalRecentObs = windowSlice.reduce((acc, s) => acc + s.observations, 0);
+  if (totalRecentObs < FAST_SESSION_GEAR_SHIFT_POLICY.minRecencyOpportunities) {
+    return Object.freeze({ ...base, gearShift: stableSummary(base.probabilities) });
+  }
+
+  const decay = Math.pow(0.5, 1 / FAST_SESSION_GEAR_SHIFT_POLICY.fastHalfLifeOpportunities);
+  const weighted = empty();
+  let totalWeight = 0;
+  let seenBackward = 0;
+  for (let i = windowSlice.length - 1; i >= 0; i--) {
+    const s = windowSlice[i];
+    const w = Math.pow(decay, seenBackward) * s.observations;
+    weighted[s.action] += w;
+    totalWeight += w;
+    seenBackward += s.observations;
+  }
+
+  // Light Laplace smoothing toward lifetime base (prior mass = 2 opportunities)
+  const smoothMass = 2;
+  const recentProbs = empty();
+  for (const a of SCOPED_MODEL_ACTIONS) {
+    recentProbs[a] =
+      (weighted[a] + smoothMass * base.probabilities[a]) / (totalWeight + smoothMass);
+  }
+
+  // Total variation distance between recent window and lifetime posterior: 0.5 * sum |p - q|.
+  let l1 = 0;
+  for (const a of SCOPED_MODEL_ACTIONS) {
+    l1 += Math.abs(recentProbs[a] - base.probabilities[a]);
+  }
+  const tv = Math.round(0.5 * l1 * 10000) / 10000;
+
+  // Tail check (last 6 observations) to detect immediate snap-back after a prior burst.
+  const tailSlice = windowSlice.slice(-6);
+  const tailObs = tailSlice.reduce((acc, s) => acc + s.observations, 0);
+  let tailTvToPrior = 1;
+  if (tailObs >= 5) {
+    const tailCounts = empty();
+    for (const s of tailSlice) tailCounts[s.action] += s.observations;
+    let tailL1 = 0;
+    for (const a of SCOPED_MODEL_ACTIONS) {
+      tailL1 += Math.abs(tailCounts[a] / tailObs - input.prior.probabilities[a]);
+    }
+    tailTvToPrior = 0.5 * tailL1;
+  }
+
+  const aggressiveRecent = recentProbs.bet + recentProbs.raise;
+  const aggressiveBase = base.probabilities.bet + base.probabilities.raise;
+  const aggressivePrior = input.prior.probabilities.bet + input.prior.probabilities.raise;
+
+  let shifted = false;
+  let direction: SessionGearShiftSummary['direction'] = 'stable';
+  let recencyWeight = 0;
+
+  if (
+    tv >= FAST_SESSION_GEAR_SHIFT_POLICY.shiftTotalVariationThreshold &&
+    tailTvToPrior > FAST_SESSION_GEAR_SHIFT_POLICY.snapbackTotalVariationThreshold
+  ) {
+    shifted = true;
+    direction = aggressiveRecent >= aggressiveBase ? 'aggressive_shift' : 'passive_shift';
+    const sampleFactor = Math.min(
+      1,
+      (totalRecentObs - FAST_SESSION_GEAR_SHIFT_POLICY.minRecencyOpportunities + 4) /
+        FAST_SESSION_GEAR_SHIFT_POLICY.recencyWindowOpportunities
+    );
+    const shiftFactor = Math.min(
+      1,
+      tv / (FAST_SESSION_GEAR_SHIFT_POLICY.shiftTotalVariationThreshold * 1.8)
+    );
+    recencyWeight =
+      Math.round(
+        Math.min(
+          FAST_SESSION_GEAR_SHIFT_POLICY.maxRecencyBlendWeight,
+          0.35 + 0.43 * sampleFactor * shiftFactor
+        ) * 1000
+      ) / 1000;
+  } else if (
+    tailObs >= 5 &&
+    tailTvToPrior <= FAST_SESSION_GEAR_SHIFT_POLICY.snapbackTotalVariationThreshold &&
+    Math.abs(aggressiveBase - aggressivePrior) >= 0.14
+  ) {
+    shifted = false;
+    direction = 'snapped_back';
+    recencyWeight = 0;
+  }
+
+  const blended = empty();
+  let sum = 0;
+  for (const a of SCOPED_MODEL_ACTIONS) {
+    blended[a] = recencyWeight * recentProbs[a] + (1 - recencyWeight) * base.probabilities[a];
+    sum += blended[a];
+  }
+  if (sum > 0) {
+    for (const a of SCOPED_MODEL_ACTIONS) blended[a] = blended[a] / sum;
+  }
+
+  return Object.freeze({
+    ...base,
+    gearShift: Object.freeze({
+      shifted,
+      direction,
+      recencyWeight,
+      totalVariationShift: tv,
+      recentOpportunities: totalRecentObs,
+      recentProbabilities: Object.freeze(recentProbs),
+      blendedProbabilities: Object.freeze(blended),
+    }),
+  });
+}

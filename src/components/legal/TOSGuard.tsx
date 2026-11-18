@@ -54,8 +54,8 @@ import { useHoldPromptLane } from '../../lib/promptLane';
 import { uuid } from '../../utils/uuid';
 /* LAZY on purpose. This guard wraps the entire router, so a static import
    here would put the whole acceptance modal and its stylesheet into the chunk
-   every player downloads before first paint - and once a player has accepted,
-   they never see it again. `entry-chunk-delta.mjs` is the CI guard that would
+   every player downloads before first paint, including players whose current
+   revision is already accepted. `entry-chunk-delta.mjs` is the CI guard that would
    catch that, and lazy-loading is its own recommended fix. The modal arrives
    only for the one state that needs it. */
 const TOSAcceptanceModal = lazy(() => import('./TOSAcceptanceModal'));
@@ -134,6 +134,7 @@ export default function TOSGuard({ children }: TOSGuardProps) {
     } = await supabase.auth.getSession();
     const token = session?.access_token;
     if (!token) throw new Error('Not authenticated');
+    const { TERMS_REVISION } = await import('./legalDates');
 
     /* THE HEADER IS NOT OPTIONAL. Every World Hub `/api/club-arena/*` POST
        runs `checkIdempotency` before anything else, and that guard answers a
@@ -152,7 +153,7 @@ export default function TOSGuard({ children }: TOSGuardProps) {
         'Content-Type': 'application/json',
         'X-Idempotency-Key': uuid(),
       },
-      body: '{}',
+      body: JSON.stringify({ termsRevision: TERMS_REVISION }),
     });
 
     /* THE STATE ONLY MOVES ON A CONFIRMED WRITE. An optimistic flip here would
@@ -165,6 +166,15 @@ export default function TOSGuard({ children }: TOSGuardProps) {
       throw new Error(body?.error || `Could not record acceptance (${response.status})`);
     }
 
+    const receipt = await response.json().catch(() => null);
+    if (
+      receipt?.success !== true ||
+      receipt.termsRevision !== TERMS_REVISION ||
+      typeof receipt.acceptedAt !== 'string' ||
+      !Number.isFinite(Date.parse(receipt.acceptedAt))
+    ) {
+      throw new Error('Could Not Confirm Acceptance Of The Current Terms. Please Try Again.');
+    }
     setState('accepted');
   }, []);
 

@@ -132,11 +132,14 @@ describe('THE BAR DOES NOT BLINK BETWEEN ACTORS (Dan 2026-09-07)', () => {
        announces. A duration would only be a guess at them, and the guess would
        be wrong on any table whose hold length changed - which it did, twice,
        in this same batch of work. */
-    expect(PAGE).toMatch(/setHandSettling\(true\)/);
-    expect(PAGE).toMatch(/setHandSettling\(false\)/);
-    const settle = PAGE.indexOf('setHandSettling(true)');
+    expect(PAGE).toMatch(/setSettlingHandNumber\(completedHandNumber\)/);
+    expect(PAGE).toMatch(/setSettlingHandNumber\(null\)/);
+    const settle = PAGE.indexOf('setSettlingHandNumber(completedHandNumber)');
     const complete = PAGE.lastIndexOf("case 'HAND_COMPLETE'", settle);
-    const started = PAGE.lastIndexOf("case 'HAND_STARTED'", PAGE.indexOf('setHandSettling(false)'));
+    const started = PAGE.lastIndexOf(
+      "case 'HAND_STARTED'",
+      PAGE.indexOf('setSettlingHandNumber(null)')
+    );
     expect(complete, 'the true-set belongs to HAND_COMPLETE').toBeGreaterThan(-1);
     expect(started, 'the false-set belongs to HAND_STARTED').toBeGreaterThan(-1);
   });

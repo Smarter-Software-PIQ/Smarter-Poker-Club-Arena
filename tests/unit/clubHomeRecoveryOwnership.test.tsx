@@ -24,6 +24,8 @@ type ClubFixture = {
 
 const h = vi.hoisted(() => ({
   prepareTable: vi.fn(),
+  joinWaitlist: vi.fn(),
+  leaveWaitlist: vi.fn(),
   warning: vi.fn(),
   from: vi.fn(),
   rpc: vi.fn(),
@@ -129,6 +131,18 @@ vi.mock('../../src/services/tableWarmup', async (original) => ({
   ...(await original<any>()),
   prepareTableForEntry: h.prepareTable,
 }));
+vi.mock('../../src/services/WaitlistService', async (original) => {
+  const actual = await original<any>();
+  return {
+    ...actual,
+    waitlistService: {
+      ...actual.waitlistService,
+      joinWaitlist: h.joinWaitlist,
+      leave: h.leaveWaitlist,
+      getPosition: vi.fn(async () => null),
+    },
+  };
+});
 import ClubHomePage, { CLUB_HOME_CACHE_VER } from '../../src/pages/ClubHomePage';
 import { CLUB_HOME_CACHE_PREFIX } from '../../src/utils/clearUserCaches';
 
@@ -163,6 +177,8 @@ beforeEach(() => {
   sessionStorage.clear();
   vi.clearAllMocks();
   h.prepareTable.mockReset().mockResolvedValue(undefined);
+  h.joinWaitlist.mockReset().mockResolvedValue({ id: 'queue-entry' });
+  h.leaveWaitlist.mockReset().mockResolvedValue(true);
   h.factories.clear();
   h.bus.clear();
   h.channels.length = 0;
@@ -762,32 +778,35 @@ describe('the actual mounted View caller awaits table preparation', () => {
 });
 
 describe('View Game from a persistent embedded lobby', () => {
-  it.each([false, true])(
-    'closes the portalled card after successful entry (signed in: %s)',
-    async (signedIn) => {
-      h.authenticated = signedIn;
-      const preparation = deferred<void>();
-      h.prepareTable.mockReturnValue(preparation.promise);
-      await mountCachedTable({}, true);
-      fireEvent.click(screen.getByRole('button', { name: 'Details: NLH 1/2' }));
-      await flush();
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])('opens the selected card (signed in: %s, embedded: %s)', async (signedIn, embedded) => {
+    h.authenticated = signedIn;
+    const preparation = deferred<void>();
+    h.prepareTable.mockReturnValue(preparation.promise);
+    await mountCachedTable({}, embedded);
+    fireEvent.click(screen.getByRole('button', { name: 'Details: NLH 1/2' }));
+    await flush();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /view table/i })
+    );
+    await flush();
+    if (signedIn) {
+      expect(screen.queryByText('Prepared Table Route')).toBeNull();
       expect(screen.getByRole('dialog')).toBeTruthy();
-      fireEvent.click(
-        within(screen.getByRole('dialog')).getByRole('button', { name: /view table/i })
-      );
-      await flush();
-      if (signedIn) {
-        expect(screen.queryByText('Prepared Table Route')).toBeNull();
-        expect(screen.getByRole('dialog')).toBeTruthy();
-        await act(async () => preparation.resolve());
-      }
-      expect(screen.getByText('Prepared Table Route')).toBeTruthy();
-      // The lobby remains mounted just as it does in MultiTablePage. Its body
-      // portal must not obscure the table that View has successfully selected.
-      expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getByRole('button', { name: 'Cash Games', exact: true })).toBeTruthy();
+      await act(async () => preparation.resolve());
     }
-  );
+    expect(screen.getByText('Prepared Table Route')).toBeTruthy();
+    // The lobby remains mounted just as it does in MultiTablePage. Its body
+    // portal must not obscure the table that View has successfully selected.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    if (embedded)
+      expect(screen.getByRole('button', { name: 'Cash Games', exact: true })).toBeTruthy();
+  });
 
   it('keeps the chosen card open and reports a failed preparation', async () => {
     h.authenticated = true;
@@ -831,4 +850,52 @@ describe('cash viewing uses one spectator door in every mode', () => {
       expect(screen.getByText('Prepared Table Route')).toBeTruthy();
     }
   );
+});
+
+describe('waiting-list entry opens observation', () => {
+  it.each([false, true])('opens after confirmed join, embedded=%s', async (embedded) => {
+    h.authenticated = true;
+    await mountCachedTable({ current_players: 9 }, embedded);
+    fireEvent.click(screen.getByRole('button', { name: 'Details: NLH 1/2' }));
+    await flush();
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Join Waitlist', exact: true })
+    );
+    await flush();
+    expect(h.joinWaitlist).toHaveBeenCalledExactlyOnceWith('known-table');
+    expect(screen.getByText('Prepared Table Route')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('does not open after a refused join', async () => {
+    h.authenticated = true;
+    h.joinWaitlist.mockResolvedValue(null);
+    await mountCachedTable({ current_players: 9 });
+    fireEvent.click(screen.getAllByRole('button', { name: /Join Waitlist/i })[0]);
+    await flush();
+    expect(h.joinWaitlist).toHaveBeenCalledOnce();
+    expect(screen.queryByText('Prepared Table Route')).toBeNull();
+    expect(h.prepareTable).not.toHaveBeenCalled();
+  });
+});
+
+it('retains a confirmed waiting-list place if observation fails, and leaving stays in the lobby', async () => {
+  h.authenticated = true;
+  h.prepareTable.mockRejectedValue(new Error('Subscription Refused'));
+  await mountCachedTable({ current_players: 9 }, true);
+  fireEvent.click(screen.getByRole('button', { name: 'Details: NLH 1/2' }));
+  await flush();
+  fireEvent.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: 'Join Waitlist', exact: true })
+  );
+  await flush();
+  expect(h.joinWaitlist).toHaveBeenCalledOnce();
+  expect(screen.queryByText('Prepared Table Route')).toBeNull();
+  expect(h.warning).toHaveBeenCalledWith('Could Not Connect To The Table. Please Try Again.');
+  fireEvent.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: 'Leave Waitlist', exact: true })
+  );
+  await flush();
+  expect(h.leaveWaitlist).toHaveBeenCalledExactlyOnceWith('known-table');
+  expect(h.prepareTable).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('dialog')).toBeTruthy();
 });

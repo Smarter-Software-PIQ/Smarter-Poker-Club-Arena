@@ -67,6 +67,7 @@ import LightningOperatorControls, {
   RolloutReadiness,
 } from './LightningOperatorControls';
 import styles from '../ClubLightningOperationsPage.module.css';
+import { chipCents } from '../../../utils/cashierAmount';
 
 const LightningLatencyChart = lazy(() => import('./LightningLatencyChart'));
 
@@ -714,7 +715,7 @@ export default function LightningClusterDetail({
                     <span className={`${styles.gridCell} sc-ink--silver`}>
                       {b.bbOwed === null && b.sbOwed === null
                         ? '-'
-                        : compactChips((b.bbOwed ?? 0) + (b.sbOwed ?? 0))}
+                        : compactChips(chipCents((b.bbOwed ?? 0) + (b.sbOwed ?? 0)))}
                     </span>
                   </li>
                 ))}

@@ -20,6 +20,8 @@ DECLARE
   v_security_definer boolean;
   v_search_path_pinned boolean;
   v_columns text[];
+  v_promo_tickets_installed boolean;
+  v_promo_returns_installed boolean;
 BEGIN
   SELECT string_agg(required.version, ', ' ORDER BY required.version)
   INTO v_missing
@@ -109,18 +111,150 @@ BEGIN
     RAISE EXCEPTION 'cashier club promo journal source migration history drift';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261112050118'
+       AND name = 'agent_promo_sends_are_capped_at_fifty_chips_per_downline_in_'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '9042963b7c0aedf2e656377cf83c93e5'
+  ) THEN
+    RAISE EXCEPTION 'cashier shared promo limit migration history drift';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261112204754'
+       AND name = 'promo_tickets_batch_allowance_receipts_and_redeem_names_its_'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '8d1ecb9da84062ffccc1dcd97d7c761d'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo ticket receipt migration history drift';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261112235138'
+       AND name = 'a_replayed_promo_ticket_cancel_names_its_promo_wallet'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '18080405ffb48a82e323e59d9ffe8d3d'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo ticket cancel migration history drift';
+  END IF;
+
+  -- 2026-11-15: the installed successors the re-pinned bodies below come from.
+  -- 163238, 171135 and 20261115001816 are files in this repo; 174204 and 174518 are World Hub
+  -- PR #2841 (shared database), kept byte for byte in
+  -- scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json. Each
+  -- md5 is of the statement production recorded under that version.
+  IF NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261114163238'
+       AND name = 'test_accounts_and_extra_members_leave_the_poker_arena'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '2be4aaca06ce2649730244b8ea653869'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261114171135'
+       AND name = 'cashier_history_club_book_reads_by_index_per_type_group'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '79a151959d3a30b346f1b9dd68f454ff'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261114174204'
+       AND name = 'agent_promo_daily_cap'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '0c527490dbcd864cc9004ad1c6644e4d'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261114174518'
+       AND name = 'cashier_history_names_the_union_or_club_that_sent'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '91a27c8751992e6f60ad6ba1ec7756fe'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115001816'
+       AND name = 'member_history_promo_allowance_as_of_send'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'b4330bff195e8470d5a0a80e773d7e1c'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115011401'
+       AND name = 'member_history_player_and_funding_filters'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'de44c8ff76be374c742965f07c77d7cc'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115020001'
+       AND name = 'member_history_classifies_cashier_tickets_and_union_promo_fu'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '341fe86fea8a945b820c036ea62135ea'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115062830'
+       AND name = 'filter_club_transaction_history_by_funding_wallet'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '488ab5c5df115126e38c8f46abb2cca9'
+  ) THEN
+    RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
+  END IF;
+
+  -- Promo source successors are queued independently of this client. Keep the
+  -- exact previous bodies until their own atomic migration history exists;
+  -- afterward accept only the qualified successor, never either body blindly.
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154719'
+  ) INTO v_promo_tickets_installed;
+  IF v_promo_tickets_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154719'
+       AND name = 'promo_tickets_require_cashable_wallets_and_keep_entry_source'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'bb4501db1780b6992705abd68dab5475'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo tickets successor migration history drift';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154841'
+  ) INTO v_promo_returns_installed;
+  IF v_promo_returns_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154841'
+       AND name = 'expired_and_departed_promo_principal_returns_to_its_original'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'c6c6598be04765d7bb2e165d4762028a'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo returns successor migration history drift';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
       -- Qualified 160320 destination/credit/replay body with only the 164937
       -- actor=holder exception; all three agent tiers passed native proof.
       'hash', '54450c4c6f5e6ca4d3b7804a669bf0cc',
+      'promo_successor_version', '20261116154841',
+      'promo_successor_hash', 'ed52d9c36de610678fcd443acbeb8191',
       'owner', 'postgres'
     ),
     jsonb_build_object(
       'signature', 'public.fn_cashier_history_feed(uuid,text,text,timestamp with time zone,timestamp with time zone,uuid,text,timestamp with time zone,uuid,integer)',
       -- Installed 160320: server-scoped chip movements, including paging/export.
-      'hash', 'dad4d92ef739f520d0c512c9950d5c62',
+      -- Then patched in place by World Hub 20261114174518 (sender names for a
+      -- union or club; World Hub PR #2841, scripts/ci/fixtures/
+      -- world-hub-cashier-migrations-20261114.json) and by 20261114171135
+      -- (#10834/#10849, club book reads each type group by its own index),
+      -- which made a26c9b5097203fdc0b3109bd649ddec1; then by 20261115001816
+      -- (#10883, a member's promo allowance as of each send; its guard requires
+      -- a26c9b50 and its two anchors added to a26c9b50 gave 5fb4cd6e exactly);
+      -- then by 20261115011401 (member history player and funding filters;
+      -- its guard requires 5fb4cd6ebe8ed1005a38db1de36efab0).
+      -- 20261115020001 added the union promo member filter to that feed.
+      -- 20261115062830 adds the qualified club-wide funding filter; 160320's proof
+      -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
+      'hash', '926853d2cd2082737ab82c8a562b8534',
       'owner', 'postgres'
     ),
     jsonb_build_object(
@@ -159,7 +293,9 @@ BEGIN
       'signature', 'public.fn_cashier_batch_transfer(uuid,text,jsonb,uuid)',
       -- Installed 20261016024912 binds the explicitly selected source and
       -- destination wallets. Qualified full definition read back live.
-      'hash', '859bb844228d65085bf134c4dbd8b32b'
+      'hash', '859bb844228d65085bf134c4dbd8b32b',
+      'promo_successor_version', '20261116154719',
+      'promo_successor_hash', '69cfd09ce2eb7f7d5ae80f53c2c3b584'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_cashier_members_page_v3(uuid,integer,uuid,integer)',
@@ -174,7 +310,11 @@ BEGIN
       -- failed on it every run. The migration is committed alongside this.
       -- Every OTHER hash in this file was re-checked against production at the
       -- same time and all five still match.
-      'hash', '69233cd46670fbc2989173f6ba9f4328'
+      -- 20261115020001 added the union promo member filter to that feed.
+      -- Re-pinned 2026-11-15: 20261114163238 (#10832) replaced the body so the
+      -- roster leaves out reserved certification identities
+      -- (fn_ca_reserved_certification_identity); earlier pin 69233cd46670fbc2989173f6ba9f4328.
+      'hash', 'b072ac22fbf78aac0e13dc8160d17d31'
     ),
     jsonb_build_object(
       'signature', 'public.fn_issue_tournament_ticket(uuid,uuid,numeric,text,text)',
@@ -218,14 +358,18 @@ BEGIN
       -- The Cashier's Transaction History door (Dan 2026-10-24). Migration
       -- 20261024203917, installed and recorded under that version; full definition
       -- read back live the same day as owner, agent and player.
-      'hash', '3919f3ef7a21ed33e2f0c7a80113c7d2'
+      -- Patched in place by World Hub 20261114174518 (sender names for a union
+      -- or club, PR #2841); re-pinned 2026-11-15, earlier pin 3919f3ef7a21ed33e2f0c7a80113c7d2.
+      'hash', '0aa3eec4528c3b586a3750e9fce45d4f'
     ),
     jsonb_build_object(
       'signature', 'public.fn_cashier_history_page(uuid,text,text,timestamp with time zone,timestamp with time zone,integer,integer)',
       -- Transaction History filters, date range and the agent's downline book
       -- (Dan 2026-10-24). Migration 20261024213601, installed through Apply
       -- Merged Migration and recorded under that version; read back live.
-      'hash', '25db80241e3b8e5823b7335631b6a18f'
+      -- Patched in place by World Hub 20261114174518 (PR #2841); re-pinned
+      -- 2026-11-15, earlier pin 25db80241e3b8e5823b7335631b6a18f.
+      'hash', '9b7963ce6a6be77bb57f9065d704948a'
     ),
     jsonb_build_object(
       'signature', 'public.fn_cashier_history_totals(uuid,text,timestamp with time zone,timestamp with time zone)',
@@ -265,8 +409,11 @@ BEGIN
     -- Its body is pinned by md5 in the migrations that replace it (live since
     -- 2026-10-12: 20261012030847, the statement counts each move once,
     -- 8cab96c15ba360fb34c13f0afd3378b8; before it 20261011225840, #6688,
-    -- b1f42803af9196e322159660ff6f9e57), and the doors below, which call it,
-    -- are unchanged by both.
+    -- b1f42803af9196e322159660ff6f9e57; after it 20261113010721, the Ticket
+    -- filter returns promo tickets, dcfe58296b8a3d140f4fbdcc7395bd03; then
+    -- 20261113021529, a ticket escrow refund files under Ticket,
+    -- 014595799a63ab71d190a68c7acdbcac), and the doors below, which call it,
+    -- are unchanged by all four.
     jsonb_build_object(
       'signature', 'public.fn_cashier_statement_scope(uuid)',
       'hash', 'c8137ef74e0e7ccfb05b94697b3fb122',
@@ -333,7 +480,9 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_agent_wallet_self_stake(uuid,numeric,text,uuid)',
-      'hash', '438f699e38c8e2e6a9949c76e526731b'
+      'hash', '438f699e38c8e2e6a9949c76e526731b',
+      'promo_successor_version', '20261116154841',
+      'promo_successor_hash', '2c83736aa78b0513e142daa2927e0aef'
     ),
     jsonb_build_object(
       'signature', 'public.fn_respond_chip_request(uuid,text)',
@@ -345,14 +494,22 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_redeem_tournament_ticket(uuid)',
-      -- 20261015132042: a cashier ticket bound to one tournament is refused
-      -- here (it is used by registering). Same provenance as the batch hash.
-      'hash', 'ab95c0907acccdedef0190acf242c8a3',
-      'replacement_hash', '0bb17681b38164a7a2746e17d07597b3'
+      -- Installed 20261112204754 adds the promo issue receipt lookup to the
+      -- exact 20261015132042 body. Reversing that replacement reproduces
+      -- 0bb17681b38164a7a2746e17d07597b3 byte for byte; only its successor is live.
+      'hash', '49cb942d53af3521ff14a6502520924c'
     ),
     jsonb_build_object(
       'signature', 'public.fn_cancel_tournament_ticket(uuid)',
-      'hash', 'd3f65b7702d4b7f543891dd87c149353'
+      -- 20261112184950 booked the issuer refund to ticket_escrow (category
+      -- refund); 20261112184216 (promo chips fund cashier tickets) then
+      -- replaced the body from that preimage. Installed and read back live
+      -- 2026-11-12: only that successor is accepted.
+      -- 20261112235138 preserves that body and adds the refund wallet to
+      -- replay receipts plus the exact missing-promo-wallet error.
+      'hash', '25b182e8905f859ba5de2467957a4eda',
+      'promo_successor_version', '20261116154719',
+      'promo_successor_hash', 'ee4d56f3a7495971cba4586d3f6235de'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_bank_ledger(uuid,integer,integer,text[])',
@@ -402,6 +559,8 @@ BEGIN
       -- Full definition derived from the merged migration and read back live
       -- by post-deploy run 38929938237.
       'hash', 'e54e4f3949335c61d4c1492d81b5ca21',
+      'promo_successor_version', '20261116154841',
+      'promo_successor_hash', '05904c3ee91fd2929cc9e7acadfa0796',
       'search_path', 'search_path=public'
     ),
     jsonb_build_object(
@@ -461,6 +620,10 @@ BEGIN
 
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_contract)
   LOOP
+    IF (v_item ->> 'promo_successor_version' = '20261116154719' AND v_promo_tickets_installed)
+       OR (v_item ->> 'promo_successor_version' = '20261116154841' AND v_promo_returns_installed) THEN
+      v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
+    END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
     IF v_oid IS NULL THEN
       RAISE EXCEPTION 'cashier function missing: %', v_item ->> 'signature';
@@ -572,7 +735,12 @@ BEGIN
     jsonb_build_object('signature', 'public.fn_admin_remove_chips_core_20261004(uuid,uuid,numeric,text,uuid)',
       'hash', 'ac293c1623da0db62d74f5e888c1011a'),
     jsonb_build_object('signature', 'public.fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
-      'hash', 'b6b0c7686b67d33e2b01c132f8775cbc'),
+      -- Qualified 20261112050118: shared 50-chip rolling recipient cap.
+      -- Then World Hub 20261114174204 (PR #2841): one agent's 24-hour promo
+      -- ceiling, inserted at the downline-limit anchor. Body derived from that
+      -- source in tests/cashier-authority-exact-intent.test.ts; earlier pin
+      -- 7087a67e16f6d7990c28fbb549464bef.
+      'hash', 'be708b91a9ce7080e2826d2f53513cc5'),
     jsonb_build_object('signature', 'public.fn_club_promo_send_core_20261004(uuid,uuid,numeric,text,text,uuid)',
       -- Derived from the protected source fixture and exact migration patch;
       -- the previous body omitted the payer's ledger source column.

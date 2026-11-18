@@ -24,6 +24,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './ChatBubble.css';
+import { AddOnFlight } from './AddOnFlight';
 import type { ChatMessage } from './TableChat';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -76,8 +77,7 @@ const EMPTY_SPEAKERS: ReadonlyArray<string> = [];
  */
 /**
  * 'notice' (2026-09-04): a table fact about the seat rather than something
- * the player said — today, "Has Added On For 50.00" from `AddOnBubble.ts`.
- * Words like a message, gold like a chip so nobody reads it as chat.
+ * the player said. AddOnFlight renders the compact stack-to-crown feedback.
  */
 export type SeatChatBubbleVariant = 'message' | 'speaking' | 'notice';
 
@@ -139,7 +139,7 @@ export function ChatBubble({
     const bubble = bubbleRef.current;
     const seat = bubble?.parentElement;
     const pane = bubble?.closest<HTMLElement>('.table-page');
-    if (!bubble || !seat || !pane) return;
+    if (!bubble || !seat || !pane || variant === 'notice') return;
     // Center on the same seat, then move only as far as its actual table pane
     // requires. A multi-table pane can be much narrower than the viewport.
     const fit = () => {
@@ -183,14 +183,14 @@ export function ChatBubble({
       window.removeEventListener('resize', fit);
     };
   }, [text, playerName, placement, variant]);
+  if (variant === 'notice') return <AddOnFlight text={text} playerName={playerName} />;
   const isSpeaking = variant === 'speaking';
-  const isNotice = variant === 'notice';
   return (
     <div
       ref={bubbleRef}
       className={`chat-bubble chat-bubble--${placement}${isOwn ? ' chat-bubble--own' : ''}${
         isSpeaking ? ' chat-bubble--speaking' : ''
-      }${isNotice ? ' chat-bubble--notice' : ''}`}
+      }`}
       role="status"
       aria-live="polite"
       aria-label={isSpeaking ? `${playerName || 'Player'} Is Speaking` : undefined}

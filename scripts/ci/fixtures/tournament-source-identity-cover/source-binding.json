@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "scripts/ci/apply-recorded-migration.mjs": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -22,7 +22,7 @@
     "scripts/ci/fixtures/weekly-quality-typed-source-maps/current-boundaries.sql": "1756c8ad591066dcb67d1f58c2527d3ae6e274cfa3ec1c17d0c67a507255494c",
     "scripts/ci/fixtures/weekly-statement-indexed-quality/installer-authorities.sql": "6f889b3bfba8638bc2a52c2b43cf639cd17e8c483aedd0d512f1aa2022e15f2f",
     "scripts/ci/fixtures/weekly-statement-indexed-quality/schema.sql": "268e8e2056fd532ad6f1680aeec5b5e27f7c18f532daaf727a759d9ccf7a8f38",
-    "scripts/ci/migration-concurrent-preamble.mjs": "c50bc71b5c1234a6d505e9125de5744d04a3f97113025550f9eeb53f8b9bd8d6",
+    "scripts/ci/migration-concurrent-preamble.mjs": "0e6dfe0a56ab5b89e58c43265ab68e80e71130e6eb8a78e882c4e1bf8ff3c9f5",
     "scripts/ci/test-tournament-source-identity-cover-postgres.py": "8e26f6c6bbd36a77d7f743e696358d9dcd616eaf41ef564b64ac716c67cb6d01",
     "supabase/migrations/20261029020140_weekly_fee_source_identities_retain_their_tournament_and_rak.sql": "062ca87b4f99f5f42860fa3ee2ec91302d56ed9c9e9aec1c62f83111c4d5b7b0",
     "tests/tournament-source-identities-keep-narrow-physical-coverage.law.test.ts": "6ed10fe466e78fec94cebcd3b1f005d73183908f52cae2dad52897832da59715"
@@ -141,5 +141,50 @@
     "before": "6e2bfb30eab9862cbc2ec9952aaf619e439b454133a82674b38c38a1e21220b8",
     "after": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
     "review": "The changed installer imports a read-only pg_locks observer and calls it only for the exact ordinary Diamond Spins wallet cutover. Prior to the existing timed migration transaction, it waits at most 60 seconds for readers and rechecks the existing DDL admission door. The two index qualifications use other exact filenames and never enter this branch."
+  },
+  "aRecordingAnswersFromTheHistory20261115": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "after": "bac977604d8c65ab93cf1f115b3d19496fab1f67593ad5f8571e7124e59540ac",
+    "review": "The only change in apply-recorded-migration.mjs: one import of classifyMigration from recording-only.mjs, and a transaction-shape refusal that waits for the existing schema_migrations read when the file is a manifest-verified recording (manifestMatched, judged on the bytes this run read). Installed: the existing ALREADY-APPLIED path, nothing sent. Not installed: refused for its shape exactly as before, before anything is sent. A recording's preamble is empty, so no index is built and shape.body is never read for it. Every other file is still refused on the spot. Nothing sent, bound or recorded for an installable migration changes. Found when run 43675732635 refused the byte-exact recording of 20261115001336 (#10913) that the dispatcher had sent expecting ALREADY-APPLIED."
+  },
+  "bbjBoundedConcurrentInstall20261117": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "bac977604d8c65ab93cf1f115b3d19496fab1f67593ad5f8571e7124e59540ac",
+        "after": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc"
+      },
+      "scripts/ci/migration-concurrent-preamble.mjs": {
+        "before": "c50bc71b5c1234a6d505e9125de5744d04a3f97113025550f9eeb53f8b9bd8d6",
+        "after": "bc161f17b3b79455528ed54d10532d5f729ef862ccfa152600c827285de0618d"
+      }
+    },
+    "reviewedCommit": "9931410bad5b62dca54c082f1b7db6638db15dee",
+    "review": "Reviewed exact final diff. Only the exact BBJ migration filename and SHA256 e9657465bbd6bd8e299d2d60ddfd5ff67fb299c2854b93d7c7ba197b6bdf960e receive a 1200-second concurrent-index statement with 22-minute initial/per-index pre-:50 runway. Other files remain 600 seconds, initial12/per-index5 minutes. The BBJ workflow job alone becomes55minutes for unchanged FIFO900s plus DDL admission720s, CCI1200s and reserve; other jobs remain35. Recovery tests now assert the actual default600/12/5 selector and unchanged shared600-second recovery deadline instead of old literal implementation text. Existing cash HASH recovery, exact OID/catalog/snapshot guards, retirement, ordinary transaction/history/lock safeguards and tournament cover behavior are unchanged. Other textual differences are normal formatter whitespace/import wrapping only.",
+    "reason": "Production compact BBJ build44007522358 reached1872924/2182410blocks around569s and failed600248ms before concurrent validation. Owner explicitly ordered the bounded BBJ-specific limit correction. This is installer-source review, not a restamp of financial evidence or production capacity.",
+    "verification": "Affected BBJ native77PASS reused unchanged financial sources; postformatter installer/source focused1573PASS and recovery controls24PASS. Prior cash native63 and tournament native33 evidence remains historical unchanged input evidence; no repeated unrelated native suite or new production certification claimed."
+  },
+  "bbjMeasuredValidationRunway20261117": {
+    "path": "scripts/ci/migration-concurrent-preamble.mjs",
+    "before": "bc161f17b3b79455528ed54d10532d5f729ef862ccfa152600c827285de0618d",
+    "after": "80a6c2f8731ff7977968cb3ce4a387c92c1fc82d8d08c36b97ac201a9f14ba7b",
+    "review": "Reviewed exact BBJ-only scalar/comment diff. Exact migration SHA b5a74ce10bf8f22d7ce5f6b22675a7f34608ad9e616b0829578712849b2985be now receives2400s and42-minute initial/per-index runway; its job alone75minutes. Ordinary600s/initial12/per5 and35-minute jobs, shared600-second cash recovery, catalog/OID/snapshot/retirement and financial/read-source contracts unchanged. No financial qualification restamp.",
+    "reason": "Owner ordered the limit correction after actual1200s attempt: first scan~760s, validation711397/2182410blocks in431s projects~2082s total;2400s is bounded and42-minute runway preserves unchanged:50DDLguard. Newname retains four invalid artifacts, noDROP/override. Actual installation capacity not yet certified."
+  },
+  "bbjSteadyValidationAllowance20261117": {
+    "path": "scripts/ci/migration-concurrent-preamble.mjs",
+    "before": "80a6c2f8731ff7977968cb3ce4a387c92c1fc82d8d08c36b97ac201a9f14ba7b",
+    "after": "0e6dfe0a56ab5b89e58c43265ab68e80e71130e6eb8a78e882c4e1bf8ff3c9f5",
+    "review": "Only exact same reviewed BBJ SQL SHA b5a74ce10bf8f22d7ce5f6b22675a7f34608ad9e616b0829578712849b2985be receives2520s and44-minute initial/per-index runway, correcting steady validation estimate~2477s. Ordinary600/12/5 and cash shared600 recovery unchanged; no SQL/name/financial-reader/producer change or financial restamp.75-minute BBJ job unchanged:900+720+2520+300=4440s<4500s. Native77 and unchanged recovery reused."
+  },
+  "aHandsMoneyPathNeverWritesASharedRow20261118": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "e5dd8dcb91a9824dc6e0f31e40b2586e442105117b5b29c7afb5593fa678dacc",
+        "after": "b777ec99c663b03eb2020cce2773f7c8af7b2d7be3d6b1857648667e90758aa5"
+      }
+    },
+    "review": "The only change in apply-recorded-migration.mjs is one import of handPathParts from hand-path-shared-writes.mjs and the atomic history binding splicing its two pieces into the same single replace, right after the stale-pin pieces: for migrations from 20261118084747 on that can change the function/trigger graph, a snapshot of the hand path's shared-row writes right after BEGIN; and a check before the history insert that refuses a migration adding one (or dropping a hand door). Both are empty for older or data-only files. Nothing else sent, bound or recorded changes. Restamped here too (this binding pins the same file); diff read by the incident 075013fd coordinator: one import of handPathParts and its snapshot/check spliced right after the stale-pin pieces, nothing else.",
+    "reason": "2026-11-17 incident 075013fd: union_wallets on every raked hand (8,303 timeouts), after club_wallets (2026-10-02) and clubs.total_rake (2026-09-29); nothing stopped the class."
   }
 }

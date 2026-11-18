@@ -1,0 +1,35 @@
+name: The daily audit reports the heads-up league cards
+
+# fn_audit_heads_up_league and its wiring into fn_run_horse_daily_audit
+# (migration 20261114003037). Runs
+# scripts/ci/test-daily-audit-heads-up-league.py against a throwaway
+# PostgreSQL 17 cluster, never production. No timer (CLAUDE.md 10.85):
+# pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261114003037_the_daily_audit_reports_the_heads_up_league_cards.sql
+      - scripts/ci/test-daily-audit-heads-up-league.py
+      - .github/workflows/daily-audit-heads-up-league.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-audit-heads-up-league-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daily-audit-heads-up-league:
+    name: The audit lists the heads-up league cards and flags a night without one
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The audit lists the heads-up league cards and flags a night without one
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-daily-audit-heads-up-league.py

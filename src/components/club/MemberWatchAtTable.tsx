@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import haptic from '../../services/HapticService';
 import { PlayerSearchService, type MemberLiveTable } from '../../services/PlayerSearchService';
 import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import { titleCase } from '../../utils/titleCase';
 import { WatchAtTableButton } from './WatchAtTableButton';
-import { writePlayerFollow } from '../../utils/followTournamentPlayer';
 import { withStakes } from '../../utils/tableEyebrow';
+import { WATCH_ERROR_MESSAGE, WATCH_LEFT_MESSAGE, watchMemberTable } from './watchMemberTable';
 
 /**
  * WATCH AT TABLE ON THE PLAYER RECORD (Dan 2026-10-16)
@@ -76,36 +75,19 @@ export default function MemberWatchAtTable({
     const generation = generationRef.current;
     setVerifying(table.table_id);
     try {
-      const access = await PlayerSearchService.getTableWatchAccess(table.table_id, memberUserId);
+      const outcome = await watchMemberTable(navigate, table, {
+        userId: memberUserId,
+        name: memberName,
+      });
       if (generationRef.current !== generation) return;
-      if (access.can_watch) {
-        haptic.success();
-        if (table.tournament_id) {
-          const params = new URLSearchParams({ observer: '1' });
-          writePlayerFollow(params, {
-            tournamentId: table.tournament_id,
-            userId: memberUserId,
-            username: memberName,
-          });
-          navigate(`/table/${table.table_id}?${params.toString()}`);
-        } else {
-          navigate(`/table/${table.table_id}?observer=1`);
-        }
-        return;
-      }
-      haptic.error();
-      if (!access.found) {
+      if (outcome.status === 'left') {
         setTables((current) => current.filter((item) => item.table_id !== table.table_id));
-        toast.error('This Player Has Left The Table.');
-      } else if (access.action === 'observers_restricted') {
-        toast.error('This Table Does Not Allow Observers.');
-      } else {
-        toast.error('This Game Is Not Available To Watch.');
+        toast.error(WATCH_LEFT_MESSAGE);
+      } else if (outcome.status === 'refused') {
+        toast.error(outcome.message);
+      } else if (outcome.status === 'error') {
+        toast.error(WATCH_ERROR_MESSAGE);
       }
-    } catch (error) {
-      if (generationRef.current !== generation) return;
-      reportError(error, 'MemberWatchAtTable.WatchAccess');
-      toast.error('Could Not Verify Table Access. Please Try Again.');
     } finally {
       if (generationRef.current === generation) {
         busyRef.current = false;

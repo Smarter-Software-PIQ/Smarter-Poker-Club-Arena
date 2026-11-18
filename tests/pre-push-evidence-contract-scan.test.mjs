@@ -18,6 +18,9 @@ test('repeated shard filenames retain direct, deleted-path and Node contracts wi
     writeFileSync(join(dir, 'tests/manifest.test.ts'), "const input = 'manifest.json';\n");
     writeFileSync(join(dir, 'tests/removed.test.ts'), "const input = 'removed.json';\n");
     writeFileSync(join(dir, 'tests/direct.test.ts'), '// changed test\n');
+    writeFileSync(join(dir, 'tests/literal.test.tsx'), "// reads [literal].json and .github/workflows\n");
+    writeFileSync(join(dir, 'tests/not-literal.test.ts'), '// reads l.json\n');
+    writeFileSync(join(dir, 'tests/not-node.test.mjs'), '// reads runner.json without a Node import\n');
     writeFileSync(
       join(dir, 'tests/runner.test.mjs'),
       "import 'node:test'; const input = 'runner.json';\n"
@@ -37,7 +40,7 @@ test('repeated shard filenames retain direct, deleted-path and Node contracts wi
       { length: 400 },
       (_, i) => `evidence/shard-${i}/manifest.json evidence/shard-${i}/runner.json`
     );
-    files.push('deleted/removed.json', 'server/src/sample.ts', 'tests/direct.test.ts');
+    files.push('deleted/removed.json', 'server/src/sample.ts', 'tests/direct.test.ts', 'deleted/[literal].json', '.github/workflows/example.yml');
     const output = execFileSync(
       'bash',
       [
@@ -60,12 +63,15 @@ test('repeated shard filenames retain direct, deleted-path and Node contracts wi
     assert.match(output, /tests\/direct\.test\.ts/);
     assert.match(output, /tests\/manifest\.test\.ts/);
     assert.match(output, /tests\/removed\.test\.ts/);
+    assert.match(output, /tests\/literal\.test\.tsx/);
+    assert.doesNotMatch(output, /tests\/not-literal\.test\.ts/);
+    assert.doesNotMatch(output, /tests\/not-node\.test\.mjs/);
     assert.match(output, /SRC= server\/src\/sample\.ts/);
     assert.match(output, /NODE=tests\/runner\.test\.mjs/);
     assert.equal(
       readFileSync(log, 'utf8').trim().split('\n').length,
-      10,
-      'two scans for each of five distinct basenames'
+      2,
+      'one fixed-string OR scan for each test runtime, regardless of basename count'
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

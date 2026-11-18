@@ -728,18 +728,21 @@ function DiamondPlinkoGame() {
       </button>
       <DiamondSpinsTabs clubId={clubId ?? ''} />
       <GameConsole
-        setup={!budget.award && setup}
+        game="plinko"
+        railLayout
+        collapseSetup
+        setup={setup}
         // The drop value is the one choice Drop Diamonds cannot be pressed
         // without (R6), so it rides in the pinned bar beside that plate: the
         // choice and the press are both on the opening screen (2026-10-12).
         dock={
-          !animating &&
           earned.ready && (
             <PlinkoDropSelector
               budget={budget}
               onChange={setBudget}
-              disabled={busy || uncertain || restartOwed}
+              disabled={busy || uncertain || restartOwed || animating}
               docked
+              sculpted
             />
           )
         }
@@ -766,7 +769,77 @@ function DiamondPlinkoGame() {
                 target: '[data-game-actions]',
               },
             ]}
-          />
+          >
+            {incremental && incremental.released_count > 0 && (
+              <dl>
+                <dt>Last Drop</dt>
+                <dd>{gameChips(incremental.drops[incremental.released_count - 1].payout_chips)}</dd>
+              </dl>
+            )}
+            <GameLifetimeAverages clubId={uuid} revision={result?.id} />
+            <GamePanel
+              title="Bonus Proof"
+              pill={verified === true ? 'Verified' : 'Sealed'}
+              foot="foot"
+            >
+              <p className={`sc-copy ${styles.proofHash}`}>
+                {ticket?.hash ?? result?.server_seed_hash ?? 'Preparing Your Ticket'}
+              </p>
+              <label className={styles.seedField}>
+                Your Seed
+                <input
+                  className={styles.seedInput}
+                  value={seed}
+                  maxLength={64}
+                  disabled={busy || animating || uncertain}
+                  onChange={(e) => setSeed(e.target.value)}
+                  onBlur={(e) => {
+                    if (!e.target.value.trim()) setSeed(randomClientSeed());
+                  }}
+                />
+              </label>
+              {result && !animating && (
+                <p className={`sc-copy ${styles.proofHash}`}>
+                  Completed Bonus: {result.server_seed_hash}
+                </p>
+              )}
+              {result && !animating && (
+                <button className={styles.back} disabled={busy} onClick={() => void verify()}>
+                  Verify Every Drop
+                </button>
+              )}
+              {verified !== null && (
+                <p className="sc-copy">
+                  {verified
+                    ? 'Every Drop And Chip Prize Matches The Sealed Bonus.'
+                    : 'The Bonus Could Not Be Verified.'}
+                </p>
+              )}
+            </GamePanel>
+            {result && !animating && (
+              <GamePanel title="Your Results" pill={`${result.drops.length} Drops`} foot="foot">
+                {result.multipliers_cents.map((mult, slot) => {
+                  const balls = result.drops.filter((b) => b.slot === slot);
+                  return balls.length ? (
+                    <div className={styles.row} key={slot}>
+                      <span className="sc-label">
+                        {balls.length} At {multiplierLabel(mult)}
+                      </span>
+                      <span>
+                        {gameChips(balls.reduce((sum, b) => sum + b.payout_chips, 0))} Chips
+                      </span>
+                    </div>
+                  ) : null;
+                })}
+                {toppedUp && (
+                  <div className={`${styles.row} ${plinkoStyles.guaranteeRow}`}>
+                    <span className="sc-label">Final Chip Credit</span>
+                    <span>{gameChips(result.payout_chips)} Chips Booked</span>
+                  </div>
+                )}
+              </GamePanel>
+            )}
+          </PageHelp>
         }
         pill={
           saved
@@ -805,14 +878,6 @@ function DiamondPlinkoGame() {
                 ? `${gameChips(result.payout_chips)} Chips`
                 : gameChips(incremental?.released_chips ?? shownWin),
           },
-          ...(incremental && incremental.released_count > 0
-            ? [
-                {
-                  label: 'Last Drop',
-                  value: gameChips(incremental.drops[incremental.released_count - 1].payout_chips),
-                },
-              ]
-            : []),
         ]}
         secondary={{
           label: 'Drop All',
@@ -894,64 +959,6 @@ function DiamondPlinkoGame() {
           </p>
         )}
       </GameConsole>
-      {budget.award && setup}
-      <GameLifetimeAverages clubId={uuid} revision={result?.id} />
-      <GamePanel title="Bonus Proof" pill={verified === true ? 'Verified' : 'Sealed'} foot="foot">
-        <p className={`sc-copy ${styles.proofHash}`}>
-          {ticket?.hash ?? result?.server_seed_hash ?? 'Preparing Your Ticket'}
-        </p>
-        <label className={styles.seedField}>
-          Your Seed
-          <input
-            className={styles.seedInput}
-            value={seed}
-            maxLength={64}
-            disabled={busy || animating || uncertain}
-            onChange={(e) => setSeed(e.target.value)}
-            onBlur={(e) => {
-              if (!e.target.value.trim()) setSeed(randomClientSeed());
-            }}
-          />
-        </label>
-        {result && !animating && (
-          <p className={`sc-copy ${styles.proofHash}`}>
-            Completed Bonus: {result.server_seed_hash}
-          </p>
-        )}
-        {result && !animating && (
-          <button className={styles.back} disabled={busy} onClick={() => void verify()}>
-            Verify Every Drop
-          </button>
-        )}
-        {verified !== null && (
-          <p className="sc-copy">
-            {verified
-              ? 'Every Drop And Chip Prize Matches The Sealed Bonus.'
-              : 'The Bonus Could Not Be Verified.'}
-          </p>
-        )}
-      </GamePanel>
-      {result && !animating && (
-        <GamePanel title="Your Results" pill={`${result.drops.length} Drops`} foot="foot">
-          {result.multipliers_cents.map((mult, slot) => {
-            const balls = result.drops.filter((b) => b.slot === slot);
-            return balls.length ? (
-              <div className={styles.row} key={slot}>
-                <span className="sc-label">
-                  {balls.length} At {multiplierLabel(mult)}
-                </span>
-                <span>{gameChips(balls.reduce((sum, b) => sum + b.payout_chips, 0))} Chips</span>
-              </div>
-            ) : null;
-          })}
-          {toppedUp && (
-            <div className={`${styles.row} ${plinkoStyles.guaranteeRow}`}>
-              <span className="sc-label">Final Chip Credit</span>
-              <span>{gameChips(result.payout_chips)} Chips Booked</span>
-            </div>
-          )}
-        </GamePanel>
-      )}
       {result && showPaidReceipt && (
         <BonusCompletion
           key={result.id}

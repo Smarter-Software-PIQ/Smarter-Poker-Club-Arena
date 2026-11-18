@@ -11,7 +11,8 @@
  * are a convenience so an operator is not shown a chip that will refuse them.
  */
 
-import { chicagoDay } from '../lib/clubDataDay';
+import { chicagoDay, accountingDay, type ClubDataCoverage } from '../lib/clubDataDay';
+import type { ClubDataReconciliation } from '../lib/clubDataReconciliation';
 import { supabase } from '../lib/supabase';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 
@@ -20,6 +21,7 @@ export type RakeScope = 'club' | 'union' | 'agent';
 export type PeriodKey = 'today' | 'yesterday' | 'week' | 'month' | 'quarter' | 'year' | 'custom';
 
 export interface RakeSnapshotSummary {
+  reconciliation?: ClubDataReconciliation | null;
   fee: number;
   cash_fee: number | null;
   mtt_fee: number | null;
@@ -143,7 +145,14 @@ export interface RakeDownlineRow {
 export type RakeBreakdownRow = RakeClubRow | RakeAgentRow | RakeDownlineRow;
 
 export interface RakeSnapshot {
-  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow';
+  accounting_basis?:
+    | 'utc_net_money_flow'
+    | 'chicago_net_money_flow'
+    | 'pacific_net_money_flow'
+    | 'union_invoice_accounting';
+  accounting_coverage?: ClubDataCoverage | null;
+  day_basis?: string;
+  previous_coverage?: { complete?: boolean };
   scope: RakeScope;
   scope_label: string;
   club_id: string | null;
@@ -282,10 +291,13 @@ function toISODate(d: Date): string {
 /**
  * Today on the Club Data clock, as a calendar date held at UTC midnight so the
  * arithmetic below is pure calendar math. The DATE is the America/Chicago day
- * (Dan, 2026-10-22): the server buckets every Union Data figure by it.
+ * for existing financial callers. Data explicitly opts into Pacific dates.
  */
-function clubDataToday(now: Date = new Date()): Date {
-  return new Date(`${chicagoDay(now)}T00:00:00Z`);
+function clubDataToday(
+  now: Date = new Date(),
+  reportBasis: 'calendar' | 'pacific' = 'calendar'
+): Date {
+  return new Date(`${reportBasis === 'pacific' ? accountingDay(now) : chicagoDay(now)}T00:00:00Z`);
 }
 
 /**
@@ -294,14 +306,16 @@ function clubDataToday(now: Date = new Date()): Date {
  * third of the figure on the third of the month, and the wall calendar is what
  * the union settles against. America/Chicago calendar days throughout
  * (daylight saving included), because the facts these figures come from are
- * keyed on Chicago days (20261022103651, 20261022120121).
+ * keyed on Chicago days. The Data panel opts into its separate Pacific reader
+ * and Pacific calendar periods without changing those other callers.
  */
 export function periodToRange(
   key: PeriodKey,
   custom?: { start: string; end: string },
-  now: Date = new Date()
+  now: Date = new Date(),
+  reportBasis: 'calendar' | 'pacific' = 'calendar'
 ): { start: string; end: string } {
-  const today = clubDataToday(now);
+  const today = clubDataToday(now, reportBasis);
   const end = toISODate(today);
 
   if (key === 'custom') {
@@ -357,6 +371,7 @@ export function describeRakeSnapshotError(e: unknown): string {
 export const ClubRakeSnapshotService = {
   async get(opts: {
     scope: RakeScope;
+    reportBasis?: 'calendar' | 'pacific';
     clubId?: string | null;
     unionId?: string | null;
     start: string;
@@ -370,18 +385,21 @@ export const ClubRakeSnapshotService = {
     sort?: RakeSortKey | null;
     signal?: AbortSignal;
   }): Promise<RakeSnapshot> {
-    let query = supabase.rpc('ca_rake_snapshot_v2', {
-      p_scope: opts.scope,
-      p_club_id: opts.clubId ?? null,
-      p_union_id: opts.unionId ?? null,
-      p_start: opts.start,
-      p_end: opts.end,
-      p_agent_user_id: opts.agentUserId ?? null,
-      p_limit: opts.limit ?? 50,
-      p_offset: opts.offset ?? 0,
-      p_search: opts.search?.trim() ? opts.search.trim() : null,
-      p_sort: opts.sort ?? 'rake',
-    });
+    let query = supabase.rpc(
+      opts.reportBasis === 'pacific' ? 'ca_rake_snapshot_pacific_v2' : 'ca_rake_snapshot_v2',
+      {
+        p_scope: opts.scope,
+        p_club_id: opts.clubId ?? null,
+        p_union_id: opts.unionId ?? null,
+        p_start: opts.start,
+        p_end: opts.end,
+        p_agent_user_id: opts.agentUserId ?? null,
+        p_limit: opts.limit ?? 50,
+        p_offset: opts.offset ?? 0,
+        p_search: opts.search?.trim() ? opts.search.trim() : null,
+        p_sort: opts.sort ?? 'rake',
+      }
+    );
     if (opts.signal) query = query.abortSignal(opts.signal);
     const { data, error } = await query;
     if (error) throw error;
@@ -389,6 +407,9 @@ export const ClubRakeSnapshotService = {
       throw new Error('The snapshot returned no readable payload.');
     }
     const raw = data as Partial<RakeSnapshot>;
+    if (opts.reportBasis === 'pacific' && raw.day_basis !== 'America/Los_Angeles 00:00') {
+      throw new Error('The Pacific Report Returned A Different Day Basis.');
+    }
     return {
       ...raw,
       series: Array.isArray(raw.series) ? raw.series : [],

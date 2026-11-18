@@ -1,6 +1,11 @@
 import { horseRequestAllowance } from './requestRetentionBudget.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
+import {
+  createStyleSwitchDelivery,
+  readStyleSwitchFromDatabase,
+  type StyleSwitchStateMessage,
+} from './styleSwitchDelivery.js';
 import { mainHorseHistoryRetentionBudget } from './ownPublicHistoryBudget.js';
 import { readHorseOwnPublicHistory } from '../../services/HorseOwnPublicHistory.js';
 import { HorseObserverParticipantRegistry } from './observerParticipants.js';
@@ -243,6 +248,9 @@ export { horseDecisionShard };
 
 export interface LiveHorseDecisionWorkerShardStatus {
   index: number;
+  solverStores: LiveHorseDecisionWorkerStatus['solverStores'];
+  solverPolicyArtifact: LiveHorseDecisionWorkerStatus['solverPolicyArtifact'];
+  upgradeManifest?: LiveHorseDecisionWorkerStatus['upgradeManifest'];
   isolateMemory?: LiveHorseDecisionWorkerStatus['isolateMemory'];
   isolateMemoryAgeMs?: number | null;
   mainHistoryCache?: LiveHorseDecisionWorkerStatus['mainHistoryCache'];
@@ -255,6 +263,7 @@ export interface LiveHorseDecisionWorkerShardStatus {
   inFlightJobs: number;
   completedJobs: number;
   expiredJobs: number;
+  recoverableRequestErrors?: number;
   oldestQueuedAgeMs: number | null;
   oldestQueuedDecisionAgeMs: number | null;
   lastComputeMs: number | null;
@@ -317,6 +326,12 @@ export interface LiveHorseDecisionLaneOptions extends LiveHorseDecisionWorkerCli
   journalCapacity?: { shards: number | undefined };
   /** Tests pin the clock the shard replacement window reads. */
   shardReplacementNow?: () => number;
+  /**
+   * 2026-11-13 STYLE READ LIVE SWITCH: how the main thread reads the per-option runtime states it delivers to
+   * every worker (styleSwitchDelivery.ts). Absent: the production database read. false: no delivery, so every
+   * option stays at its source default (off).
+   */
+  styleSwitchRead?: (() => Promise<unknown>) | false;
 }
 
 const PHASE_RANK: Record<LiveHorseDecisionWorkerPhase, number> = {
@@ -375,6 +390,7 @@ function readinessIdentity(r: HorseDecisionWorkerReadiness): string {
     r.solverPolicyArtifact.policyVersion,
     r.solverPolicyArtifact.schemaSha256,
     r.solverPolicyArtifact.totalPolicies,
+    r.upgradeManifest?.manifestDigest ?? null,
   ]);
 }
 
@@ -406,6 +422,8 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   private stopping = false;
   private readonly replacements: HorseDecisionShardReplacement[] = [];
   private replacementCount = 0;
+  /** HA-10878-1 lifecycle: the last switch delivery broadcast, handed to every shard spawned after it. */
+  private lastStyleSwitch: StyleSwitchStateMessage | null = null;
   /** The journal shards the disk can hold, read once at construction. */
   readonly journalShardCapacity: number | undefined;
   /** Why the capacity reading was refused, read once with it. */
@@ -448,6 +466,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       shard: { index, count },
       onFatal: (error) => this.shardFailed(index, client, error),
     });
+    // HA-10878-1 LIFECYCLE: a shard spawned after a delivery (a replacement) is handed the delivery the running
+    // shards hold, as its first message, before any request can reach it. Its age is measured from the database
+    // read, so a reading the running shards would refuse as stale or unreadable is refused by it too.
+    if (this.lastStyleSwitch) client.postStyleSwitch(this.lastStyleSwitch);
     return client;
   }
 
@@ -534,6 +556,11 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
             worker,
           }
     );
+  }
+  /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
+  broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
+    this.lastStyleSwitch = message;
+    for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {
     return this.clients[horseDecisionShard(fence, this.clients.length)]!;
@@ -652,6 +679,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       lastError: all.find((s) => s.lastError !== null)?.lastError ?? null,
       solverStores: first.solverStores,
       solverPolicyArtifact: first.solverPolicyArtifact,
+      upgradeManifest: first.upgradeManifest ?? null,
       governor: governor ? { ...governor } : null,
       statusSampledAt: minOf(all.map((s) => s.statusSampledAt)),
       isolateMemory: null,
@@ -665,6 +693,9 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       shardReplacements: this.replacementCount,
       workers: all.map((s, index) => ({
         index,
+        solverStores: s.phase === 'ready' ? s.solverStores : null,
+        solverPolicyArtifact: s.phase === 'ready' ? s.solverPolicyArtifact : null,
+        upgradeManifest: s.phase === 'ready' ? (s.upgradeManifest ?? null) : null,
         isolateMemory: s.isolateMemory ?? null,
         isolateMemoryAgeMs: s.isolateMemoryAgeMs ?? null,
         mainHistoryCache: s.mainHistoryCache ?? null,
@@ -677,6 +708,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
         inFlightJobs: s.inFlightJobs,
         completedJobs: s.completedJobs,
         expiredJobs: s.expiredJobs,
+        recoverableRequestErrors: s.recoverableRequestErrors,
         oldestQueuedAgeMs: s.oldestQueuedAgeMs,
         oldestQueuedDecisionAgeMs: s.oldestQueuedDecisionAgeMs,
         lastComputeMs: s.lastComputeMs,
@@ -722,6 +754,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     observation: CompletedHandObservation,
     signal?: AbortSignal
   ): Promise<HorseDecisionWorkerAck> {
+    if (observation.terminalOnlySourceRelease !== undefined) {
+      const owner = horseDecisionShard(observation.fence, this.clients.length);
+      return this.clients[owner]!.observeCompletedHand(observation, signal);
+    }
     // The owner journals the hand. Other shards receive public completion
     // only for the same original observer's already-existing private view;
     // the pool supplies admission from validated original FASTs.
@@ -777,6 +813,23 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
 }
 
 let singleton: LiveHorseDecisionWorkerPool | null = null;
+let styleSwitchDelivery: ReturnType<typeof createStyleSwitchDelivery> | null = null;
+/**
+ * HA-10878-1 LIFECYCLE, THE RULE: a decision worker resolves the persisted, authorised switch state before it serves
+ * a decision that reads a switched option.
+ * - Process start or restart: startLiveHorseDecisionWorker does not resolve (and GameServer does not open its dealer
+ *   gate) until the first database read has been posted to every shard, or has failed. The read is bounded by
+ *   STYLE_SWITCH_READ_TIMEOUT_MS; a failed first read leaves every shard as a running shard is left by an unreadable
+ *   one: every non-style option at its release default, every style option off.
+ * - Shard replacement: the replacement is handed the pool's last delivery as its first message (spawnShardClient).
+ * - Reconnect: the delivery holds no connection of its own; a database reconnect is the next read, and a worker
+ *   keeps one port for its life.
+ * In every case the worker's parser applies on its first read exactly as on later ones, so a row the engine refuses
+ * (a refused or unregistered name, or on for an off-only option: an owner hold, a measured harm, a superseded
+ * option; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY) is never revived by a restart: such a row makes the
+ * configuration invalid and every non-style option runs at its release default.
+ */
+let styleSwitchFirstDelivery: Promise<void> | null = null;
 
 export async function startLiveHorseDecisionWorker(
   options: LiveHorseDecisionLaneOptions = {}
@@ -802,6 +855,15 @@ export async function startLiveHorseDecisionWorker(
     );
   }
   await singleton.ready();
+  if (!styleSwitchDelivery && singleton && options.styleSwitchRead !== false) {
+    styleSwitchDelivery = createStyleSwitchDelivery({
+      read: options.styleSwitchRead ?? readStyleSwitchFromDatabase,
+      // whichever pool is live now, never one captured at start (review 72615f60 L2)
+      broadcast: (message) => singleton?.broadcastStyleSwitch(message),
+    });
+    styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
+  }
+  if (styleSwitchFirstDelivery) await styleSwitchFirstDelivery;
   return singleton;
 }
 
@@ -835,6 +897,7 @@ const stoppedLaneStatus = (): LiveHorseDecisionLaneStatus => ({
   lastError: null,
   solverStores: null,
   solverPolicyArtifact: null,
+  upgradeManifest: null,
   governor: null,
   statusSampledAt: null,
   workerCount: 0,
@@ -849,6 +912,9 @@ export function liveHorseDecisionWorkerStatus(): LiveHorseDecisionLaneStatus {
 
 export async function stopLiveHorseDecisionWorker(): Promise<void> {
   const owned = singleton;
+  styleSwitchDelivery?.stop();
+  styleSwitchDelivery = null;
+  styleSwitchFirstDelivery = null;
   if (!owned) return;
   try {
     await owned.stop();

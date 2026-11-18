@@ -29,6 +29,7 @@
  *     // window-ok: <why this is not a source pin>
  */
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { sliceYamlBlock } from '../helpers/sourceWindow';
@@ -54,6 +55,52 @@ function collect(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+// THE SCAN READS ONLY FILES THAT CAN HOLD AN OFFENDER (2026-11-15).
+// Reading all ~6,000 test files one by one took 30-92 s on the shared SSD while
+// other lanes' gates ran, and timed out every pre-push on the Mac (load 20-46).
+// A window is a `.slice(` call in a suite that reads source (`readFileSync`), so
+// a file without both strings cannot be an offender. git grep finds the files
+// holding both, in parallel; this suite then applies the same rules to exactly
+// those files. Tracked and untracked (not ignored) test files are included; the
+// same directories are skipped.
+// FAIL CLOSED (independent review of 03a1496a, B1): the search uses fixed
+// strings (-F), plain directory paths and NUL-separated names (-z), so no git
+// pattern, pathspec or quoting setting can narrow it; and this file always
+// holds both strings, so a search that does not return this file - including
+// git grep's "no match" exit 1 - is broken, and the suite reads every file as
+// before. Without git, on a non-zero exit, or when git writes anything to
+// stderr (an unreadable file is skipped with a warning and exit 0), it does
+// the same.
+const SELF = path.relative(ROOT, __filename).split(path.sep).join('/');
+function candidates(): string[] {
+  const all = () => DIRS.flatMap((d) => collect(d));
+  const r = spawnSync(
+    'git',
+    [
+      'grep',
+      '-z',
+      '-l',
+      '-F',
+      '--untracked',
+      '--all-match',
+      '-e',
+      'readFileSync',
+      '-e',
+      '.slice(',
+      '--',
+      ...DIRS,
+    ],
+    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+  );
+  // git grep skips a file it cannot read, says so on stderr and still exits 0
+  // (delta review of f02a5c80, B2), so any stderr is a git error too.
+  if (r.error || r.status !== 0 || r.stderr) return all();
+  const found = r.stdout
+    .split('\0')
+    .filter((rel) => TEST_FILE.test(rel) && !rel.split('/').some((part) => SKIP.has(part)));
+  return found.includes(SELF) ? found : all();
+}
+
 /** Blank comments so a doc comment ABOUT the bad pattern is not an instance of it. */
 const decomment = (s: string) =>
   s
@@ -61,12 +108,13 @@ const decomment = (s: string) =>
     .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
 
 describe('no test bounds a source pin with a magic number', () => {
-  // Exhaustive SSD source scan measured 5.3-6.2s during concurrent local checks.
-  // Keep every input/assertion and a finite budget with room for I/O contention.
+  // The candidate scan takes a few seconds; the full-scan fallback measured
+  // 5.3-6.2 s on a quiet SSD and 30-92 s under load. Keep every input and
+  // assertion and a finite budget with room for I/O contention.
   it('every window is bounded by a structure, via tests/helpers/sourceWindow', () => {
     const offenders: string[] = [];
 
-    for (const rel of DIRS.flatMap((d) => collect(d))) {
+    for (const rel of candidates()) {
       const raw = fs.readFileSync(path.join(ROOT, rel), 'utf8');
       // Only source-reading suites: this bug cannot exist where nothing is read.
       if (!raw.includes('readFileSync')) continue;
@@ -114,7 +162,9 @@ describe('this guard cannot be hidden behind the changed-files gate', () => {
     // PRs share the compiler install; schedules keep their independent job.
     const job = sliceYamlBlock(ci, 'typecheck_compile:');
     expect(job).toContain('noFixedSizeSourceWindows.test.ts');
-    expect(job).toContain("if: github.event_name == 'pull_request'");
+    expect(job).toContain(
+      "if: (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
+    );
     const scheduled = sliceYamlBlock(ci, 'source_windows:');
     expect(scheduled).toContain("if: github.event_name == 'schedule'");
     expect(scheduled).toContain('noFixedSizeSourceWindows.test.ts');

@@ -394,11 +394,11 @@ describe('polish: deterministic event ordering + consumed reveal event', () => {
   });
 });
 
-describe('polish: rank-aware cue and replay reveal record', () => {
-  it('quads-or-better at reveal gets the big-win fanfare, muck-safe', () => {
+describe('polish: confirmed-win cues and replay reveal record', () => {
+  // Owner 2026-11-10: a revealed monster may still lose. Celebrate at payout.
+  it('reveal alone cannot play a winner fanfare', () => {
     const body = sliceBlockAfter(TABLE_PAGE, "case 'SHOWDOWN'");
-    expect(body).toMatch(/hand_ranking \?\? 0\) >= 8/);
-    expect(body).toMatch(/playBigWin\(\)/);
+    expect(body).not.toMatch(/play(?:Showdown|BigWin|Win)\(/);
   });
 
   it('replays surface the persisted reveal record — order, muck, description', () => {

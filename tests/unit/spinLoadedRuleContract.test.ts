@@ -16,7 +16,8 @@ import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import {
   compareSpinReportingContract,
-  readEvaluatedSpinRules,
+  readEvaluatedRules,
+  ruleHealthFailures,
 } from '../../scripts/ci/check-alert-rules-match.mjs';
 import { classifyChangedPaths } from '../../scripts/ci/classify-ci-changes.mjs';
 import { metricsIn } from '../../scripts/ci/rule-metric-producers.mjs';
@@ -179,134 +180,164 @@ describe('the loaded Spin rule must carry the actual reporting correction', () =
   });
 });
 
-describe('a changed rule gets one bounded first-evaluation read', () => {
-  function pending() {
-    const response = loaded();
-    alert(response).health = 'unknown';
-    alert(response).lastEvaluation = '0001-01-01T00:00:00Z';
-    // Prometheus uses omitempty: a fresh no-error rule omits lastError.
-    delete (alert(response) as any).lastError;
+describe('every loaded rule must report clean health, with one bounded first-evaluation read', () => {
+  // A second group holding one alerting and one recording rule, so the fixture
+  // proves the check reads beyond the Spin rule and beyond alerting rules.
+  function withOthers(response = loaded()) {
+    response.data.groups.push({
+      name: 'reliability-controller',
+      file: '/etc/prometheus/recovery-rules.yml',
+      interval: 15,
+      rules: [
+        {
+          type: 'alerting',
+          name: 'ReliabilityControllerStale',
+          health: 'ok',
+          lastError: '',
+          lastEvaluation: '2026-11-11T13:05:30Z',
+        },
+        {
+          type: 'recording',
+          name: 'poker_money_health_stale_seconds',
+          health: 'ok',
+          lastEvaluation: '2026-11-11T13:05:30Z',
+        },
+      ] as any[],
+    } as any);
     return response;
   }
-
-  it('binds its maximum wait to the declared group cadence', () => {
-    const document = parse(source);
-    expect(document.groups.find((group: any) => group.name === 'spin-experience').interval).toBe(
-      '60s'
-    );
-  });
-
-  it.each(['omitted', 'empty'])(
-    'reproduces the old premature refusal with %s lastError and accepts only the evaluated replacement',
-    async (shape) => {
-      const first = pending();
-      if (shape === 'empty') alert(first).lastError = '';
-      expect(() => compareSpinReportingContract(source, first)).toThrow('healthy');
-      const reads = [first, loaded()];
-      const waits: number[] = [];
-      let count = 0;
-      const response = await readEvaluatedSpinRules(
-        source,
-        () => reads[count++],
-        async (ms: number) => {
-          waits.push(ms);
-        }
-      );
-      expect(waits).toEqual([60000]);
-      expect(count).toBe(2);
-      expect(compareSpinReportingContract(source, response)).toEqual([]);
-      expect(alert(first).health).toBe('unknown');
-    }
-  );
-
-  it.each([null, 0, false, {}, 'evaluation failed'])(
-    'refuses malformed or actual errors without waiting: %j',
-    async (lastError) => {
-      const first = pending();
-      (alert(first) as any).lastError = lastError;
-      let reads = 0;
-      let waits = 0;
-      const response = await readEvaluatedSpinRules(
-        source,
-        () => {
-          reads++;
-          return first;
-        },
-        async () => {
-          waits++;
-        }
-      );
-      expect(reads).toBe(1);
-      expect(waits).toBe(0);
-      expect(() => compareSpinReportingContract(source, response)).toThrow('healthy');
-      alert(response).health = 'ok';
-      expect(() => compareSpinReportingContract(source, response)).toThrow('healthy');
-    }
-  );
-
-  it.each(['unknown', 'err'])('does not retry again or accept final %s health', async (health) => {
-    const final = pending();
-    alert(final).health = health;
-    if (health === 'err') alert(final).lastError = 'evaluation failed';
-    let count = 0;
+  const other = (response: any, index: number) => response.data.groups[1].rules[index];
+  function unevaluated(rule: any) {
+    rule.health = 'unknown';
+    rule.lastEvaluation = '0001-01-01T00:00:00Z';
+    // Prometheus uses omitempty: a fresh no-error rule omits lastError.
+    delete rule.lastError;
+  }
+  async function read(first: any, later: any[] = []) {
+    const reads = [first, ...later];
     const waits: number[] = [];
-    const response = await readEvaluatedSpinRules(
-      source,
-      () => (++count === 1 ? pending() : final),
+    let count = 0;
+    const response = await readEvaluatedRules(
+      () => {
+        if (count >= reads.length) throw new Error('unexpected extra read');
+        return reads[count++];
+      },
       async (ms: number) => {
         waits.push(ms);
       }
     );
-    expect(waits).toEqual([60000]);
-    expect(count).toBe(2);
-    expect(() => compareSpinReportingContract(source, response)).toThrow('healthy');
+    return { response, waits, count };
+  }
+
+  it('all ok: no wait, one read, no failures', async () => {
+    const { response, waits, count } = await read(withOthers());
+    expect(waits).toEqual([]);
+    expect(count).toBe(1);
+    expect(ruleHealthFailures(response)).toEqual([]);
   });
 
   it.each([
-    'healthy',
-    'error',
-    'prior-evaluation',
-    'last-error',
-    'wrong-type',
-    'drift',
-    'interval',
-  ])('does not wait for %s evidence', async (kind) => {
-    const first = kind === 'healthy' ? loaded() : pending();
-    if (kind === 'error') alert(first).health = 'err';
-    if (kind === 'prior-evaluation') alert(first).lastEvaluation = '2026-09-17T13:04:30Z';
-    if (kind === 'last-error') alert(first).lastError = 'evaluation failed';
-    if (kind === 'wrong-type') alert(first).type = 'recording';
-    if (kind === 'drift') alert(first).annotations.summary = 'old content';
-    if (kind === 'interval') first.data.groups[0].interval = 61;
-    let count = 0;
-    let waits = 0;
-    const response = await readEvaluatedSpinRules(
-      source,
-      () => {
-        count++;
-        return first;
-      },
-      async () => {
-        waits++;
-      }
-    );
+    ['alerting', 0],
+    ['recording', 1],
+  ])('one %s rule erroring fails at once, without waiting', async (_kind, index) => {
+    const first = withOthers();
+    other(first, index).health = 'err';
+    other(first, index).lastError = 'found duplicate series for the match group';
+    const { response, waits, count } = await read(first);
+    expect(waits).toEqual([]);
     expect(count).toBe(1);
-    expect(waits).toBe(0);
-    if (kind === 'healthy') expect(compareSpinReportingContract(source, response)).toEqual([]);
-    else expect(() => compareSpinReportingContract(source, response)).toThrow('healthy');
+    const failures = ruleHealthFailures(response);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      name: other(first, index).name,
+      health: 'err',
+      lastError: 'found duplicate series for the match group',
+      unevaluated: false,
+    });
   });
 
-  it('rechecks content and duplicate identity after the wait', async () => {
+  it.each([null, 0, false, {}, 'evaluation failed'])(
+    'a lastError that is not empty is a failure even with health ok: %j',
+    async (lastError) => {
+      const first = withOthers();
+      other(first, 0).lastError = lastError;
+      const { response, waits } = await read(first);
+      expect(waits).toEqual([]);
+      expect(ruleHealthFailures(response)).toHaveLength(1);
+    }
+  );
+
+  it('unevaluated within grace: waits one declared interval, re-reads once, passes', async () => {
+    const first = withOthers();
+    unevaluated(other(first, 0));
+    unevaluated(other(first, 1));
+    unevaluated(alert(first));
+    expect(ruleHealthFailures(first).map((f: any) => f.unevaluated)).toEqual([true, true, true]);
+    const { response, waits, count } = await read(first, [withOthers()]);
+    // The largest declared interval among the affected groups: Spin's 60s.
+    expect(waits).toEqual([60000]);
+    expect(count).toBe(2);
+    expect(ruleHealthFailures(response)).toEqual([]);
+    expect(compareSpinReportingContract(source, response)).toEqual([]);
+  });
+
+  it('the grace is the affected group interval, not the slowest group', async () => {
+    const first = withOthers();
+    unevaluated(other(first, 1));
+    const { waits } = await read(first, [withOthers()]);
+    expect(waits).toEqual([15000]);
+  });
+
+  it('unevaluated past grace: one wait, one re-read, then fails', async () => {
+    const first = withOthers();
+    unevaluated(other(first, 1));
+    const final = withOthers();
+    unevaluated(other(final, 1));
+    const { response, waits, count } = await read(first, [final]);
+    expect(waits).toEqual([15000]);
+    expect(count).toBe(2);
+    const failures = ruleHealthFailures(response);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      name: 'poker_money_health_stale_seconds',
+      type: 'recording',
+      health: 'unknown',
+      unevaluated: true,
+    });
+  });
+
+  it('an error alongside an unevaluated rule does not buy a wait', async () => {
+    const first = withOthers();
+    unevaluated(other(first, 1));
+    other(first, 0).health = 'err';
+    other(first, 0).lastError = 'bad';
+    const { response, waits, count } = await read(first);
+    expect(waits).toEqual([]);
+    expect(count).toBe(1);
+    expect(ruleHealthFailures(response)).toHaveLength(2);
+  });
+
+  it.each([undefined, 0, -15, 301, '15', Number.NaN])(
+    'an undeclared or out-of-bounds interval %j gets no wait and fails',
+    async (interval) => {
+      const first = withOthers();
+      unevaluated(other(first, 1));
+      (first.data.groups[1] as any).interval = interval;
+      const { response, waits, count } = await read(first);
+      expect(waits).toEqual([]);
+      expect(count).toBe(1);
+      expect(ruleHealthFailures(response)).toHaveLength(1);
+    }
+  );
+
+  it('rechecks Spin content and identity after the wait', async () => {
     for (const kind of ['drift', 'duplicate']) {
+      const first = loaded();
+      unevaluated(alert(first));
       const final = loaded();
       if (kind === 'drift') alert(final).annotations.summary = 'changed during wait';
       else final.data.groups.push({ ...final.data.groups[0] });
-      let count = 0;
-      const response = await readEvaluatedSpinRules(
-        source,
-        () => (++count === 1 ? pending() : final),
-        async () => {}
-      );
+      const { response } = await read(first, [final]);
       if (kind === 'drift')
         expect(compareSpinReportingContract(source, response)).toEqual(['annotations']);
       else expect(() => compareSpinReportingContract(source, response)).toThrow('ambiguous');
@@ -314,12 +345,13 @@ describe('a changed rule gets one bounded first-evaluation read', () => {
   });
 
   it('propagates transport failure on the final read', async () => {
+    const first = loaded();
+    unevaluated(alert(first));
     let count = 0;
     await expect(
-      readEvaluatedSpinRules(
-        source,
+      readEvaluatedRules(
         () => {
-          if (++count === 1) return pending();
+          if (++count === 1) return first;
           throw new Error('transport refused');
         },
         async () => {}
@@ -327,10 +359,28 @@ describe('a changed rule gets one bounded first-evaluation read', () => {
     ).rejects.toThrow('transport refused');
     expect(count).toBe(2);
   });
+
+  it.each([
+    null,
+    {},
+    { status: 'error' },
+    { status: 'success', data: {} },
+    { status: 'success', data: { groups: [] } },
+    { status: 'success', data: { groups: [null] } },
+    { status: 'success', data: { groups: [{ name: 'g', rules: [null] }] } },
+  ])('never accepts unavailable or malformed evidence %j', (response) => {
+    let threw = false;
+    try {
+      threw = ruleHealthFailures(response).length > 0;
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+  });
 });
 
 describe('the deployed command actually enforces the comparison', () => {
-  it.each(['current', 'old', 'unavailable', 'canary-missing'])(
+  it.each(['current', 'old', 'unavailable', 'canary-missing', 'rule-erroring'])(
     'returns the authoritative command outcome for %s evidence',
     (kind) => {
       const directory = mkdtempSync(join(tmpdir(), 'spin-rule-command-'));
@@ -357,6 +407,8 @@ describe('the deployed command actually enforces the comparison', () => {
                   : {
                       name: rule.alert ?? rule.record,
                       type: rule.alert ? 'alerting' : 'recording',
+                      health: 'ok',
+                      lastError: '',
                     };
               }),
             });
@@ -366,6 +418,14 @@ describe('the deployed command actually enforces the comparison', () => {
           .flatMap((group) => group.rules)
           .filter((rule) => rule.name === 'SpinUnfilledBacklog');
         expect(target).toHaveLength(1);
+        if (kind === 'rule-erroring') {
+          const stale = groups
+            .flatMap((group) => group.rules)
+            .filter((rule) => rule.name === 'ReliabilityControllerStale');
+          expect(stale).toHaveLength(1);
+          stale[0].health = 'err';
+          stale[0].lastError = 'vector cannot contain metrics with the same labelset';
+        }
         if (kind === 'old')
           target[0].annotations.summary =
             '{{ $value }} Spins are past their fill deadline and still open';
@@ -414,6 +474,14 @@ describe('the deployed command actually enforces the comparison', () => {
         if (kind === 'old') expect(result.stderr).toContain('SpinUnfilledBacklog DIFFERS');
         if (kind === 'canary-missing')
           expect(result.stderr).toContain('THE CANARY IS NOT IN ALERTMANAGER');
+        if (kind === 'rule-erroring') {
+          expect(result.stderr).toContain('RULES THAT ARE NOT EVALUATING CLEANLY (1)');
+          expect(result.stderr).toContain('ReliabilityControllerStale');
+        }
+        if (kind === 'current')
+          expect(result.stdout).toMatch(
+            /rule health: all \d+ alerting and \d+ recording rules report health=ok/
+          );
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }

@@ -86,6 +86,7 @@ export interface TableModalsLayerProps {
   isActive?: boolean;
   // Core context
   tableId: string | undefined;
+  cashStatsClusterId?: string | null;
   userId: string;
   username: string;
   /**
@@ -291,6 +292,7 @@ export interface TableModalsLayerProps {
   bbjMini?: BbjMiniSnapshot | null;
   showBBJCelebration: boolean;
   bbjCelebrationData: {
+    chipDestination?: 'table' | 'wallet';
     totalPayout: number;
     loser: { userId: string; username: string; share: number; handName: string };
     winner: { userId: string; username: string; share: number; handName: string };
@@ -1089,6 +1091,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
 
       {/* Last 5 jackpots + what this table pays */}
       <BBJInfoModal
+        tableId={tableId}
         isOpen={showBBJDetails}
         onClose={() => setShowBBJDetails(false)}
         poolId={bbjPoolId ?? null}
@@ -1108,6 +1111,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         <BBJCelebration
           visible={showBBJCelebration}
           asset={jackpotAsset}
+          chipDestination={bbjCelebrationData.chipDestination}
           totalPayout={bbjCelebrationData.totalPayout}
           loser={bbjCelebrationData.loser}
           winner={bbjCelebrationData.winner}
@@ -1149,10 +1153,12 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
       )}
 
       {/* Throwable Selector */}
-      {showThrowableSelector && userId && v8Settings.emoji_enabled && (
+      {showThrowableSelector && userId && (v8Settings.emoji_enabled || !isTournament) && (
         <div className="throwable-selector-overlay">
           <ThrowableSelector
             userId={userId}
+            throwsEnabled={v8Settings.emoji_enabled}
+            cashTableId={isTournament ? undefined : (props.cashStatsClusterId ?? tableId)}
             targetName={selectedPlayerForNotes?.name}
             targetUserId={selectedPlayerForNotes?.id}
             hasNote={selectedPlayerHasNote}

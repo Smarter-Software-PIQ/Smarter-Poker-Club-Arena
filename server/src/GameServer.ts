@@ -26,6 +26,10 @@ import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
+import {
+  peekBrainWatchcounters,
+  renderBrainWatchcountersPrometheus,
+} from './engine/BrainTelemetry.js';
 import { readPendingOperatorCashClose } from './services/operatorCashClose.js';
 import { type OperatorCommand, acknowledgeMaintenance } from './maintenance/OperatorCommands.js';
 import {
@@ -49,6 +53,7 @@ import {
   laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
 } from './tournament/emptyPastStartEvent.js';
+import { throughCancellationLane } from './tournament/cancellationLane.js';
 import { projectTournamentAdmission } from './tournament/tournamentAdmission.js';
 import {
   isFixedSngSatellite,
@@ -96,12 +101,14 @@ import { ServerTableEngine } from './engine/ServerTableEngine.js';
 import { TableRestartBackoff } from './engine/TableRestartBackoff.js';
 import { equityGovernor } from './engine/EquityLoadGovernor.js';
 import { stopBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { stopHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { HorseDecisionAbortedError } from './engine/horseDecision/client.js';
 import {
   liveHorseDecisionWorkerStatus,
   startLiveHorseDecisionWorker,
   stopLiveHorseDecisionWorker,
 } from './engine/horseDecision/lane.js';
+import { computeHorseUpgradeActivationManifest } from './engine/HorseUpgradeActivationManifest.js';
 import {
   EquityWorkerPoolAbortedError,
   equityWorkerPoolPreservesDealerLiveness,
@@ -113,6 +120,7 @@ import { nextHandGap } from './engine/nextHandGapRecorder.js';
 import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
+import { countHorseTablesByVariant } from './engine/HorsePolicyLedgerObserver.js';
 import {
   settlementHealthSnapshot,
   settlementPrometheusLines,
@@ -176,6 +184,11 @@ import {
   stopLightningFoldSession,
   lightningFoldSessionToPrometheus,
 } from './services/lightningFoldSession.js';
+import {
+  startLightningLaneSession,
+  stopLightningLaneSession,
+  lightningLaneToPrometheus,
+} from './services/lightningLaneSession.js';
 import { handProjectionWakesToPrometheus } from './services/supabase/handProjection.js';
 import {
   wsAuthRefusalPrometheusLines,
@@ -3737,7 +3750,12 @@ export class GameServer {
         );
         return;
       }
-      await this.finishTournamentManagerAdmission(tournamentId, manager, generation);
+      await this.finishTournamentManagerAdmission(
+        tournamentId,
+        manager,
+        generation,
+        mode === 'start'
+      );
     } catch (error) {
       await this.stopTournamentManagerIfOwned(
         tournamentId,
@@ -3753,7 +3771,8 @@ export class GameServer {
   private async finishTournamentManagerAdmission(
     tournamentId: string,
     manager: TournamentManager,
-    generation: number
+    generation: number,
+    freshStart = false
   ): Promise<void> {
     if (
       !this.directAdmissionIsCurrent(generation) ||
@@ -3767,7 +3786,7 @@ export class GameServer {
       );
       return;
     }
-    await this.holdIfBreakIsRunning(manager);
+    await this.holdIfBreakIsRunning(manager, freshStart);
     if (
       !this.directAdmissionIsCurrent(generation) ||
       !this.ownsTournamentManager(tournamentId, manager) ||
@@ -3863,7 +3882,7 @@ export class GameServer {
   private launchEmptyEventCancel(
     tournamentId: string,
     generation: number,
-    work: () => Promise<void>
+    work: (canContinue: () => boolean) => Promise<void>
   ): boolean {
     const canStart = () =>
       this.directAdmissionIsCurrent(generation) &&
@@ -3880,7 +3899,7 @@ export class GameServer {
     }
     const operation = Promise.resolve().then(async () => {
       if (!canStart()) return;
-      await work();
+      await work(canStart);
     });
     const tracked = operation.finally(() => {
       if (this.emptyEventCancelsInFlight.get(tournamentId) === tracked) {
@@ -4218,10 +4237,14 @@ export class GameServer {
    * freeze there is nothing to verify, not a fleet of zero.
    */
   private dealRateVerifier = new DealRateVerifier(
-    () =>
-      this.tableLivenessSnapshot()
-        .filter((t) => t.dealable >= 2 && !t.paused)
-        .map((t) => t.tableId),
+    () => [
+      ...new Set([
+        ...this.tableLivenessSnapshot()
+          .filter((t) => t.dealable >= 2 && !t.paused)
+          .map((t) => t.tableId),
+        ...this.lightningSupervisor.expectedDealingTableIds(),
+      ]),
+    ],
     // The horse fleet's own pulse, so a seeding loop that stops while the
     // process lives is a page rather than a silence (Dan 2026-09-11).
     () => this.horseFleet.heartbeatAgeSeconds()
@@ -4880,6 +4903,9 @@ export class GameServer {
     // answers, heartbeats use the shared client exactly as before.
     void resolveLeaseHeartbeatSessionUrl();
     void startLightningFoldSession();
+    // Lightning's per-hand lane (matcher writer, dealing, settlement); until it
+    // is ready those calls use PostgREST exactly as before.
+    void startLightningLaneSession();
     // E2E test mode — when set, MAINTENANCE_MODE still applies (no auto-spawn,
     // no recurring tournaments, no horse fleet) but a single table engine is
     // booted for this exact tableId so a tester can sit down and play hands
@@ -5907,6 +5933,10 @@ export class GameServer {
       startingHorseDecisionStop ??
         beginOwnedStop('LiveHorseDecisionWorker', stopLiveHorseDecisionWorker),
       beginOwnedStop('HorseExecutionTelemetry', stopBrainTelemetryFlush),
+      // Per-Horse upgrade evidence: its bounded final write (15,000 ms at most) runs in this same
+      // parallel slot, so it adds no serial shutdown time. It never rejects and owns no lease, so it
+      // is not an ownership stop: unwritten evidence is reported, never a reason to hold the leases.
+      stopHorseUpgradeEvidenceFlush(),
     ]);
     if (horseDecisionStop.status === 'rejected') {
       const error = new AggregateError(
@@ -5997,6 +6027,7 @@ export class GameServer {
     // Renewal is over once the leases are released; close its sessions.
     await stopLeaseHeartbeatSessions();
     await stopLightningFoldSession();
+    await stopLightningLaneSession();
     markShutdownStep('leadership-release');
 
     // Phase 1.1 PR-5: no Supabase Realtime channels to clean up — engine
@@ -6391,6 +6422,9 @@ export class GameServer {
       // Horse river value alarm (2026-10-23): proof the per-hand audit is
       // running (handsAudited, riverActionsAudited) and whether it is firing.
       horseRiverValueAlarm: horseRiverValueAlarmSnapshot(),
+      horseWatchcounters: peekBrainWatchcounters(),
+      horseUpgradeManifest: computeHorseUpgradeActivationManifest(),
+      engineStartedAt: new Date(this.startTime).toISOString(),
       adaptiveJournalWorker: horseAdaptiveJournalWorker.status(),
       // HTTP and WebSocket handlers are reachable before the leader boot has
       // finished. This is the exact admission gate they await before any table
@@ -6449,7 +6483,7 @@ export class GameServer {
       // ONE RAKE SPEC (R7): both checksums and whether they last agreed.
       // Informational: a drift alerts, it never holds a table.
       rakeSpec: rakeSpecDriftState(),
-      cashRakePolicyVersion: 1,
+      cashRakePolicyVersion: 3,
       // Public liveness comes from the worker-owned store. The main thread no
       // longer hydrates a second solver artifact whose status could look healthy
       // while the live action path was empty or failed.
@@ -6672,6 +6706,7 @@ export class GameServer {
        here rather than from `liveness` because the seat rows carry the flag
        and the liveness snapshot does not. */
     const horseSeatCounts = { horses: 0, tables: 0 };
+    const horseTablesByVariant = countHorseTablesByVariant(this.tableEngines.values());
     for (const engine of this.tableEngines.values()) {
       const n = engine.horsesSeated();
       if (n > 0) {
@@ -6718,6 +6753,14 @@ export class GameServer {
       '# HELP poker_tables_with_horses Live tables holding at least one horse with chips',
       '# TYPE poker_tables_with_horses gauge',
       `poker_tables_with_horses ${horseSeatCounts.tables}`,
+      /* Per ledger variant, so HorseBrainVariantSilent can tell a variant
+         whose last table closed from one whose decisions are failing
+         (production alert 376529). Seeded at zero for every variant. */
+      '# HELP poker_tables_with_horses_by_variant Live tables holding at least one horse with chips, by policy-ledger variant',
+      '# TYPE poker_tables_with_horses_by_variant gauge',
+      ...Object.entries(horseTablesByVariant).map(
+        ([variant, n]) => `poker_tables_with_horses_by_variant{variant="${variant}"} ${n}`
+      ),
       '# HELP poker_horse_fleet_heartbeat_age_seconds Seconds since the horse fleet completed and recorded a seeding cycle; -1 before its first',
       '# TYPE poker_horse_fleet_heartbeat_age_seconds gauge',
       `poker_horse_fleet_heartbeat_age_seconds ${this.horseFleet.heartbeatAgeSeconds()}`,
@@ -7008,6 +7051,7 @@ export class GameServer {
       // See services/leaseHeartbeatSession.ts.
       ...leaseHeartbeatSessionsToPrometheus(),
       ...lightningFoldSessionToPrometheus(),
+      ...lightningLaneToPrometheus(),
       ...this.handOutboxMetrics.toPrometheus(),
       // ── IS ANYBODY ACTUALLY PLAYING? (2026-09-04) ────────────────────
       //
@@ -7125,6 +7169,19 @@ export class GameServer {
         return [];
       })(),
       ...alwaysOnPrometheusLines(),
+      ...(() => {
+        const manifest = computeHorseUpgradeActivationManifest();
+        const sha = (manifest.sourceRevision ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_');
+        return [
+          '# HELP process_start_time_seconds Start time of the engine process since unix epoch in seconds.',
+          '# TYPE process_start_time_seconds gauge',
+          `process_start_time_seconds ${Math.floor(this.startTime / 1000)}`,
+          '# HELP poker_horse_upgrade_manifest_info Horse realtime decision upgrade activation manifest identity.',
+          '# TYPE poker_horse_upgrade_manifest_info gauge',
+          `poker_horse_upgrade_manifest_info{version="${manifest.version}",manifest_digest="${manifest.manifestDigest}",release_sha="${sha}"} 1`,
+        ];
+      })(),
+      ...renderBrainWatchcountersPrometheus(),
       // ── WHAT THE PLAYER'S BROWSER SAW (Phase 2, 2026-09-05) ──────────
       // The client-side twin of poker_ws_auth_refused_total: that counts
       // sockets the server refused, these count sockets the client lost.
@@ -8101,12 +8158,25 @@ export class GameServer {
    * its tables are parked (Dan 2026-10-25: each tournament's break starts when
    * its own last hand is complete). Either way it gets its own resume timer.
    */
-  private async holdIfBreakIsRunning(tm: TournamentManager): Promise<void> {
+  private async holdIfBreakIsRunning(tm: TournamentManager, freshStart = false): Promise<void> {
     const remaining = this.remainingBreakMs();
     if (remaining <= 1000) return;
     // Adopted mid-break: it already holds its tables and resumes itself at the
     // end recorded on its row. Holding it again would restart its five minutes.
     if (tm.hasOwnRunningBreak()) return;
+    /**
+     * A TOURNAMENT THAT STARTS AT ITS ADVERTISED TIME STARTS ON THE DOT
+     * (owner direction, 2026-11-11). Each running tournament takes its own
+     * five minutes from the moment its own last hand parks (2026-10-25), so
+     * the fleet break regularly spills past the top of the hour - and a 7:00
+     * PM event held here opened on a paused break screen instead of dealing
+     * level 1. A tournament being STARTED - first admission, no hand ever
+     * dealt - has a fresh field with no play to rest from, so the ordinary
+     * :55 break does not hold it. A maintenance-anchored break still does: a
+     * frozen engine cannot deal for anyone. A resumed or adopted tournament
+     * keeps the hold exactly as before - its players are mid-session.
+     */
+    if (freshStart && !this.breakEndsWithMaintenance) return;
     const generation = this.lifecycleGeneration;
     const breakGeneration = this.synchronizedBreakGeneration;
     // Same single gate as triggerSynchronizedBreak — a Spin or Heads-Up that
@@ -9606,6 +9676,20 @@ export class GameServer {
           }
 
           if (needsPastStartTopUp) {
+            /* A SEAT-FIRST BOARD THAT HAS SOLD A SEAT CLIMBS ITS LADDER ONE
+               RUNG AT A TIME (2026-11-10, measured on 840429a3). This walk
+               fills to effective_max_players; the ladder's fast lane
+               (fillPartialSeatFirstGame) adds one horse per rung and writes
+               the next window. Both reached a Spin the moment its first rung
+               closed, so whichever came first decided it: 6 of the first 9
+               Spins took one horse and a 30-60 minute second rung, 3 went
+               from one horse to three and dealt at 73-76 minutes. A board
+               with a seat sold therefore belongs to the fast lane alone,
+               which also serves a seated person after the 3-7 minute hold.
+               A roster this pass could not read is left too: late is
+               survivable, early is not. A board with nothing sold keeps this
+               path (and its empty-event cancellation) unchanged. */
+            if (isSngOrSpin && rosterByTournament.get(tournament.id) !== 0) continue;
             /**
              * Dan 2026-08-19: fill to a FULL FIELD, every format.
              *
@@ -9648,7 +9732,7 @@ export class GameServer {
                 tournament.format_contract === 'sng-v1' && isFixedSngSatellite(tournament);
               const askedAt = emptyClock?.cancelAskedAt ?? 0;
               if (now - askedAt >= EMPTY_PAST_START_CANCEL_RETRY_MS) {
-                this.launchEmptyEventCancel(tournament.id, generation, async () => {
+                this.launchEmptyEventCancel(tournament.id, generation, async (canContinue) => {
                   const settled = this.pastStartTopUpClock.get(tournament.id);
                   this.pastStartTopUpClock.set(tournament.id, {
                     at: settled?.at ?? now,
@@ -9657,14 +9741,21 @@ export class GameServer {
                   });
                   // A fixed feeder's start_time opens its fill window. Only its target
                   // going away can expire the board. Recheck target and roster under lock.
-                  const { data: receipt, error: cancelError } = fixedSatellite
-                    ? await supabase.rpc('fn_ca_expire_empty_fixed_sng_satellite', {
-                        p_tournament_id: tournament.id,
-                      })
-                    : await supabase.rpc('atomic_cancel_tournament', {
-                        p_tournament_id: tournament.id,
-                        p_admin_id: null,
-                      });
+                  // Admit this original cancellation through a hand-settlement gap,
+                  // retaining its single-flight owner and stop/freeze boundary.
+                  const { data: receipt, error: cancelError } = await throughCancellationLane(
+                    () =>
+                      fixedSatellite
+                        ? supabase.rpc('fn_ca_expire_empty_fixed_sng_satellite', {
+                            p_tournament_id: tournament.id,
+                          })
+                        : supabase.rpc('atomic_cancel_tournament', {
+                            p_tournament_id: tournament.id,
+                            p_admin_id: null,
+                          }),
+                    undefined,
+                    canContinue
+                  );
                   if (cancelError && isCancellationLaneBusy(cancelError)) {
                     // The lane's try-lock refused before any write: not a failure,
                     // just not now. Ask again in a minute, one event at a time.
@@ -14893,6 +14984,11 @@ export class GameServer {
       reportError(err, 'GameServer.lightning_anchor_lookup_failed');
       return null;
     }
+  }
+
+  /** Wake the existing matcher from the original acknowledged seat transition. */
+  lightningSeatReady(clusterId: string): void {
+    this.lightningSupervisor.admit(clusterId);
   }
 
   /** Is this id a table engine here, or a Lightning room this process serves? */

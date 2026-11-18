@@ -181,10 +181,13 @@ describe('a seat this device has left is never re-adopted', () => {
 
   it('clears the latch only by taking a seat again', () => {
     /* A latch that nothing clears would lock a player out of a seat they have
-       just bought. Seat-first confirmation and a newly confirmed cash purchase
-       clear it. A replayed historical receipt must not undo an explicit leave. */
+       just bought. Seat-first confirmation, a newly confirmed cash purchase and
+       a confirmed tournament rebuy clear it (2026-11-10: the rebuy receipt did
+       not, and a rebought player was dealt cards the page would not show; see
+       tests/a-rebuy-is-taking-a-seat-again.law.test.ts). A replayed historical
+       receipt must not undo an explicit leave. */
     const clears = PAGE.match(/leftSeatPendingRef\.current = false/g) || [];
-    expect(clears.length, 'both confirmed seat-taking paths must clear it').toBe(2);
+    expect(clears.length, 'all three confirmed seat-taking paths must clear it').toBe(3);
   });
 
   it('reads leave_pending everywhere it decides what a seat means', () => {

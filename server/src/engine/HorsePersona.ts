@@ -47,6 +47,12 @@ export interface HorsePersonaV2 {
    * where its own read disagrees. Read by HorseLogic at the solver consult.
    */
   gtoAdherence: number;
+  /**
+   * The Horse's own playing style (HorsePlayStyle.ts), when an author named
+   * one: it wins over the id hash. Present only when the stored value is one
+   * of the three names; nothing writes it yet (owner 2026-11-15 16:40).
+   */
+  playStyle?: 'tight' | 'current' | 'pressure';
 }
 
 /*
@@ -159,9 +165,14 @@ export function personaFromValue(raw: unknown, horseId: string): HorsePersonaV2 
     typeof v === 'number' && Number.isFinite(v) ? v : undefined;
   const straddle = num(p.straddleRate);
   const adherence = num(p.gtoAdherence);
+  const playStyle =
+    p.playStyle === 'tight' || p.playStyle === 'current' || p.playStyle === 'pressure'
+      ? p.playStyle
+      : undefined;
   return {
     straddleRate: straddle === undefined ? base.straddleRate : clamp(straddle, 0, 0.6),
     gtoAdherence: adherence === undefined ? base.gtoAdherence : clamp(adherence, 0.5, 1),
+    ...(playStyle ? { playStyle } : {}),
   };
 }
 
@@ -192,4 +203,350 @@ export function followsSolver(
   if (adherence >= 1) return true;
   const h = personaHash(`${horseId}|gto|${Math.max(0, Math.floor(handNumber))}|${spot}`);
   return (h % 1000) / 1000 < Math.max(0, Math.min(1, adherence));
+}
+
+/**
+ * Maximum EV indifference band (in big blinds) within which per-horse style
+ * seeds may differentiate close sizings or tie-break indifferent frequencies.
+ * The selected action may trail the highest estimated EV by at most 0.12 BB.
+ */
+export const HORSE_INDIFFERENCE_EV_BAND_BB = 0.12;
+
+export interface HorseIndifferenceStyleSeeds {
+  /** Deterministic sizing-mix bias within [-0.12, +0.12] BB (negative favors geometric smaller size, positive favors polarized larger size when EVs are within ±0.12 BB). */
+  readonly sizingMixBias: number;
+  /** Deterministic aggression tie-breaker within [-0.12, +0.12] BB when aggressive vs passive EV gap is inside ±0.12 BB. */
+  readonly indifferenceAggressionBias: number;
+  /** Deterministic Run-It-Twice variance preference in [0, 1] (0 = always run once, 1 = prefers RIT in large close-equity all-in pots). */
+  readonly runItTwicePreference: number;
+  /** Hard EV floor cap in BB (0.12 BB). */
+  readonly maxEvBandBB: number;
+}
+
+/**
+ * Deterministic EV-bounded individuality seeds per (horseId, mode).
+ * Every horse keeps gtoAdherence = 1 (100% solver floor, zero blocked actions)
+ * while expressing stable human-like style differences strictly inside estimated
+ * EV indifference bands (at most 0.12 BB below the best candidate).
+ */
+export function indifferenceStyleSeedsFor(
+  horseId: string,
+  mode: 'cash' | 'tournament' = 'cash'
+): HorseIndifferenceStyleSeeds {
+  const id = String(horseId || 'default-horse');
+  const hSize = personaHash(`${id}|indiff-sizing|${mode}`);
+  const hAgg = personaHash(`${id}|indiff-aggression|${mode}`);
+  const hRit = personaHash(`${id}|indiff-rit`);
+  const centered = (u32: number): number => {
+    const unit = ((u32 % 2401) - 1200) / 10000; // [-0.1200, +0.1200]
+    return (
+      Math.round(
+        clamp(unit, -HORSE_INDIFFERENCE_EV_BAND_BB, HORSE_INDIFFERENCE_EV_BAND_BB) * 10000
+      ) / 10000
+    );
+  };
+  const ritBucket = (hRit % 1000) / 1000;
+  return Object.freeze({
+    sizingMixBias: centered(hSize),
+    indifferenceAggressionBias: centered(hAgg),
+    runItTwicePreference: Math.round(ritBucket * 1000) / 1000,
+    maxEvBandBB: HORSE_INDIFFERENCE_EV_BAND_BB,
+  });
+}
+
+/**
+ * Evaluates a close-EV tie-break strictly inside ±HORSE_INDIFFERENCE_EV_BAND_BB.
+ * - If candidate out-EVs reference by > +0.12 BB, always returns true.
+ * - If candidate trails reference by > 0.12 BB (`evGapBB < -0.12`), always returns false.
+ * - Inside [-0.12, +0.12] BB, applies the bounded per-horse style bias.
+ */
+export interface IndifferenceSpotContext {
+  potBB?: number;
+  bubbleFactor?: number;
+  handKey?: string | number;
+  street?: string;
+  /**
+   * horsePlayStyles (default off): the band is multiplied by this (1..2).
+   * Set by the EV engine only for a candidate more aggressive than the best
+   * when the pressure style plays in position. Absent: the band as it is.
+   */
+  bandMul?: number;
+}
+
+export function resolveIndifferenceTieBreak(
+  evGapBB: number,
+  biasBB: number,
+  spot?: IndifferenceSpotContext
+): boolean {
+  if (!Number.isFinite(evGapBB)) return false;
+  const bf =
+    spot?.bubbleFactor !== undefined && Number.isFinite(spot.bubbleFactor) && spot.bubbleFactor > 1
+      ? spot.bubbleFactor
+      : 1;
+  const effectiveBand =
+    spot?.bandMul !== undefined && Number.isFinite(spot.bandMul)
+      ? (HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf))) * clamp(spot.bandMul, 1, 2)
+      : HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf));
+  if (evGapBB > effectiveBand) return true;
+  if (evGapBB < -effectiveBand) return false;
+  let jitter = 0;
+  if (spot && (spot.handKey !== undefined || spot.street !== undefined)) {
+    const h = personaHash(`${String(spot.handKey ?? 0)}|${spot.street ?? ''}|indiff`);
+    jitter =
+      (((h % 401) - 200) / 10000) * Math.min(1, effectiveBand / HORSE_INDIFFERENCE_EV_BAND_BB);
+  }
+  const boundedBias = clamp(
+    (Number.isFinite(biasBB) ? biasBB : 0) + jitter,
+    -effectiveBand,
+    effectiveBand
+  );
+  return evGapBB + boundedBias >= 0;
+}
+
+/**
+ * Deterministic variance-reduction Run-It-Twice preference when offered at zero rake penalty.
+ * Never accepts negative-EV surcharges; in zero-fee close-equity large pots, decides
+ * deterministically from the horse's RIT persona preference, pot size (in BB), and equity closeness.
+ */
+export function prefersRunItTwice(
+  horseId: string,
+  potBB: number,
+  equity = 0.5,
+  extraRakeFeeBB = 0
+): boolean {
+  if (extraRakeFeeBB > 0) return false;
+  if (!Number.isFinite(potBB) || potBB < 40) return false;
+  const seeds = indifferenceStyleSeedsFor(horseId, 'cash');
+  // Horses with low RIT preference (< 0.35) always run once ("gamble / max pressure").
+  if (seeds.runItTwicePreference < 0.35) return false;
+  const eq = clamp(Number.isFinite(equity) ? equity : 0.5, 0, 1);
+  // Variance peaks near 50% equity (4 * eq * (1 - eq) in [0, 1]).
+  const varianceFactor = 4 * eq * (1 - eq);
+  if (varianceFactor < 0.45) return false;
+  const potFactor = clamp((potBB - 40) / 160, 0, 1);
+  const score = seeds.runItTwicePreference * 0.65 + varianceFactor * 0.2 + potFactor * 0.15;
+  return score >= 0.58;
+}
+
+// -----------------------------------------------------------------------------
+// V86 PLO & BIG-BET PERSONA ARCHETYPES - Deterministic, Tuner-Immune
+// -----------------------------------------------------------------------------
+
+export type HorsePloArchetype = 'lag_shark' | 'tricky_trap' | 'tag_crusher' | 'nit_hunter';
+
+/**
+ * Deterministic PLO and multi-street style axes derived purely from `horseId`.
+ * Kept separate from `HorsePersonaV2` (`profiles.horse_profile.persona`) so
+ * `ThePersonaSurvivesTheTuner.law.test.ts` and existing JSON shapes remain
+ * unchanged while giving every Horse a distinct, persistent, tuner-immune
+ * identity across PLO4, PLO5, PLO6, PLO8, and Bomb Pots.
+ */
+export interface HorsePloPersona {
+  archetype: HorsePloArchetype;
+  /** Frequency of non-AA 3-bets, squeezes, and shallow 4-bets with elite rundowns / ds broadways / nut-Ax (0.18..0.68) */
+  plo3BetMix: number;
+  /** Aggression with 16+ out / nut-wrap + nut-flush-draw combo draws postflop (0.35..0.88) */
+  comboDrawAggro: number;
+  /** OOP check-raise trap and IP dry-flop nutted check-back trap frequency (0.20..0.56) */
+  trapFrequency: number;
+  /** Turn probe and nut-changing scare-card takeaway frequency (0.28..0.66) */
+  probeRate: number;
+  /** River nut-blocker bluff and block-bet nut-trap mix (0.22..0.64) */
+  riverBluffGear: number;
+}
+
+/** The archetype this Horse's id deals it (LAG 28%, Tricky 24%, TAG 30%, Nit 18%). */
+export function ploArchetypeFor(horseId: string): HorsePloArchetype {
+  const id = horseId || 'default-horse';
+  const hArch = personaHash(`${id}|plo_arch`) % 100;
+  if (hArch < 28) return 'lag_shark';
+  if (hArch < 52) return 'tricky_trap';
+  if (hArch < 82) return 'tag_crusher';
+  return 'nit_hunter';
+}
+
+export function ploPersonaFor(horseId: string): HorsePloPersona {
+  return ploPersonaOfArchetype(horseId, ploArchetypeFor(horseId));
+}
+
+/**
+ * The gears of a NAMED archetype for this Horse: the archetype's own bands,
+ * the Horse's own five unit draws inside them. `ploPersonaFor` is this with
+ * the archetype the id deals. HorseOmahaPlayStyle names the archetype by the
+ * Horse's playing style, so a Horse is never tight by style and LAG by
+ * archetype.
+ */
+export function ploPersonaOfArchetype(
+  horseId: string,
+  archetype: HorsePloArchetype
+): HorsePloPersona {
+  const id = horseId || 'default-horse';
+  const h1 = (personaHash(`${id}|plo_3bet`) % 1000) / 1000;
+  const h2 = (personaHash(`${id}|plo_combo`) % 1000) / 1000;
+  const h3 = (personaHash(`${id}|plo_trap`) % 1000) / 1000;
+  const h4 = (personaHash(`${id}|plo_probe`) % 1000) / 1000;
+  const h5 = (personaHash(`${id}|plo_river`) % 1000) / 1000;
+
+  if (archetype === 'lag_shark') {
+    // LAG Shark: relentless 3-bettor, combo-draw pumper, high turn probe pressure
+    return {
+      archetype: 'lag_shark',
+      plo3BetMix: Math.round((0.46 + h1 * 0.22) * 100) / 100,
+      comboDrawAggro: Math.round((0.68 + h2 * 0.2) * 100) / 100,
+      trapFrequency: Math.round((0.24 + h3 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.48 + h4 * 0.18) * 100) / 100,
+      riverBluffGear: Math.round((0.42 + h5 * 0.22) * 100) / 100,
+    };
+  }
+  if (archetype === 'tricky_trap') {
+    // Tricky Trap: deceptive check-raiser, slowplays dry sets IP, mixes nut river block-bets
+    return {
+      archetype: 'tricky_trap',
+      plo3BetMix: Math.round((0.3 + h1 * 0.16) * 100) / 100,
+      comboDrawAggro: Math.round((0.52 + h2 * 0.18) * 100) / 100,
+      trapFrequency: Math.round((0.42 + h3 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.36 + h4 * 0.14) * 100) / 100,
+      riverBluffGear: Math.round((0.36 + h5 * 0.18) * 100) / 100,
+    };
+  }
+  if (archetype === 'tag_crusher') {
+    // TAG Crusher: balanced nut-suit 3-bets, disciplined SPR commitment, clinical thin value
+    return {
+      archetype: 'tag_crusher',
+      plo3BetMix: Math.round((0.34 + h1 * 0.16) * 100) / 100,
+      comboDrawAggro: Math.round((0.58 + h2 * 0.18) * 100) / 100,
+      trapFrequency: Math.round((0.28 + h3 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.38 + h4 * 0.14) * 100) / 100,
+      riverBluffGear: Math.round((0.3 + h5 * 0.16) * 100) / 100,
+    };
+  }
+  // Nit Hunter: punishes loose limpers/openers and over-stabs capped ranges while staying nutted
+  return {
+    archetype: 'nit_hunter',
+    plo3BetMix: Math.round((0.2 + h1 * 0.14) * 100) / 100,
+    comboDrawAggro: Math.round((0.42 + h2 * 0.16) * 100) / 100,
+    trapFrequency: Math.round((0.32 + h3 * 0.14) * 100) / 100,
+    probeRate: Math.round((0.42 + h4 * 0.16) * 100) / 100,
+    riverBluffGear: Math.round((0.24 + h5 * 0.14) * 100) / 100,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// V87 HOLD'EM PERSONA ARCHETYPES - Deterministic, Tuner-Immune
+// -----------------------------------------------------------------------------
+
+export type HorseHoldemArchetype = 'lag_shark' | 'tricky_trap' | 'tag_crusher' | 'nit_hunter';
+
+/**
+ * Deterministic Hold'em cash and tournament style axes derived purely from
+ * `horseId`. Separate from `HorsePersonaV2` so nightly self-tuner updates never
+ * overwrite or homogenize individual Hold'em table identities.
+ */
+export interface HorseHoldemPersona {
+  archetype: HorseHoldemArchetype;
+  /** Frequency of polarized/linear 3-bets, squeezes, and shallow 4-bet reshoves (0.22..0.64) */
+  nlh3BetMix: number;
+  /** Early-position open-limp trap and suited-connector limp mix rate (0.10..0.28) */
+  epLimpTrapMix: number;
+  /** Aggression with 12+ out combo draws postflop (0.38..0.86) */
+  comboDrawAggro: number;
+  /** OOP check-raise trap, dry IP check-back trap, and river nut block-bet mix (0.18..0.52) */
+  trapFrequency: number;
+  /** Turn probe and scare-card takeaway frequency after checked-back flops (0.28..0.64) */
+  probeRate: number;
+  /** River nut-blocker bluff and polar pressure gear (0.20..0.58) */
+  riverBluffGear: number;
+}
+
+/**
+ * The four Hold'em archetypes' share of ids (percent of the `nlh_arch` hash
+ * buckets) and the range `nlh3BetMix` is drawn from: round2(base + h * span),
+ * h one of 1,000 equally likely hash buckets. A description of
+ * holdemPersonaFor below, held to it by HorsePersona.holdemReRaiseScale.test.ts.
+ */
+export const HOLDEM_ARCHETYPE_NLH_3BET_MIX: ReadonlyArray<{
+  archetype: HorseHoldemArchetype;
+  sharePct: number;
+  base: number;
+  span: number;
+}> = [
+  { archetype: 'lag_shark', sharePct: 25, base: 0.46, span: 0.18 },
+  { archetype: 'tricky_trap', sharePct: 20, base: 0.3, span: 0.14 },
+  { archetype: 'tag_crusher', sharePct: 40, base: 0.34, span: 0.16 },
+  { archetype: 'nit_hunter', sharePct: 15, base: 0.22, span: 0.12 },
+];
+
+/**
+ * The share-weighted mean of `nlh3BetMix` under the id-hash MODEL (every
+ * archetype bucket and every one of the 1,000 mix buckets equally likely,
+ * with the persona's two-decimal rounding). A model figure: a real fleet of
+ * ids does not average exactly this.
+ */
+export const HOLDEM_MODEL_MEAN_NLH_3BET_MIX = 0.42143;
+
+/**
+ * D3 option C (2026-11-14): how far this Horse's re-raise bluff mix sits from
+ * the model mean. 0.52 (the tightest Nit) to 1.52 (the loosest LAG); 1 in
+ * expectation under the model. A pure function of the id, no draw.
+ */
+export function holdemPersonaReRaiseScale(horseId: string): number {
+  return holdemPersonaFor(horseId).nlh3BetMix / HOLDEM_MODEL_MEAN_NLH_3BET_MIX;
+}
+
+export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
+  const id = horseId || 'default-horse';
+  const hArch = personaHash(`${id}|nlh_arch`) % 100;
+  const h1 = (personaHash(`${id}|nlh_3bet`) % 1000) / 1000;
+  const h2 = (personaHash(`${id}|nlh_limptrap`) % 1000) / 1000;
+  const h3 = (personaHash(`${id}|nlh_combo`) % 1000) / 1000;
+  const h4 = (personaHash(`${id}|nlh_trap`) % 1000) / 1000;
+  const h5 = (personaHash(`${id}|nlh_probe`) % 1000) / 1000;
+  const h6 = (personaHash(`${id}|nlh_river`) % 1000) / 1000;
+
+  if (hArch < 25) {
+    // 25% LAG Shark: high 3-bet pressure, aggressive combo-draw raises, relentless probes
+    return {
+      archetype: 'lag_shark',
+      nlh3BetMix: Math.round((0.46 + h1 * 0.18) * 100) / 100,
+      epLimpTrapMix: Math.round((0.14 + h2 * 0.08) * 100) / 100,
+      comboDrawAggro: Math.round((0.68 + h3 * 0.18) * 100) / 100,
+      trapFrequency: Math.round((0.2 + h4 * 0.12) * 100) / 100,
+      probeRate: Math.round((0.48 + h5 * 0.16) * 100) / 100,
+      riverBluffGear: Math.round((0.42 + h6 * 0.16) * 100) / 100,
+    };
+  }
+  if (hArch < 45) {
+    // 20% Tricky Trap: elevated EP limp-reraise traps, check-raises, and river block-bet traps
+    return {
+      archetype: 'tricky_trap',
+      nlh3BetMix: Math.round((0.3 + h1 * 0.14) * 100) / 100,
+      epLimpTrapMix: Math.round((0.2 + h2 * 0.08) * 100) / 100,
+      comboDrawAggro: Math.round((0.52 + h3 * 0.16) * 100) / 100,
+      trapFrequency: Math.round((0.38 + h4 * 0.14) * 100) / 100,
+      probeRate: Math.round((0.34 + h5 * 0.14) * 100) / 100,
+      riverBluffGear: Math.round((0.34 + h6 * 0.14) * 100) / 100,
+    };
+  }
+  if (hArch < 85) {
+    // 40% TAG Crusher: balanced preflop 3-bets, disciplined SPR control, clinical thin value
+    return {
+      archetype: 'tag_crusher',
+      nlh3BetMix: Math.round((0.34 + h1 * 0.16) * 100) / 100,
+      epLimpTrapMix: Math.round((0.12 + h2 * 0.08) * 100) / 100,
+      comboDrawAggro: Math.round((0.56 + h3 * 0.18) * 100) / 100,
+      trapFrequency: Math.round((0.24 + h4 * 0.12) * 100) / 100,
+      probeRate: Math.round((0.38 + h5 * 0.14) * 100) / 100,
+      riverBluffGear: Math.round((0.28 + h6 * 0.14) * 100) / 100,
+    };
+  }
+  // 15% Nit Hunter: punishes loose openers/limpers and stabs capped checked ranges
+  return {
+    archetype: 'nit_hunter',
+    nlh3BetMix: Math.round((0.22 + h1 * 0.12) * 100) / 100,
+    epLimpTrapMix: Math.round((0.1 + h2 * 0.06) * 100) / 100,
+    comboDrawAggro: Math.round((0.38 + h3 * 0.16) * 100) / 100,
+    trapFrequency: Math.round((0.18 + h4 * 0.12) * 100) / 100,
+    probeRate: Math.round((0.28 + h5 * 0.14) * 100) / 100,
+    riverBluffGear: Math.round((0.2 + h6 * 0.12) * 100) / 100,
+  };
 }

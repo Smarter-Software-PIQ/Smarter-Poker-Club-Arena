@@ -124,8 +124,8 @@ describe('a tournament row says what makes it worth playing', () => {
       );
       const list = screen.getByRole('table', { name: 'Games' });
       const heading = list.querySelector(`tr[data-tournament-heading="${entry.id}"]`)!;
-      expect(within(heading as HTMLElement).getByText('10K Guarantee')).toBeTruthy();
-      expect(heading.querySelector('strong')).toHaveTextContent('10K Guarantee');
+      expect(within(heading as HTMLElement).getByText('10,000 Guarantee')).toBeTruthy();
+      expect(heading.querySelector('strong')).toHaveTextContent('10,000 Guarantee');
       expect(list.querySelector('.premium-lobby-clock')).toHaveTextContent(clockText);
       expect(list.querySelector('.premium-lobby-clock__value')).toHaveTextContent(/\d+:\d{2}/);
     }

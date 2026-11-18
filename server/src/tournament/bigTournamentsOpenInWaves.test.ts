@@ -71,6 +71,7 @@ interface FakeEngine {
   holdDealingUntil: ReturnType<typeof vi.fn>;
   installF06Allocator: ReturnType<typeof vi.fn>;
   installF06HandAdmission: ReturnType<typeof vi.fn>;
+  installF06OwnReservedPermitReconciler: ReturnType<typeof vi.fn>;
   getStartupTournamentPolicyRefusal: () => null;
   setHub: ReturnType<typeof vi.fn>;
   pauseAfterHand: ReturnType<typeof vi.fn>;
@@ -91,6 +92,7 @@ function fakeEngine(tableId: string): FakeEngine {
     holdDealingUntil: vi.fn(),
     installF06Allocator: vi.fn(),
     installF06HandAdmission: vi.fn(),
+    installF06OwnReservedPermitReconciler: vi.fn(),
     getStartupTournamentPolicyRefusal: () => null,
     setHub: vi.fn(),
     pauseAfterHand: vi.fn(),

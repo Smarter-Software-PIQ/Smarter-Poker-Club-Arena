@@ -33,12 +33,17 @@ import {
   gtoPostflopV31Count,
   gtoPostflopV31Dataset,
   gtoPostflopV31EvaluationCount,
+  gtoPostflopV31RangeRefusals,
   type GtoV31RuntimeRow,
   type GtoV31SourceSeal,
   gtoV31FeatureContractVersion,
   gtoV31PolicyContractValid,
 } from '../engine/GtoPostflopV31.js';
 import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import {
+  gtoV31CellContractV3ServingLoaderOn,
+  onGtoV31CellContractV3ServingChange,
+} from '../engine/GtoV31CellContractV3Serving.js';
 
 const REFRESH_MS = 6 * 60 * 60_000;
 const RETRY_MS = 30_000;
@@ -116,8 +121,96 @@ function readV31CellPage(data: unknown, expectedDatasetId?: string): GtoV31Runti
     const legacy = { ...row };
     if (row.feature_contract_version === null) delete legacy.feature_contract_version;
     if (row.policy_export_schema === null) delete legacy.policy_export_schema;
+    // Cell contract v3 readers (switch on) carry these two columns; NULL is a
+    // v2 cell, which reads exactly as it does through the v2 readers.
+    if (row.cell_contract_version === null) delete legacy.cell_contract_version;
+    if (row.line_class === null) delete legacy.line_class;
     return legacy;
   }) as GtoV31RuntimeRow[];
+}
+
+/**
+ * RANGE PROVENANCE (2026-11-12). The registration of the dataset's round
+ * declares, per cell, how its ranges were built (gto_v31_round_registrations.
+ * cell_provenance). It is read once per load, never per decision.
+ *
+ * Two outcomes are kept apart:
+ * - DEFINITIVE absence: the column or table is not installed, no registration
+ *   carries this dataset_key, or the registration is linked to another
+ *   dataset_id (or none). Returns null and the store refuses every cell.
+ * - The read FAILED (transport, timeout, 5xx, any other error): throws, so
+ *   the attempt fails, the last admitted snapshot stays served and the loop
+ *   retries on its short failure backoff instead of emptying a served store
+ *   for a whole refresh period.
+ * Malformed, forced or mismatched provenance is judged per cell by the store.
+ */
+const PROVENANCE_NOT_INSTALLED = new Set(['42703', '42P01', 'PGRST204', 'PGRST205']);
+async function readRangeProvenance(row: GtoV31RuntimeRow): Promise<unknown> {
+  const { dataset_key: datasetKey, dataset_id: datasetId } = row as {
+    dataset_key?: unknown;
+    dataset_id?: unknown;
+  };
+  if (typeof datasetKey !== 'string' || datasetKey === '') return null;
+  let reply: { data: unknown; error: { code?: string; message?: string } | null };
+  try {
+    reply = await supabase
+      .from('gto_v31_round_registrations')
+      .select('dataset_id, cell_provenance')
+      .eq('dataset_key', datasetKey)
+      .maybeSingle();
+  } catch (err) {
+    throw new Error(`v31_range_provenance_unreadable:${(err as Error)?.message ?? 'unknown'}`);
+  }
+  if (reply.error) {
+    if (PROVENANCE_NOT_INSTALLED.has(reply.error.code ?? '')) return null;
+    throw new Error(
+      `v31_range_provenance_unreadable:${reply.error.code ?? ''}:${reply.error.message ?? ''}`
+    );
+  }
+  const data = reply.data as { dataset_id?: unknown; cell_provenance?: unknown } | null;
+  if (!data || data.dataset_id !== datasetId) return null;
+  return data.cell_provenance ?? null;
+}
+let rangeRefusalLoggedFor: string | null = null;
+
+/**
+ * CELL CONTRACT v3 WITH v3 SERVING OFF (FLOP-5 D6; Hand Analysis N3). The v2
+ * reader never returns a v3 cell, so an active dataset whose cells are all v3
+ * reads as EMPTY while gtoV31CellContractV3Serving is off: V31 serving would
+ * fall back fleet-wide with no error. When a bound live worker's v2 read of
+ * its admitted active dataset is empty, one read-only probe of the v3 reader
+ * (limit 1) tells the two cases apart; a v3 dataset raises
+ * V31_V3_DATASET_ACTIVE_WHILE_V3_SERVING_OFF (console error and the error
+ * reporter), once per dataset, re-armed by any load that serves cells. The
+ * probe runs only in that empty case, so a load that serves cells (every load
+ * today) makes no extra call; a probe that fails or finds no v3 cell says
+ * nothing. The store stays empty: the V30/heuristic fallback is the safe play.
+ */
+let v3ServingOffAlarmFor: string | null = null;
+export function gtoPostflopV31CellContractV3Alarm(): string | null {
+  return v3ServingOffAlarmFor;
+}
+async function alarmIfV3DatasetActiveWhileServingOff(datasetId: string): Promise<void> {
+  let reply: { data: unknown; error: unknown };
+  try {
+    reply = await supabase.rpc('fn_gto_v31_active_cells_v3', { p_offset: 0, p_limit: 1 });
+  } catch {
+    return;
+  }
+  if (reply.error || !Array.isArray(reply.data)) return;
+  const row = reply.data[0] as
+    | { dataset_id?: unknown; cell_contract_version?: unknown }
+    | undefined;
+  if (!row || row.dataset_id !== datasetId || row.cell_contract_version !== 'v3') return;
+  if (v3ServingOffAlarmFor === datasetId) return;
+  v3ServingOffAlarmFor = datasetId;
+  console.error(
+    `[GtoPostflopV31Loader] V31_V3_DATASET_ACTIVE_WHILE_V3_SERVING_OFF: active dataset ${datasetId} declares cell contract v3 but the option gtoV31CellContractV3Serving is off; V31 serving is EMPTY on this worker (V30/heuristic fallback) until v3 serving is on or a v2 dataset is active`
+  );
+  reportError(
+    new Error('v31_v3_dataset_active_while_v3_serving_off'),
+    'GtoPostflopV31Loader.cellContract'
+  );
 }
 
 async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number }> {
@@ -160,11 +253,15 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
       }
     }
     const rows: GtoV31RuntimeRow[] = [];
+    // Cell contract v3 (FLOP-5 D6, dormant): the v3 reader only when the live
+    // switch gives gtoV31CellContractV3Serving true (off-only today); the v2
+    // reader never returns a v3 cell. Read once per attempt.
+    const servingV3 = gtoV31CellContractV3ServingLoaderOn();
     for (let offset = 0; ; ) {
-      const { data, error } = await supabase.rpc('fn_gto_v31_active_cells', {
-        p_offset: offset,
-        p_limit: PAGE,
-      });
+      const request = { p_offset: offset, p_limit: PAGE };
+      const { data, error } = servingV3
+        ? await supabase.rpc('fn_gto_v31_active_cells_v3', request)
+        : await supabase.rpc('fn_gto_v31_active_cells', request);
       if (error) throw new Error(error.message);
       const page = readV31CellPage(data);
       if (page.length === 0) break;
@@ -184,6 +281,12 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
     // Full success only. The validator performs the atomic swap.
     // An older periodic read must not overwrite a newer explicit refresh,
     // including when its old authoritative-empty response arrives last.
+    // Read before the binding re-check, so a revocation that lands during this
+    // read is still seen by the re-check below.
+    if (rows.length > 0) v3ServingOffAlarmFor = null;
+    else if (!servingV3 && gate && admittedId !== null)
+      await alarmIfV3DatasetActiveWhileServingOff(admittedId);
+    const rangeProvenance = rows.length > 0 ? await readRangeProvenance(rows[0]) : null;
     if (generation !== activeLoadGeneration) throw new Error('v31_active_load_superseded');
     if (gate) {
       if (rows.some((row) => (row as { dataset_id?: unknown }).dataset_id !== admittedId))
@@ -206,8 +309,23 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
     }
     const applied = await replaceGtoPostflopV31Async(
       rows,
-      () => generation === activeLoadGeneration
+      () => generation === activeLoadGeneration,
+      rangeProvenance
     );
+    // Logged and reported once per (dataset, refusal counts); a clean load
+    // or any change of dataset or counts re-arms it.
+    const refused = gtoPostflopV31RangeRefusals();
+    const refusalKey =
+      Object.keys(refused).length > 0
+        ? `${rows[0]?.dataset_key}|${rows[0]?.dataset_checksum}|${JSON.stringify(refused)}`
+        : null;
+    if (refusalKey !== null && refusalKey !== rangeRefusalLoggedFor) {
+      console.warn(
+        `[GtoPostflopV31Loader] V31_RANGE_PROVENANCE_REFUSED: dataset ${rows[0]?.dataset_id ?? 'unknown'} serves ${applied} of ${rows.length} cells; refused ${JSON.stringify(refused)}. A partly admitted store fails worker reload confirmation (it requires the sealed cell count).`
+      );
+      reportError(new Error('v31_range_provenance_refused'), 'GtoPostflopV31Loader.provenance');
+    }
+    rangeRefusalLoggedFor = refusalKey;
     console.log(
       `[GtoPostflopV31Loader] ${applied} certified solver cells loaded (${gtoPostflopV31Count()} in the store)`
     );
@@ -257,7 +375,8 @@ export function loadGtoPostflopV31Once(): Promise<{ ok: boolean; count: number }
  */
 export async function loadGtoPostflopV31Evaluation(
   datasetId: string,
-  options: { recheck?: boolean } = {}
+  /** cellContractV3: read the v3 evaluation reader (an offline v3 evaluation; default: this process's switch). */
+  options: { recheck?: boolean; cellContractV3?: boolean } = {}
 ): Promise<{
   checksum: string;
   cells: number;
@@ -270,12 +389,13 @@ export async function loadGtoPostflopV31Evaluation(
     throw new Error('invalid V31 evaluation dataset id');
   }
   const rows: GtoV31RuntimeRow[] = [];
+  // Cell contract v3 (FLOP-5 D6, dormant): as in the live load above.
+  const servingV3 = options.cellContractV3 ?? gtoV31CellContractV3ServingLoaderOn();
   for (let offset = 0; ; ) {
-    const { data, error } = await supabase.rpc('fn_gto_v31_evaluation_cells', {
-      p_dataset_id: datasetId,
-      p_offset: offset,
-      p_limit: PAGE,
-    });
+    const request = { p_dataset_id: datasetId, p_offset: offset, p_limit: PAGE };
+    const { data, error } = servingV3
+      ? await supabase.rpc('fn_gto_v31_evaluation_cells_v3', request)
+      : await supabase.rpc('fn_gto_v31_evaluation_cells', request);
     if (error) throw new Error(error.message);
     const page = readV31CellPage(data, datasetId);
     if (page.length === 0) break;
@@ -322,8 +442,14 @@ export async function loadGtoPostflopV31Evaluation(
 
 export function startGtoPostflopV31Loader(): void {
   refreshLoop.start();
+  // A change of the live v3 serving switch reloads the store at once, so the
+  // store follows the row the decisions read (no restart, no 6-hour wait).
+  onGtoV31CellContractV3ServingChange(() => {
+    void refreshLoop.runNow().catch(() => undefined);
+  });
 }
 
 export function stopGtoPostflopV31Loader(): void {
+  onGtoV31CellContractV3ServingChange(null);
   refreshLoop.stop();
 }

@@ -76,7 +76,7 @@ import {
   retirePausedPreNavigationSubjects,
 } from '../e2e/support/preNavigationBoard';
 import { SelectionObservationDeadline } from '../e2e/support/selectionDeadline';
-import { readinessReadTimeout } from '../e2e/support/readinessReadAdmission';
+import { readinessReadTimeout, remainingReadTimeout } from '../e2e/support/readinessReadAdmission';
 import { vi } from 'vitest';
 
 function actualProgress(
@@ -112,6 +112,7 @@ function actualProgress(
     pollBudgetMs: () => 90_000,
     readinessReadCanStart,
     readinessReadTimeout,
+    remainingReadTimeout,
     OperationalPollFailure,
     operationalPollFailure: new OperationalPollFailure(),
     SelectionObservationDeadline,
@@ -215,18 +216,22 @@ it('actual progress refuses when the parked subject has no healthy replacement',
   vi.restoreAllMocks();
 });
 
-it('actual progress callback refuses a late 14999ms read without clearing a prior failure', async () => {
+it('observes a hand change at 84 seconds within the original proof window', async () => {
   vi.spyOn(Date, 'now').mockReturnValue(0);
-  const refusal = new Error('poll deadline');
-  const read = vi.fn();
-  const result = actualProgress(undefined, read, async (callback) => {
-    vi.mocked(Date.now).mockReturnValue(74_001);
-    expect(await callback()).toBe(false);
-    throw refusal;
-  });
-  await expect(result).rejects.toBe(refusal);
-  expect(read).not.toHaveBeenCalled();
-  vi.restoreAllMocks();
+  const read = vi.fn(async () => ({
+    tableLiveness: [{ tableId: 't', handCount: 2, msSinceProgress: 0 }],
+  }));
+  try {
+    await expect(
+      actualProgress(undefined, read, async (callback) => {
+        vi.mocked(Date.now).mockReturnValue(84_000);
+        expect(await callback()).toBe(true);
+      })
+    ).resolves.toMatchObject({ afterTable: { handCount: 2 } });
+    expect(read.mock.calls[0]).toEqual([{}, { candidateTableIds: ['t'] }, 5000]);
+  } finally {
+    vi.restoreAllMocks();
+  }
 });
 
 it('actual progress reads pass the inner deadline through every board read and reject late proof', async () => {
@@ -295,7 +300,7 @@ it('an admitted progress failure is not cleared by a later unadmitted callback',
   await expect(
     actualProgress(undefined, read, async (callback) => {
       await expect(callback()).rejects.toBe(refusal);
-      vi.mocked(Date.now).mockReturnValue(74_001);
+      vi.mocked(Date.now).mockReturnValue(88_949);
       expect(await callback()).toBe(false);
       throw new Error('poll expired');
     })
@@ -304,8 +309,9 @@ it('an admitted progress failure is not cleared by a later unadmitted callback',
   vi.restoreAllMocks();
 });
 
-it('every chained request preserves the full transport budget or refuses to start', () => {
+it('chained requests cap transport time at the remaining observation budget', () => {
   expect(readinessReadTimeout(15_000, 0)).toBe(15_000);
-  expect(() => readinessReadTimeout(15_000, 1)).toThrow(SelectionObservationDeadline);
+  expect(readinessReadTimeout(15_000, 1)).toBe(14_999);
+  expect(() => readinessReadTimeout(15_000, 14_948)).toThrow(SelectionObservationDeadline);
   expect(readinessReadTimeout()).toBe(15_000);
 });

@@ -343,7 +343,7 @@ for (const viewport of [
       .boundingBox();
     const walletBounds = await controls.locator('dl > div').first().boundingBox();
     const chipBounds = await controls.locator('dl > div').nth(1).boundingBox();
-    const selector = controls.getByRole('button', { name: /^Amount / });
+    const selector = controls.getByRole('button', { name: 'Choose Spin Amount' });
     const toggle = await selector.boundingBox();
     if (!spinBounds || !walletBounds || !chipBounds || !toggle)
       throw new Error('Missing wheel controls');
@@ -366,7 +366,30 @@ for (const viewport of [
     expect(walletBounds.x + walletBounds.width).toBeLessThanOrEqual(spinBounds.x);
     expect(chipBounds.x).toBeGreaterThanOrEqual(spinBounds.x + spinBounds.width);
     expect(Math.abs(chipBounds.y - walletBounds.y)).toBeLessThan(1);
-    expect(toggle.y + toggle.height <= deck.y + 1 || toggle.x >= deck.x + deck.width).toBe(true);
+    const balanceInk = await controls.locator('dl > div').evaluateAll((bays) =>
+      bays.map((bay) => {
+        const value = bay.querySelector('dd')!;
+        const nodes = document.createTreeWalker(value, NodeFilter.SHOW_TEXT);
+        while (nodes.nextNode()) {
+          if (!nodes.currentNode.textContent?.trim()) continue;
+          const ink = document.createRange();
+          ink.selectNodeContents(nodes.currentNode);
+          return [
+            bay.querySelector('dt')!.getBoundingClientRect().top,
+            ink.getBoundingClientRect().top,
+          ];
+        }
+        throw new Error('Balance value has no visible ink');
+      })
+    );
+    // The picker hit area must not move Diamonds' label or amount off the
+    // exact label/value stack used by Club Chips.
+    expect(Math.abs(balanceInk[0][0] - balanceInk[1][0])).toBeLessThan(1);
+    expect(Math.abs(balanceInk[0][1] - balanceInk[1][1])).toBeLessThan(1);
+    expect(toggle.x).toBeGreaterThanOrEqual(walletBounds.x);
+    expect(toggle.x + toggle.width).toBeLessThanOrEqual(walletBounds.x + walletBounds.width + 1);
+    expect(toggle.y).toBeGreaterThanOrEqual(deck.y);
+    expect(toggle.y + toggle.height).toBeLessThanOrEqual(deck.y + deck.height + 1);
     let lastCenter = 0;
     for (const name of ['25', '100', '500', '1,000', '2,500']) {
       const preset = await controls.getByRole('button', { name, exact: true }).boundingBox();

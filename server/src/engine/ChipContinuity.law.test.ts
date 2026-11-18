@@ -159,6 +159,8 @@ describe('the tracker reports transitions and renders answers', () => {
       hit_run_hands_remaining: null,
       hit_run_hands_required: null,
       hit_run_blind_off: false,
+      hit_run_reason: null,
+      hit_run_big_win_bb: null,
     });
   });
 
@@ -201,6 +203,8 @@ describe('the tracker reports transitions and renders answers', () => {
       hit_run_hands_remaining: 14,
       hit_run_hands_required: 20,
       hit_run_blind_off: false,
+      hit_run_reason: 'hit_run',
+      hit_run_big_win_bb: null,
     });
     t.markBlindOff('a', true);
     expect(t.seatFields('a', 180).hit_run_blind_off).toBe(true);
@@ -220,7 +224,8 @@ describe('the tracker reports transitions and renders answers', () => {
 describe('the engine wiring (source pins - each one is a leak that shipped once already elsewhere)', () => {
   it('HIT AND RUN: leaveTable asks first, and a confirmed leave is blinded off (owner 2026-11-06)', () => {
     const body = sliceMethod(SEATING, 'public async leaveTable(');
-    expect(body).toContain('this.chipContinuity.leaveLock(userId, player.stack)');
+    // #10740: an anchor judges the count at the database's stack, not the roster's.
+    expect(body).toContain('this.handCountStack(userId, player.stack)');
     expect(body).toContain("code: 'LEAVE_LOCKED'");
     expect(body).toContain('if (opts.confirmHandCount !== true) {');
     expect(body).toContain(
@@ -282,10 +287,13 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     // release decides (2026-11-09, a completed blind off was never cashed out).
     const fresh = release.indexOf('await this.chipContinuity.evaluate(');
     expect(fresh).toBeGreaterThan(release.indexOf('if (this.isLightningAnchorNow()) {'));
-    expect(fresh).toBeLessThan(
-      release.indexOf('this.chipContinuity.leaveLock(userId, seated.stack).locked')
+    expect(fresh).toBeLessThan(release.indexOf('this.handCountStack(userId, seated.stack)'));
+    // #10740: a queued Lightning leave that still owes hands goes back to the pool.
+    expect(release).toContain('await this.returnOwedLightningLeaveToPool(userId, seated);');
+    expect(sliceMethod(SEATING, 'public sitOut(')).toContain(
+      'return this.applySitOut(userId, sitOut, proof)'
     );
-    expect(sliceMethod(SEATING, 'public sitOut(')).toContain('this.withdrawBlindOff(userId)');
+    expect(sliceMethod(SEATING, 'private applySitOut(')).toContain('this.withdrawBlindOff(userId)');
     expect(sliceMethod(SEATING, 'protected withdrawBlindOff(')).toContain(
       'this.leaveHeldByClock.delete(userId)'
     );
@@ -322,7 +330,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   it('settlement reports every stack to the database BEFORE any departure is judged', () => {
     const body = sliceMethod(SETTLEMENT, 'protected async postHandTasks(');
     expect(body).toMatch(
-      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\s*\)/
+      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\b/
     );
     const step = body.indexOf("runStep('chip_continuity'");
     expect(step).toBeGreaterThan(body.indexOf("runStep('sync_stacks'"));
@@ -336,21 +344,26 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   it('a horse at its profit target leaves through the same door a human does (CLAUDE.md 10.5)', () => {
     const body = sliceMethod(SETTLEMENT, 'protected async postHandTasks(');
     expect(body).toMatch(
-      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\s*\)/
+      /protected async postHandTasks\(\s*players: SeatedPlayer\[\],\s*persistenceGeneration: number\b/
     );
     const horse = body.slice(
       body.indexOf("runStep('horse_cashouts'"),
       body.indexOf("runStep('deferred_sitouts'")
     );
-    expect(horse).toContain('await this.cashoutVoluntaryStay(horse)');
-    expect(horse).toContain('if (!exit) continue');
+    // 2026-11-15: the exit moved into bankTheWinExit so it can also run after
+    // the presentation hold; the door it uses is pinned there, stricter.
+    expect(horse).toContain('await this.bankTheWinExit(horse)');
+    const door = sliceMethod(SETTLEMENT, 'protected async bankTheWinExit(');
+    expect(door).toContain('await this.cashoutVoluntaryStay(horse)');
+    expect(door).toContain('if (!exit) return;');
+    expect(door).toContain("exit.code === 'LEAVE_LOCKED'");
+    expect(blankNonCode(door)).not.toContain('markSeatAsLeft');
     const stay = sliceMethod(BASE, 'protected async cashoutVoluntaryStay(');
     expect(stay).toContain(
       'await atomicCashoutVoluntary(user_id, this.tableId, seat_number, occupancy_id)'
     );
     expect(stay).toContain('return mayReflect() ? result : null');
     expect(blankNonCode(horse)).not.toContain('markSeatAsLeft');
-    expect(horse).toContain("exit.code === 'LEAVE_LOCKED'");
   });
 
   it('a leave_pending seat is cashed out through the guarded door and a refusal keeps the seat', () => {
@@ -362,7 +375,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   });
 
   it('sit-out and sit-in report to the clock; presence is swept from the heartbeat tick', () => {
-    const sitOut = sliceMethod(SEATING, 'public sitOut(');
+    const sitOut = sliceMethod(SEATING, 'private applySitOut(');
     expect(sitOut).toContain('this.chipContinuity');
     const hb = sliceMethod(BASE, 'protected scheduleHeartbeatCheck()');
     expect(hb).toContain('sweepPresence(');
@@ -403,7 +416,10 @@ describe('the migration is the one this engine was written against', () => {
       'PERFORM public.fn_cash_session_open(p_user_id, p_table_id, p_amount);'
     );
     expect(MIGRATION).toContain('BUYIN_BELOW_FLOOR');
-    // The key: club + variant + sb + bb. Never the table, never the template.
+    // The 2026-09-04 key was club + variant + sb + bb. Superseded 2026-11-18 by
+    // Dan's one-game ruling: the key is the cash game (game_scope). This test
+    // pins the historical file only; the current law is
+    // tests/a-rathole-floor-belongs-to-one-game.law.test.ts.
     const floor = MIGRATION.slice(
       MIGRATION.indexOf('FUNCTION public.fn_cash_rejoin_floor'),
       MIGRATION.indexOf('FUNCTION public.fn_cash_effective_buyin')

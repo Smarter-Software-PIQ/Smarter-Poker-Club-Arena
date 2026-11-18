@@ -12,6 +12,10 @@ name: Weekly refusal receipt cover
 on:
   pull_request:
     branches: [main]
+  # Merge queue (2026-11-11): the required check also runs on the queued
+  # merge-group commit, diffed against the group's own base.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -33,8 +37,8 @@ jobs:
       - name: Does this change touch a weekly refusal cover input?
         id: relevant
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
           WEEKLY_COVER_PATHS: |
             supabase/migrations/**
             scripts/ci/test-split-late-return-postgres.py

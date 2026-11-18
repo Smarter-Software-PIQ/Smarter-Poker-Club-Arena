@@ -124,7 +124,7 @@ describe('every Mines tile owns its gem and its hit target', () => {
     );
     expect(screen.getAllByRole('button')).toHaveLength(25);
     expect(
-      screen.getByRole('button', { name: 'Tile 7, Gem' }).querySelector('img[data-daily-diamond]')
+      screen.getByRole('button', { name: 'Tile 7, Gem' }).querySelector('img[data-cut-diamond]')
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Tile 8', exact: true }));
     expect(pick).toHaveBeenCalledWith(7);

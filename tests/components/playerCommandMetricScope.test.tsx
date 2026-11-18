@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -180,6 +180,7 @@ beforeEach(() => {
     ...memberDetail,
     range: { ...range, is_overall: range.from === null && range.to === null },
   }));
+  state.rpc.mockResolvedValue({ data: [], error: null });
   state.getDownline.mockResolvedValue([]);
   state.getGrantableRoles.mockResolvedValue([]);
   state.getMemberStatistics.mockImplementation(async (_club, _user, variant, range) => ({
@@ -191,6 +192,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -279,6 +281,8 @@ it('hides private metric definitions together with financial activity after auth
   await screen.findByRole('heading', { name: 'River Shark' });
   expect(screen.queryByLabelText('Activity Metric Definitions')).not.toBeInTheDocument();
   expect(screen.queryByText('Total Winnings')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Transaction History' })).not.toBeInTheDocument();
+  expect(state.rpc).not.toHaveBeenCalledWith('fn_member_transaction_history', expect.anything());
 });
 
 it('keeps definitions available for an authorized empty range without showing fabricated metrics', async () => {
@@ -446,4 +450,174 @@ it('keeps the chosen member ledger dates until the viewer explicitly selects a r
     await vi.advanceTimersByTimeAsync(86_400_000);
   });
   expect(state.getMemberDetail.mock.calls.length).toBe(beforeMidnight + 1);
+});
+
+it('opens each ledger visit on today in Chicago, ignoring saved dates and confirmed prior visits', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  // UTC is already tomorrow; Chicago is still November 11.
+  vi.setSystemTime(new Date('2026-11-12T05:30:00Z'));
+  for (const [name, value] of Object.entries({
+    rangeMode: 'overall',
+    customFrom: '2026-01-01',
+    customTo: '2026-01-31',
+    range: { from: '2026-01-01', to: '2026-01-31' },
+  })) {
+    localStorage.setItem(
+      `ca_player_preference:guest:MemberManagementPage:${name}:global`,
+      JSON.stringify(value)
+    );
+  }
+  let view = render(<MemberManagementPage />);
+  await screen.findByRole('status', { name: 'Displayed Activity Scope' });
+  expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Select', exact: true }));
+  expect(screen.getByLabelText('From')).toHaveValue('2026-11-11');
+  expect(screen.getByLabelText('To')).toHaveValue('2026-11-11');
+  expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-11', to: '2026-11-11' });
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } });
+  fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-31' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm', exact: true }));
+  await waitFor(() =>
+    expect(state.getMemberDetail.mock.calls.at(-1)?.[2]).toEqual({
+      from: '2026-01-01',
+      to: '2026-01-31',
+    })
+  );
+  view.unmount();
+  // Returning after midnight computes the new day rather than the mount's old date.
+  vi.setSystemTime(new Date('2026-11-12T06:01:00Z'));
+  state.getMemberDetail.mockClear();
+  view = render(<MemberManagementPage />);
+  await screen.findByRole('status', { name: 'Displayed Activity Scope' });
+  expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Select', exact: true }));
+  expect(screen.getByLabelText('From')).toHaveValue('2026-11-12');
+  expect(screen.getByLabelText('To')).toHaveValue('2026-11-12');
+  expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-12', to: '2026-11-12' });
+  view.unmount();
+});
+
+it.each(['player', 'agent'])(
+  'refreshes the selected %s receipt through the private member-record broadcast',
+  async (role) => {
+    state.getMemberDetail.mockImplementation(async (_club, _member, range) => ({
+      ...memberDetail,
+      identity: { ...memberDetail.identity, role },
+      range: { ...range },
+    }));
+    let received = false;
+    state.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_member_transaction_history' && received
+          ? [
+              {
+                id: 'posted',
+                transaction_type: 'peer_transfer',
+                from_user_id: state.params.userId,
+                to_user_id: 'recipient',
+                to_name: 'River',
+                amount_text: '20.00',
+                created_at: '2026-11-14T18:00:00Z',
+              },
+            ]
+          : [],
+      error: null,
+    }));
+    render(<MemberManagementPage />);
+    await screen.findByText('No Chip Transactions Found.');
+    expect(state.rpc).toHaveBeenCalledWith(
+      'fn_member_transaction_history',
+      expect.objectContaining({
+        p_person: state.params.userId,
+        p_club_id: memberDetail.identity.home_club_id,
+        p_scope: 'club',
+      })
+    );
+    received = true;
+    act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
+    await screen.findByText('Sent To River');
+  }
+);
+
+it('shows agent, full downline and combined activity separately and refreshes all three together', async () => {
+  const renderErrors = vi.spyOn(console, 'error');
+  const detailFor = (range: { from: string | null; to: string | null }, extra: number) => ({
+    ...memberDetail,
+    identity: { ...memberDetail.identity, role: 'agent' },
+    range: { ...range, is_overall: false },
+    activity_breakdown: {
+      downline: {
+        ...memberDetail.stats,
+        hands: 400 + extra,
+        total_fee: 35.25,
+        total_fee_text: '35.25',
+      },
+      combined: {
+        ...memberDetail.stats,
+        hands: 600 + extra,
+        total_fee: 53.25,
+        total_fee_text: '53.25',
+      },
+    },
+  });
+  state.getMemberDetail.mockImplementation(async (_club, _member, range) => detailFor(range, 0));
+  render(<MemberManagementPage />);
+  const own = await screen.findByRole('region', { name: 'Agent Only' });
+  const downline = screen.getByRole('region', { name: 'Downline Only' });
+  const combined = screen.getByRole('region', { name: 'Agent + Downline' });
+  expect(within(own).getByText('200')).toBeVisible();
+  expect(within(downline).getByText('400')).toBeVisible();
+  expect(within(combined).getByText('600')).toBeVisible();
+  expect(within(combined).getByText('53.25')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+  const [club, member, range] = state.getMemberDetail.mock.calls[0];
+  let deliver!: () => void;
+  state.getMemberDetail.mockImplementationOnce(
+    (_club, _member, requestedRange) =>
+      new Promise((resolve) => {
+        deliver = () => resolve(detailFor(requestedRange, 5));
+      })
+  );
+  act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
+  await waitFor(() => {
+    expect(state.getMemberDetail).toHaveBeenCalledTimes(2);
+    expect(state.getMemberDetail).toHaveBeenLastCalledWith(
+      club,
+      member,
+      range,
+      expect.any(AbortSignal)
+    );
+  });
+  expect(deliver).toBeTypeOf('function');
+  await act(async () => deliver());
+  await waitFor(() => {
+    expect(
+      within(screen.getByRole('region', { name: 'Agent Only' })).getByText('200')
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('region', { name: 'Downline Only' })).getByText('405')
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('region', { name: 'Agent + Downline' })).getByText('605')
+    ).toBeVisible();
+  });
+  expect(renderErrors.mock.calls.some(([message]) => String(message).includes('same key'))).toBe(
+    false
+  );
+});
+
+it('keeps a player-only account on individual activity', async () => {
+  render(<MemberManagementPage />);
+  await screen.findByRole('heading', { name: 'Activity', exact: true });
+  expect(screen.queryByRole('region', { name: 'Agent + Downline' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Downline Only' })).toBeNull();
 });

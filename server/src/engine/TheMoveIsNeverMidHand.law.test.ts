@@ -315,7 +315,8 @@ describe('D4 - an entry hold never outlives the deal that made it meaningless', 
   });
 
   it('clears a move on admission to the deal and preserves voluntary entry posting', () => {
-    // moved by the game: nothing owed. seat change: posts the BB.
+    // every move arrives 'moved': nothing owed (2026-11-15). A pre-existing
+    // agreed arrival row is still honoured once.
     expect(DEALING).toMatch(
       /for \(const p of players\) \{\s*if \(p\.entry_hold === 'moved'\)\s*this\.persistEntryHold\(p\.user_id, \{ hold: null, agreed: false \}\)/
     );

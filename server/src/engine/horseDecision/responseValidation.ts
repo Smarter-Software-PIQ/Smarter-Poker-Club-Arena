@@ -34,9 +34,84 @@ import {
   ploPairedBoardRiverMustCheck,
 } from '../HorsePloPairedBoardFold.js';
 import { callLargeRiverBoatWager } from '../HorseOmahaBigBetCalls.js';
+import {
+  OMAHA_RIVER_NUT_RAISE_VARIANTS,
+  omahaRiverNutRaiseOnly,
+} from '../HorseOmahaRiverNutRaise.js';
+import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
+import {
+  OMAHA_STREET_PLAN_VARIANTS,
+  omahaStreetPlanAdmitsCheck,
+  omahaStreetPlanFlopAdmitsCheck,
+  omahaStreetPlanThreeWayAdmitsCheck,
+} from '../HorseOmahaStreetPlan.js';
+import { omahaPricedSitesFlopBetSpot } from '../HorseOmahaPricedSites.js';
+import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
+import { huBalanceSpot } from '../HorseHeadsUpPostflopBalance.js';
+import {
+  OMAHA_RIVER_MEDIUM_BET_VARIANTS,
+  omahaRiverMediumBetCall,
+} from '../HorseOmahaRiverMediumBetCalls.js';
+import {
+  OMAHA_OOP_CHECK_VARIANTS,
+  omahaBareOverpairContAdmitsCall,
+  omahaOopCheckSpot,
+  omahaOopTurnFacingBetVerdict,
+} from '../HorseOmahaOopChecks.js';
+import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
+import { omahaPricedAdmitsRaiseToCall } from '../HorseOmahaPricedWiring.js';
+import {
+  OMAHA_CARD_IMPACT_VARIANTS,
+  omahaCardImpactCheckAdmissible,
+} from '../HorseOmahaCardImpact.js';
+import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
+import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
+import {
+  OMAHA_FACING_BET_EV_VARIANTS,
+  omahaFacingBetEvSpot,
+  omahaPlo6FacingBetEvFoldStands,
+} from '../HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_FLOP_FACING_BET_EV_VARIANTS,
+  omahaFlopFacingBetEvAdmitsCall,
+} from '../HorseOmahaFlopFacingBetEv.js';
+import {
+  OMAHA_MULTIWAY_DISCIPLINE_VARIANTS,
+  omahaMultiwayWeakHandSpot,
+  omahaRiverBluffIntoValueLeaderSpot,
+} from '../HorseOmahaMultiwayDiscipline.js';
+import {
+  OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
+  omahaRaiseNeedsNutsAdmitsCall,
+} from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
+import {
+  OMAHA_SLOWPLAY_VARIANTS,
+  omahaSlowplayAdmitsCall,
+  omahaSlowplayAdmitsCheckWithRequest,
+} from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
+import {
+  OMAHA_TOURNAMENT_SCOPE_ADMISSION,
+  withOmahaTournamentScope,
+} from '../HorseOmahaTournamentScope.js';
+import {
+  OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+  OMAHA_STRATEGY_PLO45,
+  omahaStrategyConstant,
+  omahaStrategyGameInScope,
+  omahaStrategyGameScopeOf,
+  withOmahaStrategyGameScope,
+} from '../HorseOmahaStrategyGame.js';
+import {
+  applyPlo6OmahaStrategyCalibration,
+  plo6OmahaStrategyCalibrationHeld,
+} from '../HorsePlo6StrategyCalibration.js';
+import { plo6RiverLiveFoldTest } from '../HorsePlo6PricingPort.js';
+import { STYLE_SWITCH_POLL_MS } from '../HorseStyleSwitch.js';
+import { optionSwitchDecisionOpts, parseOptionSwitchConfig } from '../HorseOptionSwitch.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -596,8 +671,14 @@ export function horsePhase8LedgerIsValid(value: unknown, decision: RecordValue):
  * the final action equal to the proposal. Acceptance-time fields stay unset.
  * A receipt retained before P10.3 carries no selection and claims no
  * authority, so it may not carry an applied candidate either.
+ * `verifiedGraph` must already have passed the full validator: see
+ * `variantSelectionWasSuperseded`.
  */
-export function horsePhase10SelectionIsValid(value: unknown, decision: RecordValue): boolean {
+export function horsePhase10SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
   if (value === undefined) return true;
   if (!record(value)) return false;
   const wager = (action: unknown) => action === 'bet' || action === 'raise';
@@ -629,13 +710,62 @@ export function horsePhase10SelectionIsValid(value: unknown, decision: RecordVal
   return (
     value.mode === 'candidate' &&
     value.changed === true &&
-    value.selection === 'selected' &&
     value.utilityOwner === 'cash' &&
     decision.action === value.proposalAction &&
-    decision.action === value.finalAction &&
-    (!wager(decision.action) ||
-      ((decision.amount ?? null) === value.proposalAmount &&
-        (decision.amount ?? null) === value.finalAmount))
+    (!wager(decision.action) || (decision.amount ?? null) === value.proposalAmount) &&
+    ((value.selection === 'selected' &&
+      decision.action === value.finalAction &&
+      (!wager(decision.action) || (decision.amount ?? null) === value.finalAmount)) ||
+      variantSelectionWasSuperseded(value, verifiedGraph))
+  );
+}
+
+/**
+ * PRECONDITION: `verifiedGraph` has already passed `policyGraphIsValid` inside
+ * `horseDecisionReceiptRefusal` (node order, contiguity, recomputed changed
+ * flags, final action bound to the executed action). This helper and the
+ * exported selection checks that call it do not validate the graph and are
+ * not a receipt judgment on their own.
+ */
+function variantSelectionWasSuperseded(
+  value: RecordValue,
+  verifiedGraph: HorsePolicyGraphReceipt | undefined
+): boolean {
+  if (!record(value) || value.selection !== 'shadow_change' || !verifiedGraph) return false;
+  const variant = verifiedGraph.transitions.find((t) => t.node === 'variant_policy');
+  if (
+    !variant?.before ||
+    variant.changed !== true ||
+    variant.before.action !== value.baselineAction ||
+    variant.before.amount !== value.baselineAmount ||
+    variant.after.action !== value.proposalAction ||
+    variant.after.amount !== value.proposalAmount ||
+    verifiedGraph.finalAction.action !== value.finalAction ||
+    verifiedGraph.finalAction.amount !== value.finalAmount
+  ) {
+    return false;
+  }
+  // The proposal must reach the final rule exactly as the variant stage left
+  // it, amount included. A call or check carries no sizing choice, so the
+  // caller compares its amount only for a bet or raise; without this an
+  // intermediate stage could rewrite a call's recorded price between the
+  // variant stage and the final rule and the selection would still be credited.
+  const finalRuleInput = (
+    verifiedGraph.transitions.find((t) => t.node === 'corrective_policy') ??
+    verifiedGraph.transitions.find((t) => t.node === 'wager_rules')
+  )?.before;
+  if (
+    !finalRuleInput ||
+    finalRuleInput.action !== variant.after.action ||
+    finalRuleInput.amount !== variant.after.amount
+  )
+    return false;
+  return verifiedGraph.transitions.some(
+    ({ node, changed, before, after }) =>
+      (node === 'corrective_policy' || node === 'wager_rules') &&
+      changed === true &&
+      before !== null &&
+      (before.action !== after.action || before.amount !== after.amount)
   );
 }
 
@@ -648,10 +778,24 @@ export function horsePhase10SelectionIsValid(value: unknown, decision: RecordVal
  * decision) and the final action equal to the proposal. Acceptance-time fields
  * stay unset. A receipt retained before P11.3 carries no selection and claims
  * no authority, so it may not carry an applied candidate either.
+ * `verifiedGraph` must already have passed the full validator: see
+ * `variantSelectionWasSuperseded`.
  */
-export function horsePhase11SelectionIsValid(value: unknown, decision: RecordValue): boolean {
-  return packSelectionIsValid(value, decision, (variant) =>
-    isOmahaPolicyVariant(variant) ? OMAHA_VARIANT_PACKS[variant].version : null
+export function horsePhase11SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
+  return packSelectionIsValid(
+    value,
+    decision,
+    (variant) => (isOmahaPolicyVariant(variant) ? OMAHA_VARIANT_PACKS[variant].version : null),
+    {
+      superseded:
+        record(value) &&
+        isOmahaPolicyVariant(value.variant) &&
+        variantSelectionWasSuperseded(value, verifiedGraph),
+    }
   );
 }
 
@@ -663,10 +807,25 @@ export function horsePhase11SelectionIsValid(value: unknown, decision: RecordVal
  * backs a Pineapple receipt, and no Phase 11 authority backs any), with the
  * final action equal to the proposal; acceptance-time fields unset; a
  * retained receipt claims nothing.
+ * `verifiedGraph` must already have passed the full validator: see
+ * `variantSelectionWasSuperseded`.
  */
-export function horsePhase12SelectionIsValid(value: unknown, decision: RecordValue): boolean {
-  return packSelectionIsValid(value, decision, (variant) =>
-    isRemainingPolicyVariant(variant) ? REMAINING_VARIANT_PACKS[variant].version : null
+export function horsePhase12SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
+  return packSelectionIsValid(
+    value,
+    decision,
+    (variant) =>
+      isRemainingPolicyVariant(variant) ? REMAINING_VARIANT_PACKS[variant].version : null,
+    {
+      superseded:
+        record(value) &&
+        isRemainingPolicyVariant(value.variant) &&
+        variantSelectionWasSuperseded(value, verifiedGraph),
+    }
   );
 }
 
@@ -841,6 +1000,25 @@ function phase7Selection(value: RecordValue): Pick<HorseDecision, 'action' | 'am
 export interface HorseDecisionReceiptContext {
   player: SeatPlayer;
   gameState: HorseGameStateV2;
+  /**
+   * PLO6 lane 2026-11-16: the decision's own omahaStrategyInPlo6 gate, read
+   * `=== true`. Only then is PLO6 admitted to the day's PLO4/PLO5 Omaha
+   * strategy admissions (each still re-run on the request), with the
+   * six-card constants in the accessor for the re-run. Absent or false (every
+   * caller that does not know the decision's options, and every decision
+   * today: the option is off-only), the validator is exactly as before.
+   */
+  omahaStrategyInPlo6?: boolean;
+  /**
+   * Owner 2026-11-17 11:49 (HorseOmahaPricedWiring): the decision's own
+   * omahaTurnRiverRaiseIsPriced or omahaBigBetCallsArePriced, read
+   * `=== true`. Only then is a PLO4/PLO5 cash turn or river raise that became
+   * the call (the priced comparison put the raise below it) admitted.
+   * Absent or false (every caller that does not know the decision's options,
+   * and every decision while both options are off), the validator is exactly
+   * as before.
+   */
+  omahaPricedRaise?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -888,7 +1066,117 @@ function boatRuleProducesCall(
   return result.action === 'call' && result.amount === after.amount;
 }
 
+// PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls, option
+// omahaRiverMediumBetStrongHandCalls): a PLO4/PLO5 cash river fold of two pair
+// or better facing a 40 to 70 percent pot opening bet becomes the call when
+// the price-based requirement is met. Re-run the pure rule on the original
+// worker request; the value-leader read only withholds the call (keeps chips
+// out), so the rule is re-run without it.
+function mediumBetRuleProducesCall(
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const result = omahaRiverMediumBetCall(
+    { action: 'fold', thinkTime: 0 },
+    context.player,
+    context.gameState,
+    true
+  );
+  return (
+    result.changed === 'called' &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
+// Dan 2026-11-14 (HorseOmahaRiverNutRaise): a PLO4/PLO5/PLO6 high river raise
+// or jam over a wager without the nuts becomes a call of that wager.
+// Recompute the rule's exact output from the original worker request.
+function riverNutRuleProducesCall(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const start = { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 };
+  const river = omahaRiverNutRaiseOnly(start, context.player, context.gameState, true);
+  // Dan 2026-11-14 (HorseOmahaMadeHandDefense rule 1): the turn half, a hand
+  // a possible straight or flush beats. The two rules never share a street.
+  const result =
+    river.changed !== null
+      ? river
+      : omahaBeatenNoRaise(start, context.player, context.gameState, true);
+  return (
+    result.changed === 'flatted' &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
+// Dan 2026-11-14 (HorseOmahaOnePair, option omahaOnePairDiscipline): a
+// PLO4/PLO5 one-pair river value bet becomes a check, and a one-pair raise
+// becomes a call. Re-run the rule on the original worker request; the
+// declared-bluff and over-bluffer exceptions only keep chips in, so the rule
+// is re-run without them (no bluff declared, every bettor read as an
+// over-bluffer, which leaves the river call standing).
+function onePairRuleProduces(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const start = { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 };
+  const result = omahaOnePairDiscipline(start, context.player, context.gameState, true, {
+    declaredBluff: false,
+    bettorOverBluffs: () => true,
+  });
+  if (result.changed === null) return false;
+  if (after.action === 'check')
+    return result.changed === 'river_value_bet_checked' && result.decision.action === 'check';
+  return (
+    (result.changed === 'river_value_raise_flatted' ||
+      result.changed === 'one_pair_raise_flatted') &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
+/**
+ * omahaStrategyInTournaments: the request carries neither the options nor the
+ * ICM inputs, so the admissions below re-run the day's Omaha spots with their
+ * public tournament scope admitted and no survival premium
+ * (OMAHA_TOURNAMENT_SCOPE_ADMISSION). The premium only removes chip-adding
+ * answers, so this admits every answer the rules can produce; in cash and
+ * outside the public scope every spot reads exactly as before.
+ */
 function policyGraphIsValid(
+  value: RecordValue,
+  expectedVariant?: string,
+  context?: HorseDecisionReceiptContext
+): boolean {
+  // PLO6 joins the day's admissions only for a decision whose own gate was
+  // on, known from the request (context.omahaStrategyInPlo6 === true). The
+  // rules are then re-run with the six-card constants the decision read. In
+  // both cases the accessor is set for this validation alone (gate off: no
+  // six-card value, whatever an earlier decision or validation left) and what
+  // it held before is put back afterwards (pre-review finding 6).
+  const plo6Gate = context?.omahaStrategyInPlo6 === true;
+  const heldBefore = plo6OmahaStrategyCalibrationHeld();
+  applyPlo6OmahaStrategyCalibration(plo6Gate);
+  try {
+    return withOmahaStrategyGameScope(
+      plo6Gate
+        ? omahaStrategyGameScopeOf({ omahaStrategyInPlo6: true })
+        : OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+      () =>
+        withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+          policyGraphIsValidInScope(value, expectedVariant, context)
+        )
+    );
+  } finally {
+    applyPlo6OmahaStrategyCalibration(heldBefore);
+  }
+}
+
+function policyGraphIsValidInScope(
   value: RecordValue,
   expectedVariant?: string,
   context?: HorseDecisionReceiptContext
@@ -994,6 +1282,21 @@ function policyGraphIsValid(
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
       plo6RiverCallIsPriced(transition.after, context);
+    // PLO6 lane 2026-11-15 (HorsePlo6MultiwayWeakBet, default-off option
+    // plo6NoMultiwayBetWithWeakMadeHand): a PLO6 flop or turn bet facing no
+    // wager against two or more live opponents with a weak made hand and no
+    // qualifying draw becomes a check. A check puts no chip in; when the
+    // request is known, only where the public spot, re-run on it, holds (the
+    // spot reads neither the option nor an opponent).
+    const plo6MultiwayWeakBetToCheck =
+      transition.node === 'wager_rules' &&
+      variant === 'plo6' &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          plo6MultiwayWeakBetSpot(context.player, context.gameState) !== null));
     // Dan 2026-11-06 (HorsePloPairedBoardFold.ploPairedBoardRiverMustCheck):
     // a PLO4/5/6 river bet or raise without a full house, on a board paired
     // by the turn after the horse's own turn bet was called, becomes a check.
@@ -1016,14 +1319,433 @@ function policyGraphIsValid(
           toCall: context.gameState.toCall,
           actionHistory: context.gameState.actionHistory,
         }));
+    // Like the boat rule below, it is admitted only with the request: the
+    // rule is re-run on it and must make the same call.
+    const omahaRiverNutRaiseToCall =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_NUT_RAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      riverNutRuleProducesCall(previous, transition.after, context);
+    // Dan 2026-11-14 (HorseOmahaMadeHandDefense rule 2): a bet with a hand a
+    // possible straight or flush beats becomes a check on the fresh card out
+    // of position, and on the river into an earlier street's bettor. A check
+    // puts no chip in; when the request is known, only where the rule's own
+    // test, re-run on it, says so (the paired-board river check's form).
+    const omahaBeatenBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_NUT_RAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaBeatenMustCheck(context.player, context.gameState) !== null));
+    // Dan 2026-11-14 (HorseOmahaOnePair): bet -> check and raise -> call,
+    // admitted only with the request, where the rule re-run on it agrees.
+    const omahaOnePairReduction =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      (transition.after.action === 'check' || transition.after.action === 'call') &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      // A check puts no chip in: without the request it is admitted like the
+      // paired-board river check; a call needs the request.
+      (context === undefined
+        ? transition.after.action === 'check'
+        : String(context.gameState.gameVariant).toLowerCase() === variant &&
+          onePairRuleProduces(previous, transition.after, context));
+    // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, option
+    // holdemHeadsUpPostflopBalance, default OFF): a heads-up in-position NLH
+    // cash bet becomes a check on a flop or turn checked to hero (its river
+    // part was removed after the solver score). Admit it only with the
+    // original request, where the rule's own public spot test agrees. A
+    // request-less receipt cannot establish the heads-up cash scope.
+    // Its flop fold to a check-raise that becomes a call is admitted only
+    // with the request, in that spot (the short all-in call floor's form).
+    const huBalanceSpotOfRequest =
+      context === undefined ? null : huBalanceSpot(context.player, context.gameState);
+    const huBalanceBetToCheck =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      previous.action === 'bet' &&
+      context !== undefined &&
+      (huBalanceSpotOfRequest === 'flop_cbet' || huBalanceSpotOfRequest === 'turn_checked_to');
+    const huBalanceFoldToCall =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      huBalanceSpotOfRequest === 'flop_vs_check_raise';
+    // PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls): fold ->
+    // call, admitted only with the request, where the rule re-run on it makes
+    // the same call. Its whole-stack form is an all-in, a wager action.
+    const omahaRiverMediumBetCalled =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_RIVER_MEDIUM_BET_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      mediumBetRuleProducesCall(transition.after, context) &&
+      // PLO6: the rule never calls a hand the live river fold rule folds; the
+      // same seeded test is re-run on the request (both board tests on: the
+      // request does not carry V58/V59).
+      !(variant === 'plo6' && plo6RiverLiveFoldTest(context.player, context.gameState));
+    // omahaFlopBetIsPriced (sites-013U37, default off): a bare big pair's flop
+    // bet with the betting lead becomes a check, in either position, when the
+    // check is priced above it. A check puts no chip in; when the request is
+    // known, only where the option's public spot, re-run on it, holds (the
+    // receipt context carries neither the options nor the opponent read).
+    const omahaPricedSiteFlopBetToCheck =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaPricedSitesFlopBetSpot(context.player, context.gameState)));
+    // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
+    // facing no wager becomes a check on the flop out of position with a bare
+    // pair, on the turn after the flop bet was called, and on a paired river
+    // into a caller. A check puts no chip in; when the request is known, only
+    // where one of the public spots, re-run on it, holds (the receipt
+    // context carries neither the options nor the opponent read).
+    const omahaOopBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaOopCheckSpot(
+            context.player,
+            context.gameState,
+            previous.action === 'bet' ? (previous.amount ?? undefined) : undefined
+          )));
+    // Owner 2026-11-15 12:09 (omahaOopTurnCheckAfterFlopCall, default off): out
+    // of position on the turn, having checked and facing a bet, a raise or a
+    // fold becomes a call. Admitted only with the request, where the rule's
+    // own verdict, re-run on it, allows that call: a fold becomes a call only
+    // on the nut-draw verdict, a raise on either non-fold verdict. (Its fold
+    // is admitted by the paired-board fold's form above.)
+    const oopTurnVerdict =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant
+        ? omahaOopTurnFacingBetVerdict(context.player, context.gameState)
+        : null;
+    const omahaOopTurnToCall =
+      oopTurnVerdict === 'call_nut_draw' ||
+      (oopTurnVerdict === 'no_raise' && previous !== null && previous.action !== 'fold');
+    // omahaBareOverpairOopFlopCheck, the continuation (2026-11-15, default
+    // off): heads-up on the flop, having checked the bare pair out of
+    // position and facing a bet, a fold or a raise becomes a call when the
+    // expected value of the call clears its margin. The verdict reads the
+    // opponent memory, which the request does not carry, so the call is
+    // admitted only with the request, only in the spot the rule covers and
+    // only for the exact chips of the call (the whole-stack call is outside
+    // the rule). Its fold is the paired-board fold's form above.
+    const omahaBareOverpairContToCall =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBareOverpairContAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 11:41 (HorseOmahaCardImpact, default-off option): a
+    // heads-up turn or river bet facing no wager becomes a check when the
+    // check is worth more against the opponent's range. A check puts no chip
+    // in; when the request is known, only inside the option's public scope
+    // and with a hand that is not nut class (the receipt context carries
+    // neither the options nor the opponent read).
+    const omahaCardImpactBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_CARD_IMPACT_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaCardImpactCheckAdmissible(context.player, context.gameState)));
+    // Owner 2026-11-15 (HorseOmahaFacingBetEv, option omahaFacingBetEv): in
+    // PLO4/PLO5 cash on the turn and the river a fold facing a bet becomes the
+    // call when the expected value of the call clears its margin (the reverse,
+    // call to fold, is the fold admission above). The verdict reads the
+    // opponent memory, which the request does not carry, so the fold -> call
+    // is admitted only with the request, only in the spot the rule covers and
+    // only for the exact chips the call puts in. Its whole-stack form is an
+    // all-in, a wager action.
+    const omahaFacingBetEvCalled =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (() => {
+        const spot = omahaFacingBetEvSpot(context.player, context.gameState);
+        if (spot === null || spot.allIn || spot.paid !== transition.after.amount) return false;
+        // PLO6 (six cards): the rule's own guard is pure, so it is re-run on
+        // the request: where the river fold test stands the rule cannot have
+        // called, and an uncountable six-card hand is not admitted either.
+        // (Both tests on: the request does not carry V58/V59.) The rule also
+        // never calls a hand the live river fold rule folds: that seeded
+        // test is re-run on the request too.
+        if (variant === 'plo6')
+          return (
+            omahaPlo6FacingBetEvFoldStands(
+              spot,
+              context.player.cards ?? [],
+              context.gameState.communityCards ?? [],
+              context.player.knownDeadCards ?? []
+            ) === false && !plo6RiverLiveFoldTest(context.player, context.gameState)
+          );
+        return true;
+      })();
+    // PLO Strategy lane 2026-11-17 (HorseOmahaFlopFacingBetEv, option
+    // omahaFlopFacingBetEv): on the PLO4/PLO5 cash flop a fold facing a bet
+    // becomes the call when the expected value of the call clears its margin;
+    // the fold may be the paired-board fold of a raise, so the node may have
+    // entered as a raise (the reverse, call to fold, is the fold admission
+    // above). The verdict reads the opponent memory, which the request does
+    // not carry, so the call is admitted only with the request, only in the
+    // flop spot the rule covers and only for the exact chips the call puts
+    // in. Its whole-stack form is an all-in, a wager action.
+    const omahaFlopFacingBetEvCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
+    // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
+    // river a raise facing a wager with a hand that is not nut class becomes
+    // a call or a fold (the fold is the paired-board fold's form above). The
+    // call is priced on the opponent memory, which the request does not
+    // carry, so raise -> call is admitted only with the request, only where
+    // the rule, re-run on it, would not keep the raise, and only for the
+    // exact chips the call puts in (the whole-stack call is an all-in).
+    const omahaRaiseNeedsNutsCalled =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_RAISE_NEEDS_NUTS_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      // the node entered as a fold when an owner inside it raised from a fold
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-17 11:49 (HorseOmahaPricedWiring, options
+    // omahaTurnRiverRaiseIsPriced and omahaBigBetCallsArePriced): on the
+    // PLO4/PLO5 cash turn and river a raise that is not priced above the call
+    // becomes the call. The price is taken on the opponent memory, which the
+    // request does not carry, so raise -> call is admitted only with the
+    // request, only in that scope with a hand that is not nut class (the
+    // rule keeps a nut-class raise), only for the exact chips of the call,
+    // and only for a decision whose own priced-raise option was on
+    // (context.omahaPricedRaise, omahaPricedRaiseGateCandidates).
+    const omahaPricedRaiseCalled =
+      context?.omahaPricedRaise === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPricedAdmitsRaiseToCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
+    // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
+    // with a nut-class hand becomes a call at a mixed frequency. The draw and
+    // the opponent read are not in the request, so raise -> call is admitted
+    // only with the request, only in the mix's public spot with a hand that
+    // is nut class there, and only for the exact chips of the call.
+    const omahaSlowplayCalled =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaSlowplayAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // The same option, the flop: a bet with a set on a very dry flop becomes
+    // a check at a mixed frequency. Admitted only with the request, only in
+    // the mix's spot re-run on it (the flop, nothing to call, one or two
+    // opponents, a set, three suits and three ranks at least five apart).
+    // With no request this admission admits nothing (review note N2,
+    // 2026-11-16); the older bet -> check admissions above keep their own
+    // no-request form (a check puts no chip in), unchanged here.
+    const omahaSlowplayBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      previous.action === 'bet' &&
+      omahaSlowplayAdmitsCheckWithRequest(variant, context);
+    // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
+    // heads-up turn bet facing no wager becomes a check when the plan prices
+    // the check line higher. A check puts no chip in; when the request is
+    // known, only where the plan, re-run on it with the tendency multipliers
+    // the decision records and the facing-bet veto at its strongest, prices
+    // the check above the bet (the receipt context carries neither the
+    // option nor the opponent read).
+    const omahaStreetPlanBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaStreetPlanAdmitsCheck(
+            context.player,
+            context.gameState,
+            previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+            value.streetPlan
+          )));
+    // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, options omahaStreetPlanFlop
+    // and omahaStreetPlanThreeWay, default off): a heads-up flop bet, or a
+    // turn bet with exactly two live opponents, facing no wager becomes a
+    // check under the plan. Admitted only with the request, only where the
+    // plan re-run on it with the multipliers the decision records gives the
+    // check (neither layer has a facing-bet seam, so the re-run is the
+    // decision's own verdict). With no request it admits nothing.
+    const omahaStreetPlanLayerBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (omahaStreetPlanFlopAdmitsCheck(
+        context.player,
+        context.gameState,
+        previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+        value.streetPlan
+      ) ||
+        omahaStreetPlanThreeWayAdmitsCheck(
+          context.player,
+          context.gameState,
+          previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+          value.streetPlan
+        ));
+    // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, options
+    // omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
+    // position or from early position with a hand outside the capped range
+    // becomes a call. Admitted only with the request, where the rule re-run
+    // on it turns the raise into a call of the same amount.
+    const omahaReraiseToCall =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
+    // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
+    // more preflop, a fold or a re-raise becomes a call when the expected
+    // value of the call is the largest. The verdict reads the opponent
+    // memory, which the request does not carry, so the call is admitted only
+    // with the request, only in the preflop spot the rule covers and only for
+    // the exact chips the call puts in. (Its fold is the fold admission
+    // above; the whole-stack call is an all-in, a wager action.)
+    const omahaPreflopReraiseDefenceCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPreflopReraiseDefenceAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
+    // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
+    // draw out of position, or in position with a bare flush draw, becomes a
+    // call. Admitted only with the request, where the bar re-run on it agrees.
+    const omahaDrawRaiseToCall =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaDrawRaiseBarOf(context.player, context.gameState) !== null;
+    // 2026-11-16 (HorseOmahaMultiwayDiscipline, options
+    // omahaNoRiverBluffIntoValueLeader and omahaMultiwayWeakHandNoBet, default
+    // off): a turn or river bet facing no wager becomes a check. A check puts
+    // no chip in; when the request is known, only where one of the two public
+    // spots, re-run on it, holds (the receipt context carries neither the
+    // options nor the opponent read).
+    const omahaDisciplineBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_MULTIWAY_DISCIPLINE_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          (omahaRiverBluffIntoValueLeaderSpot(context.player, context.gameState) !== null ||
+            omahaMultiwayWeakHandSpot(context.player, context.gameState) !== null)));
     if (
       transition.node === 'wager_rules' &&
       changed &&
+      !omahaDisciplineBetToCheck &&
+      !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
+      !huBalanceBetToCheck &&
+      !huBalanceFoldToCall &&
+      !omahaRiverMediumBetCalled &&
+      !omahaCardImpactBetToCheck &&
+      !omahaFacingBetEvCalled &&
+      !omahaFlopFacingBetEvCalled &&
+      !omahaRaiseNeedsNutsCalled &&
+      !omahaPricedRaiseCalled &&
+      !omahaSlowplayCalled &&
+      !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&
+      !omahaBeatenBetToCheck &&
+      !omahaOopBetToCheck &&
+      !omahaPricedSiteFlopBetToCheck &&
+      !omahaOopTurnToCall &&
+      !omahaBareOverpairContToCall &&
+      !omahaStreetPlanBetToCheck &&
+      !omahaStreetPlanLayerBetToCheck &&
+      !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
+      !plo6MultiwayWeakBetToCheck &&
+      !omahaRiverNutRaiseToCall &&
+      !omahaReraiseToCall &&
+      !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&
@@ -1049,6 +1771,199 @@ function policyGraphIsValid(
 }
 
 /** Finite refusal names only: no player identity, cards or raw receipt data. */
+/**
+ * The omahaStrategyInPlo6 values the worker may have run this decision with
+ * (PLO6 lane 2026-11-16). The live option switch delivers its value inside
+ * the worker, after the request was built, so the request's own option is not
+ * always the effective one. `switchConfig` is the configuration the main
+ * thread last delivered to that worker (the database answer as read; null or
+ * undefined when none was delivered or the read failed).
+ *  - No valid row for the option: the request's own value, alone.
+ *  - A row: the row's value first (on is never returned for an off-only
+ *    option: optionSwitchDecisionOpts), then the request's own value when it
+ *    differs, because a worker whose delivered configuration has aged out
+ *    runs the release default, which is the request's value.
+ * The validator admits the decision when it is valid under one of them
+ * (horseDecisionReceiptRefusalForPlo6Gates).
+ */
+export function omahaStrategyInPlo6GateCandidates(
+  requestOpts: { omahaStrategyInPlo6?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.omahaStrategyInPlo6 === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states).omahaStrategyInPlo6 : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  // The effective value first: the row last delivered, else the request's own.
+  add(switchedOf(switchConfig));
+  add(own);
+  // The configuration delivered before the last change, while the worker may
+  // still be deciding under it (deliveredSwitchConfigsNote / InForce).
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
+ * What a worker was handed, with the configuration it held before the last
+ * change (pre-review 2 finding 1). The worker reads its inbox at most once
+ * per STYLE_SWITCH_POLL_MS, so for one poll interval after a changed
+ * delivery it may still decide under the previous configuration; a decision
+ * made then is validated under that one as well. `previousUntilMs` is the
+ * clock time until which `previous` counts.
+ */
+export interface DeliveredSwitchConfigs {
+  current: unknown;
+  previous: unknown;
+  previousUntilMs: number;
+}
+
+export const DELIVERED_SWITCH_CONFIGS_NONE: DeliveredSwitchConfigs = Object.freeze({
+  current: null,
+  previous: undefined,
+  previousUntilMs: 0,
+});
+
+const sameSwitchConfig = (a: unknown, b: unknown): boolean => {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+};
+
+/** A delivery: an unchanged configuration keeps the state; a changed one keeps the old as previous for one poll interval. */
+export function deliveredSwitchConfigsNote(
+  state: DeliveredSwitchConfigs,
+  config: unknown,
+  nowMs: number,
+  pollMs: number = STYLE_SWITCH_POLL_MS
+): DeliveredSwitchConfigs {
+  if (sameSwitchConfig(state.current, config)) return state;
+  return { current: config, previous: state.current, previousUntilMs: nowMs + pollMs };
+}
+
+/** The previous configuration while it still counts, else undefined. */
+export function deliveredSwitchConfigsPrevious(
+  state: DeliveredSwitchConfigs,
+  nowMs: number
+): unknown {
+  return nowMs <= state.previousUntilMs ? state.previous : undefined;
+}
+
+/**
+ * horseDecisionReceiptRefusal under each candidate gate: null as soon as one
+ * admits the decision, else the refusal under the first (the effective one).
+ */
+export function horseDecisionReceiptRefusalForPlo6Gates(
+  value: unknown,
+  expectedVariant: string | undefined,
+  context: Omit<HorseDecisionReceiptContext, 'omahaStrategyInPlo6'>,
+  gates: readonly boolean[]
+): string | null {
+  let first: string | null = null;
+  let seen = false;
+  for (const gate of gates.length > 0 ? gates : [false]) {
+    const refusal = horseDecisionReceiptRefusal(value, expectedVariant, {
+      ...context,
+      ...(gate ? { omahaStrategyInPlo6: true } : {}),
+    });
+    if (refusal === null) return null;
+    if (!seen) {
+      first = refusal;
+      seen = true;
+    }
+  }
+  return first;
+}
+
+/** The two options whose raise -> call the validator admits (context.omahaPricedRaise). */
+export const OMAHA_PRICED_RAISE_GATE_OPTIONS = Object.freeze([
+  'omahaTurnRiverRaiseIsPriced',
+  'omahaBigBetCallsArePriced',
+] as const);
+const omahaPricedRaiseGateOf = (
+  opts: Readonly<Record<string, unknown>> | null | undefined
+): boolean => OMAHA_PRICED_RAISE_GATE_OPTIONS.some((name) => opts?.[name] === true);
+
+/**
+ * The omahaPricedRaise values the worker may have run this decision with,
+ * built exactly as omahaStrategyInPlo6GateCandidates: the live switch row
+ * this client last delivered (either option on), then the request's own
+ * options when they differ, then the configuration delivered before the last
+ * change while it still counts. A switch row that does not name the options
+ * leaves the request's own value.
+ */
+export function omahaPricedRaiseGateCandidates(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = omahaPricedRaiseGateOf(requestOpts);
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      if (!parsed.ok) return undefined;
+      const switched = optionSwitchDecisionOpts(parsed.states);
+      if (OMAHA_PRICED_RAISE_GATE_OPTIONS.every((name) => switched[name] === undefined))
+        return undefined;
+      // A row names one option; the other keeps the request's own value.
+      return OMAHA_PRICED_RAISE_GATE_OPTIONS.some((name) =>
+        switched[name] === undefined ? requestOpts?.[name] === true : switched[name] === true
+      );
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
+ * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
+ * gate as well: null as soon as one pair of gates admits the decision, else
+ * the refusal under the first (the effective one).
+ */
+export function horseDecisionReceiptRefusalForGates(
+  value: unknown,
+  expectedVariant: string | undefined,
+  context: Omit<HorseDecisionReceiptContext, 'omahaStrategyInPlo6' | 'omahaPricedRaise'>,
+  plo6Gates: readonly boolean[],
+  pricedRaiseGates: readonly boolean[]
+): string | null {
+  let first: string | null = null;
+  let seen = false;
+  for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+    const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+      value,
+      expectedVariant,
+      { ...context, ...(gate ? { omahaPricedRaise: true } : {}) },
+      plo6Gates
+    );
+    if (refusal === null) return null;
+    if (!seen) {
+      first = refusal;
+      seen = true;
+    }
+  }
+  return first;
+}
+
 export function horseDecisionReceiptRefusal(
   value: unknown,
   expectedVariant?: string,
@@ -1137,14 +2052,15 @@ export function horseDecisionReceiptRefusal(
     return 'phase8_guard_ledger';
   if (value.plo4Policy !== undefined && !plo4LiveReceiptBindingIsValid(value.plo4Policy))
     return 'phase10_binding';
-  if (!horsePhase10SelectionIsValid(value.plo4Policy, selected)) return 'phase10_selection';
+  if (!horsePhase10SelectionIsValid(value.plo4Policy, selected, graph)) return 'phase10_selection';
   // P11.1: a Phase 11 receipt's input binding is shape-checked at the boundary.
   if (
     value.omahaVariantPolicy !== undefined &&
     !omahaVariantReceiptBindingIsValid(value.omahaVariantPolicy)
   )
     return 'phase11_binding';
-  if (!horsePhase11SelectionIsValid(value.omahaVariantPolicy, selected)) return 'phase11_selection';
+  if (!horsePhase11SelectionIsValid(value.omahaVariantPolicy, selected, graph))
+    return 'phase11_selection';
   // P12.1: a Phase 12 receipt's bindings (inputs, and the P12-B net-action
   // economics) are re-checked at the boundary.
   if (
@@ -1152,7 +2068,7 @@ export function horseDecisionReceiptRefusal(
     !remainingVariantReceiptBindingIsValid(value.remainingVariantPolicy)
   )
     return 'phase12_binding';
-  if (!horsePhase12SelectionIsValid(value.remainingVariantPolicy, selected))
+  if (!horsePhase12SelectionIsValid(value.remainingVariantPolicy, selected, graph))
     return 'phase12_selection';
   // P13.1: a Phase 13 receipt's input binding, pack versions and selection
   // refusal are re-checked at the boundary.

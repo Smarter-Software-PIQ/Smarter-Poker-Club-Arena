@@ -12,6 +12,8 @@ vi.mock('../services/supabase.js', async () => ({
 }));
 vi.mock('../services/supabase/nitGame.js', () => ({
   collectNitStatus: (...args: unknown[]) => mocks.nitStatus(...args),
+  // The dealing loop calls the enforcement (warn, then boot) since 2026-11-10.
+  collectNitEnforce: (...args: unknown[]) => mocks.nitEvictions(...args),
   collectNitEvictions: (...args: unknown[]) => mocks.nitEvictions(...args),
 }));
 const { ServerTableEngine } = await import('./ServerTableEngine.js');
@@ -38,6 +40,9 @@ function engine() {
     forget: vi.fn(),
     markBlindOff: vi.fn(),
     leaveLock: vi.fn(() => ({ locked: false, remainingMs: 0, handsRemaining: 0 })),
+    // The mirror already holds this seat's session (no first database read).
+    row: vi.fn(() => ({ hands_required: 0, hands_played: 0 })),
+    evaluate: vi.fn(async () => []),
   };
   e.hub = { emitEvent: vi.fn() };
   e.handController = null;

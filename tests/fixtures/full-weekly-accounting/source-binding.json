@@ -1,4 +1,42 @@
 {
+  "noticeCashoutClientAudit20261117": {
+    "reason": "Reviewed cashout fixture changes for 2000-character notes, authoritative queue capabilities, Notice Board escalation, club-bank receipts and concurrent second-request invalidation. Existing private receipt and financial safeguards remain asserted. Current source identities only; no historical certificate restamp.",
+    "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final service, scope and own-event group 192 passed, including UPDATE revocation and strict escalation envelope refusals. Application compiler and Vite passed; final provenance required integration of concurrent main and a subsequent exact build.",
+    "changes": [
+      {
+        "path": "tests/cashout-escrow-flow.test.ts",
+        "previousSHA256": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+        "currentSHA256": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf"
+      },
+      {
+        "path": "tests/components/agent-cashout-scope.test.tsx",
+        "previousSHA256": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
+        "currentSHA256": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a"
+      },
+      {
+        "path": "tests/components/cashier-cashout-generations.test.tsx",
+        "previousSHA256": "76b23adae9c6c1d392b3a67e6ac3b217c4a76b2a9c23f5af7eb4d4a672d28cc2",
+        "currentSHA256": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc"
+      },
+      {
+        "path": "tests/components/cashout-own-event-acknowledgment.test.tsx",
+        "previousSHA256": "33a8d5ca4991d9412e3d14945ef5baad45a9f12bde77cdf66c3cd7c70a44a123",
+        "currentSHA256": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a"
+      },
+      {
+        "path": "tests/config/roleScopedCashier.test.ts",
+        "previousSHA256": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
+        "currentSHA256": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074"
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "previousSHA256": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
+        "currentSHA256": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "deterministicBootstrapClubIds20261107": {
     "reason": "Reviewed fixture-only repair after required accounting shard 6 collided on random club ID 62538: the four union-weekly bootstrap clubs now supply deterministic distinct five-digit IDs 99101, 99102, 99104, 99203. UUIDs, captured financial schema/defaults, source authority bodies, money values and assertions are unchanged. Refresh only these current composed input identities.",
     "verification": "Unchanged scripts/dev/test-union-weekly-basis.py passed on a fresh private PostgreSQL 17.11 cluster: exit 0 and 94 PASS labels; cluster shutdown verified. No additional composed native suite was rerun.",
@@ -292,17 +330,17 @@
     "tests/fixtures/credit-request-authority/captured-name-catalog.json": "d7e65573b95e9983da7bf3c747467ca2e4de42b757c261f02fb18169318edb3c",
     "tests/fixtures/credit-request-authority/captured-preimages.sql": "1e2dad53a20cc0c80c0e4a6c71160e1a366bdead956d6303772dce7260aa99de",
     "tests/fixtures/credit-request-authority/regression.sql": "cfddf809c701bdc9b43c71392ba1d130fe9275489670bffabef94ecb38e9e86a",
-    "tests/credit-admin-data.test.ts": "4a0314b6d67b26952d6a7836fffebe9239349c53474f4ff034f6e7eff2049bcf",
-    "tests/credit-admin-panel-scope.test.tsx": "1f6bc078af417542917561e2667dde60fff236eaaffee07f7591170f7bfc42b4",
-    "tests/credit-request-widget-scope.test.tsx": "45ad84f004fe5fd39fcb8affa7a6c0f16c5782335966f4c01728305de8cd126d",
+    "tests/credit-admin-data.test.ts": "47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f",
+    "tests/credit-admin-panel-scope.test.tsx": "a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac",
+    "tests/credit-request-widget-scope.test.tsx": "6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330",
     "tests/super-agent-credit-routing.test.tsx": "0741030aba402bac0adda0a47f95679981789d3fa873e0fc09f5c5f503261580",
     "tests/unit/CreditRequestAuthority.test.ts": "0dce14c178ef4f5bd8f8a2aa794cfc8f76fec4fe3207e0882add16e162abb821",
     "tests/unit/CreditRequestLegacyCaller.test.ts": "ef6f8458a54ce3b5e646d831c176f279456e8f59598616e20dbb3a9dbc7f2e7b",
     "tests/unit/CreditRequestService.test.ts": "47bc48d13b54901999a6a58b36a93edb79e4f2d057427a4a6d622ff009d7c0c3",
-    "tests/components/agent-cashout-scope.test.tsx": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
-    "tests/unit/CashoutService.test.ts": "528149522222b33c55598df5b1ece548928b27f364241c5912ff3b1b05c01449",
-    "tests/config/roleScopedCashier.test.ts": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
-    "tests/cashout-escrow-flow.test.ts": "08c3b2ed491fad0fb4673779f5ff863452e2a9bd6cf617955a3d4d36f2c534c6",
+    "tests/components/agent-cashout-scope.test.tsx": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a",
+    "tests/unit/CashoutService.test.ts": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232",
+    "tests/config/roleScopedCashier.test.ts": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074",
+    "tests/cashout-escrow-flow.test.ts": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf",
     "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": "edef6d6318f142277069de1fead9cbfe8ea732cc5d774987d8f4894bdc06807f",
     "tests/fixtures/cashier-document-authority/captured-preimages.sql": "1219fa1b0c4ab26bf155f3c58d3f4c7f5fd108940c1780c5047f61d88727412a",
     "tests/unit/leaveClubReleasesEscrow.test.ts": "4faed6fab4a8eac765219b794e555edf9186064bc19b7ba02c8bc9f0572c1fca",
@@ -311,7 +349,7 @@
     "tests/fixtures/cashier-document-authority/captured-manual-writers.json": "70645c393822b197621f4f8ff7313deb99578c33b21c76850fe9422ef5d4c484",
     "tests/helpers/cashoutV2Receipt.ts": "db760aae934fbae5c3b14c5e1bd5ca2011bf9a1dd7d0f294d90684e9ff18d20a",
     "tests/components/agent-dashboard-durable-transfers.test.tsx": "10a6ac5cd00135fe4d6466c17a8508d6d5901fadf6ff5ce8591f66d94391221b",
-    "tests/unit/CashoutRequestModal.test.tsx": "1b7d7953511424b486ddf4106102051ab63a0c4db191e527a3470ca6b975d486",
+    "tests/unit/CashoutRequestModal.test.tsx": "4fb4bf2887dfea6aa387de9dea9af3d8f33cf79a1864ae0c8af42e46190c321d",
     "tests/fixtures/cashier-document-authority/README.md": "fe65d50c5ed2aa2507e0ed8cc1149c4c9dbcc12d55cca1822352c4aa05ec8580",
     "tests/fixtures/cashier-document-authority/captured-cashier-catalog.json": "4037cbccb52b206a4f1a1b158b055cb7cc8819cd14241d0becb74127819328c2",
     "tests/unit/CashoutOperation.test.ts": "ae28da4c627e0ecf78a3d8308f0ce0316d8f34be31efa2d486f86abd989957ea",
@@ -321,9 +359,9 @@
     "tests/fixtures/correction-document-authority/captured-references.json": "60b794f91a5d726c9302856a220b193eae52fbd95dc1e15ad4b95b312b092479",
     "tests/fixtures/correction-document-authority/captured-union-party.json": "9bc97fef36c4e3e3ec2766cb3596764513bb20fd8bce78e5fa1ee87337bb86f7",
     "tests/fixtures/correction-document-authority/regression.sql": "f70b287534ee6024469629a18fd38cb4074f528e906808c5bf6ebdb1464091f1",
-    "tests/cashier-weekly-statements.test.tsx": "dc2c3cb202c4119f3828f4ac68865e31e8f52874cdecb154bf8832491202bac2",
+    "tests/cashier-weekly-statements.test.tsx": "9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a",
     "tests/helpers/clubWeeklyStatement.ts": "7061277bbc67933e1aba5bcd76ebd3cd4fec241ffe9545c39e0b0f10806b2d21",
-    "tests/unit/ClubWeeklyAccountingReader.test.ts": "6be8e7def307a8363525ac7eb3600674f5d35f9524304cdd9770e77ab0c45856",
+    "tests/unit/ClubWeeklyAccountingReader.test.ts": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063",
     "tests/unit/FinancialExportService.test.ts": "a3870a8c151e21c7917687b6953dcd3d51cf82cc03071c655674111ad9556c16",
     "tests/fixtures/browser-period-observer/README.md": "43b9b9f94e8ddd1cc01bcd1d635995d196ea4f1cfafa6d35233761bb84a91da0",
     "tests/fixtures/browser-period-observer/captured-dependencies.json": "c9874b776f79b4636dffeee5f1046910093e2f36ae1208a95cd2bcb98f530ae3",
@@ -338,12 +376,12 @@
     "tests/unit/SettlementService.test.ts": "92390199785906650508d16eea99372e24a6451dd8cd9d108679381ed1ca936d",
     "tests/unit/useUnionStore.test.ts": "3b3f59aca73ce2c20fad59c82e23dfa9c4aaef4b22fdff9ab3295b379e593268",
     "tests/unit/anApprovalCanBeRetried.test.ts": "e4364e4b911ccea5161b870eae3f61c62a0a47aace36a56ced56079d2dbd3506",
-    "tests/components/UnionAccountingRunStatus.test.tsx": "31c23688aff53a097e1b71717aeeb46893b63639b97cd62f36d0eab40cb60717",
-    "tests/components/WeeklyAccountingWorkspace.test.tsx": "3fa2ec057866093383ec05539ac3a60de8cec52abfee780d2491ead8894f5be7",
+    "tests/components/UnionAccountingRunStatus.test.tsx": "1d782fa78bc52918a2fdf48ec3c6d76e38f9d3a602c33c411b25e874344358b5",
+    "tests/components/WeeklyAccountingWorkspace.test.tsx": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23",
     "tests/helpers/accountingObservation.ts": "9dba06d97c2f9cce2356fa8c6800ff9a07e4618ea2028370a278b4820b6199f6",
     "tests/components/FinancialAlertsExport.test.tsx": "8863dfb7e552fdf23d4e8e00eefce37b16f3cfbf1eb1858f9db9274b1f987d80",
-    "tests/components/cashier-cashout-generations.test.tsx": "cbd357251d4c3ce5fddff8ec1b5716866b2f3323c7e17e8b6bffd345a68401c8",
-    "tests/components/cashout-own-event-acknowledgment.test.tsx": "75c66b74dee7cf90e92e48796aa46ee21253cc8ac949d77346c8d2089bee4723",
+    "tests/components/cashier-cashout-generations.test.tsx": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc",
+    "tests/components/cashout-own-event-acknowledgment.test.tsx": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a",
     "tests/unit/FinancialAlertServiceRead.test.ts": "2e9f47a08edbc96afb48d026dbec4fdf55b12a07bcb1f8cbc924af3b13ff4934",
     "tests/unit/discardedErrorReadRatchet.test.ts": "79deae1f4f7751b8544ba0fa28e0e72e851a6759f90d423a367620fc3beae912",
     "tests/fixtures/correction-writer-authority/README.md": "9ac3f0c9954e25e93d357df32611e4cc08dd40d6b7a81df68537481a27c1a4b2",
@@ -585,7 +623,7 @@
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "26ace3118e408c7de3c90903670c411a592b59c5f56fcedb636b45d1981d5fd1",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "56f43ea4e3734f0384e04deb5a183ae712578248eba8b27bf6b9b0a4cd7bd27a",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -603,7 +641,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "8cea2c70e9354c17eebc24031d5d226d42d8faca86364296e6456f6d67cff86d",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "30cb4dad7879559f2d34cc5e03f84a5e153c43e52f1cd8494e929d4f8879e124",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -643,7 +681,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "898ac8345eb7a529324bc7685a1724aeeb52961b6578cae4c5d7d94b2814eb1c",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "d3c07573e9aac996749c4b426121ff2e43840bf17f34b80b3213788f7378d8ef",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -654,9 +692,9 @@
     "scripts/ci/fixtures/commission-club-history-preimages.json": "01da8ddb15727b8633502054e55728b12884876649827a3f1a527602eb20bb73",
     "supabase/migrations/20261020163005_weekly_commission_journals_keep_their_original_club.sql": "cadf718948311b4c88cbacb3072abcd45863291ed1eae8180b56e233c0ab30a4",
     "scripts/ci/test-commission-club-history-postgres.py": "599055bb43ca0137bdde9c9d60dca9a4e8c6f1cf729ff849190ca74ff90b8bf3",
-    "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
+    "scripts/qualification/ci-admission-inputs.json": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8"
+    "scripts/qualification/ci-accounting-inputs.json": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1892,6 +1930,17 @@
     "verification": "PG_BIN=postgresql@17 scripts/dev/test-union-weekly-basis.py: 74 PASS steps, 0 failures, including club-floor-run-journal, club-floor-behaviour-seed and club-floor-behaviour-regression (20 assertions). Red control on the same stack, reverting only the three GREATEST clamps of 20260920232503 in the running coordinator: 5 of those 20 assertions fail - the below-floor club week is re-attempted, the first week above the floor is neither reached nor completed, and the club whose earlier week succeeded no longer reaches its next due week."
   },
   "restamp_audit": [
+    {
+      "on": "2026-11-17",
+      "why": "Reviewed the new StrictMode cashout-open coverage for on-demand promo reads. The original cashier receipt and monetary assertions remain in the suite. This records only the client fixture source change.",
+      "sourceBindingDependencies": [
+        {
+          "file": "tests/unit/CashoutRequestModal.test.tsx",
+          "from": "a1d8612dafd857ec2b2db5caca7c1bcf75ce2972d773571c085877574febc991",
+          "to": "4fb4bf2887dfea6aa387de9dea9af3d8f33cf79a1864ae0c8af42e46190c321d"
+        }
+      ]
+    },
     {
       "on": "2026-11-02",
       "file": "tests/unit/fixtureNativeCi.test.ts",
@@ -8376,6 +8425,341 @@
         "file": "tests/fixtures/sep8-spin-custody/source-binding.json",
         "previousSha256": "c6432673e39d85069f7b8779608390ecdc2b0d165ddf0641f28d678a622cbe76",
         "sha256": "8cea2c70e9354c17eebc24031d5d226d42d8faca86364296e6456f6d67cff86d"
+      }
+    ]
+  },
+  "mergeQueueMergeGroupTrigger20261111": {
+    "reason": "Merge queue (2026-11-11, owner-approved): ci.yml gains the merge_group trigger and every pull-request-gated job, including accounting_postgres and changes, also runs on the queued merge group with that group's base/head SHA. The accounting projection was regenerated with qualification-input-projections.py --write; its diff is only the trigger and those event/SHA expressions. No financial source, command, assertion, budget, historical result, installation or live certification changed.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8",
+        "currentSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "898ac8345eb7a529324bc7685a1724aeeb52961b6578cae4c5d7d94b2814eb1c",
+        "currentSHA256": "725d5fcbec782caa283bb18a6a5d9a9873f5fbb27f253c17a5a57c45540c8108"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "26ace3118e408c7de3c90903670c411a592b59c5f56fcedb636b45d1981d5fd1",
+        "currentSHA256": "63dd35827e38473540b2e4c8fdca92c93a2d205e4d2bc845b5e30a5f9771270d"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "8cea2c70e9354c17eebc24031d5d226d42d8faca86364296e6456f6d67cff86d",
+        "currentSHA256": "1e8308854bbc61f2ea2a1abd6b81f79ef97c128f4feefcf5937035830aaeb76a"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "aJobTokenCannotStartTrustedWork20261111": {
+    "reason": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1",
+        "currentSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "725d5fcbec782caa283bb18a6a5d9a9873f5fbb27f253c17a5a57c45540c8108",
+        "currentSHA256": "9a549fba0f9af4637aa16713be1a6035a6c2bf9f131b0ce12d14b56e719c2d57"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "63dd35827e38473540b2e4c8fdca92c93a2d205e4d2bc845b5e30a5f9771270d",
+        "currentSHA256": "a05dcd254c6bc0af50614aa006bb26ddd7d6b3cba6ea903aa963410b052e551c"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "1e8308854bbc61f2ea2a1abd6b81f79ef97c128f4feefcf5937035830aaeb76a",
+        "currentSHA256": "99e64f9ca41b2999ff1fc1ecca88c8fd25c3513b0197118e0110505a097b3c68"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "lightningSocketLossRegression20261112": {
+    "reason": "Reviewed additive accounting shard 3 execution of the retained #10498 real PostgreSQL socket-loss regression. The regenerated accounting projection differs only by the six-line new step; all previous commands, environments, routing, budgets, artifacts and admission inputs are unchanged. Source-pin maintenance only; no historical evidence, financial source, qualification status, installation or live certification is restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "currentSHA256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "chainedSourcePinChanges": [
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "9a549fba0f9af4637aa16713be1a6035a6c2bf9f131b0ce12d14b56e719c2d57",
+        "currentSHA256": "de54574833b9742c4a0140a63074d36735e3be15ebda7234d8fa66078225d182"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "a05dcd254c6bc0af50614aa006bb26ddd7d6b3cba6ea903aa963410b052e551c",
+        "currentSHA256": "6200beb565427d72b66259b905a0e35dbee103556a3c5c357eebe312bbdf8a31"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "99e64f9ca41b2999ff1fc1ecca88c8fd25c3513b0197118e0110505a097b3c68",
+        "currentSHA256": "5ed963b8b8ae9970ce358af65a2709c8e29b5adfc02ff9c9d3e0a8974ebeae48"
+      }
+    ]
+  },
+  "f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "repository_fixtures/tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "a05dcd254c6bc0af50614aa006bb26ddd7d6b3cba6ea903aa963410b052e551c",
+        "current": "7b95ba5b58fc1fc709657a645cc4a9991dce768115cbc34f1a4f8c11879daa7d"
+      },
+      {
+        "path": "repository_fixtures/tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "99e64f9ca41b2999ff1fc1ecca88c8fd25c3513b0197118e0110505a097b3c68",
+        "current": "db84cb84c8a2a5fed157a0e0e49113740ee7fe81383312149997ae6d45d5390c"
+      },
+      {
+        "path": "repository_fixtures/tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "9a549fba0f9af4637aa16713be1a6035a6c2bf9f131b0ce12d14b56e719c2d57",
+        "current": "f4c3732027e526a618e6403e6c9f6341685d96dbace4c9b7a002025497ace559"
+      },
+      {
+        "path": "repository_fixtures/scripts/qualification/ci-accounting-inputs.json",
+        "previous": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "current": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      }
+    ]
+  },
+  "f06BbjExactFixturePackages20261112": {
+    "reason": "Shard 1 funded BBJ also requires unchanged PostgreSQL 17.11. Extend exact complete package tuple/readiness to this existing consumer. Source identity only; financial assertions, native guards, prior audit and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "kind": "sha256",
+        "previous": "7b95ba5b58fc1fc709657a645cc4a9991dce768115cbc34f1a4f8c11879daa7d",
+        "current": "c3ad4835323d8f980ad6648b7d19484ecfb5046fc2bd0935b1abd8d83d6a8ec1"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "db84cb84c8a2a5fed157a0e0e49113740ee7fe81383312149997ae6d45d5390c",
+        "current": "97ef811eec282ed8061abccb266d90dcdeff480ab56e95f52c4090640e13c44e"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "f4c3732027e526a618e6403e6c9f6341685d96dbace4c9b7a002025497ace559",
+        "current": "4fb9f806d5e8d2ff0027496a06c28a1fe2878a097d3a3f699473fd2ef728fe7e"
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638",
+        "current": "c5f0f95fdd6fc75aa5d0f0b5ed5b6319a58a96acbfe637a8769d6ca6e28b74d3"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "f06ProtectedNativeIntegration20261112": {
+    "reason": "Retain protected main #10600 PostgreSQL17.12 native source, checksum and actual comparisons, plus reviewed F06 side-effect-free version query and exact package readiness. Current input identity only; historical evidence and financial assertions preserved.",
+    "changes": [
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "kind": "sha256",
+        "previous": "6200beb565427d72b66259b905a0e35dbee103556a3c5c357eebe312bbdf8a31",
+        "current": "2927b56f9997db574e4925fb5853560393e9fb2b5a261b6d9baf9eb3552472f2"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "5ed963b8b8ae9970ce358af65a2709c8e29b5adfc02ff9c9d3e0a8974ebeae48",
+        "current": "18ab0d9ee36842b022b117ffcba0c40d1a6d348b966035f401bf68612e561bdb"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "de54574833b9742c4a0140a63074d36735e3be15ebda7234d8fa66078225d182",
+        "current": "81e0d69bbdfeddce425ec7c865cd451ae60732fc900a4b28efdce9c6b3cf2d4f"
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc",
+        "current": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "exactFiguresDisplayRebinding20261114": {
+    "reason": "Owner authorization 2026-11-14 (PR #10797): bind the reviewed presentation-only changes of the exact-figures ruling. Each changed test now expects the exact stored figure (40.05 / 60.20 / 100.25 Chips, 100.25, 1,290.99, 200.25, -0.95 Chips, 9,999,999,999.99 Chips) instead of a floored, abbreviated or 'Under 1 Chip' display. Full diff recorded in the review file. No fixture data, RPC argument, money-movement, scope/RLS, stale-read or edit-guard assertion changed; historical audits, financial pins/assertions, qualification states and certificates are unchanged. Current test source identity only; matching source identity does not certify native money behavior or production delivery.",
+    "review": "docs/reviews/2026-11-14-exact-figures-binding-restamp.md",
+    "changes": [
+      {
+        "path": "tests/cashier-weekly-statements.test.tsx",
+        "kind": "sha256",
+        "previous": "dc2c3cb202c4119f3828f4ac68865e31e8f52874cdecb154bf8832491202bac2",
+        "current": "9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a"
+      },
+      {
+        "path": "tests/components/WeeklyAccountingWorkspace.test.tsx",
+        "kind": "sha256",
+        "previous": "3fa2ec057866093383ec05539ac3a60de8cec52abfee780d2491ead8894f5be7",
+        "current": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23"
+      },
+      {
+        "path": "tests/credit-admin-data.test.ts",
+        "kind": "sha256",
+        "previous": "4a0314b6d67b26952d6a7836fffebe9239349c53474f4ff034f6e7eff2049bcf",
+        "current": "47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f"
+      },
+      {
+        "path": "tests/credit-admin-panel-scope.test.tsx",
+        "kind": "sha256",
+        "previous": "1f6bc078af417542917561e2667dde60fff236eaaffee07f7591170f7bfc42b4",
+        "current": "a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac"
+      },
+      {
+        "path": "tests/credit-request-widget-scope.test.tsx",
+        "kind": "sha256",
+        "previous": "45ad84f004fe5fd39fcb8affa7a6c0f16c5782335966f4c01728305de8cd126d",
+        "current": "6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330"
+      },
+      {
+        "path": "tests/unit/ClubWeeklyAccountingReader.test.ts",
+        "kind": "sha256",
+        "previous": "6be8e7def307a8363525ac7eb3600674f5d35f9524304cdd9770e77ab0c45856",
+        "current": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063"
+      }
+    ]
+  },
+  "exactFiguresDisplayRebinding20261114b": {
+    "reason": "Owner authorization 2026-11-14 (PR #10797): bind the reviewed presentation-only change in tests/components/UnionAccountingRunStatus.test.tsx under the exact-figures ruling. Its weekly statement expectations change from floored 100 / 60 / 40 Chips to the exact stored 100.25 / 60.20 / 40.05 Chips (four lines). The other-club 999 Chips leak check, the standalone-run refusal text and the rpc call-count assertion are unchanged. Diff recorded in the review file addendum. Historical audits, financial pins/assertions, qualification states and certificates are unchanged. Current test source identity only.",
+    "review": "docs/reviews/2026-11-14-exact-figures-binding-restamp.md",
+    "changes": [
+      {
+        "path": "tests/components/UnionAccountingRunStatus.test.tsx",
+        "kind": "sha256",
+        "previous": "31c23688aff53a097e1b71717aeeb46893b63639b97cd62f36d0eab40cb60717",
+        "current": "1d782fa78bc52918a2fdf48ec3c6d76e38f9d3a602c33c411b25e874344358b5"
+      }
+    ]
+  },
+  "horseOptionSwitchProofAccountingShard7_20261114": {
+    "reason": "Required accounting shard 7 gains one additive step that runs the existing throwaway PostgreSQL 17 proof of the Horse option switch (scripts/ci/test-horse-option-switch-evidence-postgres.sh, PR #10878 and its registry-driven follow-up). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "81e0d69bbdfeddce425ec7c865cd451ae60732fc900a4b28efdce9c6b3cf2d4f",
+        "current": "54e7dc7cb9ea99e4bcc6073fa734ee7623e977f4bdce3151341339c9e83617c3",
+        "why": "dependent current binding: its own ci-accounting-inputs.json pin and audit entry changed for the same additive step"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "kind": "sha256",
+        "previous": "2927b56f9997db574e4925fb5853560393e9fb2b5a261b6d9baf9eb3552472f2",
+        "current": "c90bbe61d01b79e5d4742946c75563c560239c1b88a181e699d9cd3f9917c471",
+        "why": "dependent current binding: its own ci-accounting-inputs.json pin and audit entry changed for the same additive step"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "kind": "sha256",
+        "previous": "18ab0d9ee36842b022b117ffcba0c40d1a6d348b966035f401bf68612e561bdb",
+        "current": "e66fa78687c0d2143e8f038fa575f486dcf3e6927cbffdd7e7df188e07edc8ed",
+        "why": "dependent current binding: its own ci-accounting-inputs.json pin and audit entry changed for the same additive step"
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
+        "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "whatAHarnessReadsAdmitsItsJob20261115": {
+    "paths": {
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": {
+        "before": "54e7dc7cb9ea99e4bcc6073fa734ee7623e977f4bdce3151341339c9e83617c3",
+        "after": "d3c07573e9aac996749c4b426121ff2e43840bf17f34b80b3213788f7378d8ef"
+      },
+      "tests/fixtures/legacy-fee-finality/source-binding.json": {
+        "before": "c90bbe61d01b79e5d4742946c75563c560239c1b88a181e699d9cd3f9917c471",
+        "after": "56f43ea4e3734f0384e04deb5a183ae712578248eba8b27bf6b9b0a4cd7bd27a"
+      },
+      "tests/fixtures/sep8-spin-custody/source-binding.json": {
+        "before": "e66fa78687c0d2143e8f038fa575f486dcf3e6927cbffdd7e7df188e07edc8ed",
+        "after": "30cb4dad7879559f2d34cc5e03f84a5e153c43e52f1cd8494e929d4f8879e124"
+      },
+      "scripts/qualification/ci-admission-inputs.json": {
+        "before": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
+        "after": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3"
+      }
+    },
+    "review": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files that an accounting_postgres harness names (a path spelled out in full, or a quoted relative name joined to a directory the same harness spells out; never a whole directory; routing law tests and test files are not followed as reads), followed through the scripts/ci|dev/test-* harnesses one of them starts; unit-suite admission is unchanged. ci-admission-inputs.json changes only in 34 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification. The earlybird-fee-custody, legacy-fee-finality and sep8-spin-custody bindings pinned here change only by that same restamp of ci-admission-inputs.json and their own audit entry.",
+    "reason": "2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect."
+  },
+  "promoCashoutFollowupSourceReview20261117": {
+    "reason": "Owner-approved Promo Play Through follow-up. Reviewed all four complete candidate test diffs at b049 before restamping only their current source identities. These bindings acknowledge the connected promo popup and authoritative cashout admission changes; they do not certify native accounting behavior, historical qualification, installation or production delivery. Financial SQL, retained fixture data, historical outcomes and certificates remain unchanged.",
+    "changes": [
+      {
+        "path": "tests/components/cashier-cashout-generations.test.tsx",
+        "kind": "sha256",
+        "previous": "cbd357251d4c3ce5fddff8ec1b5716866b2f3323c7e17e8b6bffd345a68401c8",
+        "current": "76b23adae9c6c1d392b3a67e6ac3b217c4a76b2a9c23f5af7eb4d4a672d28cc2",
+        "why": "Adds the CashoutRefusedError export to the service mock required by the shared authoritative refusal handler; existing stale account/view, retained operation and durable receipt assertions are unchanged."
+      },
+      {
+        "path": "tests/components/cashout-own-event-acknowledgment.test.tsx",
+        "kind": "sha256",
+        "previous": "75c66b74dee7cf90e92e48796aa46ee21253cc8ac949d77346c8d2089bee4723",
+        "current": "33a8d5ca4991d9412e3d14945ef5baad45a9f12bde77cdf66c3cd7c70a44a123",
+        "why": "Adds the optional shared warning Toast mock required by the promo refusal popup; existing own-event and money acknowledgment assertions are unchanged."
+      },
+      {
+        "path": "tests/unit/CashoutRequestModal.test.tsx",
+        "kind": "sha256",
+        "previous": "1b7d7953511424b486ddf4106102051ab63a0c4db191e527a3470ca6b975d486",
+        "current": "4ddeaa1c7d3d67e33a1ccc8d68c9f853f79581a040ce494a057c74136e11f880",
+        "why": "Tests authoritative RPC admission despite stale or unavailable displayed balances; adds shared promo refusal popup figures and definitive-refusal eligible retry with a new operation id. Existing unknown-outcome, duplicate-submit, account/view and durable receipt coverage is retained."
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "kind": "sha256",
+        "previous": "528149522222b33c55598df5b1ece548928b27f364241c5912ff3b1b05c01449",
+        "current": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
+        "why": "Adds exact promo rollback hints, fresh authoritative withdrawal figures, unavailable detail read fallback, lookalike/unknown hint refusal preservation and stale view protection; no financial fixture data or RPC/receipt safety assertion is weakened."
+      },
+      {
+        "path": "tests/cashout-escrow-flow.test.ts",
+        "kind": "sha256",
+        "previous": "08c3b2ed491fad0fb4673779f5ff863452e2a9bd6cf617955a3d4d36f2c534c6",
+        "current": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+        "why": "Reviewed the complete finalized diff: replaces obsolete cached balance refusal expectation with validation-before-recovery/submission ordering, no cached display balance admission gate, retained runCashoutOperation identity and exact fn_cashout_request_v2 authority. Reflects owner requirement for current server balance and promo restrictions. All 47 focused escrow contract tests passed; no financial fixture data or historical outcome changed."
+      },
+      {
+        "path": "tests/unit/CashoutRequestModal.test.tsx",
+        "kind": "sha256",
+        "previous": "4ddeaa1c7d3d67e33a1ccc8d68c9f853f79581a040ce494a057c74136e11f880",
+        "current": "a1d8612dafd857ec2b2db5caca7c1bcf75ce2972d773571c085877574febc991",
+        "why": "Reviewed complete closed-modal regression diff: instruments optional Toast context reads and asserts a closed CashoutRequestModal mounts no dialog, reads no popup context and loads no pending cashout queue. Covers the connected useScopeKey closed guard source fix while retaining every existing cashout assertion. Current source identity only; related test execution is owned and recorded by the root/cashout lane."
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "kind": "sha256",
+        "previous": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
+        "current": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
+        "why": "Reviewed complete 18-line regression diff for the scoped lazy promo-summary dependency fix: retires the original view between observing the definitive guard response and resuming the lazy detail reader, asserting no stale summary read, no bus emission, one original RPC and retained unknown outcome. Existing exact hint and money receipt assertions are unchanged. Cashout lane reports 188 focused tests passed; current source identity only."
       }
     ]
   }

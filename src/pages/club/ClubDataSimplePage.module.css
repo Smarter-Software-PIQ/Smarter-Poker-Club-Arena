@@ -136,7 +136,7 @@
 /* ── Period bar ─────────────────────────────────────────────────────────── */
 .rangeBar {
   display: grid;
-  grid-template-columns: 44px 1fr 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
   gap: 8px;
   padding: 14px 16px 10px;
@@ -172,6 +172,10 @@
 /* A recessed well: shaded from above, lit along its lower lip. */
 .rangeChip {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 8px;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -185,7 +189,12 @@
     0 1px 0 rgba(255, 255, 255, 0.05);
   font-size: clamp(13px, 3.8vw, 15px);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.rangeChip > span {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .rangeDash {
@@ -277,7 +286,9 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  padding: 12px 2px 11px;
+  /* Keep 22px below the label centre inside this bay's own hit area. The
+     following reconciliation surface must not take the bottom of a thumb tap. */
+  padding: 12px 2px 17px;
   min-width: 0;
 }
 
@@ -310,6 +321,89 @@
   color: var(--cd-muted);
   text-align: center;
   line-height: 1.15;
+}
+
+/* By Club (20261115205153): the union's totals club by club, a compact slab
+ * under the tiles in the tiles' own paint. */
+.byClub {
+  position: relative;
+  margin: 10px 16px 0;
+  padding: 10px 12px 6px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(34, 48, 70, 0.95) 0%, rgba(19, 27, 40, 0.98) 100%);
+  border: 1px solid var(--cd-hairline);
+  box-shadow: var(--cd-bevel), var(--cd-cast);
+  overflow: hidden;
+}
+
+.byClubTitle {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--cd-muted);
+}
+
+.byClubHead,
+.byClubRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.byClubHead {
+  padding: 0 4px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--cd-hint);
+  border-bottom: 1px solid var(--cd-hairline-soft);
+}
+
+.byClubHead span + span {
+  text-align: right;
+}
+
+.byClubList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.byClubList li + li {
+  border-top: 1px solid var(--cd-hairline-soft);
+}
+
+.byClubRow {
+  padding: 7px 4px;
+  color: var(--cd-ink);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.byClubLink:focus-visible {
+  outline: 2px solid var(--cd-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.byClubName {
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.byClubLink .byClubName {
+  color: var(--cd-accent);
+}
+
+.byClubFigure {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .agentScopeBanner {
@@ -766,4 +860,35 @@
   width: 100%;
   margin: 0;
   color: var(--cd-muted);
+}
+
+/* Live status with its "?" beside it. Explanations live behind the "?"
+   (Dan, 2026-11-15): they never print on the page. */
+.liveRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 16px 0;
+}
+
+.liveRow .liveLine {
+  margin: 0;
+}
+
+.sourceName {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  padding: 0;
+  min-height: 44px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.sourceName:focus-visible {
+  outline: 2px solid #45adff;
 }

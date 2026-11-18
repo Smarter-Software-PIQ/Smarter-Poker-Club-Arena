@@ -450,3 +450,101 @@ describe('actual client publisher provenance admission', () => {
     expect(retained.status, retained.stderr).toBe(expected);
   });
 });
+
+// MERGE QUEUE (2026-11-11): a queued main merge group is validated as its exact
+// squash commit, validation-only, and only under its own complete identity.
+function mergeGroupBuild() {
+  const dir = repository('current');
+  const base = git(dir, 'rev-parse', 'HEAD');
+  git(dir, 'checkout', '--quiet', '--detach', base);
+  git(dir, 'commit', '--quiet', '--allow-empty', '-m', 'queued squash of PR 4788');
+  const head = git(dir, 'rev-parse', 'HEAD');
+  const repositoryName = 'Smarter-Poker/Smarter-Poker-Club-Arena';
+  const ref = `refs/heads/gh-readonly-queue/main/pr-4788-${base}`;
+  const eventPath = path.join(directory(), 'merge-group.json');
+  const event = {
+    repository: { full_name: repositoryName },
+    merge_group: { head_sha: head, head_ref: ref, base_sha: base, base_ref: 'refs/heads/main' },
+  };
+  writeFileSync(eventPath, JSON.stringify(event));
+  const env = {
+    CA_BUILD_PURPOSE: 'ci-validation',
+    GITHUB_WORKFLOW_REF: `${repositoryName}/.github/workflows/ci.yml@${ref}`,
+    GITHUB_ACTIONS: 'true',
+    GITHUB_EVENT_NAME: 'merge_group',
+    GITHUB_EVENT_PATH: eventPath,
+    GITHUB_REPOSITORY: repositoryName,
+    GITHUB_REPOSITORY_ID: '1132369872',
+    GITHUB_REF: ref,
+    GITHUB_SHA: head,
+    GITHUB_RUN_ID: '12345',
+  };
+  return { dir, base, head, ref, eventPath, event, env };
+}
+
+describe('merge group build validation', () => {
+  it('validates the exact queued squash commit as non-publishable validation', () => {
+    const { dir, env, base, head, ref } = mergeGroupBuild();
+    const result = stamp(dir, env);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.info).toMatchObject({
+      commit: head,
+      validationOnly: true,
+      pullRequest: null,
+      mergeGroup: { ref, base, head },
+      publication: null,
+    });
+  });
+
+  it.each([
+    'wrong-head',
+    'wrong-base-ref',
+    'wrong-head-ref',
+    'non-queue-ref',
+    'wrong-workflow-ref',
+    'wrong-sha',
+    'base-not-ancestor',
+    'base-is-head',
+    'wrong-repository',
+    'unreadable',
+  ])('refuses a merge group validation context with %s', (problem) => {
+    const { dir, env, event, eventPath, base, head } = mergeGroupBuild();
+    if (problem === 'wrong-head') event.merge_group.head_sha = base;
+    if (problem === 'wrong-base-ref') event.merge_group.base_ref = 'refs/heads/release';
+    if (problem === 'wrong-head-ref')
+      event.merge_group.head_ref = 'refs/heads/gh-readonly-queue/main/other';
+    if (problem === 'non-queue-ref') {
+      env.GITHUB_REF = 'refs/heads/gh-readonly-queue/release/pr-1-x';
+      event.merge_group.head_ref = env.GITHUB_REF;
+      env.GITHUB_WORKFLOW_REF = `Smarter-Poker/Smarter-Poker-Club-Arena/.github/workflows/ci.yml@${env.GITHUB_REF}`;
+    }
+    if (problem === 'wrong-workflow-ref')
+      env.GITHUB_WORKFLOW_REF =
+        'Smarter-Poker/Smarter-Poker-Club-Arena/.github/workflows/other.yml@refs/heads/main';
+    if (problem === 'wrong-sha') env.GITHUB_SHA = base;
+    if (problem === 'base-not-ancestor') event.merge_group.base_sha = 'f'.repeat(40);
+    if (problem === 'base-is-head') event.merge_group.base_sha = head;
+    if (problem === 'wrong-repository') event.repository.full_name = 'unrelated/repository';
+    writeFileSync(eventPath, problem === 'unreadable' ? 'not JSON' : JSON.stringify(event));
+    const result = stamp(dir, env);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Invalid PR build validation identity');
+    expect(result.info.validationOnly).toBe(false);
+    expect(result.info.mergeGroup).toBeNull();
+  });
+
+  it('gives a merge group no validation path without the ci-validation purpose', () => {
+    const { dir, env } = mergeGroupBuild();
+    const result = stamp(dir, { ...env, CA_BUILD_PURPOSE: 'release-build' });
+    expect(result.info.validationOnly).toBe(false);
+    expect(result.info.mergeGroup).toBeNull();
+  });
+
+  it('does not accept a merge_group-shaped payload under another event name', () => {
+    const { dir, env } = mergeGroupBuild();
+    const result = stamp(dir, { ...env, GITHUB_EVENT_NAME: 'push' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Invalid PR build validation identity');
+    expect(result.info.mergeGroup).toBeNull();
+  });
+});

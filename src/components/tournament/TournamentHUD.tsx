@@ -1,5 +1,6 @@
 import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { maintenanceClockFrozen } from '../../utils/maintenanceLevelClock';
+import { exactChips } from '../../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TOURNAMENT HUD — the tournament info dock UNDER the action bar
@@ -214,11 +215,13 @@ function fmtClock(totalSeconds: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
+// Only the bottom dock's average is approximate; blinds and prizes stay exact.
+const dockAverage = new Intl.NumberFormat('en-US', { notation: 'compact' });
+
 function fmtChips(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '-';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${Math.round(n / 1000)}K`;
-  return Math.trunc(n).toLocaleString();
+  // Exact, never K/M (Dan 2026-11-13).
+  return exactChips(n);
 }
 
 /**
@@ -271,7 +274,15 @@ function rowDeadline(row: Tournament, nowMs: number): { key: string; atMs: numbe
   // Multi-day, between days: live (not terminal) but nothing on the row is
   // due; the resume arrives as a status change, not at a predictable instant.
   if (status === 'BAGGED') return null;
-  if (status !== 'RUNNING') {
+  // Tables can be opened with RUNNING already persisted before the first
+  // deal stamps both clock anchors. That row still owes the bounded start
+  // catch-up; otherwise its full-duration clock waits for the five-minute
+  // safety read because the opening level index has not changed.
+  if (
+    status !== 'RUNNING' ||
+    epochMs(row.started_at) === null ||
+    epochMs(row.level_started_at) === null
+  ) {
     const startsAt = epochMs(row.start_time);
     return startsAt === null ? null : { key: `start:${startsAt}`, atMs: startsAt };
   }
@@ -1031,7 +1042,9 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
   const fieldNow = field && field.key === scopeKey ? field : null;
   const shownPlayers =
     playersRemaining !== undefined ? playersRemaining : (fieldNow?.remaining ?? undefined);
-  const shownAvg = averageStack !== undefined ? averageStack : (fieldNow?.avgStack ?? undefined);
+  // An average stack is whole chips whoever supplies it (Dan 2026-11-14).
+  const shownAvg =
+    averageStack !== undefined ? Math.trunc(averageStack) : (fieldNow?.avgStack ?? undefined);
   /** Dan 2026-08-30: "IT SHOULD ALSO SAY YOUR CURRENT RANK AFTER THE COUNTDOWN
       CLOCK AND BEFORE HOW MANY ARE LEFT." Null while the hero holds no live
       stack in this event (observer, eliminated). */
@@ -1068,10 +1081,19 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
   /* One line. Collapsed, it IS the dock: the three figures a player glances
      at. Open, it carries whatever window is running (late registration, hand
      for hand, the add-on period) above the full row. */
+  const stackOrPrizeText =
+    spinPrizePool !== undefined
+      ? fmtChips(spinPrizePool)
+      : shownAvg === undefined
+        ? null
+        : Number.isFinite(shownAvg) && shownAvg > 0
+          ? dockAverage.format(shownAvg)
+          : '-';
   /* Collapsed it has one short line to spend on a 375px phone, so it carries
      the three figures and, of the windows, only hand-for-hand - the one that
      changes how the player must act. The longer notices (late registration,
      the add-on period) are on the open dock. Nothing here may be cut off. */
+
   const statusLine = collapsed
     ? [
         levelText,
@@ -1231,14 +1253,14 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
           )}
 
           {/* Spin prize pool, or average stack for longer tournament formats. */}
-          {(spinPrizePool !== undefined || shownAvg !== undefined) && (
-            <div className="tournament-dock__seg">
+          {stackOrPrizeText !== null && (
+            <div className="tournament-dock__seg tournament-dock__seg--chips">
               <span className="tournament-dock__label">
                 {spinPrizePool !== undefined ? 'Prize' : 'Avg'}
               </span>
-              <span className="tournament-dock__value">
-                {fmtChips(spinPrizePool ?? shownAvg ?? 0)}
-              </span>
+              <DockFitText className="tournament-dock__value" fitKey={stackOrPrizeText}>
+                {stackOrPrizeText}
+              </DockFitText>
             </div>
           )}
         </div>

@@ -84,7 +84,7 @@ const POKER_ARENA_APP: JsonLd = {
     'Player Statistics And Leaderboards',
     'Club Cashier And Chip Management',
     'Unions And Cross Club Games',
-    'Diamond Arena Games',
+    'Diamond Arena Membership (Funded Games Not Yet Open)',
   ],
 };
 

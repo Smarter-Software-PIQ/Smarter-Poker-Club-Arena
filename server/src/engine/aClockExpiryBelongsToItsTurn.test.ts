@@ -231,7 +231,7 @@ describe('a clock expiry belongs to its turn', () => {
     h.expire(HORSE);
     h.now.mockReturnValue(Date.now() + 20_000);
     h.expire(`timebank:${HORSE}`);
-    expect(h.performAction).toHaveBeenCalledWith(5, 'check', undefined, 'forced');
+    expect(h.performAction).toHaveBeenCalledWith(5, 'check', undefined, 'forced', undefined);
     const f = fires();
     expect(f.get('horse_turn_resolved_without_decision')).toBe(1);
     expect(f.get('horse_turn_resolved_without_decision_timebank_expired')).toBe(1);

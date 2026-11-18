@@ -89,3 +89,64 @@ export function pagedCells(total: 500 | 501, evaluation = false): GtoPostflopV31
   }
   throw new Error('synthetic_loader_fixture_count_unavailable');
 }
+
+/**
+ * A complete, valid range-provenance declaration (the shape of
+ * gto_v31_round_registrations.cell_provenance) for every distinct cell key in
+ * `rows`: natural ranges, the cell's own game and betting tree, and a
+ * runtime mapping naming the cell. Synthetic test data only.
+ */
+export function rangeProvenanceFor(
+  rows: Array<Pick<GtoPostflopV31Row, KeyField | 'manifest_checksum'>>
+): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const out: Array<Record<string, unknown>> = [];
+  for (const row of rows) {
+    const cell = Object.fromEntries(KEY_FIELDS.map((field) => [field, row[field]]));
+    const id = JSON.stringify(cell);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const { texture_class: _texture, ...mapped } = cell;
+    out.push({
+      cell,
+      range_construction: 'natural',
+      public_history: [],
+      upstream_solve_checksum: null,
+      unnarrowed_seats: [],
+      game: {
+        variant: 'nlh',
+        players_to_flop: 2,
+        pot_type: row.pot_type,
+        depth_bucket: row.depth_bucket,
+        chips_per_bb: 100,
+        effective_stack_chips: row.depth_bucket * 100,
+        root_pot_chips: 600,
+        rake: [0.05, 300],
+        betting_tree_checksum: row.manifest_checksum,
+      },
+      runtime_mapping: {
+        ...mapped,
+        hero_solver_player: 0,
+        solver_positions: [row.hero_position, row.opponent_position],
+      },
+    });
+  }
+  return out;
+}
+
+const KEY_FIELDS = [
+  'street',
+  'game_family',
+  'objective',
+  'utility_context',
+  'table_size',
+  'pot_type',
+  'hero_position',
+  'opponent_position',
+  'depth_bucket',
+  'texture_class',
+  'node_role',
+  'facing_kind',
+  'facing_size_bucket',
+] as const;
+type KeyField = (typeof KEY_FIELDS)[number];

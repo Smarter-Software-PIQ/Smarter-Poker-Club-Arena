@@ -61,6 +61,18 @@ const FILL = { potBB: 52, street: 'river' as const, hand: 'full house', seat: 7 
 const SEATED = ['danny', 'Plate4', 'gg_master', 'seat7'];
 
 describe('LAW: the horse says nothing it was not told', () => {
+  it('the engine fires the all-in gesture hook for its own shove AND for calling one (owner 2026-11-11)', () => {
+    const turns = code(read('engine/ServerTableEngineTurns.ts'));
+    expect(turns).toContain('const callsAllInBet =');
+    expect(turns).toContain('(movesAllIn && !promotedShoveIsIllegal) || callsAllInBet');
+    // Settlement keeps the after-hand hook unconditional: any table type,
+    // tournaments included, exactly where a person could throw.
+    const settlement = code(read('engine/ServerTableEngineSettlement.ts'));
+    expect(settlement).toContain(
+      'void gestureAfterHand(buildTableTalkInput(snap, players, this.tableInfo));'
+    );
+  });
+
   it('waits at least five seconds to type after a hand (owner 2026-10-27)', () => {
     for (let hand = 1; hand <= 1_000; hand++) {
       expect(humanBeatMs(`horse|${hand}|pot_won`, 'typed')).toBeGreaterThanOrEqual(5_000);

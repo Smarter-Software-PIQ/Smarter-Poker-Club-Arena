@@ -64,6 +64,7 @@ import type { TournamentTabProps, NormalisedBlindLevel } from './types';
 import {
   chips,
   chipsCompact,
+  stackChips,
   clockText,
   effectivePlaceLadderPool,
   finishedFieldSummary,
@@ -190,6 +191,7 @@ export default function DetailOverviewTab({
   tables,
   blindLevels,
   currentUserId,
+  onWatchPlayer,
   isRegistered,
   mysteryBounty,
   onOpenTab,
@@ -518,12 +520,12 @@ export default function DetailOverviewTab({
       {
         key: 'avg',
         label: 'Avg Stack',
-        value: chipsCompact(field.avgStack),
+        value: stackChips(field.avgStack),
       },
       {
         key: 'total',
         label: 'Total Chips',
-        value: chipsCompact(
+        value: stackChips(
           field.totalChips || field.entries * (Number(tournament?.starting_chips) || 0)
         ),
       },
@@ -751,7 +753,7 @@ export default function DetailOverviewTab({
         value:
           top > 0
             ? `${formatCents(top, overviewUnitCents)} ${moneyWordAtUnit(overviewUnitCents)}`
-            : 'Drawn When The Mystery Phase Opens',
+            : 'Shown When The Prize Pool Is Finalized',
         tone: 'accent',
       });
       rows.push({
@@ -1145,7 +1147,13 @@ export default function DetailOverviewTab({
 
       {/* Your players, right under the event summary (Dan 2026-11-08). Drawn
           only for a viewer who carries a downline, in every state. */}
-      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+      {myPlayers.ready && (
+        <MyPlayersCard
+          summary={myPlayers.summary}
+          tournamentId={tournament.id}
+          onWatchPlayer={onWatchPlayer}
+        />
+      )}
 
       {/* Multi-day schedule, bag, leaders and Day 2 seat. Renders null unless
           the multi-day capability is available and this event has a plan. */}

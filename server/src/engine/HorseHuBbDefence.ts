@@ -245,6 +245,89 @@ export function huBbEquityVsOpener(cls: string, widthPct: number): number | null
   return row[row.length - 1] / 1000;
 }
 
+/**
+ * ════════════════════════════════════════════════════════════════════════
+ * THE OPENER AND THE LIMPER DEFEND TO THEIR PRICE (2026-11-14, HU-NLH-010 and
+ * HU-NLH-011; flags huOpenerDefendsToPrice and huLimpDefendsToPrice, both
+ * default OFF)
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ * MEASURED (heads-up audit, real HorseLogic.decide). The heads-up button that
+ * opened folds 81-92% of its opens to a 3-bet whose break-even is 62.5-67%
+ * (22-66, A2s-A9s, AJo fold in 20 of 20 seeds), because two-handed tables
+ * never reach the V73 per-seat read and the general bar continues about the
+ * top tenth of all hands. The small blind that limped folds 99-100% of its
+ * limps to any raise, a min-raise laying 3:1 included.
+ *
+ * THE CORRECTION is the big blind's, on the other side of the same pot: a
+ * fold becomes a call when the class's all-in equity against the raiser's
+ * range, discounted for realisation, covers the rake-aware pot odds. The
+ * raiser's range is not the opener's, so two things are stated here:
+ *
+ *  - The table (HU_BB_EQUITY) is written against the top W% of the heads-up
+ *    open order, W from 20 to 100. It is read as a LINEAR raising range of
+ *    that width. A real 3-betting or limp-raising range of the same width
+ *    holds more bluffs than a linear one, so the read errs toward folding.
+ *  - With no read on the raiser the width is the narrowest column the table
+ *    carries, 20% (HU_DEFENCE_REFERENCE_WIDTH_PCT). The horses' own big
+ *    blind raises 17-19% of limps and 3-bets about 9% of opens, so against
+ *    an unread horse the opener's reference is wider than the truth; the
+ *    table has no narrower column, and the declared evaluation against the
+ *    mirror measures what that costs. For the opener an engaged read replaces
+ *    it: the share of single raises this player re-raises, which is the
+ *    range the call is priced against. For the limper no read measures a
+ *    raise over a limp (the raise-first-in and preflop-raise shares count
+ *    every open, and a player who opens every button need not raise every
+ *    limp), so the reference is never widened. Either way a read NARROWER
+ *    than 20% has no column: the rule stands aside and today's fold stays.
+ *
+ * Realisation: the heads-up small blind is the button and acts last on every
+ * later street. The opener's continuing hands are the top 70% it opened and
+ * are taken to realise 0.85 of their equity in the re-raised pot; the limp
+ * band is the weakest hands the seat plays at all and keeps the big blind's
+ * 0.8. Both are assumptions set below one on purpose, not measurements.
+ *
+ * Widen-only, call-only: neither rule raises, sizes, or removes a call. Scope
+ * is the big blind rule's: no-limit hold'em cash, exactly two dealt in,
+ * 20-150bb effective, the raiser not all in; never Omaha, short deck, pot or
+ * fixed limit, tournaments, straddles or all-in-or-fold tables.
+ */
+export const HU_DEFENCE_REFERENCE_WIDTH_PCT = 20;
+/** Share of its all-in equity the opener realises after calling a 3-bet. */
+export const HU_OPENER_REALIZATION = 0.85;
+/** Share of its all-in equity a limped hand realises after calling a raise. */
+export const HU_LIMP_REALIZATION = 0.8;
+/** Largest raise over the limp (raised-to, big blinds) the limper answers. */
+export const HU_LIMP_MAX_RAISE_BB = 6;
+
+/**
+ * The raiser's width (percent) the price is read against. No read: the
+ * reference. A read narrower than the table's narrowest column: null, the
+ * rule cannot price the call. A wider read: the read's share when it measures
+ * the raise being faced (`readMeasuresTheRaise`, the opener's case), else the
+ * reference still.
+ */
+export function huDefenceWidthPct(
+  readShare: number | null,
+  readMeasuresTheRaise: boolean
+): number | null {
+  if (readShare === null) return HU_DEFENCE_REFERENCE_WIDTH_PCT;
+  if (!Number.isFinite(readShare)) return null;
+  const pct = readShare * 100;
+  if (pct < HU_BB_EQUITY_WIDTHS[0]) return null;
+  return readMeasuresTheRaise ? Math.min(100, pct) : HU_DEFENCE_REFERENCE_WIDTH_PCT;
+}
+
+/** The equity the opener needs against this price once realisation is paid. */
+export function huOpenerRequiredEquity(odds: number): number {
+  return odds / HU_OPENER_REALIZATION;
+}
+
+/** The equity a limped hand needs against this price once realisation is paid. */
+export function huLimpRequiredEquity(odds: number): number {
+  return odds / HU_LIMP_REALIZATION;
+}
+
 /** The equity a class needs against this price once realisation is paid. */
 export function huBbRequiredEquity(odds: number): number {
   return odds / HU_BB_REALIZATION;
@@ -262,4 +345,40 @@ export function huBbDefendShare(
     if ((huBbEquityVsOpener(cls, widthPct) ?? 0) >= need) c += combos(cls);
   }
   return (100 * c) / 1326;
+}
+
+/**
+ * ════════════════════════════════════════════════════════════════════════
+ * THE HEADS-UP BIG BLIND DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER
+ * (2026-11-15, HU-NLH-001d; flag huBbDefendsUnreadToPrice, default OFF)
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ * huBbDefendsToPrice was neither supported nor shown harmful by its declared
+ * evaluation (HU-NLH-001c). The diagnosis (heads-up audit, round 2):
+ *  - the 58.7% fold at 15-50bb is the answer to an opener the Horse has NO
+ *    read on. Once a read engages, the live brain already adapts (against an
+ *    every-button min-raiser its fold falls to 2.2%), and the old flag only
+ *    second-guessed that adaptation. With reads off it gained about +16 to
+ *    +19 bb/100 against a min-raiser at 25-40bb;
+ *  - its 0.8 realisation is a range average, but the hands the rule adds are
+ *    the bottom of the defending range. The Horse mirror priced them at about
+ *    0.7 (each added call cost about 0.14bb at 40bb);
+ *  - at 80bb nothing was gained anywhere, and V85 already widens there.
+ *
+ * So this rule acts only while the opener is unread (no engaged RFI/PFR
+ * read; HorseOpponentExploit.openerRangeWidth is null), prices the call at
+ * the reference open width with a 0.7 realisation, and only at 20-50bb.
+ * Heads-up play with people is mostly a two-player tournament, where the
+ * payout is linear in chips (the engine's V23 endgame already collapses the
+ * survival premium at two left), so a tournament is in scope only when its
+ * trusted context says exactly two players are left in the event and it is
+ * not a satellite. Widen-only and call-only, like the rules above.
+ */
+export const HU_BB_UNREAD_REALIZATION = 0.7;
+/** Largest effective stack (big blinds) the unread rule answers. */
+export const HU_BB_UNREAD_MAX_STACK_BB = 50;
+
+/** The equity a class needs against this price under the unread rule. */
+export function huBbUnreadRequiredEquity(odds: number): number {
+  return odds / HU_BB_UNREAD_REALIZATION;
 }

@@ -100,7 +100,10 @@ describe('one question per leave', () => {
   it('every Leave Table door goes through openLeaveConfirm', () => {
     const page = read('src/pages/TablePage.tsx');
     expect(page).toContain('const openLeaveConfirm = () => {');
-    expect((page.match(/openLeaveConfirm\(\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    /* Two doors since 2026-11-14: the tab bar's LEAVE_TABLE case and the
+       header control. The third was a row in TablePage's own menu, which no
+       table rendered. */
+    expect((page.match(/openLeaveConfirm\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
     // The generic dialog is opened only from inside openLeaveConfirm.
     expect((page.match(/setShowLeaveConfirm\(true\)/g) ?? []).length).toBe(1);
     const body = page.slice(page.indexOf('const openLeaveConfirm = () => {'));
@@ -124,7 +127,7 @@ describe('the tab X asks on its own table', () => {
     const i = mt.indexOf('if (handsOwedAt(tabId) !== null) {');
     expect(i).toBeGreaterThan(0);
     // The owed branch runs before the last-table lobby branch, and ends at it.
-    const end = mt.indexOf('if (remaining.length === 0) {', i);
+    const end = mt.indexOf('if (tablesRef.current[activeIndexRef.current]?.id === tabId)', i);
     expect(end).toBeGreaterThan(i);
     const block = mt.slice(i, end);
     expect(block).toContain('setActiveIndex(idx)');
@@ -145,9 +148,11 @@ describe('the count between Lightning hands', () => {
     rerender(<HitRunCountPill hands={null} />);
     expect(screen.queryByTestId('hit-run-count-pill')).toBeNull();
   });
-  it('TablePage renders it only for a seatless Lightning hero at a cash table', () => {
+  it('TablePage wires the cash countdown and Lightning retry below the hand number', () => {
     const page = flat('src/pages/TablePage.tsx');
-    expect(page).toMatch(/<HitRunCountPill hands=\{heroHandsOwed\} \/>/);
+    expect(page).toMatch(
+      /Hand #\{tableState\.handNumber\}\s*<\/span> <\/span> \)\} <HitRunCountPill retryRead=\{heroHandCount\.retryRead\} hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} paused=\{heroHandCount\.paused \?\? null\} \/>/
+    );
     const css = read('src/components/table/HitRunCountPill.css')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .toLowerCase();

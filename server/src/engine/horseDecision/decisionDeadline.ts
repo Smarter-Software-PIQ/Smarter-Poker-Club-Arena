@@ -51,7 +51,16 @@ export interface HorseDecisionDeadlineInput {
   actionTimeSeconds: number | null | undefined;
   /** Milliseconds already spent on this turn when the job is enqueued. */
   elapsedMs: number;
+  /**
+   * Optional hard ceiling from the live active clock when a short clock or
+   * reconnect/auto-action timer leaves less than `HORSE_DECISION_MIN_DEADLINE_MS`.
+   * Preserves the standard `[2000, 30000]` law whenever omitted or >= 2000 ms.
+   */
+  maxRemainingClockMs?: number | null | undefined;
 }
+
+/** Lowest practical deadline when an explicit short remaining clock is supplied. */
+export const HORSE_DECISION_SHORT_CLOCK_MIN_DEADLINE_MS = 250;
 
 /**
  * The caller deadline for one decision job, in milliseconds from enqueue.
@@ -73,7 +82,22 @@ export function horseDecisionDeadlineMs(input: HorseDecisionDeadlineInput): numb
       ? input.elapsedMs
       : 0;
   const remaining = seconds * 1000 - elapsed - HORSE_DECISION_DEADLINE_MARGIN_MS;
-  return Math.round(
-    Math.min(HORSE_DECISION_MAX_DEADLINE_MS, Math.max(HORSE_DECISION_MIN_DEADLINE_MS, remaining))
+  const standard = Math.min(
+    HORSE_DECISION_MAX_DEADLINE_MS,
+    Math.max(HORSE_DECISION_MIN_DEADLINE_MS, remaining)
   );
+  if (
+    typeof input.maxRemainingClockMs === 'number' &&
+    Number.isFinite(input.maxRemainingClockMs) &&
+    input.maxRemainingClockMs > 0
+  ) {
+    const shortCap = Math.max(
+      HORSE_DECISION_SHORT_CLOCK_MIN_DEADLINE_MS,
+      input.maxRemainingClockMs - 250
+    );
+    if (shortCap < standard) {
+      return Math.round(shortCap);
+    }
+  }
+  return Math.round(standard);
 }

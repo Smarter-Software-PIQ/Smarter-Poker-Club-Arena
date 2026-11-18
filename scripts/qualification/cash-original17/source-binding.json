@@ -482,16 +482,16 @@
       "sha256": "0c3c357e106b6daf5461587e707e63d47260837870a7fb423d2f4fdd00b339bd"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 144819,
-      "sha256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8"
+      "bytes": 146079,
+      "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
       "sha256": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86"
     },
     "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77121,
-      "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
+      "bytes": 77087,
+      "sha256": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3"
     }
   },
   "spentDssRetirementEnforcement20261013": {
@@ -3098,5 +3098,124 @@
     "scope": "Reviewed sole workflow projection delta: native Data Console step receives existing scoped github.token for the pinned authenticated Caddy asset request. All accounting commands, assertions, matrices, deadlines and admission remain unchanged.",
     "execution_performed": false,
     "qualification": "Source identity only; no historical result or production receipt changed. Required final-head native qualification remains mandatory."
+  },
+  "mergeQueueMergeGroupTrigger20261111": {
+    "reason": "Merge queue (2026-11-11, owner-approved): ci.yml gains the merge_group trigger and every pull-request-gated job, including accounting_postgres and changes, also runs on the queued merge group with that group's base/head SHA. The accounting projection was regenerated with qualification-input-projections.py --write; its diff is only the trigger and those event/SHA expressions. No financial source, command, assertion, budget, historical result, installation or live certification changed.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "495bf6777969db9472ecc03d96ba857b87622c424a60c95fc4df8e98fe88c1c8",
+        "currentSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "aJobTokenCannotStartTrustedWork20261111": {
+    "reason": "Job-token boundary (2026-11-11, owner-authorized): ci.yml's changes job no longer holds actions: write; its superseded-run cancel moved to a separate retire_superseded job that runs only default-branch code. The regenerated projection differs only by that removed step, the changes job's permissions and its comment. No accounting command, assertion, matrix, deadline, admission, historical result or certification changed.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "09f96b3c61e37df098ad6c12242ba49356fe29f393b5d4c41782f77c8e87d1d1",
+        "currentSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "lightningSocketLossRegression20261112": {
+    "reason": "Reviewed additive accounting shard 3 execution of the retained #10498 real PostgreSQL socket-loss regression. The regenerated accounting projection differs only by the six-line new step; all previous commands, environments, routing, budgets, artifacts and admission inputs are unchanged. Source-pin maintenance only; no historical evidence, financial source, qualification status, installation or live certification is restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "currentSHA256": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "f06ExactFixturePackages20261112": {
+    "scope": "Current qualification input identity only; not a financial, native or production pass.",
+    "reason": "Preserve exact PostgreSQL17.11 source/checksum/manifest contract while CI requests and checks its matching server/client/dev tuple. Same-upstream signed cron build resolution and explicit complete-fixture replacement retain all native gates. Financial SQL, fixture assertions, historical audits and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "files/scripts/qualification/ci-accounting-inputs.json/sha256",
+        "previous": "989c42cd9907136883484f4263f303de3b8ef44cc0d56db8d8f57ce1d157097c",
+        "current": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638"
+      },
+      {
+        "path": "files/scripts/qualification/ci-accounting-inputs.json/bytes",
+        "previous": 143430,
+        "current": 144529
+      }
+    ]
+  },
+  "f06BbjExactFixturePackages20261112": {
+    "reason": "Shard 1 funded BBJ also requires unchanged PostgreSQL 17.11. Extend exact complete package tuple/readiness to this existing consumer. Source identity only; financial assertions, native guards, prior audit and qualification states unchanged.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 144529,
+        "current": 145485
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "04e3bb238a89db2d31bd3c7989b620dd2d96fea6169cc29d6712939856fd3638",
+        "current": "c5f0f95fdd6fc75aa5d0f0b5ed5b6319a58a96acbfe637a8769d6ca6e28b74d3"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "f06ProtectedNativeIntegration20261112": {
+    "reason": "Retain protected main #10600 PostgreSQL17.12 native source, checksum and actual comparisons, plus reviewed F06 side-effect-free version query and exact package readiness. Current input identity only; historical evidence and financial assertions preserved.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 143719,
+        "current": 145774
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "8ebbe29e85c02fed9080b5ce23b0035b9c5701c1463b34ddb7d5f917dcdd28dc",
+        "current": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "horseOptionSwitchProofAccountingShard7_20261114": {
+    "reason": "Required accounting shard 7 gains one additive step that runs the existing throwaway PostgreSQL 17 proof of the Horse option switch (scripts/ci/test-horse-option-switch-evidence-postgres.sh, PR #10878 and its registry-driven follow-up). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 145774,
+        "current": 146079
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
+        "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  },
+  "whatAHarnessReadsAdmitsItsJob20261115": {
+    "paths": {
+      "scripts/qualification/ci-admission-inputs.json": {
+        "before": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
+        "after": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3"
+      }
+    },
+    "review": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files that an accounting_postgres harness names (a path spelled out in full, or a quoted relative name joined to a directory the same harness spells out; never a whole directory; routing law tests and test files are not followed as reads), followed through the scripts/ci|dev/test-* harnesses one of them starts; unit-suite admission is unchanged. ci-admission-inputs.json changes only in 34 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification.",
+    "reason": "2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect."
   }
 }

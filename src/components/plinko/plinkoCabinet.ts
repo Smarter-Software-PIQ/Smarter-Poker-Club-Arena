@@ -237,6 +237,41 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
   backplate.position.z = -0.025;
   scene.add(backplate);
 
+  // A physical recessed playing bed, framed by raised polished rails. These
+  // follow the extreme legal paths without changing any peg/contact position.
+  const bed = new THREE.Shape();
+  bed.moveTo(-0.52, 5.13);
+  bed.lineTo(0.52, 5.13);
+  bed.lineTo(5.53, -3.94);
+  bed.lineTo(-5.53, -3.94);
+  bed.closePath();
+  const bedMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x062248,
+    metalness: 0.68,
+    roughness: 0.28,
+    clearcoat: 1,
+    clearcoatRoughness: 0.12,
+    envMapIntensity: 0.9,
+  });
+  const playingBed = new THREE.Mesh(new THREE.ShapeGeometry(bed), bedMaterial);
+  playingBed.name = 'Recessed Sapphire Peg Bed';
+  playingBed.position.z = 0.005;
+  playingBed.receiveShadow = true;
+  scene.add(playingBed);
+  for (const side of [-1, 1]) {
+    const dx = side * 5.01,
+      dy = -9.07;
+    const rail = solid(
+      scene,
+      chrome,
+      [0.105, Math.hypot(dx, dy), 0.22],
+      [side * 3.025, 0.595, 0.13],
+      0.035
+    );
+    rail.rotation.z = -Math.atan2(dx, dy);
+    rail.name = 'Polished Plinko Path Rail';
+  }
+
   // THE SIDE LED STRIPS: an emissive tube each; the bloom is the glow field's.
   const led = new THREE.MeshStandardMaterial({
     color: 0x0a1424,
@@ -398,6 +433,8 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
     sparkBorn = new Float32Array(SPARKS).fill(-1e9),
     sparkSize = new Float32Array(SPARKS),
     sparkSpin = new Float32Array(SPARKS),
+    sparkDX = new Float32Array(SPARKS),
+    sparkDY = new Float32Array(SPARKS),
     /** When each diamond last left a sparkle, on the cabinet clock. */
     ballSparkAt = new Float32Array(BALLS).fill(-1e9);
   for (let i = 0; i < SPARKS; i++) {
@@ -464,7 +501,29 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
 
       // THE PEG CHASE: a band of light runs down the rows, one row every 90 ms,
       // then rests; a struck peg flares and fades over 320 ms.
-      for (const index of f.struck) if (index >= 0 && index < PEG_COUNT) pegStruck[index] = clock;
+      for (const index of f.struck) {
+        if (index < 0 || index >= PEG_COUNT) continue;
+        if (!still && clock - pegStruck[index] > 160 * f.speed) {
+          const row = pegRow[index];
+          const col = index - (row * (row + 1)) / 2;
+          // Two tiny shards at the real contact, sharing the existing fixed
+          // particle pool. Their motion never changes the sealed ball path.
+          for (const direction of [-1, 1]) {
+            const k = sparkCursor;
+            sparkCursor = (sparkCursor + 1) % SPARKS;
+            sparkX[k] = (col - row / 2) * 0.65;
+            sparkY[k] = 4.7 - row * 0.55;
+            sparkZ[k] = 0.5;
+            sparkBorn[k] = clock;
+            sparkSize[k] = 0.33;
+            sparkSpin[k] = direction;
+            sparkDX[k] = direction * 0.6;
+            sparkDY[k] = 0.45;
+            sparksAlive = true;
+          }
+        }
+        pegStruck[index] = clock;
+      }
       const period = 2700;
       const head = (attract % period) / 90 - 2;
       const flareSpan = 320 * f.speed;
@@ -557,6 +616,8 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
           sparkY[k] = ball.position.y + (sparkleScatter(n + 0.5) - 0.3) * 0.3;
           sparkZ[k] = ball.position.z + 0.08;
           sparkBorn[k] = clock;
+          sparkDX[k] = 0;
+          sparkDY[k] = -0.18;
           sparkSize[k] = 0.2 + sparkleScatter(n + 0.25) * 0.22;
           sparkSpin[k] = sparkleScatter(n + 0.75) * Math.PI;
           sparksAlive = true;
@@ -576,7 +637,11 @@ export function plinkoCabinet(scene: THREE.Scene, slots: readonly THREE.Mesh[]) 
           const fade = (1 - age) * (1 - age);
           const twinkle = 0.7 + 0.3 * Math.sin(age * 18 + sparkSpin[k] * 4);
           const w = sparkSize[k] * (0.55 + 0.45 * (1 - age)) * twinkle;
-          at.set(sparkX[k], sparkY[k] - age * 0.18, sparkZ[k]);
+          at.set(
+            sparkX[k] + age * sparkDX[k],
+            sparkY[k] + age * sparkDY[k] - age * age * 0.35,
+            sparkZ[k]
+          );
           size.set(w, w, 1);
           turn.setFromAxisAngle(FACING, sparkSpin[k] + age);
           sparks.setMatrixAt(k, scratch.compose(at, turn, size));

@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -21,12 +21,7 @@ afterEach(() => {
   for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 function scratch() {
-  const path = mkdtempSync(
-    join(
-      process.platform === 'darwin' ? resolve(server, '../../tmp') : tmpdir(),
-      'horse-cli-lifecycle-'
-    )
-  );
+  const path = mkdtempSync(join(tmpdir(), 'horse-cli-lifecycle-'));
   directories.push(path);
   return path;
 }

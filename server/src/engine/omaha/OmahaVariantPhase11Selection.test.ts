@@ -29,7 +29,11 @@ import { HorseLogic } from '../HorseLogic.js';
 import { seedFastRandom } from '../HorseEval.js';
 import { calculatePots } from '../PokerEngine.js';
 import { horsePhase11AdmittedMode } from '../HorsePhase11Authority.js';
-import { horsePhase11SelectionIsValid } from '../horseDecision/responseValidation.js';
+import { PLO4_POLICY_PACK } from '../plo4/Plo4PolicyPack.js';
+import {
+  horsePhase10SelectionIsValid,
+  horsePhase11SelectionIsValid,
+} from '../horseDecision/responseValidation.js';
 import type { OmahaVariantMode } from './OmahaVariantLivePolicy.js';
 import { OMAHA_VARIANT_PACKS, type OmahaPolicyVariant } from './OmahaVariantPolicyPack.js';
 
@@ -72,6 +76,10 @@ const tournament = (input: ReturnType<typeof omahaVariantSpot>) => {
   return input;
 };
 
+// These spots need a hand the reference folds, so the pack's proposal differs
+// from it. V90 no longer folds that hand first in heads-up in a tournament, so
+// the fixture runs the reference without V90. Phase 7 ownership of the V90
+// decision itself is held in HorseOmahaTournamentFirstIn.law.test.ts.
 const decide = (input: ReturnType<typeof omahaVariantSpot>, phase11Omaha: OmahaVariantMode) => {
   seedFastRandom(100101);
   return HorseLogic.decide(
@@ -79,7 +87,14 @@ const decide = (input: ReturnType<typeof omahaVariantSpot>, phase11Omaha: OmahaV
     input.state,
     'balanced',
     {},
-    { telemetry: false, mind: false, decisionTimeMs: 0, phase11Omaha, phase11EvidenceMode: true }
+    {
+      telemetry: false,
+      mind: false,
+      decisionTimeMs: 0,
+      phase11Omaha,
+      phase11EvidenceMode: true,
+      omahaTournamentFirstIn: false,
+    }
   );
 };
 const act = (d: { action: string; amount?: number }) => ({
@@ -246,4 +261,75 @@ describe('P11.3 illegal candidate retention', () => {
       }
     }
   );
+});
+
+it('requires the exact cash Phase 11 proposal and the wager rule that replaced it', () => {
+  const check = { action: 'check', amount: null } as const;
+  const shove = { action: 'all_in', amount: null } as const;
+  const version = OMAHA_VARIANT_PACKS.plo6.version;
+  const receipt = {
+    variant: 'plo6',
+    version,
+    inputs: null,
+    mode: 'candidate',
+    utilityOwner: 'cash',
+    changed: true,
+    applied: true,
+    selection: 'shadow_change',
+    baselineAction: 'check',
+    baselineAmount: null,
+    proposalAction: 'all_in',
+    proposalAmount: null,
+    finalAction: 'check',
+    finalAmount: null,
+    authority: {
+      version: 'horse-qualified-authority-receipt-v1',
+      epoch: 'e',
+      generation: 1,
+      state: 'usable',
+      reason: 'admitted',
+      continuationVersion: version,
+      approvalGeneration: 1,
+      authorityKey: 'k',
+      evidenceSha256: null,
+      sourceSha: null,
+      expiresAt: null,
+      mainGeneration: null,
+    },
+  };
+  const graph: import('../HorsePolicyGraph.js').HorsePolicyGraphReceipt = {
+    version: 'horse-policy-order-v3',
+    finalAction: check,
+    transitions: [
+      { node: 'variant_policy', before: check, after: shove, changed: true, elapsedMs: 1 },
+      { node: 'wager_rules', before: shove, after: check, changed: true, elapsedMs: 1 },
+    ],
+  };
+  expect(horsePhase11SelectionIsValid(receipt, shove, graph)).toBe(true);
+  expect(horsePhase11SelectionIsValid(receipt, shove)).toBe(false);
+  expect(horsePhase11SelectionIsValid({ ...receipt, proposalAmount: 10 }, shove, graph)).toBe(
+    false
+  );
+  expect(horsePhase11SelectionIsValid({ ...receipt, finalAction: 'call' }, shove, graph)).toBe(
+    false
+  );
+  const bet = { action: 'bet', amount: 24.72 } as const;
+  const plo4 = {
+    ...receipt,
+    proposalAction: bet.action,
+    proposalAmount: bet.amount,
+    authority: { ...receipt.authority, continuationVersion: PLO4_POLICY_PACK.version },
+  };
+  const sizedGraph = {
+    ...graph,
+    transitions: [
+      { ...graph.transitions[0], after: bet },
+      { ...graph.transitions[1], before: bet },
+    ],
+  };
+  expect(horsePhase10SelectionIsValid(plo4, bet, sizedGraph)).toBe(true);
+  expect(horsePhase10SelectionIsValid({ ...plo4, proposalAmount: 24.71 }, bet, sizedGraph)).toBe(
+    false
+  );
+  expect(horsePhase10SelectionIsValid(plo4, bet)).toBe(false);
 });

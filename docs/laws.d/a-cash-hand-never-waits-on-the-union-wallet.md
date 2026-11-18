@@ -1,0 +1,3 @@
+# tests/a-cash-hand-never-waits-on-the-union-wallet.law.test.ts
+
+A cash hand's post-commit envelope stores its rake in cash_rake_pending instead of calling atomic_distribute_rake, so a dealing table never waits on a holder of the shared union_wallets row (2026-11-17: a tournament settlement held it and every cash table timed out). The hand's projection continuation banks it with the unchanged call, NOWAIT on the wallet, before any table or player lock; no timer. The law pins the switch's postimage, the envelope's closed callee list (record_insurance_transaction named as the one remaining wallet writer), the banker, the felt accounting and the two-session PostgreSQL proof.

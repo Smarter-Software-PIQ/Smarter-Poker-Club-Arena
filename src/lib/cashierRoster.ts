@@ -27,6 +27,8 @@ export interface DownlineRow {
   avatarUrl: string | null;
   role: string;
   chipBalance: number;
+  /** chipBalance as the exact decimal text the wallet holds (CASHIER_ROSTER_SELECT), for display. */
+  chipBalanceText?: string;
   /**
    * How many club_members.agent_id hops below the viewer this member sits, as
    * computed by fn_club_cashier_members. 1 is a direct assignee; 0 means the
@@ -46,6 +48,16 @@ export interface DownlineRow {
    * deleted before the search ever saw it.
    */
   isSelf: boolean;
+}
+
+/** fn_club_cashier_members_page_v3's columns, with each wallet again as exact decimal text. */
+export const CASHIER_ROSTER_SELECT = '*,chip_balance_text:chip_balance::text';
+
+/** Exact decimal text from a `::text` column, or undefined when absent or malformed. */
+export function exactDecimalText(value: unknown): string | undefined {
+  return typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value.trim())
+    ? value.trim()
+    : undefined;
 }
 
 export interface CashierRosterRpcRow extends Record<string, unknown> {
@@ -72,6 +84,10 @@ export const mapCashierRoster = (rows: CashierRosterRpcRow[], viewerId: string):
       avatarUrl: (row.avatar_url as string) || null,
       role: (row.role as string) || 'player',
       chipBalance: Number(row.chip_balance) || 0,
+      ...(typeof row.chip_balance === 'number' &&
+      exactDecimalText(row.chip_balance_text) !== undefined
+        ? { chipBalanceText: exactDecimalText(row.chip_balance_text) }
+        : {}),
       depth,
       isMine: depth === 1,
       playerNumber: (row.player_number as string) || null,
@@ -228,3 +244,83 @@ export function sortCashierRosterMatches(
     .sort((a, b) => b.rank - a.rank || bySort(a.row, b.row))
     .map(({ row }) => row);
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  ROSTER ORDER (Dan 2026-11-13)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * "PLAYERS DISPLAYED SHOULD BE DEFAULTED BY LAST TRANSACTION ... SORT UP OR
+ * DOWN BY AGENT WALLET BALANCE AND PLAYER WALLET BALANCE. THERE SHOULD BE A
+ * TOGGLE TO INSTANTLY SHOW HIGH TO LOW OR LOW TO HIGH FOR BOTH. WITH HIGH TO
+ * LOW BEING THE DEFAULT WHEN CLICKED."
+ *
+ * The keys come from fn_cashier_roster_sort_keys over the WHOLE roster, so a
+ * wallet sort orders every member, not just the rows already on screen.
+ */
+export type CashierRosterSort =
+  | { by: 'last_transaction' }
+  | { by: 'agent_wallet' | 'player_wallet'; dir: 'desc' | 'asc' };
+
+export const DEFAULT_CASHIER_ROSTER_SORT: CashierRosterSort = { by: 'last_transaction' };
+
+export interface CashierRosterSortKeys {
+  playerWallet: number | null;
+  agentWallet: number | null;
+  /** epoch ms of the member's newest cashier ledger row in this club, or null. */
+  lastTransactionAt: number | null;
+}
+
+/**
+ * Tapping a wallet button: a new column starts High To Low; tapping the
+ * column already in force flips its direction.
+ */
+export const nextCashierRosterSort = (
+  current: CashierRosterSort,
+  by: 'agent_wallet' | 'player_wallet'
+): CashierRosterSort =>
+  current.by === by ? { by, dir: current.dir === 'desc' ? 'asc' : 'desc' } : { by, dir: 'desc' };
+
+export const mapCashierRosterSortKeys = (
+  rows: Array<Record<string, unknown>>
+): Map<string, CashierRosterSortKeys> => {
+  const num = (v: unknown): number | null =>
+    v == null || !Number.isFinite(Number(v)) ? null : Number(v);
+  const out = new Map<string, CashierRosterSortKeys>();
+  for (const row of rows) {
+    if (!row || row.user_id == null) continue;
+    const at = row.last_transaction_at ? Date.parse(String(row.last_transaction_at)) : NaN;
+    out.set(String(row.user_id), {
+      playerWallet: num(row.player_wallet),
+      agentWallet: num(row.agent_wallet),
+      lastTransactionAt: Number.isFinite(at) ? at : null,
+    });
+  }
+  return out;
+};
+
+/**
+ * The comparator. A member with no wallet of that kind reads as 0.00, which is
+ * what the row prints. Ties fall back to the newest transaction, then name, so
+ * the order never shuffles between renders. Members who have never transacted
+ * sort after everyone who has, by player wallet then name.
+ */
+export const compareCashierRoster =
+  (sort: CashierRosterSort, keys: Map<string, CashierRosterSortKeys>) =>
+  (a: DownlineRow, b: DownlineRow): number => {
+    const ka = keys.get(a.userId);
+    const kb = keys.get(b.userId);
+    const lastA = ka?.lastTransactionAt ?? -Infinity;
+    const lastB = kb?.lastTransactionAt ?? -Infinity;
+    const byRecent = lastA === lastB ? 0 : lastB > lastA ? 1 : -1;
+    const byName = a.name.localeCompare(b.name);
+    if (sort.by === 'last_transaction') {
+      return byRecent || b.chipBalance - a.chipBalance || byName;
+    }
+    const value = (row: DownlineRow, k: CashierRosterSortKeys | undefined) =>
+      sort.by === 'agent_wallet'
+        ? (k?.agentWallet ?? 0)
+        : (k?.playerWallet ?? row.chipBalance ?? 0);
+    const diff = value(a, ka) - value(b, kb);
+    return (sort.dir === 'desc' ? -diff : diff) || byRecent || byName;
+  };

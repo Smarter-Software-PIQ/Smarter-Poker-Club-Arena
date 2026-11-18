@@ -772,10 +772,10 @@ export default function TableConfigPage({
 
   // Generate the default table name, and KEEP IT TRACKING THE BLINDS.
   //
-  // 2026-08-23: limit games are named by BET size, not blind size — blinds
-  // 1/2 is a "2/4" limit game. defaultTableName() defers to stakesLabel(),
-  // the one place that decides, so the table name, the stakes column and the
-  // lobby row all agree.
+  // Limit games are named "Fixed Limit Holdem 1/2" by their blinds (owner ruling,
+  // November 14, 2026). defaultTableName() defers to stakesLabel(), the one
+  // place that decides, so the table name, the stakes column and the lobby row
+  // all agree.
   //
   // 2026-08-31 audit: the dependency array was [gameInfo.name] and the write
   // was guarded by `prev.name ||`, so the name was decided once at mount and

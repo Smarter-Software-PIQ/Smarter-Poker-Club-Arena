@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  THE BREAK CLOCKS AGREE (law, to-do #2563 item 12)
@@ -203,6 +204,17 @@ describe('the freeze ceiling is the same ceiling everywhere', () => {
 describe('the last-hand window is the same window everywhere', () => {
   it('the engine announces two minutes before the break', () => {
     expect(ENGINE).toMatch(/LAST_HAND_LEAD_MS = 2 \* 60 \* 1000/);
+  });
+
+  it('the durable terminal cutoff preserves the engine settlement reserve', () => {
+    const lead = Number(ENGINE.match(/LAST_HAND_LEAD_MS = (\d+) \* 60 \* 1000/)![1]) * 60;
+    const reserve = Number(ENGINE.match(/TERMINAL_SETTLEMENT_RESERVE_MS = (\d+) \* 1000/)![1]);
+    const terminal = read(
+      'supabase/migrations/20261117112838_terminal_settlement_reserves_existing_maintenance_admission_.sql'
+    );
+    const cutoff = terminal.match(/announced_at\s*\+\s*INTERVAL\s*''(\d+) seconds''/i);
+    expect(cutoff, 'durable terminal admission must enforce the engine cutoff').not.toBeNull();
+    expect(Number(cutoff![1])).toBe(lead - reserve);
   });
 
   it('the current SQL and browser use the exact seven-minute announcement window', () => {
@@ -442,16 +454,18 @@ describe('the database refuses migrations across the whole break window', () => 
 describe('the break scorecard grades only what the break controls', () => {
   const MIGRATIONS_DIR = resolve(__dirname, '..', 'supabase/migrations');
 
+  // This suite never edits the migration corpus. Read its defining-file list
+  // once, preserving newest-definition selection and every historical check.
+  const recorderFiles = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) =>
+      readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
+        'CREATE OR REPLACE FUNCTION public.fn_ca_record_break_scorecard'
+      )
+    );
   /** Every migration defining the recorder, oldest first. */
-  const recorderMigrations = (): string[] =>
-    readdirSync(MIGRATIONS_DIR)
-      .filter((f) => f.endsWith('.sql'))
-      .sort()
-      .filter((f) =>
-        readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
-          'CREATE OR REPLACE FUNCTION public.fn_ca_record_break_scorecard'
-        )
-      );
+  const recorderMigrations = (): string[] => recorderFiles;
 
   /** The one Postgres ends up with: the newest definition wins. */
   const governingRecorder = (): string => {
@@ -522,16 +536,16 @@ describe('the break scorecard grades only what the break controls', () => {
 
   it('never shows a bare question mark where a measurement is missing', () => {
     // "Recovery ?s" reads as a broken template. Say what is missing.
-    const all = readdirSync(MIGRATIONS_DIR)
-      .filter((f) => f.endsWith('.sql'))
-      .sort()
-      .filter((f) =>
-        readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
-          'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push'
-        )
-      );
+    const selection = nativeMigrationSelection(
+      'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push',
+      MIGRATIONS_DIR,
+      { fixed: true, timeout: 25_000 }
+    );
+    expect(selection.error).toBeUndefined();
+    expect(selection.status).toBe(0);
+    const all = selection.stdout.trim().split('\n').sort();
     expect(all.length).toBeGreaterThan(0);
-    const push = readFileSync(resolve(MIGRATIONS_DIR, all[all.length - 1]), 'utf8');
+    const push = readFileSync(all[all.length - 1], 'utf8');
     expect(
       /COALESCE\([^)]*,\s*'\?'\s*\)/.test(push),
       "the push renders a missing measurement as '?', which reads as a bug rather than as " +
@@ -570,7 +584,7 @@ it(
       }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 31 tests');
+    expect(result.stderr).toContain('Ran 32 tests');
   },
   hourlyCycleGitContextTimeoutMs + hourlyCycleQualificationTimeoutMs + 5_000
 );

@@ -655,6 +655,33 @@ for (const half of ['cash', 'tournament']) {
   leaseRenewalOutstandingTotal.inc(0, { half });
 }
 
+/**
+ * HANDS DEALT, BY FORMAT (2026-11-11). `poker_hands_dealt_total` is one
+ * unlabelled series that counts every ServerTableEngine hand, tournament and
+ * cash alike, and NO Lightning hand at all (LightningHandHost deals outside
+ * the table engines; its hands are `poker_lightning_hands_total`).
+ *
+ * HorseFleetThroughputRelativeDrop compared that series with the same hour on
+ * previous days and paged critical (incident 71fdf977) on the owner's own
+ * change: the seat-first ladder (Dan 2026-11-08) cut Spin and Sit & Go volume
+ * from ~11,000 games a day to ~110, so a counter that was mostly tournament
+ * hands fell ~90% while the cash floor was flat. #10506 then compared settled
+ * Lightning hands only, which left an ordinary (Classic) cash-table decline
+ * outside the relative rule. This series lets the rule count ALL cash hands -
+ * format="cash" here plus poker_lightning_hands_total{outcome="settled"} -
+ * and never a tournament hand.
+ *
+ * Zero-seeded across the format domain for the reason actionsFleetTotal is
+ * (anAlertCannotWaitForAFailureToExist): a cold engine must read 0, not empty.
+ */
+export const handsFleetTotal: Counter = alwaysOnRegistry.counter(
+  'poker_hands_fleet_total',
+  'Hands dealt by the table engines (labels: format=cash|spin|hu_sng|sng|mtt). Lightning hands are poker_lightning_hands_total.'
+);
+for (const format of ['cash', 'spin', 'hu_sng', 'sng', 'mtt']) {
+  handsFleetTotal.inc(0, { format });
+}
+
 /** Actions processed, bounded by audience x tournament format. */
 export const actionsFleetTotal: Counter = alwaysOnRegistry.counter(
   'poker_actions_fleet_total',
@@ -1261,4 +1288,63 @@ refreshProcessMemoryGauges();
 export function alwaysOnPrometheusLines(): string[] {
   refreshProcessMemoryGauges();
   return alwaysOnRegistry.renderPrometheus().split('\n').filter(Boolean);
+}
+
+/**
+ * A LOGGED HAND WITHOUT ITS PUBLIC MEMORY DOMAIN IS COUNTED (2026-11-12,
+ * HVH2D-EXE-002). `logHandHistory` writes `hand_history.public_memory_domain`
+ * only when the producer's value is valid and otherwise omits the column
+ * without a word; the exact opponent-memory trigger
+ * (`fn_horse_exact_accept_hand`) then skips learning for that hand. From
+ * 2026-11-07 every ordinary cash hand that reached showdown was written
+ * without it (589 of 589 in one production hour) and nothing counted it.
+ *
+ * Counted once per hand the atomic commit ACCEPTED, at the storage boundary
+ * (services/supabase/handMemoryDomainSignal.ts), never per attempt:
+ *   poker_hand_memory_domain_logged_total{mode,reached_showdown,learner_scope}
+ *     every accepted hand (the denominator);
+ *   poker_hand_memory_domain_missing_total{mode,reached_showdown,reason}
+ *     accepted hands written without a valid domain (the numerator).
+ * Closed label sets only - never a table, hand or player:
+ *   mode             cash | tournament (a physical table's row, by its
+ *                    tournament_id as the trigger reads it) | lightning (a
+ *                    Lightning pool hand; the trigger files it under its own
+ *                    profile partition, domain speed `lightning`)
+ *   reached_showdown true | false (the row's `showdown` reveal is non-empty)
+ *   learner_scope    supported | unsupported_variant (game_variant inside or
+ *                    outside the nine variants the trigger learns)
+ *   reason           absent (null or not supplied) | invalid (supplied, fails
+ *                    publicMemoryDomainIsValid) | unsupported_variant (no valid
+ *                    domain on a variant the trigger never learns: exempt)
+ * A Lightning hand is counted where its settlement is accepted
+ * (LightningHandBackend.settle), and a retained hand a replacement engine
+ * commits where that engine reads the commit back
+ * (resumeRetainedHandSubmission, `financial_handoff`). Zero-seeded across the
+ * whole domain (anAlertCannotWaitForAFailureToExist). The rule that reads
+ * them, HandMemoryDomainMissingOnCashShowdown, only reports; it reads cash
+ * and lightning.
+ */
+export const HAND_MEMORY_DOMAIN_MODES = ['cash', 'tournament', 'lightning'] as const;
+export const HAND_MEMORY_DOMAIN_SHOWDOWN = ['true', 'false'] as const;
+export const HAND_MEMORY_DOMAIN_LEARNER_SCOPES = ['supported', 'unsupported_variant'] as const;
+export const HAND_MEMORY_DOMAIN_MISSING_REASONS = [
+  'absent',
+  'invalid',
+  'unsupported_variant',
+] as const;
+export const handMemoryDomainLoggedTotal: Counter = alwaysOnRegistry.counter(
+  'poker_hand_memory_domain_logged_total',
+  'Hands accepted by the atomic hand commit (labels: mode=cash|tournament|lightning, reached_showdown=true|false, learner_scope=supported|unsupported_variant)'
+);
+export const handMemoryDomainMissingTotal: Counter = alwaysOnRegistry.counter(
+  'poker_hand_memory_domain_missing_total',
+  'Hands accepted by the atomic hand commit and written without a valid public_memory_domain (labels: mode=cash|tournament|lightning, reached_showdown=true|false, reason=absent|invalid|unsupported_variant)'
+);
+for (const mode of HAND_MEMORY_DOMAIN_MODES) {
+  for (const reached_showdown of HAND_MEMORY_DOMAIN_SHOWDOWN) {
+    for (const learner_scope of HAND_MEMORY_DOMAIN_LEARNER_SCOPES)
+      handMemoryDomainLoggedTotal.inc(0, { mode, reached_showdown, learner_scope });
+    for (const reason of HAND_MEMORY_DOMAIN_MISSING_REASONS)
+      handMemoryDomainMissingTotal.inc(0, { mode, reached_showdown, reason });
+  }
 }

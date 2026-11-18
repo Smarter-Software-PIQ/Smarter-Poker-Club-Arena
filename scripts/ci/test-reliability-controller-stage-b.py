@@ -31,7 +31,21 @@ recipient guard). It proves:
     and one message, and a backlog is worked 50 rows a tick;
   * reminders stop after 4 per incident;
   * the controller's own failures are one incident per kind and never loop;
-  * anon and authenticated can read, write and execute nothing.
+  * anon and authenticated can read, write and execute nothing;
+  * after every later controller migration (20261110045731, 20261110174051 and
+    the function patch of 20261110224707), 20261111133716 installs once: the
+    corrected producers land on their read classes, and the escalation drill
+    enters through fn_record_operational_alert, escalates once, sends one DM
+    and one push in critical_only, is idempotent per drill id, refuses a
+    second drill inside 10 minutes, resolves through a producer-style resolved
+    row, and cannot be called by anon or authenticated.
+  * 20261111222330 installs once over those bodies (proven equal to
+    production by its own preimage check): a class row with a hold-down holds
+    a firing incident (nothing sent) until it has stayed firing
+    hold_down_seconds or started hold_down_flaps episodes in the window, at
+    intake or from the tick; a resolve resets it; the class quiet window
+    decides recovery; classes without a hold-down are unchanged; a close keeps
+    its named basis; the three producer families land on their found classes.
 """
 import json
 import os
@@ -46,6 +60,14 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261110000020_reliability_controller_stage_b.sql'
 FOLLOW_UP = ROOT / 'supabase/migrations/20261110144203_reliability_controller_drift_mirrors_are_incidents_and_push_.sql'
 FIXTURE = ROOT / 'scripts/ci/fixtures/reliability-controller-production-objects.sql'
+# Installed in production after the two above, in this order; the drill installs over all of them.
+INSTALLED_AFTER = [ROOT / 'supabase/migrations' / name for name in (
+    '20261110045731_reliability_controller_health_function_and_seed_corrections.sql',
+    '20261110174051_reliability_controller_sends_critical_escalations.sql')]
+# Its function patch only: its data section reconciles three production incident ids, which a native cluster does not hold.
+LATCH_FIX = ROOT / 'supabase/migrations/20261110224707_a_recovered_reliability_incident_is_no_longer_escalated.sql'
+DRILL = ROOT / 'supabase/migrations/20261111133716_reliability_escalation_drill_and_class_tuning.sql'
+HOLD_DOWN = ROOT / 'supabase/migrations/20261111222330_reliability_hold_down_and_found_producers.sql'
 OWNER = '47965354-0e56-43ef-931c-ddaab82af765'
 # md5 of the whitespace-normalized definition, read from production (PokerIQ,
 # PostgreSQL 17.6) on 2026-11-10 with the same expressions this file runs.
@@ -98,7 +120,7 @@ def main():
     os.environ.setdefault('LANG', 'C')
     scratch = Path(tempfile.mkdtemp(prefix='reliability-', dir=os.environ.get('RUNNER_TEMP') or os.environ.get('TMPDIR')))
     data = scratch / 'data'
-    sock = Path(tempfile.mkdtemp(prefix='pgs', dir='/tmp'))
+    sock = Path(tempfile.mkdtemp(prefix='pgs', dir=os.environ.get('RELIABILITY_SOCKET_ROOT') or '/tmp'))
     subprocess.run([pg_bin('initdb'), '-D', str(data), '-U', 'postgres', '-A', 'trust', '--no-locale', '-E', 'UTF8'], check=True, capture_output=True)
     port = str(55000 + os.getpid() % 5000)
     subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-o', f"-k {sock} -p {port} -c listen_addresses=''",
@@ -959,6 +981,344 @@ def main():
         r = psql(['-f', str(MIGRATION)])
         assert r.returncode != 0, 'a second install must be refused'
         ok('the health view reports the heartbeat and the queue, no fingerprint is open twice, no request id was sent twice, the job is scheduled once, and a second install is refused')
+
+        # ---- the escalation drill and the class corrections (20261111133716), over every installed controller migration.
+        for path in INSTALLED_AFTER:
+            r = psql(['-f', str(path)])
+            assert r.returncode == 0, (path.name, r.stderr)
+        latch = ' '.join(re.search(r'^DO \$%s\$.*?^\$%s\$;' % (b, b), LATCH_FIX.read_text(), re.M | re.S).group(0) for b in ('pre', 'latch'))
+        r = psql([], f'BEGIN; {latch} COMMIT;')
+        assert r.returncode == 0, r.stderr
+        assert "CLEARED ON A TERMINAL STATUS (20261110224707)" in sql("SELECT pg_get_functiondef('smarter_private.reliability_transition(uuid,text,text,jsonb)'::regprocedure)")
+        r = psql(['-f', str(DRILL)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', DRILL.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'drill live proof must hold after install'
+        r = psql(['-f', str(DRILL)])
+        assert r.returncode != 0, 'a second install of the drill must be refused'
+        corrected = {('financial-alerts-backfill', 'LightningHandHost.post_commit_obligations_pending', 'critical'): 'money_integrity warning',
+                     ('financial-alerts-updates', 'ServerTableEngine.post_commit_obligations_pending', 'critical'): 'money_integrity warning',
+                     ('migration-install-watch', 'MergedMigrationNotInstalled', 'critical'): 'release critical',
+                     ('engine-alerts-backfill', 'OpenClawJobStale', 'warning'): 'monitoring_self warning',
+                     ('workers.deploy-error-poll', 'VercelDeploymentFailed', 'critical'): 'release critical',
+                     ('workers.deploy-error-poll', 'AutofixRebuildFailed', 'critical'): 'release critical',
+                     ('workers.deploy-error-poll', 'DeploymentMonitorUnavailable', 'critical'): 'monitoring_self critical',
+                     ('workers.deploy-error-poll', 'SomethingElse', 'critical'): 'unclassified warning',
+                     ('mac-studio-git-maintenance', 'Git Maintenance Not Keeping Up', 'warning'): 'unclassified warning',
+                     ('financial-alerts-backfill', 'union_promo_duplicate_2026_11_07', 'warning'): 'unclassified warning',
+                     ('midway-weekly-payout-followup', 'engine_release_stall_check_uuid_into_bigint', 'warning'): 'unclassified warning',
+                     ('reliability-drill', 'Drill No Action Needed d-anything', 'critical'): 'reliability_drill critical'}
+        for (source, name, severity), expected in corrected.items():
+            got = sql(f"SELECT c.incident_class || ' ' || c.default_severity || ' ' || c.is_incident FROM smarter_private.reliability_classify('{source}', $a${name}$a$, '{severity}', false) c")
+            assert got == expected + ' true', (source, name, got, expected)
+        ok('the corrected producers land on their read classes (post-commit envelopes money_integrity, a merged migration not installed and a failed '
+           'World Hub deployment release, a stale Open Claw job and a blind deploy monitor monitoring_self), the three unread families stay unclassified, '
+           'and every one is still an incident')
+
+        assert sql('SELECT notify_mode || mutation_paused::text FROM smarter_private.reliability_settings') == 'critical_onlytrue'
+        # Earlier sections sent many messages inside this hour; the hourly cap is not what the drill proves.
+        sql('UPDATE smarter_private.reliability_settings SET max_dm_per_hour = 1000 WHERE id')
+        drill = lambda action, drill_id: json.loads(sql(f"SET ROLE service_role; SELECT public.fn_reliability_drill('{action}', '{drill_id}')"))
+        for role in ('anon', 'authenticated'):
+            refused(f"SET ROLE {role}; SELECT public.fn_reliability_drill('start', 'drill-native-1')", 'permission denied for function fn_reliability_drill')
+        refused("SET request.jwt.claim.role = 'authenticated'; SELECT public.fn_reliability_drill('start', 'drill-native-1')", 'service-only')
+        refused("SET ROLE authenticated; SELECT 1 FROM smarter_private.reliability_drills", 'permission denied')
+        refused("SET ROLE service_role; SELECT public.fn_reliability_drill('start', 'BAD ID')", 'RELIABILITY_DRILL_INVALID')
+        assert num("SELECT count(*) FROM public.operational_alert_events WHERE source = 'reliability-drill'") == 0
+        sent, pushes = messages(), num('SELECT count(*) FROM public.push_outbox')
+        started = drill('start', 'drill-native-1')
+        did = started['incident_id']
+        assert started['idempotent'] is False and did, started
+        assert sql(f"SELECT investigation_status || ' ' || status || ' ' || severity FROM public.operational_alert_events WHERE id = {started['firing_inbox_event_id']}") == 'new firing critical'
+        assert sql(f"SELECT incident_class || ' ' || status || ' ' || severity || ' ' || escalation_state || ' ' || title FROM smarter_private.reliability_incidents WHERE id = '{did}'") \
+            == 'reliability_drill escalated critical escalated Drill No Action Needed drill-native-1 (reliability drill)'
+        assert sql(f"SELECT state || ' ' || kind FROM smarter_private.reliability_notifications WHERE incident_id = '{did}'") == 'queued escalation'
+        assert messages() == sent, 'the drill sends nothing itself; the tick delivers the outbox'
+        assert drill('verify', 'drill-native-1')['delivered'] is False
+        result = tick()
+        assert result['delivery']['sent'] == 1 and messages() == sent + 1 and num('SELECT count(*) FROM public.push_outbox') == pushes + 1, result
+        body = sql(f"SELECT m.content FROM public.social_messages m JOIN smarter_private.reliability_notifications n ON n.message_id = m.id WHERE n.incident_id = '{did}'")
+        for needle in ('Title: Drill No Action Needed drill-native-1 (reliability drill)', 'Severity: CRITICAL',
+                       'Rule summary: This is a Reliability Controller escalation drill (drill drill-native-1). No action is needed',
+                       'Affected scopes: 1 (run=drill-native-1)'):
+            assert needle in body, (needle, body)
+        push = sql(f"SELECT title || ' | ' || event || ' | ' || status FROM public.push_outbox WHERE related_entity_id = '{did}'")
+        assert push == 'AI Agent Needed: Drill No Action Needed drill-native-1 (reliability drill) | reliability_escalation | pending', push
+        pending = drill('verify', 'drill-native-1')
+        assert pending['delivered'] is False and pending['notification']['push_state'] == 'pending' and pending['message']['says_drill'] is True, pending
+        # The push dispatcher (outside the database) accepts the row; the next tick mirrors it.
+        sql(f"UPDATE public.push_outbox SET status = 'sent', attempts = 1, sent_at = clock_timestamp() WHERE related_entity_id = '{did}'")
+        tick()
+        seen = drill('verify', 'drill-native-1')
+        assert seen['delivered'] is True and seen['resolved'] is False and seen['pass'] is False, seen
+        assert seen['escalation_notifications'] == 1 and seen['messages_for_request'] == 1 and seen['push_rows'] == 1, seen
+        assert seen['notification']['state'] == 'persisted_in_messenger' and seen['notification']['push_state'] == 'provider_accepted', seen
+        assert seen['message']['to_owner_conversation'] is True and seen['message']['sender_id'] == SENDER, seen
+        ok('a drill enters through fn_record_operational_alert, opens one critical reliability_drill incident, escalates once, and the tick sends '
+           'exactly one Messenger DM (it says drill and no action needed) and one push in critical_only; verify reads back the DM and the push')
+
+        inbox = num("SELECT count(*) FROM public.operational_alert_events")
+        again = drill('start', 'drill-native-1')
+        assert again['idempotent'] is True and again['incident_id'] == did, again
+        assert num("SELECT count(*) FROM public.operational_alert_events") == inbox and tick()['delivery']['sent'] == 0 and messages() == sent + 1
+        refused("SET ROLE service_role; SELECT public.fn_reliability_drill('start', 'drill-native-2')", 'RELIABILITY_DRILL_REFUSED')
+        assert num("SELECT count(*) FROM public.operational_alert_events") == inbox and num('SELECT count(*) FROM smarter_private.reliability_drills') == 1
+        ok('a repeated drill id writes nothing and sends nothing; a new drill inside 10 minutes is refused before it reaches the inbox')
+
+        resolved = drill('resolve', 'drill-native-1')
+        assert resolved['idempotent'] is False, resolved
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id = '{did}'") == 'verifying'
+        assert sql(f"SELECT escalation_state FROM smarter_private.reliability_incidents WHERE id = '{did}'") == 'escalated'
+        done = drill('verify', 'drill-native-1')
+        assert done['pass'] is True and done['resolved_disposition'] == 'applied', done
+        assert drill('resolve', 'drill-native-1')['idempotent'] is True
+        assert num(f"SELECT count(*) FROM public.operational_alert_events WHERE source = 'reliability-drill'") == 2
+        tick(now("+ interval '31 minutes'"))
+        assert sql(f"SELECT status || ' ' || escalation_state FROM smarter_private.reliability_incidents WHERE id = '{did}'") == 'recovered none'
+        assert messages() == sent + 1 and num(f"SELECT count(*) FROM smarter_private.reliability_notifications WHERE incident_id = '{did}'") == 1
+        ok('the drill resolves through a producer-style resolved row: the incident verifies, the tick confirms recovered and clears the escalation, '
+           'verify reports PASS, a repeated resolve writes nothing, and no further message is sent')
+
+        sql("UPDATE smarter_private.reliability_drills SET requested_at = requested_at - interval '11 minutes'")
+        second = drill('start', 'drill-native-2')
+        assert second['incident_id'] and second['incident_id'] != did, second
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_notification_incidents WHERE incident_id = '{second['incident_id']}'") == 1
+        assert tick()['delivery']['sent'] == 1 and messages() == sent + 2
+        drill('resolve', 'drill-native-2')
+        assert drill('verify', 'drill-native-2')['resolved'] is True
+        ok('a second drill ten minutes later is its own incident and its own message, never attached to the first drill digest')
+        # ---- the per-class hold-down and the found producers (20261111222330), over every installed controller migration.
+        record('mac-studio-git-maintenance', 'pack-backlog:/pre:1', 'Git Maintenance Not Keeping Up', 'firing', 'warning', {'host': 'm', 'repo': '/pre', 'pack_files': 1406, 'limit': 400})
+        assert sql("SELECT incident_class || ' ' || status FROM smarter_private.reliability_incidents WHERE source = 'mac-studio-git-maintenance' AND status <> 'closed'") == 'unclassified investigating'
+        r = psql(['-f', str(HOLD_DOWN)])
+        assert r.returncode == 0, r.stderr
+        proof = re.search(r'^-- @live-proof: (.+)$', HOLD_DOWN.read_text(), re.M).group(1)
+        assert sql(f'SELECT {proof}') == 't', 'hold-down live proof must hold after install'
+        r = psql(['-f', str(HOLD_DOWN)])
+        assert r.returncode != 0 and 'RELIABILITY_HOLD_DOWN_ALREADY_INSTALLED' in r.stderr, 'a second install must be refused'
+        refused("UPDATE smarter_private.reliability_alert_classes SET hold_down_flaps = 3 WHERE alertname_pattern = 'ClusterPassErrors'", 'reliability_alert_classes_hold_down_flaps')
+        refused("UPDATE smarter_private.reliability_alert_classes SET hold_down_seconds = 5 WHERE alertname_pattern = 'ClusterPassErrors'", 'reliability_alert_classes_hold_down_seconds_range')
+        refused("UPDATE smarter_private.reliability_alert_classes SET quiet_window_seconds = 0 WHERE alertname_pattern = 'ClusterPassErrors'", 'reliability_alert_classes_quiet_window_range')
+        for role in ('anon', 'authenticated', 'service_role'):
+            assert sql(f"SELECT has_function_privilege('{role}', 'smarter_private.reliability_episode_count(text,timestamptz)', 'EXECUTE')") == 'f', role
+        got = sql("SELECT string_agg(c.hold_down_seconds || '/' || c.hold_down_flaps || '/' || c.hold_down_flap_window_seconds || '/' || c.quiet_window_seconds, ' ') "
+                  "FROM (SELECT (smarter_private.reliability_classify('financial-alerts-backfill', 'LightningHandHost.post_commit_obligations_pending', 'critical', false)).* "
+                  "UNION ALL SELECT (smarter_private.reliability_classify('alertmanager', 'DatabaseRepliesLost', 'warning', false)).*) c")
+        assert got == '1200/5/3600/1800 900/6/3600/1800', got
+        assert sql("SELECT count(*) FROM smarter_private.reliability_alert_classes WHERE hold_down_seconds IS NOT NULL") == '2'
+        ok('the hold-down installs once over production-identical bodies, its bounds are constraints, its helper is reachable by no role, '
+           'and exactly the two flagged names carry the measured numbers')
+
+        PC = 'LightningHandHost.post_commit_obligations_pending'
+        def pc(key, status='firing', starts=None, ends=None, table='hd-1'):
+            return am(key, PC, status=status, severity='critical', fingerprint='fp-' + table, starts=starts, ends=ends, labels={'table_id': table})
+        def held(table, field="status || ' ' || escalation_state"):
+            return sql(f"SELECT {field} FROM smarter_private.reliability_incidents WHERE alertname = $a${PC}$a$ AND scope->>'table_id' = '{table}' AND status <> 'closed'")
+        def kinds(table, kind):
+            return num("SELECT count(*) FROM smarter_private.reliability_incident_events e JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id "
+                       f"WHERE i.alertname = $a${PC}$a$ AND i.scope->>'table_id' = '{table}' AND e.kind = '{kind}'")
+        tick()
+        sent, base, base_sent = messages(), notes(PC), notes(PC, state='persisted_in_messenger')
+        # fire: held, nothing sent; resolve: verifying; quiet window: recovered; nothing ever sent.
+        f1 = now()
+        pc('hd1-a', starts=f1)
+        assert held('hd-1') == 'investigating none' and kinds('hd-1', 'hold_down') == 1, held('hd-1')
+        assert held('hd-1', "class_rule_id IS NOT NULL AND firing_since IS NOT NULL") == 't'
+        pc('hd1-a-again', starts=f1)
+        assert held('hd-1') == 'investigating none' and kinds('hd-1', 'hold_down') == 1
+        tick(now("+ interval '19 minutes'"))
+        assert held('hd-1') == 'investigating none', 'a critical inside its 1200 s hold-down is not escalated by the tick'
+        pc('hd1-a-resolved', status='resolved', starts=f1, ends=now())
+        assert held('hd-1', "status || ' ' || coalesce(firing_since::text, 'cleared')") == 'verifying cleared'
+        tick(now("+ interval '29 minutes'"))
+        assert held('hd-1') == 'verifying none'
+        tick(now("+ interval '31 minutes'"))
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE alertname = $a${PC}$a$ AND scope->>'table_id' = 'hd-1'") == 'recovered'
+        assert notes(PC) == base and tick()['delivery']['sent'] == 0
+        ok('fire then resolve inside the hold-down: the critical post-commit incident is held (one hold_down event, nothing sent, the tick leaves it), '
+           'verifies on the resolve, recovers after the class quiet window, and no message is ever sent')
+
+        # flap: every episode resolves inside the hold-down, but the fifth inside an hour escalates once.
+        for n in range(2, 6):
+            fs = now()
+            pc(f'hd1-f{n}', starts=fs)
+            if n < 5:
+                assert held('hd-1') == 'investigating none', (n, held('hd-1'))
+                pc(f'hd1-f{n}-resolved', status='resolved', starts=fs, ends=now())
+                assert held('hd-1') == 'verifying none', n
+        assert held('hd-1', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: fired 5 times in 3600 seconds (hold-down)'
+        assert held('hd-1', 'recurrence_count') == '1' and kinds('hd-1', 'refire') == 3 and kinds('hd-1', 'escalation') == 1
+        tick()
+        assert notes(PC) == base + 1 and notes(PC, state='persisted_in_messenger') == base_sent + 1, (base, base_sent, notes(PC))
+        ok('flapping: four episodes that each resolve stay held and verifying with nothing sent; the fifth inside 3600 s escalates once and sends one message')
+
+        # held long enough: at intake when the delivery itself shows it, and from the tick when no further delivery comes.
+        pc('hd2-a', starts=now("- interval '21 minutes'"), table='hd-2')
+        assert held('hd-2', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 1200 seconds (hold-down)'
+        s3 = now()
+        pc('hd3-a', starts=s3, table='hd-3')
+        assert held('hd-3') == 'investigating none'
+        tick(now("+ interval '19 minutes'"))
+        assert held('hd-3') == 'investigating none'
+        tick(now("+ interval '21 minutes'"))
+        assert held('hd-3', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 1200 seconds (hold-down)'
+        # a refire while verifying after escalation goes back to escalated, as before; recovery clears it.
+        pc('hd3-a-resolved', status='resolved', starts=s3, ends=now(), table='hd-3')
+        assert held('hd-3') == 'verifying escalated'
+        tick(now("+ interval '31 minutes'"))
+        assert sql("SELECT status || ' ' || escalation_state FROM smarter_private.reliability_incidents WHERE scope->>'table_id' = 'hd-3'") == 'recovered none'
+        ok('a held critical that stays firing escalates: at intake when its delivery has been firing 1200 s, from the tick at 1200 s when no delivery comes, '
+           'and never before; recovery after the quiet window clears the escalation')
+
+        # the warning name: 30 minutes open is not enough when the current episode is young; 900 s of continuous firing is.
+        DB = 'DatabaseRepliesLost'
+        am('db-1', DB, severity='warning', fingerprint='db-1', starts=now(), labels={'instance': 'hd-db'})
+        dbi = lambda f="status || ' ' || escalation_state": sql(f"SELECT {f} FROM smarter_private.reliability_incidents WHERE alertname = '{DB}' AND scope->>'instance' = 'hd-db'")
+        sql(f"UPDATE smarter_private.reliability_incidents SET opened_at = clock_timestamp() - interval '40 minutes', firing_since = clock_timestamp() - interval '5 minutes' WHERE alertname = '{DB}' AND scope->>'instance' = 'hd-db'")
+        tick()
+        assert dbi() == 'investigating none', 'an old flapping warning whose current episode is 5 minutes old stays held'
+        sql(f"UPDATE smarter_private.reliability_incidents SET firing_since = clock_timestamp() - interval '16 minutes' WHERE alertname = '{DB}' AND scope->>'instance' = 'hd-db'")
+        tick()
+        assert dbi("status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 900 seconds (hold-down)'
+        ok('a DatabaseRepliesLost warning open 40 minutes is held while its current episode is younger than 900 s and escalates once it has fired 900 s')
+
+        # a class row's own quiet window, and every other class unchanged.
+        sql("INSERT INTO smarter_private.reliability_alert_classes (priority, source_pattern, alertname_pattern, severity_pattern, incident_class, default_severity, "
+            "escalate_immediately, is_incident, hold_down_seconds, quiet_window_seconds, note) VALUES (5, 'alertmanager', 'HoldDownQuietProbe', '%', 'cluster', 'warning', "
+            "false, true, 600, 600, 'native test only')")
+        qs = now()
+        am('q-1', 'HoldDownQuietProbe', severity='critical', fingerprint='q-1', starts=qs)
+        assert incident('HoldDownQuietProbe') == 'investigating'
+        am('q-1-resolved', 'HoldDownQuietProbe', status='resolved', severity='critical', fingerprint='q-1', starts=qs, ends=now())
+        tick(now("+ interval '9 minutes'"))
+        assert incident('HoldDownQuietProbe') == 'verifying'
+        tick(now("+ interval '11 minutes'"))
+        assert incident('HoldDownQuietProbe') == 'recovered'
+        assert sql("SELECT e.detail->>'reason' FROM smarter_private.reliability_incident_events e JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id "
+                   "WHERE i.alertname = 'HoldDownQuietProbe' AND e.kind = 'quiet_window_passed'") == 'the alert stayed resolved for 600 seconds (class quiet window)'
+        am('plain-1', 'MttFleetNotDealing', severity='critical', fingerprint='plain-1', starts=now(), labels={'instance': 'plain-1'})
+        assert incident('MttFleetNotDealing', "status || ' ' || escalation_reason") == 'escalated no eligible recovery'
+        s4 = now()
+        am('plain-2', 'ClusterTickingNothing', severity='warning', fingerprint='plain-2', starts=s4, labels={'instance': 'plain-2'})
+        sql("UPDATE smarter_private.reliability_incidents SET opened_at = clock_timestamp() - interval '31 minutes' WHERE alertname = 'ClusterTickingNothing'")
+        tick()
+        assert incident('ClusterTickingNothing', "status || ' ' || escalation_reason") == 'escalated no eligible recovery: still firing after 30 minutes'
+        am('plain-2-resolved', 'ClusterTickingNothing', status='resolved', severity='warning', fingerprint='plain-2', starts=s4, ends=now(), labels={'instance': 'plain-2'})
+        tick(now("+ interval '29 minutes'"))
+        assert incident('ClusterTickingNothing') == 'verifying'
+        tick(now("+ interval '31 minutes'"))
+        assert incident('ClusterTickingNothing') == 'recovered'
+        assert sql("SELECT e.detail::text FROM smarter_private.reliability_incident_events e JOIN smarter_private.reliability_incidents i ON i.id = e.incident_id "
+                   "WHERE i.alertname = 'ClusterTickingNothing' AND e.kind = 'quiet_window_passed'") == '{"kind": "quiet_window_passed", "reason": "the alert stayed resolved for 30 minutes"}'
+        ok('a class row with its own quiet window recovers after it; a class without a hold-down still escalates a critical on arrival, a warning after 30 minutes, '
+           'and recovers after 30 quiet minutes with the Stage B wording')
+
+        # closure evidence, and the found producers.
+        cid = incident('MttFleetNotDealing', 'id')
+        sql(f"SELECT smarter_private.reliability_transition('{cid}', 'closed', 'closed with evidence', jsonb_build_object('closure_basis', 'producer_never_resolves_successor_ready'))")
+        assert sql(f"SELECT status || ' ' || closure_basis || ' ' || escalation_state FROM smarter_private.reliability_incidents WHERE id = '{cid}'") == 'closed producer_never_resolves_successor_ready none'
+        before = incidents()
+        record('mac-studio-git-maintenance', 'pack-backlog:/repo:hd', 'Git Maintenance Not Keeping Up', 'firing', 'warning', {'host': 'm', 'repo': '/repo', 'pack_files': 1406, 'limit': 400})
+        record('financial-alerts-backfill', 'promo-hd', 'union_promo_duplicate_2026_11_07', 'firing', 'warning', {'labels': {}})
+        record('midway-weekly-payout-followup', 'note-hd', 'engine_release_stall_check_uuid_into_bigint', 'firing', 'warning', {'owner': 'x'})
+        assert incidents() == before
+        assert sql("SELECT count(*) FROM smarter_private.reliability_incidents WHERE source = 'mac-studio-git-maintenance' AND status <> 'closed'") == '0'
+        assert sql("SELECT string_agg(DISTINCT closure_basis, ',') FROM smarter_private.reliability_incidents WHERE source = 'mac-studio-git-maintenance'") == 'reclassified_not_an_incident'
+        assert sql("SELECT (smarter_private.reliability_classify('financial-alerts-backfill', 'union_promo_duplicate_2026_11_08', 'warning', false)).is_incident") == 't'
+        assert sql("SELECT (smarter_private.reliability_classify('some-source', 'engine_release_stall_check_other', 'warning', false)).is_incident") == 't'
+        ok('a hand close keeps the closure basis it names; the git maintenance guard is a development notification whose open incident is closed with that basis, '
+           'the two hand-written rows match only their exact names and open nothing, and any other name still does')
+        # The engine writer appends a distinct resolved row for one episode.
+        engine_name = 'ClubArenaFleetFloorLost'
+        engine_episode = '032e0bdc-5059-4030-af9f-1eeec22532b0'
+        engine_start = now("- interval '10 minutes'")
+        def engine_row(row_id, episode, status, component='club-arena-engine', starts=engine_start):
+            severity = 'info' if status == 'resolved' else 'critical'
+            original = {'id': row_id, 'alertname': engine_name, 'component': component,
+                        'status': status, 'severity': severity, 'starts_at': starts,
+                        'ends_at': now() if status == 'resolved' else None,
+                        'fingerprint': engine_name + ':' + component,
+                        'labels': {'alertname': engine_name, 'component': component,
+                                   'severity': severity, 'engine_alert_episode_id': episode}}
+            return record('engine-alerts-backfill', str(row_id), engine_name, status, severity,
+                          {'original_event': original, 'snapshot_kind': 'insert'})
+        retained_fire = engine_row(9101, engine_episode, 'firing')
+        retained_resolve = engine_row(9102, engine_episode, 'resolved')
+        assert incident(engine_name, "status || ' ' || resolution_state") == 'escalated uncertain'
+        assert sql(f"SELECT disposition FROM smarter_private.reliability_observations WHERE inbox_event_id = {retained_resolve}") == 'resolved_not_of_this_episode'
+        retained_count = incident(engine_name, 'occurrence_count')
+        retained_observations = num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({retained_fire},{retained_resolve})")
+        episode_fix = ROOT / 'supabase/migrations/20261116153859_engine_alert_episodes_resolve_through_their_original_identit.sql'
+        original_definition = sql("SELECT md5(pg_get_functiondef('smarter_private.reliability_ingest_alert(bigint,text,text,text,text,text,jsonb,timestamptz,timestamptz,bigint,text,text)'::regprocedure))")
+        locker = subprocess.Popen([pg_bin('psql'), '-h', str(sock), '-p', port, '-U', 'postgres', '-d', 'postgres',
+                                   '-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1'],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            locker.stdin.write("BEGIN; LOCK TABLE public.operational_alert_events IN ROW EXCLUSIVE MODE; SELECT 'locked';\n")
+            locker.stdin.flush()
+            assert locker.stdout.readline().strip() == 'locked'
+            blocked = psql(['-f', str(episode_fix)])
+            assert blocked.returncode != 0 and 'lock timeout' in blocked.stderr, blocked.stderr
+            assert sql("SELECT to_regprocedure('smarter_private.reliability_engine_episode_identity(text,jsonb)') IS NULL") == 't'
+            assert sql("SELECT md5(pg_get_functiondef('smarter_private.reliability_ingest_alert(bigint,text,text,text,text,text,jsonb,timestamptz,timestamptz,bigint,text,text)'::regprocedure))") == original_definition
+            assert incident(engine_name, "status || ' ' || resolution_state") == 'escalated uncertain'
+        finally:
+            locker.stdin.write("ROLLBACK;\n\\q\n")
+            locker.stdin.flush()
+            locker.communicate(timeout=10)
+        ok('a concurrent original inbox writer refuses the one short migration lock, with no partial function or member upgrade')
+        result = psql(['-f', str(episode_fix)])
+        assert result.returncode == 0, result.stderr
+        assert incident(engine_name) == 'verifying', 'the matching retained engine resolve must resume its original incident'
+        assert incident(engine_name, 'occurrence_count') == retained_count
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({retained_fire},{retained_resolve})") == retained_observations
+        result = psql(['-f', str(episode_fix)])
+        assert result.returncode == 0, result.stderr
+        assert incident(engine_name, 'occurrence_count') == retained_count
+        assert num(f"SELECT count(*) FROM smarter_private.reliability_observations WHERE inbox_event_id IN ({retained_fire},{retained_resolve})") == retained_observations
+        tick(now("+ interval '31 minutes'"))
+        assert incident(engine_name) == 'recovered'
+        ok('an appended engine resolution matches its firing episode, retains original observations and counts, survives repeated installation, and recovers only after the normal quiet window')
+
+        next_episode = '132e0bdc-5059-4030-af9f-1eeec22532b0'
+        next_fire = engine_row(9201, next_episode, 'firing')
+        assert incident(engine_name) == 'escalated'
+        engine_row(9206, next_episode, 'firing')
+        assert num("SELECT count(*) FROM smarter_private.reliability_alert_members WHERE member_key = 'engine-alerts:ClubArenaFleetFloorLost:club-arena-engine:episode:' || $e$%s$e$" % next_episode) == 1
+        next_count = incident(engine_name, 'occurrence_count')
+        engine_row(9202, engine_episode, 'resolved')
+        assert incident(engine_name) == 'escalated', 'a previous episode cannot close the current episode'
+        other_fire = engine_row(9203, next_episode, 'firing', component='other-engine')
+        assert incident(engine_name, 'occurrence_count') == str(int(next_count)+1)
+        next_resolve = engine_row(9204, next_episode, 'resolved')
+        assert incident(engine_name) == 'escalated', 'one component cannot resolve another component with the same UUID'
+        engine_row(9205, next_episode, 'resolved', component='other-engine')
+        assert incident(engine_name, "status || ' ' || resolution_state") == 'verifying none'
+        count_after_resolve = incident(engine_name, 'occurrence_count')
+        again = sql("SELECT coalesce(smarter_private.reliability_ingest_alert(o.id,o.source,o.event_key,o.alertname,o.status,o.severity,o.payload,"
+                    "o.received_at,o.last_received_at,o.delivery_count,o.investigation_status,'INSERT')::text,'ignored') "
+                    f"FROM public.operational_alert_events o WHERE o.id={next_resolve}")
+        assert again == 'ignored'
+        assert incident(engine_name, 'occurrence_count') == count_after_resolve
+        tick(now("+ interval '31 minutes'"))
+        assert incident(engine_name) == 'recovered'
+        ok('new engine episodes remain distinct, old resolves cannot close a recurrence, components cannot close one another, and a duplicate delivery counts once')
+
+        engine_row(9301, 'not-a-uuid', 'firing')
+        engine_row(9302, 'not-a-uuid', 'resolved')
+        assert incident(engine_name, "status || ' ' || resolution_state") == 'escalated uncertain'
+        for role in ('anon','authenticated'):
+            refused(f"SET ROLE {role}; SELECT smarter_private.reliability_engine_episode_identity('x','{{}}'::jsonb)", 'permission denied')
+        for bad in (None, 'not-a-uuid', '00000000-0000-0000-0000-000000000000'):
+            payload = {'original_event': {'alertname': engine_name, 'component': 'club-arena-engine',
+                       'labels': {'engine_alert_episode_id': bad}}}
+            assert sql("SELECT smarter_private.reliability_engine_episode_identity($n$%s$n$,$p$%s$p$::jsonb) IS NULL" % (engine_name,json.dumps(payload))) == 't'
+        ok('unknown and malformed engine identities remain unresolved and neither browser role can execute the private identity helper')
+        import importlib.util
+        review_module=ROOT/'scripts/ci/qualify-alert-review-outcomes.py'
+        review_spec=importlib.util.spec_from_file_location('original_review_outcomes',review_module)
+        review=importlib.util.module_from_spec(review_spec);review_spec.loader.exec_module(review)
+        review.qualify(ROOT,sql,psql,record,incident,tick,now,ok)
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

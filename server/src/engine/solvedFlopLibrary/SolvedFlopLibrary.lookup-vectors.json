@@ -1,0 +1,4383 @@
+{
+  "source": "flop3/B4/src/b4_lookup_vectors.py (b4_export.encode + b4_lib.nearest/lookup_table)",
+  "maxDistance": 40.0,
+  "library_sfl1_gzip_base64": "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",
+  "library_sfl1_bytes": 134977,
+  "rules": {
+    "direct": 99,
+    "split": 28,
+    "neighbour": 164,
+    "mean": 49,
+    "null": 48
+  },
+  "cases": [
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["5s", "Kc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.340763084, 0.328071138, 0.331165779]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["8d", "Ah"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["8c", "Js"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.625, 0.25, 0.125]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["9h", "3d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["2s", "3h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.625, 0.0, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["5s", "6d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["Ac", "7d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.125, 0.625]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["Qc", "3h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["3h", "3d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.cbet",
+      "hole": ["6d", "Td"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["Ac", "Tc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["3d", "3h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["Qh", "Jd"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["Tc", "5c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["7h", "6c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["8h", "5c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.0, 0.625]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["8h", "4h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["5s", "Tc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["Kc", "8c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b33",
+      "hole": ["Qd", "5c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.0, 0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Qc", "4c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["6s", "Ks"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["4s", "Js"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Jc", "2h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Th", "6s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Kc", "7s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.125, 0.875]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Qd", "9c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Ks", "9h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.490698433, 0.509301567]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["Qh", "7h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_b75",
+      "hole": ["2d", "Jh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["Ah", "3s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["Jd", "7s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["Js", "3d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["Ks", "6h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["As", "5s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["As", "Qc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["4h", "4d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["Qh", "3s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["Kc", "4s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Kd9s5h",
+      "node": "F.vs_xr",
+      "hole": ["8d", "Kh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["7h", "Kh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["5d", "9s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["4c", "3h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["7c", "Tc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["9c", "Kd"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["2h", "9h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["6d", "Td"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.125, 0.625]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["6h", "5d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["7h", "Ts"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.125, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["Kh", "6c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["Jh", "Td"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["Td", "Jd"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.cbet",
+      "hole": ["Jd", "Ts"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["7d", "3s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["9s", "Js"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.75, 0.125, 0.125]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Ac", "8s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["7c", "4c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Tc", "2h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["9d", "6h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Kd", "As"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["6h", "2c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["As", "2s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Qh", "4s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Td", "Js"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.0, 0.625]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Ts", "Jh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b33",
+      "hole": ["Th", "Jh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["9s", "Qs"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["Kh", "2h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["4h", "Tc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.490698433, 0.509301567]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["8d", "7c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["3h", "5h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.125, 0.875]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["Ts", "8d"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["5d", "Js"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["7h", "7s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["5c", "Kh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["5d", "4c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.490698433, 0.509301567]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["Jh", "Ts"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["Jd", "Td"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_b75",
+      "hole": ["Jd", "Th"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["7s", "Ts"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Kc", "9h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Ah", "Kd"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["2h", "8c"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["3c", "As"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Ac", "Jh"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["7h", "Qs"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["4s", "3h"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Ac", "Tc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["2s", "3s"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.498940678, 0.501059322]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Th", "Jc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Jh", "Tc"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Ks8h4d",
+      "node": "F.vs_xr",
+      "hole": ["Jc", "Td"],
+      "expect": {
+        "libraryBoard": "Kc9h5s",
+        "distance": 20.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.cbet",
+      "hole": ["6s", "4d"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.cbet",
+      "hole": ["8d", "Jd"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.vs_b33",
+      "hole": ["8d", "3s"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.vs_b33",
+      "hole": ["4d", "6s"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.vs_b75",
+      "hole": ["Jd", "Js"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.vs_b75",
+      "hole": ["Ts", "6s"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.vs_xr",
+      "hole": ["Js", "Ts"],
+      "expect": null
+    },
+    {
+      "flop": "QdJh5c",
+      "node": "F.vs_xr",
+      "hole": ["9s", "4h"],
+      "expect": null
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["4h", "Ts"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.125, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["7h", "2c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["6h", "Qc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.625, 0.25, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["Ks", "4c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["Td", "Jh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.0, 0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["3h", "8c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.125, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["5h", "3s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["8d", "7s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["5d", "4c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["Qc", "Td"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["3s", "2c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.75, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["5c", "4s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.75, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.cbet",
+      "hole": ["5h", "6s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["4s", "5s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["9d", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["6h", "2c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["9s", "2c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.125, 0.75]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["6d", "6h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["5d", "9h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["2d", "9d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.625, 0.25, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["Tc", "4h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["5d", "Kh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["4d", "7h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.25, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["5s", "4d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["4c", "5h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b33",
+      "hole": ["6s", "5s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["2d", "Tc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["Ah", "3h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["7h", "Ah"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["Qh", "2s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["Ts", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["6h", "5s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["6s", "Qc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["8h", "Ah"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["Th", "Ad"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["Js", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["3c", "2c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["6h", "5c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_b75",
+      "hole": ["6h", "5d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["5s", "6d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["2c", "Qs"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["6h", "7c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["Jh", "4h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["9d", "Kc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["4s", "3s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["Ad", "Th"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["Ts", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["6c", "Jh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["5c", "4h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["6s", "5d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["2s", "3d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Jc9c7d",
+      "node": "F.vs_xr",
+      "hole": ["4s", "5c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 39.988,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["9s", "5c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.75, 0.125, 0.125]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["5d", "3d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Ad", "As"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Jc", "8h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Js", "Qc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.0, 0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["5d", "3c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["5c", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Ks", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.0, 0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Jc", "Kh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Ac", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["Ts", "Jc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.0, 0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["9d", "8s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.125, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.cbet",
+      "hole": ["8s", "9c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["Kh", "Jd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["Jh", "Ts"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["Ah", "5h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["6s", "Kd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["As", "6c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["7d", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.75, 0.0]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["Qs", "Js"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.25, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["4h", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["3h", "Ac"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["6d", "Td"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["8d", "9d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["8s", "9h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.625, 0.25, 0.125]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b33",
+      "hole": ["8c", "9c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.625, 0.0]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["4d", "6c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Ac", "4c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Tc", "Qc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Jh", "6d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Th", "6c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["3c", "6h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Js", "4d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Jh", "7s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Qc", "Kd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["2c", "Ad"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["9h", "8h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["9d", "8h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_b75",
+      "hole": ["Ts", "Jd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["8s", "2d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["Td", "Ah"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["7d", "6c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["Ac", "Td"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["Tc", "4d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["9s", "Th"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["6h", "5d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["9h", "Qc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["5s", "2c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["9s", "Ac"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["8s", "9d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["9h", "8c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Qh7h3s",
+      "node": "F.vs_xr",
+      "hole": ["Ts", "Jh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 36.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["Ts", "4h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["Tc", "6c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["Qh", "5h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["7c", "8h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["6h", "Js"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.625, 0.125, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["7c", "3c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["Ac", "7h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["9c", "Kc"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["2s", "8d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.25, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["Ah", "3h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.25, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["4h", "2d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.125, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["4s", "2h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.125, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.cbet",
+      "hole": ["4h", "2c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["Td", "3h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["7h", "3d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["6c", "Kc"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["Ts", "3d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["4c", "3c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["Td", "Qd"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.0, 0.75]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["Qd", "9s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["3c", "Js"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["Js", "5h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["3h", "Ah"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.125, 0.75]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["2h", "4d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.0, 0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["4c", "2d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b33",
+      "hole": ["2c", "4c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.5, 0.125, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["5h", "Jc"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["Js", "2s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["Js", "Kc"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["4d", "Ts"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["Tc", "3d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["6d", "4d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["8h", "9s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["8d", "Kh"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["3d", "6s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["Tc", "2d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["4s", "2c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.875, 0.125]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["2s", "4s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_b75",
+      "hole": ["2h", "4d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["8s", "Qs"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.468243243, 0.531756757]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["Js", "9c"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["Qc", "Th"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["2s", "3h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.468243243, 0.531756757]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["Td", "Ks"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["8h", "Th"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["Kd", "6s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["5h", "6h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["Td", "Kd"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["Ks", "8d"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["4d", "2h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["2c", "4s"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "AsAd3s",
+      "node": "F.vs_xr",
+      "hole": ["2h", "4h"],
+      "expect": {
+        "libraryBoard": "KhKd2h",
+        "distance": 16.244,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.cbet",
+      "hole": ["2s", "Js"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.cbet",
+      "hole": ["Td", "3c"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.vs_b33",
+      "hole": ["4h", "Tc"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.vs_b33",
+      "hole": ["Kd", "Th"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.vs_b75",
+      "hole": ["Kh", "Js"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.vs_b75",
+      "hole": ["3s", "2c"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.vs_xr",
+      "hole": ["Ac", "7c"],
+      "expect": null
+    },
+    {
+      "flop": "QsQh7s",
+      "node": "F.vs_xr",
+      "hole": ["4h", "6d"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.cbet",
+      "hole": ["9s", "Ah"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.cbet",
+      "hole": ["Kd", "Tc"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.vs_b33",
+      "hole": ["9d", "Tc"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.vs_b33",
+      "hole": ["Ts", "Kc"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.vs_b75",
+      "hole": ["4c", "3h"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.vs_b75",
+      "hole": ["8h", "6d"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.vs_xr",
+      "hole": ["3c", "6h"],
+      "expect": null
+    },
+    {
+      "flop": "6c5d2h",
+      "node": "F.vs_xr",
+      "hole": ["Jc", "Ac"],
+      "expect": null
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["2h", "8h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["Kh", "5h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.5, 0.125]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["Kd", "8h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["Th", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.25, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["8c", "7d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["7c", "8s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.625, 0.0, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["9h", "7d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["Ks", "6c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["2h", "6s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["2c", "Ac"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["3s", "4h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["4d", "3d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "split",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.cbet",
+      "hole": ["Qd", "Jc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.25, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["6d", "Ks"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["3d", "3c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.338615283, 0.342811396, 0.318573322]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["2d", "Td"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["5d", "6d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["Ks", "Th"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.125, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["3d", "4s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.625, 0.375, 0.0]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["6h", "Qh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.625, 0.25, 0.125]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["3h", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["5d", "4c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["Ac", "2s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["4d", "3c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.375, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["Qc", "Js"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "split",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b33",
+      "hole": ["3h", "4s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.125, 0.625, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["5d", "Jd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["2d", "3s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["2h", "7s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["Td", "Ad"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["As", "5h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["Ah", "4d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["7s", "Th"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["8h", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["8s", "Qh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["Ac", "Ah"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["3c", "4c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "split",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["Jh", "Qd"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_b75",
+      "hole": ["3c", "4s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Ah", "Td"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Jh", "6c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Kd", "Qs"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["3c", "9d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["4s", "Qh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Qs", "Qc"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Th", "3c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Qd", "6d"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["2s", "8c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["7d", "2h"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["3h", "4s"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["Qs", "Jh"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Kc9c5s",
+      "node": "F.vs_xr",
+      "hole": ["4d", "3c"],
+      "expect": {
+        "libraryBoard": "Jh8h4c",
+        "distance": 29.178,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.524137931, 0.475862069]
+      }
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.cbet",
+      "hole": ["7s", "6c"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.cbet",
+      "hole": ["4c", "9c"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.vs_b33",
+      "hole": ["Tc", "4d"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.vs_b33",
+      "hole": ["Ad", "Td"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.vs_b75",
+      "hole": ["7h", "Tc"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.vs_b75",
+      "hole": ["Qc", "4h"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.vs_xr",
+      "hole": ["7s", "Jc"],
+      "expect": null
+    },
+    {
+      "flop": "AhKdTs",
+      "node": "F.vs_xr",
+      "hole": ["4d", "Jd"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.cbet",
+      "hole": ["4c", "7h"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.cbet",
+      "hole": ["Jh", "Ac"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.vs_b33",
+      "hole": ["Ah", "3s"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.vs_b33",
+      "hole": ["7h", "Ks"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.vs_b75",
+      "hole": ["6h", "9h"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.vs_b75",
+      "hole": ["Td", "6d"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.vs_xr",
+      "hole": ["Qc", "Ts"],
+      "expect": null
+    },
+    {
+      "flop": "8s7d6s",
+      "node": "F.vs_xr",
+      "hole": ["7s", "Ac"],
+      "expect": null
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["Ts", "4s"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.375, 0.125]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["7h", "Ad"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.0, 0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["4h", "Ks"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.5, 0.125, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["2h", "6c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.5, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["6s", "7s"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.25, 0.5]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["9d", "6h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["4c", "Ad"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["Jd", "7c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["Ad", "6h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.375, 0.375, 0.25]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.cbet",
+      "hole": ["Qc", "Kh"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b450", "b198", "c"],
+        "frequencies": [0.125, 0.25, 0.625]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["3s", "Js"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.625, 0.125]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["3c", "7c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["9s", "5s"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.625, 0.25, 0.125]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["6h", "Tc"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["7s", "2h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["Ts", "8s"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.334591385, 0.33031401, 0.335094605]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["Jh", "2c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.375, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["3h", "Jc"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.375, 0.25, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["Tc", "3c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b33",
+      "hole": ["Ks", "8h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["b594", "c", "f"],
+        "frequencies": [0.25, 0.5, 0.25]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["4d", "8d"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.25, 0.75]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["9d", "2c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["7h", "Kc"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["2h", "5c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["Js", "Ac"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["8d", "Qh"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["2s", "Qc"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.875, 0.125]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["2s", "3c"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["Jh", "5s"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.875, 0.125]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_b75",
+      "hole": ["2s", "Ah"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "direct",
+        "actions": ["c", "f"],
+        "frequencies": [0.5, 0.5]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["3c", "2d"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["6s", "8h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["Tc", "Ts"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["Js", "4d"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["2d", "5d"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["Ad", "6h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.375, 0.625]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["7h", "5h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["Qh", "6h"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.75, 0.25]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["8d", "Jh"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "neighbour",
+        "actions": ["c", "f"],
+        "frequencies": [0.625, 0.375]
+      }
+    },
+    {
+      "flop": "Td9c8c",
+      "node": "F.vs_xr",
+      "hole": ["8s", "Ad"],
+      "expect": {
+        "libraryBoard": "Td9c8c",
+        "distance": 0.0,
+        "rule": "mean",
+        "actions": ["c", "f"],
+        "frequencies": [0.511737089, 0.488262911]
+      }
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.cbet",
+      "hole": ["Ac", "4h"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.cbet",
+      "hole": ["5s", "8s"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.vs_b33",
+      "hole": ["Td", "Ac"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.vs_b33",
+      "hole": ["Kc", "4c"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.vs_b75",
+      "hole": ["6s", "2d"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.vs_b75",
+      "hole": ["Ad", "Kh"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.vs_xr",
+      "hole": ["Qs", "5h"],
+      "expect": null
+    },
+    {
+      "flop": "3c3d3h",
+      "node": "F.vs_xr",
+      "hole": ["7d", "7c"],
+      "expect": null
+    }
+  ]
+}

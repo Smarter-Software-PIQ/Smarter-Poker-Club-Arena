@@ -43,6 +43,21 @@ import {
 } from '../../HorsePlanEffectReceipt.js';
 import { horsePlanContextKey, type HorsePlanBatchBinding } from '../../HorsePlanHandIdentity.js';
 import { stableReceipt } from './HorseDecisionReplay.js';
+import {
+  styleShadowCountedRows,
+  styleShadowRerunCsvHeader,
+  styleShadowRerunCsvLine,
+  styleShadowRerunRecord,
+  styleShadowTurnIdentity,
+} from './styleShadowRerun.js';
+import { captureHorseHandJournalContext } from '../../HorseDecisionHandBinding.js';
+import { counters } from '../../HorseOpponentStyle.test-support.js';
+import {
+  STYLE_SWITCH_OPTIONS,
+  StyleSwitchHolder,
+  styleSwitchSourceFromStates,
+  type StyleSwitchStates,
+} from '../../HorseStyleSwitch.js';
 import { currentReplaySolverStores } from './references.js';
 import { qualifiedReplayAdmissions } from './qualifiedAuthority.js';
 import { plo4Cards, plo4ReferenceSpot } from '../../../benchmark/Plo4PolicyEvidence.js';
@@ -88,7 +103,9 @@ const turnKey = (r: FastHorseDecisionRequest) =>
 async function liveOriginal(
   fixtureId: string,
   source = SOURCE,
-  transform?: (request: FastHorseDecisionRequest) => FastHorseDecisionRequest
+  transform?: (request: FastHorseDecisionRequest) => FastHorseDecisionRequest,
+  styleStates?: StyleSwitchStates,
+  extraDeps: Partial<HorseDecisionWorkerDependencies> = {}
 ) {
   const base = phase6cFixtureBody<{ snapshot: FastHorseDecisionRequest }>(
     phase6cFixtureRecord(fixtureId)
@@ -125,6 +142,10 @@ async function liveOriginal(
     noteDecision: () => {},
     noteFeature: () => {},
     now: () => performance.now(),
+    ...(styleStates
+      ? { styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(styleStates), () => {}) }
+      : {}),
+    ...extraDeps,
   };
   enableBrainTelemetry();
   const runtime = new HorseDecisionWorkerRuntime((m) => messages.push(m), deps);
@@ -356,6 +377,325 @@ describe('P15-A exact historical replay', () => {
       status: 'not_joined',
       reason: 'no_acceptance_source',
     });
+  });
+
+  it('pre-activation end to end: a real decision with every style option on is journaled as v4 and replays to the same action', async () => {
+    const allOn = Object.fromEntries(
+      STYLE_SWITCH_OPTIONS.map((o) => [o, 'on'])
+    ) as StyleSwitchStates;
+    const { record, result, decideOpts } = await liveOriginal(
+      IDS.cashNlhRiver,
+      SOURCE,
+      undefined,
+      allOn
+    );
+    // the real decide received every option as an explicit true
+    for (const o of STYLE_SWITCH_OPTIONS) expect(decideOpts[0][o], o).toBe(true);
+    const state = JSON.parse(record.body).replayState;
+    expect(state.version).toBe('horse-decision-replay-state-v4');
+    expect(state.style).toEqual(allOn);
+    const verdict = await exactReplayHorseDecisionRecord(record, { runningSource: SOURCE });
+    expect(verdict.outcome, verdict.firstDifference ?? '').toBe('replayed_exact');
+    expect(verdict.replayed?.action).toBe(result.decision.action);
+    expect(verdict.replayed?.amount).toBe(result.decision.amount ?? null);
+    // a v4 state that lost its switch states is refused, never replayed with every option off
+    const stripped = resignHorseJournalRecord(record, (body) => {
+      delete (body.replayState as Record<string, unknown>).style;
+    });
+    expect(
+      (await exactReplayHorseDecisionRecord(stripped, { runningSource: SOURCE })).outcome
+    ).toBe('non_replayable:replay_state');
+  });
+
+  it('offline style re-run: re-decides every non-off option on and off from the journaled record, rows only where they differ', async () => {
+    const shadowAll = Object.fromEntries(
+      STYLE_SWITCH_OPTIONS.map((o) => [o, 'shadow'])
+    ) as StyleSwitchStates;
+    const { record, result } = await liveOriginal(IDS.cashNlhRiver, SOURCE, undefined, shadowAll);
+    const rerun = await styleShadowRerunRecord(record, { runningSource: SOURCE });
+    expect(rerun.baseline).toBe('replayed_exact');
+    expect(rerun.status, JSON.stringify(rerun)).toBe('rerun');
+    expect(rerun.rerunOptions).toEqual([...STYLE_SWITCH_OPTIONS]);
+    expect(rerun.failedOptions).toEqual([]);
+    // independent: each option's on arm against the committed decision (shadow is off live)
+    const changed: string[] = [];
+    for (const o of STYLE_SWITCH_OPTIONS) {
+      const on = await exactReplayHorseDecisionRecord(record, {
+        runningSource: SOURCE,
+        styleStatesOverride: { ...shadowAll, [o]: 'on' },
+      });
+      if (
+        on.replayed?.action !== result.decision.action ||
+        on.replayed?.amount !== (result.decision.amount ?? null)
+      )
+        changed.push(o);
+    }
+    expect(rerun.rows).toHaveLength(changed.length);
+    for (const row of rerun.rows) {
+      expect(row.arm).toBe('s');
+      expect(row.street).toBe('r');
+      expect(row.format).toBe('cash');
+      expect(row.price).toBeGreaterThanOrEqual(0);
+      expect(row.price).toBeLessThan(1);
+    }
+    // a record that ran with every option off is not re-run; a record that does not replay exactly gives no row
+    const { record: plain } = await liveOriginal(IDS.cashNlhRiver);
+    expect((await styleShadowRerunRecord(plain, { runningSource: SOURCE })).status).toBe('all_off');
+    const perturbed = resignHorseJournalRecord(record, (body) => {
+      body.rngAfter = ((body.rngAfter as number) ^ 0x5a5a5a5a) >>> 0;
+    });
+    const refused = await styleShadowRerunRecord(perturbed, { runningSource: SOURCE });
+    expect(refused).toMatchObject({ status: 'baseline_not_exact', rows: [] });
+    expect(refused.baseline).toBe('replayed_mismatch');
+  });
+
+  it('offline style re-run CSV: the columns style-evaluation.sql loads, confidence empty', () => {
+    expect(styleShadowRerunCsvHeader()).toBe(
+      'decision_id,turn_key,turn_identity,lane,executed,execution_status,street_ordinal,table_id,hand_number,seat,opt,street,format,actual,would_be,price,confidence,arm'
+    );
+    expect(
+      styleShadowRerunCsvLine({
+        decision_id: 'event-1',
+        turn_key: 'turn-1',
+        turn_identity: 'turn-identity-1',
+        lane: 'fast',
+        executed: 't',
+        execution_status: 'intended',
+        street_ordinal: 0,
+        table_id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+        hand_number: 1000007,
+        seat: 3,
+        opt: 'fb',
+        street: 'r',
+        format: 'cash',
+        actual: 'c',
+        would_be: 'f',
+        price: 0.25,
+        confidence: null,
+        arm: 's',
+      })
+    ).toBe(
+      'event-1,turn-1,turn-identity-1,fast,t,intended,0,7c9e6679-7425-40de-944b-e07fc1f90ae7,1000007,3,fb,r,cash,c,f,0.25,,s'
+    );
+  });
+
+  it('offline style re-run end to end: an option that really changes the decision gives one CSV row through the real exact replay, counted only when executed', async () => {
+    // Review finding B2: every other re-run test here passes with zero rows. This one cannot: the real decide, the
+    // real journal payload, the real exact replay of each arm, and a decision the option does change.
+    // The hand is the journal's own cash river hand; the Horse now holds top pair with a weak kicker and, having
+    // checked, faces the opponent's bet of 5 into 6.5. The opponent is a value bettor whose aggression factor is
+    // above 2.5: without the option the Horse reads a maniac and calls, with it the Horse folds.
+    const shadowAll = Object.fromEntries(
+      STYLE_SWITCH_OPTIONS.map((o) => [o, 'shadow'])
+    ) as StyleSwitchStates;
+    const BET = 5;
+    let villainId = '';
+    const facingRiverBet = (base: FastHorseDecisionRequest): FastHorseDecisionRequest => {
+      const gs = base.gameState;
+      const villain = gs.players.find((q) => !q.is_folded && q.user_id !== base.player.user_id)!;
+      villainId = villain.user_id;
+      const actionHistory = [
+        ...(gs.actionHistory ?? []),
+        {
+          action: 'check',
+          amount: 0,
+          seat: base.player.seat,
+          stage: 'river',
+          timestamp: base.decisionTimeMs - 3000,
+          userId: base.player.user_id,
+        },
+        {
+          action: 'bet',
+          amount: BET,
+          isFullRaise: true,
+          seat: villain.seat,
+          stage: 'river',
+          timestamp: base.decisionTimeMs - 1000,
+          userId: villain.user_id,
+        },
+      ];
+      const request = {
+        ...base,
+        player: {
+          ...base.player,
+          cards: [
+            { rank: 'A', suit: 'hearts' },
+            { rank: '5', suit: 'diamonds' },
+          ],
+        },
+        gameState: {
+          ...gs,
+          actionHistory,
+          players: gs.players.map((q) =>
+            q.user_id === villain.user_id
+              ? { ...q, bet: BET, stack: q.stack - BET, totalInvested: q.totalInvested + BET }
+              : q
+          ),
+          pot: gs.pot + BET,
+          contestablePot: (gs.contestablePot ?? gs.pot) + BET,
+          pots: [{ ...gs.pots![0], amount: gs.pots![0].amount + BET }],
+          currentBet: BET,
+          toCall: BET,
+          lastRaise: BET,
+          minRaise: BET,
+          minRaiseTo: BET * 2,
+          legalActions: ['fold', 'call', 'raise', 'all_in'],
+        },
+        handJournalContext: captureHorseHandJournalContext(actionHistory),
+      } as unknown as FastHorseDecisionRequest;
+      return { ...request, decisionKey: buildHorseDecisionKey(request) };
+    };
+    const installValueBettor = (who: string) => {
+      HorseMind.reset();
+      HorseMind.importStats([
+        {
+          user_id: who,
+          hands: 400,
+          aggr: 150,
+          passive: 40,
+          postAggr: 150,
+          postPassive: 40,
+          bigBetSD: 8,
+          bigBetSDStrong: 7,
+          rAggr: 3,
+          rPassive: 6,
+        } as never,
+      ]);
+      for (const size of ['hu', 'short', 'full']) {
+        HorseMind.importDurableOpponentProfiles([
+          {
+            user_id: who,
+            variant: 'nlh',
+            mode: 'cash',
+            size,
+            observed_hands: 80,
+            initialized: true,
+            public_memory_domain: { version: 1, speed: 'table', ante: 'none' },
+            counters: counters({
+              hands: 80,
+              vpip: 0.13,
+              pfr: 0.08,
+              threeBetOpp: 20,
+              threeBet: 0,
+              betCheckedToOpp: 40,
+              betCheckedTo: 6,
+              foldToBetOpp: 30,
+              foldToBet: 14,
+            }),
+          } as never,
+        ]);
+        HorseMind.importPostReleaseObservations([
+          {
+            user_id: who,
+            variant: 'nlh',
+            mode: 'cash',
+            size,
+            opportunities: { foldToBet: 120, riverCall: 120, foldTo3Bet: 120, betCheckedTo: 120 },
+          } as never,
+        ]);
+      }
+    };
+    try {
+      const base = phase6cFixtureBody<{ snapshot: FastHorseDecisionRequest }>(
+        phase6cFixtureRecord(IDS.cashNlhRiver)
+      ).snapshot;
+      installValueBettor(
+        base.gameState.players.find((q) => !q.is_folded && q.user_id !== base.player.user_id)!
+          .user_id
+      );
+      // A live Horse reads the opponent from its own observer memory, learned hand by hand. Here the same read is
+      // installed in the process-wide mind and the live decision reads it there; the journal records what the
+      // decision read (the read frame) either way, and the replay restores exactly that.
+      const { request, record, execution, result } = await liveOriginal(
+        IDS.cashNlhRiver,
+        SOURCE,
+        facingRiverBet,
+        shadowAll,
+        { runDecisionReadView: (_request, fn) => fn() }
+      );
+      expect(request.gameState.players.find((q) => q.user_id === villainId)?.bet).toBe(BET);
+      expect(result.decision.action).toBe('call');
+      HorseMind.reset(); // nothing below may lean on the installed read: only the journal record carries it
+
+      // independent of the row logic: the baseline replays to the call, the option's on arm replays to a fold
+      const baseline = await exactReplayHorseDecisionRecord(record, { runningSource: SOURCE });
+      expect(baseline.outcome, baseline.firstDifference ?? '').toBe('replayed_exact');
+      expect(baseline.replayed?.action).toBe('call');
+      const on = await exactReplayHorseDecisionRecord(record, {
+        runningSource: SOURCE,
+        styleStatesOverride: { ...shadowAll, styleValueBettorNotManiac: 'on' },
+      });
+      expect(on.replayed?.action).toBe('fold');
+
+      const rerun = await styleShadowRerunRecord(record, { runningSource: SOURCE, execution });
+      expect(rerun.status, JSON.stringify(rerun)).toBe('rerun');
+      expect(rerun.failedOptions).toEqual([]);
+      const [table, hand] = request.fence.split(':');
+      expect(rerun.rows).toEqual([
+        {
+          decision_id: record.eventId,
+          turn_key: record.turnKey,
+          turn_identity: styleShadowTurnIdentity(request),
+          lane: 'fast',
+          executed: 't',
+          execution_status: 'intended',
+          // the Horse's river check is its one earlier betting action on this street
+          street_ordinal: 1,
+          table_id: table,
+          hand_number: Number(hand),
+          seat: request.player.seat,
+          opt: 'vb',
+          street: 'r',
+          format: 'cash',
+          actual: 'c',
+          would_be: 'f',
+          price: Number((BET / (request.gameState.pot + BET)).toFixed(6)),
+          confidence: null,
+          arm: 's',
+        },
+      ]);
+      expect(rerun.rows[0].turn_identity).toMatch(/^[0-9a-f]{64}$/);
+      expect(rerun.rows[0].turn_identity).not.toBe(record.turnKey);
+      expect(styleShadowRerunCsvLine(rerun.rows[0])).toBe(
+        [
+          record.eventId,
+          record.turnKey,
+          styleShadowTurnIdentity(request),
+          'fast,t,intended,1',
+          table,
+          hand,
+          request.player.seat,
+          'vb,r,cash,c,f',
+          rerun.rows[0].price,
+          '',
+          's',
+        ].join(',')
+      );
+      expect(styleShadowCountedRows(rerun.rows)).toEqual(rerun.rows);
+
+      // the same changed decision, not executed (the turn was abandoned) or with no witness: a row, never counted
+      const retired = resignHorseJournalRecord(execution, (body) => {
+        body.executionStatus = 'not_executed';
+        body.retirementReason = 'turn_abandoned';
+      });
+      for (const [witness, executed, status] of [
+        [retired, 'f', 'not_executed'],
+        [null, 'u', 'none'],
+      ] as const) {
+        const again = await styleShadowRerunRecord(record, {
+          runningSource: SOURCE,
+          execution: witness,
+        });
+        expect(again.rows).toHaveLength(1);
+        expect([again.rows[0].executed, again.rows[0].execution_status]).toEqual([
+          executed,
+          status,
+        ]);
+        expect(styleShadowCountedRows(again.rows)).toEqual([]);
+      }
+    } finally {
+      HorseMind.reset();
+    }
   });
 
   it('names the first differing field when a single input is perturbed', async () => {

@@ -46,7 +46,8 @@ import { KnockoutFlurry } from './SeatKnockout';
 import { ThrowablePlayer } from './ThrowablePlayer';
 import { riggedThrowable } from '../../throwables/registry';
 import { soundService } from '../../services/SoundService';
-import { getAnimationSpeed } from '../../utils/animationSpeed';
+import { TableAnimationClock } from './tableAnimationClock';
+import { particleRandom, throwSeed } from '../../lib/sharedThrows';
 import './ThrowAnimation.css';
 // Per-item signature FX -- MUST load after ThrowAnimation.css so its
 // equal-specificity overrides win the cascade.
@@ -296,6 +297,7 @@ export function ThrowAnimation({ event, seatPositions, onComplete }: ThrowAnimat
          are wrapped in calc(... * var(--animation-speed, 1)) THERE.
      Read once rather than per-use so a setting changed mid-flight cannot
      desynchronise a throw that is already in the air. */
+  const getAnimationSpeed = React.useContext(TableAnimationClock);
   const speed = getAnimationSpeed();
   const scaled = (ms: number) => Math.round(ms * speed);
   const basePhysics = PHYSICS[t.physics] || PHYSICS.arc;
@@ -455,12 +457,13 @@ export function ThrowAnimation({ event, seatPositions, onComplete }: ThrowAnimat
 
   // Randomized particle scatter, stable per event
   const particles = useMemo<ParticleSpec[]>(() => {
+    const random = particleRandom(event.particleSeed ?? throwSeed(event.id));
     const count = PARTICLE_COUNT[t.id] ?? PARTICLES[t.impact] ?? 10;
     return Array.from({ length: count }, (_, i) => ({
-      angle: (360 / count) * i + (Math.random() * 24 - 12),
-      dist: 34 + Math.random() * 46,
-      size: 5 + Math.random() * 7,
-      delay: Math.random() * 0.08,
+      angle: (360 / count) * i + (random() * 24 - 12),
+      dist: 34 + random() * 46,
+      size: 5 + random() * 7,
+      delay: random() * 0.08,
       useAlt: i % 2 === 1,
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps

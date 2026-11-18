@@ -1,0 +1,10 @@
+{
+  "_owner": "Charles Rule after a +250 BB win and durable bank-the-win state (owner 2026-11-11): created by supabase/migrations/20261111174148_charles_rule_big_win_and_durable_bank_the_win_state.sql, installed in the daily-maintenance window with the engine that calls them. Until then the Lightning bank-the-win door's reading fails to not ready (no leave is sent) and the engine reads no big-win count.",
+  "functions": [
+    "fn_cash_big_win_hands_remaining",
+    "fn_cash_hand_net",
+    "fn_cash_session_hands_owed",
+    "fn_cash_session_owed_reason",
+    "fn_lightning_bank_the_win_reading"
+  ]
+}

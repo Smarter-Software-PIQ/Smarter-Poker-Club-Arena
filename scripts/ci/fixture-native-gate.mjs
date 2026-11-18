@@ -36,7 +36,11 @@ export function requireFixtureNativeResult({
   sourceSha,
   nativeSourceSha,
 }) {
-  assert.equal(eventName, 'pull_request', 'FIXTURE_GATE_PULL_REQUEST_REQUIRED');
+  // A queued merge group is checked exactly like its pull request (merge queue, 2026-11-11).
+  assert.ok(
+    eventName === 'pull_request' || eventName === 'merge_group',
+    'FIXTURE_GATE_PULL_REQUEST_REQUIRED'
+  );
   const certified = [compileResult, nativeResult];
   if (certified.includes('cancelled') && !certified.some((result) => FAILED.has(result))) {
     throw new FixtureGateNoVerdict(

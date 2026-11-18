@@ -1,11 +1,25 @@
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
+import { bettingStructureFor } from '../BettingStructure.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
-import { opponentMemoryKey } from '../HorseOpponentMemory.js';
+import { durableProfileCounters, opponentMemoryKey } from '../HorseOpponentMemory.js';
+import { shownRiverReadOf, type ShownRiverRead } from '../HorseLongShownMemory.js';
+import {
+  copyStreetRead,
+  streetReadCarriedFor,
+  validStreetRead,
+  type StreetReadCounters,
+} from '../HorseOmahaStreetRead.js';
+import {
+  copyReraiseResponse,
+  reraiseResponseCarriedFor,
+  validReraiseResponse,
+  type ReraiseResponseCounters,
+} from '../HorseOmahaReraiseResponse.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
-import { HorseMind, type HorseMindSandbox } from '../HorseMind.js';
+import { HorseMind, type HorseMindSandbox, type PooledRowProvenance } from '../HorseMind.js';
 import {
   horseCompletedHandKey,
   anchorHorseDecisionHand,
@@ -16,7 +30,14 @@ import {
   horseObserverReadContextKey,
   type HorseObserverReadContext,
 } from '../HorseObserverReadContext.js';
-import { observeHandResults } from '../HorseWinnerRead.js';
+import {
+  createWinnerReadState,
+  observeHandResults,
+  winnerReadScopeOf,
+  type HorseWinnerReadState,
+} from '../HorseWinnerRead.js';
+import type { FlopStabCounters } from '../HorseOpponentExploit.js';
+import { profileQualification } from '../HorseOpponentStyle.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
 
 export interface HorseObserverReadReceipt {
@@ -59,7 +80,16 @@ type Entry = {
  * original participation coordinate is an empty read, never another observer. */
 export class HorseObserverReads {
   private readonly publicProfiles: PooledPublicProfiles;
+  private floorBootstrap: {
+    availableAtMs: number;
+    winnerReads: HorseWinnerReadState;
+    flopStab: Map<string, FlopStabCounters>;
+  } | null = null;
   private readonly entries = new Map<string, Entry>();
+  private readonly sharedWinnerBanks = new Map<
+    string,
+    { state: HorseWinnerReadState; observedAt: number }
+  >();
   private readonly completed = new Set<string>();
   private readonly hands = new Map<
     string,
@@ -142,6 +172,37 @@ export class HorseObserverReads {
       } else for (const entry of evicted) hand.entries.delete(entry);
     }
   }
+  private static winnerBankKey(context: HorseObserverReadContext): string {
+    return JSON.stringify([
+      context.version,
+      context.observerId,
+      context.variant,
+      context.format,
+      ...(context.version === 2 ? [publicMemoryDomainKey(context.publicMemoryDomain)] : []),
+    ]);
+  }
+  private winnerBankFor(context: HorseObserverReadContext): {
+    state: HorseWinnerReadState;
+    observedAt: number;
+  } {
+    const key = HorseObserverReads.winnerBankKey(context);
+    let bank = this.sharedWinnerBanks.get(key);
+    if (!bank) {
+      bank = { state: createWinnerReadState(), observedAt: 0 };
+      this.sharedWinnerBanks.set(key, bank);
+    }
+    return bank;
+  }
+  private pruneOrphanWinnerBanks(): void {
+    if (this.sharedWinnerBanks.size === 0) return;
+    const active = new Set<string>();
+    for (const entry of this.entries.values()) {
+      active.add(HorseObserverReads.winnerBankKey(entry.context));
+    }
+    for (const key of this.sharedWinnerBanks.keys()) {
+      if (!active.has(key)) this.sharedWinnerBanks.delete(key);
+    }
+  }
   /** Drop every entry that has not decided within idleMs. O(entries + hands),
    * run at most once per 64 completions so the floor's hand rate never makes
    * it quadratic. Returns the number evicted. */
@@ -153,6 +214,7 @@ export class HorseObserverReads {
       evicted.add(entry);
     }
     this.unlinkFromHands(evicted);
+    if (evicted.size > 0) this.pruneOrphanWinnerBanks();
     return evicted.size;
   }
   private static overCapacity(entry: Entry | { state: HorseMindSandbox }): boolean {
@@ -164,6 +226,7 @@ export class HorseObserverReads {
       entry.state.pairs.size > 2048 ||
       entry.state.scoped.size > 1024 ||
       (entry.state.exploit?.size ?? 0) > 1024 ||
+      (entry.state.flopStab?.size ?? 0) > 1024 ||
       entry.state.plans.size > 2048 ||
       entry.state.raisePlans.size > 2048 ||
       entry.state.outlooks.size > 2048 ||
@@ -173,9 +236,19 @@ export class HorseObserverReads {
     );
   }
   private static capacityReset(
-    entry: Entry | { state: HorseMindSandbox; observedAt: number }
+    entry: Entry | { state: HorseMindSandbox; observedAt: number },
+    winnerBank?: { state: HorseWinnerReadState; observedAt: number }
   ): void {
+    const sharedWinner = entry.state.winnerReads;
+    if (sharedWinner) {
+      sharedWinner.rows.clear();
+      sharedWinner.seen.clear();
+    }
+    if (winnerBank) winnerBank.observedAt = 0;
     entry.state = HorseMind.createSandbox();
+    if (sharedWinner && 'context' in entry && entry.context) {
+      entry.state.winnerReads = sharedWinner;
+    }
     entry.observedAt = 0;
     if ('context' in entry) {
       const historyEntry = entry as Entry;
@@ -194,6 +267,39 @@ export class HorseObserverReads {
   }): boolean {
     return this.publicProfiles.bootstrap(snapshot);
   }
+  bootstrapFloorExploitReads(snapshot: {
+    availableAtMs?: number;
+    winnerReads?: HorseWinnerReadState;
+    flopStab?: Map<string, FlopStabCounters>;
+  }): boolean {
+    if (
+      !snapshot ||
+      typeof snapshot.availableAtMs !== 'number' ||
+      !Number.isFinite(snapshot.availableAtMs) ||
+      snapshot.availableAtMs < 0
+    ) {
+      return false;
+    }
+    const wr = createWinnerReadState();
+    if (snapshot.winnerReads?.rows) {
+      for (const [k, row] of snapshot.winnerReads.rows) {
+        if (row && Number.isFinite(row.w) && row.w > 0) wr.rows.set(k, { ...row });
+      }
+    }
+    const fs = new Map<string, FlopStabCounters>();
+    if (snapshot.flopStab) {
+      for (const [k, row] of snapshot.flopStab) {
+        if (row && Number.isFinite(row.flopCheckedToOpps) && row.flopCheckedToOpps > 0)
+          fs.set(k, { ...row });
+      }
+    }
+    this.floorBootstrap = {
+      availableAtMs: snapshot.availableAtMs,
+      winnerReads: wr,
+      flopStab: fs,
+    };
+    return true;
+  }
   private scope(context: HorseObserverReadContext): import('../HorseMind.js').ReadScope {
     const size = context.dealtCount <= 2 ? 'hu' : context.dealtCount <= 5 ? 'short' : 'full';
     return `${context.variant.startsWith('plo') || context.variant === 'flo8' ? 'omaha' : context.variant === 'short_deck' ? 'sixplus' : 'holdem'}:${size}`;
@@ -205,11 +311,8 @@ export class HorseObserverReads {
   ): void {
     HorseMind.runInSandbox(state, () => {
       const scope = this.scope(entry.context);
-      HorseMind.setDecisionScope(
-        scope,
-        entry.context.variant,
-        entry.context.format === 'cash' ? 'cash' : 'tournament'
-      );
+      const mode = entry.context.format === 'cash' ? 'cash' : 'tournament';
+      HorseMind.setDecisionScope(scope, entry.context.variant, mode);
       const actions = completedHandActionsForMind(hand.actions, scope);
       const parts = hand.handKey.split(':');
       if (actions)
@@ -222,7 +325,8 @@ export class HorseObserverReads {
             handNumber: Number(parts[1]),
           },
           entry.context.dealtCount,
-          hand.bigBlind
+          hand.bigBlind,
+          bettingStructureFor(entry.context.variant)
         );
       HorseMind.observeHandComplete(
         hand.handKey,
@@ -234,7 +338,13 @@ export class HorseObserverReads {
         hand.riverCallContext,
         hand.retainedRiverCalls
       );
-      observeHandResults(hand.handKey, hand.results, hand.bigBlind);
+      observeHandResults(
+        hand.handKey,
+        hand.results,
+        hand.bigBlind,
+        winnerReadScopeOf(entry.context.variant, mode),
+        hand.committedHandId ? [hand.committedHandId.toLowerCase()] : undefined
+      );
     });
   }
   /** Keep only public learning fields. No accepted roster, donor packet,
@@ -286,6 +396,7 @@ export class HorseObserverReads {
     };
   }
   private mergeObservations(target: HorseMindSandbox, staged: HorseMindSandbox): void {
+    const sharedWinner = target.winnerReads;
     Object.assign(target, {
       stats: staged.stats,
       seenActions: staged.seenActions,
@@ -296,8 +407,16 @@ export class HorseObserverReads {
       scoped: staged.scoped,
       dirtyScoped: staged.dirtyScoped,
       exploit: staged.exploit,
-      winnerReads: staged.winnerReads,
+      flopStab: staged.flopStab,
     });
+    if (sharedWinner && staged.winnerReads && sharedWinner !== staged.winnerReads) {
+      sharedWinner.rows.clear();
+      for (const [k, v] of staged.winnerReads.rows) sharedWinner.rows.set(k, v);
+      sharedWinner.seen.clear();
+      for (const s of staged.winnerReads.seen) sharedWinner.seen.add(s);
+    } else {
+      target.winnerReads = staged.winnerReads;
+    }
   }
   private flushPending(entry: Entry): void {
     try {
@@ -321,6 +440,9 @@ export class HorseObserverReads {
     // Rebuild observations in chronological order after a failed initial load.
     // Plans remain on the original state; only public observation fields merge.
     const staged = HorseMind.createSandbox();
+    if (entry.state.winnerReads) {
+      staged.winnerReads = structuredClone(entry.state.winnerReads);
+    }
     const ids = new Set<string>();
     const observations: Array<{ at: number; hand: ObserveCompletedHandRequest }> = [];
     const pending = new Map(
@@ -377,6 +499,7 @@ export class HorseObserverReads {
       staged.pairs.size > 2048 ||
       staged.scoped.size > 1024 ||
       staged.exploit.size > 1024 ||
+      (staged.flopStab?.size ?? 0) > 1024 ||
       (staged.winnerReads?.rows.size ?? 0) > 512 ||
       (staged.winnerReads?.seen.size ?? 0) > 8192
     ) {
@@ -397,6 +520,8 @@ export class HorseObserverReads {
       capped: packet.capped || entry.historyTailCapped === true,
     };
     entry.observedAt = Math.max(entry.observedAt, packet.availableAtMs);
+    const wb = this.sharedWinnerBanks.get(HorseObserverReads.winnerBankKey(entry.context));
+    if (wb) wb.observedAt = Math.max(wb.observedAt, packet.availableAtMs);
   }
   private entry(context: HorseObserverReadContext): Entry {
     const key = horseObserverReadContextKey(context)!;
@@ -408,12 +533,15 @@ export class HorseObserverReads {
       // entry always has.
       this.entries.delete(key);
       this.unlinkFromHands(new Set([entry]));
+      this.pruneOrphanWinnerBanks();
       entry = undefined;
     }
     if (!entry) {
+      const state = HorseMind.createSandbox();
+      state.winnerReads = this.winnerBankFor(context).state;
       entry = {
         context: Object.freeze({ ...context }),
-        state: HorseMind.createSandbox(),
+        state,
         observedAt: 0,
         lastRunAtMs: at,
       };
@@ -424,6 +552,7 @@ export class HorseObserverReads {
           const [lruKey, lru] = this.entries.entries().next().value!;
           this.entries.delete(lruKey);
           this.unlinkFromHands(new Set([lru]));
+          this.pruneOrphanWinnerBanks();
         }
       }
       this.entries.set(key, entry);
@@ -435,7 +564,14 @@ export class HorseObserverReads {
     }
     return entry;
   }
-  run<T>(request: FastHorseDecisionRequest, fn: () => T): T {
+  run<T>(
+    request: FastHorseDecisionRequest,
+    fn: () => T,
+    // The EFFECTIVE options for what this view carries (the live option switch's value, read inside the worker).
+    // The view itself stays keyed by the ORIGINAL request object: the receipt, the history acknowledgement and
+    // every issued effect look it up by that object, so the request is never copied for the read view.
+    carriedOpts: FastHorseDecisionRequest['opts'] = request.opts
+  ): T {
     const context = horseObserverReadContextFromRequest(request);
     const anchor = anchorHorseDecisionHand(request);
     let entry =
@@ -452,10 +588,13 @@ export class HorseObserverReads {
           ? 'independent'
           : 'cutoff_unavailable';
     const historyEntry = entry.context ? (entry as Entry) : null;
+    const winnerBank = entry.context
+      ? this.sharedWinnerBanks.get(HorseObserverReads.winnerBankKey(entry.context))
+      : undefined;
     // Reset an entire over-capacity individual view; never retain counters
     // while losing the dedupe keys that made those counters meaningful.
     if (HorseObserverReads.overCapacity(entry)) {
-      HorseObserverReads.capacityReset(entry);
+      HorseObserverReads.capacityReset(entry, winnerBank);
       disposition = 'capacity_reset';
     }
     if (historyEntry) {
@@ -494,27 +633,164 @@ export class HorseObserverReads {
     }
     const history = historyEntry?.history;
     const pooled = entry.context ? this.publicProfiles.read(request) : null;
+    const winnerAfterCutoff = !!winnerBank && winnerBank.observedAt > request.decisionTimeMs;
+    const floorBootEligible =
+      pooled !== null &&
+      this.floorBootstrap !== null &&
+      this.floorBootstrap.availableAtMs <= request.decisionTimeMs &&
+      (this.floorBootstrap.winnerReads.rows.size > 0 || this.floorBootstrap.flopStab.size > 0);
+    // THE PRE-REPAIR DISCOUNT REACHES THE DECISION (2026-11-14). The pooled rows are the opponent rows a
+    // production decision reads, and their mode and public domain say whether the defective learner built them
+    // (cash, table speed). That keying and the post-release counts supplied at boot travel with this decision's
+    // own detached state, for the exact rows and the donors alike, exactly where their counters go: never a
+    // process-wide map another decision could read. Rows that are not pre-repair keyed add nothing.
+    const pooledProvenance = new Map<string, PooledRowProvenance>();
+    if (pooled)
+      for (const row of [...pooled.rows, ...pooled.donors.map((d) => d.profile)]) {
+        const provenance = HorseMind.pooledRowProvenance(row);
+        if (provenance)
+          pooledProvenance.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            provenance
+          );
+      }
+    // A LONG MEMORY OF SHOWN RIVER STRENGTH (2026-11-15). Each pooled exact row that carries a durable shown river
+    // record (horse_exact_profiles.shown_river) brings the read of it at THIS decision's time into the decision's own
+    // detached state, beside its counters, only when the decision's options turn styleLongShownMemory on. The row is
+    // the one the pooled read already chose by availability (accepted at or before decisionTimeMs), so the record
+    // holds only evidence accepted before the decision. Donor rows never carry one. With the option off nothing is
+    // carried, so the state, the read frame and the decision are exactly what they were.
+    const pooledShownRiver = new Map<string, ShownRiverRead>();
+    if (pooled && carriedOpts?.styleLongShownMemory === true)
+      for (const row of pooled.rows) {
+        const read = shownRiverReadOf(row.shown_river, request.decisionTimeMs);
+        if (read)
+          pooledShownRiver.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            read
+          );
+      }
+    // THE POSTFLOP READ BY STREET AND FLOP TEXTURE (2026-11-17). Each pooled exact row of an Omaha game that carries
+    // a well-formed street read (horse_exact_profiles.street_counters) brings a detached copy of it into the
+    // decision's own state, beside its counters. The row is the one the pooled read already chose by availability
+    // (accepted at or before decisionTimeMs). Donor rows never carry one, and a Hold'em row carries nothing, so a
+    // Hold'em decision's state and read frame are exactly what they were. No decision reads it yet
+    // (HorseMind.omahaStreetReadOf has no caller): the action is the same with the record or without it.
+    const pooledStreetRead = new Map<string, StreetReadCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (streetReadCarriedFor(row.variant) && validStreetRead(row.street_counters))
+          pooledStreetRead.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyStreetRead(row.street_counters)
+          );
+    // HOW A RE-RAISER ANSWERS BEING RE-RAISED (2026-11-18). Each pooled exact row of an Omaha game that carries a
+    // well-formed record (horse_exact_profiles.reraise_response) brings a detached copy of it into the decision's own
+    // state, beside its counters: the same row the pooled read already chose by availability. Donor rows never carry
+    // one and a Hold'em row carries nothing, so a Hold'em decision's state and read frame are exactly what they were.
+    // Read only by the default-OFF option omahaReraisedCallVsRaisePriced (HorseMind.omahaReraiseResponseOf).
+    const pooledReraiseResponse = new Map<string, ReraiseResponseCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (reraiseResponseCarriedFor(row.variant) && validReraiseResponse(row.reraise_response))
+          pooledReraiseResponse.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyReraiseResponse(row.reraise_response)
+          );
+    // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
+    // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
+    // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
+    // carried, so the state, the read frame and the decision are exactly what they were.
+    const pooledProfileIncomplete = new Map<string, true>();
+    if (pooled && carriedOpts?.holdemProfileCompletenessCap === true)
+      for (const row of [...pooled.rows, ...pooled.donors.map((d) => d.profile)])
+        if (!profileQualification(row).complete)
+          pooledProfileIncomplete.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            true
+          );
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
-    const executionState = pooled
-      ? {
-          ...entry.state,
-          exploit: new Map(entry.state.exploit),
-          ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
-        }
-      : entry.state;
+    const executionState =
+      pooled || winnerAfterCutoff
+        ? {
+            ...entry.state,
+            ...(pooled
+              ? {
+                  exploit: new Map(entry.state.exploit),
+                  ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
+                  ...(pooledProvenance.size ? { pooledProvenance } : {}),
+                  ...(pooledShownRiver.size ? { pooledShownRiver } : {}),
+                  ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
+                  ...(pooledStreetRead.size ? { pooledStreetRead } : {}),
+                  ...(pooledReraiseResponse.size ? { pooledReraiseResponse } : {}),
+                  ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
+                }
+              : {}),
+            ...(winnerAfterCutoff || floorBootEligible
+              ? {
+                  winnerReads: (() => {
+                    const wr = createWinnerReadState();
+                    if (!winnerAfterCutoff && entry.state.winnerReads?.rows) {
+                      for (const [k, v] of entry.state.winnerReads.rows) wr.rows.set(k, { ...v });
+                    }
+                    return wr;
+                  })(),
+                }
+              : {}),
+          }
+        : entry.state;
     if (pooled) {
       for (const row of pooled.rows)
+        // Its counters and, when the row has one, its long participation window (2026-11-15).
         executionState.exploit!.set(
           opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
-          { ...row.counters }
+          durableProfileCounters(row)
         );
       // The sibling table size of the same public-memory domain, for a thin
       // or missing exact row to borrow at its hand-clock staleness.
       for (const { profile: row, staleness } of pooled.donors) {
         const key = opponentMemoryKey(row.user_id, row.variant, row.mode, row.size);
-        executionState.exploit!.set(key, { ...row.counters });
+        executionState.exploit!.set(key, durableProfileCounters(row));
         executionState.donorStaleness!.set(key, staleness);
+      }
+      if (floorBootEligible && entry.context && this.floorBootstrap) {
+        const authorizedIds = new Set<string>();
+        for (const r of pooled.rows) authorizedIds.add(r.user_id);
+        for (const d of pooled.donors) authorizedIds.add(d.profile.user_id);
+        const scope = this.scope(entry.context);
+        const mode = entry.context.format === 'cash' ? 'cash' : 'tournament';
+        const wScope = winnerReadScopeOf(entry.context.variant, mode);
+        for (const uid of authorizedIds) {
+          const fKey = `${scope}|${uid}`;
+          const bootFlop = this.floorBootstrap.flopStab.get(fKey);
+          if (bootFlop) {
+            const curFlop = executionState.flopStab?.get(fKey);
+            if (
+              !curFlop ||
+              (curFlop.flopCheckedToOpps < 8 &&
+                bootFlop.flopCheckedToOpps > curFlop.flopCheckedToOpps)
+            ) {
+              executionState.flopStab!.set(fKey, { ...bootFlop });
+            }
+          }
+          const bootWinner =
+            (wScope ? this.floorBootstrap.winnerReads.rows.get(`${wScope}|${uid}`) : undefined) ??
+            (mode === 'cash' ? this.floorBootstrap.winnerReads.rows.get(uid) : undefined);
+          if (bootWinner && executionState.winnerReads) {
+            const wKey = wScope ? `${wScope}|${uid}` : uid;
+            const curWinner = executionState.winnerReads.rows.get(wKey);
+            if (!curWinner || (curWinner.w < 50 && bootWinner.w > curWinner.w)) {
+              executionState.winnerReads.rows.set(wKey, { ...bootWinner });
+              if (mode === 'cash') {
+                const bareCur = executionState.winnerReads.rows.get(uid);
+                if (!bareCur || (bareCur.w < 50 && bootWinner.w > bareCur.w)) {
+                  executionState.winnerReads.rows.set(uid, { ...bootWinner });
+                }
+              }
+            }
+          }
+        }
       }
     }
     this.requests.set(request, {
@@ -695,8 +971,16 @@ export class HorseObserverReads {
           entry.context.variant,
           mode
         );
-        observeHandResults(request.handKey, request.results, request.bigBlind);
+        observeHandResults(
+          request.handKey,
+          request.results,
+          request.bigBlind,
+          winnerReadScopeOf(entry.context.variant, mode),
+          [id]
+        );
         entry.observedAt = Math.max(entry.observedAt, this.now());
+        const wb = this.sharedWinnerBanks.get(HorseObserverReads.winnerBankKey(entry.context));
+        if (wb) wb.observedAt = Math.max(wb.observedAt, entry.observedAt);
         const independent = { ...request, scope: HorseMind.currentScope() };
         delete independent.durableOpponentProfiles;
         observe(independent);
@@ -705,14 +989,20 @@ export class HorseObserverReads {
       // The same cap run() applies, applied where the growth actually
       // happens. Before this, only a decision could trigger the reset, so an
       // entry that only ever completed grew without bound.
-      if (HorseObserverReads.overCapacity(entry)) HorseObserverReads.capacityReset(entry);
+      if (HorseObserverReads.overCapacity(entry)) {
+        const wb = this.sharedWinnerBanks.get(HorseObserverReads.winnerBankKey(entry.context));
+        HorseObserverReads.capacityReset(entry, wb);
+      }
     }
     this.unlinkFromHands(idleEvicted);
+    if (idleEvicted.size > 0) this.pruneOrphanWinnerBanks();
     return learned + pooledLearned;
   }
   clear(): void {
     this.publicProfiles.clear();
+    this.floorBootstrap = null;
     this.entries.clear();
+    this.sharedWinnerBanks.clear();
     this.hands.clear();
     this.completed.clear();
   }

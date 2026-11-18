@@ -327,6 +327,31 @@ def main():
             if any(name.endswith((".test.js", ".spec.js")) or "/__tests__/" in name
                    for name in actual):
                 raise RuntimeError("unit-test entrypoints were included in the runtime image")
+            # The image ships the committed lockfile byte for byte (2026-11-11).
+            # Held-out feature admission compares server/package-lock.json with
+            # the qualified plan's dependency digest inside the released image;
+            # `npm prune` used to rewrite it (dev flags on stale entries), so no
+            # release could admit a selection. Compare the built image, not the
+            # Dockerfile text, and prove the pruned tree is exactly the locked
+            # production set at the locked versions.
+            image_lock = Path(temp, "image-package-lock.json")
+            run(["docker", "cp", f"{image_reader}:/app/package-lock.json", str(image_lock)])
+            repo_lock_sha = hashlib.sha256((ROOT / "server/package-lock.json").read_bytes()).hexdigest()
+            image_lock_sha = hashlib.sha256(image_lock.read_bytes()).hexdigest()
+            receipt["lockfile"] = {"repository_sha256": repo_lock_sha, "image_sha256": image_lock_sha}
+            dependency_check = run(["docker", "run", "--rm", "--network", "none", "--read-only",
+                "--mount", f"type=bind,src={ROOT},dst=/qualification,readonly",
+                "--entrypoint", "node", receipt["image_id"],
+                "/qualification/tests/operations/engine-image-dependencies.mjs",
+                "/qualification/server/package-lock.json", "/app"], timeout=60, check=False)
+            (out / "engine-image-dependencies.json").write_text(dependency_check.stdout)
+            receipt["installed_dependencies"] = json.loads(dependency_check.stdout)
+            if image_lock_sha != repo_lock_sha:
+                raise RuntimeError(f"engine image lockfile {image_lock_sha} differs from the "
+                                   f"committed server/package-lock.json {repo_lock_sha}")
+            if dependency_check.returncode:
+                raise RuntimeError("engine image dependency tree differs from the locked production "
+                                   f"set: {dependency_check.stdout[-4000:]}")
             # Reuse this exact successful build; do not compile a second image.
             # The archives are temporary and never uploaded or loaded on a host.
             raw_archive = Path(temp, "engine-image-save.tar")

@@ -8,6 +8,12 @@ describe('private Horse historical analysis independent references', () => {
   it('runs this wrapper when its Python inputs change without selecting engine jobs', () => {
     for (const path of [
       'horse-study-report.py',
+      'horse_census_audit.py',
+      'horse_census_statistics.py',
+      'horse_study_subjects.py',
+      'horse_fleet_acceptance.py',
+      'test_horse_census.py',
+      'test_horse_fleet_acceptance.py',
       'horse_river_appendix.py',
       'horse_river_opportunities.py',
       'horse_hand_analysis.py',

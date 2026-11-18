@@ -38,6 +38,58 @@ async function start() {
   return { service, telemetry };
 }
 describe('actual Horse telemetry flush service', () => {
+  it('writes every batch a split final capture produces at shutdown, each with its own receipt', async () => {
+    const { service, telemetry } = await start();
+    for (let i = 0; i < 9000; i++) telemetry.noteFire(`split_${String(i).padStart(5, '0')}`);
+    await service.stopBrainTelemetryFlush();
+    const batches = mocked.rpc.mock.calls.map((c) => JSON.parse(c[1].p_payload));
+    expect(batches.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(batches.map((b) => b.batchId)).size).toBe(batches.length);
+    expect(
+      batches.reduce(
+        (n, b) =>
+          n + b.fires.filter((f: { feature: string }) => f.feature.startsWith('split_')).length,
+        0
+      )
+    ).toBe(9000);
+    expect(service.brainTelemetryPendingBatches()).toBe(0);
+    expect(mocked.report).not.toHaveBeenCalled();
+  });
+  it('stops at the first unconfirmed shutdown write and reports the batches left unwritten', async () => {
+    const { service, telemetry } = await start();
+    for (let i = 0; i < 9000; i++) telemetry.noteFire(`split_${String(i).padStart(5, '0')}`);
+    let calls = 0;
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () =>
+        calls++ === 1 ? Promise.reject(new Error('aborted')) : Promise.resolve(ack(args.p_payload)),
+    }));
+    await expect(service.stopBrainTelemetryFlush()).rejects.toThrow('aborted');
+    stop = undefined;
+    expect(calls).toBe(2);
+    expect(service.brainTelemetryPendingBatches()).toBeGreaterThan(0);
+    expect(mocked.report.mock.calls.map((c) => c[1])).toContain(
+      'BrainTelemetryFlush.shutdown_unwritten'
+    );
+  });
+  it('keeps shutdown inside its time budget: no write starts that could end past it, and the rest is reported', async () => {
+    const { service, telemetry } = await start();
+    for (let i = 0; i < 9000; i++) telemetry.noteFire(`split_${String(i).padStart(5, '0')}`);
+    // every write takes 8 s: writes start at 0 s and 8 s; one at 16 s could end at 21 s, past the 20 s budget
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () => {
+        vi.setSystemTime(Date.now() + 8_000);
+        return Promise.resolve(ack(args.p_payload));
+      },
+    }));
+    expect(service.BRAIN_TELEMETRY_SHUTDOWN_BUDGET_MS).toBe(20_000);
+    await service.stopBrainTelemetryFlush();
+    expect(mocked.rpc).toHaveBeenCalledTimes(2);
+    expect(service.brainTelemetryPendingBatches()).toBe(1);
+    expect(mocked.report.mock.calls.map((c) => [c[1], String(c[0].message)])).toContainEqual([
+      'BrainTelemetryFlush.shutdown_unwritten',
+      'Horse telemetry: 1 batch(es) unwritten at shutdown (time budget)',
+    ]);
+  });
   it('holds the shutdown acknowledgement until the final partial batch commits', async () => {
     const { service, telemetry } = await start();
     let finish!: (value: any) => void;
@@ -212,6 +264,45 @@ describe('actual Horse telemetry flush service', () => {
     expect(JSON.parse(mocked.rpc.mock.calls[1][1].p_payload).fires).toEqual([
       { feature: 'phase15_telemetry_batch_expired', fires: 1 },
     ]);
+  });
+  it('counts and reports a batch the writer refuses by its bytes, and the counter reaches the next write', async () => {
+    const { telemetry } = await start();
+    mocked.rpc.mockImplementationOnce(() => ({
+      abortSignal: () =>
+        Promise.resolve({
+          data: null,
+          error: { code: 'P0001', message: 'HORSE_FLUSH_INVALID_BOUNDS' },
+        }),
+    }));
+    telemetry.noteFire('refused_counter');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocked.report).toHaveBeenCalledWith(expect.any(Error), 'BrainTelemetryFlush.rejected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(JSON.parse(mocked.rpc.mock.calls[1][1].p_payload).fires).toEqual([
+      { feature: 'phase15_telemetry_batch_rejected', fires: 1 },
+    ]);
+  });
+  it('counts and reports a batch abandoned at the attempt cap, and the counter reaches the next write', async () => {
+    const { telemetry } = await start();
+    const { HORSE_TELEMETRY_MAX_ATTEMPTS } = await import('./HorseBrainTelemetryPublisher.js');
+    let calls = 0;
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () =>
+        calls++ < HORSE_TELEMETRY_MAX_ATTEMPTS
+          ? Promise.resolve({ data: null, error: { message: 'network' } })
+          : Promise.resolve(ack(args.p_payload)),
+    }));
+    telemetry.noteFire('stuck_counter');
+    await vi.advanceTimersByTimeAsync(60_000 * HORSE_TELEMETRY_MAX_ATTEMPTS);
+    expect(calls).toBe(HORSE_TELEMETRY_MAX_ATTEMPTS);
+    expect(mocked.report).toHaveBeenCalledWith(expect.any(Error), 'BrainTelemetryFlush.abandoned');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const last = JSON.parse(mocked.rpc.mock.calls.at(-1)![1].p_payload);
+    expect(
+      last.fires.find((f: { feature: string }) => f.feature === 'phase15_telemetry_batch_abandoned')
+    ).toEqual({ feature: 'phase15_telemetry_batch_abandoned', fires: 1 });
+    // the abandoned batch's own counter is the evidence gap: it is not resent
+    expect(last.fires.some((f: { feature: string }) => f.feature === 'stuck_counter')).toBe(false);
   });
   it('does not write empty batches or schedule writes after stopping', async () => {
     const { service, telemetry } = await start();

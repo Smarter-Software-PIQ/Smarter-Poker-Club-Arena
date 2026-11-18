@@ -542,7 +542,7 @@ describe('Credit admin scoped view', () => {
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
   });
 
-  it('keeps exact credit cents in the write while the confirmation stays decimal-free', async () => {
+  it('keeps exact credit cents in the write and in the confirmation', async () => {
     mocks.save.mockResolvedValue(true);
     render(<View />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
@@ -558,8 +558,7 @@ describe('Credit admin scoped view', () => {
       expect.any(String),
       'club-a'
     );
-    expect(mocks.toast.success).toHaveBeenCalledWith('Credit limit updated to 200');
-    expect(mocks.toast.success).not.toHaveBeenCalledWith(expect.stringContaining('200.25'));
+    expect(mocks.toast.success).toHaveBeenCalledWith('Credit limit updated to 200.25');
   });
 
   it('clears protected credit data and leaves the route when save authority is revoked', async () => {

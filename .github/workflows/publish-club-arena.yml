@@ -248,7 +248,7 @@ jobs:
 
   client-publication:
     needs: publish-needed
-    if: needs.publish-needed.outputs.component == 'client'
+    if: needs.publish-needed.outputs.component == 'client' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     concurrency:
       group: publish-club-arena-client-${{ github.repository_id }}-${{ needs.publish-needed.outputs.target_sha }}
       cancel-in-progress: false
@@ -315,12 +315,13 @@ jobs:
   production:
     needs: [publish-needed, build-record-gateway]
     if: >-
-      always() &&
+      ((always() &&
       needs.publish-needed.result == 'success' &&
       ((needs.publish-needed.outputs.component == 'private-record-gateway' && needs.build-record-gateway.result == 'success') ||
        needs.publish-needed.outputs.component == 'private-record-bootstrap' ||
        needs.publish-needed.outputs.component == 'private-record-credentials' ||
-       needs.publish-needed.outputs.component == 'private-record-inspect')
+       needs.publish-needed.outputs.component == 'private-record-inspect'))
+      && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     concurrency:
       group: publish-club-arena-production
       cancel-in-progress: false

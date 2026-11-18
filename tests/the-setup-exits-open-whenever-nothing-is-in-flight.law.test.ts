@@ -77,8 +77,9 @@ describe('the setup exits open whenever nothing is in flight', () => {
       // Rendered on a condition: never while a round is on the board.
       if (page.endsWith('/DiamondPlinkoPage.tsx')) {
         expect(src).toMatch(/const setup = !animating && \(\s*<BonusSetup/);
-        expect(src).toContain('setup={!budget.award && setup}');
-        expect(src).toContain('{budget.award && setup}');
+        expect(src).toContain('setup={setup}');
+        expect(src).toContain('collapseSetup');
+        expect(src).not.toContain('{budget.award && setup}');
       } else {
         expect(src).toMatch(/setup=\{\s*![\w.]+ &&[\s\S]{0,120}<BonusSetup/);
       }

@@ -96,9 +96,11 @@ describe('moved seat at the dead small blind in hand 58265757', () => {
       seats.slice(0, 7).map((p: any) => [p.seat_number, p.user_id])
     );
     engine.lastButtonSeat = 6;
+    engine.lastSmallBlindSeat = 8;
     engine.lastBigBlindSeat = 1;
     expect(engine.admitMovedSeats(seats)).toEqual(seats.slice(0, 7));
     engine.lastButtonSeat = tournament ? 8 : 1;
+    engine.lastSmallBlindSeat = 1;
     engine.lastBigBlindSeat = 2;
     expect(engine.admitMovedSeats(seats)).toEqual(seats);
   });
@@ -199,6 +201,53 @@ describe('button wait at tournament entry boundaries', () => {
     expect([...engine.waitingForButton]).toEqual([[3, 'u3']]);
   });
 
+  it('deals a free hand to an arrival the button has already passed (Dan 2026-11-11)', () => {
+    // Nightly 20K regression, hand #58703578: the late registrant's seat sat
+    // between the last button and the seat the button was about to land on.
+    // The button JUMPS past them — so their free hand starts on this deal,
+    // not the next one. The stale-anchor zone held them a hand too long.
+    const engine = tournamentEngine({ tournament: true });
+    engine.lastButtonSeat = 2;
+    engine.lastSmallBlindSeat = 4;
+    engine.lastBigBlindSeat = 5;
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [2, 'u2'],
+      [4, 'u4'],
+      [5, 'u5'],
+      [6, 'u6'],
+    ]);
+    const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+    expect(admitted.map((p: { seat_number: number }) => p.seat_number)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(engine.waitingForButton.size).toBe(0);
+  });
+
+  it('deals an arrival on the small blind seat — it posts through the rotation', () => {
+    // The previous big blind busted and a late registrant took the seat. TDA
+    // and noteTournamentArrival: a legal small-blind arrival posts through the
+    // normal rotation and PLAYS; only the button's own path is waited out.
+    const engine = tournamentEngine({ tournament: true });
+    engine.lastButtonSeat = 2;
+    engine.lastSmallBlindSeat = 3;
+    engine.lastBigBlindSeat = 4;
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [2, 'u2'],
+      [3, 'u3'],
+      [5, 'u5'],
+      [6, 'u6'],
+    ]);
+    const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+    expect(admitted.map((p: { seat_number: number }) => p.seat_number)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(engine.waitingForButton.size).toBe(0);
+    expect(engine.predictBlindSeats(admitted)).toMatchObject({
+      button: 3,
+      smallBlindSeat: 4,
+      smallBlind: 4,
+      bigBlind: 5,
+    });
+  });
+
   it.each([
     { button: 6, bb: 1, held: true },
     { button: 8, bb: 2, held: false },
@@ -236,4 +285,134 @@ describe('button wait at tournament entry boundaries', () => {
       expect(engine.waitingForButton.has(8)).toBe(held);
     }
   );
+});
+
+describe('owner reconciliation 2026-11-11: one held seat in tournaments, cash unchanged', () => {
+  it('cash: a moved seat the button skips is still held until the previous-anchor arc clears', () => {
+    // Cash buttons never land on a player who has not been dealt here, so the
+    // button skips seat 2 and goes to seat 3. The pre-fix cash rule held a
+    // moved seat anywhere after the previous button through the previous big
+    // blind. "Cash entry rules remain unchanged."
+    const engine = tournamentEngine({ tournament: false });
+    engine.lastButtonSeat = 1;
+    engine.lastSmallBlindSeat = 2;
+    engine.lastBigBlindSeat = 3;
+    for (const p of engine.seatedPlayers)
+      if (p.seat_number !== 2) engine.dealtInUserIds.add(p.user_id);
+    engine.seatedPlayers[1].entry_hold = 'moved';
+    expect(engine.predictBlindSeats(engine.seatedPlayers).button).toBe(3);
+    const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+    expect(admitted.some((p: { seat_number: number }) => p.seat_number === 2)).toBe(false);
+    expect([...engine.waitingForButton]).toEqual([[2, 'u2']]);
+  });
+
+  it('tournament: only the predicted button seat is ever held', () => {
+    const engine = tournamentEngine({ tournament: true, seats: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+    engine.lastButtonSeat = 3;
+    engine.lastSmallBlindSeat = 4;
+    engine.lastBigBlindSeat = 5;
+    // Every seat except the veterans' is a fresh arrival.
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [4, 'u4'],
+      [5, 'u5'],
+      [7, 'u7'],
+    ]);
+    const blinds = engine.predictBlindSeats(engine.seatedPlayers);
+    expect(blinds).toMatchObject({ button: 4, smallBlindSeat: 5, bigBlind: 6 });
+    const admitted = engine
+      .admitMovedSeats(engine.seatedPlayers)
+      .map((p: { seat_number: number }) => p.seat_number);
+    // Seat 4 is a veteran on the button: nothing held at all. Arrivals 2, 3,
+    // 8 and 9 are behind the button, arrival 6 is the big blind: all dealt.
+    expect(admitted).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(engine.waitingForButton.size).toBe(0);
+  });
+
+  it('heads-up to three-handed: an arrival is held only if it lands on the button', () => {
+    for (const { arrival, held } of [
+      // Seat 3 is where the button lands (between the heads-up button and the
+      // small blind seat): held one hand, then it is the big blind next hand.
+      { arrival: 3, held: true },
+      // Seat 5 is the next big blind: dealt in, posting it.
+      { arrival: 5, held: false },
+    ]) {
+      const engine = tournamentEngine({
+        tournament: true,
+        seats: [2, 4, arrival].sort((a, b) => a - b),
+      });
+      // Heads-up last hand: seat 2 was button and small blind, seat 4 big blind.
+      engine.lastButtonSeat = 2;
+      engine.lastSmallBlindSeat = 2;
+      engine.lastBigBlindSeat = 4;
+      engine.previousHandOccupants = new Map([
+        [2, 'u2'],
+        [4, 'u4'],
+      ]);
+      const admitted = engine.admitMovedSeats(engine.seatedPlayers);
+      const blinds = engine.predictBlindSeats(admitted);
+      expect(admitted.some((p: { seat_number: number }) => p.seat_number === arrival)).toBe(!held);
+      if (held) {
+        expect([...engine.waitingForButton]).toEqual([[arrival, `u${arrival}`]]);
+      } else {
+        expect(engine.waitingForButton.size).toBe(0);
+        expect(blinds).toMatchObject({ button: 2, smallBlindSeat: 4, bigBlind: arrival });
+      }
+    }
+  });
+
+  it('with the real hand controller: a free arrival pays nothing, a big-blind arrival posts its blind', async () => {
+    const { HandController } = await import('./HandController.js');
+    const engine = tournamentEngine({ tournament: true, seats: [1, 2, 3, 4, 5, 6] });
+    engine.lastButtonSeat = 2;
+    engine.lastSmallBlindSeat = 4;
+    engine.lastBigBlindSeat = 5;
+    // Seat 3 (behind the coming button) and seat 6 (the coming big blind) are arrivals.
+    engine.previousHandOccupants = new Map([
+      [1, 'u1'],
+      [2, 'u2'],
+      [4, 'u4'],
+      [5, 'u5'],
+    ]);
+    const selected = engine.admitMovedSeats(engine.seatedPlayers);
+    for (const p of selected) engine.noteTournamentArrival(p.seat_number, p.user_id);
+    expect(engine.mustPostBB.size).toBe(0);
+    const blinds = engine.predictBlindSeats(selected);
+    expect(blinds).toMatchObject({ smallBlind: 5, bigBlind: 6 });
+    const hand = new HandController(
+      {
+        tableId: TABLE,
+        handNumber: 1,
+        gameVariant: 'nlh',
+        isTournament: true,
+        smallBlind: 400,
+        bigBlind: 800,
+        bigBlindAnte: true,
+        ante: 800,
+        blindSeats: blinds,
+        rakeConfig: { percent: 0, cap: 0, noFlopNoDrop: true },
+      },
+      selected.map((p: { seat_number: number; user_id: string }) => ({
+        seat: p.seat_number,
+        user_id: p.user_id,
+        username: p.user_id,
+        stack: 20000,
+        bet: 0,
+        totalInvested: 0,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      })),
+      blinds.button
+    );
+    hand.start();
+    const state = hand.getState();
+    const seat = (n: number) => state.players.find((p: { seat: number }) => p.seat === n)!;
+    expect(seat(3).cards).toHaveLength(2);
+    expect(seat(3).totalInvested).toBe(0);
+    expect(seat(5).totalInvested).toBe(400);
+    // The big blind posts its blind plus the big-blind ante, nothing more.
+    expect(seat(6).totalInvested).toBe(1600);
+  });
 });

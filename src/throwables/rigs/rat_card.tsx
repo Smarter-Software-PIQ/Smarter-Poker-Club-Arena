@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -26,26 +27,16 @@ export const spec: ThrowableSpec = {
     { at: 4300, marker: 'cut' },
   ],
   audio: [
-    { at: 2433, sample: 'card_slap', gain: 0.45 },
-    { at: 3000, sample: 'cheer_ooh', gain: 0.65 },
+    { at: 1367, sample: 'shark_chomp', gain: 0.36 },
+    { at: 2300, sample: 'card_slap', gain: 0.7 },
+    { at: 2433, sample: 'cheer_ooh', gain: 0.38 },
+    { at: 3000, sample: 'rat_chuckle', gain: 0.9 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
 function Neutral() {
   return (
     <AtlasSprite src="rat_card" rect={[0, 0, 627, 627]} x={-65} y={-65} width={130} height={130} />
-  );
-}
-function Laugh() {
-  return (
-    <AtlasSprite
-      src="rat_card"
-      rect={[0, 627, 627, 627]}
-      x={-65}
-      y={-65}
-      width={130}
-      height={130}
-    />
   );
 }
 function Projectile(_props: RigProps) {
@@ -72,7 +63,18 @@ function Payload({ uid }: RigProps) {
               <Neutral />
             </g>
             <g className="thr-rat_card__chew">
-              <Laugh />
+              <PerformancePose
+                src="rat_card-acting"
+                row={0}
+                rows={2}
+                x={-65.0}
+                y={-65.0}
+                width={130.0}
+                height={130.0}
+                duration={210}
+                delay={1000}
+                repeats={4}
+              />
             </g>
           </g>
           <g className="thr-rat_card__wink">
@@ -86,7 +88,18 @@ function Payload({ uid }: RigProps) {
             />
           </g>
           <g className="thr-rat_card__laugh">
-            <Laugh />
+            <PerformancePose
+              src="rat_card-acting"
+              row={1}
+              rows={2}
+              x={-65.0}
+              y={-65.0}
+              width={130.0}
+              height={130.0}
+              duration={345}
+              delay={2667}
+              repeats={3}
+            />
           </g>
           <g clipPath={`url(#${uid}mouth)`}>
             <g className="thr-rat_card__card-slide">

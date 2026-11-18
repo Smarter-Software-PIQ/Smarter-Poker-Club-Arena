@@ -13,6 +13,7 @@ import { maxSeatsForVariant, isSeatCountLegal } from '../config/tableSeating.js'
 import { getPlayerCountCaps } from '../config/RakeConfig.js';
 import { settleOmahaReference } from '../benchmark/OmahaReference.js';
 import { reportError } from '../services/errorReporter.js';
+import { horseRunItTwiceRuns } from './HorseRunItTwice.js';
 import type { ActionRecord, Card, GameState, HandEvent, SeatPlayer } from '../types.js';
 
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
@@ -160,15 +161,29 @@ describe('PLO5 seven-seat accepted offer-to-payout with actual rake and BBJ conf
     // Condition this finite population on the existing deterministic accept
     // branch. Do not stub the Horse verdict, timing, scheduler or responder.
     // This proves neither natural acceptance rates nor every Horse personality.
+    // 2026-11-13: the verdict now reads each Horse's public all-in equity
+    // (horseRunItTwiceRuns). A seven-way all-in never gives every seat a coin
+    // flip, so the equity read is injected at 0.5 below, the same way the ids
+    // are selected: this test pins offer-to-payout settlement, not how often
+    // a Horse agrees. Every Horse picked answers exactly `runs` boards.
+    const OFFER_POT_BB = 700 / 2;
+    const answers = (id: string) =>
+      horseRunItTwiceRuns({
+        horseId: id,
+        handNumber,
+        potBB: OFFER_POT_BB,
+        equity: 0.5,
+        maxRuns: 3,
+      });
     const ids: string[] = [];
-    for (let n = 1; n <= 70 && ids.length < 7; n++) {
+    for (let n = 1; n <= 20_000 && ids.length < 7; n++) {
       const id = `92000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-      if (engine.horseRitVerdict(id) === 'multi') ids.push(id);
+      if (answers(id) === runs) ids.push(id);
     }
     expect(ids).toHaveLength(7);
     const thinkMs = probeHorseRitThinkMs(PROBE_TABLE, handNumber, ids);
     for (const id of ids) {
-      expect(engine.horseRitVerdict(id)).toBe('multi');
+      expect(answers(id)).toBe(runs);
       expect(thinkMs.get(id)!.chooserMs).toBeLessThan(20_000);
       expect(thinkMs.get(id)!.responderMs).toBeLessThan(20_000);
     }
@@ -200,6 +215,10 @@ describe('PLO5 seven-seat accepted offer-to-payout with actual rake and BBJ conf
     // response transport nor settlement/scoring/controller code is replaced.
     engine.broadcastCurrentState = vi.fn();
     engine.broadcastAllInEquity = vi.fn().mockResolvedValue(undefined);
+    // The public equity read the Horses answer from (see the population note).
+    engine.requestHorseRitEquity = vi
+      .fn()
+      .mockResolvedValue(Object.fromEntries(ids.map((id) => [id, 0.5])));
     engine.markProgress = vi.fn();
     engine.killForRestart = vi.fn();
     const singleRunFallback = vi.spyOn(engine, 'safeContinueRunout');
@@ -306,6 +325,7 @@ describe('PLO5 seven-seat accepted offer-to-payout with actual rake and BBJ conf
     expect(atPark!.actionHistory).toEqual(acceptedActions);
     expect(events.filter((event) => event.type === 'ALL_IN_RUNOUT')).toHaveLength(1);
     await Promise.all(dispatches);
+    expect(engine.requestHorseRitEquity).toHaveBeenCalledTimes(1);
     const offer = emitted.find((event) => event.type === 'rit_offer')!;
     expect(offer).toMatchObject({ table_id: TABLE, hand_number: handNumber, pot: 700, maxRuns: 3 });
     expect(sorted(offer.allPlayerIds)).toEqual(sorted(ids));

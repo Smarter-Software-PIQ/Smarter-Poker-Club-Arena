@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
+import { copyText, hasShareSheet, shareLink } from '../../lib/share';
 import {
   DiamondReplayService,
   bonusReplayTitle,
@@ -171,32 +172,31 @@ export default function BonusReplayLibrary({ clubId }: { clubId: string }) {
                   onClick={() => {
                     const scope = generation.current;
                     void run(async () => {
-                      if (typeof navigator.clipboard?.writeText !== 'function')
+                      if (!(await copyText(share.url, 'BonusReplayLibrary.copy')))
                         throw new Error(
                           'Copy Is Unavailable Here. Select The Replay Link To Copy It.'
                         );
-                      await navigator.clipboard.writeText(share.url);
                       if (scope === generation.current) toast.success('Replay Link Copied');
                     });
                   }}
                 >
                   Copy Link
                 </button>
-                {typeof navigator.share === 'function' && (
+                {hasShareSheet() && (
                   <button
                     className={styles.action}
                     type="button"
                     disabled={busy}
                     onClick={() =>
                       void run(async () => {
-                        try {
-                          await navigator.share({
-                            title: bonusReplayTitle(selected.replay),
-                            url: share.url,
-                          });
-                        } catch (e) {
-                          if (!(e instanceof Error && e.name === 'AbortError')) throw e;
-                        }
+                        const outcome = await shareLink({
+                          source: 'BonusReplayLibrary.share',
+                          title: bonusReplayTitle(selected.replay),
+                          url: share.url,
+                        });
+                        if (outcome === 'copied') toast.success('Replay Link Copied');
+                        if (outcome === 'failed')
+                          throw new Error('Could Not Share. Select The Replay Link To Copy It.');
                       })
                     }
                   >

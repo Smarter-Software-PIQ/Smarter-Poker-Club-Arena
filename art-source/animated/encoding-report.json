@@ -209,10 +209,10 @@
   },
   {
     "file": "donkey.png",
-    "width": 1254,
-    "height": 1254,
-    "sourceBytes": 218143,
-    "runtimeBytes": 147404,
+    "width": 4032,
+    "height": 448,
+    "sourceBytes": 1900079,
+    "runtimeBytes": 1270196,
     "visiblePixelsIdentical": true
   },
   {

@@ -166,27 +166,21 @@ describe('4. the window is reported, and a table that cannot deal takes the whol
     expect(SEED).toContain('asleep: asleepDropped,');
   });
 
-  it('an empty or lone cluster table widens the hour when the awake pool cannot reach two', () => {
-    const rescue = SEED.indexOf(
-      'if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;'
-    );
-    const feeder = SEED.indexOf(
-      'if (openingFeeder && pool.length < FEEDER_BUYERS_TO_GO_LIVE) pool = sittable;'
-    );
-    const dealable = SEED.indexOf(
+  // SUPERSEDED 2026-11-12 (Dan: horses keep their daily work schedule and
+  // days off): a table under the dealable minimum no longer widens the hour.
+  it('an empty or lone cluster table is filled by working horses only (owner 2026-11-12)', () => {
+    expect(SEED).not.toContain(
       'if (seedToDealable && !openingFeeder && pool.length < DEALABLE_MINIMUM) {'
     );
-    const handed = SEED.indexOf('pool: pool.map((h) => h.id)');
-    expect(rescue).toBeGreaterThan(0);
-    expect(feeder).toBeGreaterThan(rescue);
-    expect(dealable).toBeGreaterThan(feeder);
-    expect(handed).toBeGreaterThan(dealable);
-    // never the band, never the verdict: it is `sittable` that is handed over,
-    // read from the statement itself rather than a byte window
-    // (tests/unit/noFixedSizeSourceWindows).
-    expect(sliceStatement(SEED.slice(dealable), 'if (seedToDealable')).toContain(
-      'pool = sittable;'
+    expect(SEED).not.toContain(
+      'if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;'
     );
+    const awake = SEED.indexOf(
+      'const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
+    );
+    const handed = SEED.indexOf('pool: pool.map((h) => h.id)');
+    expect(awake).toBeGreaterThan(0);
+    expect(handed).toBeGreaterThan(awake);
   });
 
   it('the own-ceiling refusal is counted, so no gate in the candidate filter is silent', () => {

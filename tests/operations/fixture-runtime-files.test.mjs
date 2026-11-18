@@ -16,6 +16,23 @@ import {
 } from '../../operations/release/fixture/runtime-files.mjs';
 const exec = promisify(execFile);
 
+
+test('provider archive provenance matches every checksum-enforced download', async () => {
+  const dockerfile = await readFile(
+    new URL('../../operations/release/fixture/Dockerfile', import.meta.url), 'utf8'
+  );
+  const sources = JSON.parse(dockerfile.match(/const sources=(\[.*\]);/)[1]);
+  for (const source of sources) {
+    assert.ok(dockerfile.includes(`ADD --checksum=sha256:${source.archive_sha256} ${source.archive_url} `),
+      `${source.name} provenance must identify the actual checksum-enforced archive`);
+  }
+  const postgis = sources.find((source) => source.name === 'postgis');
+  assert.equal(postgis.archive_url,
+    'https://ftp.osuosl.org/pub/osgeo/download/postgis/source/postgis-3.3.7.tar.gz');
+  assert.equal(postgis.archive_sha256,
+    '50724a0dde49adc253e59e024d8b18fef6be4e85341943c6d5e1e1b974e43fce');
+});
+
 test('observation control identity is exact and cannot carry candidate routing or proof', () => {
   const control = { version: 1, control_sha: 'a'.repeat(40) };
   const actual = observationControl(control);

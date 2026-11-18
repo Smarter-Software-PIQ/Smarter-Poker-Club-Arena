@@ -1,4 +1,16 @@
+import { SavedProfilePresenceCache } from './savedProfilePresence.js';
 import { LiveHorseDecisionWorkerClient } from './client.js';
+import {
+  StyleSwitchHolder,
+  styleSwitchSourceFromStates,
+  styleSwitchStatesFrom,
+} from '../HorseStyleSwitch.js';
+import { isHorseDecisionReplayState } from './replayState.js';
+import {
+  noteStyleEngaged,
+  noteStyleShadowEngaged,
+  takeStyleLiveEngaged,
+} from '../HorseStyleShadow.js';
 import { HORSE_PHASE14_DOMAINS } from '../HorsePhase14Authority.js';
 import { HandController } from '../HandController.js';
 import { priceDiamondCashFees } from '../../domain/diamondCashFeeSnapshot.js';
@@ -338,6 +350,7 @@ function harness(realDecision = false, onMessage?: (message: HorseDecisionWorker
   let stopFailure: Error | null = null;
   let now = 10;
   let throwDecision = false;
+  let onDecide: ((opts: HorseDecideOpts) => void) | null = null;
   const deps: HorseDecisionWorkerDependencies = {
     async startServices() {
       started++;
@@ -361,6 +374,7 @@ function harness(realDecision = false, onMessage?: (message: HorseDecisionWorker
     decide(_player, _gameState, _style, _mods, opts) {
       decisionOpts.push(opts ?? {});
       decisionsAtRng.push(rng);
+      onDecide?.(opts ?? {});
       frozenSnapshots.push(
         Object.isFrozen(_player) &&
           Object.isFrozen(_player.cards) &&
@@ -440,6 +454,9 @@ function harness(realDecision = false, onMessage?: (message: HorseDecisionWorker
     rng: () => rng,
     setRng: (value: number) => {
       rng = value;
+    },
+    setOnDecide: (fn: ((opts: HorseDecideOpts) => void) | null) => {
+      onDecide = fn;
     },
     setThrowDecision: (value: boolean) => {
       throwDecision = value;
@@ -1906,6 +1923,71 @@ describe('HorseDecisionWorkerRuntime', () => {
     });
   });
 
+  it('counts one decision_evaluated for a FAST brain evaluation and none for a refusal or a second look', async () => {
+    const evaluated = (messages: HorseDecisionWorkerResponse[]) =>
+      messages
+        .flatMap(
+          (m) =>
+            (
+              m as unknown as {
+                watchcounterDeltas?: Array<{
+                  metric: string;
+                  variant: string;
+                  mode: string;
+                  reason: string;
+                  value: number;
+                }>;
+              }
+            ).watchcounterDeltas ?? []
+        )
+        .filter(
+          (d) =>
+            d.metric === 'poker_horse_telemetry_opportunities_total' &&
+            d.reason === 'decision_evaluated'
+        );
+    const h = harness();
+    await h.runtime.start();
+    await h.runtime.drain();
+    // Deltas other tests left in this process leave with READY, not with ours.
+    h.messages.length = 0;
+
+    const request = fastRequest(1);
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    if (fast?.type !== 'FAST_RESULT') throw Error('missing fast');
+    expect(h.decisionsAtRng).toHaveLength(1);
+    expect(evaluated(h.messages)).toEqual([
+      {
+        metric: 'poker_horse_telemetry_opportunities_total',
+        variant: String(request.gameState.gameVariant),
+        mode: request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+        reason: 'decision_evaluated',
+        value: 1,
+      },
+    ]);
+
+    // A request refused before the brain runs is not an evaluation.
+    h.runtime.receive({ ...request, requestId: 2, decisionKey: 'not-the-key' });
+    await h.runtime.drain();
+    expect(h.messages.at(-1)?.type).toBe('ERROR');
+    expect(h.decisionsAtRng).toHaveLength(1);
+    expect(evaluated(h.messages)).toHaveLength(1);
+
+    // The second look replays with telemetry off: no clamp, no denominator.
+    h.runtime.receive({
+      ...request,
+      type: 'DECIDE_DEEP',
+      requestId: 3,
+      rngBefore: fast.rngBefore,
+      deepEquity: 2,
+    });
+    await h.runtime.drain();
+    expect(h.messages.at(-1)?.type).toBe('DEEP_RESULT');
+    expect(h.decisionsAtRng).toHaveLength(2);
+    expect(evaluated(h.messages)).toHaveLength(1);
+  });
+
   it('retains the valid fast decision when read-frame capture fails and refuses its second look', async () => {
     const h = harness();
     const spy = vi.spyOn(HorseMind, 'snapshotDecisionReads').mockImplementationOnce(() => {
@@ -2216,7 +2298,8 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.restored).toEqual([fast.rngBefore, 900]);
     expect(h.rng()).toBe(900);
     expect(h.decisionOpts[0]).toMatchObject({
-      telemetry: false,
+      // SECOND-LOOK RECEIPTS (2026-11-16): on, inside a capture (nothing is counted under its own name)
+      telemetry: true,
       deepEquity: 6,
       decisionTimeMs: 3_599_999,
       observeMind: false,
@@ -2225,6 +2308,51 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.latency).toEqual([{ scope: 'deep:plo4', ms: 6 }]);
     expect(h.messages.at(-1)).toMatchObject({ type: 'DEEP_RESULT', requestId: 2 });
     expect(h.appliedEffects).toEqual([]);
+  });
+
+  it('a rule that fires only in the second look is counted under second_look_, and nothing counts twice', async () => {
+    const telemetry = await import('../BrainTelemetry.js');
+    telemetry.enableBrainTelemetry();
+    onTestFinished(() => {
+      telemetry.drainFires();
+      telemetry.disarmBrainTelemetryForTest();
+    });
+    telemetry.drainFires();
+    const h = harness();
+    await h.runtime.start();
+    h.setRng(900);
+    let look = 0;
+    h.setOnDecide((opts) => {
+      look++;
+      if (opts.telemetry !== true) return;
+      // both looks pass through rule_a; only the second look reaches rule_b
+      telemetry.noteFire('probe_rule_a');
+      if (look === 2) telemetry.noteFire('probe_rule_b_seen');
+      telemetry.noteFire('style_fold_bluff_seen');
+    });
+    h.runtime.receive(fastRequest(1));
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    if (fast?.type !== 'FAST_RESULT') throw Error('fast decision missing');
+    const afterFast = telemetry.drainFires();
+    expect(afterFast.find((r) => r.feature === 'probe_rule_a')?.fires).toBe(1);
+    expect(afterFast.some((r) => r.feature.startsWith('second_look_'))).toBe(false);
+    h.runtime.receive({
+      ...snapshot,
+      type: 'DECIDE_DEEP',
+      requestId: 2,
+      rngBefore: fast.rngBefore,
+      deepEquity: 6,
+    });
+    await h.runtime.drain();
+    expect(h.messages.at(-1)).toMatchObject({ type: 'DEEP_RESULT', requestId: 2 });
+    expect(look).toBe(2);
+    const afterDeep = telemetry.drainFires().sort((x, y) => x.feature.localeCompare(y.feature));
+    // the second look counted neither rule under its own name, and the style read receipt not at all
+    expect(afterDeep).toEqual([
+      { feature: 'second_look_probe_rule_a_seen', fires: 1 },
+      { feature: 'second_look_probe_rule_b_seen', fires: 1 },
+    ]);
   });
 
   it('restores canonical RNG when deep computation throws and keeps FIFO usable', async () => {
@@ -2256,6 +2384,43 @@ describe('HorseDecisionWorkerRuntime', () => {
       message: 'synthetic decision failure',
     });
     expect(h.messages.at(-1)).not.toHaveProperty('recoverable');
+  });
+
+  it('journals duplicate recovered terminals without learning and rejects a changed source', async () => {
+    const h = harness();
+    const journaled: CompletedHandObservation[] = [];
+    let persisted = 0;
+    h.deps.sourceRelease = () => 'a'.repeat(40);
+    h.deps.journalAcceptedHand = (hand) => {
+      journaled.push(hand);
+    };
+    h.deps.learnPersistedMemory = () => {
+      persisted++;
+    };
+    const original: ObserveCompletedHandRequest = {
+      type: 'OBSERVE_COMPLETED_HAND',
+      requestId: 2,
+      generation: 4,
+      fence: 'table:4:original-lease:observe',
+      handKey: 'table:4',
+      actions: [],
+      bigBlind: 2,
+      terminalOnlySourceRelease: 'a'.repeat(40),
+    };
+    h.runtime.receive(original);
+    h.runtime.receive({ ...original, requestId: 3 });
+    await h.runtime.drain();
+    expect(journaled).toHaveLength(2);
+    expect(h.observations).toEqual([]);
+    expect(persisted).toBe(0);
+    expect(h.features).not.toContain('horse_observer_completion_learned');
+    h.runtime.receive({ ...original, requestId: 4, terminalOnlySourceRelease: 'b'.repeat(40) });
+    await h.runtime.drain();
+    expect(journaled).toHaveLength(2);
+    expect(h.messages.at(-1)).toMatchObject({
+      type: 'ERROR',
+      message: 'accepted_terminal_source_mismatch',
+    });
   });
 
   it('serializes completed-hand learning with decisions and drains services on shutdown', async () => {
@@ -2924,6 +3089,119 @@ describe('HorseDecisionWorkerRuntime', () => {
     expect(h.messages.find((m) => m.type === 'FAST_RESULT')).toMatchObject({ governorScale: 0.35 });
   });
 
+  it('keeps failed, partial and misidentified saved reads unavailable for the bound human', async () => {
+    const table = '10000000-0000-4000-8000-0000000000d1';
+    const lease = '30000000-0000-4000-8000-0000000000d1';
+    const req = independentFastForHand(table, 1_000_031, lease);
+    const human = req.gameState.players.find((p) => p.seat !== req.player.seat)!.user_id;
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    req.gameState.publicMemoryDomain = domain;
+    req.gameState.humanUserIds = [human];
+    req.savedProfileHumanIds = [human];
+    const deal = {
+      tableId: table,
+      handNumber: 1_000_031,
+      lease,
+      domain,
+      mode: 'cash' as const,
+      variant: req.gameState.gameVariant!,
+      roster: req.gameState.players.map((p) => ({
+        seat: p.seat,
+        id: p.user_id,
+        human: p.user_id === human,
+      })),
+    };
+    const loaders = [
+      async () => {
+        throw Error('timeout');
+      },
+      async () => [],
+      async () => [{ user_id: req.player.user_id, presence: 'no_saved_row' }],
+    ];
+    for (const load of loaders) {
+      const cache = new SavedProfilePresenceCache(load, () => req.decisionTimeMs - 1);
+      cache.prime(deal);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(cache.forSnapshot(req)).toMatchObject({
+        status: 'unavailable',
+        rows: [{ user_id: human, presence: 'unavailable' }],
+      });
+    }
+    for (const exact_profile of [
+      null,
+      { observed_hands: 0, last_accepted_hand_id: null, counters: {} },
+      { observed_hands: 50, last_accepted_hand_id: 'corrupt', counters: { hands: -1 } },
+    ]) {
+      const cache = new SavedProfilePresenceCache(
+        async () => [{ user_id: human, presence: 'exact', exact_profile }],
+        () => req.decisionTimeMs - 1
+      );
+      cache.prime(deal);
+      await new Promise<void>((r) => setImmediate(r));
+      const receipt = cache.forSnapshot(req);
+      expect(receipt).toMatchObject({
+        status: 'available',
+        rows: [{ user_id: human, presence: 'exact', priorParticipation: 'unresolved' }],
+      });
+      expect(receipt?.exactProfiles).toBeUndefined();
+    }
+  });
+
+  it('journals an original saved-context lookup privately and rejects a cross-hand reuse', async () => {
+    const table = '10000000-0000-4000-8000-0000000000d1';
+    const lease = '30000000-0000-4000-8000-0000000000d1';
+    const req = independentFastForHand(table, 1_000_031, lease);
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    req.gameState.publicMemoryDomain = domain;
+    req.gameState.humanUserIds = req.gameState.players
+      .filter((p) => p.seat !== req.player.seat)
+      .map((p) => p.user_id);
+    req.decisionKey = buildHorseDecisionKey(req);
+    req.savedProfileHumanIds = req.gameState.humanUserIds;
+    const read = vi.fn(async () =>
+      req.gameState.humanUserIds!.sort().map((user_id) => ({ user_id, presence: 'exact' }))
+    );
+    const cache = new SavedProfilePresenceCache(read, () => req.decisionTimeMs - 1);
+    const deal = {
+      tableId: table,
+      handNumber: 1_000_031,
+      lease,
+      variant: req.gameState.gameVariant!,
+      mode: 'cash' as const,
+      domain,
+      roster: req.gameState.players.map((p) => ({
+        seat: p.seat,
+        id: p.user_id,
+        human: p.seat !== req.player.seat,
+      })),
+    };
+    cache.prime(deal);
+    cache.prime(deal);
+    expect(cache.forSnapshot(req)?.status).toBe('unavailable');
+    await new Promise<void>((r) => setImmediate(r));
+    expect(read).toHaveBeenCalledTimes(1);
+    req.savedProfilePresence = cache.forSnapshot(req);
+    expect(req.savedProfilePresence?.status).toBe('available');
+    const run = async (request: FastHorseDecisionRequest) => {
+      const h = harness();
+      const captures: any[] = [];
+      h.deps.journalDecision = (_r, payload) => captures.push(payload);
+      h.runtime.receive(request);
+      await h.runtime.drain();
+      const result = h.messages.find((m) => m.type === 'FAST_RESULT');
+      expect(result).toBeDefined();
+      expect(JSON.stringify(result)).not.toContain('horse_exact_profiles');
+      return captures[0].snapshot.savedProfilePresence;
+    };
+    expect(await run(req)).toMatchObject({ status: 'available', rows: [{ presence: 'exact' }] });
+    const swapped = { ...req, fence: req.fence.replace(':1000031:', ':1000032:') };
+    swapped.decisionKey = buildHorseDecisionKey(swapped);
+    expect(await run(swapped)).toMatchObject({
+      status: 'unavailable',
+      rows: [{ presence: 'unavailable' }],
+    });
+  });
+
   it('captures actual fast/deep journal inputs privately and retains decisions when capture fails', async () => {
     const h = harness(),
       records: any[] = [];
@@ -3528,11 +3806,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   // heads-up reference fold.
   const LIVE_STATES = [
     [
-      'cash AsKsQhJh preflop (the pack retains the call)',
+      'cash AsKsQhJh preflop (the pack retains the pot raise)',
       'cash',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
     [
       'cash QsQh4c4d preflop (the pack retains the call)',
@@ -3549,11 +3827,11 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
       { action: 'fold', amount: null },
     ],
     [
-      'tournament AsKsQhJh preflop (the pack retains the call)',
+      'tournament AsKsQhJh preflop (the pack retains the pot raise)',
       'tournament',
       'As Ks Qh Jh',
       false,
-      { action: 'call', amount: 2 },
+      { action: 'raise', amount: 11 },
     ],
   ] as const;
 
@@ -3565,7 +3843,12 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   it.each(LIVE_STATES)(
     'live behaviour under the committed selection: %s',
     async (_name, format, cards, changed, mainAction) => {
-      const request = format === 'cash' ? plo4Cash(601, cards) : plo4Tournament(601, cards);
+      // V87 (2026-11-10) caps non-BB V24 price relief in PLO4 independently of
+      // Phase 10 authority, folding rainbow QsQh4c4d in the reference brain;
+      // isolate this frozen 2026-10-08 P10.1 pin table with v87DeepDiveDiscipline: false
+      // (HorseDeepDiveDiscipline.test.ts pins the real policy).
+      const base = format === 'cash' ? plo4Cash(601, cards) : plo4Tournament(601, cards);
+      const request = rekey({ ...base, opts: { ...base.opts, v87DeepDiveDiscipline: false } });
       const live = await decideThrough(request, () => admitHorsePhase10ReleaseAuthority());
       const reference = await decideThrough(request, undefined, true);
       expect(act(reference.decision)).toEqual(mainAction);
@@ -3597,7 +3880,8 @@ describe('P10.3 worker-owned PLO4 authority (the Phase 8 path, reused)', () => {
   it.each(LIVE_STATES)(
     'a genuinely qualified fixture retains the cash candidate and tournament reference boundary: %s',
     async (_name, format, cards, changed, mainAction) => {
-      const request = format === 'cash' ? plo4Cash(602, cards) : plo4Tournament(602, cards);
+      const base = format === 'cash' ? plo4Cash(602, cards) : plo4Tournament(602, cards);
+      const request = rekey({ ...base, opts: { ...base.opts, v87DeepDiveDiscipline: false } });
       const qualified = await decideThrough(request, () => qualifiedPhase10TestAdmission(2));
       const reference = await decideThrough(request, undefined, true);
       expect(act(reference.decision)).toEqual(mainAction);
@@ -3932,7 +4216,10 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
     ['plo6', 'tournament', 'As Ad Ks Kd Qs Jd', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
     ['plo8', 'cash', 'Ah 7c Ks 9d', true, { action: 'fold', amount: null }],
-    ['plo8', 'cash', 'Qs Qh 4c 4d', false, { action: 'call', amount: 2 }],
+    // V86: high-only middle two-pair with zero low cards in PLO8 folds on the
+    // reference path; the PLO8 pack (shadow, unselected) records a HU open
+    // deviation receipt (`changed: true`) while applying nothing.
+    ['plo8', 'cash', 'Qs Qh 4c 4d', true, { action: 'fold', amount: null }],
     ['plo8', 'tournament', 'As 2s 3d Ac', false, { action: 'raise', amount: 11 }],
   ] as const;
 
@@ -3976,15 +4263,24 @@ describe('P11.3 worker-owned PLO5/PLO6/PLO8 authority (the Phase 8 path, reused 
   );
 
   it('the PLO6 Qs Qh 4c 4d 8s 9c call was the V24 price defense, now default off in PLO6 cash', async () => {
+    // V87 (2026-11-10) independently tightens 6-card non-BB calls and V24
+    // relief caps; isolate this 2026-10-31 V24 price-defense measurement from
+    // V87 (HorseDeepDiveDiscipline.test.ts pins the real policy).
     const base = omahaCash(611, 'plo6', 'Qs Qh 4c 4d 8s 9c');
     const on = await decideThrough(
-      rekey({ ...base, opts: { ...base.opts, v24PloDefense: true } }),
+      rekey({
+        ...base,
+        opts: { ...base.opts, v24PloDefense: true, v87DeepDiveDiscipline: false },
+      }),
       undefined,
       true
     );
     expect(act(on.decision)).toEqual({ action: 'call', amount: 2 });
     const off = await decideThrough(
-      rekey({ ...base, opts: { ...base.opts, v24PloDefense: false } }),
+      rekey({
+        ...base,
+        opts: { ...base.opts, v24PloDefense: false, v87DeepDiveDiscipline: false },
+      }),
       undefined,
       true
     );
@@ -6021,5 +6317,596 @@ describe('own public-history load counter', () => {
     expect(
       ownPublicHistoryLoaded({ ...pooled, individualVersion: 1, history: 'volatile_only' })
     ).toBe(false);
+  });
+});
+
+describe('style read live switch and shadow in the live worker (2026-11-13)', () => {
+  const TABLE = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  function styled(state: 'off' | 'shadow' | 'on', wouldFold = true) {
+    const fastAtPost: number[] = [];
+    const h = harness(false, (m) => {
+      if (m.type === 'FAST_RESULT') fastAtPost.push(h.decisionOpts.length);
+    });
+    const base = h.deps.decide;
+    h.deps.decide = (player, gameState, style, mods, opts, ...rest) => {
+      const out = base(player, gameState, style, mods, opts, ...rest);
+      // a consumer in shadow that would have acted records that it engaged
+      if (opts?.styleShadow?.includes('styleFoldBluff'))
+        noteStyleShadowEngaged('styleFoldBluff', 0.62);
+      return opts?.styleFoldBluff === true && wouldFold
+        ? { ...out, action: 'fold', amount: 0 }
+        : out;
+    };
+    if (state !== 'off')
+      h.deps.styleSwitch = new StyleSwitchHolder(
+        (nowMs: number) => ({
+          kind: 'present',
+          receivedAtMs: nowMs,
+          raw: { version: 1, options: { styleFoldBluff: state } },
+        }),
+        (f) => h.features.push(f)
+      );
+    return { h, fastAtPost };
+  }
+
+  it('default: no switch source, the options are exactly what they were and nothing is re-decided', async () => {
+    const { h } = styled('off');
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(Object.keys(h.decisionOpts[0]).filter((k) => k.startsWith('style'))).toEqual([]);
+    expect(h.features.filter((f) => f.startsWith('style_'))).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_read');
+  });
+
+  it('on: the option arrives as an explicit true and the decision is not repeated', async () => {
+    const { h } = styled('on');
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(h.decisionOpts[0].styleFoldBluff).toBe(true);
+    expect(h.decisionOpts[0].styleShadow).toBeUndefined();
+    expect(h.features).toContain('style_switch_styleFoldBluff_on_seen');
+    // the fake decision reads no style, so nothing is timed (a real one is: HorseStyleReadLatency bench)
+    expect(h.features).not.toContain('style_read_timed_seen');
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('fold');
+  });
+
+  it('shadow: the committed action is unchanged and sent first; one re-decision from the same RNG receipts the change', async () => {
+    const { h, fastAtPost } = styled('shadow');
+    const request = independentFastForHand(TABLE, 1000007, '9');
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('call');
+    // the result was sent after the one committed decision, before the re-decision
+    expect(fastAtPost).toEqual([1]);
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(h.decisionOpts[0].styleShadow).toEqual(['styleFoldBluff']);
+    expect(h.decisionOpts[0].styleFoldBluff).toBeUndefined();
+    expect(h.decisionOpts[1]).toMatchObject({
+      styleFoldBluff: true,
+      styleShadow: [],
+      telemetry: false,
+      observeMind: false,
+    });
+    // the re-decision starts where the committed one did, and the stream is restored after it
+    expect(h.decisionsAtRng[1]).toBe(h.decisionsAtRng[0]);
+    const restoredAfter = h.restored[h.restored.length - 1];
+    expect(h.rng()).toBe(restoredAfter);
+    const receipt = h.features.find((f) => f.startsWith('style_shadow.'));
+    // H1: an aggregate key, no table, hand, seat or amount
+    expect(receipt).toBe(`style_shadow.fb.c.${request.gameState.gameVariant}.p.c.f.s_seen`);
+    expect(h.latency.map((l) => l.scope)).toContain('style_shadow_redecide');
+  });
+
+  it('shadow, no change: an engaged option whose re-decision keeps the action is counted, not receipted', async () => {
+    const { h } = styled('shadow', false);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(h.features).toContain('style_shadow_unchanged_seen');
+    expect(h.features.filter((f) => f.startsWith('style_shadow.'))).toEqual([]);
+  });
+
+  function styledMany(options: Record<string, string>, engage: string[]) {
+    const h = harness();
+    const base = h.deps.decide;
+    h.deps.decide = (player, gameState, style, mods, opts, ...rest) => {
+      const out = base(player, gameState, style, mods, opts, ...rest);
+      for (const o of engage)
+        if (opts?.styleShadow?.includes(o)) noteStyleShadowEngaged(o as never, 0.5);
+      return engage.some((o) => (opts as Record<string, unknown>)?.[o] === true)
+        ? { ...out, action: 'fold', amount: 0 }
+        : out;
+    };
+    h.deps.styleSwitch = new StyleSwitchHolder(
+      (nowMs: number) => ({ kind: 'present', receivedAtMs: nowMs, raw: { version: 1, options } }),
+      (f) => h.features.push(f)
+    );
+    return h;
+  }
+
+  it('M2: several engaged options get ONE re-decision, picked by the decision key; the rest are counted', async () => {
+    const h = styledMany(
+      { styleFoldBluff: 'shadow', styleRaiseRespect: 'shadow', styleValueExtraction: 'shadow' },
+      ['styleFoldBluff', 'styleRaiseRespect', 'styleValueExtraction']
+    );
+    const request = independentFastForHand(TABLE, 1000007, '9');
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    const on = Object.keys(h.decisionOpts[1]).filter(
+      (k) => (h.decisionOpts[1] as Record<string, unknown>)[k] === true && k.startsWith('style')
+    );
+    expect(on).toHaveLength(1);
+    expect(h.features.filter((f) => f === 'style_shadow_rotated_out_seen')).toHaveLength(2);
+    // deterministic: the same request picks the same option
+    const again = styledMany(
+      { styleFoldBluff: 'shadow', styleRaiseRespect: 'shadow', styleValueExtraction: 'shadow' },
+      ['styleFoldBluff', 'styleRaiseRespect', 'styleValueExtraction']
+    );
+    again.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await again.runtime.drain();
+    expect(
+      Object.keys(again.decisionOpts[1]).filter(
+        (k) =>
+          (again.decisionOpts[1] as Record<string, unknown>)[k] === true && k.startsWith('style')
+      )
+    ).toEqual(on);
+  });
+
+  it('M2: no re-decision while work is queued behind the decision, with a receipt', async () => {
+    const h = styledMany({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    // another request already waiting on the lane (the lane's own pending set, the signal PREWARM_STREET uses)
+    (h.runtime as unknown as { pendingRequestIds: Set<number> }).pendingRequestIds.add(424242);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.features).toContain('style_shadow_skipped_backlog_seen');
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('M2: no re-decision when the committed decision already exceeded the budget, with a receipt', async () => {
+    const h = styledMany({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    const base = h.deps.decide;
+    h.deps.decide = (...args) => {
+      h.advanceClock(100);
+      return base(...args);
+    };
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.features).toContain('style_shadow_skipped_budget_seen');
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('L3: no re-decision when the governor scale moved after the committed decision, with a receipt', async () => {
+    const h = styledMany({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    let calls = 0;
+    h.deps.governorScale = () => (++calls > 1 ? 0.5 : 0.2);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.features).toContain('style_shadow_skipped_scale_seen');
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('L4: a plain-shadow option on a Horse with another option in canary is labelled shadow', async () => {
+    // the request's Horse is not in bucket 0, so canary puts styleRaiseRespect in its shadow arm
+    const h = styledMany({ styleFoldBluff: 'shadow', styleRaiseRespect: 'canary' }, [
+      'styleFoldBluff',
+    ]);
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    const receipt = h.features.find((f) => f.startsWith('style_shadow.'));
+    expect(receipt).toMatch(/^style_shadow\.fb\..*\.s_seen$/);
+    expect(h.decisionOpts[0]).not.toHaveProperty('styleCanaryBucket');
+  });
+
+  it('M3: the switch state is journaled with the decision, and a runtime restored from it decides the same', async () => {
+    const journaled: unknown[] = [];
+    const live = harness();
+    live.deps.styleSwitch = new StyleSwitchHolder(
+      (nowMs: number) => ({
+        kind: 'present',
+        receivedAtMs: nowMs,
+        raw: { version: 1, options: { styleValueExtraction: 'on' } },
+      }),
+      () => {}
+    );
+    live.deps.journalDecision = ((_req: unknown, body: { replayState: unknown }) => {
+      journaled.push(body.replayState);
+    }) as never;
+    const request = independentFastForHand(TABLE, 1000007, '9');
+    live.runtime.receive(request);
+    await live.runtime.drain();
+    const state = journaled[0] as { style?: Record<string, string> };
+    expect(state.style?.styleValueExtraction).toBe('on');
+    expect(isHorseDecisionReplayState(state)).toBe(true);
+    // pre-activation: a state carrying the switch is a new version, so a reader that predates it refuses it
+    expect((state as { version?: string }).version).toBe('horse-decision-replay-state-v4');
+    expect(
+      isHorseDecisionReplayState({ ...state, version: 'horse-decision-replay-state-v3' })
+    ).toBe(false);
+    const { style: _s, ...withoutStyle } = state;
+    expect(isHorseDecisionReplayState(withoutStyle)).toBe(false);
+    expect(
+      isHorseDecisionReplayState({ ...withoutStyle, version: 'horse-decision-replay-state-v3' })
+    ).toBe(true);
+    // the replay binding: a holder over the recorded states (runtimeReplay.ts styleStates)
+    const replay = harness();
+    replay.deps.styleSwitch = new StyleSwitchHolder(
+      styleSwitchSourceFromStates(styleSwitchStatesFrom(state.style)),
+      () => {}
+    );
+    replay.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await replay.runtime.drain();
+    expect(replay.decisionOpts[0].styleValueExtraction).toBe(true);
+    expect(JSON.stringify(replay.decisionOpts[0])).toBe(JSON.stringify(live.decisionOpts[0]));
+    const fast = (h: typeof live) =>
+      h.messages.find((m) => m.type === 'FAST_RESULT') as never as {
+        decision: unknown;
+        rngAfter: number;
+      };
+    expect(fast(replay).decision).toEqual(fast(live).decision);
+    // all off is journaled by absence
+    const off: unknown[] = [];
+    const plain = harness();
+    plain.deps.journalDecision = ((_r: unknown, body: { replayState: unknown }) => {
+      off.push(body.replayState);
+    }) as never;
+    plain.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await plain.runtime.drain();
+    expect(Object.hasOwn(off[0] as object, 'style')).toBe(false);
+    expect((off[0] as { version: string }).version).toBe('horse-decision-replay-state-v3');
+  });
+
+  it('anchor law: with no option in canary, two Horses at the same spot get identical decision options', async () => {
+    const runFor = async (actor: string) => {
+      const h = harness();
+      h.deps.styleSwitch = new StyleSwitchHolder(
+        (nowMs: number) => ({
+          kind: 'present',
+          receivedAtMs: nowMs,
+          raw: { version: 1, options: { styleFoldBluff: 'on', styleRaiseRespect: 'shadow' } },
+        }),
+        () => {}
+      );
+      const request = JSON.parse(
+        JSON.stringify(independentFastForHand(TABLE, 1000007, '9')).replaceAll(
+          '20000000-0000-4000-8000-000000000001',
+          actor
+        )
+      );
+      request.decisionKey = buildHorseDecisionKey(request);
+      h.runtime.receive(request);
+      await h.runtime.drain();
+      const {
+        mindObservationHand: _m,
+        mindPlanContext: _p,
+        ...rest
+      } = h.decisionOpts[0] as Record<string, unknown>;
+      return JSON.stringify(rest);
+    };
+    expect(await runFor('20000000-0000-4000-8000-000000000001')).toBe(
+      await runFor('20000000-0000-4000-8000-0000000000aa')
+    );
+  });
+
+  it('anchor law, behaviour: with one option in canary, a bucket-0 Horse and another Horse differ in that option alone', async () => {
+    const runFor = async (actor: string) => {
+      const h = harness();
+      h.deps.styleSwitch = new StyleSwitchHolder(
+        (nowMs: number) => ({
+          kind: 'present',
+          receivedAtMs: nowMs,
+          raw: {
+            version: 1,
+            options: {
+              styleFoldBluff: 'canary',
+              styleRaiseRespect: 'shadow',
+              styleValueExtraction: 'on',
+            },
+          },
+        }),
+        () => {}
+      );
+      const request = JSON.parse(
+        JSON.stringify(independentFastForHand(TABLE, 1000007, '9')).replaceAll(
+          '20000000-0000-4000-8000-000000000001',
+          actor
+        )
+      );
+      request.decisionKey = buildHorseDecisionKey(request);
+      h.runtime.receive(request);
+      await h.runtime.drain();
+      const {
+        mindObservationHand: _m,
+        mindPlanContext: _p,
+        ...rest
+      } = h.decisionOpts[0] as Record<string, unknown>;
+      return rest;
+    };
+    const inCanary = await runFor('aaaaaaaa-0000-4000-8000-000000000010'); // bucket 0
+    const outside = await runFor('aaaaaaaa-0000-4000-8000-000000000001'); // bucket 4
+    expect(inCanary.styleFoldBluff).toBe(true);
+    expect(outside.styleFoldBluff).toBeUndefined();
+    expect(inCanary.styleShadow).toEqual(['styleRaiseRespect']);
+    expect(outside.styleShadow).toEqual(['styleRaiseRespect', 'styleFoldBluff']);
+    // remove the canary option's treatment from both: what is left is identical
+    const strip = (o: Record<string, unknown>) =>
+      JSON.stringify({
+        ...o,
+        styleFoldBluff: undefined,
+        styleShadow: (o.styleShadow as string[]).filter((x) => x !== 'styleFoldBluff'),
+      });
+    expect(strip(inCanary)).toBe(strip(outside));
+  });
+
+  it('shadow, nothing engaged: no re-decision at all', async () => {
+    const h = harness();
+    h.deps.styleSwitch = new StyleSwitchHolder(
+      (nowMs: number) => ({
+        kind: 'present',
+        receivedAtMs: nowMs,
+        raw: { version: 1, options: { styleFoldBluff: 'shadow' } },
+      }),
+      (f) => h.features.push(f)
+    );
+    h.runtime.receive(independentFastForHand(TABLE, 1000007, '9'));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+});
+
+describe('live style engagement receipts in the live worker (2026-11-15)', () => {
+  const TABLE = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const LIGHTNING = { version: 1, speed: 'lightning', ante: 'none' } as const;
+  const CLASSIC = { version: 1, speed: 'table', ante: 'none' } as const;
+
+  /** A cash request on a fresh hand, in the given public memory domain (null: none). */
+  function requestFor(
+    domain: typeof LIGHTNING | typeof CLASSIC | null,
+    hand = 1_000_101
+  ): FastHorseDecisionRequest {
+    const request = independentFastForHand(TABLE, hand, '9');
+    if (domain) request.gameState.publicMemoryDomain = domain;
+    return rekey(request);
+  }
+
+  /**
+   * A brain whose ON options act: each listed option that arrives explicitly true records that it engaged (when
+   * `engage` says so for this call, numbered from 1) and turns the committed call into a fold; with the option off
+   * the call stands. An option in shadow records its shadow engagement, as the real consumers do.
+   */
+  function live(
+    options: Record<string, string>,
+    acting: string[],
+    {
+      engage = () => true,
+      changes = true,
+      twice = false,
+    }: { engage?: (call: number) => boolean; changes?: boolean; twice?: boolean } = {}
+  ) {
+    const fastAtPost: number[] = [];
+    const notedOn: Array<{ call: number; option: string }> = [];
+    const h = harness(false, (m) => {
+      if (m.type === 'FAST_RESULT') fastAtPost.push(h.decisionOpts.length);
+    });
+    const base = h.deps.decide;
+    let call = 0;
+    h.deps.decide = (player, gameState, style, mods, opts, ...rest) => {
+      const out = base(player, gameState, style, mods, opts, ...rest);
+      call++;
+      const o = (opts ?? {}) as Record<string, unknown>;
+      let acted = false;
+      for (const name of acting) {
+        if (o[name] === true) {
+          if (engage(call)) {
+            noteStyleEngaged(name as never, 0.7, 'on');
+            if (twice) noteStyleEngaged(name as never, 0.2, 'on');
+            notedOn.push({ call, option: name });
+          }
+          acted = true;
+        } else if ((opts?.styleShadow ?? []).includes(name as never) && engage(call))
+          noteStyleShadowEngaged(name as never, 0.5);
+      }
+      return acted && changes ? { ...out, action: 'fold', amount: 0 } : out;
+    };
+    h.deps.styleSwitch = new StyleSwitchHolder(
+      (nowMs: number) => ({ kind: 'present', receivedAtMs: nowMs, raw: { version: 1, options } }),
+      (f) => h.features.push(f)
+    );
+    return { h, fastAtPost, notedOn };
+  }
+
+  const receipts = (features: string[]) => features.filter((f) => f.startsWith('style_shadow.'));
+  const engagedKeys = (features: string[]) =>
+    features.filter((f) => f.startsWith('style_engaged_'));
+  const liveKeys = (features: string[]) => features.filter((f) => f.startsWith('style_live'));
+
+  it('(a) Lightning: an engaged ON option is counted once under format l, and nothing re-decides', async () => {
+    const { h, fastAtPost } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('fold');
+    expect(fastAtPost).toEqual([1]);
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(h.decisionOpts[0].styleFoldBluff).toBe(true);
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_l_seen']);
+    expect(receipts(h.features)).toEqual([]);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_shadow_redecide');
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_live_redecide');
+  });
+
+  it('(a) Classic cash (table speed) is format c', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(requestFor(CLASSIC));
+    await h.runtime.drain();
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_c_seen']);
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('(a) a cash game with no memory domain is Classic cash', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(requestFor(null));
+    await h.runtime.drain();
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_c_seen']);
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('(a) a tournament is format t', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff']);
+    h.runtime.receive(phase6TournamentRequest(81));
+    await h.runtime.drain();
+    expect(h.messages.at(-1)).toMatchObject({ type: 'FAST_RESULT', requestId: 81 });
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_t_seen']);
+    expect(h.decisionOpts).toHaveLength(1);
+  });
+
+  it('several ON options engaged: each is counted once, and the decision is still not repeated', async () => {
+    const acting = ['styleFoldBluff', 'styleRaiseRespect', 'styleValueExtraction'];
+    const { h } = live(
+      { styleFoldBluff: 'on', styleRaiseRespect: 'on', styleValueExtraction: 'on' },
+      acting,
+      { twice: true }
+    );
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(engagedKeys(h.features)).toEqual([
+      'style_engaged_fb_l_seen',
+      'style_engaged_rr_l_seen',
+      'style_engaged_ve_l_seen',
+    ]);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.features).not.toContain('style_shadow_rotated_out_seen');
+  });
+
+  it('an ON option that did not engage: no counter, no re-decision (as before)', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff'], { engage: () => false });
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(engagedKeys(h.features)).toEqual([]);
+    expect(liveKeys(h.features)).toEqual([]);
+  });
+
+  it('an ON option that engages without changing the action is counted the same way', async () => {
+    const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff'], { changes: false });
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(1);
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_fb_l_seen']);
+    expect(receipts(h.features)).toEqual([]);
+  });
+
+  it('(b) the committed decision and RNG are identical with and without engagement recording', async () => {
+    const runs = [];
+    for (const engage of [true, false]) {
+      const { h } = live({ styleFoldBluff: 'on' }, ['styleFoldBluff'], { engage: () => engage });
+      h.setRng(777);
+      h.runtime.receive(requestFor(LIGHTNING));
+      await h.runtime.drain();
+      runs.push({
+        h,
+        fast: h.messages.filter((m) => m.type === 'FAST_RESULT'),
+        rngAfterAll: h.rng(),
+      });
+    }
+    const [recorded, unrecorded] = runs;
+    expect(engagedKeys(recorded.h.features)).toEqual(['style_engaged_fb_l_seen']);
+    expect(engagedKeys(unrecorded.h.features)).toEqual([]);
+    expect(recorded.h.decisionOpts).toHaveLength(1);
+    expect(unrecorded.h.decisionOpts).toHaveLength(1);
+    expect(recorded.h.decisionsAtRng).toEqual(unrecorded.h.decisionsAtRng);
+    // the sent result (decision, amount, rngBefore, rngAfter, effects, authorities) is the same either way
+    expect(recorded.fast).toHaveLength(1);
+    // (authority epochs are random per runtime, so they are left out of the comparison)
+    const sentAs = (m: unknown) => JSON.stringify(m, (k, v) => (k === 'epoch' ? undefined : v));
+    expect(sentAs(recorded.fast)).toBe(sentAs(unrecorded.fast));
+    // and the worker's random stream after the turn is where it is without the recording
+    expect(recorded.rngAfterAll).toBe(unrecorded.rngAfterAll);
+    expect(recorded.h.appliedEffects).toEqual(unrecorded.h.appliedEffects);
+    expect(recorded.h.restored).toEqual(unrecorded.h.restored);
+    // the only difference in what the worker counted is the engagement receipt itself
+    expect(recorded.h.features.filter((f) => !f.startsWith('style_engaged_'))).toEqual(
+      unrecorded.h.features
+    );
+  });
+
+  it('(d) the shadow arm is unchanged: on Lightning its receipt keeps format c, and no engagement is counted', async () => {
+    const { h, fastAtPost } = live({ styleFoldBluff: 'shadow' }, ['styleFoldBluff']);
+    const request = requestFor(LIGHTNING);
+    h.runtime.receive(request);
+    await h.runtime.drain();
+    const fast = h.messages.find((m) => m.type === 'FAST_RESULT');
+    expect(fast && 'decision' in fast && fast.decision.action).toBe('call');
+    expect(fastAtPost).toEqual([1]);
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(h.decisionOpts[1]).toMatchObject({ styleFoldBluff: true, styleShadow: [] });
+    expect(receipts(h.features)).toEqual([
+      `style_shadow.fb.c.${request.gameState.gameVariant}.p.c.f.s_seen`,
+    ]);
+    expect(engagedKeys(h.features)).toEqual([]);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).toContain('style_shadow_redecide');
+  });
+
+  it('(d) a shadow and an ON option both engaged: the one re-decision is the shadow one, the ON one is only counted', async () => {
+    const { h } = live({ styleFoldBluff: 'shadow', styleRaiseRespect: 'on' }, [
+      'styleFoldBluff',
+      'styleRaiseRespect',
+    ]);
+    h.runtime.receive(requestFor(LIGHTNING));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    // the one re-decision is the shadow one (fb on, rr still on), exactly as before
+    expect(h.decisionOpts[1]).toMatchObject({ styleFoldBluff: true, styleRaiseRespect: true });
+    expect(h.features).toContain('style_shadow_unchanged_seen');
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_rr_l_seen']);
+    expect(liveKeys(h.features)).toEqual([]);
+    expect(h.latency.map((l) => l.scope)).not.toContain('style_live_redecide');
+  });
+
+  it('what a shadow re-decision records for an ON option after the take is cleared before the next decision', async () => {
+    // control: the shadow re-decision (call 2) runs the shadow option explicitly on and the ON option still on, so
+    // both record an ON engagement after the decision's take
+    const control = live({ styleFoldBluff: 'shadow', styleRaiseRespect: 'on' }, [
+      'styleFoldBluff',
+      'styleRaiseRespect',
+    ]);
+    control.h.runtime.receive(requestFor(LIGHTNING));
+    await control.h.runtime.drain();
+    expect(control.notedOn).toEqual([
+      { call: 1, option: 'styleRaiseRespect' },
+      { call: 2, option: 'styleFoldBluff' },
+      { call: 2, option: 'styleRaiseRespect' },
+    ]);
+    expect(engagedKeys(control.h.features)).toEqual(['style_engaged_rr_l_seen']);
+    expect(takeStyleLiveEngaged()).toEqual([
+      { option: 'styleFoldBluff', confidence: 0.7 },
+      { option: 'styleRaiseRespect', confidence: 0.7 },
+    ]);
+
+    // the next decision (nothing engages in it) starts by clearing those entries, so neither is ever counted
+    const { h, notedOn } = live(
+      { styleFoldBluff: 'shadow', styleRaiseRespect: 'on' },
+      ['styleFoldBluff', 'styleRaiseRespect'],
+      { engage: (call) => call <= 2 }
+    );
+    h.runtime.receive(requestFor(LIGHTNING, 1_000_101));
+    await h.runtime.drain();
+    expect(h.decisionOpts).toHaveLength(2);
+    expect(notedOn.map((n) => n.call)).toEqual([1, 2, 2]);
+    const afterFirst = h.features.length;
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_rr_l_seen']);
+    h.runtime.receive(requestFor(LIGHTNING, 1_000_102));
+    await h.runtime.drain();
+    expect(h.messages.filter((m) => m.type === 'FAST_RESULT')).toHaveLength(2);
+    expect(h.decisionOpts).toHaveLength(3);
+    expect(engagedKeys(h.features.slice(afterFirst))).toEqual([]);
+    expect(engagedKeys(h.features)).toEqual(['style_engaged_rr_l_seen']);
   });
 });

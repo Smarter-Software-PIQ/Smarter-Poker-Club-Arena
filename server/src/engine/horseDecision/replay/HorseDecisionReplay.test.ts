@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { replayHorseDecisionById, replayHorseDecisionRecord } from './HorseDecisionReplay.js';
+import {
+  recordedStyleStates,
+  replayHorseDecisionById,
+  replayHorseDecisionRecord,
+} from './HorseDecisionReplay.js';
+import { horseDecisionReplayState } from '../replayState.js';
+import { STYLE_SWITCH_SOURCE_DEFAULT } from '../../HorseStyleSwitch.js';
 import { openHorseJournalCopy } from './journalSource.js';
 import { buildHorseDecisionKey, type FastHorseDecisionRequest } from '../protocol.js';
 import {
@@ -150,5 +156,35 @@ describe('Phase 6C exact-input replay through the worker runtime', () => {
     const verdict = await replayHorseDecisionRecord(stale, { engineSha: ENGINE });
     expect(verdict.status).not.toBe('reproduced');
     expect(verdict.qualification.checks.m_state.status).toBe('disagreed');
+  });
+});
+
+describe('replay restores the style switch only from a replay state whose version it checked (review bd7a5cc2, 5)', () => {
+  const admission = {
+    phase8Postflop: 'off',
+    phase10Plo4: 'off',
+    phase11Omaha: 'off',
+    phase12Remaining: 'off',
+    phase13Joint: 'off',
+  } as const;
+  const style = { ...STYLE_SWITCH_SOURCE_DEFAULT, styleFoldBluff: 'shadow' } as const;
+  const v4 = horseDecisionReplayState(admission, null, undefined, undefined, style);
+  const v3 = horseDecisionReplayState(admission, null);
+  const record = (replayState: unknown) => ({ body: JSON.stringify({ replayState }) });
+
+  it('a valid v4 state restores its states and a valid v3 state restores every option off', () => {
+    expect(v4.version).toBe('horse-decision-replay-state-v4');
+    expect(recordedStyleStates(record(v4))).toEqual({ ok: true, states: style });
+    expect(recordedStyleStates(record(v3))).toEqual({ ok: true, states: null });
+  });
+
+  it('a v4 state without its style, a v3 state with one, or an older state with one is refused', () => {
+    const { style: _s, ...v4WithoutStyle } = v4;
+    expect(recordedStyleStates(record(v4WithoutStyle))).toEqual({ ok: false });
+    expect(recordedStyleStates(record({ ...v3, style }))).toEqual({ ok: false });
+    expect(
+      recordedStyleStates(record({ ...v3, version: 'horse-decision-replay-state-v2', style }))
+    ).toEqual({ ok: false });
+    expect(recordedStyleStates({ body: 'not json' })).toEqual({ ok: false });
   });
 });

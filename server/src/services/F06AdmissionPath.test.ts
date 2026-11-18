@@ -36,6 +36,7 @@ function fixture(data: unknown) {
       allocator = fn;
     },
     installF06HandAdmission: (f: any) => (installed = f),
+    installF06OwnReservedPermitReconciler: () => {},
     start: async () => {
       starts++;
     },

@@ -171,7 +171,9 @@ describe('the member record', () => {
     expect(MEMBER).toContain('label="Cash Hands"');
     expect(MEMBER).toContain('label="MTT Hands"');
     expect(MEMBER).not.toContain('label="Club Chips"');
-    expect(MEMBER).toContain('label="Player Wallet"');
+    expect(MEMBER).toContain('label="Balance"');
+    expect(MEMBER).toContain('wallets.player_wallet_text ?? wallets.player_wallet');
+    expect(MEMBER).not.toContain('label="Player Wallet"');
   });
 
   it('hides the upline line from viewers the server hides it from', () => {

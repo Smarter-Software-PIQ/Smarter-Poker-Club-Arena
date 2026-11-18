@@ -178,7 +178,7 @@ describe('the wheel v4 law the client holds is the law production runs', () => {
     expect(disagreed).toEqual([]);
   });
 
-  it('accepts the contract the two doors are answering with, and nothing above it', async () => {
+  it('still accepts captured v4 and refuses versions beyond the supported contracts', async () => {
     const state = doors['fn_wheel_state_v2(p_club_id uuid, p_entry_diamonds integer)'];
     expect(state.contract_lines.every((line) => line.includes("'contract_version',4"))).toBe(true);
     expect(state.contract_lines.every((line) => line.includes("'model_version','wheel-v4'"))).toBe(
@@ -213,7 +213,7 @@ describe('the wheel v4 law the client holds is the law production runs', () => {
       contract_version: 4,
     });
     rpc.mockReset();
-    rpc.mockResolvedValueOnce(answered(5));
+    rpc.mockResolvedValueOnce(answered(6));
     await expect(service.getStateV2('club', 100)).rejects.toThrow(
       'Diamond Spins Availability Could Not Be Confirmed'
     );

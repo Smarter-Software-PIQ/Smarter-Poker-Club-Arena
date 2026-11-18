@@ -1,6 +1,7 @@
 import type { HorseDecision, HorseTournamentUtilityCandidateLedger, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { scoreHoldem } from './HorseEval.js';
+import { scoreHoldem, scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaFlushBlocker } from './OmahaFlushBlocker.js';
 import {
   evaluateTournamentUtilityDetailed,
   selectContinuationSamples,
@@ -33,7 +34,9 @@ export const PHASE8_POLICY = {
    * any part of a Phase 8 decision. The 2 ms policy and 5 ms wall budgets that
    * replaced a finished continuation by the baseline (reason
    * budget_exhausted), and the 4 ms work budget that stopped the continuation
-   * part way (operation_budget), are gone; the decision is the one the work
+   * part way (operation_budget), are gone from Phase 8 (Phase 13's pricing of
+   * its own proposals in HorseLogic still carries a 4 ms withinBudget clock
+   * and still reports operation_budget); the decision is the one the work
    * declared here and in CONTINUATION_POLICY and FUTURE_HAND_POLICY produces:
    * at most `maxCandidates` candidates, `maxFutureOutcomeSamples` outcome
    * samples (the full CONTINUATION_POLICY.maxOutcomeSamples pool only on a
@@ -124,21 +127,28 @@ export function deepOnePairCommitment(
   gs: HorseGameStateV2,
   investment: number
 ): boolean {
-  if (!(gs.bigBlind > 0) || gs.communityCards.length < 3 || hero.cards.length !== 2) return false;
+  const isOmaha = hero.cards.length >= 4 && ['plo4', 'plo5', 'plo6'].includes(gs.gameVariant ?? '');
+  if (!(gs.bigBlind > 0) || gs.communityCards.length < 3 || (!isOmaha && hero.cards.length !== 2))
+    return false;
   const fullStack = hero.stack + hero.totalInvested;
-  const made = Math.floor(
-    scoreHoldem(
-      [...hero.cards, ...gs.communityCards],
-      hero.cards.length + gs.communityCards.length,
-      false
-    ) / 0x100000
-  );
+  const made = isOmaha
+    ? Math.floor(scoreOmahaHiPartial(hero.cards, gs.communityCards) / 0x100000)
+    : Math.floor(
+        scoreHoldem(
+          [...hero.cards, ...gs.communityCards],
+          hero.cards.length + gs.communityCards.length,
+          false
+        ) / 0x100000
+      );
   const boardPair = gs.communityCards.some(
     (c, i, a) => a.findIndex((x) => x.rank === c.rank) !== i
   );
-  const pocket = hero.cards[0].rank === hero.cards[1].rank;
-  const set = pocket && gs.communityCards.some((c) => c.rank === hero.cards[0].rank);
-  const weakMade = made <= 2 || (made === 3 && boardPair && !set);
+  const pocket = !isOmaha && hero.cards.length === 2 && hero.cards[0].rank === hero.cards[1].rank;
+  const set = pocket
+    ? gs.communityCards.some((c) => c.rank === hero.cards[0].rank)
+    : isOmaha && made === 4 && !boardPair;
+  // In Omaha, bare two-pair without redraw on a deep tournament stack is as fragile as NLH one-pair.
+  const weakMade = isOmaha ? made <= 3 && !set : made <= 2 || (made === 3 && boardPair && !set);
   const opponents = gs.players.filter(
     (p) => p.user_id !== hero.user_id && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
   );
@@ -172,6 +182,10 @@ export function deepOnePairCommitment(
 
 /** A concrete nut-flush blocker; arbitrary high cards are not certified blockers. */
 export function hasTournamentNutBlocker(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
+  if (hero.cards.length >= 4 && ['plo4', 'plo5', 'plo6'].includes(gs.gameVariant ?? '')) {
+    const ob = omahaFlushBlocker(hero.cards, gs.communityCards, hero.cards.length);
+    return ob.blocksNutFlush;
+  }
   return hero.cards.some(
     (h) => h.rank === 'A' && gs.communityCards.filter((c) => c.suit === h.suit).length >= 3
   );
@@ -271,7 +285,10 @@ export function evaluateTournamentPostflop(
     return { decision, ledger };
   };
   if (!['flop', 'turn', 'river'].includes(gs.stage)) return finish('not_postflop');
-  if (gs.gameMode !== 'tournament' || gs.gameVariant !== 'nlh')
+  if (
+    gs.gameMode !== 'tournament' ||
+    !['nlh', 'plo4', 'plo5', 'plo6'].includes(gs.gameVariant ?? '')
+  )
     return finish('unsupported_variant');
   if (gs.stateSchemaVersion !== 1 || gs.tournament?.contextStatus !== 'complete')
     return finish('context_incomplete');

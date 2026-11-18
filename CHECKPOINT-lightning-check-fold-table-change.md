@@ -99,3 +99,95 @@ Root causes being fixed in a separate change: the bar decides "owes nothing" fro
 Other findings from the same session, each with its own owner change: the Charles Rule compared the post-rake stack with 2 x the reference (228.12 against 228.92 after a 0.80 rake); blind and button assignment let one player take the small blind three times in about 30 s; the action bar remounted on every action (fixed and live, #10363, served in 708e42bb); and the joining and fold-to-next-hand delays traced to a tournament settlement lock storm (#10361), not to the Lightning path (fold ack p50 about 1 ms, release about 83 ms, deal to screen 61 to 97 ms; the remaining wait is for five other free players).
 
 Still to observe after the big-blind fix is live: one big-blind press of Check/Fold carried to a raise (release within write latency of the raise) and one carried across streets (origin pre_action checks on consecutive streets of one hand).
+
+## Authoritative state, 2026-11-11 09:20Z (same session; supersedes the "still to observe" lines above)
+
+### Deployed identity
+
+- Engine: `05ab41c30fc21a8a98001827e9921ffc314b81e7`, instance `1-0c51ab22`. It was sealed and thawed by the sole operator (root `01a1bbdd`) for window `2026-11-11-horse-clock-receipts-engine-0050z`: Stage `42965274517`, receiver `42965360845`, SEALED at 05:39Z (PR #10063 comment 6788073609). This lane dispatched nothing.
+- Contains, by ancestry: #10369 `8e5dda8d` (big-blind release), #10370 `45aa74d7` (arrival window), #10373 `2a48e027` (fairness model), #10392 `b04f633a` (Lightning DB lane), #10395 `fb1542cf`, #10411 `40ba9628` (lane safety), #10397 `f1fae9f1` (pre-action record), #10399 `1c06524d` (thin-pool model), #10417 `465addd2` (pool-count frame removed).
+- Client: both build-info endpoints serve `59785369` (publisher run 42934481765). This includes #10410 (no seat from the waiting count), #10426 (join retry timed as its own attempt) and #10412. The earlier publish failure for `465addd2` (run 42928971472) was an older run switching the origin after a newer one had published (filed as #10425). The served bundle was confirmed correct: `git diff --name-only d979f8a8 17a90c8d` changes only server (11), docs (2) and tests (1), and run 42931049915 recorded verdict `retained`.
+- Database: applied `20261110213713` (lane role and wrapper), `20261110213942` (pre-action record), `20261110213810`/`20261110225742` (join timing), `20261110155259` (Charles Rule), `20261110160345` (table_seats statistics). NOT yet applied: `20261110173033` (fairness) and `20261110214134` (thin-pool, guarded to refuse without fairness). Both are daily-window files; the installer is due at 09:30Z.
+
+### Observed behavior
+
+- **Database lane (observed live).**
+  - Metrics: `poker_lightning_lane_ready 1`, `disabled 0`, `committed_total 29,679`, `unknown_total 0`, `rolled_back_total 1`, `admission_refused_total 203`. The 203 are pool-full fallbacks before send, which is the allowed case.
+  - `pg_stat_activity` showed 6 `engine_lightning_lane` sessions, idle between calls (role connection limit 16).
+  - 05:34Z to 06:04Z: 3,281 hands formed and 3,237 settled, with 0 duplicate formation request ids, 0 duplicate settle request ids, and 0 hands left unsettled past 5 minutes.
+  - Retry rule as deployed (#10411): only a call never sent may fall back to PostgREST. A confirmed rollback is reported and settled by its own request id; an uncertain outcome is never resent blindly.
+  - Connection isolation only: CPU, I/O and locks remain shared with tournaments (measured relation overlap and a small-burst load sample are in the lane changelog).
+- **Pre-action record (deployed, no live sample).** `lightning_preaction_event` has 0 rows. No non-horse player played Lightning after activation; horses do not use pre-actions.
+- **Join timing (natural browser samples, as of 01:00Z).** 2 joins: 1 succeeded, 1 refused at click with `PLATFORM_FROZEN` during this release's freeze, 0 abandoned. The successful join took 11,884 ms from click to cards: 9,357 ms the player deciding, 2,527 ms system. Every system stage was 65 to 494 ms, and the pool wait was 0. p50, p95 and p99 are unknown (n=1). No bottleneck is shown.
+- **Arrivals.** Client never draws a seat from the waiting count (#10410, live). The engine no longer sends that count (#10417, serving). Not yet observed on a live human table change.
+- **Fairness and thin-pool.** No 4-handed tables (expected before the migrations install). Last 35 minutes before 06:04Z: 76 five-handed tables.
+
+### Owner's observed hands (2026-11-10 15:41Z to 15:50Z; engine `840429a3`, client `884b85df`)
+
+- They prove the ordinary and small-blind Check/Fold release on that revision.
+- They show the big-blind failure in hands 58348210 and 58348362 (root causes fixed in #10369 and the engine change in the serving engine).
+- They show the double-up miss that led to the Charles Rule fix.
+- They do not prove behavior on engine `05ab41c3`.
+
+### Evidence still owed
+
+1. Both matcher migrations recorded in `schema_migrations` in order (fairness before thin-pool) and present in the live function images, then natural 4- and 5-player formations with blind and button assignments.
+2. Three live owner hands on engine `05ab41c3`, pending because no authorized live session exists and no chips are spent or actions taken on the owner's behalf:
+   - a big-blind Check/Fold carried across streets until a raise, with release at that raise;
+   - a small-blind Check/Fold releasing at once;
+   - one table change after a fold and after a showdown.
+   Each is then traced with `fn_lightning_preaction_trace(hand_id)` and the hand rows.
+3. Join timing percentiles once enough natural browser joins exist.
+
+## State at 2026-11-11 17:50Z (supersedes the 09:20Z section where they differ)
+
+### Deployed identity
+
+- Engine: `f7735cca6862b9add06841b8a41c305b3f3ebe01`, from receiver 42994475679 at 09:21Z (owner-window release; this lane dispatched nothing). It contains, by ancestry, every Lightning engine change (#10369, #10370, #10373, #10392, #10395, #10411, #10397, #10399, #10417) and the previous serving engine `05ab41c3`.
+- Client: unchanged since the 09:20Z section.
+
+### Completed: secret migration (not rotation)
+
+- PR #10492 (`d0e9c694`) moved every repository-level Actions secret into environments: `ci-main` (main only), `ci-pull-request` (`refs/pull/*/merge` only) and the two existing signing environments.
+- The copy run (43035791787) succeeded.
+- All 21 repository-level secrets were deleted; the repository lists none. Five secrets with no workflow consumer (`GH_PAT`, `PROBE_EMAIL`, `PROBE_PASSWORD`, `SP_EMAIL_2`, `SP_PASS_2`) were not copied.
+- Verified before and after deletion: publish (43035739304, then job 130587034900), the applier answering ALREADY-APPLIED (43037029045, then 43039331941), money-trigger verification (job 130582027031, then run 43038032275), and `ci-pull-request` jobs.
+- Still open:
+  - #10504, which removes the one-time copy workflow;
+  - a per-job access table, especially what same-repository pull-request code can read through `ci-pull-request`;
+  - an independent review of the boundary.
+- Moving the secrets changed where they are stored, not their values.
+
+### Unresolved: exposure handling
+
+- The process-listing incident (#10427, #10479) confirmed no exposed credential. `pgrep -fl` prints arguments, not environments.
+- No process, script or retained log in the window carried a credential as an argument. The remaining unprovable case is a short-lived cloud-agent command whose output cannot be recovered.
+- No credential was rotated or revoked, because none was confirmed exposed.
+- The root fix that keeps database URLs off command lines is merged (#10479).
+
+### Queue trial: not started
+
+- The merge queue is off. Ruleset 21163380 is unchanged (before-JSON retained).
+- The verifier change is merged (#10469, `c3059075`) after independent review.
+- The trial waits for #10504, the boundary review, and a passing required-check set on a queued merge.
+- CI was blocked from about 13:51Z by runners unable to resolve Ubuntu package hosts (`Temporary failure resolving 'security.ubuntu.com'`). By 17:38Z accounting shards were past the PostgreSQL install again. No repository change was needed.
+
+### Matcher installation: blocked on the release route
+
+- `20261110173033` (fairness) and `20261110214134` (thin-pool) are still absent from `schema_migrations` at 17:38Z.
+- Both declare `@install-window: daily-maintenance` and `@locks: public.lightning_pool_slot`. Fairness adds a column to that table, so it cannot use the at-merge route.
+- The 11-11 daily reservation (run 42959839523) stopped at 09:30Z with `Release controls changed during reservation; keep serving.` The only changed controls were `server/release/activation-floor.json` and `server/release/owner-maintenance-windows.json`. The installer was skipped.
+- A DB-only window or a held daily window was requested from the release owner and root custody (PR #10063 comment 6802945545, COORDINATION-INBOX 17:50Z). Installation is not promised for any date.
+- Last 20 minutes before 13:10Z: 2,147 six-handed tables, 16 five-handed, 0 four-handed.
+
+### Live observations
+
+- Database lane on `f7735cca`: `ready 1`, `committed_total 177,959`, `unknown_total 0`, `disabled 0`, `rolled_back_total 4` (confirmed rollbacks, settled by request id).
+- Earlier on `05ab41c3`: 0 duplicate formation or settle request ids over 3,281 hands, and none left unsettled.
+- Pre-action record: 0 events, because no non-horse player has played Lightning since activation.
+- Join timing: 2 natural browser joins (1 success, 1 refused with `PLATFORM_FROZEN`). Every percentile is unknown.
+- PENDING, because no authorized player session exists and no chips are spent or actions taken on the owner's behalf:
+  1. big-blind Check/Fold carried across streets to a raise;
+  2. small-blind Check/Fold releasing at once;
+  3. one table change after a fold and after a showdown.
+  Owner hands from 2026-11-10 are evidence for engine `840429a3` only.

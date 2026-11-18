@@ -67,6 +67,8 @@ export interface HorseReplayInput {
   original: HorseDecision;
   planContext: HorsePlanContext;
   readiness: HorseReplaySolverReadiness;
+  /** Reconstructed V87 policy flag: explicit opts win, else snapshot.policyFlags, else false on pre-V87 records lacking replayState. */
+  v87HoldemOverhaul: boolean;
 }
 
 const obj = (v: unknown): v is Record<string, unknown> =>
@@ -219,6 +221,14 @@ export function reconstructHorseReplayInput(
     return refuse('decision_key');
   }
   if (expectedKey !== snapshot.decisionKey) refuse('decision_key');
+  const policyFlags = obj(snapshot.policyFlags) ? snapshot.policyFlags : null;
+  const rawOpts = obj(request.opts) ? (request.opts as Record<string, unknown>) : null;
+  const v87HoldemOverhaul =
+    typeof rawOpts?.v87HoldemOverhaul === 'boolean'
+      ? rawOpts.v87HoldemOverhaul
+      : policyFlags !== null
+        ? Boolean(policyFlags.v87HoldemOverhaul)
+        : b.replayState !== undefined;
   return {
     decisionId: record.eventId,
     recordedRelease: record.sourceRelease,
@@ -233,5 +243,6 @@ export function reconstructHorseReplayInput(
     original: decision as unknown as HorseDecision,
     planContext: b.planContext as unknown as HorsePlanContext,
     readiness: readiness as unknown as HorseReplaySolverReadiness,
+    v87HoldemOverhaul,
   };
 }

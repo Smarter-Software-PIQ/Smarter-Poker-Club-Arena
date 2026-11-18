@@ -51,6 +51,10 @@ suspense=$(ls "$root"/supabase/migrations/*_no_balance_moves_against_settlement_
 # must exist afterwards. Installed last, after every judgement has been proved
 # unchanged; the three settings point the recorder's loopback at this fixture.
 recorder=$(ls "$root"/supabase/migrations/*_a_ledger_refusal_is_recorded_outside_its_rollback.sql | head -1)
+# A cancelled ticket's refund books to ticket escrow (20261112184950): the live
+# issuer-refund bodies are refused at commit, this migration rewrites them,
+# and both paths then commit with one refund leg from the ticket's escrow.
+ticket_refund=$(ls "$root"/supabase/migrations/*_a_cancelled_ticket_refund_books_to_ticket_escrow_not_cashout.sql | head -1)
 export PGOPTIONS='-c statement_timeout=60000 -c lock_timeout=5000 -c timezone=UTC -c client_min_messages=notice -c ca.ledger_refusal_recorder_host=127.0.0.1 -c ca.ledger_refusal_recorder_port=55493 -c ca.ledger_refusal_recorder_sslmode=disable'
 "$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$fixture/socket" -p 55493 -d postgres \
   -f "$root/tests/fixtures/ledger-invariant/bootstrap.sql" \
@@ -67,6 +71,10 @@ export PGOPTIONS='-c statement_timeout=60000 -c lock_timeout=5000 -c timezone=UT
   -f "$root/tests/fixtures/ledger-invariant/cashout-bootstrap.sql" \
   -f "$root/supabase/migrations/20261006140948_cashout_escrow_balances_with_its_own_ledger_leg.sql" \
   -f "$root/tests/fixtures/ledger-invariant/cashout-regression.sql" \
+  -f "$root/tests/fixtures/ledger-invariant/ticket-refund-bootstrap.sql" \
+  -f "$root/tests/fixtures/ledger-invariant/ticket-refund-regression-before.sql" \
+  -f "$ticket_refund" \
+  -f "$root/tests/fixtures/ledger-invariant/ticket-refund-regression-after.sql" \
   -f "$root/tests/fixtures/ledger-invariant/refusal-bootstrap.sql" \
   -f "$recorder" \
   -f "$root/tests/fixtures/ledger-invariant/refusal-regression.sql"

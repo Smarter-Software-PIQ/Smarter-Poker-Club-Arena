@@ -29,6 +29,7 @@ import { supabase } from './supabase.js';
 import { HorseMind } from '../engine/HorseMind.js';
 import { horseMindHandFromHistory } from '../engine/HorseMindHandIdentity.js';
 import { completedHandActionsForMind } from '../engine/horseDecision/completedHandActions.js';
+import { bettingStructureFor } from '../engine/BettingStructure.js';
 import { reportError } from './errorReporter.js';
 import { POSTGREST_PAGE } from './supabase/pagination.js';
 
@@ -84,14 +85,19 @@ export async function hydrateHorseMind(sinceIso?: string | null): Promise<void> 
        the window holds. Keyset on (created_at, id), descending, up to the cap, then
        replayed oldest selected (created_at,id) first. This is persistence
        ordering, not proof of deal order or a complete window. */
-    type HandRow = HistoryCursor & { actions: unknown; table_id?: unknown; hand_number?: unknown };
+    type HandRow = HistoryCursor & {
+      actions: unknown;
+      table_id?: unknown;
+      hand_number?: unknown;
+      game_variant?: unknown;
+    };
     const newestFirst: HandRow[] = [];
     let cursor: HistoryCursor | null = null;
     while (newestFirst.length < HYDRATION_MAX_HANDS) {
       const want = Math.min(POSTGREST_PAGE, HYDRATION_MAX_HANDS - newestFirst.length);
       let q = supabase
         .from('hand_history')
-        .select('id, table_id, hand_number, actions, created_at')
+        .select('id, table_id, hand_number, actions, created_at, game_variant')
         .gt('created_at', since)
         .lte('created_at', through)
         .order('created_at', { ascending: false })
@@ -169,7 +175,10 @@ export async function hydrateHorseMind(sinceIso?: string | null): Promise<void> 
             [],
             identity,
             undefined,
-            bigBlindFromForcedPosts(a as Parameters<typeof bigBlindFromForcedPosts>[0])
+            bigBlindFromForcedPosts(a as Parameters<typeof bigBlindFromForcedPosts>[0]),
+            // FIXED-LIMIT BETS ARE NEVER PROBES (HorseMind switch, default off):
+            // the boot replay names each hand's structure like the live paths.
+            bettingStructureFor(typeof row.game_variant === 'string' ? row.game_variant : null)
           );
         } finally {
           HorseMind.setDecisionScope(previousScope);

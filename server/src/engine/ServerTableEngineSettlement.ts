@@ -1,4 +1,12 @@
+import { hitRunHandsRemaining } from './ChipContinuity.js';
+import {
+  isBigPot,
+  orbitHandsOwed,
+  shouldBankTheWin,
+  startingStackFor,
+} from '../services/HorseBankTheWin.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
+import { noteFire } from './BrainTelemetry.js';
 import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { PostHandStageTiming } from './PostHandStageTiming.js';
 import { readCommittedSeatStacks } from './committedSeatStackRead.js';
@@ -11,6 +19,7 @@ import { assertDiamondAcceptedHand } from '../domain/DiamondCashBoundary.js';
 import { diamondCashJackpotVerdict } from './diamondCashJackpot.js';
 import { diamondCashRakeFactsFor } from './diamondCashRakeFacts.js';
 import { pendingSeatMoves, type PendingSeatMove } from '../services/supabase/seatMoves.js';
+import { getTournamentBrainContextSnapshot } from '../services/TournamentBrainContext.js';
 /**
  * ServerTableEngine, layer 6/8 — the HAND_COMPLETE settlement pipeline and post-hand tasks.
  *
@@ -153,6 +162,12 @@ export const RABBIT_HUNT_SAVED_RETENTION_MS = 86_400_000;
  * `aDetectorMayNotCryWolf` was written for.
  */
 const POST_COMMIT_DRAIN_BUDGET_MS = 5_000;
+
+/** What settlement needs from the hand's own controller, read before any await. */
+export interface OriginalHandFacts {
+  blinds: ReturnType<HandController['getBlindSnapshot']> | null;
+  allInRunoutWitness: ReturnType<HandController['getAllInRunoutWitness']>;
+}
 
 export abstract class ServerTableEngineSettlement extends ServerTableEngineDealing {
   /**
@@ -694,6 +709,34 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // Steps 7-15 are handled here + postHandTasks()
     // ═══════════════════════════════════════════════════════════════════
 
+    /* THIS HAND'S CONTROLLER FACTS ARE TAKEN BEFORE THE FIRST AWAIT
+       (2026-11-12, HVH2D-EXE-002). The dealing listener clears the hand's
+       controller as soon as HAND_COMPLETE is released. A cash showdown awaits
+       the jackpot drill below, so by the time the post-hand tasks ran the
+       controller was gone and they read nothing: every ordinary cash hand
+       that reached showdown was written without its public memory domain
+       (589 of 589 in one production hour, 0 of 1,493 without a showdown), and
+       the opponent-memory learner skips a hand without one. The all-in runout
+       witness was read at the same late point. Both are read here,
+       synchronously, and carried down; the post-hand tasks never read the
+       live controller. */
+    const originalHand: OriginalHandFacts = {
+      blinds: this.handController?.getBlindSnapshot?.() ?? null,
+      allInRunoutWitness: this.handController?.getAllInRunoutWitness?.() ?? null,
+    };
+
+    /* THE HAND'S CONTROLLER IS HELD FOR THE WHOLE SETTLEMENT (2026-11-12,
+       SWEEP-001, same class as HVH2D-EXE-002). Two critical insurance alerts
+       below are awaited. If one fires, the dealing listener can clear
+       `this.handController` while this method is suspended, and everything
+       after it that read the live field went quiet: the insurance stack
+       deltas were not applied to the hand's state and the seven-deuce bounty
+       block was skipped entirely, so the bounty was not paid. The reference
+       is taken once, here, before any await, and every later read in this
+       method uses it. A law test forbids a read of the live field after
+       this line. */
+    const settlingHand = this.handController;
+
     // SETTLEMENT STEP 1: Lock table (actionLock prevents new actions)
     // Already enforced — handController completes hand, no more actions accepted
     // Phase X5 (2026-04-28): emit explicit table_locked event so the
@@ -744,11 +787,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // dealt interleaved from one deck, so `remainingDeck.slice(0, 5)` is not
     // "what board 1 would have run" — it is noise the player would be charged
     // five diamonds for, and there are two or three boards it could belong to.
-    const multiBoardBomb = this.handController?.isDoubleBoardActive?.() ?? false;
-    if (this.handController && !ranItTwice && !multiBoardBomb) {
+    const multiBoardBomb = settlingHand?.isDoubleBoardActive?.() ?? false;
+    if (settlingHand && !ranItTwice && !multiBoardBomb) {
       try {
-        const state = this.handController.getState();
-        const remainingDeck = this.handController.getRemainingDeck();
+        const state = settlingHand.getState();
+        const remainingDeck = settlingHand.getRemainingDeck();
         // A local, not an instance field. This was `this.currentHandRabbitCards`,
         // which nothing else read — and because the SAME array reference is
         // stored into the offer below, the only thing keeping the previous
@@ -837,8 +880,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     if (totalDeductions > 0) {
       this.stateVerifier.deductRake(this.tableId, totalDeductions);
     }
-    if (this.handController) {
-      const finalState = this.handController.getState();
+    if (settlingHand) {
+      const finalState = settlingHand.getState();
       const verifyResult = this.stateVerifier.verify({
         tableId: this.tableId,
         handNumber: this.handCount,
@@ -862,8 +905,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // FIX 150: Wire AtomicStackService — settle final stacks through atomic layer
     // Computes delta (final stack - initial stack tracked by version service) for each player
     // so version tracking stays in sync and race conditions with concurrent rebuy/cashout are prevented.
-    if (this.handController) {
-      const finalState = this.handController.getState();
+    if (settlingHand) {
+      const finalState = settlingHand.getState();
       const settlements: StackSettlement[] = [];
       for (const p of finalState.players) {
         const initial = this.atomicStackService.getStackWithVersion(this.tableId, p.user_id);
@@ -948,8 +991,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         const seatedPlayer = this.seatedPlayers.find((p) => p.user_id === settlement.playerId);
         // Read-only: used solely as a stack fallback for the shortfall alert
         // below when the player has no seat row. Never mutated.
-        const enginePlayer = this.handController
-          ? this.handController.getState().players.find((p) => p.user_id === settlement.playerId)
+        const enginePlayer = settlingHand
+          ? settlingHand.getState().players.find((p) => p.user_id === settlement.playerId)
           : null;
 
         if (settlement.payout > 0) {
@@ -1067,7 +1110,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       }
 
       if (insuranceDeltas.size > 0) {
-        this.handController?.applyStackDeltas(insuranceDeltas);
+        settlingHand?.applyStackDeltas(insuranceDeltas);
         /* AND SAY SO (2026-09-09). The client flies the payout to the seat
            and toasts "Insurance Paid You N" off INSURANCE_SETTLED, and the
            stack number underneath it did not move until the NEXT hand's
@@ -1106,14 +1149,14 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       sevenDeuceIsNlh &&
       this.tableInfo &&
       this.currentHandWinners.length > 0 &&
-      this.handController
+      settlingHand
     ) {
       const bb = this.tableInfo.big_blind || 0;
       const bbMultiple = Number((this.tableInfo as any)?.seven_deuce_amount ?? 2) || 2;
       const bountyPerPayer = Math.round(bb * bbMultiple * 100) / 100;
 
       if (bountyPerPayer > 0) {
-        const sdState = this.handController.getState();
+        const sdState = settlingHand.getState();
         const sdDealtIn = players.map((p) => {
           const enginePlayer = sdState.players.find((ep) => ep.user_id === p.user_id);
           const seatedPlayer = this.seatedPlayers.find((sp) => sp.user_id === p.user_id);
@@ -1214,7 +1257,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         // Move the engine's own stacks BEFORE the re-broadcast: broadcastCurrentState()
         // reads handController.getState(), so without this the "bounty-adjusted"
         // snapshot below went out with the pre-bounty numbers.
-        if (bountyDeltas.size > 0) this.handController?.applyStackDeltas(bountyDeltas);
+        if (bountyDeltas.size > 0) settlingHand?.applyStackDeltas(bountyDeltas);
 
         // Re-broadcast so clients see the bounty-adjusted stacks immediately
         // (the WINNERS snapshot went out before these transfers were applied).
@@ -1648,15 +1691,17 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // authoritative settlement, and its record rides into the hand's own row.
     this.settleKillPot();
     const priorBarrier = this.postHandTasksPromise;
-    const postTasks = this.postHandTasks(players, persistenceGeneration).catch((err) => {
-      this.finishTerminalBoundaryPersistence(persistenceGeneration, false);
-      reportError(err, `ServerTableEngine.${this.tableId}.posthand_error`);
-      // A rejected settlement is not a completed hand. Publish the terminal
-      // fence synchronously so the dealing loop cannot clear this barrier and
-      // reload the pre-hand seats as if the write had succeeded.
-      this.killForRestart('post_hand_settlement_failed');
-      throw err;
-    });
+    const postTasks = this.postHandTasks(players, persistenceGeneration, originalHand).catch(
+      (err) => {
+        this.finishTerminalBoundaryPersistence(persistenceGeneration, false);
+        reportError(err, `ServerTableEngine.${this.tableId}.posthand_error`);
+        // A rejected settlement is not a completed hand. Publish the terminal
+        // fence synchronously so the dealing loop cannot clear this barrier and
+        // reload the pre-hand seats as if the write had succeeded.
+        this.killForRestart('post_hand_settlement_failed');
+        throw err;
+      }
+    );
     this.postHandTasksPromise = priorBarrier
       ? Promise.all([priorBarrier, postTasks]).then(() => undefined)
       : postTasks;
@@ -1895,7 +1940,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
 
   protected async postHandTasks(
     players: SeatedPlayer[],
-    persistenceGeneration: number
+    persistenceGeneration: number,
+    /** The hand's controller facts, taken by settleCompletedHand before its
+     *  first await. Absent means unknown: the row is written without a memory
+     *  domain rather than with one read from whatever hand is live now. */
+    originalHand: OriginalHandFacts | null = null
   ): Promise<void> {
     /* ═══ THIS HAND'S RECORD IS CAPTURED BEFORE THE FIRST AWAIT (2026-08-31)
        Everything below used to read the live `this.currentHand*` fields and
@@ -1907,7 +1956,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
        first await can yield, and read ONLY the snapshot from here down. The
        Maps/arrays are copied shallowly: settlement only reads them, and
        nothing else mutates their elements after HAND_COMPLETE. */
-    const originalMemoryBlinds = this.handController?.getBlindSnapshot?.();
+    const originalMemoryBlinds = originalHand?.blinds ?? null;
     const snap = {
       publicMemoryDomain: originalMemoryBlinds
         ? publicMemoryDomainFromRules(
@@ -1917,7 +1966,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
           )
         : null,
       handNumber: this.handCount,
-      allInRunoutWitness: this.handController?.getAllInRunoutWitness?.() ?? null,
+      allInRunoutWitness: originalHand?.allInRunoutWitness ?? null,
       variant: this.currentHandVariant,
       potSize: this.currentHandPotSize,
       rake: this.currentHandRake,
@@ -1969,6 +2018,17 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         ])
       ),
     };
+    /* EVIDENCE ONLY (2026-11-12, HVH2D-EXE-002). One count per settled hand,
+       taken here before the first await: was the hand's row built with a
+       memory domain or without one. Before the repair every cash showdown
+       hand was built without one; after it, absent should read near zero. It
+       counts what settlement built, not what the database stored. Named
+       *_seen because both are occurrences, not layers. */
+    noteFire(
+      snap.publicMemoryDomain
+        ? 'hand_memory_domain_recorded_seen'
+        : 'hand_memory_domain_absent_seen'
+    );
     const stageTiming = new PostHandStageTiming(snap.handNumber);
     this.postHandStageTiming = stageTiming;
     // ═══════════════════════════════════════════════════════════════════════
@@ -2712,9 +2772,33 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
                   : null,
             }
           : undefined;
+        const reviewTourneyCtx = tableInfo.tournament_id
+          ? getTournamentBrainContextSnapshot(String(tableInfo.tournament_id)).context
+          : null;
+        const reviewFinalTable =
+          reviewTourneyCtx !== null &&
+          reviewTourneyCtx.playersLeft > 0 &&
+          reviewTourneyCtx.playersLeft <= Math.max(2, reviewTourneyCtx.seatsPerTable || 9) &&
+          reviewTourneyCtx.spotsPaid >= 2;
+        const reviewNearBubbleOrPayJump =
+          reviewTourneyCtx !== null
+            ? Boolean(reviewTourneyCtx.nearBubble || reviewFinalTable)
+            : undefined;
+        const reviewTournamentStage =
+          reviewTourneyCtx !== null
+            ? reviewTourneyCtx.nearBubble
+              ? 'near_bubble'
+              : reviewFinalTable
+                ? 'final_table'
+                : reviewTourneyCtx.inMoney
+                  ? 'itm'
+                  : 'early'
+            : undefined;
+        const observedHands = this.hub?.completedObserverReceipts?.(this.tableId, snap.handNumber);
         const commitAuthoritativeHand = () =>
           logHandHistory({
             tableId: this.tableId,
+            observedHands,
             publicMemoryDomain: snap.publicMemoryDomain,
             handId: v_handId,
             seatGenerations: snap.seatGenerations,
@@ -2726,6 +2810,8 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
             // band - see HorsePlayStats and fn_horse_frequency_leaks.
             vpipFloor: this.vpipFloor(),
             tournamentId: tableInfo.tournament_id || undefined,
+            nearBubbleOrPayJump: reviewNearBubbleOrPayJump,
+            tournamentStage: reviewTournamentStage,
             handNumber: snap.handNumber,
             // VARIANT OVERRIDE 2026-08-28 (spec §10.1/§20): the variant this
             // hand was DEALT as - plo4 on a PLO4 bomb hand at an NLH table.
@@ -4290,53 +4376,72 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         const nextBbSeat = this.getNextSeat(nextSbSeat, players);
         const nextBbPlayer = players.find((p) => p.seat_number === nextBbSeat);
 
+        /* BANK THE WIN (owner 2026-11-10, HorseBankTheWin). The line is 4-6x
+           the horse's own starting stack. A big pot (net half a starting
+           stack or more) holds it one more orbit; the exit is taken at the
+           boundary right before its next big blind, and only once every hand
+           it owes under the Charles Rule (the countdown and the +250 BB ten)
+           has been played: satisfying one obligation never clears another.
+
+           DURABLE (20261111174148): the start basis and the hands since the
+           big pot are the session row's, advanced by the chip-continuity
+           evaluation just above with the same once-per-hand key, so a seat
+           move, a reconnect or an engine replacement cannot reset them. The
+           in-memory count below stands in only while the database does not
+           yet report them (before the migration installs). */
+        const seatedIds = new Set(players.map((p) => p.user_id));
+        for (const id of [...this.horseHandsSinceBigPot.keys()])
+          if (!seatedIds.has(id)) this.horseHandsSinceBigPot.delete(id);
+        const bankStart = (userId: string): number => {
+          const row = this.chipContinuity?.row(userId);
+          return row?.start_basis ?? startingStackFor(row?.baseline, maxBuyIn);
+        };
+        for (const p of players) {
+          // Identification only: the big pot hold is a horse's own exit rule.
+          const before = p.is_horse ? snap.dealtStacks.get(p.user_id) : undefined;
+          if (before !== undefined && isBigPot(before, p.stack, bankStart(p.user_id))) {
+            this.horseHandsSinceBigPot.set(p.user_id, 0);
+          } else {
+            const since = this.horseHandsSinceBigPot.get(p.user_id);
+            if (since !== undefined) {
+              if (orbitHandsOwed(since + 1, players.length) === 0)
+                this.horseHandsSinceBigPot.delete(p.user_id);
+              else this.horseHandsSinceBigPot.set(p.user_id, since + 1);
+            }
+          }
+        }
+
         const cashedOutHorses = players.filter((p) => {
           if (!p.is_horse) return false;
-
-          // Target is dynamically between 2.5x and 3.5x max buy-in
-          // We use their user_id to deterministically seed their target, so they don't randomly flip-flop
-          const idInt = parseInt(p.user_id.replace(/-/g, '').substring(0, 8), 16) || 0;
-          const targetMultiplier = 2.5 + idInt / 0xffffffff;
-          const cashOutTarget = maxBuyIn * targetMultiplier;
-
-          // Only depart if they hit the target AND their NEXT hand is the Big Blind
-          const isNextBb = p.user_id === nextBbPlayer?.user_id;
-
-          return p.stack >= cashOutTarget && isNextBb;
+          const row = this.chipContinuity?.row(p.user_id);
+          if (row && hitRunHandsRemaining(row, p.stack) > 0) return false;
+          return shouldBankTheWin({
+            horseId: p.user_id,
+            stack: p.stack,
+            startingStack: bankStart(p.user_id),
+            handsSinceBigPot:
+              row && row.hands_since_big_pot !== undefined
+                ? (row.hands_since_big_pot ?? undefined)
+                : this.horseHandsSinceBigPot.get(p.user_id),
+            playersAtTable: players.length,
+            nextHandIsBigBlind: p.user_id === nextBbPlayer?.user_id,
+          });
         });
 
         for (const horse of cashedOutHorses) {
-          // CHIP CONTINUITY / HORSES ARE PLAYERS (CLAUDE.md 10.5): a horse
-          // that has hit its target is a player choosing to leave while
-          // ahead, so it goes through the same door a human does and waits
-          // out the same stay clock. A refusal simply means "not this
-          // orbit" - the target still stands and it tries again when the big
-          // blind comes back around, exactly as a human would.
           if (!this.lifecycleCanMutate()) return;
-          const exit = await this.cashoutVoluntaryStay(horse);
-          if (!this.lifecycleCanMutate()) return;
-          if (!exit) continue;
-          if (!exit.ok) {
-            if (exit.code === 'LEAVE_LOCKED') {
-              this.chipContinuity.noteRefusal(horse.user_id, exit.stayRemainingMs);
-              console.log(
-                `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} at target but stay clock has ${exit.stayRemainingMs}ms left - stays seated`
-              );
-            }
+          /* A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). This step
+             runs while the hand is still being presented, and a horse that
+             banks the win is, by construction, usually the player the pot is
+             about to fly to. The decision stands; the cash-out waits for the
+             completion hold and runs at the next-hand boundary (no seat move
+             may carry the seat away meanwhile). */
+          if (horse.occupancy_id && this.holdsSeatForPresentation(horse.user_id)) {
+            this.deferredBankTheWin.set(horse.user_id, horse);
+            this.noteHeldDeparture(horse.user_id, horse.occupancy_id);
             continue;
           }
-          this.chipContinuity.forget(horse.user_id);
-          // Round 57: clear FSM tracking on profit-target cashout too.
-          this.disconnectEngine.unregisterPlayer(this.tableId, horse.user_id);
-          // Round 64: same for TimeBankEngine, bank and metadata together.
-          this.forgetTimeBank(horse.user_id);
-          // Round 66: same for StraddleEngine.
-          this.straddleEngine.removePlayer(this.tableId, horse.user_id);
-          this.preActionEngine.removePlayer(this.tableId, horse.user_id);
-          this.horseRebuys.delete(horse.user_id);
-          console.log(
-            `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} hit profit target (${Math.floor(horse.stack)} chips) and cashed out before posting the Big Blind.`
-          );
+          if ((await this.bankTheWinExit(horse)) === 'stop') return;
         }
       }
     });
@@ -4582,6 +4687,84 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     }
   }
 
+  /** Horses whose bank-the-win exit waits for the completion hold (see above). */
+  protected deferredBankTheWin: Map<string, SeatedPlayer> = new Map();
+
+  /** One bankroll-management exit through the ordinary voluntary door. */
+  protected async bankTheWinExit(horse: SeatedPlayer): Promise<'stop' | 'left' | void> {
+    // CHIP CONTINUITY / HORSES ARE PLAYERS (CLAUDE.md 10.5): a horse
+    // that has hit its target is a player choosing to leave while
+    // ahead, so it goes through the same door a human does and waits
+    // out the same stay clock. A refusal simply means "not this
+    // orbit" - the target still stands and it tries again when the big
+    // blind comes back around, exactly as a human would.
+    if (!this.lifecycleCanMutate()) return 'stop';
+    const exit = await this.cashoutVoluntaryStay(horse);
+    if (!this.lifecycleCanMutate()) return 'stop';
+    if (!exit) return;
+    if (!exit.ok) {
+      if (exit.code === 'LEAVE_LOCKED') {
+        this.chipContinuity.noteRefusal(horse.user_id, exit.stayRemainingMs);
+        console.log(
+          `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} at target but stay clock has ${exit.stayRemainingMs}ms left - stays seated`
+        );
+      }
+      return;
+    }
+    this.chipContinuity.forget(horse.user_id);
+    // Round 57: clear FSM tracking on profit-target cashout too.
+    this.disconnectEngine.unregisterPlayer(this.tableId, horse.user_id);
+    // Round 64: same for TimeBankEngine, bank and metadata together.
+    this.forgetTimeBank(horse.user_id);
+    // Round 66: same for StraddleEngine.
+    this.straddleEngine.removePlayer(this.tableId, horse.user_id);
+    this.preActionEngine.removePlayer(this.tableId, horse.user_id);
+    this.horseRebuys.delete(horse.user_id);
+    this.horseHandsSinceBigPot.delete(horse.user_id);
+    bankrollEvent('session_book_win');
+    console.log(
+      `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} hit profit target (${Math.floor(horse.stack)} chips) and cashed out before posting the Big Blind.`
+    );
+    return 'left';
+  }
+
+  /**
+   * Runs the bank-the-win exits deferred by the presentation hold, at the
+   * next-hand boundary under the seat boundary, through the same door. A
+   * refusal (stay clock) keeps the horse seated exactly as it would have at
+   * settlement; either way the move block is lifted.
+   */
+  protected override async runDeferredBankTheWinExits(): Promise<void> {
+    if (!this.deferredBankTheWin?.size) return;
+    const due = [...this.deferredBankTheWin.values()];
+    this.deferredBankTheWin.clear();
+    try {
+      for (const horse of due) {
+        if (!this.lifecycleCanMutate()) return;
+        const current = this.seatedPlayers.find((p) => p.user_id === horse.user_id);
+        if (!current || current.occupancy_id !== horse.occupancy_id) continue;
+        let outcome: 'stop' | 'left' | void;
+        try {
+          outcome = await this.bankTheWinExit(current);
+        } catch (err) {
+          // Non-critical, as the settlement step it came from: the horse stays
+          // seated and decides again next orbit. Never breaks the next deal.
+          reportError(err, 'ServerTableEngine.' + this.tableId + '.deferred_bank_the_win_failed');
+          continue;
+        }
+        if (outcome === 'left' && horse.occupancy_id) {
+          // Out of this boundary's roster, seat_left announced, move block lifted.
+          this.releaseDepartedSeats([{ userId: horse.user_id, occupancyId: horse.occupancy_id }]);
+        }
+        if (outcome === 'stop') return;
+      }
+    } finally {
+      // Whatever happened, no deferred exit leaves a seat-move block behind.
+      for (const horse of due) if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
+    }
+  }
+
+
   /**
    * Read move candidates while the leave sweep runs. Candidates carry no cash
    * amount and execute only AFTER every leave has completed. Their executor
@@ -4613,7 +4796,13 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         (departedUserId, occupancyId) => this.rememberDepartedSeat(departedUserId, occupancyId),
         diagnostic?.departures,
         // Lightning (2026-09-26): a seat deferred here is retried every pass.
-        (userId, occupancyId) => this.noteLightningDeferredLeave(userId, occupancyId)
+        (userId, occupancyId) => this.noteLightningDeferredLeave(userId, occupancyId),
+        // 2026-11-15: a seat still in the presentation stays until the push lands.
+        (userId, occupancyId) => {
+          if (!this.holdsSeatForPresentation(userId)) return false;
+          this.noteHeldDeparture(userId, occupancyId);
+          return true;
+        }
       ),
       this.tableInfo?.cluster_id
         ? pendingSeatMoves(this.tableId, diagnostic?.move_read)

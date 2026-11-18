@@ -1,5 +1,5 @@
 /** Serving runtime capability, never inferred from a merged client or database row. */
-export async function readCashRakePolicyVersion(): Promise<0 | 1 | null> {
+export async function readCashRakePolicyVersion(): Promise<0 | 1 | 2 | 3 | null> {
   const base =
     import.meta.env.VITE_GAME_SERVER_URL ||
     (import.meta.env.PROD ? 'https://engine.smarter.poker' : 'http://localhost:8080');
@@ -11,7 +11,12 @@ export async function readCashRakePolicyVersion(): Promise<0 | 1 | null> {
     if (!response.ok) return null;
     const health = await response.json();
     if (!health || typeof health.version !== 'string') return null;
-    if (health.cashRakePolicyVersion === 1) return 1;
+    if (
+      health.cashRakePolicyVersion === 1 ||
+      health.cashRakePolicyVersion === 2 ||
+      health.cashRakePolicyVersion === 3
+    )
+      return health.cashRakePolicyVersion;
     // A reachable older engine explicitly lacks this new contract.
     if (health.cashRakePolicyVersion === undefined) return 0;
     return null;

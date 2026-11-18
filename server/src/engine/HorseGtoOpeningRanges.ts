@@ -251,14 +251,14 @@ export const CASH_ACTION_OPEN_TARGET: Readonly<Record<number, number>> = {
  * balanced horse, before style; no-ante cash only.
  */
 export const V85_CASH_OPEN_TARGET: Readonly<Record<number, number>> = {
-  1: 50,
-  2: 52,
-  3: 35,
-  4: 27,
-  5: 22.5,
-  6: 20.5,
-  7: 18.5,
-  8: 17,
+  1: 52,
+  2: 55,
+  3: 39.5,
+  4: 31,
+  5: 29.5,
+  6: 28.5,
+  7: 27.5,
+  8: 26.5,
 };
 /** V85 three-handed and heads-up cash opens (button / small blind). */
 export const V85_CASH_OPEN_TARGET_THREE: Readonly<Record<number, number>> = { 1: 50, 2: 55 };
@@ -368,6 +368,26 @@ export function scoreAtShare(q: number): number {
   return last.score;
 }
 
+/**
+ * V87 (2026-11-10): the inverse of scoreAtShare, the top share (0..1) a
+ * legacy-ladder score sits at. Used to widen a bar by a stated number of
+ * hand-share points without leaving the ladder it was written on.
+ */
+export function shareAtScore(score: number): number {
+  if (score >= LEVELS[0].score) return LEVELS[0].share;
+  const last = LEVELS[LEVELS.length - 1];
+  if (score <= last.score) return last.share;
+  for (let i = 1; i < LEVELS.length; i++) {
+    const hi = LEVELS[i - 1];
+    const lo = LEVELS[i];
+    if (score >= lo.score) {
+      const w = (hi.score - score) / (hi.score - lo.score);
+      return hi.share + (lo.share - hi.share) * w;
+    }
+  }
+  return last.share;
+}
+
 function legacyScore(cls: string): number {
   const [a, b] = repCards(cls);
   return holdemPreflopScore(a, b, false);
@@ -417,6 +437,113 @@ export function holdemClass(c1: Card, c2: Card): string | null {
   return hi.rank + lo.rank + (c1.suit === c2.suit ? 's' : 'o');
 }
 
+export type HoldemEpLimpKind = 'big_pair_trap' | 'suited_connector';
+
+const EP_LIMP_BIG_PAIRS = new Set<string>(['AA', 'KK', 'QQ']);
+const EP_LIMP_SUITED_CONNECTORS = new Set<string>(['54s', '65s', '76s', '87s', '98s', 'T9s']);
+
+const CASH_CORE_TOP_CLASSES = new Set<string>([
+  'AA',
+  'KK',
+  'QQ',
+  'JJ',
+  'TT',
+  '99',
+  '88',
+  '77',
+  'AKs',
+  'AQs',
+  'AJs',
+  'ATs',
+  'AKo',
+  'AQo',
+  'KQs',
+  'KJs',
+  'KTs',
+  'QJs',
+  'QTs',
+  'JTs',
+]);
+
+const CASH_IMPLIED_ODDS_CLASSES = new Set<string>([
+  '66',
+  '55',
+  '44',
+  '33',
+  '22',
+  'A9s',
+  'A8s',
+  'A7s',
+  'A6s',
+  'A5s',
+  'A4s',
+  'A3s',
+  'A2s',
+  'K9s',
+  'K8s',
+  'K7s',
+  'Q9s',
+  'T9s',
+  '98s',
+  '87s',
+  '76s',
+  '65s',
+  '54s',
+  'J9s',
+  'T8s',
+  '97s',
+  '86s',
+]);
+
+const CASH_SECONDARY_OFFSUIT = new Set<string>(['AJo', 'KQo']);
+const CASH_DOMINATED_OFFSUIT = new Set<string>(['ATo', 'KJo', 'QJo']);
+
+function cashActionPriorityTier(cls: string): number {
+  if (CASH_CORE_TOP_CLASSES.has(cls)) return 4;
+  if (CASH_IMPLIED_ODDS_CLASSES.has(cls)) return 3;
+  if (CASH_SECONDARY_OFFSUIT.has(cls)) return 2;
+  if (CASH_DOMINATED_OFFSUIT.has(cls)) return 1;
+  return 0;
+}
+
+const CASH_ACTION_STRENGTH: Record<number, Record<string, number>> = {};
+for (let k = 1; k <= MAX_BEHIND; k++) {
+  if (k < 4) {
+    CASH_ACTION_STRENGTH[k] = OPEN_STRENGTH[k];
+    continue;
+  }
+  const baseOrder = ORDER[k];
+  const baseIdx: Record<string, number> = {};
+  for (let i = 0; i < baseOrder.length; i++) baseIdx[baseOrder[i]] = i;
+  const cashOrder = [...baseOrder].sort((x, y) => {
+    const tx = cashActionPriorityTier(x);
+    const ty = cashActionPriorityTier(y);
+    if (tx !== ty && (tx > 0 || ty > 0)) return ty - tx;
+    return baseIdx[x] - baseIdx[y];
+  });
+  const map: Record<string, number> = {};
+  let cum = 0;
+  for (const cls of cashOrder) {
+    const c = COMBOS[cls];
+    map[cls] = scoreAtShare((cum + c / 2) / 1326);
+    cum += c;
+  }
+  CASH_ACTION_STRENGTH[k] = map;
+}
+
+/**
+ * Classify early-position Hold'em open-limp trap / suited-connector mix
+ * candidates (owner ruling 2026-11-10: QQ/KK/AA trap-limps and 54s-T9s
+ * suited-connector open-limps in both cash games and tournaments).
+ */
+export function classifyHoldemEpLimpCandidate(c1: Card, c2: Card): HoldemEpLimpKind | null {
+  const cls = holdemClass(c1, c2);
+  if (!cls) return null;
+  if (EP_LIMP_BIG_PAIRS.has(cls)) return 'big_pair_trap';
+  if (EP_LIMP_SUITED_CONNECTORS.has(cls)) return 'suited_connector';
+  return null;
+}
+
 /**
  * The open strength of these cards from a seat with `playersBehind` dealt-in
  * players still to act, on the holdemPreflopScore scale. Null when the cards
@@ -426,6 +553,29 @@ export function gtoOpenStrength(c1: Card, c2: Card, playersBehind: number): numb
   const cls = holdemClass(c1, c2);
   if (!cls) return null;
   return OPEN_STRENGTH[chartSeat(playersBehind)][cls] ?? null;
+}
+
+/**
+ * Deep-stack NLH cash open strength (`v87HoldemOverhaul`): exact
+ * `gtoOpenStrength` at `depthBB <= 50` (`v85DepthWeight === 0`), blending
+ * upward above `50bb` so playable implied-odds hands (`22-66`, `54s-T9s`,
+ * `86s-J9s`, `A2s-A9s`, `K7s-K9s`, `Q9s`) open ahead of easily dominated
+ * offsuit broadways (`ATo`, `KJo`, `QJo`) in early and middle position.
+ */
+export function gtoCashActionOpenStrength(
+  c1: Card,
+  c2: Card,
+  playersBehind: number,
+  depthBB: number
+): number {
+  const cls = holdemClass(c1, c2);
+  if (!cls) return 0;
+  const k = chartSeat(playersBehind);
+  const base = OPEN_STRENGTH[k][cls] ?? 0;
+  const w = v85DepthWeight(depthBB);
+  if (w <= 0 || k < 4) return base;
+  const target = CASH_ACTION_STRENGTH[k][cls] ?? base;
+  return base + (target - base) * w;
 }
 
 /**

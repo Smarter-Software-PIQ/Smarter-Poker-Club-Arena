@@ -99,6 +99,11 @@ export function isActiveNow(horseId: string, hourUTC: number): boolean {
 // TO BE OCCUPYING AT LEAST 75% OF ALL SEATS IN THE CASH GAMES, AND THEY SHOULD
 // BE PLAYING 4 TABLES AT ONCE!"
 //
+// Owner 2026-11-13 narrows the last clause: "HORSES ARE SUPPOSED TO PLAY 2 CASH
+// GAMES AND 2 TOURNAMENTS. NOT 4 CASH GAMES." Four games in total, at most two
+// of them cash (HorseGameLoad.HORSE_MAX_CASH_TABLES). Do not restore four cash
+// tables from the sentence above.
+//
 // This supersedes two of Dan's own earlier rules, and both are DELETED rather
 // than left to argue with this one:
 //
@@ -287,6 +292,17 @@ export function secondTablePicked(
   );
 }
 
+/** Actual full chairs create demand independently of the desired seat shape.
+ * Four names let a full-ring game reach the existing feeder opening threshold.
+ * The caller still checks actual fullness, eligibility and human priority. */
+export function fullGameWaitTarget(tableId: string, maxPlayers: number, nowMs: number): number {
+  const max = Math.max(1, Math.floor(Number(maxPlayers) || 1));
+  const lo = max >= 9 ? 4 : Math.min(2, max);
+  const hi = Math.max(lo, Math.min(MAX_HORSE_WAIT, max));
+  const bucket = Math.floor(nowMs / FILL_SUB_BUCKET_MS);
+  return lo + (mix32(horseHash(`${tableId}:${bucket}:queue`)) % (hi - lo + 1));
+}
+
 /** Stakes most players play: the lines there run longest. */
 export function isPopularStake(bigBlind: number | null | undefined): boolean {
   const bb = Number(bigBlind);
@@ -384,6 +400,24 @@ export function gameLaneFor(horseId: string): HorseGameLane {
   if (roll < 33) return 'events'; // tournaments, spins, heads-up only
   if (roll < 66) return 'cash'; // cash only
   return 'both';
+}
+
+/**
+ * 100% 1,000-Horse Real-Time Decision Engine Activation Invariant:
+ * Seating lanes (`gameLaneFor`) and stake bands (`stakeBandFor`) govern table
+ * occupancy routing ONLY and NEVER disable, downgrade, or gate the upgraded
+ * real-time decision engine once ANY horse in the 1,000-horse fleet is dealt a hand.
+ */
+export function isHorseDecisionEngineActiveFor(horseId: string): boolean {
+  return typeof horseId === 'string' && horseId.trim().length > 0;
+}
+
+/**
+ * Every seated horse has full decision-engine eligibility across both cash and
+ * tournament modes, regardless of its lobby seating lane.
+ */
+export function decisionEligibleModesFor(horseId: string): readonly ('cash' | 'tournament')[] {
+  return isHorseDecisionEngineActiveFor(horseId) ? (['cash', 'tournament'] as const) : [];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

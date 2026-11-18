@@ -65,7 +65,7 @@ export function assertWheelUpgradeTable(
 export function assertWheelAward(receipt: WheelSpinResult): void {
   const { outcome, bonus, secondary } = receipt;
   const version = receipt.contract_version;
-  const versioned = version === 2 || version === 3 || version === 4;
+  const versioned = version === 2 || version === 3 || version === 4 || version === 5;
   // CONTRACT 4 (owner rulings 2026-09-21). Three things change shape here: the
   // published table no longer has to be what this one spin drew from, because
   // no prize may repeat (R12); the three item cards are chip cards for a VIP
@@ -78,9 +78,9 @@ export function assertWheelAward(receipt: WheelSpinResult): void {
   // item table a non-VIP was dealt before that. A sealed `vip: false` receipt
   // is replayed and recovered for as long as it exists, so it keeps verifying
   // against exactly the table it was drawn from.
-  const v4 = version === 4;
+  const v4 = version === 4 || version === 5;
   const vip = v4 && receipt.vip === true;
-  if (v4 && (receipt.model !== 'wheel-v4' || typeof receipt.vip !== 'boolean')) fail();
+  if (v4 && (receipt.model !== `wheel-v${version}` || typeof receipt.vip !== 'boolean')) fail();
   if (
     ![
       'nothing',
@@ -206,9 +206,9 @@ export function assertWheelAward(receipt: WheelSpinResult): void {
     return;
   }
   if (outcome.kind === 'upgrade') {
-    const count = version === 3 || version === 4 ? 8 : 4;
+    const count = version === 3 || version === 4 || version === 5 ? 8 : 4;
     if (!secondary || secondary.segments.length !== count) return fail();
-    if (version === 3 || version === 4) {
+    if (version === 3 || version === 4 || version === 5) {
       assertWheelUpgradeTable(
         secondary.segments,
         receipt.entry_value_diamonds!,
@@ -237,7 +237,7 @@ export function assertWheelAward(receipt: WheelSpinResult): void {
       selected.kind !== secondary.outcome.kind ||
       selected.game !== secondary.outcome.game ||
       selected.multiplier !== secondary.outcome.multiplier ||
-      ((version === 3 || version === 4) &&
+      ((version === 3 || version === 4 || version === 5) &&
         (selected.amount !== secondary.outcome.amount ||
           selected.value_chips !== secondary.outcome.value_chips ||
           selected.weight !== secondary.outcome.weight ||
@@ -275,7 +275,7 @@ export function assertWheelAward(receipt: WheelSpinResult): void {
     if (secondary.outcome.kind === 'chips') {
       // Instant chips are already credited by the spin transaction. They may
       // never masquerade as a funded game or require a second payout request.
-      if ((version !== 3 && version !== 4) || bonus) fail();
+      if ((version !== 3 && version !== 4 && version !== 5) || bonus) fail();
       return;
     }
   }

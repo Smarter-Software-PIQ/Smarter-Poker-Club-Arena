@@ -1,5 +1,5 @@
 name: Post-Deploy E2E (production)
-run-name: Post-Deploy E2E ${{ github.event.client_payload.engine_sha || github.sha }}
+run-name: Post-Deploy E2E ${{ github.event.client_payload.engine_sha || github.sha }}${{ github.event.client_payload.intent_nonce && format(' {0}', github.event.client_payload.intent_nonce) || '' }}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # THE TIER THAT DID NOT EXIST (Dan 2026-08-29)
@@ -44,17 +44,35 @@ on:
     workflows: ['Publish Club Arena']
     types: [completed]
   repository_dispatch:
-    types: [run-post-deploy-e2e, run-stats-pagination-proof, run-private-record-client-proof, run-plo-lightning-lifecycle-proof]
+    types:
+      [
+        run-post-deploy-e2e,
+        run-stats-pagination-proof,
+        run-private-record-client-proof,
+        run-plo-lightning-lifecycle-proof,
+        run-hero-celebration-proof,
+      ]
 
 jobs:
   release-gameplay-readback:
     name: Observe post-thaw gameplay for the original sealed release
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e' && github.event.client_payload.release_run_key != ''
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e' && github.event.client_payload.release_run_key != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -101,17 +119,30 @@ jobs:
     name: Installed certification cleanup protects live tables
     needs: publication-gate
     if: >-
-      always() && !cancelled() &&
+      ((always() && !cancelled() &&
       (needs.publication-gate.outputs.should_run == 'true' ||
        (github.event_name == 'repository_dispatch' &&
         (github.event.action == 'run-stats-pagination-proof' ||
          github.event.action == 'run-private-record-client-proof' ||
-         github.event.action == 'run-plo-lightning-lifecycle-proof')))
+         github.event.action == 'run-plo-lightning-lifecycle-proof' ||
+         github.event.action == 'run-hero-celebration-proof'))))
+      && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 20
     permissions:
       contents: read
+      actions: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -124,15 +155,93 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/ci/await-certification-cleanup-safety.mjs
 
+  # Explicit bounded proof of the served celebration, with no gameplay writes.
+  hero-celebration-proof:
+    needs: certification-cleanup-safety
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-hero-celebration-proof' && github.ref == 'refs/heads/main' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    name: Exact published hero celebration proof
+    runs-on: ubuntu-24.04
+    environment: ci-main
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: hero-celebration-proof-production
+      cancel-in-progress: false
+    steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require exact protected client ancestry
+        env:
+          REQUESTED_CLIENT_SHA: ${{ github.event.client_payload.client_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_CLIENT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --filter=blob:none origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          git merge-base --is-ancestor "$REQUESTED_CLIENT_SHA" origin/main
+          echo "LIVE_SHA=$REQUESTED_CLIENT_SHA" >> "$GITHUB_ENV"
+      - name: Install locked verifier dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium only
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
+      - name: Verify loss, small chop and sole win on the published client
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          GAMEPLAY_CUSTOMIZATION_CERTIFICATION: '1'
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/hero-celebration.json
+        run: >-
+          npx playwright test --config=playwright.hero-celebration.config.ts
+          --workers=1 --retries=0 --reporter=line,json
+          --output=test-results/hero-celebration
+      - name: Require an executed passing celebration case
+        run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/hero-celebration.json
+      - name: Retain scoped celebration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hero-celebration-proof-${{ github.run_id }}
+          path: |
+            e2e-report/hero-celebration.json
+            test-results/hero-celebration/
+          if-no-files-found: warn
+          retention-days: 14
+
   # Explicit one-client transport proof. This never publishes or changes source flags.
   private-record-client-proof:
     needs: certification-cleanup-safety
     # The focused event skips publication-gate; require successful cleanup
     # explicitly so that skipped ancestor cannot suppress the actual proof.
-    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof'
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-private-record-client-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Exact published private record client failover proof
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 15
     permissions:
       contents: read
@@ -141,6 +250,15 @@ jobs:
       group: private-record-client-proof-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -243,17 +361,28 @@ jobs:
     needs: certification-cleanup-safety
     # The focused event deliberately skips publication-gate. Evaluate this
     # lane despite that ancestor, but never bypass cleanup qualification.
-    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof'
+    if: always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' && github.event_name == 'repository_dispatch' && github.event.action == 'run-stats-pagination-proof' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Exact published Stats pagination proof
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
     concurrency:
       group: stats-pagination-proof-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -363,9 +492,11 @@ jobs:
     name: Witness fixed PLO Lightning startup and departure
     needs: certification-cleanup-safety
     if: >-
-      always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' &&
+      (always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' &&
       github.event_name == 'repository_dispatch' && github.event.action == 'run-plo-lightning-lifecycle-proof' && github.ref == 'refs/heads/main'
+      && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e'))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-24.04
+    environment: ci-main
     timeout-minutes: 60
     concurrency:
       group: plo-lightning-lifecycle-proof
@@ -374,6 +505,15 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -410,7 +550,10 @@ jobs:
           retention-days: 30
 
   publication-gate:
-    if: github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof')
+    # A workflow_run listener matches its sender by NAME, which any workflow on
+    # any branch can carry: admit only the exact publisher file, started by its
+    # own events on this repository's main.
+    if: (github.event_name != 'repository_dispatch' || (github.event.action != 'run-stats-pagination-proof' && github.event.action != 'run-private-record-client-proof' && github.event.action != 'run-plo-lightning-lifecycle-proof' && github.event.action != 'run-hero-celebration-proof')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.path == '.github/workflows/publish-club-arena.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'repository_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'))
     name: Confirm The Hetzner Web Publish Reached Production
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -418,22 +561,37 @@ jobs:
       actions: read
       contents: read
     outputs:
-      should_run: ${{ steps.origin.outputs.should_run }}
+      # Nothing downstream runs, checks out or installs a selected revision
+      # unless the last step proved every one is on protected main.
+      should_run: ${{ steps.on-main.outputs.proved == 'true' && steps.origin.outputs.should_run || '' }}
       engine_trigger_sha: ${{ steps.origin.outputs.engine_trigger_sha }}
       client_navigation: ${{ steps.origin.outputs.client_navigation }}
       tournament_only: ${{ steps.origin.outputs.tournament_only }}
       keep_game_pages: ${{ steps.origin.outputs.keep_game_pages }}
+      cash_observation: ${{ steps.origin.outputs.cash_observation }}
       natural_addon: ${{ steps.origin.outputs.natural_addon }}
       natural_board_reveal: ${{ steps.origin.outputs.natural_board_reveal }}
-      client_target_sha: ${{ steps.board-client.outputs.sha || steps.client-target.outputs.sha }}
-      verification_sha: ${{ steps.client-target.outputs.verification_sha }}
+      client_target_sha: ${{ steps.on-main.outputs.proved == 'true' && (steps.board-client.outputs.sha || steps.client-target.outputs.sha) || '' }}
+      verification_sha: ${{ steps.on-main.outputs.proved == 'true' && steps.client-target.outputs.verification_sha || '' }}
     steps:
       - name: Checkout trusted publication verification
-        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
+        if: github.event_name == 'workflow_run' || (github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.client_navigation) != 'null' || toJSON(github.event.client_payload.tournament_only) != 'null' || toJSON(github.event.client_payload.keep_game_pages) != 'null' || toJSON(github.event.client_payload.cash_observation) != 'null' || toJSON(github.event.client_payload.natural_board_reveal) != 'null'))
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           filter: blob:none
+      - name: The source run is the exact publisher on protected main
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          timeout 30s gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+            | node scripts/ci/production-e2e-provenance.mjs publisher-run "$SOURCE_RUN_ID" "$SOURCE_TRIGGER_SHA" "$REPOSITORY_ID"
+          bash scripts/ci/selected-revision-is-on-main.sh "$SOURCE_TRIGGER_SHA"
       # workflow_run.conclusion covers the whole publisher, including the
       # optional Capgo job. A Capgo failure after a verified web publish must
       # never suppress web E2E, so read the exact origin job and its proof step.
@@ -485,14 +643,15 @@ jobs:
                   throw new Error("Natural add-on observation requires one tournament UUID, exact engine SHA and no other mode.");'
               echo 'natural_addon=true' >> "$GITHUB_OUTPUT"
             fi
-            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages")) ? 0 : 1)'; then
-              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit(Object.hasOwn(p,"keep_game_pages") ? 0 : 1)'; then
+            if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD || "null"); process.exit(p && (Object.hasOwn(p,"client_navigation") || Object.hasOwn(p,"keep_game_pages") || Object.hasOwn(p,"cash_observation")) ? 0 : 1)'; then
+              if node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); process.exit((Object.hasOwn(p,"keep_game_pages") || Object.hasOwn(p,"cash_observation")) ? 0 : 1)'; then
                 [ "${EVENT_ACTION:-}" = run-post-deploy-e2e ] \
                   || { echo '::error::keep_game_pages requires the existing post-deploy event.'; exit 1; }
               fi
               node scripts/ci/client-navigation-certificate.mjs admit
               echo 'client_navigation=true' >> "$GITHUB_OUTPUT"
               node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("keep_game_pages=" + (p.keep_game_pages === true));' >> "$GITHUB_OUTPUT"
+              node -e 'const p=JSON.parse(process.env.CLIENT_NAVIGATION_PAYLOAD); console.log("cash_observation=" + (p.cash_observation === true));' >> "$GITHUB_OUTPUT"
               echo 'engine_trigger_sha=' >> "$GITHUB_OUTPUT"
               echo 'should_run=true' >> "$GITHUB_OUTPUT"
               exit 0
@@ -799,6 +958,22 @@ jobs:
               publisher-artifact "$SOURCE_RUN_ID" "$SOURCE_TRIGGER_SHA" "$REPOSITORY_ID")
           echo "sha=$SELECTED_SHA" >> "$GITHUB_OUTPUT"
           echo "Publisher run $SOURCE_RUN_ID selected client \`$SELECTED_SHA\` (trigger \`$SOURCE_TRIGGER_SHA\`)." >> "$GITHUB_STEP_SUMMARY"
+      # Every revision a later job checks out is proved on protected main here,
+      # from this trusted tree, before any of them is used (outputs above).
+      - name: Every selected revision is on protected main
+        id: on-main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha || '' }}
+          BOARD_SHA: ${{ steps.board-client.outputs.sha || '' }}
+          CLIENT_SHA: ${{ steps.client-target.outputs.sha || '' }}
+          VERIFICATION_SHA: ${{ steps.client-target.outputs.verification_sha || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SOURCE_TRIGGER_SHA$BOARD_SHA$CLIENT_SHA$VERIFICATION_SHA" ]; then
+            bash scripts/ci/selected-revision-is-on-main.sh "$SOURCE_TRIGGER_SHA" "$BOARD_SHA" "$CLIENT_SHA" "$VERIFICATION_SHA"
+          fi
+          echo 'proved=true' >> "$GITHUB_OUTPUT"
 
   # DISCOVERABILITY PHASE 3 (2026-09-17). What a crawler gets from production,
   # checked against what the deployed bundle says it published: build-info,
@@ -840,13 +1015,14 @@ jobs:
     # player route. A failed/skipped origin job makes the gate red, never green
     # without executing the browser suite. Optional downstream failures cannot
     # hide a successful web release.
-    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true'
+    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Client browser verification
     # This trusted workflow can receive production database credentials. Run it
     # on a fresh hosted image, never on a persistent runner that has executed
     # pull-request code.
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
+    environment: ci-main
     # Serialize only jobs that will really touch the shared production test
     # accounts. Gate-only no-op runs never occupy this lock.
     #
@@ -863,7 +1039,10 @@ jobs:
     # cancel-in-progress true would instead kill the running certificate on
     # every merge; see tests/unit/postDeployE2EConcurrency.test.ts.
     concurrency:
-      group: post-deploy-e2e-production
+      # This fixed read-only journey owns a unique zero-balance fixture, so it
+      # does not contend with the broad suite's separate account. Repeated
+      # explicit requests still serialize; the broad suite keeps its group.
+      group: ${{ needs.publication-gate.outputs.cash_observation == 'true' && 'post-deploy-e2e-cash-observation' || 'post-deploy-e2e-production' }}
       cancel-in-progress: false
     # Cashier, the isolated stateful groups, and the responsive route sweep
     # normally finish well below this ceiling. Runs 37397055463 and
@@ -883,6 +1062,15 @@ jobs:
       phase1_certified: ${{ steps.phase1_verdict.outcome == 'success' && steps.phase1_verdict.outputs.certified == 'true' }}
 
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -1016,6 +1204,8 @@ jobs:
       - name: Take the specs from the commit production is actually serving
         if: steps.live.outputs.ready == 'true'
         id: align
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           LIVE='${{ steps.live.outputs.sha }}'
@@ -1062,6 +1252,16 @@ jobs:
               exit 1
             fi
             echo "Retained runtime \`$RETAINED\` was superseded by \`$LIVE\` before the browsers started; certifying the release production actually serves." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ '${{ needs.publication-gate.outputs.cash_observation }}' = true ] && [ "$LIVE" != "$HERE" ] && git merge-base --is-ancestor "$LIVE" "$HERE"; then
+            # Reuse the existing exact publisher receipt. It proves the complete
+            # protected verification source has identical qualified runtime inputs
+            # and still matches both actual origins. No caller-selected source.
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            node scripts/ci/client-runtime-retention.mjs focused-harness "$LIVE" "$HERE"
+            echo "specs=$HERE" >> "$GITHUB_OUTPUT"
+            echo "Cash observation uses qualified verification source \`$HERE\` for retained live runtime \`$LIVE\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           RELATION=$(node scripts/ci/production-e2e-provenance.mjs lineage "$LIVE" "$HERE")
           if [ "$RELATION" = same ]; then
@@ -1274,6 +1474,17 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/ci/production-e2e-account.mjs cleanup-first-run
+
+      # Retain this finite certificate after its immediate cleanup, before the
+      # unrelated broad sweep. Only the existing report is uploaded, never auth.
+      - name: Retain the first-run Terms receipt after immediate cleanup
+        if: always() && steps.live.outputs.ready == 'true' && steps.first_run_account.outcome == 'success' && steps.first_run.outcome != 'skipped' && steps.first_run.outcome != '' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: first-run-terms-${{ github.run_id }}-${{ github.run_attempt }}
+          path: e2e-report/first-run-iphone.json
+          if-no-files-found: error
+          retention-days: 3
 
       # WHICH RELEASE DID THE LIGHTNING OPERATOR CERTIFICATE RUN AGAINST?
       #
@@ -1538,13 +1749,31 @@ jobs:
           run_suite customization-realtime.json tests/e2e/production-customization-realtime.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
           customization_realtime_rc=$?; [ $customization_realtime_rc -ne 0 ] && rc=$customization_realtime_rc
 
-          run_suite gameplay-customization-runtime.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
+          # ONE JOURNEY, BY ITS OWN DESCRIBE (2026-11-15). The spec file gained a
+          # second case on 2026-11-11 (the published hero showdown celebration,
+          # #10466). Run whole, the file reported two specs, and the Phase 1
+          # coverage contract, which accepts exactly one, answered NON-VERDICT
+          # whatever the two cases did: in run 43643304336 both passed; in
+          # 43635213490 and 43652573106 the celebration case failed because
+          # ca-static's build-info was already ahead of this job's LIVE_SHA.
+          # The grep is the contracted journey's describe; dots stand for its
+          # spaces because run_suite word-splits its flags. The celebration case
+          # still runs on every publication, right after the bracket below, into
+          # its own report. tests/unit/phase1CustomizationCertificateCoverage.test.ts
+          # pins both selections.
+          run_suite gameplay-customization-runtime.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=production.routed.gameplay.customization.mobile.table.art --reporter=line,json --workers=1 --retries=0
           gameplay_customization_runtime_rc=$?; [ $gameplay_customization_runtime_rc -ne 0 ] && rc=$gameplay_customization_runtime_rc
 
           run_suite customization-commerce.json tests/e2e/production-customization-commerce.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
           customization_commerce_rc=$?; [ $customization_commerce_rc -ne 0 ] && rc=$customization_commerce_rc
 
           read_release release-bracket/phase1-after.json
+
+          # The other case of that file, outside the Phase 1 bracket: it is not
+          # one of the three contracted journeys, and it stays red and visible
+          # here when it fails.
+          run_suite gameplay-hero-celebration.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=published.hero.showdown.celebrations.only.an.awarded.hero --reporter=line,json --workers=1 --retries=0
+          gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc
 
           # Certify Stats first among the broader route checks. Cashier has its
           # own preceding release gate so this suite cannot hide its verdict.
@@ -1654,7 +1883,7 @@ jobs:
           node "$RUNNER_TEMP/tournament-client-certificate.mjs" browser e2e-report/tournament-browser.json
 
       - name: Verify only the two client navigation repairs
-        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        if: needs.publication-gate.outputs.client_navigation == 'true' && needs.publication-gate.outputs.keep_game_pages != 'true' && needs.publication-gate.outputs.cash_observation != 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -1699,6 +1928,27 @@ jobs:
             --trace=retain-on-failure --output=test-results/keep-game-pages
           browser_rc=$?
           node "$RUNNER_TEMP/client-navigation-certificate.mjs" keep-game-pages-reports e2e-report/keep-game-pages.json
+          proof_rc=$?
+          [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
+
+      - name: Verify the four-game cash observation journey
+        id: cash_observation
+        if: needs.publication-gate.outputs.cash_observation == 'true' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && steps.template_access.outcome == 'success'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+        run: |
+          set +e
+          mkdir -p e2e-report
+          PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/cash-observation.json npx playwright test \
+            tests/e2e/production-mobile-lobby-chrome.spec.ts \
+            --grep '^.*(View Game opens four spectator games while preserving the lobby page|clustered cash admission explains wallet requirements and preserves observation)$' \
+            --project=chromium --project=webkit-footer --reporter=line,json --workers=1 --retries=0 \
+            --trace=retain-on-failure --output=test-results/cash-observation
+          browser_rc=$?
+          node "$RUNNER_TEMP/client-navigation-certificate.mjs" cash-observation-reports e2e-report/cash-observation.json
           proof_rc=$?
           [ "$browser_rc" -eq 0 ] && [ "$proof_rc" -eq 0 ]
 
@@ -1749,6 +1999,7 @@ jobs:
           e2e-report/table-management.json
           e2e-report/customization-realtime.json
           e2e-report/gameplay-customization-runtime.json
+          e2e-report/gameplay-hero-celebration.json
           e2e-report/customization-commerce.json
           e2e-report/daily-missions.json
           e2e-report/daily-missions-accessibility.json
@@ -1770,6 +2021,7 @@ jobs:
           e2e-report/table-management.json
           e2e-report/customization-realtime.json
           e2e-report/gameplay-customization-runtime.json
+          e2e-report/gameplay-hero-celebration.json
           e2e-report/customization-commerce.json
           e2e-report/daily-missions.json
           e2e-report/daily-missions-accessibility.json
@@ -1781,6 +2033,14 @@ jobs:
       # customization journey pass exactly once, without a skip or retry?
       # Report that answer independently so a Club Data or Financial Admin
       # defect cannot either impersonate or erase the Phase 1 evidence.
+      # A skipped case exits 0, and the shared check above counts by spec file,
+      # so the gameplay journey's execution would cover for a skipped
+      # celebration case. This report is therefore checked alone; a report
+      # that executed nothing fails the job (2026-11-15, review of #10905).
+      - name: Did the hero celebration case actually execute?
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json
+
       - name: Did every Phase 1 customization journey pass exactly?
         id: phase1_coverage
         if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
@@ -2021,10 +2281,11 @@ jobs:
   # publication, and exact immutable engine certification after engine cutover.
   live-table-e2e:
     needs: [publication-gate, certification-cleanup-safety]
-    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true'
+    if: needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     name: Live-table and engine verification
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
+    environment: ci-main
     # Preserve the existing prerequisite, maintenance-wait and cleanup margin.
     # The daily maintenance announcement can defer a certificate's start;
     # await-engine-gameplay separately waits for the exact engine to resume.
@@ -2036,6 +2297,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'repository_dispatch' && (toJSON(github.event.client_payload.mobile_multirun) == 'true' || toJSON(github.event.client_payload.horse_social) == 'true') && 148 || 126 }}
     permissions:
       contents: read
+      actions: read
     # An explicit passive observation owns a distinct serialized queue.
     # Natural add-ons cannot wait behind or be superseded by ordinary publishes:
     # their fixed window is observed with a unique, zero-balance identity too.
@@ -2045,14 +2307,26 @@ jobs:
     # These lanes create fresh disposable Auth principals;
     # their table cases are read-only and cleanup owns only that exact account.
     # Client browser checks retain their original shared write-serialization.
+    # The admitted exact engine pin also owns a static independent queue.
+    # A later ordinary publication must not evict the sealed engine's pending
+    # proof before any runner starts (43982351815/job133702100338).
     concurrency:
-      group: ${{ github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_board_reveal == 'true' && 'post-deploy-live-table-natural-board-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_addon == 'true' && 'post-deploy-live-table-natural-addon-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' && 'post-deploy-live-table-multirun-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' && toJSON(github.event.client_payload.mobile_multirun) == 'null' && 'post-deploy-live-table-horse-social-production' || 'post-deploy-live-table-production' }}
+      group: ${{ github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_board_reveal == 'true' && 'post-deploy-live-table-natural-board-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.natural_addon == 'true' && 'post-deploy-live-table-natural-addon-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' && 'post-deploy-live-table-multirun-production' || github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' && toJSON(github.event.client_payload.mobile_multirun) == 'null' && 'post-deploy-live-table-horse-social-production' || github.event_name == 'repository_dispatch' && needs.publication-gate.outputs.engine_trigger_sha != '' && 'post-deploy-live-table-engine-production' || 'post-deploy-live-table-production' }}
       cancel-in-progress: false
     outputs:
       client_sha: ${{ steps.live.outputs.sha }}
       engine_sha: ${{ steps.engine.outputs.sha }}
       certified: ${{ steps.release_window.outcome == 'success' && steps.release_window.outputs.certified == 'true' }}
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -2353,7 +2627,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/ci/production-e2e-account.mjs create
+        run: node scripts/ci/production-e2e-account.mjs create-spectator
 
       # Union boards (MTT, SPIN, SNG) are readable only by members of a club in
       # the union's scope. Without this the identity could read the platform
@@ -2396,7 +2670,46 @@ jobs:
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
           EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/live-table-realtime.json
+          # Retain stderr from this job's own browser. Kernel evidence showed
+          # voluntary WPE exit(1), without a signal or OOM; its reason is native.
+          DEBUG: pw:browser
         run: |
+          # A page crash loses renderer evidence from the Playwright trace.
+          # Keep kernel evidence scoped to this browser invocation on a failed run.
+          date +%s > "$RUNNER_TEMP/live-table-webkit-start"
+          # Record kernel-generated and user-sent signals without attaching to WebKit.
+          # The probe records process names and numeric status in a private runner trace.
+          trace=/sys/kernel/tracing/instances/live-table-webkit
+          if sudo mkdir "$trace"; then
+            finish_trace() {
+              sudo cat "$trace/trace"
+              sudo rmdir "$trace"
+            }
+            trap finish_trace EXIT
+            if sudo bash -eu -s -- "$trace" <<'TRACE'
+          cd "$1"
+          echo 64 > buffer_size_kb
+          filter='(comm ~ "WebKit*" || comm ~ "WPE*" || comm ~ "MiniBrowser*")'
+          echo "$filter && (sig == 4 || sig == 6 || sig == 7 || sig == 9 || sig == 11 || sig == 15)" > events/signal/signal_generate/filter
+          echo "$filter" > events/sched/sched_process_exit/filter
+          echo 1 > events/signal/signal_generate/enable
+          echo 1 > events/sched/sched_process_exit/enable
+          # WPE exited with code 1 in a failed menu interaction. These built-in
+          # syscall events retain voluntary exit codes in this instance. The
+          # signal and scheduler events above record fatal signals and exits.
+          for event in sys_enter_exit_group sys_enter_exit; do
+            echo '(COMM ~ "WebKit*" || COMM ~ "WPE*" || COMM ~ "MiniBrowser*")' > "events/syscalls/$event/filter"
+            echo 1 > "events/syscalls/$event/enable"
+          done
+          TRACE
+            then
+              echo "WebKit process signal/exit capture enabled; runner uptime: $(cut -d' ' -f1 /proc/uptime)s"
+            else
+              echo "::warning::WebKit kernel signal/exit capture unavailable on this image"
+            fi
+          else
+            echo "::warning::WebKit trace instance unavailable on this image"
+          fi
           if [ '${{ needs.publication-gate.outputs.tournament_only }}' = true ]; then
             npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
               --grep 'an already-running (MTT|SPIN|SNG) table stays realtime and recovers one owner$' \
@@ -2407,6 +2720,18 @@ jobs:
             npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
               --project=webkit-live-table-realtime --reporter=line,json --workers=1 --retries=0 \
               --output=test-results/live-table-realtime
+          fi
+
+      - name: Record WebKit process failures from the runner kernel
+        if: always() && (steps.continuity.outcome == 'success' || steps.continuity.outcome == 'failure')
+        run: |
+          started=$(cat "$RUNNER_TEMP/live-table-webkit-start")
+          # An empty search is expected on a voluntary process exit. Preserve
+          # journal read failures, and report an empty search as such.
+          journal="$RUNNER_TEMP/live-table-kernel-journal"
+          sudo journalctl --dmesg --since="@$started" --no-pager > "$journal"
+          if ! grep -Ei 'Out of memory|oom-kill|Killed process|WebKit.*segfault|WPE.*segfault|MiniBrowser.*segfault' "$journal"; then
+            echo 'No matching kernel OOM or segmentation-fault message.'
           fi
 
       # The move notice is presentation-only. Exercise the actual served
@@ -2814,9 +3139,10 @@ jobs:
   club-channel-lifecycle-e2e:
     name: Exact engine club channel lifecycle
     needs: [publication-gate, certification-cleanup-safety]
-    if: "needs.publication-gate.outputs.tournament_only != 'true' && needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != ''"
+    if: "needs.publication-gate.outputs.tournament_only != 'true' && needs.publication-gate.outputs.should_run == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && github.event_name == 'repository_dispatch' && github.event.client_payload.engine_sha != '' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')"
     # Playwright 1.58 supports Ubuntu 24.04; ubuntu-latest can select unsupported 26.04.
     runs-on: ubuntu-24.04
+    environment: ci-main
     # Up to 15m schedule lead + 12m thaw prerequisite + 15m case/fixture
     # allowance + setup and reserved-account cleanup, all bounded below.
     timeout-minutes: 60
@@ -2824,6 +3150,15 @@ jobs:
       group: post-deploy-club-channel-lifecycle-production
       cancel-in-progress: false
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.publication-gate.outputs.verification_sha || github.sha }}
@@ -2919,15 +3254,28 @@ jobs:
         needs.production-e2e.outputs.phase1_certified == 'true' &&
         needs.live-table-e2e.outputs.certified == 'true' &&
         needs.production-e2e.outputs.client_sha == needs.live-table-e2e.outputs.client_sha
+        && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) &&
+        !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
       }}
     name: Seal certified Phase 1 customization cutover
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
     outputs:
       sealed: ${{ steps.seal.outputs.sealed }}
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -3049,9 +3397,10 @@ jobs:
       - production-e2e
       - live-table-e2e
       - phase1-customization-cutover-seal
-    if: ${{ needs.publication-gate.outputs.tournament_only != 'true' && always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' }}
+    if: ${{ needs.publication-gate.outputs.tournament_only != 'true' && always() && needs.publication-gate.result != 'skipped' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.natural_addon != 'true' && needs.publication-gate.outputs.natural_board_reveal != 'true' && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}
     name: This verification admits its own verdict to the operational inbox
     runs-on: ubuntu-latest
+    environment: ci-main
     timeout-minutes: 6
     permissions:
       # actions: read lets the recorder read this run's own job record, so a
@@ -3060,6 +3409,15 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Prove a job-token dispatch is the exact intent its trusted sender recorded
+        if: ((endsWith(github.actor, '[bot]') && github.actor != 'smarter-poker-autopilot[bot]') || (endsWith(github.triggering_actor, '[bot]') && github.triggering_actor != 'smarter-poker-autopilot[bot]')) && github.event_name == 'repository_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
+          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver post-deploy-e2e
       # Full commit history, no blobs: a success closes an episode only when
       # its release descends from every release the episode failed on, and
       # that is read with git merge-base --is-ancestor. A shallow clone would
@@ -3112,6 +3470,8 @@ jobs:
               needs.production-e2e.outputs.phase1_certified == 'true' &&
               needs.live-table-e2e.outputs.certified == 'true' &&
               needs.production-e2e.outputs.client_sha == needs.live-table-e2e.outputs.client_sha
+              && (!((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) || (github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e')) &&
+              !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
             }}
         run: |
           set -euo pipefail
@@ -3152,6 +3512,7 @@ jobs:
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
+      - hero-celebration-proof
       - plo-lightning-lifecycle-proof
       - publication-gate
       - post-deploy-verdict

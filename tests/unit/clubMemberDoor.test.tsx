@@ -5,7 +5,7 @@
  * Back does not return to it. A chip club still gets its management screen.
  */
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,7 +15,12 @@ vi.mock('../../src/components/arena/arenaAccess', () => ({
   useAutomaticArenaMembership: () => state.automatic,
 }));
 vi.mock('../../src/pages/MemberManagementPage', () => ({
-  default: () => <div>Chip Member Management</div>,
+  default: () => (
+    <div>
+      Chip Member Management
+      <input aria-label="Visit Draft" defaultValue="" />
+    </div>
+  ),
 }));
 
 import ClubMemberDoor from '../../src/pages/ClubMemberDoor';
@@ -55,4 +60,13 @@ describe('ClubMemberDoor', () => {
     expect(screen.queryByText('Players Page')).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/clubs/some-chip-club/members/${MEMBER}`);
   });
+});
+
+it('starts a fresh visit when opening another member without leaving the member route', async () => {
+  const router = openAt(`/clubs/some-chip-club/members/${MEMBER}`);
+  fireEvent.change(screen.getByLabelText('Visit Draft'), { target: { value: 'old range' } });
+  await act(async () => {
+    await router.navigate('/clubs/some-chip-club/members/5b1c0d2e-0000-4000-8000-000000000002');
+  });
+  expect(screen.getByLabelText('Visit Draft')).toHaveValue('');
 });

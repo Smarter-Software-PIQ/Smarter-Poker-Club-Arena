@@ -337,7 +337,8 @@ async function persistEvaluation(args: {
     | 'rank-suit-count-v1'
     | 'holdem-board-relative-v2'
     | 'holdem-public-hist215-v1'
-    | 'holdem-public-hist215-v2';
+    | 'holdem-public-hist215-v2'
+    | 'holdem-public-hist215-v3';
   policy_export_schema?: 'smarter-poker.pio-policy.v4';
   datasetId: string;
   datasetChecksum: string;

@@ -1,5 +1,5 @@
-import { chicagoDay as isoDate, lastDaysRange } from '../lib/clubDataDay';
-import { usePlayerPreference } from '../hooks/usePlayerPreference';
+import ClubDataReturnLink from '../components/club/ClubDataReturnLink';
+import { lastDaysRange } from '../lib/clubDataDay';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  MEMBER MANAGEMENT - one member, everything about them
@@ -17,7 +17,7 @@ import { usePlayerPreference } from '../hooks/usePlayerPreference';
  * a second time and nothing here talks to Supabase directly except the two writes
  * that belong to it: the nickname/remark update, and the role change.
  *
- * THE RANGE CONTROL (requirement 5). Overall, 7 Days, or a chosen span. Both date
+ * THE RANGE CONTROL (requirement 5). Today, Overall, 7 Days, or a chosen span. Both date
  * fields are native `<input type="date">` - they are localised, keyboard
  * accessible and on iOS they open the system picker, none of which a hand-rolled
  * calendar grid gets for free. Changing the range re-asks the server; the stats
@@ -55,6 +55,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import MemberRakebackEditor from '../components/club/MemberRakebackEditor';
 import MemberCreditEditor from '../components/club/MemberCreditEditor';
 import RoleBadge, { roleColor } from '../components/club/RoleBadge';
+import MemberTransactionHistory from '../components/club/MemberTransactionHistory';
 import PlayerChangeHistory from '../components/club/PlayerChangeHistory';
 import ChipTransferModal from '../components/agent/ChipTransferModal';
 import MemberWatchAtTable from '../components/club/MemberWatchAtTable';
@@ -91,8 +92,29 @@ import ClubRosterService, {
 } from '../services/ClubRosterService';
 import './MemberManagementPage.css';
 import MemberCreditWalletRows from '../components/club/MemberCreditWalletRows';
+import { MemberPromoPlayThrough } from '../components/club/MemberPromoPlayThrough';
 
 const MEMBER_CREDENTIAL_ART = `${import.meta.env.BASE_URL}images/club-members/member-credential-v1.webp`;
+
+type WalletKey = 'chip_balance' | 'player_wallet' | 'agent_wallet' | 'promo_wallet';
+
+/**
+ * The record's exact decimal twin for one wallet, kept across a live wallet
+ * update only while the live number still equals the record's number. A new
+ * balance drops the twin, so the display can never pair old digits with a
+ * new figure.
+ */
+function keptTwin(
+  value: MemberDetail,
+  row: Partial<Record<WalletKey, number | null>>,
+  key: WalletKey
+): Partial<Record<`${WalletKey}_text`, string>> {
+  const wallets = value.wallets;
+  const text = wallets?.[`${key}_text`];
+  return wallets && text !== undefined && row[key] === wallets[key]
+    ? { [`${key}_text`]: text }
+    : {};
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    FORMATTING
@@ -112,9 +134,43 @@ function formatTimestamp(iso: string | null): string {
    THE RANGE CONTROL (requirement 5)
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-type RangeMode = 'overall' | 'week' | 'custom';
+function ActivityFigures({ stats }: { stats: NonNullable<MemberDetail['stats']> }) {
+  return (
+    <>
+      <StatRow label="Cash Hands" value={count(stats.hands)} />
+      <StatRow label="MTT Hands" value={count(stats.mtt_hands)} />
+      <StatRow
+        label="Cash Fees"
+        value={playerRecordMoney(stats.total_fee_text ?? stats.total_fee)}
+      />
+      <StatRow label="MTT Fees" value={playerRecordMoney(stats.mtt_fee_text ?? stats.mtt_fee)} />
+      <StatRow
+        label="Claimed Back"
+        value={playerRecordMoney(stats.claimed_back_text ?? stats.claimed_back)}
+      />
+      <StatRow label="Sent Out" value={playerRecordMoney(stats.sent_out_text ?? stats.sent_out)} />
+      <StatRow
+        label="Total Winnings"
+        value={
+          stats.total_winnings === null
+            ? 'Unavailable'
+            : playerRecordMoney(stats.total_winnings_text ?? stats.total_winnings, true)
+        }
+        signed={stats.total_winnings}
+      />
+      <StatRow
+        label="MTT Winnings"
+        value={playerRecordMoney(stats.mtt_winnings_text ?? stats.mtt_winnings, true)}
+        signed={stats.mtt_winnings}
+      />
+    </>
+  );
+}
+
+type RangeMode = 'day' | 'overall' | 'week' | 'custom';
 
 const RANGE_LABEL: Record<RangeMode, string> = {
+  day: 'Today',
   overall: 'Overall',
   week: '7 Days',
   custom: 'Select',
@@ -166,21 +222,13 @@ export default function MemberManagementPage() {
   const detailReadRevisionRef = useRef(0);
   const [downlineShown, setDownlineShown] = useState(DOWNLINE_RENDER_CAP);
 
-  const [rangeMode, setRangeMode] = usePlayerPreference<RangeMode>(
-    'MemberManagementPage:rangeMode',
-    'overall'
-  );
-  const [customFrom, setCustomFrom] = usePlayerPreference<string>(
-    'MemberManagementPage:customFrom',
-    () => isoDate(new Date())
-  );
-  const [customTo, setCustomTo] = usePlayerPreference<string>('MemberManagementPage:customTo', () =>
-    isoDate(new Date())
-  );
-  const [range, setRange] = usePlayerPreference<MemberRange>(
-    'MemberManagementPage:range',
-    RANGE_OVERALL
-  );
+  // A ledger window belongs to this visit, never to saved account preferences.
+  // Use one Chicago day for the inputs and the first server read.
+  const [initialRange] = useState(() => lastDaysRange(1));
+  const [rangeMode, setRangeMode] = useState<RangeMode>('day');
+  const [customFrom, setCustomFrom] = useState(initialRange.from);
+  const [customTo, setCustomTo] = useState(initialRange.to);
+  const [range, setRange] = useState<MemberRange>(initialRange);
 
   type WalletRow = {
     user_id: string;
@@ -217,6 +265,7 @@ export default function MemberManagementPage() {
       ...(!row.can_view_financials
         ? {
             stats: null,
+            activity_breakdown: undefined,
             downline: null,
             identity: value.identity
               ? {
@@ -240,6 +289,11 @@ export default function MemberManagementPage() {
               player_wallet: row.player_wallet,
               agent_wallet: row.agent_wallet,
               promo_wallet: row.promo_wallet,
+              // A live update keeps an exact twin only while its number is unchanged.
+              ...keptTwin(value, row, 'chip_balance'),
+              ...keptTwin(value, row, 'player_wallet'),
+              ...keptTwin(value, row, 'agent_wallet'),
+              ...keptTwin(value, row, 'promo_wallet'),
             }
           : null,
     };
@@ -254,7 +308,7 @@ export default function MemberManagementPage() {
   const applyAccessDenial = (value: MemberDetail, denied: MemberDetail): MemberDetail => ({
     ...value,
     ...(!denied.capabilities.can_view_financials
-      ? { stats: null, wallets: null, downline: null }
+      ? { stats: null, activity_breakdown: undefined, wallets: null, downline: null }
       : {}),
     capabilities: {
       ...denied.capabilities,
@@ -662,6 +716,9 @@ export default function MemberManagementPage() {
                   ? { ...refreshed.identity, avatar_url: avatarUrl }
                   : refreshed.identity,
                 stats: restricted.capabilities.can_view_financials ? authority.stats : null,
+                activity_breakdown: restricted.capabilities.can_view_financials
+                  ? authority.activity_breakdown
+                  : undefined,
                 downline: restricted.capabilities.can_view_financials ? authority.downline : null,
                 range: authority.range,
               };
@@ -744,6 +801,12 @@ export default function MemberManagementPage() {
       setRangeMode(mode);
       if (mode === 'overall') setRange(RANGE_OVERALL);
       if (mode === 'week') setRange(lastDaysRange(7));
+      if (mode === 'day') {
+        const today = lastDaysRange(1);
+        setRange(today);
+        setCustomFrom(today.from);
+        setCustomTo(today.to);
+      }
       // 'custom' waits for Confirm: re-fetching on every keystroke of a date field
       // would fire three times before the year is finished being typed.
     },
@@ -759,6 +822,7 @@ export default function MemberManagementPage() {
       toast.error('The Start Date Must Come Before The End Date');
       return;
     }
+    setRangeMode('custom');
     setRange({ from: customFrom, to: customTo });
   }, [customFrom, customTo, toast, setRange]);
 
@@ -860,6 +924,7 @@ export default function MemberManagementPage() {
   return (
     <div className="member-mgmt-page">
       <PageHeader onBack={() => navigate(-1)} />
+      <ClubDataReturnLink />
 
       {refreshFailed && (
         <div className="mm-stale" role="alert">
@@ -1066,7 +1131,7 @@ export default function MemberManagementPage() {
               ))}
             </div>
 
-            {rangeMode === 'custom' && (
+            {(rangeMode === 'custom' || rangeMode === 'day') && (
               <div className="mm-range__custom">
                 <label className="mm-date">
                   <span>From</span>
@@ -1110,11 +1175,12 @@ export default function MemberManagementPage() {
             <p className="mm-range__caption">
               Chicago Time, DST Automatic. Both Dates Included. Custom Dates Need Confirm.
             </p>
-            {rangeMode === 'custom' && (customFrom !== range.from || customTo !== range.to) && (
-              <p className="mm-range__draft" role="status">
-                Draft Dates Not Applied. Confirm To Update The Displayed Range.
-              </p>
-            )}
+            {(rangeMode === 'custom' || rangeMode === 'day') &&
+              (customFrom !== range.from || customTo !== range.to) && (
+                <p className="mm-range__draft" role="status">
+                  Draft Dates Not Applied. Confirm To Update The Displayed Range.
+                </p>
+              )}
           </section>
         )}
 
@@ -1141,10 +1207,16 @@ export default function MemberManagementPage() {
               </p>
               <p>
                 Claimed Back Counts Incoming Rakeback And Commission Transactions. Sent Out Counts
-                Outgoing Transfer, Send And Distribution Transactions In The Displayed Chicago
-                Window.
+                Outgoing Transfer, Send, Distribution, Rakeback And Commission Transactions In The
+                Displayed Chicago Window.
               </p>
               <p>Fees, Winnings And Transaction Totals Are Club Chip Wallet Amounts.</p>
+              {isAgentRole(identity!.role) && (
+                <p>
+                  Downline Only Includes Every Active Descendant Once. Agent + Downline Adds Their
+                  Activity To The Agent. Internal Sends Remain In The Sending Member's Activity.
+                </p>
+              )}
               <p>
                 Overall Means All Currently Recorded Activity. Older Activity May No Longer Be
                 Retained. Wallets And Downline Counts Are Current, Not Date-Filtered.
@@ -1153,26 +1225,30 @@ export default function MemberManagementPage() {
             {/* The RPC splits hands by tournament_id, and every other pair on
               this card is shown as cash / MTT. "Hands" was the cash half
               labelled as the whole; mtt_hands was fetched and never drawn. */}
-            <StatRow label="Cash Hands" value={count(stats.hands)} />
-            <StatRow label="MTT Hands" value={count(stats.mtt_hands)} />
-            <StatRow label="Cash Fees" value={playerRecordMoney(stats.total_fee)} />
-            <StatRow label="MTT Fees" value={playerRecordMoney(stats.mtt_fee)} />
-            <StatRow label="Claimed Back" value={playerRecordMoney(stats.claimed_back)} />
-            <StatRow label="Sent Out" value={playerRecordMoney(stats.sent_out)} />
-            <StatRow
-              label="Total Winnings"
-              value={
-                stats.total_winnings === null
-                  ? 'Unavailable'
-                  : playerRecordMoney(stats.total_winnings, true)
-              }
-              signed={stats.total_winnings}
-            />
-            <StatRow
-              label="MTT Winnings"
-              value={playerRecordMoney(stats.mtt_winnings, true)}
-              signed={stats.mtt_winnings}
-            />
+            {isAgentRole(identity!.role) ? (
+              <>
+                <section aria-label="Agent Only">
+                  <h3 className="mm-card__title">Agent Only</h3>
+                  <ActivityFigures stats={stats} />
+                </section>
+                {detail!.activity_breakdown ? (
+                  <>
+                    <section aria-label="Downline Only">
+                      <h3 className="mm-card__title">Downline Only</h3>
+                      <ActivityFigures stats={detail!.activity_breakdown.downline} />
+                    </section>
+                    <section aria-label="Agent + Downline">
+                      <h3 className="mm-card__title">Agent + Downline</h3>
+                      <ActivityFigures stats={detail!.activity_breakdown.combined} />
+                    </section>
+                  </>
+                ) : (
+                  <p role="status">The Downline Activity Breakdown Is Unavailable.</p>
+                )}
+              </>
+            ) : (
+              <ActivityFigures stats={stats} />
+            )}
           </section>
         )}
 
@@ -1183,14 +1259,32 @@ export default function MemberManagementPage() {
             <h2 className="mm-card__title">Wallets</h2>
             {/* chip_balance and player_wallet are the same club_members row
               read twice; two labels on one number read as two wallets. */}
-            <StatRow label="Player Wallet" value={formatWalletChips(wallets.player_wallet)} />
-            <StatRow label="Agent Wallet" value={formatWalletChips(wallets.agent_wallet)} />
-            <StatRow label="Promo Wallet" value={formatWalletChips(wallets.promo_wallet)} />
+            <StatRow
+              label="Balance"
+              value={formatWalletChips(wallets.player_wallet_text ?? wallets.player_wallet)}
+            />
+            <StatRow
+              label="Agent Wallet"
+              value={formatWalletChips(wallets.agent_wallet_text ?? wallets.agent_wallet)}
+            />
+            <StatRow
+              label="Promo Wallet"
+              value={formatWalletChips(wallets.promo_wallet_text ?? wallets.promo_wallet)}
+            />
           </section>
+        )}
+        {wallets && resolvedClubId && userId && (
+          <MemberPromoPlayThrough
+            key={`promo:${resolvedClubId}:${userId}`}
+            canOverride={myRoleLoaded && ['owner', 'co_owner', 'admin'].includes(myRole)}
+            clubId={resolvedClubId}
+            userId={userId}
+            revision={recordRevision}
+          />
         )}
         {wallets && resolvedClubId && userId && isAgentRole(identity!.role) && (
           <MemberCreditWalletRows
-            key={`${resolvedClubId}:${userId}`}
+            key={`credit:${resolvedClubId}:${userId}`}
             clubId={resolvedClubId}
             userId={userId}
             role={identity!.role}
@@ -1241,8 +1335,15 @@ export default function MemberManagementPage() {
                     {d.player_number && (
                       <span className="mm-downline__number">No. {d.player_number}</span>
                     )}
-                    <span className="mm-downline__fees" title="Fees Generated">
-                      {playerRecordMoney(d.total_fees)}
+                    <span className="mm-downline__money">
+                      <span className="mm-downline__fees" title="Fees Generated">
+                        <span className="mm-downline__money-label">Fees</span>
+                        {playerRecordMoney(d.total_fees_text ?? d.total_fees)}
+                      </span>
+                      <span className="mm-downline__balance" title="Player Balance">
+                        <span className="mm-downline__money-label">Balance</span>
+                        {playerRecordMoney(d.chip_balance_text ?? d.chip_balance)}
+                      </span>
                     </span>
                     <span className="mm-downline__open" aria-hidden="true">
                       ›
@@ -1267,6 +1368,20 @@ export default function MemberManagementPage() {
             )}
           </section>
         )}
+
+        {detail!.capabilities.can_view_financials &&
+          resolvedClubId &&
+          memberUuid &&
+          user?.id &&
+          myRoleLoaded && (
+            <MemberTransactionHistory
+              key={`${resolvedClubId}:${memberUuid}:${user.id}:${myRole}`}
+              clubId={resolvedClubId}
+              memberId={memberUuid}
+              revision={recordRevision}
+              scope={memberUuid === user.id ? 'mine' : isClubStaff(myRole) ? 'club' : 'downline'}
+            />
+          )}
 
         {/* ── Role ─────────────────────────────────────────────────────────── */}
 
@@ -1321,7 +1436,7 @@ export default function MemberManagementPage() {
               className="mm-nav__row"
               onClick={() =>
                 navigate(
-                  `/clubs/${clubId}/members/${identity!.user_id}/statistics?${memberRangeSearch(rangeMode, range)}`
+                  `/clubs/${clubId}/members/${identity!.user_id}/statistics?${new URLSearchParams({ ...Object.fromEntries(searchParams), ...Object.fromEntries(new URLSearchParams(memberRangeSearch(rangeMode, range))) })}`
                 )
               }
             >

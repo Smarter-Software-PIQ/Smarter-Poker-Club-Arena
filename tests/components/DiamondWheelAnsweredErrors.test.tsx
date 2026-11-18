@@ -147,6 +147,28 @@ afterEach(() => {
 });
 
 describe('an error the database answered is an answer', () => {
+  it('uses the version5 endpoint only when its paid quote advertises5', async () => {
+    backend.state.mockResolvedValue({ ...state, contract_version: 5 });
+    rpc.mockResolvedValue({ data: { ok: false, error: 'Test Refusal' }, error: null } as never);
+    await ready();
+    await spin();
+    const sends = rpc.mock.calls.filter(([fn]) => fn === 'fn_wheel_spin_v5');
+    expect(sends).toHaveLength(1);
+    expect(sends[0][1]).toMatchObject({ p_entry_diamonds: 100, p_mode: 'paid' });
+    expect(spinCalls()).toHaveLength(0);
+    expect(readWheelPending('player', CLUB)).toBeNull();
+  });
+  it('shows an old-tab refresh refusal verbatim without resending or trapping the wallet', async () => {
+    const message = 'Refresh Diamond Spins To Load The Updated Wheel. No Diamonds Were Spent';
+    spinAnswers(() => ({ data: { ok: false, error: message }, error: null }));
+    await ready();
+    await spin();
+    expect(backend.toast.error).toHaveBeenCalledWith(message);
+    expect(readWheelPending('player', CLUB)).toBeNull();
+    expect(held()).toBe(false);
+    await tick(60_000);
+    expect(spinCalls()).toHaveLength(1);
+  });
   it.each([
     ['a constraint the spin broke', '23514'],
     ['a refusal the function raised', 'P0001'],

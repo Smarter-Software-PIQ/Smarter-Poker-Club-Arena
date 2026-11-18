@@ -7,7 +7,11 @@ import type {
   RakeSnapshot,
   RakeSortKey,
 } from '../services/ClubRakeSnapshotService';
-import { chicagoDay } from '../lib/clubDataDay';
+import { chicagoDay, accountingDay, type ClubDataCoverage } from '../lib/clubDataDay';
+import {
+  parseClubDataReconciliation,
+  type ClubDataReconciliation,
+} from '../lib/clubDataReconciliation';
 import {
   fetchClubDataExport,
   type ClubDataExportProgress,
@@ -31,6 +35,10 @@ export interface RakeExportMetadata {
   club_id: string | null;
   union_id: string | null;
   agent_user_id: string | null;
+  day_basis?: string;
+  accounting_basis?: RakeSnapshot['accounting_basis'];
+  reconciliation?: ClubDataReconciliation | null;
+  accounting_coverage?: ClubDataCoverage | null;
   date_from: string;
   date_to: string;
   search: string | null;
@@ -58,6 +66,7 @@ export interface RakeSnapshotExportResult extends RakeExportReceipt {
 
 export interface FetchRakeSnapshotExportOptions {
   rpc: ClubDataExportRpc;
+  reportBasis?: 'calendar' | 'pacific';
   scope: RakeScope;
   scopeId: string;
   start: string;
@@ -74,6 +83,7 @@ export interface FetchRakeSnapshotExportOptions {
 }
 
 interface ExpectedRakeExportIdentity {
+  reportBasis: 'calendar' | 'pacific';
   scope: RakeScope;
   scopeId: string;
   start: string;
@@ -148,11 +158,15 @@ function shiftUtcDate(value: string, days: number): string {
 
 /** Mirrors the Rake start door's Chicago-day/two-year date normalization
  *  (ca_rake_export_start_v2 clamps to the America/Chicago date, 20261022120121). */
-function normalizeRakeExportRange(start: string, end: string): { start: string; end: string } {
+function normalizeRakeExportRange(
+  start: string,
+  end: string,
+  reportBasis: 'calendar' | 'pacific'
+): { start: string; end: string } {
   if (!isIsoDate(start) || !isIsoDate(end)) {
     throw new Error('The Rake export date range is invalid.');
   }
-  const today = chicagoDay();
+  const today = reportBasis === 'pacific' ? accountingDay() : chicagoDay();
   const normalizedEnd = end > today ? today : end;
   const earliest = shiftUtcDate(normalizedEnd, -730);
   let normalizedStart = start < earliest ? earliest : start;
@@ -236,6 +250,8 @@ function metadataIdentity(metadata: RakeExportMetadata): string {
     metadata.club_id,
     metadata.union_id,
     metadata.agent_user_id,
+    metadata.day_basis ?? null,
+    metadata.accounting_basis ?? null,
     metadata.date_from,
     metadata.date_to,
     metadata.search,
@@ -246,6 +262,8 @@ function metadataIdentity(metadata: RakeExportMetadata): string {
     metadata.breakdown_total,
     metadata.commission_total,
     metadata.contains_admin_commission,
+    metadata.reconciliation ?? null,
+    metadata.accounting_coverage ?? null,
   ]);
 }
 
@@ -267,6 +285,7 @@ export function parseRakeExportMetadata(
     value.club_id !== expectedClubId ||
     value.union_id !== expectedUnionId ||
     value.agent_user_id !== expectedAgentId ||
+    (expected.reportBasis === 'pacific' && value.day_basis !== 'America/Los_Angeles 00:00') ||
     value.date_from !== expected.start ||
     value.date_to !== expected.end ||
     value.search !== expected.search ||
@@ -278,6 +297,12 @@ export function parseRakeExportMetadata(
     !isTimestamp(value.generated_at) ||
     !isNonEmptyString(value.scope_label) ||
     !isFiniteNumber(value.breakdown_total) ||
+    (value.reconciliation !== undefined &&
+      value.reconciliation !== null &&
+      !parseClubDataReconciliation(value.reconciliation)) ||
+    (value.accounting_coverage !== undefined &&
+      value.accounting_coverage !== null &&
+      !validAccountingCoverage(value.accounting_coverage)) ||
     !isNullableFiniteNumber(value.commission_total) ||
     typeof value.contains_admin_commission !== 'boolean' ||
     (expected.scope !== 'club' &&
@@ -287,6 +312,23 @@ export function parseRakeExportMetadata(
   }
 
   return value as unknown as RakeExportMetadata;
+}
+
+function validAccountingCoverage(value: unknown): value is ClubDataCoverage {
+  if (!isRecord(value)) return false;
+  for (const key of ['complete', 'provisional']) {
+    if (value[key] !== undefined && typeof value[key] !== 'boolean') return false;
+  }
+  for (const key of [
+    'missing_days',
+    'failed_days',
+    'not_invoice_exact_days',
+    'awaiting_boundary_days',
+  ]) {
+    if (value[key] !== undefined && (!Array.isArray(value[key]) || !value[key].every(isIsoDate)))
+      return false;
+  }
+  return true;
 }
 
 function parseRakeExportReceipt(
@@ -343,12 +385,17 @@ function rakePageMatchesReceipt(
 export async function fetchRakeSnapshotExport(
   options: FetchRakeSnapshotExportOptions
 ): Promise<RakeSnapshotExportResult> {
-  const range = normalizeRakeExportRange(options.start, options.end);
+  const range = normalizeRakeExportRange(
+    options.start,
+    options.end,
+    options.reportBasis ?? 'calendar'
+  );
   const sort = normalizeRakeExportSort(options.scope, options.sort);
   const search = normalizeRakeExportSearch(options.search);
   const agentUserId =
     options.scope === 'agent' ? (options.agentUserId ?? options.viewerUserId) : null;
   const expected: ExpectedRakeExportIdentity = {
+    reportBasis: options.reportBasis ?? 'calendar',
     scope: options.scope,
     scopeId: options.scopeId,
     start: range.start,
@@ -361,7 +408,10 @@ export async function fetchRakeSnapshotExport(
 
   const rows = await fetchClubDataExport<RakeBreakdownRow>({
     rpc: options.rpc,
-    startRpc: 'ca_rake_export_start_v2',
+    startRpc:
+      options.reportBasis === 'pacific'
+        ? 'ca_rake_export_start_pacific_v2'
+        : 'ca_rake_export_start_v2',
     startArgs: {
       p_scope_type: options.scope,
       p_scope_id: options.scopeId,
@@ -405,6 +455,8 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
       'club_id',
       'union_id',
       'agent_user_id',
+      'day_basis',
+      'accounting_basis',
       'date_from',
       'date_to',
       'search',
@@ -426,6 +478,8 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
       result.metadata.club_id,
       result.metadata.union_id,
       result.metadata.agent_user_id,
+      result.metadata.day_basis ?? 'America/Chicago 00:00',
+      result.metadata.accounting_basis ?? '',
       result.metadata.date_from,
       result.metadata.date_to,
       result.metadata.search,
@@ -446,6 +500,52 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
 
 export function rakeSnapshotExportToCsv(result: RakeSnapshotExportResult): string {
   const lines = metadataCsv(result);
+  lines.push(
+    '',
+    'reconciliation_available',
+    String(result.metadata.reconciliation?.complete === true)
+  );
+  if (result.metadata.reconciliation) {
+    const r = result.metadata.reconciliation;
+    const keys = [
+      'complete',
+      'missing_days',
+      'bbj_gross',
+      'bbj_awards',
+      'bbj_net',
+      'cash_fee',
+      'cash_winnings',
+      'tournament_fee',
+      'tournament_winnings',
+      'cash_residual',
+      'tournament_flow_difference',
+    ] as const;
+    lines.push('', keys.map((key) => `reconciliation_${key}`).join(','));
+    lines.push(
+      keys
+        .map((key) => csvEscape(key === 'missing_days' ? JSON.stringify(r[key]) : r[key]))
+        .join(',')
+    );
+  }
+  if (result.metadata.accounting_coverage) {
+    const c = result.metadata.accounting_coverage;
+    lines.push(
+      '',
+      'accounting_complete,accounting_provisional,awaiting_boundary_days,missing_days,failed_days,not_invoice_exact_days'
+    );
+    lines.push(
+      [
+        c.complete,
+        c.provisional,
+        JSON.stringify(c.awaiting_boundary_days ?? []),
+        JSON.stringify(c.missing_days ?? []),
+        JSON.stringify(c.failed_days ?? []),
+        JSON.stringify(c.not_invoice_exact_days ?? []),
+      ]
+        .map(csvEscape)
+        .join(',')
+    );
+  }
   lines.push('');
 
   if (result.metadata.breakdown_kind === 'club') {

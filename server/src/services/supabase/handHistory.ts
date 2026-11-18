@@ -1,10 +1,21 @@
+import { resolveReleaseIdentity } from '../../releaseIdentity.js';
+import {
+  captureAcceptedTerminal,
+  readAcceptedTerminal,
+  type AcceptedTerminalTransport,
+} from '../horseDecisionJournal/acceptedTerminal.js';
+import { privateHorseTurnClocks } from '../../engine/HorseTurnClockReceipt.js';
 import {
   publicMemoryDomainIsValid,
   type HorsePublicMemoryDomain,
 } from '../../engine/HorsePublicMemoryDomain.js';
 import { readExactHorseOpponentProfiles } from '../HorseExactOpponentMemory.js';
 import { publicHandStatsFrame } from '../../engine/presentation/publicHandStats.js';
-import { horseOpponentMemorySchema, readHorseOpponentProfiles } from '../HorseOpponentMemory.js';
+import {
+  admitCompletedHandExactRead,
+  horseOpponentMemorySchema,
+  readHorseOpponentProfiles,
+} from '../HorseOpponentMemory.js';
 import { memoryVariant, type DurableOpponentProfile } from '../../engine/HorseOpponentMemory.js';
 /**
  * Supabase helpers — the 4-tier hand history writer (Bible V8 §2.18).
@@ -31,6 +42,8 @@ import { horseDailyRollupContract } from '../HorseDailyRollupContract.js';
 import { readScopeOf } from '../../engine/HorseMind.js';
 import { getLiveHorseDecisionWorker } from '../../engine/horseDecision/index.js';
 import { wakeHandProjection } from './handProjection.js';
+import { countLoggedHandMemoryDomain } from './handMemoryDomainSignal.js';
+import { countHandedOffHandMemoryDomain } from './handMemoryDomainReadback.js';
 import { bindHorseObservationIdentity } from '../../engine/HorseObservationIdentity.js';
 import {
   ACCEPTED_ROSTER_RESULT_FIELD,
@@ -51,6 +64,7 @@ import type { ReturnedRosterTransport } from '../horseAcceptedRoster/contract.js
  * maintenance lock, the lease proof, a lock timeout, a replayable postcommit)
  * is transient and keeps the ordinary retry.
  */
+
 export const RETAINED_HAND_STANDING_REFUSALS: ReadonlySet<string> = new Set([
   'HAND_SUBMISSION_TABLE_NOT_ADMITTED',
   'HAND_SUBMISSION_HANDOFF_STATE_CHANGED',
@@ -179,6 +193,52 @@ export async function resumeRetainedHandSubmission(
     !Number.isSafeInteger(handNumber)
   )
     throw new Error('retained_hand_submission_receipt_unproven');
+  // HVH2D-EXE-002: the one call whose transaction committed the retained
+  // hand counts it; a later call answers financial_handoff false.
+  if (data.financial_handoff === true) countHandedOffHandMemoryDomain(data.submission_id);
+  // Recovery has already settled the original request. Read its immutable
+  // terminal once; do not repeat settlement or any opponent-memory learning.
+  try {
+    const { data: committed, error: terminalError } = await supabase
+      .from('hand_atomic_commits')
+      .select(
+        'hand_id,table_id,hand_number,post_commit_completed_at,post_commit_payload_hash,post_commit_payload'
+      )
+      .eq('hand_id', data.submission_id)
+      .eq('table_id', tableId)
+      .eq('hand_number', handNumber)
+      .maybeSingle();
+    if (terminalError) throw terminalError;
+    const sourceRelease = resolveReleaseIdentity().releaseSha;
+    const terminal =
+      typeof committed?.post_commit_completed_at === 'string' &&
+      Number.isFinite(Date.parse(committed.post_commit_completed_at)) &&
+      committed.hand_id === data.submission_id &&
+      committed.table_id === tableId &&
+      Number(committed.hand_number) === handNumber &&
+      typeof data.post_commit_payload_hash === 'string' &&
+      /^[0-9a-f]{64}$/.test(data.post_commit_payload_hash) &&
+      committed.post_commit_payload_hash === data.post_commit_payload_hash
+        ? readAcceptedTerminal(
+            committed.post_commit_payload?.accepted_hand_facts?.horse_accepted_terminal,
+            { sourceRelease, tableId, handNumber, handId: data.submission_id }
+          )
+        : null;
+    const roster = acceptedRosterForObservation(data, tableId, handNumber, data.submission_id);
+    // A missing original capsule must not create a conflicting terminal.
+    if (terminal && sourceRelease && roster) {
+      void getLiveHorseDecisionWorker()
+        .observeCompletedHand({
+          ...terminal,
+          acceptedActorRoster: roster,
+          terminalOnlySourceRelease: sourceRelease,
+        })
+        .catch((cause) => reportError(cause, 'hand_submission.accepted_terminal_failed'));
+    }
+  } catch (cause) {
+    // A journal outage cannot change an already accepted financial outcome.
+    reportError(cause, 'hand_submission.accepted_terminal_failed');
+  }
   // Existing durable projection work owns notifications; a wake is not proof.
   void wakeHandProjection().catch((cause) => reportError(cause, 'hand_submission.projection_wake'));
   return { handNumber, submissionId: data.submission_id };
@@ -248,6 +308,7 @@ export interface AtomicHandCommitInput {
      * never in participant-readable hand_history.
      */
     stats_facts?: DurableStatsFactPayload;
+    horse_accepted_terminal?: AcceptedTerminalTransport;
     /** Paid inside this same acceptance, never by the asynchronous chip leg. */
     diamond_jackpot?: import('../../engine/diamondCashJackpot.js').DiamondJackpotVerdict;
   };
@@ -443,6 +504,7 @@ export function tournamentStackProofIsExact(
 export async function logHandHistory(params: {
   publicMemoryDomain?: HorsePublicMemoryDomain | null;
   tableId: string;
+  observedHands?: import('../../transport/ObservedHands.js').ObservedHandReceipt[];
   /**
    * `tables.nit_game`. Passed through to writeHandFacts so a horse at a NIT
    * table produces the VPIP evidence the rule is judged on. See the note over
@@ -452,6 +514,8 @@ export async function logHandHistory(params: {
   /** The table's VPIP floor in percent (0 = none). See recordHorseHandReviews. */
   vpipFloor?: number;
   tournamentId?: string;
+  nearBubbleOrPayJump?: boolean;
+  tournamentStage?: string | null;
   handNumber: number;
   gameVariant: string;
   smallBlind: number;
@@ -694,6 +758,11 @@ export async function logHandHistory(params: {
   stackResult?: Record<string, unknown>;
   publicStatsFrame?: Record<string, unknown>;
 }> {
+  // One definition of "a human is dealt in" for this hand: the persisted has_human flag and the
+  // style learner read the same value. Undefined when the roster is unknown (never asserted false).
+  const rosterHasHuman: boolean | undefined = params.roster
+    ? params.roster.some((p) => !p.isHorse)
+    : undefined;
   // Round 38 fix: stamp started_at/ended_at + RETURNING id so the caller
   // can FK rake_records.hand_id back to this hand_history row.
   const startedAtIso = params.startedAt
@@ -743,6 +812,7 @@ export async function logHandHistory(params: {
 
   const opponentDealtCount = params.holeCardsAll?.size;
   const row = {
+    ...(params.observedHands?.length ? { _observed_hands: params.observedHands } : {}),
     // The RLS roster can include non-dealt chairs. Only the authoritative
     // dealt-card map can state the population the opponent read belongs to.
     ...(opponentDealtCount !== undefined && opponentDealtCount >= 2 && opponentDealtCount <= 10
@@ -831,7 +901,7 @@ export async function logHandHistory(params: {
     // been deleting human hands along with the horse traffic it was aimed at.
     // Undefined (not false) when the caller cannot tell us, so we never assert
     // "no humans here" on a hand we simply have no roster for.
-    ...(params.roster ? { has_human: params.roster.some((p) => !p.isHorse) } : {}),
+    ...(rosterHasHuman === undefined ? {} : { has_human: rosterHasHuman }),
   };
 
   const factsInput: HandFactsInput | null =
@@ -897,6 +967,9 @@ export async function logHandHistory(params: {
         // 2026-09-06: a floored table's play is measured separately - the
         // horse is required to be loose there.
         vpipFloor: params.vpipFloor ?? 0,
+        nearBubbleOrPayJump: params.nearBubbleOrPayJump,
+        tournamentStage: params.tournamentStage ?? null,
+        dealtStacksAtDeal: factsInput.dealtStacksAtDeal,
       }
     : null;
 
@@ -929,8 +1002,43 @@ export async function logHandHistory(params: {
     amount: u.amount,
     hand_name: u.hand_name ?? null,
   }));
+  // Capture the original producer's terminal before a lost response or lease
+  // handoff can separate the atomic commit from the worker observation.
+  let capturedAcceptedTerminal: AcceptedTerminalTransport | null = null;
+  const horseTurnClocks = privateHorseTurnClocks(params.actions);
+  try {
+    if (params.atomicCommit.acceptedPostCommitFacts && params.handId) {
+      const terminal = captureAcceptedTerminal(
+        resolveReleaseIdentity().releaseSha,
+        params.atomicCommit.leaseGeneration,
+        {
+          generation: params.handNumber,
+          fence: `${params.tableId}:${params.handNumber}:${params.atomicCommit.leaseGeneration}:observe`,
+          handKey: `${params.tableId}:${params.handNumber}`,
+          committedHandId: params.handId,
+          actions: acceptedActions,
+          ...(horseTurnClocks.length ? { horseTurnClocks } : {}),
+          bigBlind: params.bigBlind,
+          showdown: params.showdownReveal ?? null,
+          scope: readScopeOf(
+            params.gameVariant,
+            params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0
+          ),
+        }
+      );
+      capturedAcceptedTerminal = terminal;
+      if (terminal) params.atomicCommit.acceptedPostCommitFacts.horse_accepted_terminal = terminal;
+    }
+  } catch (cause) {
+    reportError(cause, 'HandHistory.accepted_terminal_capture_failed');
+  }
   const inserted = await insertHandHistoryRow(row, bombUnits, params.atomicCommit);
   const handId = inserted.id;
+  // HVH2D-EXE-002: the row above omits public_memory_domain without a word
+  // when the producer's value is not valid, and the exact-memory trigger then
+  // skips the hand. Count the accepted hand once, here: every identical retry
+  // finished inside the await above, and a refused commit never reaches this.
+  countLoggedHandMemoryDomain(params);
   if (params.atomicCommit.acceptedPostCommitFacts?.stats_facts) {
     releaseHandFactsCapture(params.tableId, params.handNumber);
   }
@@ -956,6 +1064,8 @@ export async function logHandHistory(params: {
     const variant = memoryVariant(params.gameVariant);
     const dealt = params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0;
     let durableOpponentProfiles: DurableOpponentProfile[] | undefined;
+    // A failed read is named, so the worker can tell it from a read that found no saved row.
+    let durableOpponentProfilesReadFailed = false;
     if (variant && (await horseOpponentMemorySchema()) === 'installed') {
       durableOpponentProfiles = [];
       try {
@@ -969,7 +1079,14 @@ export async function logHandHistory(params: {
         if (actors.length)
           durableOpponentProfiles = await (
             params.publicMemoryDomain === undefined
-              ? readHorseOpponentProfiles
+              ? // Legacy completed-hand read: its own admission gate, never the decision gate (M1).
+                (
+                  ids: string[],
+                  v: string,
+                  mode: 'cash' | 'tournament',
+                  size: 'hu' | 'short' | 'full'
+                ) =>
+                  readHorseOpponentProfiles(ids, v, mode, size, undefined, admitCompletedHandExactRead)
               : (
                   ids: string[],
                   v: string,
@@ -983,6 +1100,7 @@ export async function logHandHistory(params: {
             dealt <= 2 ? 'hu' : dealt <= 5 ? 'short' : 'full'
           );
       } catch (error) {
+        durableOpponentProfilesReadFailed = true;
         if (isOpponentMemoryBusyRefusal(error))
           reportThrottled(
             'HandHistory.durable_opponent_read',
@@ -995,7 +1113,16 @@ export async function logHandHistory(params: {
       ...(params.publicMemoryDomain !== undefined
         ? { publicMemoryDomain: params.publicMemoryDomain }
         : {}),
+      // STYLE READ M1: the format is known from the hand itself; the style learner needs no durable row.
+      ...(publicMemoryDomainIsValid(params.publicMemoryDomain)
+        ? { styleMemoryMode: params.tournamentId ? ('tournament' as const) : ('cash' as const) }
+        : {}),
+      // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
+      ...(rosterHasHuman === undefined ? {} : { styleHasHuman: rosterHasHuman }),
       durableOpponentProfiles,
+      ...(durableOpponentProfilesReadFailed
+        ? { durableOpponentProfilesRead: 'failed' as const }
+        : {}),
       generation: params.handNumber,
       fence: [
         params.tableId,
@@ -1006,6 +1133,7 @@ export async function logHandHistory(params: {
       handKey,
       committedHandId: handId,
       actions: acceptedActions,
+      horseTurnClocks: horseTurnClocks.length ? horseTurnClocks : undefined,
       bigBlind: params.bigBlind,
       showdown: params.showdownReveal ?? null,
       riverCallContext: {
@@ -1024,6 +1152,7 @@ export async function logHandHistory(params: {
         params.gameVariant,
         params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0
       ),
+      ...(capturedAcceptedTerminal?.observation ?? {}),
       ...acceptedRosterField,
     });
     void observation.catch((error) =>

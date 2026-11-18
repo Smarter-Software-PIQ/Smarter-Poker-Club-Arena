@@ -1,0 +1,7 @@
+# ECO governance reads the actual closed book
+
+The November 11 digest linked original incident `6ce221a8-023d-4204-aa26-71a515b030b1` to Midway's November 2 08:00 UTC through November 9 08:00 UTC book. Its original accounting run is complete and successful, with accounting version 3. Ten immutable cash/tournament components and their delivered invoices pass `fn_ca_governance_eco_proven`. The older detector nevertheless reported a missing book because it consulted only `union_eco_ledger`.
+
+The detector and the sweep's exact-obligation capture now also consult the existing strict original-period proof. A valid activity book no longer generates a false missing-ledger incident or gets attached to another union's genuine finding. Existing obligations remain attached through refresh and week rollover. Legacy ledger behavior, close timing, running-close deferral, launch waivers, and every unrelated invariant remain unchanged. No accounting close, invoice, ledger or payment is replayed.
+
+The existing required accounting agreement-history PostgreSQL route loads the actual captured detector and sweep. It reproduces both original failures and verifies corrected behavior, mixed valid/missing unions, unfinished runs, undelivered or mismatched invoices, wrong exact periods, legacy records, deferred closes and retained historical obligations. The installer checks both original function hashes and publishes exact function hashes for live readback. Production installation and original-incident disposition are verified separately by the owning task.

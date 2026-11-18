@@ -1,3 +1,7 @@
+import {
+  startLightningBankTheWin,
+  stopLightningBankTheWin,
+} from './services/LightningBankTheWinDoor.js';
 import { subscribePlayerSessionRevocations } from './services/PlayerSessionAccess.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -41,7 +45,12 @@ import {
   startHorseReferenceAgreementReport,
   stopHorseReferenceAgreementReport,
 } from './services/HorseReferenceAgreementReport.js';
-import { startBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import {
+  setBrainTelemetryGapSink,
+  startBrainTelemetryFlush,
+} from './services/BrainTelemetryFlush.js';
+import { handleHorseTelemetryGapEvent } from './services/horseTelemetryGapAlert.js';
+import { startHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
 import {
   startHorseDataLedgerSync,
@@ -214,6 +223,13 @@ async function drainLeaderBootMutations(): Promise<void> {
   }
 }
 
+// 2026-11-14: a lost telemetry batch is an engine alert, and a later written day closes it. Wired here, in the
+// main process, so nothing on the Horse decision path imports the alert module (HorseDecisionClosure.test.ts).
+// The Horse decision worker threads post their events to this same sink (horseDecision/client.ts). Set at module
+// load, before gameServer.start() starts those workers, so no worker event can arrive while no sink is set
+// (independent review of 27a56324, finding 2).
+setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
+
 /**
  * These services change shared horse, tournament, or table state and therefore
  * belong to the process that completed the distributed leader boot. A standby
@@ -264,6 +280,10 @@ async function startLeaderOwnedServices(): Promise<void> {
   // Proof of receipt (Dan 2026-08-26): live layer-fire counters, flushed to
   // horse_brain_telemetry every minute for the daily audit + admin panel.
   startBrainTelemetryFlush();
+  // Per-Horse upgrade evidence (2026-11-14): the host-side side-game and
+  // pre-action purge events are counted in this process; the decision
+  // workers run their own flush for the decisions they make.
+  startHorseUpgradeEvidenceFlush();
   // 2026-11-05: every file the Horse phase digests hash must be readable in
   // this image, or every phase sits in shadow with no forced authority (the
   // Nov 5 releases). The image build refuses that; this names it at boot
@@ -302,6 +322,9 @@ async function startLeaderOwnedServices(): Promise<void> {
   // the fleet manager reseeds fresh horses within its 30s cycle.
   horseSessionRotator = new HorseSessionRotator((tableId) => gameServer.getTableEngine(tableId));
   horseSessionRotator.start();
+  /* BANK THE WIN ON LIGHTNING (owner 2026-11-10): a horse that books its win
+     between pool hands stands up through its anchor seat's ordinary Leave door. */
+  startLightningBankTheWin((tableId) => gameServer.getTableEngine(tableId));
   /* OPERATION STABLE HAND (Dan 2026-09-04): the floor planner's FIRST live
      order, and for now its only one. It stands a horse up when a human is on
      that table's waitlist, through the same hand-boundary-safe leaveTable()
@@ -331,6 +354,7 @@ function stopLeaderOwnedServices(): Promise<void> {
   const stopCalls: Array<[service: string, stop: () => Promise<unknown> | unknown]> = [
     ['HorseOverlayGuard', () => horseOverlayGuard?.stop()],
     ['HorseSessionRotator', () => horseSessionRotator?.stop()],
+    ['LightningBankTheWin', stopLightningBankTheWin],
     ['StableHandExecutor', () => stableHandExecutor?.stop()],
     ['HorseDiamondSpins', stopHorseDiamondSpins],
     ['HorseSelfTuner', stopHorseSelfTuner],

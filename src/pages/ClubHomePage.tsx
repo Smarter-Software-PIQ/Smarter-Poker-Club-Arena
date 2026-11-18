@@ -1,4 +1,5 @@
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
+import { copyText } from '../lib/share';
 import { useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
@@ -149,7 +150,8 @@ import './ClubHomeMobilePremium.css';
 import { isFixedLimitVariant } from '../lib/bettingStructure';
 
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import { resolveClubIdFilter, resolveClubUUID, resolveClubUUIDSync } from '../utils/clubIdResolver';
+import { resolveClubUUID, resolveClubUUIDSync } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useIsMounted } from '../hooks/useIsMounted';
 import GlobalUXIndicators from '../components/common/GlobalUXIndicators';
 import BBJInfoModal from '../components/bbj/BBJInfoModal';
@@ -2696,7 +2698,7 @@ function ClubHomePageContent({
       if (getIsMounted && !getIsMounted()) return;
 
       // Load club info — smart resolve: clubId may be UUID or integer club_id
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId);
       const { data: clubData, error: clubError } = await retryFetch(
         () =>
           supabase
@@ -4107,11 +4109,11 @@ function ClubHomePageContent({
   }, [currentUserId]);
 
   const handleWaitlistToggle = useCallback(
-    async (tableId: string, joining: boolean) => {
-      if (waitlistActionBusyRef.current) return;
+    async (tableId: string, joining: boolean): Promise<boolean> => {
+      if (waitlistActionBusyRef.current) return false;
       if (!currentUserId) {
         toast.error('Sign In To Join A Waitlist');
-        return;
+        return false;
       }
       waitlistActionBusyRef.current = true;
       setWaitlistActionBusy(true);
@@ -4142,6 +4144,7 @@ function ClubHomePageContent({
           if (!left) throw new Error('Could not leave the waitlist');
           toast.success('Removed From The Waitlist.');
         }
+        return true;
       } catch (e) {
         // Put the button back where it was; the queue did not change.
         setWaitlistedTableIds((prev) => {
@@ -4152,6 +4155,7 @@ function ClubHomePageContent({
         });
         reportError(e, 'ClubHomePage.handleWaitlistToggle', { tableId, joining });
         toast.error(joining ? 'Could Not Join The Waitlist' : 'Could Not Leave The Waitlist');
+        return false;
       } finally {
         waitlistActionBusyRef.current = false;
         setWaitlistActionBusy(false);
@@ -4656,9 +4660,13 @@ function ClubHomePageContent({
         return;
       }
       // The installed table exit cancels the parent game queue when needed.
-      void handleWaitlistToggle(tableId, joining);
+      void handleWaitlistToggle(tableId, joining).then((succeeded) => {
+        // Observe only a confirmed join, never a leave or a refused request.
+        // A later view failure must not undo the place already held in the queue.
+        if (succeeded && joining && gameEntryScope.active) void handleViewCashTable(tableId);
+      });
     },
-    [handleJoinTable, handleWaitlistToggle]
+    [handleJoinTable, handleWaitlistToggle, handleViewCashTable, gameEntryScope]
   );
 
   const handleRegister = useCallback(
@@ -5738,16 +5746,19 @@ function ClubHomePageContent({
                   : null
               }
               onCopyClubId={() => {
-                navigator.clipboard.writeText(club.club_id.toString());
-                toast.success('Club ID Copied');
+                void copyText(club.club_id.toString(), 'ClubHomePage.copyClubId').then((ok) =>
+                  ok ? toast.success('Club ID Copied') : toast.error('Could Not Copy Club ID')
+                );
               }}
               onCopyPlayerId={
                 currentUser?.player_number
                   ? () => {
                       const referralId = referralIdFor(currentUser.player_number) ?? '';
-                      navigator.clipboard.writeText(referralId);
-                      if (isNamedReferralId(referralId)) toast.success('Referral ID Copied');
-                      else toast.success('Player Number Copied');
+                      void copyText(referralId, 'ClubHomePage.copyPlayerId').then((ok) => {
+                        if (!ok) toast.error('Could Not Copy');
+                        else if (isNamedReferralId(referralId)) toast.success('Referral ID Copied');
+                        else toast.success('Player Number Copied');
+                      });
                     }
                   : undefined
               }
@@ -5828,6 +5839,8 @@ function ClubHomePageContent({
         </header>
 
         <BBJInfoModal
+          clubId={club.id}
+          unionId={unionIdForCreate ?? club.union_id}
           isOpen={showBBJInfo}
           onClose={() => setShowBBJInfo(false)}
           poolId={bbjPoolId}

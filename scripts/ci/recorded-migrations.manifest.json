@@ -2390,6 +2390,61 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10242",
       "refusedBy": ["check-explicit-table-access"],
       "liveVerdict": "Read-only 2026-11-09: exact applied SQL MD5 matches this file (one statement, no replay, no history mutation). Applied by a Claude session through the Supabase MCP before any merge, against PUBLISHING.md; no outage justified it and docs/changelog/2026-11-09-a-banned-email-cannot-hold-an-account.md records that. Live: public.banned_signup_emails is postgres-owned, RLS enabled, zero policies; anon, authenticated, authenticator and supabase_auth_admin hold no table privilege. Trigger a_banned_email_cannot_hold_an_account is enabled BEFORE INSERT OR UPDATE OF email ON auth.users. fn_a_banned_email_cannot_hold_an_account is postgres-owned SECURITY DEFINER, search_path public,pg_temp, anon/authenticated EXECUTE false, a trigger function no client can call. fn_signup_email_key is SECURITY INVOKER, immutable, search_path pg_catalog, publicly callable pure text; no elevated access. Definer-authorization, unqualified-write and band-aid file-text checks report no findings. explicit-table-access finding STILL TRUE at recording time: service_role holds ALL on the table through default grants; closed by forward migration 20261109230038 in the same pull request, installed from protected main."
+    },
+    {
+      "version": "20261109040704",
+      "name": "kings_club_downline_reattach_snapshot",
+      "file": "supabase/migrations/20261109040704_kings_club_downline_reattach_snapshot.sql",
+      "md5": "93cad27fd8322c1025d8957fb8984caa",
+      "appliedToProductionAt": "2026-11-09T04:07:04Z",
+      "recoveredOn": "2026-11-10",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10396",
+      "refusedBy": ["check-explicit-table-access"],
+      "liveVerdict": "One additive statement: CREATE TABLE IF NOT EXISTS public.kings_club_downline_repair_20261108 plus its COMMENT, a rollback snapshot for the 2026-11-08 Kings Club downline reattachment. 657 bytes; public.fn_ca_migration_text('20261109040704') reports md5 93cad27fd8322c1025d8957fb8984caa and byte_len 657, equal to this file. It was applied through the Supabase MCP and never committed, so Installed and merged migrations agree has been red on every open pull request (seen on #10385 and #10386), which is how it was found. check-explicit-table-access raised five findings against the file text: REVOKE ALL from anon, from authenticated and from service_role before granting, and enable row level security in the creation migration. Read against PRODUCTION read-only on 2026-11-10 21:0x UTC: relrowsecurity = true with 0 policies and 10 rows, so the row level security finding was ALREADY FALSE and no snapshot row was ever reachable by a browser role. The three grant findings were STILL TRUE at recording time: anon and authenticated each held SELECT/INSERT/UPDATE/DELETE and service_role additionally held REFERENCES/TRIGGER/TRUNCATE through default grants. They are closed by forward migration 20261110215108 in this same pull request, installed from protected main, which revokes PUBLIC, anon, authenticated and service_role explicitly, grants service_role back only the four data operations it used, and handles the bigserial sequence through pg_get_serial_sequence. Recording and fix are one pull request on purpose: the gate that refuses this unrecorded version is the same gate that blocks every pull request, so splitting them would leave main blocked in between. No snapshot row is read, written or deleted, the 2026-11-08 repair is neither re-run nor reversed, and this installed migration must never be replayed."
+    },
+    {
+      "version": "20261115001336",
+      "name": "the_mystery_seed_hands_the_sealed_ladder_a_whole_cent_pool",
+      "file": "supabase/migrations/20261115001336_the_mystery_seed_hands_the_sealed_ladder_a_whole_cent_pool.sql",
+      "md5": "77c0dfb3d60816fc7e774da5a2bc48e9",
+      "appliedToProductionAt": "2026-11-15T00:13:36Z",
+      "recoveredOn": "2026-11-15",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte (1307 bytes; md5 of the file bytes = public.fn_ca_migration_text('20261115001336') md5)",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10884",
+      "refusedBy": [],
+      "liveVerdict": "Active-outage exception (PUBLISHING.md): applied directly through the Supabase MCP at 00:13 UTC on 2026-11-15 to end the 2026-11-14 mystery bounty stall (incidents f241ad73 fn_ca_tournament_dark_while_running and b4a1b5d7 MttPlayStopped; Union Mystery Bounty PLO5 a5957f99 and Evening Mystery Bounty PLO5 a88c4be4 dealt nothing while fn_mystery_bounty_seed raised 42883 on every sweep). One DO block that casts the sealed-ladder pool argument to bigint in fn_mystery_bounty_seed, nothing else. PR #10884 first committed an edited copy (header, BEGIN/COMMIT, an idempotency check) instead of these bytes; this row and file replace it with the byte-exact recording. Read against PRODUCTION read-only on 2026-11-15: fn_mystery_bounty_seed contains the ::bigint cast (and the 20261115015453 failure report patched over it), smarter_private.fn_ca_unresolved_function_calls reports no unresolved call in it, and both events activated their chests, paid all 7 awards each and completed. check-definer-authorization, check-money-trigger-declared, check-no-new-band-aids and check-explicit-table-access pass on it as an ordinary migration; it is recorded here because a recording cannot be edited to add its @live-proof line."
+    },
+    {
+      "version": "20261116044125",
+      "name": "a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in",
+      "file": "supabase/migrations/20261116044125_a_shared_mystery_chest_settles_in_its_whole_chip_split.sql",
+      "md5": "9a0873e9cb36e6800c9436bd7dd76c6f",
+      "recoveredOn": "2026-11-16",
+      "recoveredFrom": "public.fn_ca_migration_text(20261116044125), byte-identical body; 9442 UTF-8 bytes, no appended newline. Independent schema_migrations.statements recovery agrees.",
+      "refusedBy": [],
+      "liveVerdict": "Read production 2026-11-16 04:41-04:43 UTC: marker definition MD5 11700b51aab5116d79a8dc0078242def; postgres-owned, STABLE SECURITY DEFINER, search_path public/pg_temp, ACL postgres/service_role only unchanged. No triggers created. Adds one-common-unit whole-chip mystery allocations while retaining canonical cent allocations for legacy awards; all exact total, paid, claimant and non-mystery guards remain. Existing reservation producer forces GREATEST(100, unit). Original 1100-cent award paid 600+500 at 04:42:27.896280 UTC through its existing outbox; no manual payment by this recording task. Installed version was first observed at 04:41:42; actor, original installation route and exact installation timestamp are unknown, with no standard Apply receipt found. Recording is not endorsement of that route. The historical header names 44800 and a 04:45 pre-install measurement; those comments are preserved byte-exact and are not independently asserted by this recording. No migration is replayed."
+    },
+    {
+      "version": "20261118030451",
+      "name": "madness_plo5_vpip_floor_is_forty",
+      "file": "supabase/migrations/20261118030451_madness_plo5_vpip_floor_is_forty.sql",
+      "md5": "bcd98a965c2b203584d4d16abff5ca1e",
+      "appliedToProductionAt": "2026-11-18T03:04:51Z",
+      "recoveredOn": "2026-11-18",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)) for version 20261118030451, byte for byte (5509 UTF-8 bytes, no appended newline); md5 of the file bytes = bcd98a965c2b203584d4d16abff5ca1e = md5(array_to_string(statements, chr(10))) read 2026-11-18 06:45Z.",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly through the Supabase MCP at 03:04:51Z on 2026-11-18 under the MCP's own version while the repository carried the same change as 20261118025205 (PR #11249, never installed). Read against PRODUCTION 2026-11-18 06:36-06:45Z: fn_cash_game_floor_from_template prosrc md5 = 5b0b03754daf121c77d2a451bb9f8839 (the post-image this SQL verifies); the applier run 44252694913 for 20261118025205 answered ALREADY-APPLIED recorded as version=20261118030451 and changed nothing. The release selector keys candidate migrations by version, so this exact applied version is recorded and 20261118025205 is marked SUPERSEDED BY it. No SQL is replayed."
+    },
+    {
+      "version": "20261118071741",
+      "name": "rathole_floor_is_per_game_not_per_stakes",
+      "file": "supabase/migrations/20261118071741_rathole_floor_is_per_game_not_per_stakes.sql",
+      "md5": "7284b7ff2db96cb88335fdf641e520a6",
+      "recoveredOn": "2026-11-18",
+      "recoveredFrom": "public.fn_ca_migration_text(20261118071741), byte-identical body; 7554 UTF-8 bytes, md5 7284b7ff2db96cb88335fdf641e520a6. Independent schema_migrations.statements recovery agrees.",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly by Claude (session 013U37bb2NB9FGhEKXJGzWHZ) through the Supabase MCP at 07:17:41 UTC 2026-11-18 during a live incident: WooWoo's PLO5 1/2 Madness rejoin floor (3,762.18) was being demanded at PLO5 1/2 Lightning Games (max 400) while he was seated. Read production 07:18-07:24 UTC: cash_rejoin_constraints.game_scope exists and 0 live rows are unscoped (230 backfilled from source_table_id); fn_cash_rejoin_floor(WooWoo, Lightning feeder) = NULL, entry need 100.00, max 400.00; fn_cash_rejoin_floor(WooWoo, Madness feeder) = 3762.18 unchanged. ACLs read after apply: fn_cash_game_scope_of_table service_role only; fn_cash_session_close and fn_cash_game_barred_seconds postgres/service_role only (as before); fn_cash_rejoin_floor postgres/service_role/authenticated (as before). check-definer-authorization passes against origin/main. The only guard this file fails is the transaction shape (it carries no BEGIN/COMMIT because the MCP wrapped it in its own single transaction); no finding remains true of production. No migration is replayed."
     }
   ]
 }

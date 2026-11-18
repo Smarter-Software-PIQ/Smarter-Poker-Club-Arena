@@ -1,0 +1,5 @@
+# Backup restores daily content reporter grants
+
+Backup refreshes for 49cbcd2b, 0762fd6d, c6b61cd5 and 6baebe53 (run 43334864780) failed with `database_refresh_failed`. The standby restore.log shows pg*restore stopping on `GRANT SELECT ON TABLE public.daily_content_jobs TO daily_content_reporter`: production now carries the NOLOGIN role `daily_content_reporter` (SELECT on the nine `public.daily_content*\*` tables, created outside this repo's migrations), and the isolated copy had no such role. Add that exact role to the existing pre-restore loop as NOLOGIN. No login or credential is copied; all original ACLs, isolation, strict restore errors and schema validation remain unchanged. A read-only scan of every non-system ACL in production found no other role missing from the prerequisites.
+
+The DR shell regression now refuses schema restoration until that role exists and confirms a failed role creation invalidates the previous copy. Exact Backup certification and production activation remain separate required delivery evidence.

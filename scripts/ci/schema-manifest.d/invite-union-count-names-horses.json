@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/invite-union-count-names-horses",
+  "_comment": "Union floor players with their Horse count, worded by fn_club_share_figures (20261117212227).",
+  "functions": ["fn_batch_union_floor_players"]
+}

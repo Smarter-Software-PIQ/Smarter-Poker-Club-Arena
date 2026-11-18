@@ -62,8 +62,8 @@ describe('closed scoped cashier proof', () => {
     for (const payload of [null, [], { grep: 'anything' }])
       expect(() => admitDispatch(env, { ...event, client_payload: payload })).toThrow();
   });
-  it('requires exactly both cases once with no skips or retries', () => {
-    expect(assertCases(report())).toHaveLength(2);
+  it('requires exactly all scoped cases once with no skips or retries', () => {
+    expect(assertCases(report())).toHaveLength(3);
     for (const change of [
       (r) => r.suites[0].specs.pop(),
       (r) => r.suites[0].specs.push(r.suites[0].specs[0]),

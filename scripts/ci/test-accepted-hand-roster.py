@@ -34,6 +34,7 @@ ROSTER_PASSES = 56
 LIGHTNING_FIX = Path('supabase/migrations/20261028100820_lightning_accepted_rosters_bind_original_hand_seats.sql')
 LIGHTNING_FIXTURE = Path('scripts/ci/probes/lightning-accepted-roster-fixture.sql')
 LIGHTNING_PROBE = Path('scripts/ci/probes/lightning-accepted-roster-native.sql')
+RESUME_FIX = Path('supabase/migrations/20261110214347_retained_hand_resume_returns_original_accepted_roster.sql')
 EXISTING_PASSES = 54
 
 
@@ -108,6 +109,40 @@ def existing_probe(e, db, label):
     return passes
 
 
+def resume_roster_probe(e, db, mode):
+    """Reuse the real interrupted-postcommit case; all fixture damage rolls back."""
+    probe = (e.root / EXISTING_PROBE).read_text()
+    call = "  r:=public.fn_ca_resume_hand_submission('86100000-0000-0000-0000-000000000001','successor-two','86500000-0000-0000-0000-000000000003');"
+    if probe.count(call) != 1:
+        raise RuntimeError('resume probe anchor drift')
+    table = "'86100000-0000-0000-0000-000000000001'"
+    replay = "(SELECT smarter_private.accepted_hand_roster_replay(table_id,hand_number,hand_id,post_commit_payload_hash) FROM public.hand_atomic_commits WHERE table_id=" + table + ")"
+    mutation = ''
+    if mode in ('missing', 'mismatch'):
+        # Deliberately damaged isolated fixture only, never a production route.
+        mutation = '  SET LOCAL session_replication_role=replica;\n'
+        mutation += ("  DELETE FROM smarter_private.accepted_hand_rosters WHERE table_id=" + table + ';\n' if mode == 'missing' else
+                     "  UPDATE smarter_private.accepted_hand_rosters SET post_commit_payload_hash=repeat('d',64) WHERE table_id=" + table + ';\n')
+        mutation += '  SET LOCAL session_replication_role=origin;\n'
+    expected = "NOT (r ? 'accepted_roster')" if mode == 'baseline' else "r->'accepted_roster'=" + replay
+    if mode == 'missing':
+        expected += " AND r#>>'{accepted_roster,status}'='legacy_missing' AND r#>'{accepted_roster,roster}'='null'::jsonb"
+    elif mode == 'mismatch':
+        expected += " AND r#>>'{accepted_roster,status}'='unavailable' AND r#>'{accepted_roster,reasons}'='[\"roster_discriminator_mismatch\"]'::jsonb"
+    assertion = "\n  IF (" + expected + ") IS DISTINCT FROM true THEN RAISE EXCEPTION 'resume roster " + mode + " differs: %',r; END IF;\n  RAISE NOTICE 'RESUME ROSTER PASS: " + mode + "';"
+    original = "  IF (" + replay + "->>'status') IS DISTINCT FROM 'captured' OR jsonb_array_length(" + replay + "#>'{roster,actors}') IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'resume fixture original roster is not captured'; END IF;\n"
+    if mode == 'equal':
+        assertion += "\n  IF r#>>'{accepted_roster,status}' IS DISTINCT FROM 'captured' OR jsonb_array_length(r#>'{accepted_roster,roster,actors}') IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'resume positive roster not captured'; END IF;"
+    probe = probe.replace(call, original + mutation + call + assertion)
+    script = 'BEGIN;\n' + (e.output / 'opening.sql').read_text() + probe + '\nROLLBACK;\n'
+    label = 'resume-roster-' + mode
+    path = e.output / (label + '.sql'); path.write_text(script)
+    code, out, err = e.sql(db, file=path, label=label, check=False, seconds=120)
+    if code or err.count('HAND SUBMISSION PASS:') != EXISTING_PASSES or err.count('RESUME ROSTER PASS:') != 1:
+        raise RuntimeError(label + ' failed')
+    return {'case': label, 'existing_assertions': EXISTING_PASSES, 'original_roster_assertions': 1}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--evidence', type=Path, required=True)
@@ -120,7 +155,7 @@ def main():
     (out / 'current-chain.sql').write_text(current_chain(ROOT))
     native = module(ROOT / 'scripts/ci/test-mtt-unlimited.py', 'accepted_roster_execution')
     e = native.Execution(ROOT, out, args.pg_bin.resolve(), out, 900)
-    inputs = [Path(__file__).relative_to(ROOT), MIGRATION, SUBMISSION, LIGHTNING, RETIRED_CASH, RAKED_DIAMOND, CAPTURE, FIXTURE, PROBE, EXISTING_PROBE, LIGHTNING_FIX, LIGHTNING_FIXTURE, LIGHTNING_PROBE]
+    inputs = [Path(__file__).relative_to(ROOT), MIGRATION, SUBMISSION, LIGHTNING, RETIRED_CASH, RAKED_DIAMOND, CAPTURE, FIXTURE, PROBE, EXISTING_PROBE, LIGHTNING_FIX, LIGHTNING_FIXTURE, LIGHTNING_PROBE, RESUME_FIX]
     e.report['source_sha256'] = {**m['source_sha256'], **{str(f): sha(ROOT / f) for f in inputs}}
     e.report['cases'] = []
     for s in native.CANCELLATION_SIGNALS:
@@ -203,6 +238,14 @@ def main():
         if before != e.snapshot(db, 'after-data') or catalog != e.catalog_snapshot(db, 'after-catalog') or private != hs.private_snapshot(e, db, 'after-private'):
             raise RuntimeError('roster cases did not roll back completely')
         e.report['cases'].append({'case': 'existing-probe-after-migration', 'passes': existing_probe(e, db, 'existing-probe-after')})
+        e.report['cases'].append(resume_roster_probe(e, db, 'baseline'))
+        e.sql(db, file=ROOT / RESUME_FIX, label='resume-original-roster-install')
+        for mode in ('equal', 'missing', 'mismatch'):
+            e.report['cases'].append(resume_roster_probe(e, db, mode))
+        code, _, err = e.sql(db, file=ROOT / RESUME_FIX, label='resume-roster-reinstall-refused', check=False)
+        if code == 0 or 'RETAINED_HAND_ROSTER_PREIMAGE_DRIFT' not in err:
+            raise RuntimeError('resume roster duplicate install not refused')
+
         # A real original formation roster fails before the corrective owner.
         fixture = ('BEGIN;\n' + (out / 'opening.sql').read_text() + (ROOT / FIXTURE).read_text()
                    + (ROOT / LIGHTNING_FIXTURE).read_text())

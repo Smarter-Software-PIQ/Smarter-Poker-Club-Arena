@@ -380,42 +380,12 @@
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   TRANSIENT LAST-ACTION CHIP (PokerBros parity — Dan 2026-08-20)
-   Flashes the hero's last action ("Fold", "Call", ...) on the tab for a
-   moment after they act at that table.
-   ───────────────────────────────────────────────────────────────────────────── */
-
-.table-tab-bar__action-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
-  padding: 0 6px;
-  border-radius: 8px;
-  background: rgba(37, 99, 235, 0.85);
-  color: #ffffff;
-  font-size: 0.575rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  flex-shrink: 0;
-  animation: actionChipIn 0.18s ease-out;
-}
-
-@keyframes actionChipIn {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+/* The transient last-action chip that sat here is deleted (Dan 2026-11-11):
+   the pill shows the hero's cards only, and the hero's action is on the seat.
+   See the note in TableTabBar.tsx. */
 
 @media (prefers-reduced-motion: reduce) {
-  .table-tab-bar__timer-bar--urgent,
-  .table-tab-bar__action-chip {
+  .table-tab-bar__timer-bar--urgent {
     animation: none;
   }
 }
@@ -569,17 +539,6 @@
 
   /* The inline × close control was removed 2026-08-26 (Dan: no off-button
      inside the action pills) — its desktop and mobile rules went with it. */
-
-  /* The action chip shares the pill with the label, so it shrinks with it — at
-     its desktop size it ate more than half of a 55px pill and pushed the game
-     code into an ellipsis. (The turn badge that used to be tuned here too was
-     deleted 2026-08-28; see the note where its base rule was.) */
-  .table-tab-bar__action-chip {
-    height: 13px;
-    padding: 0 3px;
-    font-size: 0.5rem;
-    border-radius: 6px;
-  }
 
   .table-tab-bar__mini-cards {
     gap: 1px;
@@ -1110,4 +1069,28 @@
   border: var(--action-control-border);
   border-radius: var(--action-control-radius);
   box-shadow: var(--action-control-inset);
+}
+
+/* ── THE PHONE TABLE PAYS THE NOTCH AT ITS REAL HEIGHT (Dan 2026-11-11) ────
+   "There must always be enough top padding on mobile so nothing is cut off
+   at the top" - the notch, the Dynamic Island, an installed app's status bar.
+
+   A portrait phone lays the table out at the desktop width and scales it down
+   (useTableEnvironment), and the browser does not scale env() with it:
+   measured in Chromium, a 59px Dynamic Island still reads 59 at the table's
+   0.65 scale, so this bar paid 38 device px of a 59px band and its controls
+   sat under the island. --sp-phone-safe-top is the same inset read before the
+   scale, in desktop-layout px; the larger of the two is the band, so a browser
+   that does scale env() is never charged twice. The installed-app floor above
+   is a <=480px rule and cannot match a 600px layout either; the hook applies
+   the same 60 device px floor to the inset it reads, so it holds here too.
+
+   This is the one token every top reserve reads (the bar's padding,
+   --sp-tabbar-h and the felt budget, the MTT ticker), so all of them move
+   together. Same query as ActionPanel.css's phone table block.
+   Pinned by tests/live-turn/phone-table-layout.pw.ts, in device px. */
+@media (max-device-width: 480px) and (min-width: 481px) and (orientation: portrait) {
+  :root {
+    --sp-tabbar-safe-top: max(env(safe-area-inset-top, 0px), var(--sp-phone-safe-top, 0px));
+  }
 }

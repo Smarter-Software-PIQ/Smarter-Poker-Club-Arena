@@ -118,21 +118,31 @@ import {
   holdsPlayerWallet,
 } from '../components/wallet/walletRows';
 import {
-  cashoutRowTitle,
   describeChipTransaction,
   ledgerDirection,
   presentChipTransaction,
   thirdPartySender,
   walletRoute,
+  ledgerDisplaySign,
+  ledgerRowTitle,
 } from '../components/wallet/describeChipTransaction';
 import { downloadCsv, toCsv } from '../utils/downloadCsv';
 import { cashoutStatusLabel, waitingFor } from '../utils/cashoutStatus';
 import styles from './CashierTradePage.module.css';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
+import { selectTextTwins } from '../services/ClubRosterService';
 import {
+  compareCashierRoster,
+  CASHIER_ROSTER_SELECT,
+  DEFAULT_CASHIER_ROSTER_SORT,
+  exactDecimalText,
   mapCashierRoster,
+  mapCashierRosterSortKeys,
+  nextCashierRosterSort,
   sortCashierRosterMatches,
   type CashierRosterRpcRow,
+  type CashierRosterSort,
+  type CashierRosterSortKeys,
   type DownlineRow,
 } from '../lib/cashierRoster';
 import { UnionService } from '../services/UnionService';
@@ -146,7 +156,7 @@ import {
   type ClaimDestination,
 } from '../components/wallet/claimReturnWallets';
 import { SpadeConsole } from '../components/console/SpadeConsole';
-import { compactChips, formatWalletChips } from '../utils/format';
+import { compactChips, figureDigits, formatWalletChips } from '../utils/format';
 import {
   exactChipFigure,
   parseTradeAmount,
@@ -224,6 +234,8 @@ interface TradeRecordRow {
   createdAt: string;
   type: string;
   amount: number;
+  /** The amount as the exact decimal text the ledger holds, for display. */
+  amountText?: string;
   /** Relative to the viewer; managed means neither party is the viewer. */
   direction: 'in' | 'out' | 'managed';
   counterparty: string;
@@ -243,6 +255,12 @@ interface TradeRecordRow {
    * sent to. Null for every other kind.
    */
   title?: string | null;
+  /**
+   * The sign printed beside the figure (ledgerDisplaySign, Dan 2026-11-13):
+   * the viewer's own rows by direction, a club-book row by the member whose
+   * wallet moved, so a player's cash-out reads -400.
+   */
+  sign?: '+' | '-' | '';
   /** A cash-out leg's request status: pending while it waits for a decision. */
   requestStatus?: string | null;
   requestCreatedAt?: string | null;
@@ -282,7 +300,14 @@ interface TicketRow {
   /** The counterparty: issuer for a held ticket, holder for an issued one. */
   otherName: string;
   held: boolean;
+  /** Issued from the issuer's promo wallet; a cancel returns it there. */
+  promo: boolean;
 }
+
+/** The note fn_cashier_promo_ticket_send writes on a promo funded ticket (20261113021529). */
+const PROMO_TICKET_NOTE = 'Promo Cashier Ticket';
+/** How many under-allowance players the promo dialog names before "And N More". */
+const PROMO_SHORTFALL_NAMES = 5;
 
 type InvoiceRow = ClubWeeklyStatement;
 
@@ -319,7 +344,10 @@ function CashierPlayerCard({
   walletControl,
   walletBalance,
 }: {
-  row: Pick<DownlineRow, 'userId' | 'name' | 'playerNumber' | 'avatarUrl' | 'chipBalance'>;
+  row: Pick<
+    DownlineRow,
+    'userId' | 'name' | 'playerNumber' | 'avatarUrl' | 'chipBalance' | 'chipBalanceText'
+  >;
   balanceLabel: string;
   walletControl?: React.ReactNode;
   walletBalance?: number | null;
@@ -357,7 +385,7 @@ function CashierPlayerCard({
             text={
               walletBalance === null
                 ? 'Unavailable'
-                : formatWalletChips(walletBalance ?? row.chipBalance)
+                : formatWalletChips(walletBalance ?? row.chipBalanceText ?? row.chipBalance)
             }
           />
         </span>
@@ -471,6 +499,23 @@ const HISTORY_RANGES: ReadonlyArray<readonly [HistoryRange, string]> = [
   ['all', 'All Dates'],
 ];
 
+/**
+ * What a history filter prints on a phone (Dan 2026-11-13: "TOO MANY WORDS
+ * CUT OFF"). The full name stays the button's accessible name; the face
+ * prints the short word so every chip fits one line at 320px.
+ */
+const HISTORY_CHIP_FACE: Readonly<Record<string, string>> = {
+  'Club Transactions': 'Club',
+  'My Transactions': 'Mine',
+  'My Downline': 'Downline',
+  'Chip Movements': 'All',
+  'All Dates': 'All Time',
+  'All Transactions': 'All',
+  Incoming: 'In',
+  Outgoing: 'Out',
+};
+const chipFace = (label: string): string => HISTORY_CHIP_FACE[label] ?? label;
+
 /** The start of a date range chip, read at the moment of the request. */
 function historyRangeStart(range: HistoryRange, now: Date = new Date()): string | null {
   if (range === 'all') return null;
@@ -489,12 +534,19 @@ const HISTORY_EXPORT_CAP = 5000;
 /** One Transaction History page; older pages are read by cursor, not offset. */
 const HISTORY_PAGE = 50;
 
+/**
+ * fn_cashier_history_feed's columns, with the amount again as exact decimal
+ * text for display (Dan 2026-11-13: real figures print whole).
+ */
+const HISTORY_FEED_SELECT = '*,amount_text:amount::text';
+
 /** A row of fn_cashier_history_feed. */
 interface HistoryFeedRow {
   id: string;
   created_at: string;
   transaction_type: string | null;
   amount: number | string | null;
+  amount_text?: string | null;
   from_user_id: string | null;
   to_user_id: string | null;
   notes: string | null;
@@ -511,11 +563,29 @@ interface HistoryFeedRow {
  * downline), a downline as one group, or the whole club.
  */
 type HistorySummary = { filterKey: string } & (
-  | { mode: 'wallet' | 'group'; incoming: number; outgoing: number; net: number }
-  | { mode: 'club'; entries: number; volume: number; cashoutsPaid: number; complete: boolean }
+  | { mode: 'wallet' | 'group'; incoming: string; outgoing: string; net: string }
+  | { mode: 'club'; entries: number; volume: string; cashoutsPaid: string; complete: boolean }
 );
 
-/** A missing financial figure is unavailable, never a verified zero. */
+/**
+ * A history total as the exact decimal text the RPC returned (`round(x, 2)::text`).
+ * It never passes through a JavaScript number, so a total past 15 significant
+ * digits prints digit for digit (Dan 2026-11-13: exact figures always).
+ * A missing figure is unavailable, never a verified zero.
+ */
+function historyTotalAmount(value: unknown): string {
+  const digits =
+    typeof value === 'string' || typeof value === 'number' ? figureDigits(value) : null;
+  if (!digits) throw new Error('Invalid history total');
+  return `${digits.negative ? '-' : ''}${digits.whole}${digits.fraction ? `.${digits.fraction}` : ''}`;
+}
+
+/** A history total's sign, read from its digits, never from a rounded number. */
+const totalIsNegative = (amount: string) => amount.startsWith('-');
+const totalIsZero = (amount: string) => !/[1-9]/.test(amount);
+const totalMagnitude = (amount: string) => amount.replace(/^-/, '');
+
+/** A missing count is unavailable, never a verified zero. */
 function historyTotalNumber(value: unknown): number {
   if (
     (typeof value !== 'number' && typeof value !== 'string') ||
@@ -596,9 +666,12 @@ function CashierTradeWorkspace() {
   const rosterSearchRef = useRef<HTMLInputElement>(null);
   const [roleFilter, setRoleFilter] = usePlayerPreference('CashierTradePage:roleFilter', 'all');
   const [groupByRole, setGroupByRole] = usePlayerPreference('CashierTradePage:groupByRole', false);
-  const [sortKey, setSortKey] = usePlayerPreference<'recent' | 'balance' | 'name'>(
-    'CashierTradePage:sortKey',
-    'recent'
+  /* Dan 2026-11-13: the roster opens on Last Transaction every visit; the
+  Agent Wallet and Player Wallet buttons beside the result count sort the
+  whole roster High To Low on the first tap and flip on the next. */
+  const [rosterSort, setRosterSort] = useState<CashierRosterSort>(DEFAULT_CASHIER_ROSTER_SORT);
+  const [rosterSortKeys, setRosterSortKeys] = useState<Map<string, CashierRosterSortKeys>>(
+    () => new Map()
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(25);
@@ -758,6 +831,18 @@ function CashierTradeWorkspace() {
   transferRecoveryRef.current = transferRecovery;
   const [amount, setAmount] = useState('');
   const [sendSource, setSendSource] = useState<SendSource>('agent_wallet');
+  // New tickets use cashable player/agent chips. Promo remains a type only
+  // for exact recovery of a historical submitted intent, never a new choice.
+  const [ticketSource, setTicketSource] = useState<
+    'player_wallet' | 'agent_wallet' | 'promo_wallet'
+  >('player_wallet');
+  /* What the 50 chip promo allowance will answer for each selected downline,
+     read from the server before the send (fn_cashier_promo_allowance). null
+     means not read (or not capped: staff promo has no allowance). */
+  const [promoAllowance, setPromoAllowance] = useState<Record<string, number> | null>(null);
+  /** Bumped after every promo send or ticket attempt so the preview is read again. */
+  const [promoAllowanceEpoch, setPromoAllowanceEpoch] = useState(0);
+  const [promoAllowanceUnread, setPromoAllowanceUnread] = useState(false);
   const [promoBalances, setPromoBalances] = useState<{ own: number | null; club: number | null }>({
     own: null,
     club: null,
@@ -841,6 +926,7 @@ function CashierTradeWorkspace() {
     clubUuid,
     amount,
     sendSource,
+    ticketSource,
     Object.entries(recipientWallets).sort(([left], [right]) => left.localeCompare(right)),
     Object.entries(recipientAmounts).sort(([left], [right]) => left.localeCompare(right)),
     [...selected].sort(),
@@ -1212,14 +1298,14 @@ function CashierTradeWorkspace() {
           let pageNumber = 0;
           for (;;) {
             const rosterPageStartedAt = Date.now();
-            const { data: memberRows, error: dlErr } = await supabase.rpc(
-              'fn_club_cashier_members_page_v3',
-              {
+            const { data: memberRows, error: dlErr } = await selectTextTwins(
+              supabase.rpc('fn_club_cashier_members_page_v3', {
                 p_club_id: clubUuid,
                 p_after_role_rank: afterRoleRank,
                 p_after_user_id: afterUserId,
                 p_limit: rosterPageSize,
-              }
+              }),
+              CASHIER_ROSTER_SELECT
             );
             if (dlErr) {
               complete = false;
@@ -1459,6 +1545,7 @@ function CashierTradeWorkspace() {
     setPromoBalances({ own: null, club: null });
     setTargetBalances({});
     setSendSource('agent_wallet');
+    setTicketSource('player_wallet');
     setDownline([]);
     setRosterLoadingMore(false);
     setRosterWarning(null);
@@ -1538,6 +1625,9 @@ function CashierTradeWorkspace() {
       createdAt: r.created_at,
       type: (r.transaction_type as string) || 'transfer',
       amount: Number(r.amount) || 0,
+      ...(exactDecimalText(r.amount_text) !== undefined
+        ? { amountText: exactDecimalText(r.amount_text) }
+        : {}),
       direction,
       // A third party reads a Club Bank send by the pot that paid,
       // never its operator: a send nobody pressed reads the same.
@@ -1552,7 +1642,8 @@ function CashierTradeWorkspace() {
         : otherName || 'Club',
       twoSided: Boolean(r.to_user_id),
       route: walletRoute(r),
-      title: cashoutRowTitle(r, r.from_name, r.to_name, viewer),
+      title: ledgerRowTitle(r, r.from_name, r.to_name, viewer),
+      sign: ledgerDisplaySign(r, viewer),
       // The receipt's summary prints the receipt's own exact figure, so
       // the sentence and the headline above it never disagree (C1-14).
       narrative: describeChipTransaction(r, nameOf, viewer, (figure) =>
@@ -1599,19 +1690,22 @@ function CashierTradeWorkspace() {
       // player and a search, and the server answers with the club's rows only
       // to an owner, co-owner or admin, a downline's only to its agent, and
       // otherwise the viewer's own.
-      const { data, error } = await supabase.rpc('fn_cashier_history_feed', {
-        p_club_id: clubUuid,
-        p_scope: historyBook,
-        p_kind: historyKind,
-        p_from: historyRangeStart(historyRange),
-        p_to: null,
-        p_person: historyPerson,
-        p_search: historySearch || null,
-        p_before_at: null,
-        p_before_id: null,
-        // One sentinel row says whether an older page exists.
-        p_limit: HISTORY_PAGE + 1,
-      });
+      const { data, error } = await selectTextTwins(
+        supabase.rpc('fn_cashier_history_feed', {
+          p_club_id: clubUuid,
+          p_scope: historyBook,
+          p_kind: historyKind,
+          p_from: historyRangeStart(historyRange),
+          p_to: null,
+          p_person: historyPerson,
+          p_search: historySearch || null,
+          p_before_at: null,
+          p_before_id: null,
+          // One sentinel row says whether an older page exists.
+          p_limit: HISTORY_PAGE + 1,
+        }),
+        HISTORY_FEED_SELECT
+      );
       if (!isMounted.current || seq !== recordSeqRef.current) return false;
       // A discarded error rendered as "No trades recorded yet", which is a
       // different statement from "we could not read them".
@@ -1680,18 +1774,21 @@ function CashierTradeWorkspace() {
     const viewer = user.id;
     setRecordsLoadingMore(true);
     try {
-      const { data, error } = await supabase.rpc('fn_cashier_history_feed', {
-        p_club_id: clubUuid,
-        p_scope: historyBook,
-        p_kind: historyKind,
-        p_from: historyRangeStart(historyRange),
-        p_to: null,
-        p_person: historyPerson,
-        p_search: historySearch || null,
-        p_before_at: last.createdAt,
-        p_before_id: last.id,
-        p_limit: HISTORY_PAGE + 1,
-      });
+      const { data, error } = await selectTextTwins(
+        supabase.rpc('fn_cashier_history_feed', {
+          p_club_id: clubUuid,
+          p_scope: historyBook,
+          p_kind: historyKind,
+          p_from: historyRangeStart(historyRange),
+          p_to: null,
+          p_person: historyPerson,
+          p_search: historySearch || null,
+          p_before_at: last.createdAt,
+          p_before_id: last.id,
+          p_limit: HISTORY_PAGE + 1,
+        }),
+        HISTORY_FEED_SELECT
+      );
       if (!isMounted.current || filterEpoch !== recordFilterEpochRef.current) return;
       if (error) throw error;
       const rows = (data || []) as HistoryFeedRow[];
@@ -1777,8 +1874,8 @@ function CashierTradeWorkspace() {
           throw new Error('Invalid history summary');
         if (t?.mode === 'club') {
           const entries = historyTotalNumber(t.entries);
-          const volume = historyTotalNumber(t.volume);
-          const cashoutsPaid = historyTotalNumber(t.cashouts_paid);
+          const volume = historyTotalAmount(t.volume);
+          const cashoutsPaid = historyTotalAmount(t.cashouts_paid);
           if (typeof t.complete !== 'boolean') throw new Error('Invalid history summary');
           const complete = t.complete === true;
           setHistoryTotals({
@@ -1793,9 +1890,9 @@ function CashierTradeWorkspace() {
           if (!complete && attempt < 40) timer = setTimeout(() => void ask(attempt + 1), 1200);
           return;
         }
-        const incoming = historyTotalNumber(t.incoming);
-        const outgoing = historyTotalNumber(t.outgoing);
-        const net = historyTotalNumber(t.net);
+        const incoming = historyTotalAmount(t.incoming);
+        const outgoing = historyTotalAmount(t.outgoing);
+        const net = historyTotalAmount(t.net);
         setHistoryTotals({
           filterKey: historySummaryKey,
           mode: t?.mode === 'group' ? 'group' : 'wallet',
@@ -1849,18 +1946,21 @@ function CashierTradeWorkspace() {
       let before: { at: string; id: string } | null = null;
       while (rows.length < HISTORY_EXPORT_CAP) {
         if (!isCurrentExport()) return;
-        const { data, error } = await supabase.rpc('fn_cashier_history_feed', {
-          p_club_id: club,
-          p_scope: historyBook,
-          p_kind: historyKind,
-          p_from: from,
-          p_to: null,
-          p_person: historyPerson,
-          p_search: historySearch || null,
-          p_before_at: before?.at ?? null,
-          p_before_id: before?.id ?? null,
-          p_limit: pageSize + 1,
-        });
+        const { data, error } = await selectTextTwins(
+          supabase.rpc('fn_cashier_history_feed', {
+            p_club_id: club,
+            p_scope: historyBook,
+            p_kind: historyKind,
+            p_from: from,
+            p_to: null,
+            p_person: historyPerson,
+            p_search: historySearch || null,
+            p_before_at: before?.at ?? null,
+            p_before_id: before?.id ?? null,
+            p_limit: pageSize + 1,
+          }),
+          HISTORY_FEED_SELECT
+        );
         if (!isCurrentExport()) return;
         if (error) throw error;
         const page = (data || []) as HistoryFeedRow[];
@@ -1873,9 +1973,10 @@ function CashierTradeWorkspace() {
             direction === 'in' ? 'In' : direction === 'out' ? 'Out' : 'Transfer',
             r.from_name || (r.from_user_id ? 'A Member' : 'Club'),
             r.to_name || (r.to_user_id ? 'A Member' : ''),
-            (Math.round((Number(r.amount) || 0) * 100) / 100).toFixed(2),
+            exactDecimalText(r.amount_text) ??
+              (Math.round((Number(r.amount) || 0) * 100) / 100).toFixed(2),
             walletRoute(r) ?? '',
-            cashoutRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
+            ledgerRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
             r.invoice_number ?? '',
             cashoutStatusLabel(r.request_status) ?? '',
             r.id,
@@ -2082,6 +2183,7 @@ function CashierTradeWorkspace() {
             holderId: t.holder_id as string,
             issuedById: t.issued_by as string,
             held,
+            promo: t.note === PROMO_TICKET_NOTE,
             otherName:
               names.get(held ? (t.issued_by as string) : (t.holder_id as string)) || 'Member',
           };
@@ -2134,14 +2236,18 @@ function CashierTradeWorkspace() {
         { p_ticket_id: row.id }
       );
       if (error) throw error;
-      const res = data as { success?: boolean; error?: string } | null;
+      const res = data as { success?: boolean; error?: string; refund_wallet?: string } | null;
       if (!res?.success) throw new Error(res?.error || 'The Ticket Could Not Be Updated');
       toast?.success?.(
         action === 'redeem'
           ? `Redeemed A Ticket Worth ${fmt(row.value)} Chips`
-          : `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Balance`
+          : res.refund_wallet === 'promo_wallet'
+            ? `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Promo Wallet`
+            : `Cancelled The Ticket. ${fmt(row.value)} Chips Are Back In Your Balance`
       );
       masterBus.emit('BALANCE_UPDATED', { source: 'tournament_ticket', userId: user?.id || '' });
+      // A cancelled promo ticket lands back in the promo wallet.
+      void loadBankBalance();
       void loadTickets();
     } catch (e) {
       reportError(e, 'CashierTradePage.actOnTicket');
@@ -2319,7 +2425,7 @@ function CashierTradeWorkspace() {
     [downline]
   );
 
-  const { recentIds, addRecipient } = useRecentRecipients(user?.id, clubUuid, 'cashier');
+  const { addRecipient } = useRecentRecipients(user?.id, clubUuid, 'cashier');
   const [showCashoutRequest, setShowCashoutRequest] = useState(false);
 
   const rosterById = useMemo(() => new Map(downline.map((row) => [row.userId, row])), [downline]);
@@ -2331,15 +2437,7 @@ function CashierTradeWorkspace() {
     // club and nothing on the row said which of them were theirs.
     if (mineOnly) rows = rows.filter((r) => r.isMine);
     if (roleFilter !== 'all') rows = rows.filter((r) => r.role === roleFilter);
-    const bySort = (a: DownlineRow, b: DownlineRow) =>
-      sortKey === 'recent'
-        ? (recentIds.includes(a.userId) ? recentIds.indexOf(a.userId) : Infinity) -
-            (recentIds.includes(b.userId) ? recentIds.indexOf(b.userId) : Infinity) ||
-          b.chipBalance - a.chipBalance ||
-          a.name.localeCompare(b.name)
-        : sortKey === 'balance'
-          ? b.chipBalance - a.chipBalance
-          : a.name.localeCompare(b.name);
+    const bySort = compareCashierRoster(rosterSort, rosterSortKeys);
     // A search is a question about a NAME. Answer it by match quality first
     // (rosterMatchRank), and only then by the chosen sort - a balance sort on
     // a search put the owner, at 0.00, twenty-first behind twenty horses
@@ -2355,7 +2453,37 @@ function CashierTradeWorkspace() {
       rows = [...rows].sort((a, b) => roleRank(b.role as ClubRole) - roleRank(a.role as ClubRole));
     }
     return rows;
-  }, [downline, search, sortKey, groupByRole, mineOnly, roleFilter, recentIds]);
+  }, [downline, search, rosterSort, rosterSortKeys, groupByRole, mineOnly, roleFilter]);
+
+  /* Sort keys for the WHOLE roster (fn_cashier_roster_sort_keys): the agent
+  wallet, player wallet and last cashier transaction of every member in the
+  viewer's scope. Re-read whenever the roster is re-read (after every send,
+  claim or refresh), once its last page has landed. */
+  useEffect(() => {
+    setRosterSortKeys(new Map());
+  }, [clubUuid]);
+  useEffect(() => {
+    if (!clubUuid || !roleResolved || myRole === 'player' || rosterLoadingMore) return;
+    if (downline.length === 0) return;
+    let live = true;
+    void (async () => {
+      const { data, error } = await supabase.rpc('fn_cashier_roster_sort_keys', {
+        p_club_id: clubUuid,
+      });
+      if (!live) return;
+      if (error || !Array.isArray(data)) {
+        reportError(
+          error ?? new Error('Roster Sort Keys Missing'),
+          'CashierTradePage.rosterSortKeys'
+        );
+        return;
+      }
+      setRosterSortKeys(mapCashierRosterSortKeys(data as Array<Record<string, unknown>>));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [clubUuid, roleResolved, myRole, rosterLoadingMore, downline]);
 
   const [rosterWalletBalances, setRosterWalletBalances] = useState<
     Record<string, Partial<Record<SendDestination, number>>>
@@ -2444,7 +2572,7 @@ function CashierTradeWorkspace() {
 
   useEffect(() => {
     setVisibleCount(25);
-  }, [clubUuid, search, mineOnly, groupByRole, sortKey, roleFilter]);
+  }, [clubUuid, search, mineOnly, groupByRole, rosterSort, roleFilter]);
 
   // A selection had no relationship to what was on screen. Select three
   // players, type a search, select a fourth, press Send Out - and chips went
@@ -2582,6 +2710,7 @@ function CashierTradeWorkspace() {
   useEffect(() => {
     if (amountModal === null && !transferRecovery) {
       setSendSource('agent_wallet');
+      setTicketSource('player_wallet');
       setRecipientWallets({});
     }
   }, [amountModal, transferRecovery]);
@@ -2631,7 +2760,104 @@ function CashierTradeWorkspace() {
     };
   }, [amountModal, clubUuid, user?.id, pickedWalletKey]);
 
+  const promoSourceSelected =
+    (amountModal === 'ticket' && ticketSource === 'promo_wallet') ||
+    (amountModal === 'send' && sendSource === 'promo_wallet');
+  useEffect(() => {
+    setPromoAllowance(null);
+    setPromoAllowanceUnread(false);
+    if (!promoSourceSelected || !clubUuid || !user?.id || !isAgentRole(myRole)) return;
+    const ids = (JSON.parse(pickedWalletKey) as string[]).filter((id) => id !== user.id);
+    if (ids.length === 0) return;
+    let live = true;
+    void (async () => {
+      try {
+        const remaining: Record<string, number> = {};
+        for (let offset = 0; offset < ids.length; offset += 100) {
+          const { data, error } = await supabase.rpc('fn_cashier_promo_allowance', {
+            p_club_id: clubUuid,
+            p_user_ids: ids.slice(offset, offset + 100),
+          });
+          if (error) throw error;
+          const res = data as {
+            success?: boolean;
+            capped?: boolean;
+            allowances?: Array<{ user_id?: string; remaining_chips?: number | string }>;
+          } | null;
+          if (!res || res.success !== true || !Array.isArray(res.allowances))
+            throw new Error('Promo Allowance Response Missing');
+          if (res.capped !== true) return;
+          for (const row of res.allowances) {
+            const left = Number(row.remaining_chips);
+            if (typeof row.user_id === 'string' && Number.isFinite(left))
+              remaining[row.user_id] = left;
+          }
+        }
+        if (live) setPromoAllowance(remaining);
+      } catch (error) {
+        // The server still enforces the limit; only the preview is missing.
+        reportError(error, 'CashierTradePage.promoAllowance');
+        if (live) setPromoAllowanceUnread(true);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [promoSourceSelected, clubUuid, user?.id, pickedWalletKey, myRole, promoAllowanceEpoch]);
+  /** The smallest remaining allowance among the selected downlines, if read. */
+  const promoAllowanceFloor = (() => {
+    if (!promoAllowance) return null;
+    const known = picked
+      .map((target) => promoAllowance[target.userId])
+      .filter((left): left is number => typeof left === 'number');
+    return known.length > 0 ? Math.min(...known) : null;
+  })();
+  /* Which selected players the allowance holds back, by name. Send Out
+     compares each player's own amount. Send Ticket compares the chosen value,
+     or, because a value above the lowest allowance cannot stay chosen, the
+     smallest ticket value that allowance refuses. */
+  const promoShortfallValue =
+    amountModal !== 'ticket'
+      ? null
+      : (ticketTournament?.price ??
+        ticketValue ??
+        (promoAllowanceFloor === null
+          ? null
+          : (ticketValues.find((value) => value > promoAllowanceFloor) ?? null)));
+  const promoShortfalls =
+    promoSourceSelected && promoAllowance && picked.length > 1
+      ? picked.flatMap((target) => {
+          const left = promoAllowance[target.userId];
+          const wanted =
+            amountModal === 'ticket'
+              ? promoShortfallValue
+              : batchPlan.ok
+                ? batchPlan.amounts[target.userId]
+                : null;
+          return typeof left === 'number' && typeof wanted === 'number' && left < wanted
+            ? [{ userId: target.userId, name: target.name, left }]
+            : [];
+        })
+      : [];
+
   const selfSelected = picked.some((target) => target.userId === user?.id);
+  // A promo wallet never funds its own holder, and a value above the read
+  // allowance is not left selected behind a disabled option.
+  useEffect(() => {
+    if (selfSelected && ticketSource === 'promo_wallet' && !transferRecovery)
+      setTicketSource('player_wallet');
+  }, [selfSelected, ticketSource, transferRecovery]);
+  useEffect(() => {
+    if (
+      amountModal === 'ticket' &&
+      ticketSource === 'promo_wallet' &&
+      !transferRecovery &&
+      promoAllowanceFloor !== null &&
+      amount.trim() !== '' &&
+      Number(amount) > promoAllowanceFloor
+    )
+      setAmount('');
+  }, [amountModal, ticketSource, transferRecovery, promoAllowanceFloor, amount]);
   const availableSendSources: SendSource[] = [
     ...(canSeeClubBank(myRole)
       ? (['agent_wallet', 'club_bank', 'promo_wallet', 'club_promo_wallet'] as const)
@@ -2707,6 +2933,7 @@ function CashierTradeWorkspace() {
     setRecipientAmounts({});
     setRecipientWallets({});
     setSendSource('agent_wallet');
+    setTicketSource('player_wallet');
     setTicketTournamentId('');
     setTransferFailures([]);
     setBatchReceipt(null);
@@ -2824,9 +3051,38 @@ function CashierTradeWorkspace() {
       );
       return;
     }
-    if (kind === 'ticket' && total > myBalance) {
+    if (kind === 'ticket' && ticketSource === 'promo_wallet') {
+      const overLimit = promoAllowance
+        ? targets.find(
+            (target) =>
+              typeof promoAllowance[target.userId] === 'number' &&
+              parsedAmount.amounts[target.userId] > promoAllowance[target.userId]
+          )
+        : undefined;
+      if (overLimit) {
+        toast?.error?.(
+          `Promo Limit: ${overLimit.name} Can Receive Only ${exactChipFigure(promoAllowance![overLimit.userId])} More Promo Chips In This 7 Day Window`
+        );
+        return;
+      }
+      if (promoBalances.own === null) {
+        toast?.error?.('Selected Wallet Could Not Be Verified');
+        return;
+      }
+      if (total > promoBalances.own) {
+        toast?.error?.(
+          `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${SEND_SOURCE_LABELS.promo_wallet} Holds, ${exactChipFigure(promoBalances.own)}`
+        );
+        return;
+      }
+    } else if (
+      kind === 'ticket' &&
+      (ticketSource === 'agent_wallet'
+        ? agentWallet === null || total > agentWallet
+        : total > myBalance)
+    ) {
       toast?.error?.(
-        `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${exactChipFigure(myBalance)}`
+        `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${exactChipFigure(ticketSource === 'agent_wallet' ? (agentWallet ?? 0) : myBalance)}`
       );
       return;
     }
@@ -2913,7 +3169,11 @@ function CashierTradeWorkspace() {
           }
         : {}),
       source:
-        transferRecovery?.submissionId === submissionId ? transferRecovery.source : sendSource,
+        transferRecovery?.submissionId === submissionId
+          ? transferRecovery.source
+          : kind === 'ticket'
+            ? ticketSource
+            : sendSource,
       destinations:
         transferRecovery?.submissionId === submissionId
           ? transferRecovery.destinations
@@ -3041,18 +3301,55 @@ function CashierTradeWorkspace() {
                         op_id: opIdFor(target.userId),
                       }
                     : {
+                        source:
+                          uncertainRecovery.source === 'agent_wallet'
+                            ? 'agent_wallet'
+                            : 'player_wallet',
                         note: uncertainRecovery.ticketNote || `Cashier ticket for ${target.name}`,
                         idempotency_key: `ticket:${clubUuid}:${submissionId}:${target.userId}:${parsedAmount.amounts[target.userId]}`,
                       }),
                 }
           );
-          const { data, error } = await supabase.rpc('fn_cashier_batch_transfer', {
-            p_club_id: clubUuid,
-            p_kind: kind,
-            p_items: items,
-            p_batch_id: submissionId,
-          });
-          if (error) throw error;
+          /* Only an unresolved historical promo intent uses this old door.
+             Exact receipt replay remains supported; new purchases refuse. */
+          const promoTicket =
+            kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet';
+          let data: unknown;
+          if (promoTicket) {
+            const { data: promoBatch, error: promoError } = await supabase.rpc(
+              'fn_cashier_promo_ticket_batch',
+              {
+                p_club_id: clubUuid,
+                p_items: chunk.map((target) => ({
+                  user_id: target.userId,
+                  amount: parsedAmount.amounts[target.userId],
+                  idempotency_key: `ticket:${clubUuid}:${submissionId}:${target.userId}:${parsedAmount.amounts[target.userId]}`,
+                })),
+                p_batch_id: submissionId,
+              }
+            );
+            // An unanswered call is an unknown outcome: retry replays by key.
+            if (promoError) throw promoError;
+            data = promoBatch;
+          } else if (kind === 'ticket' && uncertainRecovery.source === 'agent_wallet') {
+            // A distinct RPC refuses safely on an older server; its legacy
+            // ticket batch would otherwise ignore source and debit player chips.
+            const { data: agentBatch, error: agentError } = await supabase.rpc(
+              'fn_cashier_agent_ticket_batch',
+              { p_club_id: clubUuid, p_kind: kind, p_items: items, p_batch_id: submissionId }
+            );
+            if (agentError) throw agentError;
+            data = agentBatch;
+          } else {
+            const { data: batch, error } = await supabase.rpc('fn_cashier_batch_transfer', {
+              p_club_id: clubUuid,
+              p_kind: kind,
+              p_items: items,
+              p_batch_id: submissionId,
+            });
+            if (error) throw error;
+            data = batch;
+          }
           const envelope = data as {
             success?: boolean;
             batch_id?: string;
@@ -3210,6 +3507,9 @@ function CashierTradeWorkspace() {
     }
 
     if (!isMounted.current || transferView.current !== owningView) return;
+    // A refused or uncertain item leaves the dialog open: its allowance preview
+    // must be read again, whatever the outcome was.
+    setPromoAllowanceEpoch((epoch) => epoch + 1);
     if (ok > 0) {
       for (const row of receiptRows) if (row.outcome === 'Confirmed') addRecipient(row.userId);
       // Name the counterparty on a single-target move. The Toast layer bars an
@@ -3220,7 +3520,7 @@ function CashierTradeWorkspace() {
       toast?.success?.(
         kind === 'send'
           ? `Sent ${exactChipFigure(sumChips(receiptRows.filter((row) => row.outcome === 'Confirmed').map((row) => row.amount)))} Total To ${who} From ${SEND_SOURCE_LABELS[sendSource]}`
-          : `Issued ${ok} Ticket${ok === 1 ? '' : 's'} To ${who}`,
+          : `Issued ${ok} Ticket${ok === 1 ? '' : 's'} To ${who}${uncertainRecovery.source === 'promo_wallet' && !boundTournamentId ? ` From ${SEND_SOURCE_LABELS.promo_wallet}` : ''}`,
         undefined,
         undefined,
         `${submissionId}:${receiptRows
@@ -3232,6 +3532,8 @@ function CashierTradeWorkspace() {
       // Read back this completed command without a loading reset. Background
       // balance events never reload the working directory.
       void loadClub(true);
+      // The promo and bank figures an open dialog quotes are read again too.
+      void loadBankBalance();
       masterBus.emit('BALANCE_UPDATED', { source: 'cashier_trade', userId: user.id });
     }
     if (failed.length > 0) {
@@ -3702,7 +4004,7 @@ function CashierTradeWorkspace() {
 
   // The bank figure each Club Bank dialog spends or fills.
   useEffect(() => {
-    if (amountModal === 'send' || claimOpen) void loadBankBalance();
+    if (amountModal === 'send' || amountModal === 'ticket' || claimOpen) void loadBankBalance();
   }, [amountModal, claimOpen, loadBankBalance]);
 
   // The claimable list, and a one second tick so each countdown is the truth
@@ -3798,6 +4100,22 @@ function CashierTradeWorkspace() {
         if (error) throw error;
         if (!data || !Array.isArray(data.operations) || !Array.isArray(data.tickets))
           throw new Error('Receipt Response Missing');
+        // A promo funded ticket's receipt is its promo send row, read by the
+        // same retry key through its own reader.
+        if (saved.kind === 'ticket' && saved.source === 'promo_wallet' && !saved.tournamentId) {
+          const { data: promoReceipts, error: promoReceiptsError } = await supabase.rpc(
+            'fn_cashier_promo_ticket_receipts',
+            {
+              p_club_id: saved.clubId,
+              p_ticket_keys: chunk.map((id) => savedTicketKey(saved, id)),
+            }
+          );
+          if (!isMounted.current || transferView.current !== recoveryView) return;
+          if (promoReceiptsError) throw promoReceiptsError;
+          if (!promoReceipts || !Array.isArray(promoReceipts.tickets))
+            throw new Error('Receipt Response Missing');
+          data.tickets = [...data.tickets, ...promoReceipts.tickets];
+        }
         chunk
           .filter((id) =>
             saved.kind === 'send'
@@ -3862,6 +4180,11 @@ function CashierTradeWorkspace() {
       clubUuid,
       String(saved.amount),
       saved.source ?? 'agent_wallet',
+      saved.kind === 'ticket'
+        ? saved.source === 'promo_wallet'
+          ? 'promo_wallet'
+          : 'player_wallet'
+        : ticketSource,
       Object.entries(saved.destinations ?? {}).sort(([left], [right]) => left.localeCompare(right)),
       Object.entries(saved.targetAmounts ?? {})
         .map(([id, value]) => [id, String(value)] as [string, string])
@@ -3891,6 +4214,14 @@ function CashierTradeWorkspace() {
     );
     setSelected(new Set(pendingTargets));
     if (saved.tournamentId) setTicketTournamentId(saved.tournamentId);
+    if (saved.kind === 'ticket')
+      setTicketSource(
+        saved.source === 'promo_wallet'
+          ? 'promo_wallet'
+          : saved.source === 'agent_wallet'
+            ? 'agent_wallet'
+            : 'player_wallet'
+      );
     setTransferRecovery(saved);
     // Persisted recovery deliberately omits names and raw server messages.
     // Restore names only from the freshly authorized roster for this club.
@@ -4553,9 +4884,48 @@ function CashierTradeWorkspace() {
                   </button>
                 )}
               </div>
-              <span className={styles.memberCount} role="status" aria-live="polite">
-                {list.length.toLocaleString()} Results
-              </span>
+              <div className={styles.resultsBar}>
+                <span className={styles.memberCount} role="status" aria-live="polite">
+                  {list.length.toLocaleString()} Results
+                </span>
+                <div className={styles.walletSorts} role="group" aria-label="Sort The Roster">
+                  {(
+                    [
+                      ['agent_wallet', 'Agent Wallet'],
+                      ['player_wallet', 'Player Wallet'],
+                    ] as const
+                  ).map(([by, label]) => {
+                    const active = rosterSort.by === by ? rosterSort.dir : null;
+                    return (
+                      <button
+                        key={by}
+                        type="button"
+                        className={`${styles.walletSortBtn} ${active ? styles.walletSortActive : ''}`}
+                        aria-pressed={active !== null}
+                        aria-label={`Sort By ${label} ${
+                          active === 'desc' ? 'Low To High' : 'High To Low'
+                        }`}
+                        title={
+                          active === 'desc'
+                            ? `${label}: High To Low. Tap For Low To High`
+                            : active === 'asc'
+                              ? `${label}: Low To High. Tap For High To Low`
+                              : `Sort By ${label}, High To Low`
+                        }
+                        onClick={() => setRosterSort((s) => nextCashierRosterSort(s, by))}
+                      >
+                        <span className={styles.walletSortFull}>{label}</span>
+                        <span className={styles.walletSortShort} aria-hidden="true">
+                          {label.split(' ')[0]}
+                        </span>
+                        <span className={styles.walletSortArrow} aria-hidden="true">
+                          {active === 'asc' ? '\u25B2' : '\u25BC'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className={styles.filterRow}>
                 <label className={styles.roleFilter}>
                   Role
@@ -4612,21 +4982,15 @@ function CashierTradeWorkspace() {
                   />
                   Group By Role
                 </label>
-                <button
-                  className={styles.sortBtn}
-                  onClick={() =>
-                    setSortKey((k) =>
-                      k === 'recent' ? 'balance' : k === 'balance' ? 'name' : 'recent'
-                    )
-                  }
-                >
-                  Sort By{' '}
-                  {sortKey === 'recent'
-                    ? 'Most Recent'
-                    : sortKey === 'balance'
-                      ? 'Chip Balance'
-                      : 'Name'}
-                </button>
+                {rosterSort.by !== 'last_transaction' && (
+                  <button
+                    type="button"
+                    className={styles.sortBtn}
+                    onClick={() => setRosterSort(DEFAULT_CASHIER_ROSTER_SORT)}
+                  >
+                    Sort By Last Transaction
+                  </button>
+                )}
               </div>
 
               {/* Downline list */}
@@ -4823,7 +5187,7 @@ function CashierTradeWorkspace() {
                             <span className={styles.rosterBalanceLine}>
                               <span className={styles.rowSub}>Player Wallet</span>
                               <strong className={styles.rowBalance}>
-                                {formatWalletChips(r.chipBalance)}
+                                {formatWalletChips(r.chipBalanceText ?? r.chipBalance)}
                               </strong>
                             </span>
                           )}
@@ -4982,7 +5346,7 @@ function CashierTradeWorkspace() {
                   type="search"
                   value={recordQuery}
                   onChange={(event) => setRecordQuery(event.target.value)}
-                  placeholder="Enter A Player Name Or Invoice Number"
+                  placeholder="Name Or Invoice #"
                   aria-label="Search Transaction History"
                 />
                 <button type="submit" className={styles.historySearchButton}>
@@ -5017,13 +5381,14 @@ function CashierTradeWorkspace() {
                         type="button"
                         className={`${styles.ledgerFilter} ${historyBook === scope ? styles.ledgerFilterActive : ''}`}
                         aria-pressed={historyBook === scope}
+                        aria-label={label}
                         onClick={() => {
                           if (scope === historyBook) return;
                           setHistoryPerson(null);
                           setHistoryScope(scope);
                         }}
                       >
-                        {label}
+                        {chipFace(label)}
                       </button>
                     ))}
                   </div>
@@ -5038,12 +5403,13 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${historyKind === kind ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={historyKind === kind}
+                      aria-label={label}
                       onClick={() => {
                         if (kind === historyKind) return;
                         setHistoryKind(kind);
                       }}
                     >
-                      {label}
+                      {chipFace(label)}
                     </button>
                   ))}
                 </div>
@@ -5054,12 +5420,13 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${historyRange === range ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={historyRange === range}
+                      aria-label={label}
                       onClick={() => {
                         if (range === historyRange) return;
                         setHistoryRange(range);
                       }}
                     >
-                      {label}
+                      {chipFace(label)}
                     </button>
                   ))}
                 </div>
@@ -5155,7 +5522,7 @@ function CashierTradeWorkspace() {
                       <span className={styles.summaryLabel}>{who} Out</span>
                       <strong className={`${styles.summaryValue} ${styles.amtOut}`}>
                         {wallet
-                          ? wallet.outgoing > 0
+                          ? !totalIsZero(wallet.outgoing) && !totalIsNegative(wallet.outgoing)
                             ? `-${fmt(wallet.outgoing)}`
                             : fmt(0)
                           : '--'}
@@ -5165,11 +5532,15 @@ function CashierTradeWorkspace() {
                       <span className={styles.summaryLabel}>{who} Net</span>
                       <strong
                         className={`${styles.summaryValue} ${
-                          wallet ? (wallet.net >= 0 ? styles.amtIn : styles.amtOut) : ''
+                          wallet
+                            ? !totalIsNegative(wallet.net)
+                              ? styles.amtIn
+                              : styles.amtOut
+                            : ''
                         }`}
                       >
                         {wallet
-                          ? `${wallet.net >= 0 ? '+' : '-'}${fmt(Math.abs(wallet.net))}`
+                          ? `${!totalIsNegative(wallet.net) ? '+' : '-'}${fmt(totalMagnitude(wallet.net))}`
                           : '--'}
                       </strong>
                     </div>
@@ -5197,15 +5568,16 @@ function CashierTradeWorkspace() {
                       type="button"
                       className={`${styles.ledgerFilter} ${recordDirection === direction ? styles.ledgerFilterActive : ''}`}
                       aria-pressed={recordDirection === direction}
+                      aria-label={
+                        direction === 'all'
+                          ? 'All Transactions'
+                          : direction === 'in'
+                            ? 'Incoming'
+                            : 'Outgoing'
+                      }
                       onClick={() => setRecordDirection(direction)}
                     >
-                      {direction === 'all'
-                        ? 'All Transactions'
-                        : direction === 'in'
-                          ? 'Incoming'
-                          : direction === 'out'
-                            ? 'Outgoing'
-                            : 'Chip Movement'}
+                      {direction === 'all' ? 'All' : direction === 'in' ? 'In' : 'Out'}
                     </button>
                   ))}
                 </div>
@@ -5267,7 +5639,7 @@ function CashierTradeWorkspace() {
                         dialogTriggerRef.current = event.currentTarget;
                         setReceipt(r);
                       }}
-                      aria-label={`Open Receipt For ${r.title ? r.title : `${r.direction === 'managed' ? 'Chip Movement' : r.direction === 'out' ? 'Payment To' : 'Payment From'} ${r.counterparty}`}, ${fmt(r.amount)} Chips`}
+                      aria-label={`Open Receipt For ${r.title ? r.title : `${r.direction === 'managed' ? 'Chip Movement' : r.direction === 'out' ? 'Payment To' : 'Payment From'} ${r.counterparty}`}, ${fmt(r.amountText ?? r.amount)} Chips`}
                     >
                       <div className={styles.rowInfo}>
                         <span className={styles.rowName}>
@@ -5287,30 +5659,43 @@ function CashierTradeWorkspace() {
                           )}
                         </span>
                         <span className={styles.rowSub}>
+                          {/* Dan 2026-11-13: one short line - where the chips
+                          went (or the kind, when no wallet moved) and when.
+                          The kind and full sentence stay on the receipt. A
+                          cash-out request also says where it stands. */}
                           {r.type === 'cashout_request_escrow' &&
-                          cashoutStatusLabel(r.requestStatus) === 'Waiting' ? (
+                          cashoutStatusLabel(r.requestStatus) ? (
                             <>
-                              <span className={styles.waitTag}>
-                                {waitingFor(r.requestCreatedAt ?? r.createdAt)}
+                              <span
+                                className={
+                                  cashoutStatusLabel(r.requestStatus) === 'Waiting'
+                                    ? styles.waitTag
+                                    : styles.statusTag
+                                }
+                              >
+                                {cashoutStatusLabel(r.requestStatus) === 'Waiting'
+                                  ? waitingFor(r.requestCreatedAt ?? r.createdAt)
+                                  : cashoutStatusLabel(r.requestStatus)}
                               </span>{' '}
                               &middot;{' '}
                             </>
                           ) : null}
-                          {txLabel(r.type)}
-                          {r.route ? <> &middot; {r.route}</> : null} &middot;{' '}
-                          {new Date(r.createdAt).toLocaleString([], {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {r.route ?? txLabel(r.type)} &middot;{' '}
+                          <span className={styles.rowTime}>
+                            {new Date(r.createdAt).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </span>
                         </span>
                       </div>
                       <span
-                        className={`${styles.rowBalance} ${r.direction === 'in' ? styles.amtIn : r.direction === 'out' ? styles.amtOut : ''}`}
+                        className={`${styles.rowBalance} ${r.sign === '+' ? styles.amtIn : r.sign === '-' ? styles.amtOut : ''}`}
                       >
-                        {r.direction === 'in' ? '+' : r.direction === 'out' ? '-' : ''}
-                        {fmt(r.amount)}
+                        {r.sign ?? ''}
+                        {fmt(r.amountText ?? r.amount)}
                       </span>
                       <span className={styles.receiptCue}>Receipt</span>
                     </button>
@@ -5566,6 +5951,7 @@ function CashierTradeWorkspace() {
                           {t.redemptionMode === 'tournament_entry_only' && (
                             <>Entry Only &middot; </>
                           )}
+                          {t.promo && <>Promo &middot; </>}
                           {txLabel(t.status)} &middot;{' '}
                           {new Date(t.createdAt).toLocaleString([], {
                             month: 'short',
@@ -5573,7 +5959,13 @@ function CashierTradeWorkspace() {
                             hour: '2-digit',
                             minute: '2-digit',
                           })}
-                          {t.note ? ` · ${t.note}` : ''}
+                          {t.note && !t.promo ? ` · ${t.note}` : ''}
+                          {t.promo &&
+                          !t.held &&
+                          t.status === 'issued' &&
+                          t.redemptionMode === 'wallet_chips'
+                            ? ' · Cancel Returns To Your Promo Wallet'
+                            : ''}
                         </span>
                       </div>
                       <span className={styles.rowBalance}>{fmt(t.value)}</span>
@@ -5593,6 +5985,8 @@ function CashierTradeWorkspace() {
                         <button
                           className={styles.reqBtn}
                           disabled={!isOnline || ticketActingId !== null}
+                          aria-label={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}
+                          title={t.promo ? 'Cancel: Returns To Your Promo Wallet' : undefined}
                           onClick={() => void actOnTicket(t, 'cancel')}
                         >
                           {ticketActingId === t.id ? 'Working...' : 'Cancel'}
@@ -5683,19 +6077,25 @@ function CashierTradeWorkspace() {
                   </span>
                   <strong
                     className={
-                      receipt.direction === 'in'
+                      receipt.sign === '+'
                         ? styles.amtIn
-                        : receipt.direction === 'out'
+                        : receipt.sign === '-'
                           ? styles.amtOut
                           : 'sc-ink--silver'
                     }
                   >
-                    {receipt.direction === 'in' ? '+' : receipt.direction === 'out' ? '-' : ''}
-                    {exactChipFigure(receipt.amount)}
+                    {receipt.sign ?? ''}
+                    {exactChipFigure(receipt.amountText ?? receipt.amount)}
                   </strong>
                   <small className="sc-label sc-ink--muted">Chips</small>
                 </div>
                 <dl className={styles.receiptFacts}>
+                  {receipt.title ? (
+                    <div>
+                      <dt className="sc-label sc-ink--blue">Activity</dt>
+                      <dd className="sc-ink--silver">{receipt.title}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt className="sc-label sc-ink--blue">Status</dt>
                     <dd className={styles.integrityGood}>Recorded In Ledger</dd>
@@ -6003,12 +6403,22 @@ function CashierTradeWorkspace() {
                 {(() => {
                   const sourceLabel =
                     amountModal === 'ticket'
-                      ? 'From Your Player Wallet'
+                      ? ticketSource === 'promo_wallet'
+                        ? `From ${SEND_SOURCE_LABELS.promo_wallet}`
+                        : ticketSource === 'agent_wallet'
+                          ? 'From Your Agent Wallet'
+                          : 'From Your Player Wallet'
                       : amountModal === 'send'
                         ? `From ${SEND_SOURCE_LABELS[sendSource]}`
                         : null;
                   const sourceBalance =
-                    amountModal === 'ticket' ? myBalance : selectedSourceBalance;
+                    amountModal === 'ticket'
+                      ? ticketSource === 'promo_wallet'
+                        ? promoBalances.own
+                        : ticketSource === 'agent_wallet'
+                          ? agentWallet
+                          : myBalance
+                      : selectedSourceBalance;
                   return (
                     <>
                       {picked.length === 1 && (
@@ -6054,11 +6464,84 @@ function CashierTradeWorkspace() {
                               ))}
                             </select>
                           )}
+                          {amountModal === 'ticket' && (
+                            <select
+                              className={styles.walletSelect}
+                              aria-label="Send Ticket From"
+                              value={ticketSource}
+                              disabled={busy || Boolean(transferRecovery)}
+                              onChange={(event) => {
+                                setTicketSource(
+                                  event.target.value === 'agent_wallet'
+                                    ? 'agent_wallet'
+                                    : 'player_wallet'
+                                );
+                                setTransferFailures([]);
+                              }}
+                            >
+                              <option value="player_wallet">
+                                From Your Player Wallet: {formatWalletChips(myBalance)} (Cashable
+                                Chips Only)
+                              </option>
+                              <option value="agent_wallet">
+                                From Your Agent Wallet:{' '}
+                                {agentWallet === null
+                                  ? 'Unavailable'
+                                  : formatWalletChips(agentWallet)}{' '}
+                                (Cashable Chips Only)
+                              </option>
+                              {transferRecovery?.kind === 'ticket' &&
+                                transferRecovery.source === 'promo_wallet' && (
+                                  <option value="promo_wallet" disabled>
+                                    Historical Promo Ticket Recovery
+                                  </option>
+                                )}
+                            </select>
+                          )}
                         </CashierWalletRow>
                       )}
                     </>
                   );
                 })()}
+                {((amountModal === 'send' && sendSource === 'promo_wallet') ||
+                  (amountModal === 'ticket' && ticketSource === 'promo_wallet')) &&
+                  isAgentRole(myRole) && (
+                    <>
+                      <p>
+                        {
+                          'Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All Destination Wallets Share This Limit.'
+                        }
+                      </p>
+                      {promoAllowanceFloor !== null && (
+                        <p role="status" title="Promo Allowance Remaining">
+                          {picked.length === 1
+                            ? `${picked[0].name} Can Still Receive ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`
+                            : `Lowest Remaining Allowance Among The Selected Players: ${exactChipFigure(promoAllowanceFloor)} Of 50 Promo Chips.`}
+                        </p>
+                      )}
+                      {promoShortfalls.length > 0 && (
+                        <p role="status" title="Promo Allowance Below This Send">
+                          {`${
+                            amountModal === 'ticket' && promoShortfallValue !== null
+                              ? `Can Not Receive A ${exactChipFigure(promoShortfallValue)} Promo Ticket`
+                              : 'Can Not Receive Their Amount'
+                          }: ${promoShortfalls
+                            .slice(0, PROMO_SHORTFALL_NAMES)
+                            .map((row) => `${row.name} (${exactChipFigure(row.left)} Remaining)`)
+                            .join(', ')}${
+                            promoShortfalls.length > PROMO_SHORTFALL_NAMES
+                              ? `, And ${promoShortfalls.length - PROMO_SHORTFALL_NAMES} More`
+                              : ''
+                          }.`}
+                        </p>
+                      )}
+                      {promoAllowanceUnread && (
+                        <p role="status">
+                          {'Promo Allowance Could Not Be Read. The 50 Chip Limit Still Applies.'}
+                        </p>
+                      )}
+                    </>
+                  )}
                 {amountModal === 'diamonds' && user?.id && picked.length === 1 ? (
                   <DiamondWalletTransfer
                     key={`${user?.id}:${picked[0].userId}`}
@@ -6093,11 +6576,22 @@ function CashierTradeWorkspace() {
                                 {exactChipFigure(ticketTournament.price)} Ticket (Original Retry)
                               </option>
                             ) : (
-                              ticketValues.map((value) => (
-                                <option key={value} value={String(value)}>
-                                  {exactChipFigure(value)} Ticket
-                                </option>
-                              ))
+                              ticketValues.map((value) => {
+                                const overPromoLimit =
+                                  ticketSource === 'promo_wallet' &&
+                                  promoAllowanceFloor !== null &&
+                                  value > promoAllowanceFloor;
+                                return (
+                                  <option
+                                    key={value}
+                                    value={String(value)}
+                                    disabled={overPromoLimit}
+                                  >
+                                    {exactChipFigure(value)} Ticket
+                                    {overPromoLimit ? ' (Over The Promo Limit)' : ''}
+                                  </option>
+                                );
+                              })
                             )}
                           </select>
                         </span>
@@ -6207,7 +6701,11 @@ function CashierTradeWorkspace() {
                               : batchPlan.total >
                                   (amountModal === 'send'
                                     ? (selectedSourceBalance ?? Number.POSITIVE_INFINITY)
-                                    : myBalance)
+                                    : ticketSource === 'promo_wallet'
+                                      ? (promoBalances.own ?? Number.POSITIVE_INFINITY)
+                                      : ticketSource === 'agent_wallet'
+                                        ? (agentWallet ?? 0)
+                                        : myBalance)
                                 ? 'Insufficient Chips In The Funding Wallet'
                                 : ''}
                     </div>

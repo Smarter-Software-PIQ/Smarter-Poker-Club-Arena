@@ -58,11 +58,19 @@ import {
 } from './serial-journal-index.mjs';
 import { join } from 'node:path';
 import { supersededBy } from './check-migrations-are-live.mjs';
-import { minutesBeforeBreakWindow } from './migration-concurrent-preamble.mjs';
+import {
+  minutesBeforeBreakWindow,
+  concurrentIndexBudget,
+} from './migration-concurrent-preamble.mjs';
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
+import { classifyMigration } from './recording-only.mjs';
 import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
-import { observeWheelWalletReaders, WHEEL_WALLET_CUTOVER } from './wheel-wallet-lock-observation.mjs';
+import {
+  observeWheelWalletReaders,
+  WHEEL_WALLET_CUTOVER,
+} from './wheel-wallet-lock-observation.mjs';
 import { stalePinParts } from './migration-stale-pins.mjs';
+import { handPathParts } from './hand-path-shared-writes.mjs';
 
 import {
   recoveryRequest,
@@ -227,7 +235,24 @@ try {
 // which the merge-time check tests/unit/aMergedMigrationIsInstallable.test.ts
 // shares, so a file the applier would refuse cannot merge.
 const shape = migrationTransactionShape(file, sql);
-if (!shape.ok) refused(shape.reason);
+// A VERIFIED RECORDING ANSWERS FROM THE HISTORY (2026-11-15). A row in
+// scripts/ci/recorded-migrations.manifest.json is the byte-exact SQL production
+// already ran (recording-only.mjs, manifestMatched), and that SQL may carry no
+// BEGIN/COMMIT: wrapping it would make it a different migration. The
+// dispatcher sends a MODIFIED file on the stated contract that an installed
+// version answers ALREADY-APPLIED and sends nothing, so a recording's shape
+// refusal waits for the history read below: installed -> ALREADY-APPLIED,
+// nothing sent; not installed -> refused for its shape exactly as before
+// (20261115001336, PR #10913, was refused here with nothing sent). Every other
+// file is still refused on the spot.
+let deferredShapeRefusal = null;
+if (!shape.ok) {
+  // Judge the bytes this run read (relative to its working directory), against
+  // the manifest beside them, as the applier itself does.
+  if (classifyMigration(path, { repo: process.cwd() }).manifestMatched === true)
+    deferredShapeRefusal = shape.reason;
+  else refused(shape.reason);
+}
 // A migration that cannot finish inside the install budget is refused before
 // anything is sent (migration-cost-shape.mjs, shared with the merge check
 // tests/unit/aMigrationFitsTheInstallBudget.test.ts).
@@ -235,7 +260,7 @@ if (isCostChecked(file)) {
   const risks = migrationCostRisks(file, sql);
   if (risks.length) refused(risks.join('\n'));
 }
-const preamble = shape.indexes;
+const preamble = shape.ok ? shape.indexes : [];
 let serialJournalIndex;
 try {
   serialJournalIndex = validateSerialJournalIndex({
@@ -319,7 +344,8 @@ if (
 // Leave room for the slowest ledger build to finish before :50: a concurrent
 // build still running when the break window opens is refused at its end and
 // leaves an INVALID index behind.
-const PREAMBLE_MINUTES_NEEDED = 12;
+const concurrentBudget = concurrentIndexBudget(file, sql);
+const PREAMBLE_MINUTES_NEEDED = concurrentBudget.admissionMinutes;
 
 // CLAUDE.md section 2 rule 8: the database refuses non-temporary DDL from a
 // postgres-role session inside minute-of-hour :50-:03 UTC, the hourly
@@ -407,6 +433,12 @@ try {
 } catch (e) {
   await client.end().catch(() => {});
   unknown(`could not read schema_migrations: ${e.message}`);
+}
+
+// A recording production does not hold is refused for its shape, as any file.
+if (deferredShapeRefusal && already.length === 0) {
+  await client.end().catch(() => {});
+  refused(deferredShapeRefusal);
 }
 
 if (batches) {
@@ -747,10 +779,10 @@ let cashHashBuiltSelectorOid = recovery?.retirementOnly
 const indexPreamble = recovery?.retirementOnly || cashHashExistingSelectorOid ? [] : preamble;
 for (const ix of indexPreamble) {
   const refusal = await refusalNow();
-  if (refusal || minutesBeforeBreakWindow(new Date()) < 5) {
+  if (refusal || minutesBeforeBreakWindow(new Date()) < concurrentBudget.eachIndexMinutes) {
     await client.end().catch(() => {});
     refused(
-      `stopped before ${ix.name}: ${refusal || 'fewer than 5 minutes before :50 UTC'}. Indexes already built stay (IF NOT EXISTS skips them); the transaction was NOT sent. Dispatch again after :03.`
+      `stopped before ${ix.name}: ${refusal || `fewer than ${concurrentBudget.eachIndexMinutes} minutes before :50 UTC`}. Indexes already built stay (IF NOT EXISTS skips them); the transaction was NOT sent. Dispatch again after :03.`
     );
   }
   const t0 = Date.now();
@@ -760,7 +792,10 @@ for (const ix of indexPreamble) {
       const remaining = Math.floor(cashHashRecoveryDeadline - performance.now());
       if (remaining <= 0) throw new Error('shared 600s cash HASH recovery/build budget exhausted');
       await client.query("SELECT set_config('statement_timeout',$1,false)", [remaining + 'ms']);
-    } else await client.query("SET statement_timeout = '600s'");
+    } else
+      await client.query("SELECT set_config('statement_timeout',$1,false)", [
+        concurrentBudget.statementMs + 'ms',
+      ]);
     if (serialJournalIndex) {
       try {
         await bindSerialJournalIndex(client);
@@ -896,8 +931,14 @@ const transactionBody = preamble.length > 0 ? shape.body : sql;
 // stopped the 2026-10-19 close): a snapshot after BEGIN;, a check before the
 // history insert.
 let stalePin;
+// A migration that ADDS a blocking exclusive write on a union/club/pool-wide
+// row to a hand's money path is refused inside its own transaction
+// (hand-path-shared-writes.mjs; incident 075013fd: the third such row in two
+// months). Snapshot after the stale-pin snapshot, check after its check.
+let handPath;
 try {
   stalePin = stalePinParts(file, sql, transactionBody);
+  handPath = handPathParts(file, sql, transactionBody);
 } catch (e) {
   refused(e.message);
 }
@@ -906,8 +947,10 @@ const atomicSQL = transactionBody.replace(
   (_whole, begin, middle) =>
     begin +
     stalePin.snapshot +
+    handPath.snapshot +
     middle +
     stalePin.check +
+    handPath.check +
     (declaredBudget ? offlineScopeCheckSQL() : '') +
     historyStatement +
     '\nCOMMIT;'
@@ -940,7 +983,9 @@ if (ordinaryTransaction && file === WHEEL_WALLET_CUTOVER) {
     await client.end().catch(() => {});
     refused(`wallet cutover preflight: ${e.message}; migration transaction not sent`);
   }
-  console.log('[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.');
+  console.log(
+    '[apply] Wallet relations observed idle; the cutover still requires one NOWAIT acquisition.'
+  );
 }
 
 // Ordinary installs must not retain live row locks across an unbounded series

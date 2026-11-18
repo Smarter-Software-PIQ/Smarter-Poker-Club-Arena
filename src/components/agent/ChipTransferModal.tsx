@@ -57,7 +57,8 @@ import {
   runAgentWalletOperation,
   confirmedAgentWalletReceipt,
 } from '../../services/AgentWalletIntent';
-import { resolveClubIdFilter, resolveClubUUID } from '../../utils/clubIdResolver';
+import { resolveClubUUID } from '../../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../../utils/strictClubIdResolver';
 import { SEND_DESTINATION_LABELS } from '../../utils/cashierSendWallets';
 import {
   useRecipientWalletBalances,
@@ -65,6 +66,7 @@ import {
 } from '../../hooks/useRecipientWalletBalances';
 import './ChipTransferModal.css';
 import { reportError } from '../../utils/errorReporter';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface Recipient {
   id: string;
@@ -290,7 +292,7 @@ export default function ChipTransferModal({
       }
 
       // Get the club name for the audit description.
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId);
       const { data: club } = await supabase
         .from('clubs')
         .select('name')
@@ -916,7 +918,7 @@ export default function ChipTransferModal({
                   {/* An unread balance is Unknown, never a fabricated 0 -> 0. */}
                   {senderBalance === null
                     ? 'Unknown'
-                    : `${formatWalletChips(senderBalance)} → ${formatWalletChips(Math.max(0, senderBalance - parseFloat(amount)))}`}
+                    : `${formatWalletChips(senderBalance)} → ${formatWalletChips(chipCents(Math.max(0, senderBalance - parseFloat(amount))))}`}
                 </span>
               </div>
               <div className="preview-row">
@@ -926,7 +928,7 @@ export default function ChipTransferModal({
                 <span>
                   {destinationBalance === null
                     ? 'Unknown'
-                    : `${formatWalletChips(destinationBalance)} → ${formatWalletChips(destinationBalance + parseFloat(amount))}`}
+                    : `${formatWalletChips(destinationBalance)} → ${formatWalletChips(chipCents(destinationBalance + parseFloat(amount)))}`}
                 </span>
               </div>
             </div>

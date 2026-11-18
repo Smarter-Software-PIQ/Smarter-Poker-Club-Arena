@@ -36,8 +36,10 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import { SHARK_CLUB_ID } from '../../lib/constants';
 import { figureOr, readFigures, rememberFigures } from '../../lib/lobbyFigureCache';
 import { SpadeConsole } from '../console/SpadeConsole';
+import type { KingsClubDisplayTotals } from '../home/CarouselSection';
 import './ClubCardPanel.css';
 
 interface ClubCardPanelProps {
@@ -50,6 +52,7 @@ interface ClubCardPanelProps {
   /** Of the active players, how many are in tournaments, Spins and SNGs. */
   activeEvents?: number | null;
   clubId?: number | string;
+  kingsDisplayTotals?: KingsClubDisplayTotals;
   /**
    * Where the club sits between its current level and the next, 0-100, on the
    * 1-55 member ladder. Omit to hide the progress line entirely.
@@ -63,14 +66,16 @@ interface ClubCardPanelProps {
   logoUrl?: string | null;
   entityType?: 'club' | 'union';
   /**
-   * A display addition the owner set for this club (Kings Club +1,500
-   * members / +233 active). Dan 2026-11-02 19:23 CT: "CARD SHOULD SHOW TRUE
-   * MEMBER COUNT +1500 AS A TOTAL NUMBER OF 1592 AND TRUE ACTIVE COUNT OF 2 +
-   * 233". The card prints ONE TOTAL per figure (real + addition) and no
-   * separate "+N BONUS" line under it. The real counts stay real in every
-   * other reader; only this card's printed figure carries the addition.
+   * Dan 2026-11-12: a union member club plays on its union's floor, so its
+   * cash/events split counts that floor and this names it ("MIDWAY UNION").
+   * Null for a standalone club or a union's own card.
    */
-  displayAddition?: { members: number; active: number; label: string } | null;
+  splitFloorLabel?: string | null;
+  /**
+   * Dan 2026-11-17: distinct players on that union floor, printed with the
+   * union's name when the card carries the separate union activity line.
+   */
+  floorPlaying?: number | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -81,13 +86,15 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   activeCash = null,
   activeEvents = null,
   clubId,
+  kingsDisplayTotals,
   levelProgressPercent,
   membersToNextLevel,
   levelTierLabel,
   cardImageUrl,
   logoUrl,
   entityType = 'club',
-  displayAddition = null,
+  splitFloorLabel = null,
+  floorPlaying = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -135,14 +142,14 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
      about a club; showing yesterday's briefly costs nobody anything. The
      same trick on money would be the bug clubPageHardening.test.ts exists
      to prevent, and no money passes through here. */
-  /* KINGS CLUB SHOWS ONE TOTAL (Dan 2026-11-02 19:23 CT): real count plus the
-     owner's display addition, printed as a single number. */
-  const addMembers = Math.max(0, displayAddition?.members ?? 0);
-  const addActive = Math.max(0, displayAddition?.active ?? 0);
-  const shownMembers = totalMembers == null ? null : totalMembers + addMembers;
-  const shownActive = activePlayers == null ? null : activePlayers + addActive;
+  /* Keep the last measured values in the cache. The adjusted figures only
+     appear alongside their disclosure when the display RPC supplies them. */
+  const shownMembers = totalMembers;
+  const shownActive = activePlayers;
 
-  const scope = clubId != null && clubId !== '' ? `club:${clubId}` : '';
+  /* "club-measured:" (2026-11-17): figures cached under "club:" before the
+     display additions were retired could still hold them; they are not read. */
+  const scope = clubId != null && clubId !== '' ? `club-measured:${clubId}` : '';
   const cached = useMemo(() => readFigures(scope), [scope]);
 
   useEffect(() => {
@@ -156,15 +163,18 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
     });
   }, [scope, shownMembers, clubLevel, shownActive, activeCash, activeEvents]);
 
-  const membersText = figureOr(
-    shownMembers == null ? null : shownMembers.toLocaleString(),
-    cached.members
-  );
+  const showActivityDetails = Number(clubId) !== SHARK_CLUB_ID;
+  const activityFloorName =
+    splitFloorLabel === 'MIDWAY UNION' ? 'THE MIDWAY UNION' : splitFloorLabel;
+  const memberDisplay = kingsDisplayTotals?.member_total;
+  const activeDisplay = kingsDisplayTotals?.active_total;
+  const membersText =
+    memberDisplay?.toLocaleString() ??
+    figureOr(shownMembers == null ? null : shownMembers.toLocaleString(), cached.members);
   const levelText = figureOr(clubLevel == null ? null : Math.max(1, clubLevel), cached.level);
-  const activeText = figureOr(
-    shownActive == null ? null : shownActive.toLocaleString(),
-    cached.active
-  );
+  const activeText =
+    activeDisplay?.toLocaleString() ??
+    figureOr(shownActive == null ? null : shownActive.toLocaleString(), cached.active);
   /* Dan 2026-09-09: ACTIVE was one figure that mixed cash seats with
      tournament seats, so 291 beside a lobby of 21 cash players looked wrong.
      The split prints under the total: who is at cash tables, who is in
@@ -250,26 +260,39 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           <span className="club-card-stat-label sc-label sc-ink--blue">LEVEL</span>
           <span className="club-card-stat-value sc-ink--silver">{levelText}</span>
         </div>
-        <div
-          className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}
-        >
+        <div className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}>
           <span className="club-card-stat-label sc-label sc-ink--blue">ACTIVE</span>
           <span
             className={`club-card-stat-value ${(shownActive ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
           >
             {activeText}
           </span>
-          {/* Dan 2026-09-09: the split prints under the total, in the same
-              small caps as the labels, so 291 ACTIVE beside 21 cash players
-              on the floor no longer reads as a wrong number. */}
-          <span
-            className="club-card-stat-split sc-label sc-ink--muted"
-            aria-label="Active Players By Game"
-          >
-            <span className="club-card-stat-split-part">{cashText} CASH</span>
-            <span className="club-card-stat-split-dot" aria-hidden="true" />
-            <span className="club-card-stat-split-part">{eventsText} EVENTS</span>
-          </span>
+          {showActivityDetails && (
+            <>
+              {/* Dan 2026-09-09: the split prints under the total, in the same
+                  small caps as the labels, so 291 ACTIVE beside 21 cash players
+                  on the floor no longer reads as a wrong number. */}
+              {splitFloorLabel ? (
+                <span className="club-card-stat-split-floor sc-label sc-ink--blue">
+                  {floorPlaying != null
+                    ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACTIVE ACROSS ${activityFloorName}`
+                    : splitFloorLabel}
+                </span>
+              ) : null}
+              <span
+                className="club-card-stat-split sc-label sc-ink--muted"
+                aria-label={
+                  splitFloorLabel
+                    ? `Active Players By Game In ${splitFloorLabel}`
+                    : 'Active Players By Game'
+                }
+              >
+                <span className="club-card-stat-split-part">{cashText} CASH</span>
+                <span className="club-card-stat-split-dot" aria-hidden="true" />
+                <span className="club-card-stat-split-part">{eventsText} EVENTS</span>
+              </span>
+            </>
+          )}
         </div>
       </div>
 

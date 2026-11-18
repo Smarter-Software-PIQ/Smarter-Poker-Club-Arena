@@ -84,6 +84,8 @@ describe('the club card and detail panel use the whole game queue', () => {
       joining ? ordinaryJoin(id) : ordinaryLeave(id)
     );
     const context = {
+      gameEntryScope: { active: true },
+      handleViewCashTable: vi.fn(),
       tableId: 'table',
       joining: entry.joining,
       tablesRef: { current: [{ id: 'table', ...entry }] },

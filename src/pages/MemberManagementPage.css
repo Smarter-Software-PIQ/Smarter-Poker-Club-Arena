@@ -637,6 +637,35 @@
   white-space: nowrap;
 }
 
+/* Fees on top, the player's balance under it, both right-aligned. */
+.mm-downline__money {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.mm-downline__balance {
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ca-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mm-downline__money-label {
+  margin-right: 0.35rem;
+  font-family: inherit;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ca-text-faint);
+}
+
 .mm-downline__more {
   margin: 0.3rem 0 0;
   text-align: center;
@@ -1674,4 +1703,33 @@
     align-items: stretch;
     flex-direction: column;
   }
+}
+
+.mm-history .mm-stat {
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+}
+
+.mm-history .mm-stat__label {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mm-history .mm-stat__value {
+  margin-inline-start: auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.mm-history__filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.mm-history__filters select {
+  min-height: 44px;
+  font-size: 16px;
 }

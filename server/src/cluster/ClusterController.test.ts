@@ -73,8 +73,9 @@ function build(
   const calls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
   const rpc = vi.fn(async (fn: string, args?: Record<string, unknown>) => {
     calls.push({ fn, args });
-    if (fn === 'fn_cash_clusters_tick_all') return { data: over.pass ?? passOf([{}]), error: null };
-    if (fn === 'fn_cash_cluster_tick') {
+    if (fn === 'fn_cash_clusters_tick_all_uncapped')
+      return { data: over.pass ?? passOf([{}]), error: null };
+    if (fn === 'fn_cash_cluster_tick_uncapped') {
       return { data: over.tickResult ?? { ok: true, actions: [], seated_total: 2 }, error: null };
     }
     return { data: null, error: { message: `unexpected ${fn}` } };
@@ -98,7 +99,7 @@ describe('the pass is one RPC', () => {
     });
     const s = await controller.tick();
     expect(calls).toHaveLength(1);
-    expect(calls[0].fn).toBe('fn_cash_clusters_tick_all');
+    expect(calls[0].fn).toBe('fn_cash_clusters_tick_all_uncapped');
     expect(s.rpcs).toBe(1);
     expect(s.games).toBe(120);
     expect(s.ticked).toBe(120);
@@ -121,13 +122,19 @@ describe('the pass is one RPC', () => {
         ]),
     });
     await controller.tick();
-    expect(calls[0].args).toEqual({ p_eligible: { t1: 3, t3: 1 } });
+    expect(calls[0]).toEqual({
+      fn: 'fn_cash_clusters_tick_all_uncapped',
+      args: { p_eligible: { t1: 3, t3: 1 } },
+    });
   });
 
   it('sends an empty map when the fleet has counted nothing', async () => {
     const { controller, calls } = build();
     await controller.tick();
-    expect(calls[0].args).toEqual({ p_eligible: {} });
+    expect(calls[0]).toEqual({
+      fn: 'fn_cash_clusters_tick_all_uncapped',
+      args: { p_eligible: {} },
+    });
   });
 
   it('reports how many games the SQL let rest', async () => {
@@ -292,7 +299,10 @@ describe('the rested roster is identity, and the wake can read it', () => {
       controller.wake('sleepy');
       await vi.advanceTimersByTimeAsync(CLUSTER_WAKE_DEBOUNCE_MS + 1);
       expect(calls).toEqual([
-        { fn: 'fn_cash_cluster_tick', args: { p_game_id: 'sleepy', p_eligible_horses: 3 } },
+        {
+          fn: 'fn_cash_cluster_tick_uncapped',
+          args: { p_game_id: 'sleepy', p_eligible_horses: 3 },
+        },
       ]);
       controller.stop();
     } finally {
@@ -367,7 +377,10 @@ describe('a seat change wakes its game', () => {
       expect(calls).toHaveLength(0);
       await vi.advanceTimersByTimeAsync(1);
       expect(calls).toEqual([
-        { fn: 'fn_cash_cluster_tick', args: { p_game_id: 'g1', p_eligible_horses: 4 } },
+        {
+          fn: 'fn_cash_cluster_tick_uncapped',
+          args: { p_game_id: 'g1', p_eligible_horses: 4 },
+        },
       ]);
       expect(controller.wakeStats.fired).toBe(1);
       controller.stop();
@@ -383,7 +396,7 @@ describe('a seat change wakes its game', () => {
       controller.start();
       for (let i = 0; i < 25; i++) controller.wake('g1');
       await vi.advanceTimersByTimeAsync(CLUSTER_WAKE_DEBOUNCE_MS + 5);
-      expect(calls.filter((c) => c.fn === 'fn_cash_cluster_tick')).toHaveLength(1);
+      expect(calls.filter((c) => c.fn === 'fn_cash_cluster_tick_uncapped')).toHaveLength(1);
       expect(controller.wakeStats.coalesced).toBe(24);
       expect(controller.wakeStats.pending).toBe(0);
       controller.stop();
@@ -401,7 +414,7 @@ describe('a seat change wakes its game', () => {
       controller.wake('g2');
       controller.wake('g1');
       await vi.advanceTimersByTimeAsync(CLUSTER_WAKE_DEBOUNCE_MS + 5);
-      const ticks = calls.filter((c) => c.fn === 'fn_cash_cluster_tick');
+      const ticks = calls.filter((c) => c.fn === 'fn_cash_cluster_tick_uncapped');
       expect(ticks.map((c) => c.args?.p_game_id).sort()).toEqual(['g1', 'g2']);
       controller.stop();
     } finally {
@@ -430,7 +443,7 @@ describe('a seat change wakes its game', () => {
       controller.start();
       wakeCluster('g1');
       await vi.advanceTimersByTimeAsync(CLUSTER_WAKE_DEBOUNCE_MS + 5);
-      expect(calls.filter((c) => c.fn === 'fn_cash_cluster_tick')).toHaveLength(1);
+      expect(calls.filter((c) => c.fn === 'fn_cash_cluster_tick_uncapped')).toHaveLength(1);
       controller.stop();
       calls.length = 0;
       wakeCluster('g1'); // stopped: gone from the module slot
@@ -445,7 +458,7 @@ describe('a seat change wakes its game', () => {
     vi.useFakeTimers();
     try {
       const rpc = vi.fn(async (fn: string) => {
-        if (fn === 'fn_cash_cluster_tick') throw new Error('transport down');
+        if (fn === 'fn_cash_cluster_tick_uncapped') throw new Error('transport down');
         return { data: passOf([{}]), error: null };
       }) as unknown as Rpc;
       const { controller } = build({ rpc });
@@ -527,7 +540,7 @@ describe('no memory, no overlap, no cascade', () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const rpc = vi.fn(async (fn: string) => {
-      if (fn === 'fn_cash_clusters_tick_all') {
+      if (fn === 'fn_cash_clusters_tick_all_uncapped') {
         await gate;
         return { data: passOf([{}]), error: null };
       }
@@ -565,7 +578,7 @@ describe('no memory, no overlap, no cascade', () => {
     // ...and the next pass is not blocked either.
     const again = await controller.tick();
     expect(again.ticked).toBe(3);
-    expect(calls.filter((c) => c.fn === 'fn_cash_clusters_tick_all')).toHaveLength(2);
+    expect(calls.filter((c) => c.fn === 'fn_cash_clusters_tick_all_uncapped')).toHaveLength(2);
   });
 
   it('a pass stuck past the stall ceiling is reported and the latch released', async () => {
@@ -575,7 +588,7 @@ describe('no memory, no overlap, no cascade', () => {
       const gate = new Promise<void>((r) => (releaseGate = r));
       let firstCall = true;
       const rpc = vi.fn(async (fn: string) => {
-        if (fn === 'fn_cash_clusters_tick_all') {
+        if (fn === 'fn_cash_clusters_tick_all_uncapped') {
           if (firstCall) {
             firstCall = false;
             await gate; // a pass that never comes back on its own
@@ -612,5 +625,35 @@ describe('no memory, no overlap, no cascade', () => {
     controller.stop();
     expect(controller.isRunning).toBe(false);
     vi.useRealTimers();
+  });
+});
+
+describe('the uncapped tick (Dan 2026-11-11, migration 20261112154904)', () => {
+  it('calls <name>_uncapped and falls back to the capped tick only on PGRST202', async () => {
+    const { uncappedTick } = await import('./ClusterController.js');
+    const seen: Array<[string, Record<string, unknown>]> = [];
+    const missing = async (fn: string, args: Record<string, unknown>) => {
+      seen.push([fn, args]);
+      return fn.endsWith('_uncapped')
+        ? { data: null, error: { code: 'PGRST202' } }
+        : { data: { ok: true }, error: null };
+    };
+    expect(await uncappedTick(missing, 'fn_cash_clusters_tick_all', { p_eligible: {} })).toEqual({
+      data: { ok: true },
+      error: null,
+    });
+    expect(seen).toEqual([
+      ['fn_cash_clusters_tick_all_uncapped', { p_eligible: {} }],
+      ['fn_cash_clusters_tick_all', { p_eligible: {} }],
+    ]);
+    seen.length = 0;
+    const other = async (fn: string, args: Record<string, unknown>) => {
+      seen.push([fn, args]);
+      return { data: null, error: { code: '57014' } };
+    };
+    expect((await uncappedTick(other, 'fn_cash_cluster_tick', { p_game_id: 'g' })).error.code).toBe(
+      '57014'
+    );
+    expect(seen).toEqual([['fn_cash_cluster_tick_uncapped', { p_game_id: 'g' }]]);
   });
 });

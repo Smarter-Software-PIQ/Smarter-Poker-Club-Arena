@@ -19,7 +19,7 @@
     },
     {
       "before": "if '17.11' not in version: raise RuntimeError('Unpinned PostgreSQL binary')",
-      "after": "if not re.search(r'\\(PostgreSQL\\) 17\\.11(?:\\s|$)',version): raise RuntimeError('Unpinned PostgreSQL binary')"
+      "after": "if not re.search(r'\\(PostgreSQL\\) 17\\.12(?:\\s|$)',version): raise RuntimeError('Unpinned PostgreSQL binary')"
     },
     {
       "before": "command([BIN/'initdb','-D',data,'-U','postgres','--auth=trust','--encoding=UTF8','--no-locale'])",
@@ -27,7 +27,7 @@
     },
     {
       "before": "extension.validate_physical(base_physical_raw,base_physical)\n        ledger['physical_identity']=base_physical_raw",
-      "after": "extension.validate_physical(base_physical_raw,base_physical)\n        runtime_minor=json.loads(command(psql+['-d','fixture_base','-A','-t','-c',\n            \"SELECT to_jsonb(current_setting('server_version_num')::integer)\"]).stdout)\n        if runtime_minor != 170011: raise RuntimeError('Actual server must be PostgreSQL17.11')\n        ledger['actual_server_version_num']=runtime_minor\n        ledger['physical_identity']=base_physical_raw"
+      "after": "extension.validate_physical(base_physical_raw,base_physical)\n        runtime_minor=json.loads(command(psql+['-d','fixture_base','-A','-t','-c',\n            \"SELECT to_jsonb(current_setting('server_version_num')::integer)\"]).stdout)\n        if runtime_minor != 170012: raise RuntimeError('Actual server must be PostgreSQL17.12')\n        ledger['actual_server_version_num']=runtime_minor\n        ledger['physical_identity']=base_physical_raw"
     },
     {
       "before": "install_path=fixture/name if name=='registry-overlay.sql' else schema_fixture/'build'/name",

@@ -219,6 +219,8 @@ export interface TournamentRowLite {
   table_size: number | null;
   payout_structure: unknown;
   prize_pool: number | null;
+  /** The advertised guarantee in prize units; null or 0 when the event has none. */
+  guaranteed_prize?: number | string | null;
   bounty_pool: number | null;
   buy_in_amount?: number | null;
   buy_in_fee?: number | null;
@@ -782,7 +784,22 @@ export function deriveContext(
     !inMoney &&
     playersLeft <= Math.max(spotsPaid + 1, Math.ceil(spotsPaid * 1.15));
 
-  const prizePool = Number(row.prize_pool) || 0;
+  // THE POOL THAT WILL BE PAID, NOT THE POOL COLLECTED SO FAR (2026-11-12).
+  // `prize_pool` is what entries have paid in up to now. Until the pool is
+  // finalized, a guaranteed event pays the LARGER of that and its advertised
+  // guarantee: the guarantee rail tops the pool up at finalization. Pricing
+  // against the collected figure made every cost look enormous early in a
+  // guaranteed event. Measured on production (finding HVH2D-NLH-001): an
+  // Afternoon Free Buy with a 500-chip guarantee had collected 1 chip, so a
+  // 1-chip rebuy was priced at 100% of the pool, the bust option came to
+  // about -99.6 points, and the utility arbiter replaced a first-in AKo jam
+  // with a fold twice in 67 seconds. Against the 500 it is 0.2%.
+  // A finalized pool is the settled amount and is read as written. A row with
+  // no readable guarantee prices exactly as before.
+  const collectedPrizePool = Math.max(0, Number(row.prize_pool) || 0);
+  const guaranteedPrize =
+    row.prize_pool_finalized === true ? 0 : Math.max(0, Number(row.guaranteed_prize) || 0);
+  const prizePool = Math.max(collectedPrizePool, guaranteedPrize);
   const bountyPool = Number(row.bounty_pool) || 0;
   const bountyFactor =
     (row.is_pko || row.is_bounty) && prizePool + bountyPool > 0
@@ -1127,7 +1144,19 @@ export function deriveContext(
         : null,
     rebuyCostCents: purchaseQuote.recoveryCostCents,
     rebuyChips: purchaseQuote.recoveryChips,
-    rebuyPrizeContributionCents: purchaseQuote.recoveryPrizeContributionCents,
+    // What a recovery ADDS to the pool that will be paid. Under an unmet
+    // guarantee the purchase fills the overlay first, so the paid pool does
+    // not grow until the collected pool passes the guarantee.
+    rebuyPrizeContributionCents:
+      purchaseQuote.recoveryPrizeContributionCents === null
+        ? null
+        : Math.max(
+            0,
+            Math.max(
+              Math.round(collectedPrizePool * 100) + purchaseQuote.recoveryPrizeContributionCents,
+              Math.round(guaranteedPrize * 100)
+            ) - Math.round(prizePool * 100)
+          ),
     rebuyBountyContributionCents: purchaseQuote.recoveryBountyContributionCents,
     reloadsByUser: { ...(playerOptions.reloadsByUser ?? {}) },
     horseRebuyCapByUser: { ...(playerOptions.horseRebuyCapByUser ?? {}) },
@@ -1700,7 +1729,7 @@ async function refresh(
         supabase
           .from('tournaments')
           .select(
-            'payout_club:clubs!tournaments_club_id_fkey(asset, is_platform, union_id), club_id, union_id, bubble_protection, format_contract, tournament_type, status, game_type, variant, free_buy, max_players, table_size, payout_structure, spin_multiplier, prize_pool, prize_pool_finalized, bounty_pool, buy_in_amount, buy_in_fee, starting_chips, rebuy_cost, rebuy_chips, bounty_amount, is_pko, is_bounty, is_mystery_bounty, mystery_bounty_stage, blind_structure, current_level, level_started_at, started_at, late_reg_mins, late_reg_levels, is_reentry, max_reentries, is_rebuy, rebuy_levels, max_rebuys, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_triggered, addon_period_started_at, addon_period_ends_at, on_break, break_started_at, break_ends_at, accelerated_mtt, big_blind_ante, authorized_to_register, satellite_seats, satellite_target_id, satellite_target'
+            'payout_club:clubs!tournaments_club_id_fkey(asset, is_platform, union_id), club_id, union_id, bubble_protection, format_contract, tournament_type, status, game_type, variant, free_buy, max_players, table_size, payout_structure, spin_multiplier, prize_pool, prize_pool_finalized, guaranteed_prize, bounty_pool, buy_in_amount, buy_in_fee, starting_chips, rebuy_cost, rebuy_chips, bounty_amount, is_pko, is_bounty, is_mystery_bounty, mystery_bounty_stage, blind_structure, current_level, level_started_at, started_at, late_reg_mins, late_reg_levels, is_reentry, max_reentries, is_rebuy, rebuy_levels, max_rebuys, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_triggered, addon_period_started_at, addon_period_ends_at, on_break, break_started_at, break_ends_at, accelerated_mtt, big_blind_ante, authorized_to_register, satellite_seats, satellite_target_id, satellite_target'
           )
           .eq('id', tournamentId)
           .maybeSingle(),

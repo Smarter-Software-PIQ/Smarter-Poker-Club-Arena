@@ -461,12 +461,17 @@ ExecStart=/bin/bash $CONTROL_DIR/verify-recovery-stack.sh
 Environment=ENGINE_CONTROL_DIR=$CONTROL_DIR
 UNIT
 
+# The audit runs after the daily 04:00-04:05 America/Chicago release window
+# (10:00Z in CST, 09:00Z in CDT), so each day's result describes the control
+# generation that window just installed. At 09:17Z it ran before the window and
+# a repaired verifier could not clear a false RecoveryStackDegraded for two days
+# (2026-11-13). 11:17Z is after the window in both offsets.
 cat > "$UNIT_STAGE/club-arena-verify.timer" <<'UNIT'
 [Unit]
 Description=Daily Club Arena recovery-stack verification
 
 [Timer]
-OnCalendar=*-*-* 09:17:00 UTC
+OnCalendar=*-*-* 11:17:00 UTC
 Persistent=true
 RandomizedDelaySec=120
 Unit=club-arena-verify.service

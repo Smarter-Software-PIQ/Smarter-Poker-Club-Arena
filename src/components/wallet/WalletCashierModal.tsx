@@ -1,3 +1,4 @@
+import { PROMO_PLAY_THROUGH_SENDER_TERMS } from '../legal/promoPlayThroughTerms';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import {
   claimReturnWallets,
@@ -1868,6 +1869,14 @@ export default function WalletCashierModal({
                 </div>
               )}
 
+            {walletType === 'promo_wallet' &&
+              ['super_agent', 'agent', 'sub_agent'].includes(viewerRole ?? '') && (
+                <div className="cbc-note">
+                  Each Downline Can Receive 50 Promo Chips Total From All Agents In Any 7 Days. All
+                  Destination Wallets Share This Limit.
+                </div>
+              )}
+
             {clubUuid === null && !clubLoading && (
               <div className="cbc-note cbc-note--bad">
                 That Club Could Not Be Resolved, So Nothing Can Be Sent From Here.
@@ -1902,6 +1911,10 @@ export default function WalletCashierModal({
             </div>
 
             <div className="cbc-body">
+              {tab === 'send' && spendWallet === 'promo_wallet' && (
+                <p className="cbc-note">{PROMO_PLAY_THROUGH_SENDER_TERMS}</p>
+              )}
+
               {walletType === 'agent_wallet' && tab === 'send' && holdsPlayerWallet(viewerRole) && (
                 <button
                   type="button"

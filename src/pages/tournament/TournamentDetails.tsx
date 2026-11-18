@@ -112,7 +112,8 @@ import { useTournamentStageView } from '../../hooks/useTournamentStageView';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
-import { publicOrigin } from '../../lib/appBase';
+import { shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
+import { ShareLinkFallback } from '../../components/common/ShareLinkFallback';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
 interface TournamentSnapshotOwner {
@@ -143,6 +144,7 @@ export default function TournamentDetails({
   onClose,
   currentTableId,
   inLobbyTab = false,
+  requestedTab,
 }: {
   tournamentIdOverride?: string;
   suppressAutoOpenTable?: boolean;
@@ -176,6 +178,12 @@ export default function TournamentDetails({
   currentTableId?: string;
   /** The in-table browser tab shares the global navigation; the modal does not. */
   inLobbyTab?: boolean;
+  /**
+   * Open a given tab from outside (the table's "Prizes Are Set" popup opens
+   * Bounties). The modal stays mounted, so the initial `?tab=` read cannot do
+   * it a second time: a new `seq` re-applies the request.
+   */
+  requestedTab?: { tab: string; seq: number };
 } = {}) {
   const mttStartHold = useTournamentStartHold();
   const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
@@ -216,6 +224,11 @@ export default function TournamentDetails({
   const [activeTab, setActiveTab] = useState<TabId>(() =>
     normaliseTabId(new URLSearchParams(search).get('tab'))
   );
+  useEffect(() => {
+    if (requestedTab) setActiveTab(normaliseTabId(requestedTab.tab));
+    // Re-apply only when a new request is made.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedTab?.seq]);
   /** One element per tab, so the roving-focus arrow keys can move focus. */
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   /* The strip is one row that scrolls sideways (it used to wrap onto a second
@@ -1723,21 +1736,24 @@ export default function TournamentDetails({
    * desktop Chrome and Firefox, which is most of the people looking at a
    * tournament page.
    */
+  const [shareFallbackUrl, setShareFallbackUrl] = useState('');
   const shareTournament = useCallback(async () => {
-    const url = `${publicOrigin()}/hub/club-arena/tournaments/${tournament?.id ?? ''}`;
-    const title = tournament?.name || 'Tournament';
-    try {
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share({ title, url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      toast?.success?.('Tournament link copied');
-    } catch (err) {
-      // AbortError just means the player dismissed the share sheet.
-      if (err instanceof Error && err.name === 'AbortError') return;
-      toast?.error?.('Could not share this tournament');
+    if (!tournament?.id) {
+      toast?.error?.('Tournament Link Unavailable');
+      return;
     }
+    const url = tournamentShareUrl(tournament.id);
+    setShareFallbackUrl('');
+    const outcome = await shareLink({
+      source: 'TournamentDetails.share',
+      title: tournament.name || 'Tournament',
+      url,
+    });
+    if (outcome === 'copied') toast?.success?.('Tournament Link Copied');
+    // The link goes on the page, not in the toast: an error toast is
+    // sanitised and a URL in it never reached the player (2026-11-15,
+    // components/common/ShareLinkFallback.tsx).
+    else if (outcome === 'failed') setShareFallbackUrl(url);
   }, [tournament?.id, tournament?.name, toast]);
 
   /**
@@ -2263,9 +2279,10 @@ export default function TournamentDetails({
             a bottom nav this page does not render, which is the dead 74px gap
             Dan reported under it. As a flex child there is no offset left to be
             wrong. */}
+        {shareFallbackUrl && <ShareLinkFallback url={shareFallbackUrl} label="Tournament Link" />}
         <div className="details-footer">
           <button className="btn btn-share" type="button" onClick={() => void shareTournament()}>
-            Share
+            {shareButtonLabel()}
           </button>
           {tournamentAction('footer')}
         </div>

@@ -150,6 +150,7 @@ export function useMysteryBounty(
       if (!active) return;
       const type = message?.payload?.type;
       if (
+        type === 'mystery_bounty_sealed' ||
         type === 'mystery_bounty_activated' ||
         type === 'mystery_bounty_revealed' ||
         type === 'mystery_bounty_complete'

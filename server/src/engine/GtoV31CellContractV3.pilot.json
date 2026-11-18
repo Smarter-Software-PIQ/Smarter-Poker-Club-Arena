@@ -1,0 +1,685 @@
+{
+  "source": "World Hub scripts/horse-solver-v31 pio_upi.analyze_node(cell_contract=\"v3\") and line_class_v3 on the turn/river pilot tree (HV31 FLOP-2 W10): 65 tree lines, runout 5c Jd, root pot 600, effective stack 20000, preflop aggressor IP; every node with two or more actions",
+  "tree_lines_sha256": "7e7435718385fb94aa58bbaddb7fecdb3299d7f8160e88ec27343d1455fb7d78",
+  "nodes": [
+    {
+      "node": "r:0:c",
+      "node_role": "cbet",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x"
+    },
+    {
+      "node": "r:0:c:b450",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:b1350",
+      "node_role": "check_raise",
+      "facing_kind": "raise",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.r-mid"
+    },
+    {
+      "node": "r:0:c:b450:b1350:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:b3825",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.r-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:b3825:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:b3825:c:Jd",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:b3825:c:Jd:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/b-mid.c/a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:b3825:c:Jd:c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:b3825:c:Jd:c:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/b-mid.c/x.a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:b3825",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.r-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:b3825:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:b3825:c:Jd",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/x.b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:b3825:c:Jd:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/x.b-mid.c/a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:b3825:c:Jd:c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/x.b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:b3825:c:Jd:c:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/x.b-mid.c/x.a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:c:Jd",
+      "node_role": "delayed_cbet",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/x.x/"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:c:Jd:b3825",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.r-mid.c/x.x/b-mid"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:c:Jd:b3825:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/x.x/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:c:Jd:c",
+      "node_role": "probe",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.r-mid.c/x.x/x"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:c:Jd:c:b3825",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.r-mid.c/x.x/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:b1350:c:5c:c:c:Jd:c:b3825:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.r-mid.c/x.x/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:c:Jd",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:c:Jd:b4387",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:c:Jd:b4387:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:c:Jd:c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:c:Jd:c:b4387",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:b1575:c:Jd:c:b4387:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:c:Jd",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/x.b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:c:Jd:b4387",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/x.b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:c:Jd:b4387:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/x.b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:c:Jd:c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/x.b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:c:Jd:c:b4387",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/x.b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:b1575:c:Jd:c:b4387:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/x.b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:c:Jd",
+      "node_role": "probe",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/x.x/"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:c:Jd:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/x.x/b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:c:Jd:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/x.x/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:c:Jd:c",
+      "node_role": "delayed_cbet",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-mid.c/x.x/x"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:c:Jd:c:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-mid.c/x.x/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b450:c:5c:c:c:Jd:c:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-mid.c/x.x/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "big",
+      "line_class": "x.b-big"
+    },
+    {
+      "node": "r:0:c:b900:c:5c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:c:Jd",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:c:Jd:b7200",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:c:Jd:b7200:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:c:Jd:c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:c:Jd:c:b7200",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:b2700:c:Jd:c:b7200:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/x"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:c:Jd",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/x.b-mid.c/"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:c:Jd:b7200",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/x.b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:c:Jd:b7200:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/x.b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:c:Jd:c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/x.b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:c:Jd:c:b7200",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/x.b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:b2700:c:Jd:c:b7200:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/x.b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:c:Jd",
+      "node_role": "probe",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/x.x/"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:c:Jd:b2700",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/x.x/b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:c:Jd:b2700:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/x.x/b-mid.a"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:c:Jd:c",
+      "node_role": "delayed_cbet",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.b-big.c/x.x/x"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:c:Jd:c:b2700",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.b-big.c/x.x/x.b-mid"
+    },
+    {
+      "node": "r:0:c:b900:c:5c:c:c:Jd:c:b2700:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.b-big.c/x.x/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c",
+      "node_role": "probe",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/"
+    },
+    {
+      "node": "r:0:c:c:5c:b450",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:c:Jd",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/b-mid.c/"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:c:Jd:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:c:Jd:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:c:Jd:c",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:c:Jd:c:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:b450:c:Jd:c:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:c",
+      "node_role": "delayed_cbet",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/x"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/x.b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:c:Jd",
+      "node_role": "donk",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/x.b-mid.c/"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:c:Jd:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/x.b-mid.c/b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:c:Jd:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/x.b-mid.c/b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:c:Jd:c",
+      "node_role": "barrel",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/x.b-mid.c/x"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:c:Jd:c:b1575",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/x.b-mid.c/x.b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:c:b450:c:Jd:c:b1575:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/x.b-mid.c/x.b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:c:c:Jd",
+      "node_role": "open",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/x.x/"
+    },
+    {
+      "node": "r:0:c:c:5c:c:c:Jd:b450",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/x.x/b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:c:c:Jd:b450:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/x.x/b-mid.a"
+    },
+    {
+      "node": "r:0:c:c:5c:c:c:Jd:c",
+      "node_role": "open",
+      "facing_kind": "none",
+      "facing_size_bucket": "none",
+      "line_class": "x.x/x.x/x"
+    },
+    {
+      "node": "r:0:c:c:5c:c:c:Jd:c:b450",
+      "node_role": "facing_bet",
+      "facing_kind": "bet",
+      "facing_size_bucket": "mid",
+      "line_class": "x.x/x.x/x.b-mid"
+    },
+    {
+      "node": "r:0:c:c:5c:c:c:Jd:c:b450:b20000",
+      "node_role": "all_in",
+      "facing_kind": "all_in",
+      "facing_size_bucket": "all_in",
+      "line_class": "x.x/x.x/x.b-mid.a"
+    }
+  ]
+}

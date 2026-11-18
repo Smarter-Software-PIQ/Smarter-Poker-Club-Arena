@@ -185,8 +185,8 @@ describe('the seeding cycle is one round trip per floor, not per table', () => {
     const pruneAt = SRC.indexOf('await this.pruneHorseWaitlist(horseIdSet, readIsCurrent);');
     // The seeding loop reads the ORDERED tables. Since the fleet policy landed
     // it reads them through `tablesToSeed`, which is `orderedTables` itself
-    // unless the whole cycle is withheld, in which case it is empty and the
-    // loop does not run at all. Both spellings are the same loop, and this
+    // unless seating is withheld; eligible full Classic tables may still
+    // evaluate queue-only demand. Both spellings are the same loop, and this
     // law is about WHERE the prune happens relative to it, not what the list
     // is called, so it accepts either and pins the derivation separately.
     const loopAt = Math.max(
@@ -196,7 +196,8 @@ describe('the seeding cycle is one round trip per floor, not per table', () => {
     expect(pruneAt).toBeGreaterThan(-1);
     expect(loopAt).toBeGreaterThan(pruneAt);
     if (SRC.includes('for (const table of tablesToSeed) {')) {
-      expect(SRC).toContain('const tablesToSeed = cycleWithheld ? [] : orderedTables;');
+      expect(SRC).toMatch(/const tablesToSeed = cycleWithheld\s+\? queueCycleWithheld\s+\? \[\]/);
+      expect(SRC).toContain('isFullClassicQueueTable(');
     }
     expect(SRC).not.toContain('await this.pruneHorseWaitlist(table.id');
     const pruner = SRC.slice(

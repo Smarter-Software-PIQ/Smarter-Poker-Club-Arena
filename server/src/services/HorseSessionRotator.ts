@@ -2,7 +2,10 @@ import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { PLO_LIGHTNING_GAME, ploWindDownFor } from './PloLightningDemand.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
+  LIGHTNING_HORSE_SEEDED,
   horseCashPlanPrimaryTables,
+  humanDepartureDwellMinutes,
+  minutesSinceLastPlayingHumanFor,
   horseCashPlanSecondTables,
   horseCashPlanTablesAwaitingBreak,
   horseUnionCashTableAllowed,
@@ -71,6 +74,18 @@ import {
 import { requestSeatChangeFor } from './supabase/seatChange.js';
 import { regularSessionEndFactor } from './HorseRegulars.js';
 import {
+  offDutyExitNow,
+  offDutyPersonShort,
+  offDutyReason,
+  recordOffDutyDeferred,
+  recordOffDutyLeave,
+} from './HorseWorkSchedule.js';
+import { overlayCallAnswered, overlayCalled } from './horseOverlayCover.js';
+import { HORSE_MAX_CASH_TABLES } from './HorseGameLoad.js';
+import { chicagoCounterDay, tagBook } from './StableHandTags.js';
+import { chicagoNow } from './StableHandController.js';
+import { NIGHT_MIN_PLAYERS, controllerEnabled } from './StableHand.js';
+import {
   bankrollPolicyFor,
   referenceBuyIn,
   sessionVerdict,
@@ -92,6 +107,7 @@ import {
   rosterExemptClub,
 } from './HorsePloRoster.js';
 import { horseSitOutPlan } from './HorseSitOutChoice.js';
+import { holdemPersonaFor, ploPersonaFor } from '../engine/HorsePersona.js';
 
 const CYCLE_MS = 90_000; // examine the floor every 90s
 const GLOBAL_DEPARTURES_PER_CYCLE = 4;
@@ -145,6 +161,11 @@ export interface RotatorEngine {
    * does not confirm an early leave does.
    */
   hitRunHandsOwed?(userId: string): number;
+  /**
+   * BANK THE WIN (owner 2026-11-10): hands still owed after a big pot (one
+   * full orbit). No horse stands up the hand after winning a big pot.
+   */
+  bigPotOrbitHandsOwed?(userId: string): number;
   /** V8: hand-boundary-safe top-up (queued mid-hand; wallet-debited). */
   addChips?(
     userId: string,
@@ -214,6 +235,10 @@ export class HorseSessionRotator {
    * zero; this is the same courtesy here.
    */
   private leaveHeld = new Map<string, number>();
+  /** `${tableId}:${horseId}` -> when an off-duty horse first waited for a
+   *  person's sake (HorseWorkSchedule.offDutyExitNow's grace). Pruned each
+   *  cycle to the seats that still exist. */
+  private offDutyPersonHoldSince = new Map<string, number>();
 
   /**
    * Seats this process has already sat back in from a sit-out it had no
@@ -408,6 +433,15 @@ export class HorseSessionRotator {
     }
   }
 
+  /** BANK THE WIN: hands still owed after a big pot (an orbit). */
+  private owesBigPotOrbit(userId: string, engine: RotatorEngine | null | undefined): boolean {
+    try {
+      return (engine?.bigPotOrbitHandsOwed?.(userId) ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * A seat that is already on its way out: the door has been asked and the
    * hand end will cash it out (`leave_pending`), or this cycle asked it. Such
@@ -533,7 +567,7 @@ export class HorseSessionRotator {
           // table's own limits, which price the reload, the swing and the
           // session P&L - `bb * 100` is not the buy-in at a 0.50 game whose
           // minimum is 200.
-          'table_id, user_id, seat_number, stack, joined_at, club_id, leave_pending, is_sitting_out, auto_rebuy, tables!table_seats_table_id_fkey!inner(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id))'
+          'table_id, user_id, seat_number, stack, joined_at, club_id, leave_pending, is_sitting_out, auto_rebuy, tables!table_seats_table_id_fkey!inner(id, small_blind, big_blind, game_variant, tournament_id, is_spins, status, settings, cluster_id, role, main_index, lifecycle, last_human_seen_at, created_at, max_players, min_buy_in, max_buy_in, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id))'
         )
         .is('left_at', null)
         .order('table_id', { ascending: true })
@@ -648,6 +682,8 @@ export class HorseSessionRotator {
      * "this horse is stuck" would empty the floor.
      */
     const rolls = new Map<string, number>();
+    let bankrollLedgerKnown = false;
+    const diamondSeatKeys = new Set<string>();
     const investedBySeat = new Map<string, number>();
     try {
       /* Horse seats at CASH tables: the only seats either rule below reads.
@@ -720,6 +756,7 @@ export class HorseSessionRotator {
                 if (Number.isFinite(d)) diamondsOf.set(r.id, Math.floor(d));
               }
               for (const s of unpaidBy) {
+                diamondSeatKeys.add(`${s.table_id}:${s.user_id}`);
                 const d = diamondsOf.get(s.user_id);
                 if (d !== undefined) {
                   rolls.set(`${(s as { club_id?: string }).club_id ?? ''}:${s.user_id}`, d);
@@ -836,9 +873,124 @@ export class HorseSessionRotator {
             if (!Number.isFinite(at) || at < joined - 60_000) continue;
             investedBySeat.set(k, (investedBySeat.get(k) ?? 0) + amt);
           }
+          bankrollLedgerKnown = true;
+
+          // Cluster must-moves carry the buy-in under the feeder's table_id in
+          // chip_ledger, while cash_player_session moves table_id to dst.id and
+          // maintains the session's cumulative applied baseline.
+          const isDiamondCashSeat = (s: (typeof horseCashSeats)[number]): boolean => {
+            const st = (s as any)?.tables;
+            return (
+              st?.arena?.asset === 'diamonds' ||
+              st?.is_diamond === true ||
+              diamondSeatKeys.has(`${s.table_id}:${s.user_id}`)
+            );
+          };
+          const chipSessionLookupSeats = horseCashSeats.filter(
+            (s) =>
+              !isDiamondCashSeat(s) &&
+              (!investedBySeat.has(`${s.table_id}:${s.user_id}`) ||
+                !!(s as any)?.tables?.cluster_id)
+          );
+          if (chipSessionLookupSeats.length > 0) {
+            const sessRead = await selectInChunks<{
+              player_id: string;
+              table_id: string;
+              baseline: unknown;
+            }>(
+              [...new Set(chipSessionLookupSeats.map((s) => s.user_id))],
+              (batch) =>
+                supabase
+                  .from('cash_player_session')
+                  .select('player_id, table_id, baseline')
+                  .in('player_id', batch)
+                  .is('closed_at', null),
+              'HorseSessionRotator.sessionBaselines'
+            );
+            if (!this.lifecycleIsCurrent(generation)) return;
+            if (!sessRead.complete) {
+              bankrollLedgerKnown = false;
+            } else {
+              for (const row of sessRead.rows) {
+                if (!row.player_id || !row.table_id) continue;
+                const base = Number(row.baseline);
+                if (!Number.isFinite(base) || base <= 0) continue;
+                const seatKey = `${row.table_id}:${row.player_id}`;
+                if (!seatJoinedAt.has(seatKey)) continue;
+                const prev = investedBySeat.get(seatKey) ?? 0;
+                if (base > prev) investedBySeat.set(seatKey, base);
+              }
+            }
+          }
+
+          // Diamond Arena cash seats never write to chip_ledger; their buy-ins
+          // and top-ups are recorded as `reserve` movements on the open
+          // `poker_diamond_custody` row (`purpose = 'cash_seat'`).
+          const diamondCashSeats = horseCashSeats.filter((s) => isDiamondCashSeat(s));
+          if (diamondCashSeats.length > 0) {
+            const custRead = await selectInChunks<{
+              id: string;
+              user_id: string;
+              target_id: string;
+            }>(
+              [...new Set(diamondCashSeats.map((s) => s.user_id))],
+              (batch) =>
+                supabase
+                  .from('poker_diamond_custody')
+                  .select('id, user_id, target_id')
+                  .in('user_id', batch)
+                  .eq('purpose', 'cash_seat')
+                  .in('state', ['reserved', 'active']),
+              'HorseSessionRotator.diamondCustody'
+            );
+            if (!this.lifecycleIsCurrent(generation)) return;
+            if (!custRead.complete) {
+              bankrollLedgerKnown = false;
+            } else if (custRead.rows.length > 0) {
+              const relevantCustody = custRead.rows.filter((c) =>
+                seatJoinedAt.has(`${c.target_id}:${c.user_id}`)
+              );
+              if (relevantCustody.length > 0) {
+                const movRead = await selectInChunks<{
+                  custody_id: string;
+                  amount: unknown;
+                }>(
+                  relevantCustody.map((c) => c.id),
+                  (batch) =>
+                    supabase
+                      .from('poker_diamond_movements')
+                      .select('custody_id, amount')
+                      .in('custody_id', batch)
+                      .eq('action', 'reserve'),
+                  'HorseSessionRotator.diamondMovements'
+                );
+                if (!this.lifecycleIsCurrent(generation)) return;
+                if (!movRead.complete) {
+                  bankrollLedgerKnown = false;
+                } else {
+                  const reservedByCustody = new Map<string, number>();
+                  for (const m of movRead.rows) {
+                    const amt = Number(m.amount);
+                    if (!Number.isFinite(amt) || amt <= 0) continue;
+                    reservedByCustody.set(
+                      m.custody_id,
+                      (reservedByCustody.get(m.custody_id) ?? 0) + amt
+                    );
+                  }
+                  for (const c of relevantCustody) {
+                    const totalReserved = reservedByCustody.get(c.id);
+                    if (totalReserved !== undefined && totalReserved > 0) {
+                      investedBySeat.set(`${c.target_id}:${c.user_id}`, totalReserved);
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     } catch (err) {
+      bankrollLedgerKnown = false;
       reportError(err, 'HorseSessionRotator.bankroll_context');
     }
 
@@ -1089,6 +1241,26 @@ export class HorseSessionRotator {
     const lightningGameIds = await this.readLightningGameIds(byTable);
     if (!this.lifecycleIsCurrent(generation)) return;
     let rosterLeaves = 0;
+    /* TWO CASH TABLES, AND A CASH SEAT GIVEN UP FOR A SHORT GUARANTEE (owner
+       2026-11-13): "HORSES ARE SUPPOSED TO PLAY 2 CASH GAMES AND 2
+       TOURNAMENTS. NOT 4 CASH GAMES. HORSES MUST LEAVE A CASH GAME AND PLAY A
+       TOURNAMENT IF A OVERLAY IS POSSIBLE!" byTable holds every open cash
+       seat, so this is each horse's whole cash count. A horse above the
+       ceiling, or one the overlay guard has called (horseOverlayCover), leaves
+       through the same ordinary door as the end of a shift: one such exit per
+       table per cycle, owed hands and orbits first, never a person left short. */
+    const cashSeatsByHorse = new Map<string, number>();
+    for (const tableSeats of byTable.values()) {
+      for (const seat of tableSeats) {
+        const uid = String(seat.user_id ?? '');
+        if (!uid || HorseSessionRotator.isLeaving(seat)) continue;
+        cashSeatsByHorse.set(uid, (cashSeatsByHorse.get(uid) ?? 0) + 1);
+      }
+    }
+    let eventLeaves = 0;
+    /* Seats the roster/policy/duty pass already sent home this cycle: no
+       later pass of the same cycle asks them again. */
+    const rosterLeft = new Set<string>();
     const cashPlanPrimaryTables = horseCashPlanPrimaryTables(
       [...byTable.values()].map((tableSeats) => tableSeats[0]?.tables ?? {})
     );
@@ -1127,7 +1299,9 @@ export class HorseSessionRotator {
           cashPlanPrimaryTables,
           lightningGameIds,
           lightningHumanGames
-        )
+        ),
+      Date.now(),
+      lightningGameIds
     );
     /* A table the cluster tick breaks is not walked out of (owner
        2026-11-07): its horses are moved by the break, in order, like people.
@@ -1149,6 +1323,23 @@ export class HorseSessionRotator {
         ),
       lightningGameIds
     );
+    /* THE WORK SCHEDULE AND THE DAY OFF (owner 2026-11-12, HorseWorkSchedule).
+       A horse whose shift is over, whose rest day it is or whose daily cap is
+       played out goes home. Read once per cycle; an unreadable tag book fails
+       open on the rest day and the cap only (the work hours come from the id). */
+    const dutyBook = controllerEnabled() ? await tagBook.load().catch(() => null) : null;
+    const dutyNowMs = Date.now();
+    const dutyWeekday = chicagoNow().weekday;
+    const dutyToday = chicagoCounterDay(dutyNowMs);
+    let offDutyLeaves = 0;
+    /** Tables that had a shift-change exit this cycle (one change at a time). */
+    const offDutyExitTables = new Set<string>();
+    {
+      const seatedNow = new Set<string>();
+      for (const [tid, ts] of byTable) for (const x of ts) seatedNow.add(`${tid}:${x.user_id}`);
+      for (const key of this.offDutyPersonHoldSince.keys())
+        if (!seatedNow.has(key)) this.offDutyPersonHoldSince.delete(key);
+    }
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1173,6 +1364,20 @@ export class HorseSessionRotator {
           cashPlanSecondTables,
           true
         );
+      /* ONE SHIFT CHANGE AT A TIME, AND NEVER A PERSON LEFT SHORT (2026-11-13,
+         raised by the Human vs Horse owner on this lane's off-duty exits).
+         Horses that share a work window reach the end of it together, so
+         without these two rules a whole table could stand up in one cycle -
+         the loudest tell a floor has - and a person at it could be left
+         playing alone. An off-duty exit is therefore taken at most once per
+         table per cycle, and is deferred while a person is playing there and
+         the table would drop below NIGHT_MIN_PLAYERS (the same floor the
+         seeder rescues to): the seeder brings an on-duty horse, then the
+         off-duty one goes home on a later cycle. Roster and policy exits keep
+         their immediate door. */
+      const playingHumansHere = playingHumansAtCashTable(tableSeats, horseIds);
+      let seatedHere = tableSeats.filter((x) => !HorseSessionRotator.isLeaving(x)).length;
+      let offDutyLeftHere = 0;
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');
         if (!uid || !horseIds.has(uid)) continue;
@@ -1183,19 +1388,85 @@ export class HorseSessionRotator {
         const benched = benchedIds.has(uid) || (!exempt && cashRosterAllows(uid, t) === false);
         const offPlo = !exempt && ploRosterAllows(uid, t?.game_variant, t?.big_blind) === false;
         const restrictedCashGame = !horseCashGameAllowed(t ?? {}, Date.now());
-        if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan) continue;
+        const dutyReason =
+          t?.tournament_id == null
+            ? offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday)
+            : null;
+        const cashHeld = t?.tournament_id == null ? (cashSeatsByHorse.get(uid) ?? 0) : 0;
+        const forEvents =
+          cashHeld > HORSE_MAX_CASH_TABLES || (cashHeld > 0 && overlayCalled(uid, dutyNowMs));
+        const offDuty = dutyReason !== null || forEvents;
+        // Back on duty (or never off it): any earlier wait for a person is over.
+        if (!offDuty) this.offDutyPersonHoldSince.delete(`${tableId}:${uid}`);
+        if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)
+          continue;
+        /* Going home at the end of a shift is the ordinary leave: a horse that
+           owes hands in profit (HIT AND RUN) or one orbit after a big pot
+           plays them first and goes on a later cycle. The roster and policy
+           exits above keep their immediate door. */
+        const onlyOffDuty =
+          offDuty && !benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan;
+        const holdKey = `${tableId}:${uid}`;
+        if (!onlyOffDuty) this.offDutyPersonHoldSince.delete(holdKey);
+        if (
+          onlyOffDuty &&
+          offDutyPersonShort({ playingHumansHere, seatedHere, personFloor: NIGHT_MIN_PLAYERS }) &&
+          !this.offDutyPersonHoldSince.has(holdKey)
+        )
+          this.offDutyPersonHoldSince.set(holdKey, dutyNowMs);
+        if (
+          onlyOffDuty &&
+          !offDutyExitNow({
+            offDutyLeftHereThisCycle: offDutyLeftHere,
+            playingHumansHere,
+            seatedHere,
+            personFloor: NIGHT_MIN_PLAYERS,
+            owesHandsOrOrbit:
+              this.owesHands(tableId, uid, engine) || this.owesBigPotOrbit(uid, engine),
+            personHoldMs: dutyNowMs - (this.offDutyPersonHoldSince.get(holdKey) ?? dutyNowMs),
+          })
+        ) {
+          recordOffDutyDeferred();
+          continue;
+        }
         try {
           const result = await engine.leaveTable(uid);
           if (!this.lifecycleIsCurrent(generation)) return;
           this.noteLeaveResult(tableId, uid, result);
           if (result.success) {
             rosterLeaves++;
+            if (dutyReason !== null) {
+              offDutyLeaves++;
+              recordOffDutyLeave(dutyReason);
+            }
+            if (forEvents) {
+              eventLeaves++;
+              cashSeatsByHorse.set(uid, Math.max(0, cashHeld - 1));
+              overlayCallAnswered(uid);
+            }
+            if (onlyOffDuty) {
+              offDutyLeftHere++;
+              offDutyExitTables.add(tableId);
+            }
+            this.offDutyPersonHoldSince.delete(holdKey);
+            seatedHere--;
+            rosterLeft.add(`${tableId}:${uid}`);
             this.breaks.delete(HorseSessionRotator.breakKey(tableId, uid));
           }
         } catch (err) {
           reportError(err, 'HorseSessionRotator.rosterLeave');
         }
       }
+    }
+    if (eventLeaves > 0) {
+      console.log(
+        `[SessionRotator] ${eventLeaves} horse(s) left a cash seat - above two cash tables, or called to a guaranteed event that is short`
+      );
+    }
+    if (offDutyLeaves > 0) {
+      console.log(
+        `[SessionRotator] ${offDutyLeaves} horse(s) going home - shift over, rest day or daily cap played out`
+      );
     }
     if (rosterLeaves > 0) {
       console.log(
@@ -1314,10 +1585,34 @@ export class HorseSessionRotator {
         if ((seat as { auto_rebuy?: boolean }).auto_rebuy === true) continue;
         const minutes = (Date.now() - new Date(seat.joined_at).getTime()) / 60000;
         const stackNow = Number(seat.stack) || 0;
+        const variantStr = String(t?.game_variant ?? '').toLowerCase();
+        const isNlhCash = variantStr === 'nlh' || variantStr === 'holdem' || variantStr === '';
+        const isPloCash =
+          variantStr === 'plo4' ||
+          variantStr === 'plo5' ||
+          variantStr === 'plo6' ||
+          variantStr === 'plo8';
+        const personaArch = isNlhCash
+          ? holdemPersonaFor(seat.user_id).archetype
+          : isPloCash
+            ? ploPersonaFor(seat.user_id).archetype
+            : null;
+        const activeDeepStyle =
+          personaArch === 'lag_shark' ||
+          personaArch === 'tag_crusher' ||
+          personaArch === 'tricky_trap';
+        const seatKey = `${tableId}:${seat.user_id}`;
+        const isDiamondTable =
+          t?.arena?.asset === 'diamonds' || t?.is_diamond === true || diamondSeatKeys.has(seatKey);
+        const stakeDollarBb = isDiamondTable ? bb / 100 : bb;
+        const effectiveTopUpFrac =
+          (isNlhCash || isPloCash) && stakeDollarBb >= 5 && activeDeepStyle
+            ? 0.8
+            : TOPUP_STACK_FRAC;
         if (
           minutes >= TOPUP_MIN_MINUTES &&
           stackNow > 0 &&
-          stackNow < buyIn * TOPUP_STACK_FRAC &&
+          stackNow < buyIn * effectiveTopUpFrac &&
           Math.random() < TOPUP_PROB
         ) {
           // Owner October 26: Add Chips targets the table maximum.
@@ -1339,27 +1634,46 @@ export class HorseSessionRotator {
            * not reload at all — it leaves, through the hazard below.
            */
           const roll = rolls.get(`${(seat as { club_id?: string }).club_id ?? ''}:${seat.user_id}`);
+          const seatInvested = bankrollLedgerKnown
+            ? isDiamondTable
+              ? investedBySeat.get(seatKey)
+              : (investedBySeat.get(seatKey) ?? Math.max(stackNow, tableMin))
+            : undefined;
           const desiredTopUp = amount;
-          /* AN UNREAD ROLL REFUSES THE RELOAD, AS THIS FILE ALWAYS SAID IT DID
-             (2026-10-06). The note on the roll read promises that an
-             unreadable roll "refuses the top-up rather than uncapping it", and
-             the code skipped the cap instead: a horse whose roll could not be
-             read reloaded the full amount, uncapped. A reload is never urgent -
-             the seat is still funded - so with no roll there is no reload this
-             pass, and the next pass reads again. */
+          /* AN UNREAD ROLL OR UNREAD SESSION LEDGER REFUSES THE RELOAD
+             (2026-10-06, hardened 2026-11-10). Both `roll` and `investedThisTable`
+             fail closed: an incomplete `chip_ledger` page, an unread must-move
+             session baseline, or an unread Diamond custody movement never defaults
+             `investedThisTable` to 0 (which would bypass `stopLossBuyIns` and
+             cumulative exposure caps). */
           if (roll === undefined) amount = 0;
-          if (roll !== undefined) {
+          if (!bankrollLedgerKnown || seatInvested === undefined || seatInvested <= 0) amount = 0;
+          if (
+            roll !== undefined &&
+            bankrollLedgerKnown &&
+            seatInvested !== undefined &&
+            seatInvested > 0
+          ) {
             amount = topUpAllowance({
               bankroll: roll,
-              investedThisTable: investedBySeat.get(`${tableId}:${seat.user_id}`) ?? 0,
+              investedThisTable: seatInvested,
               desired: amount,
               refBuyIn: buyIn,
               minBuyIn: tableMin,
               maxBuyIn: tableMax,
               policy: bankrollPolicyFor(seat.user_id),
             });
+            amount = Math.min(desiredTopUp, amount);
+            if (isDiamondTable) amount = Math.floor(amount);
           }
-          if (amount < desiredTopUp) amount = 0;
+          const partialHighStakeAllowed =
+            (isNlhCash || isPloCash) &&
+            stakeDollarBb >= 5 &&
+            activeDeepStyle &&
+            amount >= buyIn * 0.5;
+          if (!partialHighStakeAllowed) {
+            if (amount < desiredTopUp) amount = 0;
+          }
           if (amount >= bb) {
             try {
               await engine.addChips(seat.user_id, amount);
@@ -1435,8 +1749,19 @@ export class HorseSessionRotator {
       const maxPlayers = Number(tableRow?.max_players) || tableSeats.length;
       const openSeats = Math.max(0, maxPlayers - tableSeats.length);
       const releaseWanted = Math.max(0, (humansWaiting.get(tableId) ?? 0) - openSeats);
+      /* A table that just had a shift change is not thinned again this cycle
+         by a DISCRETIONARY departure (a table change or a session ending). A
+         person waiting for a seat, and the stop-loss money decision, still
+         run as before. */
+      const shiftChangedHere = releaseWanted === 0 && offDutyExitTables.has(tableId);
       const fill = cashTableFill(tableId);
-      const windingDown = ploWindDownFor(tableRow?.cluster_id, ploDemand, occupiedHumanGames);
+      /* A horse-seeded Lightning game is never wound down because its last
+         person left (Dan 2026-11-13: the 1/2 players are split across every
+         game, Lightning included). Winding it down would stand horses up
+         that the fleet seats again on the next cycle. */
+      const windingDown =
+        !LIGHTNING_HORSE_SEEDED.has(String(tableRow?.cluster_id ?? '')) &&
+        ploWindDownFor(tableRow?.cluster_id, ploDemand, occupiedHumanGames);
       if (windingDown && ploDepartureThisCycle) continue;
       // The owner's 80% branch keeps ordinary session departures below three.
       if (!windingDown && releaseWanted === 0 && tableSeats.length < (humanPresent ? 5 : 4))
@@ -1459,6 +1784,7 @@ export class HorseSessionRotator {
       const askable = tableSeats.filter(
         (x) =>
           horseIds.has(x.user_id) &&
+          !rosterLeft.has(`${tableId}:${x.user_id}`) &&
           !HorseSessionRotator.isLeaving(x) &&
           !this.isLeaveHeld(tableId, x.user_id)
       );
@@ -1513,6 +1839,7 @@ export class HorseSessionRotator {
 
         if (
           !holdsFull &&
+          !shiftChangedHere &&
           minutes >= MIN_SESSION_MINUTES / 2 &&
           wantsTableChange(seat.user_id, tableId, tableSeats.length, minutes)
         ) {
@@ -1541,11 +1868,16 @@ export class HorseSessionRotator {
          * a decision a player makes, not a coin they flip. Without the
          * figure we fall through to the original swing heuristic unchanged.
          */
+        /* BANK THE WIN (owner 2026-11-10): the winning exit belongs to the
+           engine alone (HorseBankTheWin: 4-6x the starting stack, one orbit
+           after a big pot, before the next big blind). This verdict books
+           only the stop loss now; an immediate rack-up here is exactly the
+           "leaves the hand after a big pot" the owner ruled out. */
         const invested = investedBySeat.get(`${tableId}:${seat.user_id}`);
         if (invested !== undefined && invested > 0) {
           const verdict = sessionVerdict(stack - invested, buyIn, bankrollPolicyFor(seat.user_id));
-          if (verdict !== 'play_on') {
-            bankrollEvent(verdict === 'book_win' ? 'session_book_win' : 'session_stop_loss');
+          if (verdict === 'stop_loss') {
+            bankrollEvent('session_stop_loss');
             best = { seat, p: Number.POSITIVE_INFINITY };
             break;
           }
@@ -1571,12 +1903,17 @@ export class HorseSessionRotator {
            still the break candidate below, so a full table can still send
            somebody for a five-minute break; it just does not send them
            home. */
-        if (holdsFull) p = 0;
+        if (holdsFull || shiftChangedHere) p = 0;
 
         if (!best || p > best.p) best = { seat, p };
       }
 
-      if (best && Math.random() < best.p && !this.owesHands(tableId, best.seat.user_id, engine)) {
+      if (
+        best &&
+        Math.random() < best.p &&
+        !this.owesHands(tableId, best.seat.user_id, engine) &&
+        !this.owesBigPotOrbit(best.seat.user_id, engine)
+      ) {
         try {
           const result = await engine.leaveTable(best.seat.user_id);
           if (!this.lifecycleIsCurrent(generation)) return;
@@ -1611,7 +1948,9 @@ export class HorseSessionRotator {
           draw: Math.random,
           seatsAtTable: tableSeats.length,
           humanPresent,
-          handsOwed: this.handsOwed(tableId, seat.user_id, engine),
+          handsOwed:
+            this.handsOwed(tableId, seat.user_id, engine) +
+            (this.owesBigPotOrbit(seat.user_id, engine) ? 1 : 0),
           sittingOut: seat.is_sitting_out === true,
           leaving: HorseSessionRotator.isLeaving(seat),
           onBreakHere: this.breaks.has(HorseSessionRotator.breakKey(tableId, seat.user_id)),
@@ -1695,6 +2034,8 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(t.created_at ?? 0).getTime()) / 60000,
         minutesSeated,
         minutesSinceLastHand: null,
+        minutesSinceHumanLeft: minutesSinceLastPlayingHumanFor(t ?? {}, now),
+        humanLeftDwellMinutes: humanDepartureDwellMinutes(tableId),
       });
       if (pre !== 'stand') continue;
       candidates.push({ tableId, seat, t, minutesSeated });
@@ -1754,6 +2095,8 @@ export class HorseSessionRotator {
         tableAgeMinutes: (now - new Date(c.t.created_at ?? 0).getTime()) / 60000,
         minutesSeated: c.minutesSeated,
         minutesSinceLastHand: last === undefined ? null : (now - last) / 60000,
+        minutesSinceHumanLeft: minutesSinceLastPlayingHumanFor(c.t ?? {}, now),
+        humanLeftDwellMinutes: humanDepartureDwellMinutes(c.tableId),
       });
       if (verdict !== 'stand') continue;
       const engine = this.getEngine(c.tableId);

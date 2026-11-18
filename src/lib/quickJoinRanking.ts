@@ -36,7 +36,6 @@
  */
 
 import { gameCode } from '../utils/gameCode';
-import { isFixedLimitVariant } from './bettingStructure';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -155,21 +154,20 @@ export function isSameVariant(a?: string | null, b?: string | null): boolean {
  * on the stake level. Returns null rather than 0 for anything unparseable, so
  * callers cannot mistake "unknown" for "free".
  *
- * FIXED LIMIT PUTS THE BIG BLIND FIRST. `stakesLabel` renders a limit game as
- * its BET SIZES -- `${bigBlind}/${bigBlind * 2}` -- because that is what a
- * limit player reads. So on a 2/4 limit table the big blind is 2, the FIRST
- * number, while on a 1/2 no-limit table it is 2, the SECOND. Reading index 1
- * unconditionally doubled every limit table's stake and put it a rung or two
- * up its own ladder, which mis-tiers every Quick Join row for that player.
+ * EVERY GAME PUTS THE BIG BLIND SECOND (owner ruling, November 14, 2026).
+ * `stakesLabel` used to render a fixed-limit game as its BET SIZES, so on a
+ * "2/4" limit table the big blind was the first number. Limit games now read by
+ * their blinds like every other game ("FIXED LIMIT 1/2"), so index 1 is the big
+ * blind for every variant. `variant` is kept so callers need not change.
  */
 export function bigBlindFromStakesLabel(
   label?: string | null,
-  variant?: string | null
+  _variant?: string | null
 ): number | null {
   if (!label) return null;
   const parts = String(label).split('/');
   if (parts.length < 2) return null;
-  const bb = Number(parts[isFixedLimitVariant(variant) ? 0 : 1].trim());
+  const bb = Number(parts[1].trim());
   return Number.isFinite(bb) && bb > 0 ? bb : null;
 }
 

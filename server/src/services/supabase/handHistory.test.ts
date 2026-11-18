@@ -1,3 +1,5 @@
+import { doorRosterCapsule } from '../horseAcceptedRoster/fixture.test-support.js';
+import { retainHorseTurnClock } from '../../engine/HorseTurnClockReceipt.js';
 /** The accepted-hand transaction is the sole hand-history persistence owner. */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,6 +17,9 @@ const retentionCalls: Record<string, unknown>[] = [];
 /** Ordered replies for the accepted-hand transaction. */
 let atomicRpcResults: Array<{ data: unknown; error: unknown }> = [];
 /** The reply fn_ca_resume_hand_submission gives a restarted engine. */
+let terminalRead: { data: any; error: unknown } | undefined;
+/** The stored hand_history row a resume reads back for the memory-domain count. */
+let storedHandRead: { data: unknown; error: unknown } | Error | undefined;
 let resumeReply: { data: unknown; error: unknown } = { data: null, error: null };
 /** Ordered replies for fn_ca_retain_hand_submission; empty means a fresh retention. */
 let retentionReplies: Array<{ data: unknown; error: unknown } | Error> = [];
@@ -23,6 +28,22 @@ vi.mock('./client.js', () => ({
   supabase: {
     from: (table: string) => {
       calls.push({ table });
+      if (table === 'hand_atomic_commits' && terminalRead) {
+        const read = { select: () => read, eq: () => read, maybeSingle: async () => terminalRead };
+        return read;
+      }
+      if (table === 'hand_history' && storedHandRead) {
+        const stored = storedHandRead;
+        const read = {
+          select: () => read,
+          eq: () => read,
+          maybeSingle: async () => {
+            if (stored instanceof Error) throw stored;
+            return stored;
+          },
+        };
+        return read;
+      }
       throw new Error(`unexpected legacy table write: ${table}`);
     },
     rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -79,13 +100,48 @@ vi.mock('./handProjection.js', () => ({
 const mockReportError = vi.fn();
 vi.mock('../errorReporter.js', () => ({
   reportError: (...args: unknown[]) => mockReportError(...args),
+  // Reached only by a failed completed-hand profile read (the durable-read cases below).
+  isOpponentMemoryBusyRefusal: (error: unknown) =>
+    error instanceof Error && error.message === 'opponent memory unavailable: busy',
+  reportThrottled: vi.fn(),
 }));
+// The completed-hand profile read, real by default; one case forces a schema and a failed read.
+const memoryMocks = vi.hoisted(() => ({
+  schema: vi.fn(),
+  readExact: vi.fn(),
+  readLegacy: vi.fn(),
+  completedGate: null as unknown,
+}));
+vi.mock('../HorseOpponentMemory.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../HorseOpponentMemory.js')>();
+  memoryMocks.schema.mockImplementation(() => original.horseOpponentMemorySchema());
+  memoryMocks.readLegacy.mockImplementation(original.readHorseOpponentProfiles);
+  memoryMocks.completedGate = original.admitCompletedHandExactRead;
+  return {
+    ...original,
+    horseOpponentMemorySchema: () => memoryMocks.schema(),
+    readHorseOpponentProfiles: (...args: Parameters<typeof original.readHorseOpponentProfiles>) =>
+      memoryMocks.readLegacy(...args),
+  };
+});
+vi.mock('../HorseExactOpponentMemory.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../HorseExactOpponentMemory.js')>();
+  memoryMocks.readExact.mockImplementation(original.readExactHorseOpponentProfiles);
+  return {
+    ...original,
+    readExactHorseOpponentProfiles: (
+      ...args: Parameters<typeof original.readExactHorseOpponentProfiles>
+    ) => memoryMocks.readExact(...args),
+  };
+});
 
 interface CompletedHandObservationPayload {
+  horseTurnClocks?: CompletedHandObservation['horseTurnClocks'];
   generation: number;
   fence: string;
   handKey: string;
   committedHandId?: string;
+  acceptedActorRoster?: CompletedHandObservation['acceptedActorRoster'];
   actions: CompletedHandObservation['actions'];
   bigBlind: number;
   showdown: unknown;
@@ -120,6 +176,10 @@ import type { HorsePublicActionNode } from '../../engine/HorsePublicActionNode.j
 import { captureHandSeatGenerations } from '../../engine/handSeatGeneration.js';
 import { horseCompletedHandKey } from '../../engine/HorseDecisionHandBinding.js';
 import { drainHorseNets, drainHorsePlay } from '../HorseHandReview.js';
+import {
+  handMemoryDomainLoggedTotal,
+  handMemoryDomainMissingTotal,
+} from '../../observability/engineInstruments.js';
 
 const GLOBAL_HAND = 1_400_001;
 const historyId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -295,6 +355,8 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  terminalRead = undefined;
+  storedHandRead = undefined;
   calls.length = 0;
   rpcCalls.length = 0;
   retentionCalls.length = 0;
@@ -412,8 +474,117 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
       expect(
         (mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation).publicMemoryDomain
       ).toEqual(publicMemoryDomain);
+      // STYLE READ M1: the hand's own format goes with every hand that carries a valid public domain
+      const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+      if (publicMemoryDomain) expect(sent.styleMemoryMode).toBe('cash');
+      else expect(sent).not.toHaveProperty('styleMemoryMode');
     }
   );
+
+  // A FAILED REFRESH IS NOT A NEWER PROFILE (2026-11-15): the worker must be able to tell a failed
+  // completed-hand profile read from a read that found no saved row (MEMORY-READ-ROOT-CAUSE.md).
+  it.each([
+    [
+      'timed out',
+      Object.assign(new Error('exact public memory unavailable: 57014'), { code: '57014' }),
+    ],
+    ['refused busy', new Error('opponent memory unavailable: busy')],
+    // L1: the exact reader THROWS on a receipt that fails validation (HorseExactOpponentMemory.ts), so an
+    // invalid response is a failed read, never "no saved row".
+    ['an invalid receipt', new Error('exact public memory unavailable')],
+  ])('names a %s completed-hand profile read as failed', async (_kind, failure) => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    memoryMocks.readExact.mockRejectedValueOnce(failure);
+    await logHandHistory({
+      ...identityParams(),
+      publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
+    });
+    expect(memoryMocks.readExact).toHaveBeenCalled();
+    const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+    expect(sent.durableOpponentProfiles).toEqual([]);
+    expect(sent.durableOpponentProfilesRead).toBe('failed');
+  });
+  // M1: the legacy completed-hand read (no public memory domain) is admitted on the completed-hand gate.
+  it('admits the legacy completed-hand read on the completed-hand gate and names its failure', async () => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    memoryMocks.readLegacy.mockRejectedValueOnce(
+      Object.assign(new Error('opponent memory unavailable: 57014'), { code: '57014' })
+    );
+    await logHandHistory(identityParams());
+    expect(memoryMocks.readLegacy).toHaveBeenCalled();
+    const args = memoryMocks.readLegacy.mock.calls.at(-1)!;
+    expect(args[5]).toBe(memoryMocks.completedGate);
+    const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+    expect(sent.durableOpponentProfilesRead).toBe('failed');
+  });
+  it('sends no failure mark when the completed-hand profile read succeeds empty', async () => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    memoryMocks.readExact.mockResolvedValueOnce([]);
+    await logHandHistory({
+      ...identityParams(),
+      publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
+    });
+    expect(memoryMocks.readExact).toHaveBeenCalled();
+    const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+    expect(sent.durableOpponentProfiles).toEqual([]);
+    expect(sent).not.toHaveProperty('durableOpponentProfilesRead');
+  });
+
+  it('STYLE READ: a malformed public domain sends no style format', async () => {
+    acceptAtomicHand();
+    await logHandHistory({ ...identityParams(), publicMemoryDomain: { version: 9 } as never });
+    expect(mockObserveCompletedHand.mock.calls[0][0]).not.toHaveProperty('styleMemoryMode');
+  });
+
+  it('keeps the Horse clock in protected accepted facts and out of the public history fields', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
+    try {
+      const input = obligationsParams();
+      const index = 1;
+      const action = { ...input.actions[index]!, timestamp: 1000, origin: 'horse_policy' as const };
+      retainHorseTurnClock(action, 100, 2000, 'strategy');
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            post_commit_completed: true,
+            post_commit_obligations: true,
+            post_commit_payload_hash: 'c'.repeat(64),
+          },
+          error: null,
+        },
+      ];
+      await logHandHistory({
+        ...input,
+        actions: input.actions.map((row, i) => (i === index ? action : row)),
+      });
+      const clocks = [
+        {
+          actionIndex: index,
+          startedAtMs: 100,
+          deadlineMs: 2000,
+          acceptedAtMs: action.timestamp,
+          path: 'strategy',
+        },
+      ];
+      expect(mockObserveCompletedHand.mock.calls[0][0]).toMatchObject({ horseTurnClocks: clocks });
+      const retained = retentionCalls[0] as any;
+      const { _accepted_post_commit_facts: privateFacts, ...publicHistoryFields } =
+        retained.p_hand_row;
+      expect(privateFacts.horse_accepted_terminal.observation.horseTurnClocks).toEqual(clocks);
+      // The SQL history producer selects actual hand_history columns only;
+      // this reserved envelope is copied separately into hand_atomic_commits.
+      expect(JSON.stringify(publicHistoryFields)).not.toContain('startedAtMs');
+      expect(JSON.stringify(publicHistoryFields.actions)).not.toContain('horseTurnClocks');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it('preserves forced-post and return provenance in the accepted JSON and observation without changing money or order', async () => {
     const input = identityParams();
@@ -1937,4 +2108,387 @@ describe('a lapsed cash proof retains its finished hand before refusing', () => 
       vi.useRealTimers();
     }
   });
+});
+
+describe('retained original accepted terminal transport', () => {
+  it('captures before settlement and recovery journals that exact original without a financial replay', async () => {
+    vi.stubEnv('GIT_COMMIT_SHA', 'a'.repeat(40));
+    try {
+      const input = obligationsParams();
+      const clockAction = {
+        ...input.actions[1]!,
+        timestamp: 1000,
+        origin: 'horse_policy' as const,
+      };
+      input.actions = input.actions.map((action, index) => (index === 1 ? clockAction : action));
+      retainHorseTurnClock(clockAction, 100, 2000, 'strategy');
+      const rawRoster = {
+        version: 1,
+        status: 'captured',
+        reasons: [],
+        payloadDigest: 'c'.repeat(64),
+        producerVersion: 'accepted_hand_roster_v1',
+        roster: doorRosterCapsule(input.tableId, input.handNumber, historyId),
+      };
+      atomicRpcResults = [
+        {
+          data: {
+            success: true,
+            atomic_hand_commit: true,
+            history_id: historyId,
+            post_commit_completed: true,
+            post_commit_obligations: true,
+            post_commit_payload_hash: 'c'.repeat(64),
+            accepted_roster: rawRoster,
+          },
+          error: null,
+        },
+      ];
+      const observedHands = [
+        {
+          table_id: input.tableId,
+          hand_number: input.handNumber,
+          viewer_id: '11111111-1111-4111-8111-111111111111',
+        },
+      ];
+      await logHandHistory({ ...input, observedHands });
+      const ordinaryRoster = mockObserveCompletedHand.mock.calls[0]![0].acceptedActorRoster;
+      expect(ordinaryRoster).toBeDefined();
+      const retained = retentionCalls[0] as any;
+      expect(retained.p_hand_row._observed_hands).toEqual(observedHands);
+      const packet = retained.p_hand_row._accepted_post_commit_facts.horse_accepted_terminal;
+      expect(packet.sourceRelease).toBe('a'.repeat(40));
+      expect(packet.originalLease).toBe(leaseGeneration);
+      expect(packet.observation.horseTurnClocks).toEqual([
+        {
+          actionIndex: 1,
+          startedAtMs: 100,
+          deadlineMs: 2000,
+          acceptedAtMs: 1000,
+          path: 'strategy',
+        },
+      ]);
+      expect(packet.observation.horseTurnClocks).toEqual(
+        mockObserveCompletedHand.mock.calls[0]![0].horseTurnClocks
+      );
+      // Changing the live private sidecar after acceptance cannot rewrite recovery.
+      retainHorseTurnClock(clockAction, 200, 3000, 'strategy');
+
+      expect(packet.observation.actions).toEqual(
+        mockObserveCompletedHand.mock.calls[0]![0].actions
+      );
+      const receipt = {
+        found: true,
+        completed: true,
+        success: true,
+        atomic_hand_commit: true,
+        snapshot_completed: true,
+        post_commit_completed: true,
+        table_id: input.tableId,
+        history_id: historyId,
+        submission_id: historyId,
+        submission_hash: 'b'.repeat(64),
+        hand_number: String(input.handNumber),
+        post_commit_payload_hash: 'c'.repeat(64),
+        accepted_roster: rawRoster,
+      };
+      resumeReply = { data: receipt, error: null };
+      terminalRead = {
+        data: {
+          hand_id: historyId,
+          table_id: input.tableId,
+          hand_number: input.handNumber,
+          post_commit_completed_at: '2026-11-10T00:00:00Z',
+          post_commit_payload_hash: 'c'.repeat(64),
+          post_commit_payload: { accepted_hand_facts: { horse_accepted_terminal: packet } },
+        },
+        error: null,
+      };
+      const writes = rpcCalls.length;
+      mockObserveCompletedHand.mockClear();
+      await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+      expect(rpcCalls).toHaveLength(writes);
+      expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+      expect(mockObserveCompletedHand.mock.calls[0]![0]).toMatchObject({
+        ...packet.observation,
+        acceptedActorRoster: ordinaryRoster,
+        terminalOnlySourceRelease: 'a'.repeat(40),
+      });
+      for (const unusable of [
+        undefined,
+        { ...rawRoster, payloadDigest: 'd'.repeat(64) },
+        { ...rawRoster, status: 'legacy_missing', roster: null },
+      ]) {
+        resumeReply = { data: { ...receipt, accepted_roster: unusable }, error: null };
+        await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+        expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+      }
+      resumeReply = { data: receipt, error: null };
+      terminalRead.data.post_commit_payload_hash = 'd'.repeat(64);
+      await resumeRetainedHandSubmission(input.tableId, 'successor', 'successor-lease');
+      expect(mockObserveCompletedHand).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+/**
+ * HVH2D-EXE-002 (2026-11-12): the omission of public_memory_domain is counted
+ * at the storage boundary, once per accepted hand, and changes nothing written.
+ */
+describe('logHandHistory - a hand logged without its public memory domain is counted', () => {
+  const showdownReveal = [
+    { user_id: 'u1', seat: 1, reveal_order: 1, mucked: false, hand_name: 'Pair' },
+    { user_id: 'u2', seat: 2, reveal_order: 2, mucked: true },
+  ];
+  const validDomain = { version: 1 as const, speed: 'table' as const, ante: 'none' as const };
+  const loggedNow = (labels: Record<string, string>) => handMemoryDomainLoggedTotal.get(labels);
+  const missingNow = () =>
+    Object.fromEntries(
+      handMemoryDomainMissingTotal
+        .snapshot()
+        .filter((s) => s.value > 0)
+        .map((s) => [`${s.labels.mode}|${s.labels.reached_showdown}|${s.labels.reason}`, s.value])
+    );
+  const missingDelta = (before: Record<string, number>) => {
+    const after = missingNow();
+    return Object.fromEntries(
+      Object.entries(after)
+        .map(([k, v]) => [k, v - (before[k] ?? 0)] as const)
+        .filter(([, v]) => v !== 0)
+    );
+  };
+  const cashShowdownSupported = {
+    mode: 'cash',
+    reached_showdown: 'true',
+    learner_scope: 'supported',
+  };
+
+  it('a valid domain counts the hand and no omission', async () => {
+    const logged = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({ ...identityParams(), showdownReveal, publicMemoryDomain: validDomain });
+    const row = rpcCalls[0].args.p_hand_row as Record<string, unknown>;
+    expect(row.public_memory_domain).toEqual(validDomain);
+    expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({});
+  });
+
+  it.each([
+    ['null', null],
+    ['not supplied', undefined],
+  ])('a %s domain on a cash showdown hand is one absent omission', async (_name, domain) => {
+    const logged = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({ ...identityParams(), showdownReveal, publicMemoryDomain: domain });
+    expect(rpcCalls[0].args.p_hand_row).not.toHaveProperty('public_memory_domain');
+    expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({ 'cash|true|absent': 1 });
+  });
+
+  it('a supplied domain that fails validity is invalid, not absent, and is still not written', async () => {
+    const logged = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({
+      ...identityParams(),
+      showdownReveal,
+      publicMemoryDomain: { version: 1, speed: 'turbo', ante: 'none' } as any,
+    });
+    expect(rpcCalls[0].args.p_hand_row).not.toHaveProperty('public_memory_domain');
+    expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({ 'cash|true|invalid': 1 });
+  });
+
+  it('labels a tournament hand without showdown by its own mode and street', async () => {
+    const labels = { mode: 'tournament', reached_showdown: 'false', learner_scope: 'supported' };
+    const logged = loggedNow(labels);
+    const missing = missingNow();
+    const tournamentId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    atomicRpcResults = [
+      {
+        data: {
+          success: true,
+          atomic_hand_commit: true,
+          history_id: historyId,
+          written: { u1: 118, u2: 80 },
+          tournament_id: tournamentId,
+          tournament_players_synced: true,
+          tournament_player_count: 2,
+          tournament_player_user_ids: ['u1', 'u2'],
+          tournament_player_chips: [
+            { user_id: 'u1', chips: 118 },
+            { user_id: 'u2', chips: 80 },
+          ],
+        },
+        error: null,
+      },
+    ];
+    await logHandHistory({ ...identityParams(), tournamentId, publicMemoryDomain: null });
+    expect(loggedNow(labels) - logged).toBe(1);
+    expect(missingDelta(missing)).toEqual({ 'tournament|false|absent': 1 });
+  });
+
+  it('a variant the exact-memory trigger never learns is exempt: unsupported_variant', async () => {
+    const labels = { mode: 'cash', reached_showdown: 'true', learner_scope: 'unsupported_variant' };
+    const logged = loggedNow(labels);
+    const supported = loggedNow(cashShowdownSupported);
+    const missing = missingNow();
+    acceptAtomicHand();
+    await logHandHistory({
+      ...identityParams(),
+      gameVariant: 'ofc',
+      showdownReveal,
+      publicMemoryDomain: null,
+    });
+    expect(loggedNow(labels) - logged).toBe(1);
+    expect(loggedNow(cashShowdownSupported) - supported).toBe(0);
+    expect(missingDelta(missing)).toEqual({ 'cash|true|unsupported_variant': 1 });
+  });
+
+  it('an identical-request retry inside the commit counts the hand once', async () => {
+    vi.useFakeTimers();
+    try {
+      const logged = loggedNow(cashShowdownSupported);
+      const missing = missingNow();
+      atomicRpcResults = [
+        { data: null, error: { message: 'upstream connect error' } },
+        { data: { success: false, reason: 'in_flight' }, error: null },
+        { data: { success: true, atomic_hand_commit: true, history_id: historyId }, error: null },
+      ];
+      const pending = logHandHistory({
+        ...identityParams(),
+        showdownReveal,
+        publicMemoryDomain: null,
+      });
+      await vi.advanceTimersByTimeAsync(
+        HAND_COMMIT_RETRY_DELAYS_MS[0] + HAND_COMMIT_RETRY_DELAYS_MS[1]
+      );
+      await pending;
+      expect(rpcCalls.filter((c) => c.fn === 'fn_ca_commit_hand_settlement')).toHaveLength(3);
+      expect(loggedNow(cashShowdownSupported) - logged).toBe(1);
+      expect(missingDelta(missing)).toEqual({ 'cash|true|absent': 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a hand the commit refused is not counted at all', async () => {
+    const logged = handMemoryDomainLoggedTotal.snapshot().reduce((sum, s) => sum + s.value, 0);
+    const missing = missingNow();
+    atomicRpcResults = [{ data: { success: false, reason: 'stale_hand' }, error: null }];
+    await expect(
+      logHandHistory({ ...identityParams(), showdownReveal, publicMemoryDomain: null })
+    ).rejects.toThrow('atomic hand commit refused');
+    expect(handMemoryDomainLoggedTotal.snapshot().reduce((sum, s) => sum + s.value, 0)).toBe(
+      logged
+    );
+    expect(missingDelta(missing)).toEqual({});
+  });
+});
+
+/**
+ * HVH2D-EXE-002 coverage (2026-11-12, the verifier's follow-up to #10640): a
+ * retained hand a replacement engine commits never reaches logHandHistory's
+ * count, and the exact-memory trigger fires on it all the same.
+ */
+describe('resumeRetainedHandSubmission - a retained hand this call committed is counted once', () => {
+  const TABLE = '11111111-1111-1111-1111-111111111111';
+  const showdown = [{ user_id: 'u1', seat: 1, reveal_order: 1, mucked: false, hand_name: 'Pair' }];
+  const receipt = (financialHandoff: boolean | undefined) => ({
+    found: true,
+    completed: true,
+    success: true,
+    atomic_hand_commit: true,
+    snapshot_completed: true,
+    post_commit_completed: true,
+    table_id: TABLE,
+    history_id: historyId,
+    submission_id: historyId,
+    submission_hash: 'b'.repeat(64),
+    hand_number: '4242',
+    ...(financialHandoff === undefined ? {} : { financial_handoff: financialHandoff }),
+  });
+  const total = (counter: typeof handMemoryDomainLoggedTotal) =>
+    counter.snapshot().reduce((sum, s) => sum + s.value, 0);
+  const settle = async () => {
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+  };
+  const resume = async () => {
+    const out = await resumeRetainedHandSubmission(TABLE, 'successor', 'successor-lease');
+    await settle();
+    return out;
+  };
+
+  it('counts the stored row of the hand it handed off, and not the replays that follow', async () => {
+    const labels = { mode: 'cash', reached_showdown: 'true' };
+    const logged = handMemoryDomainLoggedTotal.get({ ...labels, learner_scope: 'supported' });
+    const absent = handMemoryDomainMissingTotal.get({ ...labels, reason: 'absent' });
+    const loggedAll = total(handMemoryDomainLoggedTotal);
+    const missingAll = total(handMemoryDomainMissingTotal);
+    terminalRead = { data: null, error: null };
+    storedHandRead = {
+      data: { public_memory_domain: null, game_variant: 'nlh', tournament_id: null, showdown },
+      error: null,
+    };
+    resumeReply = { data: receipt(true), error: null };
+    expect(await resume()).toEqual({ handNumber: 4242, submissionId: historyId });
+    expect(calls.map((c) => c.table)).toContain('hand_history');
+    expect(
+      handMemoryDomainLoggedTotal.get({ ...labels, learner_scope: 'supported' }) - logged
+    ).toBe(1);
+    expect(handMemoryDomainMissingTotal.get({ ...labels, reason: 'absent' }) - absent).toBe(1);
+
+    // The same hand, read again by a later start: already committed, so the
+    // door answers financial_handoff false (or, from an older door, nothing).
+    calls.length = 0;
+    for (const replay of [false, undefined]) {
+      resumeReply = { data: receipt(replay), error: null };
+      await resume();
+    }
+    expect(calls.map((c) => c.table)).not.toContain('hand_history');
+    expect(total(handMemoryDomainLoggedTotal) - loggedAll).toBe(1);
+    expect(total(handMemoryDomainMissingTotal) - missingAll).toBe(1);
+  });
+
+  it('files a handed-off tournament hand with its valid domain under tournament, with no omission', async () => {
+    const labels = { mode: 'tournament', reached_showdown: 'false', learner_scope: 'supported' };
+    const logged = handMemoryDomainLoggedTotal.get(labels);
+    const missingAll = total(handMemoryDomainMissingTotal);
+    terminalRead = { data: null, error: null };
+    storedHandRead = {
+      data: {
+        public_memory_domain: { version: 1, speed: 'table', ante: 'big_blind' },
+        game_variant: 'nlh',
+        tournament_id: '22222222-2222-4222-8222-222222222222',
+        showdown: null,
+      },
+      error: null,
+    };
+    resumeReply = { data: receipt(true), error: null };
+    await resume();
+    expect(handMemoryDomainLoggedTotal.get(labels) - logged).toBe(1);
+    expect(total(handMemoryDomainMissingTotal)).toBe(missingAll);
+  });
+
+  it.each([
+    ['answers an error', { data: null, error: { message: 'statement timeout' } }],
+    ['finds no row', { data: null, error: null }],
+    ['throws', new Error('fetch failed')],
+  ] as const)(
+    'a read-back that %s counts nothing and changes nothing about the admission',
+    async (_name, read) => {
+      const loggedAll = total(handMemoryDomainLoggedTotal);
+      const missingAll = total(handMemoryDomainMissingTotal);
+      terminalRead = { data: null, error: null };
+      storedHandRead = read as typeof storedHandRead;
+      resumeReply = { data: receipt(true), error: null };
+      expect(await resume()).toEqual({ handNumber: 4242, submissionId: historyId });
+      expect(total(handMemoryDomainLoggedTotal)).toBe(loggedAll);
+      expect(total(handMemoryDomainMissingTotal)).toBe(missingAll);
+    }
+  );
 });

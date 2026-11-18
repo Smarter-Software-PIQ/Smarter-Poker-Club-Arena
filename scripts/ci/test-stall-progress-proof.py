@@ -18,8 +18,12 @@ if not (pg_bin / 'initdb').exists():
     pg_bin = Path('/usr/lib/postgresql/17/bin')
 
 def run(args, **kwargs):
-    return subprocess.run([str(a) for a in args], check=True, text=True,
-                          capture_output=True, timeout=60, **kwargs).stdout
+    try:
+        return subprocess.run([str(a) for a in args], check=True, text=True,
+                              capture_output=True, timeout=60, **kwargs).stdout
+    except subprocess.CalledProcessError as error:
+        print(error.stderr, flush=True)
+        raise
 
 assert re.search(r'PostgreSQL\) 17\.', run([pg_bin/'initdb', '--version']))
 patches = list(MIGRATIONS.glob('*_stall_progress_requires_a_recorded_hand.sql'))
@@ -283,8 +287,100 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
         sql(again)
         assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '2'
         results.append('first hand and elapsed time survive sustained closure; repeat links original once')
+        # Keep the real ingest's bounded maintenance policy, including overrun
+        # detection, independently of the new cron-door quiet-freeze guard.
+        sql("CREATE OR REPLACE FUNCTION public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean) RETURNS text LANGUAGE sql AS $$ SELECT CASE WHEN $4 THEN 'maintenance_break' END $$;")
+        for elapsed, expected_reason in [(1, 'maintenance_break'), (13, '')]:
+            seed()
+            sql(f"UPDATE smarter_private.ca_table_stall_watch_state SET maint_since='{now}'::timestamptz - interval '{elapsed} minutes';")
+            sql("SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+waiting_metrics.replace('poker_maintenance_break_active 0','poker_maintenance_break_active 1')+"$metrics$, '"+now+"',60000);")
+            assert sql('SELECT intended_reason FROM smarter_private.ca_table_stall_watch;') == expected_reason
+        results.append('actual ingest still excuses bounded maintenance and exposes a thirteen-minute overrun')
+        qualified_ingest_md5 = sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;")
+
+        # Actual cron owner, exact production preimage; HTTP/ingest are explicit
+        # dependency sentinels below, not a simulated money or watchdog result.
+        tick = re.search(r'CREATE OR REPLACE FUNCTION public\.fn_ca_table_stall_watch_tick\(.*?\$function\$;', source, re.S)
+        assert tick
+        sql(tick.group(0))
+        sql('''CREATE ROLE service_role; REVOKE ALL ON FUNCTION fn_ca_table_stall_watch_tick(bigint) FROM PUBLIC;
+        GRANT EXECUTE ON FUNCTION fn_ca_table_stall_watch_tick(bigint) TO service_role;
+        CREATE TABLE engine_maintenance_break(enforce_freeze boolean,announced_at timestamptz,phase text,break_started_at timestamptz,break_ends_at timestamptz);
+        CREATE FUNCTION fn_active_maintenance_release_boundary() RETURNS timestamptz LANGUAGE sql AS $$
+          SELECT CASE WHEN current_setting('fixture.boundary',true)='on' THEN clock_timestamp()+interval '5 minutes' END $$;
+        CREATE FUNCTION fn_platform_frozen() RETURNS boolean LANGUAGE sql SET search_path='public','pg_temp' AS $$
+          SELECT EXISTS(SELECT 1 FROM engine_maintenance_break b WHERE b.enforce_freeze
+            AND b.announced_at < clock_timestamp()+interval '30 seconds'
+            AND ((b.phase='last_hand' AND b.break_started_at IS NULL AND b.break_ends_at IS NULL
+                  AND b.announced_at+interval '2 minutes'<=clock_timestamp())
+              OR (b.phase='counting_down' AND b.break_started_at IS NOT NULL AND b.break_ends_at IS NOT NULL
+                  AND b.break_started_at>=b.announced_at AND b.break_ends_at>b.break_started_at
+                  AND b.break_ends_at<b.announced_at+interval '15 minutes')))
+            OR COALESCE(fn_active_maintenance_release_boundary()>clock_timestamp(),false) $$;
+        CREATE SCHEMA extensions;
+        CREATE TABLE tick_calls(kind text);
+        CREATE FUNCTION extensions.http_set_curlopt(text,text) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
+        CREATE FUNCTION extensions.http_get(text) RETURNS TABLE(status integer,content text) LANGUAGE plpgsql AS $$
+        BEGIN
+          IF current_setting('fixture.http_mode',true)='fail' THEN RAISE EXCEPTION 'HTTP_SENTINEL_REACHED'; END IF;
+          INSERT INTO tick_calls VALUES('http');
+          IF current_setting('fixture.http_mode',true)='freeze' THEN
+            UPDATE engine_maintenance_break SET enforce_freeze=true;
+          END IF;
+          RETURN QUERY SELECT 200,'fixture metrics'::text;
+        END $$;
+        CREATE OR REPLACE FUNCTION fn_ca_table_stall_watch_ingest(p_body text,p_now timestamptz DEFAULT clock_timestamp(),p_threshold_ms bigint DEFAULT 60000) RETURNS jsonb
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path='pg_catalog','public' AS $$
+        BEGIN
+          IF current_setting('fixture.http_mode',true)='scan' THEN PERFORM count(*) FROM public.profiles; END IF;
+          INSERT INTO tick_calls VALUES('ingest'); RETURN jsonb_build_object('sentinel','ingest');
+        END $$;
+        INSERT INTO engine_maintenance_break VALUES(true,clock_timestamp()-interval '1 minute','counting_down',clock_timestamp()-interval '30 seconds',clock_timestamp()+interval '4 minutes');''')
+        tick_signature = "'public.fn_ca_table_stall_watch_tick(bigint)'::regprocedure"
+        assert sql('SELECT md5(pg_get_functiondef('+tick_signature+'));') == 'aed520360cdb0170be56c68e181f1331'
+        tick_metadata = sql('SELECT jsonb_build_object(\'owner\',proowner,\'acl\',proacl,\'definer\',prosecdef,\'volatile\',provolatile,\'config\',proconfig) FROM pg_proc WHERE oid='+tick_signature)
+        quiet_patch = list(MIGRATIONS.glob('*_stall_watch_leaves_bounded_frozen_profile_scans_for_maintena.sql'))
+        assert len(quiet_patch) == 1
+        original_tick = sql('SELECT pg_get_functiondef('+tick_signature+')')
+        holder = subprocess.Popen([str(pg_bin/'psql'),'-X','-qAt','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p',str(port),'-U','fixture_owner','-d','postgres'], stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            holder.stdin.write("BEGIN; LOCK TABLE profiles IN ACCESS EXCLUSIVE MODE; SELECT 'locked';\n"); holder.stdin.flush()
+            assert holder.stdout.readline().strip() == 'locked'
+            try:
+                sql("SET lock_timeout='250ms'; SET fixture.http_mode='scan'; SELECT fn_ca_table_stall_watch_tick(60000);")
+                raise AssertionError('original ingest unexpectedly bypassed profiles DDL lock')
+            except subprocess.CalledProcessError as error:
+                assert 'lock timeout' in error.stderr and 'fn_ca_table_stall_watch_ingest' in error.stderr
+            results.append('before: actual cron tick reaches profiles and conflicts with the maintenance DDL lock')
+            # Wrong source refuses before any function replacement.
+            sql("CREATE OR REPLACE FUNCTION fn_ca_table_stall_watch_tick(p_threshold_ms bigint DEFAULT 60000) RETURNS jsonb LANGUAGE sql AS $$SELECT '{}'::jsonb$$;")
+            try:
+                sql(quiet_patch[0].read_text())
+                raise AssertionError('drifted cron preimage accepted')
+            except subprocess.CalledProcessError as error:
+                assert 'STALL_WATCH_BOUNDED_FREEZE_PREIMAGE_DRIFT' in error.stderr
+            assert sql('SELECT lanname FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.oid='+tick_signature) == 'sql'
+            sql(original_tick)
+            sql(quiet_patch[0].read_text())
+            assert tick_metadata == sql('SELECT jsonb_build_object(\'owner\',proowner,\'acl\',proacl,\'definer\',prosecdef,\'volatile\',provolatile,\'config\',proconfig) FROM pg_proc WHERE oid='+tick_signature)
+            assert json.loads(sql("SET lock_timeout='250ms'; SET fixture.http_mode='fail'; SELECT fn_ca_table_stall_watch_tick(60000);")) == {'skipped':'bounded_maintenance_freeze'}
+            assert sql('SELECT count(*) FROM tick_calls') == '0'
+            results.append('frozen actual tick avoids HTTP, advisory and profiles while the DDL lock is held; exact metadata retained')
+            sql('UPDATE engine_maintenance_break SET enforce_freeze=false;')
+            assert json.loads(sql("SET fixture.http_mode='freeze'; SELECT fn_ca_table_stall_watch_tick(60000);")) == {'skipped':'bounded_maintenance_freeze'}
+            assert sql("SELECT string_agg(kind,',') FROM tick_calls") == 'http'
+            results.append('freeze entering during actual HTTP boundary is rechecked before ingest')
+            for change in ["enforce_freeze=false", "enforce_freeze=true,break_started_at=clock_timestamp()-interval '6 minutes',break_ends_at=clock_timestamp()-interval '1 minute'", "enforce_freeze=true,break_started_at=clock_timestamp()-interval '1 minute',break_ends_at=clock_timestamp()+interval '8 minutes'"]:
+                sql('TRUNCATE tick_calls; UPDATE engine_maintenance_break SET '+change)
+                assert json.loads(sql("SET fixture.boundary='on'; SET fixture.http_mode='normal'; SELECT fn_ca_table_stall_watch_tick(60000);")) == {'sentinel':'ingest'}
+                assert sql("SELECT string_agg(kind,',') FROM tick_calls") == 'http,ingest'
+            results.append('unfrozen, expired and overlong windows retain the original HTTP and ingest path')
+        finally:
+            holder.stdin.write('ROLLBACK;\n\\q\n'); holder.stdin.flush()
+            holder.communicate(timeout=10)
         print(json.dumps({'status':'passed','checks':results,'check_count':len(results),
-                          'ingest_source_md5':sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;"),
+                          'ingest_source_md5':qualified_ingest_md5,
+                          'tick_dependency_limits':'HTTP and ingest sentinels isolate the actual cron owner; real ingest overrun behavior is qualified before sentinel replacement',
                           'postgres':run([pg_bin/'postgres','--version']).strip()}))
     finally:
         if started:

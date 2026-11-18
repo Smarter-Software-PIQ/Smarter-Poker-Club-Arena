@@ -563,8 +563,8 @@ describe('the exit guard holds money in flight, not a won game that cannot start
     fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
     await advance(0);
     expect(backend.start).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: /^Cross Street/ }));
-    await settle();
+    // The original Start already submits street one.
+    expect(backend.act).toHaveBeenCalledWith(expect.anything(), 'pick', 0);
     fireEvent.click(screen.getByRole('button', { name: 'Finish Scene' }));
     await settle();
     expect(screen.getByRole('dialog', { name: '1.10 Chips' })).toBeInTheDocument();
@@ -1441,7 +1441,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       proof: { ...fixtures.receipts.crossing.proof, road_roll: ROLL[2] },
     });
     expect(status).toBe('Win Booked');
-    expect(said).toBe('Booked At Street 2 At 1.45x. Street 3 Was The Crash.');
+    expect(said).toBe('');
     expect(eyebrow).toBe('You Won');
     expect(detail).toBe('Your Prize Is Booked. Street 2 At 1.45x; Street 3 Was The Crash.');
     // HOW FAR YOU WOULD HAVE GOT: its own line on the receipt, every booked crossing.
@@ -1457,9 +1457,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       payout_chips: 1.45,
       proof: { ...fixtures.receipts.crossing.proof, road_roll: ROLL[5] },
     });
-    expect(said).toBe(
-      'Booked At Street 2 At 1.45x. The Donkey Would Have Made It To Street 5 At 3.15x.'
-    );
+    expect(said).toBe('');
     expect(detail).toBe(
       'Your Prize Is Booked. Street 2 At 1.45x; The Donkey Would Have Made It To Street 5 At 3.15x.'
     );
@@ -1476,9 +1474,7 @@ describe('every choice names its chips, and every outcome has one name', () => {
       max_steps: 12,
       proof: { ...fixtures.receipts.crossing.proof, road_roll: ROLL[12] },
     });
-    expect(said).toBe(
-      'Booked At Street 12 At 20.00x. The Donkey Would Have Crossed Every Street, To 20.00x.'
-    );
+    expect(said).toBe('');
     // Twenty times the stake: the shared receipt calls it a Big Win (src/utils/bigWin.ts).
     expect(detail).toBe(
       'Big Win. Your Prize Is Booked. Street 12 At 20.00x; The Donkey Would Have Crossed Every Street, To 20.00x.'
@@ -1775,6 +1771,7 @@ describe('every finished round verifies itself', () => {
   it('names the check that failed when the player runs it again', async () => {
     await plays({ payout_chips: 99 });
     await toTheReceipt();
+    fireEvent.click(screen.getByRole('button', { name: 'Page Help' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify Revealed Outcome' }));
     expect(
       await said('The Outcome Could Not Be Verified. Seal Ok, Draw Ok, Ladder Ok, Chips Differs.')
@@ -1803,5 +1800,37 @@ describe('every ticket brings a fresh player seed', () => {
     expect(dealt).toHaveLength(2);
     expect(seedField()).toMatch(/^[a-f0-9]{32}$/);
     expect(seedField()).not.toBe(first);
+  });
+});
+
+describe('a start includes the first requested move', () => {
+  it('crosses street one on the original Start press even when history is slow', async () => {
+    backend.start.mockImplementationOnce(async () => opened('crossing'));
+    backend.act.mockImplementationOnce(async (round) => ({ ...round, picked: [0] }));
+    render(<DiamondChoicePage game="crossing" />);
+    await settle();
+    backend.state.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Round' }));
+    await settle();
+    expect(backend.start).toHaveBeenCalledTimes(1);
+    expect(backend.act).toHaveBeenCalledExactlyOnceWith(expect.anything(), 'pick', 0);
+  });
+
+  it('carries the confirmed Mines step into each of four single picks', async () => {
+    const base = { ...opened('mines'), picked: [] as number[] };
+    backend.awardState.mockResolvedValue({ enabled: false, award: null, gameState: null });
+    backend.state.mockResolvedValue({ ...state, open_round: base });
+    backend.act.mockImplementation(async (round, _action, cell) => ({
+      ...round,
+      picked: [...round.picked, cell + round.picked.length],
+    }));
+    render(<DiamondChoicePage game="mines" />);
+    await settle();
+    for (let i = 0; i < 4; i++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Pick Tile' }));
+      await settle();
+    }
+    expect(screen.getByText('Revealed').nextElementSibling).toHaveTextContent('4');
+    expect(backend.act.mock.calls.map(([round]) => round.picked.length)).toEqual([0, 1, 2, 3]);
   });
 });

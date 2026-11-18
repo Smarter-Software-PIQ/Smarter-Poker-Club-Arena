@@ -1,0 +1,3 @@
+# tests/a-cancelled-ticket-refund-books-to-ticket-escrow.law.test.ts
+
+The ledger tally and trial balance read an `escrow` leg under `escrow_hold` or `escrow_release` as cashout custody. A ticket's issuer refund (`fn_cancel_tournament_ticket`, and the issuer branch of `fn_ca_settle_closed_cashier_entry_tickets`) declared `escrow_release`, so its leg landed on `cashout_escrow:<ticket>` while the ticket float moved with no leg, and the ledger invariant refused every ticket cancel (incidents 9aaed91e / 496bda61, 2026-11-12). Migration 20261112184950 books it as `refund`. The law pins the fix and refuses any later rewrite of a ticket escrow writer that declares `escrow_release` again.

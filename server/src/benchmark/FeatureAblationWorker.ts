@@ -12,7 +12,7 @@ import {
 } from '../engine/HorsePlanHandIdentity.js';
 import { HORSE_POLICY_ORDER } from '../engine/HorsePolicyGraph.js';
 import type { ActionRecord, HorseDecision, HorseStyle } from '../types.js';
-import { drainFires, restoreFires } from '../engine/BrainTelemetry.js';
+import { drainFires, outsideSecondLookCapture, restoreFires } from '../engine/BrainTelemetry.js';
 import {
   horsePlanAcceptanceFromController,
   horsePlanWagerAcceptedExactly,
@@ -473,16 +473,22 @@ export function createFeatureAblationWorker(
             } else if (restores === 2 && state === canonical) restoreFastRandom(state);
             else throw Error('Unexpected worker RNG restore sequence');
           },
-          decide: (p, gs, s, mods, opts, rangeCapture, planReadCapture) =>
-            defaultHorseDecisionWorkerDependencies.decide(
-              p,
-              gs,
-              s,
-              mods,
-              { ...opts, telemetry: collectEvaluationFires },
-              rangeCapture,
-              planReadCapture
-            ),
+          // An evaluation's fires are read under their own names for the fast and the deep look alike
+          // (drainFires after each evaluation): the deep look therefore decides outside the runtime's
+          // second-look capture, as it did before that capture existed. Without collection nothing changes.
+          decide: (p, gs, s, mods, opts, rangeCapture, planReadCapture) => {
+            const decideIt = () =>
+              defaultHorseDecisionWorkerDependencies.decide(
+                p,
+                gs,
+                s,
+                mods,
+                { ...opts, telemetry: collectEvaluationFires },
+                rangeCapture,
+                planReadCapture
+              );
+            return collectEvaluationFires ? outsideSecondLookCapture(decideIt) : decideIt();
+          },
         });
       } finally {
         Date.now = wallClock;
@@ -553,6 +559,11 @@ export function createFeatureAblationWorker(
           horseDecisionReceiptRefusal(result.decision, request.gameState.gameVariant, {
             player: request.player,
             gameState: request.gameState,
+            ...(request.opts?.omahaStrategyInPlo6 === true ? { omahaStrategyInPlo6: true } : {}),
+            ...(request.opts?.omahaTurnRiverRaiseIsPriced === true ||
+            request.opts?.omahaBigBetCallsArePriced === true
+              ? { omahaPricedRaise: true }
+              : {}),
           }) ??
           horsePhase6AttributionMismatch(result.decision, request) ??
           horsePhase7EvidenceMismatch(result.decision, request);

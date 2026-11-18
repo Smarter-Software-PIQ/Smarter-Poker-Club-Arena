@@ -50,6 +50,7 @@ import {
 } from '../tournament/details/types';
 import type { PayoutPlace } from '../tournament/details/types';
 import { staffTickLine, tickIsStale } from './cashGameTick';
+import { lobbyDayStart } from './lobbyDay';
 import { titleCase } from '../../utils/titleCase';
 import './GameLobbyPanel.css';
 import './PremiumGameLobbyPanel.css';
@@ -261,7 +262,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
 
     if (isCash) {
       tableService
-        .getAveragePot(entry.id)
+        .getAveragePot(entry.id, lobbyDayStart(new Date()))
         .then((v: number | null) => {
           if (!cancelled && v != null && Number.isFinite(Number(v))) setAvgPot(Number(v));
         })
@@ -929,11 +930,13 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                     two minutes. */}
                 {staff && tick && (
                   <p
-                    className={`glp__tick glp__mono${tickIsStale(tick.last_tick_at, tick.readAt) ? ' is-stale' : ''}`}
+                    className={`glp__tick glp__mono${!isLightning && tickIsStale(tick.last_tick_at, tick.readAt) ? ' is-stale' : ''}`}
                     data-testid="glp-staff-tick"
                     title="The Cluster Controller's Last Pass"
                   >
-                    {staffTickLine(tick.last_tick_at, tick.last_tick_actions, tick.readAt)}
+                    {staffTickLine(tick.last_tick_at, tick.last_tick_actions, tick.readAt, {
+                      lightning: isLightning,
+                    })}
                   </p>
                 )}
               </section>

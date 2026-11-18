@@ -22,6 +22,7 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: state.userId } }),
 }));
 vi.mock('../../src/services/CashoutService', () => ({
+  CashoutRefusedError: class CashoutRefusedError extends Error {},
   captureCashoutAccountGuard: (actor: string) => {
     const epoch = state.epoch;
     return () => state.userId === actor && state.epoch === epoch;
@@ -365,4 +366,14 @@ it('requests a cashout without settlement admission', async () => {
   fireEvent.click(await mount('250'));
   await waitFor(() => expect(state.run).toHaveBeenCalledOnce());
   expect(state.lock).not.toHaveBeenCalled();
+});
+
+it('captures the Note For Agent with the exact direct cashout intent', async () => {
+  await mount('250');
+  const note = screen.getByLabelText('Note For Agent (Optional)');
+  expect(note).toHaveAttribute('maxlength', '2000');
+  fireEvent.change(note, { target: { value: 'Call Me First\nAfter 5 PM' } });
+  await waitFor(() => expect(state.prepare).toHaveBeenLastCalledWith(expect.objectContaining({
+    kind: 'cashout_request', amount: 250, note: 'Call Me First\nAfter 5 PM',
+  })));
 });

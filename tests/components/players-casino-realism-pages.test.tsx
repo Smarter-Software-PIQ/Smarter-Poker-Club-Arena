@@ -1,3 +1,4 @@
+import { lastDaysRange } from '../../src/lib/clubDataDay';
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -119,7 +120,7 @@ const memberDetail = {
     total_winnings: 120,
     mtt_winnings: 40,
   },
-  range: { from: null, to: null, is_overall: true },
+  range: { ...lastDaysRange(1), is_overall: false },
   capabilities: {
     access: 'staff',
     can_view_financials: true,
@@ -262,7 +263,9 @@ describe('Players detail surfaces', () => {
       const firstControl =
         grantRole === 'agent'
           ? await screen.findByRole('spinbutton', { name: 'Agent Rakeback Percent (0 To 70)' })
-          : await screen.findByRole('button', { name: 'Confirm' });
+          : (await screen.findAllByRole('button', { name: 'Confirm', exact: true })).find(
+              (button) => !button.classList.contains('mm-range__confirm')
+            )!;
       expect(firstControl).toHaveFocus();
       const cancel = screen.getByRole('button', { name: 'Cancel' });
       cancel.focus();
@@ -406,7 +409,7 @@ describe('Players detail surfaces', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /Player Statistics/i }));
     expect(state.navigate).toHaveBeenCalledWith(
-      '/clubs/shark-club/members/11111111-1111-4111-8111-111111111111/statistics?range=overall'
+      `/clubs/shark-club/members/11111111-1111-4111-8111-111111111111/statistics?range=day`
     );
   });
 
@@ -430,9 +433,8 @@ describe('Players detail surfaces', () => {
     expect(document.querySelector('.ps-hero__art')).toBeNull();
     // Each figure prints once, on its card.
     // Net is a signed result (winLossChips), Fees a fee figure (feeFigure).
-    expect(screen.getAllByText('+120')).toHaveLength(1);
+    expect(screen.getAllByText('+120.00')).toHaveLength(1);
     expect(screen.getByText('18.00')).toBeVisible();
-    expect(screen.queryByText('120.00')).not.toBeInTheDocument();
     expect(screen.queryByText('18')).not.toBeInTheDocument();
   });
 
@@ -619,8 +621,10 @@ describe('the member record survives a failed background refresh', () => {
     await waitFor(() => expect(state.getMemberDetail).toHaveBeenCalledTimes(2));
     expect(state.getMemberDetail.mock.calls[1][2]).toEqual(state.getMemberDetail.mock.calls[0][2]);
     await act(async () => failAuthority(new Error('offline')));
-    const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('Member Connection Interrupted');
+    const banner = (await screen.findByText('Member Connection Interrupted')).closest(
+      '[role="alert"]'
+    );
+    expect(banner).toBeVisible();
     expect(banner).toHaveTextContent('The Record Below Is From The Previous Successful Read.');
     expect(screen.getByRole('heading', { name: 'River Shark' })).toBeVisible();
     expect(screen.getByText('Cash Hands')).toBeVisible();
@@ -669,7 +673,7 @@ describe('the member record survives a failed background refresh', () => {
     expect(await screen.findByText('Updated Downline')).toBeVisible();
     expect(state.getMemberDetail).toHaveBeenCalledTimes(2);
     expect(state.getDownline).toHaveBeenCalledTimes(2);
-    expect(state.getDownline.mock.calls.at(-1)![3]).toEqual({ from: null, to: null });
+    expect(state.getDownline.mock.calls.at(-1)![3]).toEqual(lastDaysRange(1));
   });
 
   it('keeps a shown downline when only its refresh fails', async () => {

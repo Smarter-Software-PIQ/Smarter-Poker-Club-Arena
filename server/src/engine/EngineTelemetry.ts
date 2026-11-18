@@ -64,6 +64,21 @@ interface HandTiming {
 const ACTION_PROCESSING_THRESHOLD_MS = 50; // §9.1.1: < 50ms server-side
 const BROADCAST_LATENCY_THRESHOLD_MS = 100; // §9.1.2: < 100ms to all clients
 
+/* ── A P95 IS A RECENT P95 (2026-11-13, SLOActionLatencyDegraded 377399) ──────
+ *
+ * The action timings are recorded only for socket actions (handlers/action.ts),
+ * so a mostly-horse tournament table holds a handful of samples. The summary
+ * used to read the last 500 samples with no age limit, and with fewer than 20
+ * of them floor(n * 0.95) is the slowest one ever seen. On 2026-11-13 one 1731
+ * ms raise at 17:1xZ on table feb835d5 held the fleet max at exactly 1731 for
+ * over an hour while the table dealt on, and the page reported a lag nobody was
+ * feeling. The summary now reads only the last five minutes, the same window
+ * SettlementMetrics uses, so the gauge measures the felt now. The objective
+ * (1 s) and the rule's 15m hold are unchanged: a table that is slow for fifteen
+ * minutes still pages.
+ */
+export const ACTION_TIMING_WINDOW_MS = 5 * 60_000;
+
 interface ActionTiming {
   tableId: string;
   userId: string;
@@ -239,7 +254,8 @@ export class EngineTelemetry {
     processingViolations: number;
     broadcastViolations: number;
   } {
-    const timings = this.actionTimings;
+    const cutoff = Date.now() - ACTION_TIMING_WINDOW_MS;
+    const timings = this.actionTimings.filter((t) => t.timestamp >= cutoff);
     if (timings.length === 0) {
       return {
         avgProcessingMs: 0,

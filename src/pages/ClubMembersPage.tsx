@@ -1,4 +1,3 @@
-import { rakebackFigure } from '../utils/rosterRakeback';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -12,7 +11,21 @@ import {
 import { sizedStorageUrl, generateAvatarSvg } from '../utils/avatarGenerator';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useDebounce } from '../hooks/useDebounce';
-import { useOnlineNow } from '../hooks/useProfilePresence';
+import {
+  useLiveStates,
+  orderByActivity,
+  useClubLiveSeats,
+  useLoadedPresence,
+  type LiveState,
+} from '../hooks/useRosterLiveOrder';
+import { recheckClubLiveSeats, type LiveSeat } from '../lib/clubLiveSeats';
+import LiveNowStrip from '../components/club/LiveNowStrip';
+import { withStakes } from '../utils/tableEyebrow';
+import {
+  WATCH_ERROR_MESSAGE,
+  WATCH_LEFT_MESSAGE,
+  watchMemberTable,
+} from '../components/club/watchMemberTable';
 import { useSharedMinuteTick } from '../hooks/useSharedMinuteTick';
 import { lastSeenIsWithinADay, memberLastSeenLabel } from '../utils/memberLastSeen';
 import { useMasterBusSubscriptions } from '../hooks/useMasterBusSubscription';
@@ -24,6 +37,7 @@ import { useVirtualScroll } from '../hooks/useVirtualScroll';
 import PageSkeleton from '../components/common/PageSkeleton';
 import PageBar from '../components/help/PageBar';
 import type { TutorialStep } from '../components/help/PageHelp';
+import MemberTransactionHistory from '../components/club/MemberTransactionHistory';
 import RoleBadge, { roleColor } from '../components/club/RoleBadge';
 import RosterConnectionStatus from '../components/club/RosterConnectionStatus';
 import PlayerChangeHistory from '../components/club/PlayerChangeHistory';
@@ -54,6 +68,7 @@ import ClubRosterService, {
 import { purgeRosterCache, readRosterCache, writeRosterCache } from '../lib/rosterCache';
 import { RosterSummaryCoordinator, settleRosterReadsIndependently } from '../lib/rosterLoadPolicy';
 import {
+  DEFAULT_ROSTER_SORT,
   ROSTER_ROW_HEIGHT,
   defaultRosterWorkspace,
   loadRosterWorkspace,
@@ -146,6 +161,13 @@ const PERIOD_FEE_LABEL: Record<WinLossPeriod, string> = {
   month: 'Fees This Month',
   overall: 'Fees Overall',
 };
+/** The second net on every row, printed beside the chosen window's figure. */
+const WIN_LOSS_SECONDARY: Record<WinLossPeriod, string> = {
+  overall: 'Overall',
+  month: 'Month',
+  week: 'Week',
+  today: 'Today',
+};
 const WIN_LOSS_SHORT: Record<WinLossPeriod, string> = {
   overall: 'Win / Loss',
   month: 'Month W/L',
@@ -153,11 +175,14 @@ const WIN_LOSS_SHORT: Record<WinLossPeriod, string> = {
   today: 'Today W/L',
 };
 
+/* Active Now is the default roster order (Dan, 2026-11-12): players at a
+   live table first, then players online watching, then everyone else by last
+   active. The order is served by ca_club_members_page's activity sort. */
 const SORT_LABEL: Record<RosterSort, string> = {
+  activity: 'Active Now',
   newest: 'Newest Players First',
   oldest: 'Oldest Players First',
   hierarchy: 'Role Hierarchy',
-  activity: 'Recent Activity',
   name: 'Name (A To Z)',
   downlines: 'Downlines',
   wallet: 'Wallet Balance',
@@ -210,24 +235,33 @@ function readFilter(value: string | null): RosterFilter {
 function readSort(value: string | null): RosterSort {
   return value && Object.prototype.hasOwnProperty.call(SORT_LABEL, value)
     ? (value as RosterSort)
-    : 'newest';
+    : DEFAULT_ROSTER_SORT;
 }
 
 /* One formatter per kind of figure, shared with the record and Player
    Statistics (utils/format): fees feeFigure, wallets formatWalletChips, signed
    results winLossChips, counts countFigure. Null is a figure this viewer may
    not see. */
-function walletFigure(value: number | null): string {
+function walletFigure(value: number | string | null): string {
   return value == null ? 'Restricted' : formatWalletChips(value);
+}
+
+function winLossToneOf(figure: WinLossFigure | undefined): string {
+  return !figure || figure.net === null || figure.net === 0
+    ? ''
+    : figure.net > 0
+      ? ' member-winloss--up'
+      : ' member-winloss--down';
 }
 
 /** Win / loss for one row: the figure, "Unavailable" after a failed read, or "...". */
 function winLossText(winLoss: WinLossFigure | undefined, unavailable: boolean): string {
-  if (winLoss) return winLoss.net === null ? 'Unavailable' : winLossChips(winLoss.net);
+  if (winLoss)
+    return winLoss.net === null ? 'Unavailable' : winLossChips(winLoss.net_text ?? winLoss.net);
   return unavailable ? 'Unavailable' : '...';
 }
 
-function periodFeeText(value: number | undefined, unavailable: boolean): string {
+function periodFeeText(value: number | string | undefined, unavailable: boolean): string {
   return value === undefined ? (unavailable ? 'Unavailable' : '...') : feeFigure(value);
 }
 
@@ -237,10 +271,10 @@ function feeTitle(
   label: string
 ): string | undefined {
   if (figures?.fees === undefined) return undefined;
-  const exact = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const fees = feeFigure(figures.fees_text ?? figures.fees);
   return figures.downline_fees !== undefined && (member.downline_total ?? 0) > 0
-    ? `${label} ${exact(figures.fees)}. Downline Fees ${exact(figures.downline_fees)}.`
-    : `${label} ${exact(figures.fees)}.`;
+    ? `${label} ${fees}. Downline Fees ${feeFigure(figures.downline_fees_text ?? figures.downline_fees)}.`
+    : `${label} ${fees}.`;
 }
 
 function abortLike(error: unknown): boolean {
@@ -284,6 +318,20 @@ export default function ClubMembersPage() {
   const selectionQuery = JSON.stringify([routeClub, user?.id, searchQuery, filter, sortKey]);
   const selectionQueryRef = useRef(selectionQuery);
   const loadedMemberIds = useMemo(() => members.map((row) => row.user_id), [members]);
+  /* ACTIVE NOW MOVES AS IT HAPPENS (Dan, 2026-11-12). The seat answer and the
+     presence door are watched once a minute (never a roster re-read, which
+     keeps the 180-second floor above); under Active Now the loaded rows are
+     re-ranked from them in place. */
+  const liveSeats = useClubLiveSeats(resolvedClubId, members.length > 0);
+  const presence = useLoadedPresence(loadedMemberIds);
+  const orderedMembers = useMemo(
+    () =>
+      sortKey === DEFAULT_ROSTER_SORT && !searchQuery.trim()
+        ? orderByActivity(members, liveSeats, presence)
+        : members,
+    [members, liveSeats, presence, sortKey, searchQuery]
+  );
+  const liveStates = useLiveStates(members, liveSeats, presence);
   const selectionQueryCurrent = selectionQueryRef.current === selectionQuery;
   const selected = useMemo(
     () =>
@@ -312,6 +360,7 @@ export default function ClubMembersPage() {
     'connecting'
   );
   const [realtimeRetries, setRealtimeRetries] = useState({ members: 0, wallet: 0, audit: 0 });
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [recordRevision, setRecordRevision] = useState(0);
   const [recordRetry, setRecordRetry] = useState(0);
   const recordDegradedRef = useRef(false);
@@ -419,7 +468,7 @@ export default function ClubMembersPage() {
     next.delete('q');
     if (filter === 'all') next.delete('view');
     else next.set('view', filter);
-    if (sortKey === 'newest') next.delete('sort');
+    if (sortKey === DEFAULT_ROSTER_SORT) next.delete('sort');
     else next.set('sort', sortKey);
     return next.toString();
   }, [filter, searchParams, sortKey]);
@@ -487,6 +536,7 @@ export default function ClubMembersPage() {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = null;
     requestEpochRef.current += 1;
+    setHistoryOpen(false);
     setResolvedClubId(null);
     membersRef.current = [];
     setMembers([]);
@@ -546,7 +596,7 @@ export default function ClubMembersPage() {
           }
           if (
             workspace.filter === 'all' &&
-            (workspace.sort === 'newest' || workspace.sort === 'hierarchy') &&
+            (workspace.sort === DEFAULT_ROSTER_SORT || workspace.sort === 'hierarchy') &&
             !workspace.search
           ) {
             const cached = readRosterCache(user.id, id);
@@ -616,6 +666,7 @@ export default function ClubMembersPage() {
       forceNextSummaryRef.current = false;
       const epoch = ++requestEpochRef.current;
       lastRosterReadStartedAtRef.current = Date.now();
+      recheckClubLiveSeats(resolvedClubId);
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -790,7 +841,7 @@ export default function ClubMembersPage() {
         user?.id &&
         !debouncedSearch &&
         filter === 'all' &&
-        (sortKey === 'newest' || sortKey === 'hierarchy')
+        (sortKey === DEFAULT_ROSTER_SORT || sortKey === 'hierarchy')
       ) {
         writeRosterCache(user.id, resolvedClubId, membersRef.current, summaryResult.value);
       }
@@ -1209,7 +1260,7 @@ export default function ClubMembersPage() {
     scheduleStructuralRefresh,
   ]);
 
-  const virtual = useVirtualScroll(members, {
+  const virtual = useVirtualScroll(orderedMembers, {
     itemHeight: ROW_HEIGHT,
     viewportHeight: 696,
     buffer: 5,
@@ -1328,6 +1379,19 @@ export default function ClubMembersPage() {
     recordRevision,
     user?.id
   );
+  /* Dan, 2026-11-12: "I don't want to just see weekly, I want to see today's
+     +/- total." Every row carries a second net beside the chosen window:
+     Today, or This Week when Today is the chosen window. Same hook, same RPC,
+     its own cache. */
+  const secondaryPeriod: WinLossPeriod = winLossPeriod === 'today' ? 'week' : 'today';
+  const secondaryWinLoss = useRosterWinLoss(
+    resolvedClubId,
+    members,
+    secondaryPeriod,
+    showWinLoss,
+    recordRevision,
+    user?.id
+  );
   const isAgent = AGENT_ROLES.includes(summary.viewer_role);
   const filters = useMemo(
     () =>
@@ -1341,8 +1405,7 @@ export default function ClubMembersPage() {
   const sorts = useMemo(
     () =>
       (Object.keys(SORT_LABEL) as RosterSort[]).filter(
-        (value) =>
-          canUseFinancialViews || !['activity', 'downlines', 'wallet', 'fees'].includes(value)
+        (value) => canUseFinancialViews || !['downlines', 'wallet', 'fees'].includes(value)
       ),
     [canUseFinancialViews]
   );
@@ -1356,7 +1419,7 @@ export default function ClubMembersPage() {
   useEffect(() => {
     if (summaryFreshness !== 'fresh') return;
     if (!filters.includes(filter)) setFilter('all');
-    if (!sorts.includes(sortKey)) setSortKey('newest');
+    if (!sorts.includes(sortKey)) setSortKey(DEFAULT_ROSTER_SORT);
   }, [filter, filters, summaryFreshness, sortKey, sorts]);
 
   useEffect(() => {
@@ -1393,6 +1456,25 @@ export default function ClubMembersPage() {
       return next;
     });
   }, []);
+
+  const watchBusyRef = useRef(false);
+  const watchTable = useCallback(
+    async (table: LiveSeat, member: { userId: string; name: string }) => {
+      if (watchBusyRef.current) return;
+      watchBusyRef.current = true;
+      try {
+        const outcome = await watchMemberTable(navigate, table, member);
+        if (outcome.status === 'left') {
+          toast.error(WATCH_LEFT_MESSAGE);
+          if (resolvedClubId) recheckClubLiveSeats(resolvedClubId);
+        } else if (outcome.status === 'refused') toast.error(outcome.message);
+        else if (outcome.status === 'error') toast.error(WATCH_ERROR_MESSAGE);
+      } finally {
+        watchBusyRef.current = false;
+      }
+    },
+    [navigate, resolvedClubId, toast]
+  );
 
   const openMember = useCallback(
     (userId: string) => {
@@ -1610,6 +1692,31 @@ export default function ClubMembersPage() {
           </button>
         </div>
       </PageBar>
+      {workspaceReady &&
+        !accessDenied &&
+        auditEnabled &&
+        canUseFinancialViews &&
+        resolvedClubId && (
+          <div>
+            <button
+              type="button"
+              className="members-export"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen(!historyOpen)}
+            >
+              Club Transaction History
+            </button>
+            {historyOpen && (
+              <MemberTransactionHistory
+                key={exportScopeKey}
+                clubId={resolvedClubId}
+                memberId={null}
+                scope="club"
+                revision={recordRevision}
+              />
+            )}
+          </div>
+        )}
 
       <section
         className="members-console"
@@ -1855,7 +1962,7 @@ export default function ClubMembersPage() {
         >
           {hasVerifiedDirectory && workspaceScope === exportScopeKey
             ? loadedQuery && sameRosterQuery(loadedQuery, currentWorkspace) && !searchIsSettling
-              ? `${members.length.toLocaleString()} Loaded Of ${filteredTotal.toLocaleString()} Matching Players.`
+              ? `${members.length.toLocaleString()} Loaded Of ${filteredTotal.toLocaleString()} Matching Players`
               : `Showing ${members.length.toLocaleString()} Previously Verified Players. Current Filter And Search Not Yet Verified.`
             : 'Directory Not Yet Verified.'}{' '}
           {!simpleMode && summary.capabilities.can_export
@@ -1919,6 +2026,9 @@ export default function ClubMembersPage() {
         </div>
       )}
 
+      {liveSeats.seats.length > 0 && !notFound && !accessDenied && (
+        <LiveNowStrip seats={liveSeats.seats} onWatch={watchTable} />
+      )}
       <div
         className="members-list"
         role="list"
@@ -1974,6 +2084,11 @@ export default function ClubMembersPage() {
                 winLossUnavailable={winLoss.unavailable.has(member.user_id)}
                 winLossLabel={WIN_LOSS_SHORT[winLossPeriod]}
                 feeLabel={PERIOD_FEE_LABEL[winLossPeriod]}
+                secondaryWinLoss={secondaryWinLoss.get(member.user_id)}
+                secondaryWinLossUnavailable={secondaryWinLoss.unavailable.has(member.user_id)}
+                secondaryWinLossLabel={WIN_LOSS_SECONDARY[secondaryPeriod]}
+                live={liveStates.get(member.user_id)}
+                onWatch={watchTable}
               />
             ))}
             <div aria-hidden="true" style={{ height: virtual.paddingBottom }} />
@@ -2021,6 +2136,11 @@ export const MemberRow = memo(function MemberRow({
   winLossUnavailable = false,
   winLossLabel = 'Win / Loss',
   feeLabel = 'Fees This Week',
+  secondaryWinLoss,
+  secondaryWinLossUnavailable = false,
+  secondaryWinLossLabel = 'Today',
+  live = { seated: member.is_seated, online: member.is_online, tables: [] },
+  onWatch = () => {},
 }: {
   simpleMode?: boolean;
   /** The net for the chosen window; undefined while it loads. */
@@ -2029,6 +2149,10 @@ export const MemberRow = memo(function MemberRow({
   winLossUnavailable?: boolean;
   winLossLabel?: string;
   feeLabel?: string;
+  /** The second window's net (Today, or This Week when Today is chosen). */
+  secondaryWinLoss?: WinLossFigure;
+  secondaryWinLossUnavailable?: boolean;
+  secondaryWinLossLabel?: string;
   member: RosterMember;
   position: number;
   total: number;
@@ -2038,29 +2162,30 @@ export const MemberRow = memo(function MemberRow({
   selected: boolean;
   onSelect: (id: string) => void;
   columns: Set<OptionalColumn>;
+  live?: LiveState;
+  onWatch?: (table: LiveSeat, member: { userId: string; name: string }) => void;
 }) {
-  const winLossTone =
-    !winLoss || winLoss.net === null || winLoss.net === 0
-      ? ''
-      : winLoss.net > 0
-        ? ' member-winloss--up'
-        : ' member-winloss--down';
+  const winLossTone = winLossToneOf(winLoss);
+  const secondaryTone = winLossToneOf(secondaryWinLoss);
+  const secondaryText = winLossText(secondaryWinLoss, secondaryWinLossUnavailable);
   const initial = (member.alias || '?')[0]?.toUpperCase() ?? '?';
   /* The roster's is_online is "seated OR fresh presence"; off a seat it is the
      presence door's answer, re-asked every minute while the row is shown so
-     it goes dark when the heartbeat does (presence-has-one-definition law). */
-  const online = useOnlineNow(member.user_id, member.is_online);
-  const status = member.is_seated ? 'At A Table' : online ? 'Online' : 'Offline';
+     it goes dark when the heartbeat does (presence-has-one-definition law).
+     The seat answer is read on the same clock (src/lib/clubLiveSeats.ts). */
+  const seated = live.seated;
+  const online = live.online;
+  const table = live.tables[0];
+  const status = seated ? 'At A Table' : online ? 'Online' : 'Offline';
   /* Inside the last day the last-seen label counts minutes and hours, so the
      row re-reads it on the shared minute clock (Dan, 2026-10-31). */
-  const showsLastSeen =
-    !member.is_seated && !online && columns.has('activity') && !!member.last_login;
+  const showsLastSeen = !seated && !online && columns.has('activity') && !!member.last_login;
   const seenNow = useSharedMinuteTick(
     showsLastSeen && lastSeenIsWithinADay(member.last_login ?? '')
   );
   return (
     <div
-      className={`member-row${member.is_seated ? ' member-row--seated' : online ? ' member-row--online' : ''}`}
+      className={`member-row${seated ? ' member-row--seated' : online ? ' member-row--online' : ''}`}
       role="listitem"
       aria-posinset={position}
       aria-setsize={total}
@@ -2070,12 +2195,13 @@ export const MemberRow = memo(function MemberRow({
           <input type="checkbox" checked={selected} onChange={() => onSelect(member.user_id)} />
         </label>
       )}
-      <button
-        type="button"
-        className="member-row__open"
-        onClick={() => onOpen(member.user_id)}
-        aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
-      >
+      <div className="member-row__open">
+        <button
+          type="button"
+          className="member-row__record"
+          onClick={() => onOpen(member.user_id)}
+          aria-label={`Open ${member.alias}, ${roleLabel(member.role)}, ${status}`}
+        />
         <span className="member-avatar">
           {member.avatar_url ? (
             <img
@@ -2128,8 +2254,25 @@ export const MemberRow = memo(function MemberRow({
             {member.home_club_name && (
               <span className="member-club">{highlight(member.home_club_name, query)}</span>
             )}
-            {member.is_seated ? (
-              <span className="member-seated">At Table</span>
+            {seated ? (
+              table ? (
+                /* Separate native controls preserve both keyboard actions.
+                   The record hit area is a sibling, never an ancestor. */
+                <button
+                  type="button"
+                  className="member-seated member-seated--table"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onWatch(table, { userId: member.user_id, name: member.alias });
+                  }}
+                  aria-label={`Watch At Table, ${titleCase(table.name)}`}
+                  title="Watch At Table"
+                >
+                  {withStakes(titleCase(table.name), titleCase(table.stakes))}
+                </button>
+              ) : (
+                <span className="member-seated">At A Table</span>
+              )
             ) : online ? (
               <span className="member-online">Online</span>
             ) : columns.has('activity') && member.last_login ? (
@@ -2138,12 +2281,30 @@ export const MemberRow = memo(function MemberRow({
           </span>
           {simpleMode && member.can_view_financials && (
             <span className="member-simple-balance" title={feeTitle(member, winLoss, feeLabel)}>
-              <strong>{periodFeeText(winLoss?.fees, winLossUnavailable)}</strong>
+              <strong>
+                {periodFeeText(winLoss?.fees_text ?? winLoss?.fees, winLossUnavailable)}
+              </strong>
               <span>{feeLabel}</span>
-              <span>Rakeback {rakebackFigure(member.effective_rakeback_rate)}</span>
+              <span
+                className="member-simple-balance__wallet"
+                title="Balance"
+                aria-label={`Balance ${walletFigure(member.player_wallet)}`}
+              >
+                Wallet Balance {walletFigure(member.player_wallet)}
+              </span>
+              <span
+                className={`member-simple-balance__secondary${secondaryTone}`}
+                aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
+              >
+                {secondaryWinLossLabel} {secondaryText}
+              </span>
               {(member.downline_total ?? 0) > 0 && winLoss?.downline_fees !== undefined && (
                 <span className="member-simple-balance__downline">
-                  Downline {periodFeeText(winLoss?.downline_fees, winLossUnavailable)}
+                  Downline{' '}
+                  {periodFeeText(
+                    winLoss?.downline_fees_text ?? winLoss?.downline_fees,
+                    winLossUnavailable
+                  )}
                 </span>
               )}
               <strong
@@ -2164,7 +2325,13 @@ export const MemberRow = memo(function MemberRow({
                   {winLossText(winLoss, winLossUnavailable)}
                 </span>
               </span>
-              <Metric label="Rakeback" value={rakebackFigure(member.effective_rakeback_rate)} />
+              <span
+                className={`member-metric member-metric--winloss${secondaryTone}`}
+                aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
+              >
+                <span className="member-metric__value">{secondaryText}</span>
+                <span className="member-metric__label">{secondaryWinLossLabel} W/L</span>
+              </span>
               {columns.has('downlines') && (
                 <Metric label="Downlines" value={countFigure(member.downline_total)} />
               )}
@@ -2172,20 +2339,29 @@ export const MemberRow = memo(function MemberRow({
                 <>
                   <Metric
                     label={feeLabel}
-                    value={periodFeeText(winLoss?.fees, winLossUnavailable)}
+                    value={periodFeeText(winLoss?.fees_text ?? winLoss?.fees, winLossUnavailable)}
                     accent
                   />
                   <Metric
                     label="Downline Fees"
-                    value={periodFeeText(winLoss?.downline_fees, winLossUnavailable)}
+                    value={periodFeeText(
+                      winLoss?.downline_fees_text ?? winLoss?.downline_fees,
+                      winLossUnavailable
+                    )}
                     accent
                   />
                 </>
               )}
               {columns.has('wallets') && (
                 <>
-                  <Metric label="Agent Wallet" value={walletFigure(member.agent_wallet)} />
-                  <Metric label="Player Wallet" value={walletFigure(member.player_wallet)} />
+                  <Metric
+                    label="Agent Wallet"
+                    value={walletFigure(member.agent_wallet_text ?? member.agent_wallet)}
+                  />
+                  <Metric
+                    label="Balance"
+                    value={walletFigure(member.player_wallet_text ?? member.player_wallet)}
+                  />
                 </>
               )}
             </span>
@@ -2194,7 +2370,7 @@ export const MemberRow = memo(function MemberRow({
         <span className="member-chevron" aria-hidden="true">
           &rsaquo;
         </span>
-      </button>
+      </div>
     </div>
   );
 });

@@ -13,7 +13,7 @@ import {
 const CLUB_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const PLAYER_ID = '33333333-3333-4333-8333-333333333333';
-const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 const recoveryHydrations = vi.hoisted(() => new Set<Promise<unknown>>());
 
 // These cases own cashier reads, recovery and their realtime callbacks. The
@@ -123,6 +123,7 @@ vi.mock('../src/hooks/useAuthUser', () => ({
 
 vi.mock('../src/components/common/Toast', () => ({
   useToast: () => toastMocks,
+  useOptionalToast: () => toastMocks,
 }));
 
 function deferred<T>() {
@@ -622,7 +623,7 @@ describe('CashierTradePage club load ordering', () => {
     // a hidden tab strip and must still expose the named history panel.
     fireEvent.click(screen.getByRole('button', { name: 'Transaction History', exact: true }));
     expect(await screen.findByRole('tabpanel', { name: 'Transaction History' })).toBeVisible();
-    expect(await screen.findByText('Transfer Alice Agent To Bob Player')).toBeInTheDocument();
+    expect(await screen.findByText('Alice Agent Sent To Bob Player')).toBeInTheDocument();
     // The club book's totals are the whole club's, read from the server:
     // one entry, 50 chips moved (the row prints its own 50 too), none paid out.
     expect(await screen.findByText('Chips Moved')).toBeInTheDocument();
@@ -751,7 +752,7 @@ describe('CashierTradePage club load ordering', () => {
       });
     });
     const panel = await openHistory();
-    await within(panel).findByText('Transfer Alice Agent To Bob Player');
+    await within(panel).findByText('Alice Agent Sent To Bob Player');
     fireEvent.click(within(panel).getByRole('button', { name: 'My Transactions' }));
     expect(
       within(panel).queryByRole('button', { name: /^Open Receipt For/ })
@@ -774,6 +775,28 @@ describe('CashierTradePage club load ordering', () => {
     const panel = await openHistory();
     await within(panel).findByText('Totals Could Not Be Read.', { exact: false });
     expect(within(panel).getByLabelText('Club Totals For These Filters')).toHaveTextContent('--');
+  });
+
+  it('prints a club total past 15 significant digits exactly, never through a JavaScript number', async () => {
+    // numeric(20,2) and unconstrained sums: the RPC returns exact text.
+    installHistoryTables();
+    installRpc((name) =>
+      Promise.resolve({
+        data:
+          name === 'fn_cashier_history_summary'
+            ? {
+                ...clubHistoryTotals,
+                volume: '123456789012345678.91',
+                cashouts_paid: '0.000000001',
+              }
+            : [],
+        error: null,
+      })
+    );
+    const panel = await openHistory();
+    const totals = within(panel).getByLabelText('Club Totals For These Filters');
+    await waitFor(() => expect(totals).toHaveTextContent('123,456,789,012,345,678.91'));
+    expect(totals).toHaveTextContent('0.000000001');
   });
 
   it('stops a late incomplete total from scheduling reads after history closes', async () => {

@@ -33,7 +33,9 @@
  * only (PLO4 day B +6.2, n 26) and the turn dominated flush is cash only
  * (tournament day B +14.9, n 16). NOT admitted: turn straights on a flush
  * board (day A straddles), turn non-nut straights and two pair, turn paired-
- * board flushes, the 0.5-0.9 pot band, sets and trips, full houses (the
+ * board flushes, the 0.5-0.9 pot band, sets and trips (2026-11-14: the river
+ * half of sets and trips on a straight- or flush-possible board was admitted
+ * separately, see V81_RIVER_SET_CELL below), full houses (the
  * evaluator cannot tell a nut boat from an underboat here), nut straights and
  * unpaired nut flushes (both win), one pair (wins). Per-slice outputs:
  * docs/horse-measure/2026-11-02/v81-omaha-call-cells.txt.
@@ -56,10 +58,20 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaBoatPosition, omahaNutStatus, scoreOmahaHi } from './HorseEval.js';
+import { omahaStrategyGameInScope, omahaStrategyHoleCount } from './HorseOmahaStrategyGame.js';
 
 export const V81_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 export const V81_MIN_POT_FRAC = 0.9;
 export const V81_MIN_EFFECTIVE_BB = 20;
+/** V81 folds only a call priced at this share of the final pot or more
+ * (2026-11-12, HVH2D-PLO-005). The cells were measured on calls of a wager of
+ * 0.9 pot or more by a stack that could pay it, a price of about a third. A
+ * stack far shorter than the wager pays much less: hand 58724590, PLO5 river,
+ * a ten-high straight with 46bb behind a 335bb pot-sized bet was folded at a
+ * price of 0.065 with one two-card holding ahead of it. The evidence says
+ * nothing about a call that cheap, so the reference call stands there. The
+ * price and the floor are the ones V84 documents for the same reason. */
+export const V81_MIN_CALL_PRICE = 0.13;
 
 const RV: Record<string, number> = {
   '2': 2,
@@ -200,7 +212,31 @@ export interface V81Input {
   heroHasStreetChips: boolean;
   /** The bettor is MEASURED as a postflop over-bluffer (isPostflopManiac). */
   bettorOverBluffs: boolean;
+  /** What the horse can actually pay, as a share of the pot after paying it:
+   *  min(toCall, stack) / (pot + min(toCall, stack)). */
+  callPrice: number;
+  /** The river set / trips cell (V81_RIVER_SET_CELL) is admitted. */
+  riverSetCell?: boolean;
 }
+
+/**
+ * The river cell added on 2026-11-14 (Dan, hand 59401453: three aces facing a
+ * full-pot river lead on a board with three possible straights "should lean
+ * toward folding"). It is the class omahaCallClass already names: a set or
+ * trips on a river board where a straight or a flush is possible. The V81
+ * measurement recorded it and did not admit it, because the family was judged
+ * over both streets and its turn calls straddle zero. Its river rows, facing
+ * 0.9 pot or more (docs/horse-measure/2026-11-02/v81-omaha-call-cells.txt,
+ * rows `trips_set_drawy|pf>=0.9|river`): day A -42.85 [-50.10, -35.60] n 96,
+ * day B -41.05 [-46.77, -35.32] n 75. The river-only variant and format
+ * slices were not tabulated, so the second half of the V81 admission rule
+ * (no slice with n >= 10 positive on either day) is not shown for this cell;
+ * it is admitted on the owner's ruling and the two river rows. Turn calls
+ * with the class are not folded (+6.85 [-3.79, 17.48] n 177 on day A), and
+ * neither is a river call that is itself all in (the caller passes
+ * riverSetCell false there: V88 owns the committed call).
+ */
+export const V81_RIVER_SET_CELL = 'trips_set_drawy';
 
 /** The measured cell this call falls in, or null when V81 does not apply. */
 export function v81Cell(i: V81Input): string | null {
@@ -209,11 +245,14 @@ export function v81Cell(i: V81Input): string | null {
   if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
   if (i.heroHasStreetChips || i.bettorOverBluffs) return null;
   if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
-  if (!Array.isArray(i.hole) || i.hole.length !== (variant === 'plo4' ? 4 : 5)) return null;
+  if (!(i.callPrice >= V81_MIN_CALL_PRICE)) return null;
+  if (!Array.isArray(i.hole) || i.hole.length !== omahaStrategyHoleCount({ gameVariant: variant }))
+    return null;
   if (i.street === 'river' && i.board.length === 5) {
     const cls = omahaCallClass(i.hole, i.board);
     if (RIVER_CELLS.has(cls)) return cls;
     if (cls === 'flush_second' && variant === 'plo5') return cls;
+    if (cls === V81_RIVER_SET_CELL && i.riverSetCell === true) return cls;
     return null;
   }
   if (i.street === 'turn' && i.board.length === 4) {
@@ -223,6 +262,105 @@ export function v81Cell(i: V81Input): string | null {
     return null;
   }
   return null;
+}
+
+/**
+ * BLUFF-CATCHER CELLS (Dan 2026-11-14, with hands 59414191 and 59416584: "Horses
+ * are calling every one of his value raises with bluff catchers"). PLO4 / PLO5.
+ *
+ * V81 above folds a big-bet CALL only when the horse has no chips in on the
+ * street, and V84 folds one class after the horse's own river wager. Neither
+ * covers the horse that bet or called on the street and is then RAISED, and
+ * on the turn V81 folds three narrow classes only. These cells extend the
+ * same discipline, under every V81 condition (a wager of 0.9 pot or more,
+ * more than 20bb effective, not a heads-up table, not a bounty event, not a
+ * bomb pot, not an all-in-or-fold table, a call price of 0.13 or more, the
+ * bettor not MEASURED as a postflop over-bluffer) and only when the call leaves chips behind (a call
+ * that is itself all in stays with the committed-call owner, V88):
+ *
+ *   - facing a RAISE on the river (the horse has chips in on the street):
+ *     two pair, a set or trips on a straight- or flush-possible board, a
+ *     straight that is not the nut straight or sits on a flush or paired
+ *     board, a flush that is not the nut flush, the nut flush on a paired
+ *     board;
+ *   - facing a RAISE on the turn, or a turn bet of 0.9 pot or more from a
+ *     player who also bet or raised the flop: two pair, a set or trips on a
+ *     straight- or flush-possible board, a non-nut straight or one on a flush
+ *     or paired board, a non-nut flush. NOT folded when the redraw pays the
+ *     price: the share of unseen river cards that make a full house or the
+ *     nut flush or nut straight is at least the call price.
+ *
+ * These cells rest on the owner's ruling. The V81 measurement did not admit
+ * them: it never observed a call with the horse's own chips in on the street
+ * (that was its exclusion), and its turn rows for sets and two pair straddle
+ * zero over every bettor (it did not split by the bettor's flop action).
+ */
+export const BLUFF_CATCHER_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+const BLUFF_CATCHER_TURN = new Set([
+  'two_pair',
+  'trips_set_drawy',
+  'straight_nonnut',
+  'straight_flushboard',
+  'straight_flushboard_paired',
+  'straight_paired',
+  'flush_second',
+  'flush_second_paired',
+  'flush_dominated',
+  'flush_dominated_paired',
+]);
+const BLUFF_CATCHER_RIVER = new Set([...BLUFF_CATCHER_TURN, 'flush_nut_paired']);
+
+export interface BluffCatcherInput extends V81Input {
+  /** The call leaves chips behind (it is not itself all in). */
+  chipsBehindCall: boolean;
+  /** The bettor also bet or raised on the previous street. */
+  bettorWageredPreviousStreet: boolean;
+  /** Turn only: share of unseen river cards that make the hand nut class. */
+  redrawShare: number;
+  /** An all-in-or-fold table: outside the cells, like V84. */
+  allInOrFold?: boolean;
+}
+
+/** The bluff-catcher cell this call falls in (`bc_<class>`), or null. */
+export function omahaBluffCatcherCell(i: BluffCatcherInput): string | null {
+  const variant = String(i.variant).toLowerCase();
+  if (!omahaStrategyGameInScope(BLUFF_CATCHER_VARIANTS, { gameVariant: variant })) return null;
+  if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
+  if (i.allInOrFold === true) return null;
+  if (i.bettorOverBluffs || !i.chipsBehindCall) return null;
+  if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
+  if (!(i.callPrice >= V81_MIN_CALL_PRICE)) return null;
+  if (!Array.isArray(i.hole) || i.hole.length !== omahaStrategyHoleCount({ gameVariant: variant }))
+    return null;
+  if (i.street === 'river' && i.board.length === 5) {
+    if (!i.heroHasStreetChips) return null;
+    const cls = omahaCallClass(i.hole, i.board);
+    return BLUFF_CATCHER_RIVER.has(cls) ? `bc_${cls}` : null;
+  }
+  if (i.street === 'turn' && i.board.length === 4) {
+    if (!i.heroHasStreetChips && !i.bettorWageredPreviousStreet) return null;
+    const cls = omahaCallClass(i.hole, i.board);
+    if (!BLUFF_CATCHER_TURN.has(cls)) return null;
+    if (i.redrawShare >= i.callPrice) return null;
+    return `bc_${cls}`;
+  }
+  return null;
+}
+
+/** True when `seat` bet, raised or went all in on the street before `street`. */
+export function bettorWageredPreviousStreet(
+  history: readonly V81Action[] | undefined,
+  street: string,
+  seat: number
+): boolean {
+  const previous = street === 'river' ? 'turn' : street === 'turn' ? 'flop' : null;
+  if (previous === null || !Array.isArray(history)) return false;
+  return history.some(
+    (a) =>
+      String(a.stage) === previous &&
+      a.seat === seat &&
+      (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+  );
 }
 
 /**
@@ -419,7 +557,8 @@ function facesLargeClosingCheckRaise(
 export function callLargeRiverBoatWager(
   decision: HorseDecision,
   player: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  v86MultiStreetUnblocked = true
 ): HorseDecision {
   if (
     gs.stage !== 'river' ||
@@ -485,10 +624,142 @@ export function callLargeRiverBoatWager(
   if (
     !position ||
     position.lowerBoats === 0 ||
+    (v86MultiStreetUnblocked &&
+      decision.action !== 'fold' &&
+      position.boats === 0 &&
+      position.quads <= 1) ||
     (position.boats === 0 && position.quads === 0 && hasRiverNuts(player, gs))
   )
     return decision;
   return allInCall
     ? { ...decision, action: 'all_in', amount: undefined }
     : { ...decision, action: 'call', amount: paid };
+}
+
+const V86_MEDIUM_MULTIWAY_RIVER_CELLS = new Set([
+  'two_pair',
+  'flush_dominated',
+  'flush_dominated_paired',
+  'straight_flushboard_paired',
+]);
+
+/**
+ * V86 OMAHA UNDERBOAT & PLO6 / MEDIUM-BIG DOMINATED RIVER CALL DISCIPLINE.
+ * Preserves V81, V84, and callLargeRiverBoatWager contracts unchanged while
+ * closing three remaining single-board PLO4/PLO5/PLO6 river leaks:
+ *   1. Underboats (`lowerBoats === 0 && boats >= 2`, i.e., bottom full house
+ *      beaten by two or more distinct higher full-house combinations) calling
+ *      large river bets (>= 0.75 pot) or river raises (>= 0.65 pot).
+ *   2. PLO6 non-nut straights, two pair, and dominated/second-nut flushes
+ *      calling >= 0.90 pot wagers (extending V81's PLO4/PLO5 boundary to PLO6).
+ *   3. Multiway (3+ live players) 0.65-0.89 pot river bets called with bare two
+ *      pair or 3rd-nut-or-worse flushes at 35bb+ effective stacks.
+ * Never folds against a verified postflop over-bluffer (`bettorOverBluffs`).
+ */
+export function v86OmahaUnderboatOrDominatedFold(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  v86Enabled: boolean,
+  bettorOverBluffs: boolean
+): { decision: HorseDecision; reason: string | null } {
+  const toCall = Number.isFinite(gs.toCall)
+    ? (gs.toCall as number)
+    : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+  const stack = Number.isFinite(player.stack) ? player.stack : 0;
+  const isCall =
+    decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
+  const isRaise =
+    decision.action === 'raise' || (decision.action === 'all_in' && stack > toCall + 0.005);
+  if (
+    !v86Enabled ||
+    bettorOverBluffs ||
+    (!isCall && !isRaise) ||
+    gs.stage !== 'river' ||
+    !['plo4', 'plo5', 'plo6'].includes(gs.gameVariant ?? '') ||
+    Boolean(gs.variantRules?.splitLow8OrBetter) ||
+    (gs.bettingStructure !== undefined && gs.bettingStructure !== 'pot_limit') ||
+    (gs.boardCount ?? 1) !== 1 ||
+    Boolean(gs.communityCards2?.length) ||
+    Boolean(gs.communityCards3?.length) ||
+    Boolean(gs.bombPot) ||
+    Boolean(gs.allInOrFold) ||
+    !(toCall > 0) ||
+    !(stack > 0.005) ||
+    Boolean(gs.legalActions && !gs.legalActions.includes('fold'))
+  ) {
+    return { decision, reason: null };
+  }
+  const board = gs.communityCards ?? [];
+  const expectedCards = Number(gs.gameVariant?.slice(3));
+  if (board.length !== 5 || !Array.isArray(player.cards) || player.cards.length !== expectedCards) {
+    return { decision, reason: null };
+  }
+  const bets = new Map(gs.players.map((p) => [p.seat, p.bet]));
+  const faced = v81StreetWager(gs.actionHistory, 'river', bets, gs.pot);
+  if (!faced || !(faced.potBefore > 0)) return { decision, reason: null };
+  const potFrac = faced.wager / faced.potBefore;
+  const bb = Math.max(0.01, gs.bigBlind || 1);
+  const bettor = gs.players.find((p) => p.seat === faced.bettorSeat);
+  const heroTotal = stack + (player.bet || 0);
+  const bettorTotal = bettor ? (bettor.stack || 0) + (bettor.bet || 0) : heroTotal;
+  const effectiveBB = Math.min(heroTotal, bettorTotal) / bb;
+  const paid = Math.min(toCall, stack);
+  const callPrice = paid / (gs.pot + paid);
+  if (!(effectiveBB > 25) || !(callPrice >= 0.16)) return { decision, reason: null };
+
+  const makeFold = (reason: string): { decision: HorseDecision; reason: string } => {
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return { decision: folded, reason };
+  };
+
+  // 1. Underboat discipline: bottom full house with >= 2 higher boat combos live
+  //    facing >= 0.65 pot river bets (including 75% pot) or >= 0.58 pot river raises.
+  if (Math.floor(scoreOmahaHi(player.cards, board) / 0x100000) === 7) {
+    const pos = omahaBoatPosition(player.cards, board);
+    const heroWagered = v84HeroWageredStreet(gs.actionHistory, 'river', player.seat);
+    if (
+      pos &&
+      pos.lowerBoats === 0 &&
+      pos.boats >= 2 &&
+      (!isRaise || !heroWagered) &&
+      ((heroWagered && potFrac >= 0.58) || potFrac >= 0.65)
+    ) {
+      return makeFold('v86_plo_underboat_fold');
+    }
+    return { decision, reason: null };
+  }
+
+  if (!isCall) return { decision, reason: null };
+
+  const seatedActive = gs.players.filter((p) => !p.is_sitting_out);
+  const liveInHand = gs.players.filter((p) => !p.is_folded && !p.is_sitting_out);
+  if (seatedActive.length < 3 || (player.bet ?? 0) > 0) return { decision, reason: null };
+
+  const cls = omahaCallClass(player.cards, board);
+  // 2. PLO6 >= 0.90 pot dominated river call parity with V81 PLO5.
+  if (
+    gs.gameVariant === 'plo6' &&
+    potFrac >= V81_MIN_POT_FRAC &&
+    (RIVER_CELLS.has(cls) || cls === 'flush_second')
+  ) {
+    return makeFold('v86_plo6_big_bet_fold');
+  }
+  // 3. Multiway (3+ live contenders) 0.58-0.89 pot dominated river bluff-catchers in cash,
+  //    plus heads-up 0.78-0.89 pot bare two-pair / paired-board dominated flush calls.
+  if (
+    gs.gameMode === 'cash' &&
+    effectiveBB >= 35 &&
+    potFrac < V81_MIN_POT_FRAC &&
+    ((liveInHand.length >= 3 && potFrac >= 0.58 && V86_MEDIUM_MULTIWAY_RIVER_CELLS.has(cls)) ||
+      (liveInHand.length === 2 &&
+        effectiveBB >= 40 &&
+        potFrac >= 0.78 &&
+        (cls === 'two_pair' || cls === 'flush_dominated_paired')))
+  ) {
+    return makeFold('v86_plo_multiway_dominated_fold');
+  }
+
+  return { decision, reason: null };
 }

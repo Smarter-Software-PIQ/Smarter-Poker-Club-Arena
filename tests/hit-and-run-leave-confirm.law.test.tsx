@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import HitRunLeaveConfirm from '../src/components/table/HitRunLeaveConfirm';
-import HeroVpipTracker from '../src/components/table/HeroVpipTracker';
+import HitRunCountPill from '../src/components/table/HitRunCountPill';
 import {
   blindOffLeaveText,
   handsRemainingText,
@@ -128,21 +128,15 @@ describe('the count and its copy', () => {
     expect(mapEngineSnapshot(base, 'hero', 6).heroHandsOwed).toBeUndefined();
   });
 
-  it('the felt counts it down beside the hero', () => {
-    const plane = document.createElement('div');
-    document.body.appendChild(plane);
-    render(
-      <HeroVpipTracker
-        tableId="t"
-        heroSeated
-        isTournament={false}
-        handNumber={0}
-        heroPos={{ x: 50, y: 80 }}
-        handsOwed={8}
-      />,
-      { container: plane }
+  it('counts down on the cash felt below the hand number for every cash format', () => {
+    const page = read('src/pages/TablePage.tsx');
+    expect(page).toMatch(
+      /Hand #\{tableState\.handNumber\}\s*<\/span>\s*<\/span>\s*\)\}\s*<HitRunCountPill/
     );
-    const count = screen.getByTestId('hero-hand-count');
+    expect(page.match(/<HitRunCountPill\b/g)).toHaveLength(1);
+    expect(page.match(/<HeroVpipTracker\b[^]*?\n {10}\/>/)?.[0]).not.toContain('handsOwed');
+    render(<HitRunCountPill hands={8} />);
+    const count = screen.getByTestId('hit-run-count-pill');
     expect(count.textContent).toContain(HIT_RUN_COUNT_LABEL);
     expect(count.textContent).toContain('8');
   });
@@ -163,7 +157,9 @@ describe('every leave door asks first (TablePage source pins)', () => {
     expect(page).toContain(
       'hitRunConfirmedRef.current = true;\n          await handleLeaveTable();'
     );
-    expect(page).toContain('const confirmedHandCount = hitRunConfirmedRef.current;');
+    expect(page).toContain(
+      'const confirmedHandCount = finalChoice?.confirmed ?? hitRunConfirmedRef.current;'
+    );
     // A confirmed Lightning leave keeps being matched: it is blinded off.
     expect(page).toContain('if (!confirmedHandCount && !(await stopLightningForLeave())) {');
   });

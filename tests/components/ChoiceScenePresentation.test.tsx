@@ -648,6 +648,20 @@ const donkeyX = () =>
   ).getObjectByName('walking-leg-0').parent.position.x;
 
 describe('every street gets a beat', () => {
+  it.each([false, true])(
+    'keeps tail motion within the reduced-motion preference (%s)',
+    (reduced) => {
+      motion(reduced);
+      mountScene({ phase: 'open', picked: [0] });
+      tick(16);
+      const tail = (frames.scene as import('three').Scene).getObjectByName('donkey-tail')!;
+      const first = tail.rotation.x;
+      tick(900);
+      if (reduced) expect(tail.rotation.x).toBe(0);
+      else expect(Math.abs(tail.rotation.x - first)).toBeGreaterThan(0.01);
+    }
+  );
+
   it('walks with opposing diagonal legs and folds only the airborne knees', () => {
     motion(false);
     const road = mountScene({ phase: 'open', picked: [0] });

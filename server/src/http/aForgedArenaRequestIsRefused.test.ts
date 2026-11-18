@@ -223,7 +223,13 @@ describe.each([
     const { res, state } = response();
     const uuidTable = tableId;
     await handleLeaveOccupancy(
-      request({ tableId: uuidTable, occupancyId: OCCUPANCY, seatNumber: 3, ...FORGED }),
+      request({
+        tableId: uuidTable,
+        occupancyId: OCCUPANCY,
+        seatNumber: 3,
+        origin: 'physical-table',
+        ...FORGED,
+      }),
       res,
       { gameServer: { getTableEngine: () => ({ leaveTable }) } }
     );

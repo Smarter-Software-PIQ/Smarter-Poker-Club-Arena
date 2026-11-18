@@ -17,7 +17,10 @@ permissions:
 jobs:
   submit:
     name: Submit the arena's public URLs to IndexNow
-    if: github.event.workflow_run.conclusion == 'success'
+    # Matched by name, so bound to the exact publisher file, its own events and
+    # this repository's main. Nothing from the publish's own revision runs here
+    # (the default branch is checked out), so no ancestry proof is needed.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.path == '.github/workflows/publish-club-arena.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'repository_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

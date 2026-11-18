@@ -178,8 +178,10 @@ describe('the shipped wiring - the rule is worthless if the seater does not cons
        narrowed by the sit verdict for a cluster table and candidateHorses
        itself otherwise - still band-filtered, still never validHorses. */
     expect(src).toContain('let sittable = candidateHorses;');
+    // Owner 2026-11-12 (HorseWorkSchedule): no rescue widens the work hours
+    // any more; the selection pool is the band-filtered sittable pool, awake.
     expect(src).toContain(
-      'if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;'
+      'const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
     );
     expect(src).not.toContain('humanNeedsRescue) pool = validHorses');
     expect(src).not.toContain('humanNeedsRescue) pool = candidateHorses');

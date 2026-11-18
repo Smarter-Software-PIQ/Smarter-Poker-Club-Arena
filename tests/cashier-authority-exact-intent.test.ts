@@ -127,7 +127,9 @@ describe('cashier authority and exact intent', () => {
         'fn_promo_wallet_send_core_20261004',
         'fn_promo_wallet_send_core_20261004',
         '20261016024912_cashier_sends_use_the_selected_source_and_destination_wallet.sql',
-        'b6b0c7686b67d33e2b01c132f8775cbc',
+        // 20261112050118's shared recipient cap, then World Hub 20261114174204's
+        // one-agent 24-hour ceiling (PR #2841), both derived below.
+        'be708b91a9ce7080e2826d2f53513cc5',
       ],
       [
         'fn_club_promo_send_core_20261004',
@@ -168,6 +170,50 @@ describe('cashier authority and exact intent', () => {
       const bodyEnd = definition.indexOf(delimiter, bodyStart);
       expect(bodyEnd).toBeGreaterThan(bodyStart);
       let installedBody = definition.slice(bodyStart, bodyEnd);
+      if (name === 'fn_promo_wallet_send_core_20261004') {
+        const cap = readFileSync(
+          'supabase/migrations/20261112050118_agent_promo_sends_are_capped_at_fifty_chips_per_downline_in_.sql',
+          'utf8'
+        );
+        const replacements = [
+          ...cap.matchAll(
+            /d := replace\(d,\s*'((?:''|[^'])*)',\s*(?:'((?:''|[^'])*)'|\$guard\$([\s\S]*?)\$guard\$)\);/g
+          ),
+        ];
+        expect(replacements).toHaveLength(4);
+        for (const replacement of replacements) {
+          const before = replacement[1].replaceAll("''", "'");
+          const after = replacement[3] ?? replacement[2].replaceAll("''", "'");
+          expect(installedBody.split(before)).toHaveLength(2);
+          installedBody = installedBody.replace(before, after);
+        }
+        // The 20261112050118 body is the earlier pin; it is no longer accepted.
+        expect(createHash('md5').update(installedBody).digest('hex')).toBe(
+          '7087a67e16f6d7990c28fbb549464bef'
+        );
+        expect(releaseContract).not.toContain(`'hash', '7087a67e16f6d7990c28fbb549464bef'`);
+        // World Hub 20261114174204 (PR #2841) patched the installed source at the
+        // downline-limit anchor. Its SQL is kept byte for byte in the fixture.
+        const sibling = JSON.parse(
+          readFileSync(
+            resolve(
+              import.meta.dirname,
+              '../scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json'
+            ),
+            'utf8'
+          )
+        ).find((item: { version: string }) => item.version === '20261114174204');
+        expect(sibling).toBeTruthy();
+        expect(createHash('sha256').update(sibling.sql).digest('hex')).toBe(sibling.sha256);
+        const door = sibling.sql.slice(sibling.sql.indexOf('-- Promo wallet door.'));
+        const anchor = sibling.sql.match(/anchor := \$a\$([\s\S]*?)\$a\$;/)![1];
+        const added = door.match(
+          /updated := replace\(original, anchor, \$n\$([\s\S]*?)\$n\$\);/
+        )![1];
+        expect(installedBody.split(anchor)).toHaveLength(2);
+        installedBody = installedBody.replace(anchor, () => added);
+        expect(releaseContract).toContain("version = '20261114174204'");
+      }
       if (name === 'fn_club_bank_claim_core_20261004') {
         expect(createHash('md5').update(installedBody).digest('hex')).toBe(
           '976208c9e650e2a706a41eeea60b641c'

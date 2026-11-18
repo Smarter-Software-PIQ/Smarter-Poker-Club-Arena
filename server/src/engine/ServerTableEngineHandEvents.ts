@@ -33,6 +33,11 @@ import type { HandEvent, SeatedPlayer } from '../types.js';
 import { reportError } from '../services/errorReporter.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import { ServerTableEngineSettlement } from './ServerTableEngineSettlement.js';
+import { noteHorseTelemetryOpportunity } from './BrainTelemetry.js';
+import { prewarmHorseDecisionStreet } from './horseDecision/client.js';
+
+import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
+import { storedHorsePublicNode } from './HorsePublicActionNode.js';
 
 export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettlement {
   /**
@@ -138,6 +143,7 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
   ): Promise<void> {
     switch (event.type) {
       case 'HAND_START':
+        this.resetOwnReservedResolveProgress();
         // Watchdog liveness: a dealt hand is proof the table is alive.
         this.markProgress();
         // FIX 2 (2026-07-24): start a fresh per-hand hole-card cache used for
@@ -545,6 +551,14 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // below; it reads the same fields so the client + server agree.
         this.playerTurnStartTime = Date.now();
         this.playerTurnDuration = effectiveActionSec;
+        if (!tcSeatedPlayer?.is_horse || !decisionContext) this.horseActionableClock = null;
+        else if (this.horseActionableClock?.context !== decisionContext)
+          this.horseActionableClock = {
+            context: decisionContext,
+            seat: event.seat,
+            armed: false,
+            startedAtMs: this.playerTurnStartTime,
+          };
         this.timeBankActivatedThisTurn = false;
 
         // 2026-08-15 ROOT-CAUSE FIX (freeze at preflop, first actor never acts).
@@ -565,6 +579,30 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         // fields were stamped moments ago, so the snapshot that follows still
         // carries the correct turn_deadline_ms — no drift versus the old order.
         this.markProgress();
+        const recoverHorseTurnOnError = (): void => {
+          const horsePlayer = players.find((p) => p.seat_number === event.seat);
+          if (horsePlayer?.is_horse && !this.isOwnClientControlling(horsePlayer.user_id)) {
+            this.setHandTimeout(() => {
+              if (
+                !this.running ||
+                !this.isCurrentEngine() ||
+                !this.lifecycleCanMutate() ||
+                !this.handController ||
+                this.horseActionTimer !== null ||
+                this.horseDecisionAbortController !== null ||
+                this.isOwnClientControlling(horsePlayer.user_id)
+              ) {
+                return;
+              }
+              const st = this.handController.getState();
+              const ep = st.players.find((p) => p.seat === event.seat);
+              if (!ep || st.currentPlayerSeat !== event.seat || st.stage === 'pineapple_discard') {
+                return;
+              }
+              this.scheduleHorseAction(horsePlayer, event.seat, ep, st);
+            }, 250);
+          }
+        };
         try {
           // Dan 2026-08-20: handleTurnChange is async now — a queued
           // pre-action holds a visible beat before it lands. Deliberately NOT
@@ -577,10 +615,12 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           void this.handleTurnChange(event, players).catch((err) => {
             reportError(err, 'ServerTableEngine.' + this.tableId + '.handleTurnChange_rejected');
             this.forceArmTurnTimer(event.seat, effectiveActionSec);
+            recoverHorseTurnOnError();
           });
         } catch (err) {
           reportError(err, 'ServerTableEngine.' + this.tableId + '.handleTurnChange_threw');
           this.forceArmTurnTimer(event.seat, effectiveActionSec);
+          recoverHorseTurnOnError();
         }
 
         try {
@@ -665,7 +705,17 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
             amount: event.amount,
             timestamp: event.record?.timestamp ?? Date.now(), // Bible V8 §2.5
             stage,
-            ...(event.publicNode ? { publicNode: event.publicNode } : {}),
+            // A Horse decision's stored node also carries the VPIP floor
+            // inputs that decision read (PLO6-AUDIT-012); a human action's
+            // node is stored as captured. Recording must never break a hand:
+            // any failure here stores the node exactly as it was captured.
+            ...(event.publicNode
+              ? {
+                  publicNode: storedHorsePublicNode(event.publicNode, event.origin, () =>
+                    this.horseVpipDecisionInputs(actorId)
+                  ),
+                }
+              : {}),
             ...(event.origin ? { origin: event.origin } : {}),
             // V12.3: carry isFullRaise into hand_history. HandController
             // records it on its own actionHistory (a short all-in is NOT a
@@ -682,6 +732,11 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
               ? event.record.isFullRaise
               : hcState?.actionHistory[hcState.actionHistory.length - 1]?.isFullRaise,
           });
+
+          carryHorseTurnClock(
+            event.record,
+            this.currentHandActions[this.currentHandActions.length - 1]!
+          );
 
           // ── ADDITIVE event-sourcing shadow (#1): record PlayerActed ──
           if (this.shadowRecorder) {
@@ -827,6 +882,35 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           // than applied to the live stack, so nothing legitimately moves chips
           // in or out between the deal and settlement.
           this.verifyStreetIntegrity(event.integrityVerification);
+          const liveBoardForPrewarm = this.handController?.getCommunityCards() ?? [];
+          if (
+            (event.stage === 'flop' || event.stage === 'turn' || event.stage === 'river') &&
+            liveBoardForPrewarm.length >= 3 &&
+            this.seatedPlayers.some((p) => p.is_horse && !this.isOwnClientControlling(p.user_id))
+          ) {
+            try {
+              const bb = Number(this.tableInfo?.big_blind) || 2;
+              const liveStacks =
+                this.handController
+                  ?.getState()
+                  .players.filter((p) => !p.is_folded && p.stack > 0)
+                  .map((p) => p.stack / bb) ?? [];
+              const effBB = liveStacks.length > 0 ? Math.min(...liveStacks) : 100;
+              const prewarmVariant = (this.activeHandVariant() || 'nlh') as string;
+              const prewarmMode = this.isTournamentTable() ? 'tournament' : 'cash';
+              noteHorseTelemetryOpportunity(prewarmVariant, prewarmMode, 'street_dealt');
+              prewarmHorseDecisionStreet({
+                fence: this.tableId,
+                street: event.stage,
+                board: liveBoardForPrewarm,
+                variant: prewarmVariant,
+                mode: prewarmMode,
+                effectiveStackBB: effBB,
+              });
+            } catch {
+              /* idle street prewarm is advisory only */
+            }
+          }
           this.broadcastCurrentState();
           break;
         }
@@ -1283,6 +1367,9 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         if (persistenceGeneration === undefined) {
           throw new Error(`HAND_COMPLETE for table ${this.tableId} has no persistence generation`);
         }
+        // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): the
+        // presentation window opens here, before settlement is started.
+        this.markHandCompletedForPresentation();
         await this.handleHandCompleteEvent(event, players, persistenceGeneration);
         break;
       }

@@ -1,0 +1,7 @@
+{
+  "_owner": "feat/lightning-join-timing-20261110",
+  "_comment": "Migration 20261110213810: the Lightning join timing sink (client_lightning_join_timings), its browser door and its per-leg report. PROMISED, not yet observed: installed after the protected merge through Apply Merged Migration.",
+  "tables": ["client_lightning_join_timings"],
+  "functions": ["fn_report_lightning_join_timing", "fn_lightning_join_timing_report"],
+  "columns": {}
+}

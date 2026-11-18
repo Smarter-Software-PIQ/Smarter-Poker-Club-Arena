@@ -1045,6 +1045,14 @@ export interface HorseTournamentUtilityLedger {
 }
 
 export interface HorseDecision {
+  /** Reference-only authority; later policy graph nodes may replace this choice. */
+  preflopAuthority?: import('./engine/HorsePreflop.js').PreflopAuthorityReceipt;
+  /** Journal-only, bounded: the opponent-read layers a preflop decision facing a
+   *  raise heard and the bars they moved (HorsePreflop PreflopReadReceipt). */
+  preflopReadReceipt?: import('./engine/HorsePreflop.js').PreflopReadReceipt;
+  /** Journal-only, bounded: whether the one applied style option this decision re-decided without changed the
+   *  final action (HorseStyleShadow StyleActionReceipt; set by the worker's FAST look, 2026-11-15). */
+  styleActionReceipt?: import('./engine/HorseStyleShadow.js').StyleActionReceipt;
   featureAuthority?: import('./engine/HorseFeatureAuthority.js').HorseFeatureDecisionReceipt;
   correctivePolicy?: import('./services/horseCorrectiveReview/liveKernel.js').CorrectiveLiveKernelReceipt;
   /** Private reference lookup/route evidence; not final causal or GTO proof. */
@@ -1068,6 +1076,12 @@ export interface HorseDecision {
     | 'preflop_priced_refusal';
   plo4Policy?: import('./engine/plo4/Plo4LivePolicy.js').Plo4LiveReceipt;
   omahaVariantPolicy?: import('./engine/omaha/OmahaVariantLivePolicy.js').OmahaVariantReceipt;
+  /** omahaStreetPlan, omahaStreetPlanFlop, omahaStreetPlanThreeWay (default off): the bounded plan a
+   * flop or turn decision was made under; no card, no identity. */
+  streetPlan?:
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaStreetPlanRecord
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaFlopPlanRecord
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaThreeWayPlanRecord;
   remainingVariantPolicy?: import('./engine/remainingVariants/RemainingVariantLivePolicy.js').RemainingVariantReceipt;
   jointPolicy?: import('./engine/multiway/JointLivePolicy.js').JointPolicyReceipt;
   tournamentPostflop?: import('./engine/HorseTournamentPostflop.js').HorseTournamentPostflopLedger;

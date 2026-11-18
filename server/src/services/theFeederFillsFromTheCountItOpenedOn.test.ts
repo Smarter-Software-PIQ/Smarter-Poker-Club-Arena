@@ -73,23 +73,22 @@ describe('1. the count and chair choose the same table maximum', () => {
   });
 });
 
-describe('2. an opening feeder widens the hour, as a human rescue does', () => {
-  it('the activity window never leaves a feeder short of the two it is promoted at', () => {
-    expect(SEED).toContain(
+// SUPERSEDED 2026-11-12 (Dan: "HORSES MUST BE FOLLOWING THERE 'DAILY WORK
+// SCHEDULE' AND ALSO THERE DAYS OFF"): an opening feeder no longer widens the
+// hour. Only working horses fill it; one that cannot fill is abandoned by the
+// tick as before. See HorseWorkSchedule.law.test.ts.
+describe('2. an opening feeder is filled by working horses only (owner 2026-11-12)', () => {
+  it('no widening of the work hours; the awake pool is what is handed on', () => {
+    expect(SEED).not.toContain(
       'if (openingFeeder && pool.length < FEEDER_BUYERS_TO_GO_LIVE) pool = sittable;'
     );
-    // Ordered AFTER the human-rescue widening and BEFORE the pool is handed
-    // to the allocation and the selection.
-    const rescue = SEED.indexOf(
-      'if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;'
-    );
-    const feeder = SEED.indexOf(
-      'if (openingFeeder && pool.length < FEEDER_BUYERS_TO_GO_LIVE) pool = sittable;'
+    expect(SEED).not.toMatch(/\bpool = sittable;/);
+    const awake = SEED.indexOf(
+      'const pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));'
     );
     const handed = SEED.indexOf('pool: pool.map((h) => h.id)');
-    expect(rescue).toBeGreaterThan(0);
-    expect(feeder).toBeGreaterThan(rescue);
-    expect(handed).toBeGreaterThan(feeder);
+    expect(awake).toBeGreaterThan(0);
+    expect(handed).toBeGreaterThan(awake);
   });
 });
 
@@ -113,14 +112,16 @@ describe('3. no lone horse, judged on the outcome', () => {
     expect(SEED).not.toContain('((horseTables.get(horse.id)?.size ?? 0) === 0 && seatClub');
   });
 
-  it('an empty cluster table that ends with ONE seated draws again from the pool, then says so', () => {
+  it('an unpaced established opening can draw a partner; a paced new game waits for its next arrival', () => {
     const draw = SEED.slice(
       SEED.indexOf('NO LONE HORSE, JUDGED ON THE OUTCOME'),
       SEED.indexOf('if (diag) diag.seated = seated;')
     );
-    expect(draw).toContain(
-      'if (table.cluster_id && currentCount === 0 && seated === 1 && seatBudget > 0)'
-    );
+    expect(draw).toMatch(/if \(\s*hourly\.maxHorses !== 1 &&\s*table\.cluster_id &&/);
+    expect(draw).toContain('currentCount === 0 &&');
+    expect(draw).toContain('seated === 1 &&');
+    expect(draw).toContain('seatBudget > 0');
+    expect(SEED).toContain('cleared.splice(hourly.maxHorses)');
     expect(draw).toContain('for (const h of pool)');
     expect(draw).toContain('if (tried.has(h.id)) continue;');
     expect(draw).toContain('const v = sitVerdictFor(h.id, table, sitCtx);');
@@ -234,7 +235,7 @@ describe('6. a tag whose every stake names a closed game falls through to the me
     expect(gate).toContain('stakeOk = undefined;');
     expect(gate).toContain('strandedTagFallthrough++;');
     // The hard refusal is still there for a tag that names a running stake.
-    expect(gate).toContain('if (stakeOk === false && !humanNeedsRescue) {');
+    expect(gate).toContain('if (stakeOk === false && !humanNeedsRescue && !dwellNeedsHorses) {');
   });
 });
 

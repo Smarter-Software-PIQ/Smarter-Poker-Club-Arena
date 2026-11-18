@@ -20,7 +20,8 @@ vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 const { MetricsRegistry } = await import('../observability/Metrics.js');
 const { LightningClusterWorker, LIGHTNING_IDLE_DEADLINE_MARGIN_MS, LIGHTNING_BUSY_RETRY_MS } =
   await import('./LightningClusterWorker.js');
-const { LIGHTNING_FORMATION_MAX_WAIT_MS } = await import('./LightningMatcherModel.js');
+const { LIGHTNING_FORMATION_MAX_WAIT_MS, LIGHTNING_FOUR_HANDED_WAIT_MS } =
+  await import('./LightningMatcherModel.js');
 const { LightningPresence } = await import('./LightningPresence.js');
 const { LightningMetrics } = await import('./LightningMetrics.js');
 const { LightningRegistry, LightningHosting } = await import('./LightningRegistry.js');
@@ -345,17 +346,21 @@ describe('the idle-deadline pass (2026-10-22 latency fix)', () => {
     w.wake(uid(77));
     await vi.advanceTimersByTimeAsync(5_000);
     const deadline = 400 + LIGHTNING_FORMATION_MAX_WAIT_MS + LIGHTNING_IDLE_DEADLINE_MARGIN_MS;
+    // The thin pool's four-handed wait (20261110214134) is a second deadline.
+    const fourDeadline = 400 + LIGHTNING_FOUR_HANDED_WAIT_MS + LIGHTNING_IDLE_DEADLINE_MARGIN_MS;
     // A routine pass one interval after the wake (1400), then one exactly at
     // the deadline (1450 with the owner's one-second wait, 2026-10-26)
-    // instead of waiting for 2400, and the interval runs on from there.
+    // instead of waiting for 2400, one at the four-handed deadline (1950),
+    // and the interval runs on from there.
     expect(at).toEqual([
       0,
       400,
       1400,
       deadline,
-      deadline + 1_000,
-      deadline + 2_000,
-      deadline + 3_000,
+      fourDeadline,
+      fourDeadline + 1_000,
+      fourDeadline + 2_000,
+      fourDeadline + 3_000,
     ]);
     await w.stop();
   });

@@ -1096,18 +1096,38 @@ UNCHANGED_NATIVE_CONTRACTS=$(printf '%s\n' "$UNCHANGED_NATIVE_CONTRACTS" | tr '\
 if printf '%s\n' $FILES | grep -qE '^\.github/workflows/'; then
   CONTRACT_BASENAMES="$CONTRACT_BASENAMES .github/workflows"
 fi
+# A fixed-string OR search is the same union as one search per basename.
+# Read the test tree twice in total, not twice for every changed filename.
+CONTRACT_PATTERNS=()
 for base in $CONTRACT_BASENAMES; do
-  for t in $(grep -rl --include='*.test.ts' --include='*.test.tsx' -F "$base" tests/ 2>/dev/null); do
+  CONTRACT_PATTERNS+=(-e "$base")
+done
+if [ "${#CONTRACT_PATTERNS[@]}" -gt 0 ]; then
+  for t in $(grep -rl --include='*.test.ts' --include='*.test.tsx' -F "${CONTRACT_PATTERNS[@]}" tests/ 2>/dev/null); do
     case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
   done
-  for t in $(grep -rl --include='*.test.mjs' -F "$base" tests/ 2>/dev/null); do
+  for t in $(grep -rl --include='*.test.mjs' -F "${CONTRACT_PATTERNS[@]}" tests/ 2>/dev/null); do
     case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     if grep -q 'node:test' "$t"; then
       case " $NODE_TESTS " in *" $t "*) ;; *) NODE_TESTS="$NODE_TESTS $t" ;; esac
     fi
   done
-done
+fi
+# CENSUSES OF THE TEST TREE (2026-11-14). Two contracts read every file under
+# tests/ rather than naming one: the law registry (a new *.law.test.* needs its
+# docs/laws.d entry) and the source-window rule (no test may bound a source pin
+# by a byte count). A push that ADDS or edits a test names neither, so the
+# basename search above never selected them and both failed first in hosted CI,
+# a fifteen-minute round trip each (#10924, #10933). Same reasoning as the
+# workflow-directory case above. Seconds to run.
+if printf '%s\n' $FILES | grep -qE '^(tests/.*\.test\.(ts|tsx)|docs/laws\.d/.*\.md)$'; then
+  for t in tests/law-registry.law.test.ts tests/unit/noFixedSizeSourceWindows.test.ts; do
+    if [ -f "$t" ]; then
+      case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
+    fi
+  done
+fi
 # A changed test can also be found as a source contract; execute it once.
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)
@@ -1266,7 +1286,7 @@ if [ -f server/package.json ]; then
   SRV_CONTRACTS=""
   # A changed contract has already run in SRV_TESTS above; select each law once.
   ca_add_contract() {
-    case " $SRV_TESTS $SRV_CONTRACTS " in
+    case " $(printf '%s ' $SRV_TESTS)$SRV_CONTRACTS " in
       *" $1 "*) ;;
       *) SRV_CONTRACTS="${SRV_CONTRACTS:+$SRV_CONTRACTS }$1" ;;
     esac
@@ -1275,6 +1295,15 @@ if [ -f server/package.json ]; then
     # Horse telemetry: every fired key must be registered in the Horse data ledger.
     if grep -q "noteFire(" "$CA_TREE_TOP/server/$rel" 2>/dev/null; then
       ca_add_contract src/engine/HorseDataLedger.test.ts
+      break
+    fi
+  done
+  # Original hand history is read as text/VM by these contracts, so imports
+  # cannot select them. PR #10400 exposed this gap in hosted engine shard 4.
+  for rel in $SRV_SRC; do
+    if [ "$rel" = src/services/supabase/handHistory.ts ]; then
+      ca_add_contract src/engine/OriginalPayloadRetry.test.ts
+      ca_add_contract src/engine/LiveHorseDecisionWorkerWiring.guard.test.ts
       break
     fi
   done
@@ -1303,6 +1332,32 @@ if [ -f server/package.json ]; then
       break
     fi
   done
+  # SOURCE PINS (2026-11-12). A law that pins a method's signature or body
+  # reads the source file by PATH (readFileSync, readCurrent, sliceMethod) and
+  # imports nothing from it, so `related` never selected it. PR #10631 changed
+  # ServerTableEngineSettlement.ts, pushed green, and hosted engine shard 3
+  # failed it on ChipContinuity.law.test.ts, which pins postHandTasks by text.
+  # Select every server test that names a changed file as a path: the file
+  # name with its extension, straight after a slash or an opening quote. An
+  # import names the .js specifier, so this stays the tests that read the
+  # file, not the whole suite. A harness (.mjs) that reads the changed file
+  # is followed one step to the tests that name that harness.
+  CA_PIN_PATTERNS=()
+  ca_add_pin() {
+    CA_PIN_PATTERNS+=(-e "/$1" -e "'$1" -e "\"$1" -e "\`$1")
+  }
+  for rel in $SRV_SRC; do ca_add_pin "${rel##*/}"; done
+  if [ "${#CA_PIN_PATTERNS[@]}" -gt 0 ]; then
+    for h in $(grep -rlF --include='*.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null); do
+      case "$h" in
+        *.test.mjs) ;;
+        *) ca_add_pin "${h##*/}" ;;
+      esac
+    done
+    for t in $(grep -rlF --include='*.test.ts' --include='*.test.mjs' "${CA_PIN_PATTERNS[@]}" server/src/ 2>/dev/null | sort); do
+      ca_add_contract "${t#server/}"
+    done
+  fi
   if [ "$SERVER_DEPENDENCY_MODE" = local ] && [ -n "$SRV_CONTRACTS" ] && [ -x "$SERVER_VITEST" ]; then
     echo "[club-arena pre-push] running the source-contract laws your server changes touch..."
     if ! ( cd server && "$SERVER_VITEST" run $SRV_CONTRACTS ); then

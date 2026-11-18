@@ -1,0 +1,3 @@
+# tests/reliability-controller-health-rules.law.test.ts
+
+The reliability controller's own failure is paged outside the controller (2026-11-11). Prometheus rules `ReliabilityControllerStale` (heartbeat older than five minutes), `ReliabilityControllerMetricsAbsent` (the collector's series disappear) and the two warnings `ReliabilityControllerOutboxStuck` and `ReliabilityControllerIntakeRejections` read only the gauges `server/scripts/collect-monitoring-health.sh` actually writes, route to `codex-inbox` plus one email receiver, and are seeded `monitoring_self` with `is_incident = false`, so the controller never escalates its own outage through itself. A controller that stops ticking cannot report that it stopped; something that does not depend on it has to.

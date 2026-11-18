@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => {
   const state = {
     rpcCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
+    targetCalls: [] as Array<{ fn: string; args: Record<string, unknown> }>,
     rpcAnswer: { data: { success: true }, error: null } as { data: unknown; error: unknown },
     sends: [] as Array<{ topic: string; event: string; payload: Record<string, unknown> }>,
     removed: 0,
@@ -44,6 +45,10 @@ const h = vi.hoisted(() => {
   const supabase = {
     from: (t: string) => builder(t),
     rpc: (fn: string, args: Record<string, unknown>) => {
+      if (fn === 'fn_horse_record_throw_target') {
+        state.targetCalls.push({ fn, args });
+        return Promise.resolve({ data: { success: true }, error: null });
+      }
       state.rpcCalls.push({ fn, args });
       return Promise.resolve(state.rpcAnswer);
     },
@@ -70,6 +75,12 @@ vi.mock('./errorReporter.js', () => ({
 
 import {
   ALL_IN_REACTIONS,
+  ANNOY_WEIGHT,
+  REPEAT_TARGET_WINDOW_MS,
+  noteTargetHit,
+  pickAnnoyTarget,
+  BIG_POT_BB,
+  BIG_POT_BOOST_PCT,
   GESTURE_CHANCE_PCT,
   GESTURE_ITEM_IDS,
   HORSE_GESTURES_PER_HOUR,
@@ -80,12 +91,14 @@ import {
   detectAfterHand,
   gestureAfterHand,
   gestureBeforeAllIn,
+  gestureChancePct,
+  TOURNAMENT_GESTURE_MULT,
   rollsGesture,
   throwItem,
   type AllInGestureInput,
 } from './HorseTableGestures.js';
 import { _resetTableTalkGateForTests } from './HorseTableTalkGate.js';
-import { _setAudienceForTests } from './HorseTableTalk.js';
+import { _resetTableTalkForTests, _setAudienceForTests } from './HorseTableTalk.js';
 import { _setHumanPacingForTests } from './horsePacing.js';
 import {
   _setSpeakChanceForTests,
@@ -98,6 +111,7 @@ import type { SeatedPlayer, TableInfo } from '../types.js';
 const TABLE = '11111111-1111-4111-8111-111111111111';
 const HORSE_A = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const HORSE_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const HORSE_C = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const HUMAN = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 function seat(userId: string, seatNo: number, isHorse: boolean): TalkSeat {
@@ -158,11 +172,13 @@ function handThatDoesNot(moment: 'lost' | 'won' | 'all_in', from = 1): number {
 
 beforeEach(() => {
   _setSpeakChanceForTests(null);
+  _resetTableTalkForTests();
   _resetGesturesForTests();
   _resetTableTalkGateForTests();
   _setHumanPacingForTests(false);
   _setAudienceForTests(() => true);
   h.state.rpcCalls = [];
+  h.state.targetCalls = [];
   h.state.sends = [];
   h.state.removed = 0;
   h.state.chatInserts = 0;
@@ -206,17 +222,21 @@ describe('what a horse throws is what a person can throw', () => {
 });
 
 describe('sometimes, never every time', () => {
-  it('a non-gesturing horse never throws after a loss or sends an all-in reaction', async () => {
+  it('a previously non-gesturing horse can throw after a loss and gesture before an all-in', async () => {
     const quiet = '44444444-4444-4444-8444-444444444444';
     const horse = seat(quiet, 1, true);
-    for (let n = 1; n <= 100; n++) {
+    const afterHand = new Set<string>();
+    const beforeAllIn = new Set<string>();
+    for (let n = 1; n <= 500; n++) {
+      _resetGesturesForTests();
       const input = lostHand(n);
       input.seated = [horse, seat(HUMAN, 3, false)];
       input.showdownResults = input.showdownResults.map((r) =>
         r.userId === HORSE_A ? { ...r, userId: quiet } : r
       );
-      expect(await gestureAfterHand(input)).toBe('no_gesture');
-      expect(
+      afterHand.add(await gestureAfterHand(input));
+      _resetGesturesForTests();
+      beforeAllIn.add(
         await gestureBeforeAllIn({
           table: table(),
           handNumber: n,
@@ -224,30 +244,37 @@ describe('sometimes, never every time', () => {
           targetSeat: 3,
           seated: input.seated,
         })
-      ).toBe('no_gesture');
+      );
     }
-    expect(h.state.rpcCalls).toEqual([]);
-    expect(h.state.sends).toEqual([]);
-    expect(h.state.chatInserts).toBe(0);
+    expect(afterHand).toContain('no_gesture');
+    expect(afterHand).toContain('thrown');
+    expect(afterHand).toContain('reacted');
+    expect(beforeAllIn).toContain('no_gesture');
+    expect(beforeAllIn).toContain('thrown');
+    expect(beforeAllIn).toContain('reacted');
+    expect(h.state.rpcCalls.length).toBeGreaterThan(0);
   });
 
-  it('a chat-only horse can say something all-in without throwing anything', async () => {
+  it('a previously chat-only horse can both speak and throw before an all-in', async () => {
     const horse = seat('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 1, true);
-    let spoken = 0;
-    for (let n = 1; n <= 200; n++) {
-      const outcome = await gestureBeforeAllIn({
-        table: table(),
-        handNumber: n,
-        horse,
-        targetSeat: 3,
-        seated: [horse, seat(HUMAN, 3, false)],
-      });
-      if (outcome === 'spoken') spoken++;
+    const outcomes = new Set<string>();
+    for (let n = 1; n <= 500; n++) {
+      _resetGesturesForTests();
+      outcomes.add(
+        await gestureBeforeAllIn({
+          table: table(),
+          handNumber: n,
+          horse,
+          targetSeat: 3,
+          seated: [horse, seat(HUMAN, 3, false)],
+        })
+      );
     }
-    expect(spoken).toBeGreaterThan(0);
-    expect(spoken).toBeLessThan(30);
-    expect(h.state.rpcCalls).toEqual([]);
-    expect(h.state.sends).toEqual([]);
+    expect(outcomes).toContain('spoken');
+    expect(outcomes).toContain('thrown');
+    expect(outcomes).toContain('no_gesture');
+    expect(h.state.chatInserts).toBeGreaterThan(0);
+    expect(h.state.rpcCalls.length).toBeGreaterThan(0);
   });
   it.each(['lost', 'won', 'all_in'] as const)(
     '%s rolls the same way twice, near its rate across the fleet, and differently per horse',
@@ -322,12 +349,175 @@ describe('after a hand', () => {
     const pick = detectAfterHand(lostHand(n));
     expect(pick).toMatchObject({ moment: 'lost', targetSeat: 3 });
     expect(pick!.horse.userId).toBe(HORSE_A);
-    expect(detectAfterHand(lostHand(handThatDoesNot('lost')))).toBeNull();
+    const quietRoll = detectAfterHand(lostHand(handThatDoesNot('lost')));
+    // HORSE_A did not roll lost, nobody else lost, no horse won: only the
+    // rare annoy needle may surface on such a hand.
+    expect(quietRoll === null || quietRoll.moment === 'annoy').toBe(true);
   });
 
-  it('a hand with no showdown gives nobody anything to throw about', () => {
-    const quiet = { ...lostHand(handThatRolls('lost')), showdownResults: [] };
-    expect(detectAfterHand(quiet)).toBeNull();
+  it('a hand with no showdown can still needle any seated player, horse or human (owner 2026-11-11, 2026-11-12)', () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    let n = 0;
+    for (let i = 1; i <= 100_000 && n === 0; i++) {
+      if (rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) n = i;
+    }
+    expect(n).toBeGreaterThan(0);
+    const folded = { ...lostHand(n), showdownResults: [], winners: [] };
+    const pick = detectAfterHand(folded);
+    expect(pick).not.toBeNull();
+    expect(pick!.moment).toBe('annoy');
+    // The thrower is a horse; the target is any other seat at the table.
+    expect(pick!.targetSeat).not.toBe(pick!.horse.seat);
+    expect([1, 2, 3]).toContain(pick!.targetSeat);
+    // A horses-only table is still a table: a horse needles another horse.
+    const horsesOnly = {
+      ...folded,
+      seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true)],
+    };
+    const hPick = detectAfterHand(horsesOnly);
+    expect(hPick).not.toBeNull();
+    expect(hPick!.moment).toBe('annoy');
+    expect(hPick!.targetSeat).toBe(hPick!.horse.seat === 1 ? 2 : 1);
+    // A horse alone at the table has nobody to throw at.
+    expect(detectAfterHand({ ...folded, seated: [seat(HORSE_A, 1, true)] })).toBeNull();
+  });
+
+  it('annoy targets are spread across horses and humans alike (owner 2026-11-12)', () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    const targets = new Set<number>();
+    let checked = 0;
+    for (let i = 1; i <= 400_000 && checked < 400; i++) {
+      if (!rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) continue;
+      if (rollsGesture('annoy', HORSE_B, TABLE, i, annoyPct)) continue;
+      const pick = detectAfterHand({
+        ...lostHand(i),
+        showdownResults: [],
+        winners: [],
+        seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true), seat(HUMAN, 3, false)],
+      });
+      if (!pick || pick.horse.userId !== HORSE_A) continue;
+      targets.add(pick.targetSeat);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(20);
+    // HORSE_A (seat 1) throws at both the other horse (2) and the human (3).
+    expect(targets).toEqual(new Set([2, 3]));
+  });
+
+  it('annoy targets lean to the pot winner, then showdown players, then anyone seated (owner 2026-11-13)', () => {
+    const others = [seat(HORSE_B, 2, true), seat(HUMAN, 3, false), seat(HORSE_C, 4, true)];
+    const counts = new Map<number, number>();
+    const N = 30_000;
+    for (let i = 1; i <= N; i++) {
+      const t = pickAnnoyTarget(
+        HORSE_A,
+        i,
+        others,
+        new Set([HUMAN]),
+        new Set([HUMAN, HORSE_B]),
+        new Set()
+      );
+      counts.set(t!, (counts.get(t!) ?? 0) + 1);
+    }
+    const total = ANNOY_WEIGHT.winner + ANNOY_WEIGHT.showdown + ANNOY_WEIGHT.seated;
+    const share = (seatNo: number) => (counts.get(seatNo) ?? 0) / N;
+    expect(share(3)).toBeCloseTo(ANNOY_WEIGHT.winner / total, 1); // the winner, a human
+    expect(share(2)).toBeCloseTo(ANNOY_WEIGHT.showdown / total, 1); // showdown, a horse
+    expect(share(4)).toBeCloseTo(ANNOY_WEIGHT.seated / total, 1); // bystander, a horse
+    // Same inputs, same pick.
+    expect(pickAnnoyTarget(HORSE_A, 7, others, new Set(), new Set(), new Set())).toBe(
+      pickAnnoyTarget(HORSE_A, 7, others, new Set(), new Set(), new Set())
+    );
+    expect(pickAnnoyTarget(HORSE_A, 7, [], new Set(), new Set(), new Set())).toBeNull();
+  });
+
+  it('a player hit recently is skipped while anyone else is seated, never when alone (owner 2026-11-13)', () => {
+    const others = [seat(HORSE_B, 2, true), seat(HUMAN, 3, false)];
+    for (let i = 1; i <= 500; i++) {
+      expect(
+        pickAnnoyTarget(HORSE_A, i, others, new Set([HUMAN]), new Set(), new Set([HUMAN]))
+      ).toBe(2);
+      expect(
+        pickAnnoyTarget(HORSE_A, i, others, new Set(), new Set(), new Set([HORSE_B, HUMAN]))
+      ).not.toBeNull();
+    }
+    expect(
+      pickAnnoyTarget(HORSE_A, 1, [seat(HUMAN, 3, false)], new Set(), new Set(), new Set([HUMAN]))
+    ).toBe(3);
+  });
+
+  it('detectAfterHand honours the recent-hit memory for annoy and won targets', () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    let checked = 0;
+    for (let i = 1; i <= 400_000 && checked < 200; i++) {
+      if (!rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) continue;
+      if (rollsGesture('annoy', HORSE_B, TABLE, i, annoyPct)) continue;
+      const pick = detectAfterHand(
+        {
+          ...lostHand(i),
+          showdownResults: [],
+          winners: [],
+          seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true), seat(HUMAN, 3, false)],
+        },
+        (id) => (id === HORSE_A ? new Set([HUMAN]) : new Set())
+      );
+      if (!pick || pick.horse.userId !== HORSE_A) continue;
+      expect(pick.targetSeat).toBe(2);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(20);
+  });
+
+  it('a real throw is remembered, so the same horse needles someone else next (owner 2026-11-13)', async () => {
+    const now = Date.now();
+    noteTargetHit(HORSE_A, HUMAN, now);
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    let checked = 0;
+    for (let i = 1; i <= 400_000 && checked < 50; i++) {
+      if (!rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) continue;
+      if (rollsGesture('annoy', HORSE_B, TABLE, i, annoyPct)) continue;
+      const pick = detectAfterHand({
+        ...lostHand(i),
+        showdownResults: [],
+        winners: [],
+        seated: [seat(HORSE_A, 1, true), seat(HORSE_B, 2, true), seat(HUMAN, 3, false)],
+      });
+      if (!pick || pick.horse.userId !== HORSE_A) continue;
+      expect(pick.targetSeat).toBe(2);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(10);
+    expect(REPEAT_TARGET_WINDOW_MS).toBe(20 * 60_000);
+    // gestureAfterHand records the hit itself.
+    _resetGesturesForTests();
+    let n = 0;
+    for (let i = 1; i <= 100_000 && n === 0; i++) {
+      if (rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) n = i;
+    }
+    const folded = { ...lostHand(n), showdownResults: [], winners: [] };
+    expect(await gestureAfterHand(folded)).toBe('thrown');
+    const firstSeat = Number(
+      String((h.state.sends[0].payload.payload as { message: string }).message).match(/:(\d+)\]$/)![1]
+    );
+    const firstUser = folded.seated.find((x) => x.seat === firstSeat)!.userId;
+    const pick = detectAfterHand(folded);
+    if (pick && pick.horse.userId === HORSE_A && pick.moment === 'annoy') {
+      expect(folded.seated.find((x) => x.seat === pick.targetSeat)!.userId).not.toBe(firstUser);
+    }
+  });
+
+  it('an annoy needle is always a throw at a player, never a floating reaction', async () => {
+    const annoyPct = gestureChancePct('annoy', false, 0);
+    let n = 0;
+    for (let i = 1; i <= 100_000 && n === 0; i++) {
+      if (rollsGesture('annoy', HORSE_A, TABLE, i, annoyPct)) n = i;
+    }
+    const folded = { ...lostHand(n), showdownResults: [], winners: [] };
+    const outcome = await gestureAfterHand(folded);
+    expect(outcome).toBe('thrown');
+    expect(h.state.rpcCalls).toHaveLength(1);
+    const send = h.state.sends[0];
+    expect((send.payload.payload as { message: string }).message).toMatch(/^\[THROW:.+:[23]\]$/);
   });
 
   it('charges through the person RPC, then broadcasts the browser THROW payload from the horse', async () => {
@@ -351,12 +541,21 @@ describe('after a hand', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     );
     expect(h.state.removed).toBe(1);
+    // Who was hit is recorded against the same receipt (Dan 2026-11-13).
+    expect(h.state.targetCalls).toHaveLength(1);
+    expect(h.state.targetCalls[0].args).toEqual({
+      p_horse_id: HORSE_A,
+      p_request_id: args.p_request_id,
+      p_table_id: TABLE,
+      p_target_seat: 3,
+    });
   });
 
-  it('a refused charge throws nothing', async () => {
+  it('a refused charge throws nothing and records nothing', async () => {
     h.state.rpcAnswer = { data: { success: false, error: 'Please Wait' }, error: null };
     expect(await gestureAfterHand(lostHand(handThatThrows()))).toBe('refused');
     expect(h.state.sends).toHaveLength(0);
+    expect(h.state.targetCalls).toHaveLength(0);
   });
 
   it('the gate closed: nothing charged, nothing sent', async () => {
@@ -371,6 +570,36 @@ describe('after a hand', () => {
     expect(await gestureAfterHand(lostHand(first))).toBe('thrown');
     expect(await gestureAfterHand(lostHand(handThatRolls('lost', first + 1)))).toBe('limited');
     expect(HORSE_GESTURES_PER_HOUR).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('the odds the moments roll against (owner 2026-11-11)', () => {
+  it('tournament tables roll livelier, at the published multiple', () => {
+    expect(TOURNAMENT_GESTURE_MULT).toBe(1.5);
+    for (const m of ['lost', 'won', 'all_in', 'annoy'] as const) {
+      expect(gestureChancePct(m, true, 0)).toBe(Math.round(GESTURE_CHANCE_PCT[m] * 1.5));
+    }
+  });
+  it('a big pot boosts the result moments and only those', () => {
+    expect(gestureChancePct('won', false, BIG_POT_BB)).toBe(
+      GESTURE_CHANCE_PCT.won + BIG_POT_BOOST_PCT
+    );
+    expect(gestureChancePct('lost', false, BIG_POT_BB)).toBe(
+      GESTURE_CHANCE_PCT.lost + BIG_POT_BOOST_PCT
+    );
+    expect(gestureChancePct('lost', false, BIG_POT_BB - 1)).toBe(GESTURE_CHANCE_PCT.lost);
+    expect(gestureChancePct('all_in', false, 1_000)).toBe(GESTURE_CHANCE_PCT.all_in);
+    expect(gestureChancePct('annoy', false, 1_000)).toBe(GESTURE_CHANCE_PCT.annoy);
+  });
+  it('a big tournament pot stacks the boost under the multiple', () => {
+    expect(gestureChancePct('lost', true, 100)).toBe(
+      Math.round((GESTURE_CHANCE_PCT.lost + BIG_POT_BOOST_PCT) * TOURNAMENT_GESTURE_MULT)
+    );
+  });
+  it('the detector reads the big pot off the table blinds', () => {
+    // 40bb at bb 2 is an 80-chip pot: the lostHand fixture pot of 40 is 20bb,
+    // below the boost, so the default-rate helpers above stay aligned.
+    expect(BIG_POT_BB * 2).toBe(80);
   });
 });
 

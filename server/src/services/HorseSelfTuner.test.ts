@@ -7,12 +7,18 @@
 import { describe, it, expect } from 'vitest';
 import {
   accumulatePlayStats,
+  BENCH,
   diagnoseAndNudge,
+  NLH_CASH_VPIP_HI,
+  NLH_CASH_VPIP_LO,
+  OMAHA_CASH_VPIP_HI,
   statSnapshot,
   MIN_HANDS_TO_TUNE,
   type HandRow,
   type PlayStats,
 } from './HorseSelfTuner.js';
+import { holdemPersonaFor, ploPersonaFor } from '../engine/HorsePersona.js';
+import { snapshotOptionFlags } from '../engine/HorseDataLedger.js';
 
 const a = (userId: string, action: string, amount: number, stage = 'preflop') => ({
   userId,
@@ -270,5 +276,130 @@ describe('HorseSelfTuner V12 - diagnosis and bounded nudges', () => {
     expect(snap.vpip).toBeCloseTo(0.25, 4);
     expect(snap.wwsf).toBeCloseTo(0.45, 4);
     expect(snap.bb100).toBeCloseTo(5, 4);
+  });
+
+  it('isolates NLH Cash 25%-30% VPIP envelope from MTT BENCH.vpip and Omaha Cash ceilings', () => {
+    expect(NLH_CASH_VPIP_LO).toBe(0.25);
+    expect(NLH_CASH_VPIP_HI).toBe(0.305);
+    expect(OMAHA_CASH_VPIP_HI).toBe(0.44);
+    expect(BENCH.vpip).toEqual({ lo: 0.19, hi: 0.32 });
+
+    // NLH Cash at 27%-29.5% VPIP is right inside the 25%-30.5% target and never tightened.
+    const cash28 = diagnoseAndNudge(base({ vpip: 285 }), {}, null, 0, null, {
+      nlhCashShare: 1,
+      omahaShare: 0,
+    });
+    expect(cash28.mods.tightness).toBe(1);
+    expect(cash28.reasons).toEqual(['within winning benchmarks - no change']);
+
+    // NLH Cash below 25% VPIP (22%) with nlhCashShare >= 0.6 gets loosened toward 25%-30%.
+    const cashNitty = diagnoseAndNudge(base({ vpip: 220 }), {}, null, 0, null, {
+      nlhCashShare: 0.85,
+      omahaShare: 0,
+    });
+    expect(cashNitty.mods.tightness).toBeLessThan(1);
+    expect(cashNitty.reasons.join(' ')).toContain('too tight - loosen');
+
+    // By contrast, an MTT / non-cash-NLH sample at 22% VPIP uses BENCH.vpip (19%-32%) and stays untouched.
+    const mtt22 = diagnoseAndNudge(base({ vpip: 220 }), {}, null, 0, null, {
+      nlhCashShare: 0,
+      omahaShare: 0,
+    });
+    expect(mtt22.mods.tightness).toBe(1);
+
+    // NLH Cash above 30.5% (31.5%) gets tightened, whereas Omaha Cash at 38% stays inside OMAHA_CASH_VPIP_HI (44%).
+    const cash315 = diagnoseAndNudge(base({ vpip: 315 }), {}, null, 0, null, {
+      nlhCashShare: 1,
+      omahaShare: 0,
+    });
+    expect(cash315.mods.tightness).toBeGreaterThan(1);
+
+    const omaha38 = diagnoseAndNudge(base({ vpip: 380, pfr: 240 }), {}, null, 0, null, {
+      nlhCashShare: 0,
+      omahaShare: 1,
+    });
+    expect(omaha38.mods.tightness).toBe(1);
+  });
+
+  it('responds to all four V87 Hold em leak tags with targeted bounded nudges', () => {
+    const deepOnePair = diagnoseAndNudge(
+      base(),
+      {},
+      null,
+      0,
+      { nlh_deep_onepair_stackoff: 6 },
+      {
+        leaksHands: 100,
+      }
+    );
+    expect(deepOnePair.mods.tightness).toBeGreaterThan(1);
+    expect(deepOnePair.mods.aggression).toBeLessThan(1);
+
+    const oopBleed = diagnoseAndNudge(
+      base(),
+      {},
+      null,
+      0,
+      { nlh_passive_oop_coldcall_bleed: 7 },
+      { leaksHands: 100 }
+    );
+    expect(oopBleed.mods.tightness).toBeGreaterThan(1);
+    expect(oopBleed.mods.aggression).toBeGreaterThan(1);
+
+    const epLimp = diagnoseAndNudge(
+      base(),
+      {},
+      null,
+      0,
+      { nlh_ep_limp_passivity: 6 },
+      {
+        leaksHands: 100,
+      }
+    );
+    expect(epLimp.mods.aggression).toBeGreaterThan(1);
+
+    const bubbleCalloff = diagnoseAndNudge(
+      base(),
+      {},
+      null,
+      0,
+      { nlh_bubble_covered_calloff: 5 },
+      { leaksHands: 100 }
+    );
+    expect(bubbleCalloff.mods.tightness).toBeGreaterThan(1);
+  });
+
+  it('derives deterministic tuner-immune Hold em and PLO personas within exact bounds and snapshots v87HoldemOverhaul', () => {
+    const counts = { lag_shark: 0, tricky_trap: 0, tag_crusher: 0, nit_hunter: 0 };
+    for (let i = 0; i < 1000; i++) {
+      const id = `horse-v87-${i}`;
+      const p = holdemPersonaFor(id);
+      expect(holdemPersonaFor(id)).toEqual(p);
+      counts[p.archetype]++;
+      expect(p.nlh3BetMix).toBeGreaterThanOrEqual(0.22);
+      expect(p.nlh3BetMix).toBeLessThanOrEqual(0.64);
+      expect(p.epLimpTrapMix).toBeGreaterThanOrEqual(0.1);
+      expect(p.epLimpTrapMix).toBeLessThanOrEqual(0.28);
+      expect(p.comboDrawAggro).toBeGreaterThanOrEqual(0.38);
+      expect(p.comboDrawAggro).toBeLessThanOrEqual(0.86);
+      expect(p.trapFrequency).toBeGreaterThanOrEqual(0.18);
+      expect(p.trapFrequency).toBeLessThanOrEqual(0.52);
+      expect(p.probeRate).toBeGreaterThanOrEqual(0.28);
+      expect(p.probeRate).toBeLessThanOrEqual(0.64);
+      expect(p.riverBluffGear).toBeGreaterThanOrEqual(0.2);
+      expect(p.riverBluffGear).toBeLessThanOrEqual(0.58);
+
+      const plo = ploPersonaFor(id);
+      expect(ploPersonaFor(id)).toEqual(plo);
+    }
+    expect(counts.lag_shark).toBeGreaterThan(220);
+    expect(counts.tricky_trap).toBeGreaterThan(180);
+    expect(counts.tag_crusher).toBeGreaterThan(240);
+    expect(counts.nit_hunter).toBeGreaterThan(130);
+
+    expect(snapshotOptionFlags()).toEqual({ v87HoldemOverhaul: true });
+    expect(snapshotOptionFlags({ v87HoldemOverhaul: false })).toEqual({
+      v87HoldemOverhaul: false,
+    });
   });
 });

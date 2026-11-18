@@ -1,5 +1,14 @@
+import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
+import ClubDataSourceDetails, {
+  type ClubDataSourceRow,
+} from '../../components/club/ClubDataSourceDetails';
+import ClubDataReportGuide from '../../components/club/ClubDataReportGuide';
+import { useClubDataFilters } from '../../hooks/useClubDataFilters';
+import { parseWeeklyPlayerResults } from '../../utils/unionStatementBoard';
 import { unionEcoRows, unionEcoComponents } from '../../utils/unionEco';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
+import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
+import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
 /**
  * CLUB DATA
  * ============================================================================
@@ -28,18 +37,32 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  *
  * The client gate below is cosmetic. The RPCs raise 42501 on their own.
  *
- * Dates are America/Chicago calendar days end to end, daylight saving
- * included (Dan, 2026-10-22), because the facts every figure comes from are
- * keyed on Chicago days (20261022103651, 20261022120121). The range chip says
- * Chicago Time rather than showing a bare date. MTT Winnings are finished MTTs
- * only; a running MTT's entries are shown as Unfinished MTT Entries.
+ * THE DAY: all Data windows use America/Los_Angeles calendar midnight.
+ * Union accounting and standalone net-flow reports retain distinct financial
+ * definitions, stated by accounting_basis. The calendar selects inclusive
+ * first/last dates; readers and exports use the following midnight as the
+ * exclusive upper boundary. Chicago clock labels display those real instants,
+ * including the 23-hour and 25-hour Pacific days at daylight-saving changes.
  */
 
 import {
   CLUB_DATA_TIME_ZONE,
   CLUB_DATA_ZONE_LABEL,
+  addCalendarDays,
+  chicagoBoundaryStamp,
   chicagoClock,
-  chicagoDay,
+  clubDataDayBasis,
+  clubDataDayOn,
+  clubDataDayRule,
+  clubDataWindow,
+  clubDataWindowLabel,
+  coverageNotices,
+  coverageWindowLabel,
+  isCalendarDate,
+  isUnionClubAnswer,
+  UNION_BASIS_DEFINITIONS,
+  type ClubDataCoverage,
+  type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
 import {
   useCallback,
@@ -83,6 +106,7 @@ import { useMasterBusSubscriptions } from '../../hooks/useMasterBusSubscription'
 import type { BusEventType } from '../../core/MasterBus';
 import { useVirtualScroll } from '../../hooks/useVirtualScroll';
 import RakeSnapshotPanel from '../../components/club/RakeSnapshotPanel';
+import DataHelpTip from '../../components/club/DataHelpTip';
 import ClubRakebackVerifiedSoFar from '../../components/club/ClubRakebackVerifiedSoFar';
 import type { RakeScope } from '../../services/ClubRakeSnapshotService';
 import type { ConsoleInk } from '../../components/console/SpadeConsole';
@@ -92,7 +116,12 @@ import { compactChips } from '../../utils/format';
 import PageHelp from '../../components/help/PageHelp';
 import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
+import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
+import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
+import { clubDataRangeDays, readClubDataRange } from '../../lib/clubDataRange';
 import {
+  CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+  isClubDataPacificIncomplete,
   CLUB_GAMES_UNAVAILABLE_COPY,
   CLUB_PLAYERS_UNAVAILABLE_COPY,
   clubDataListState,
@@ -133,6 +162,7 @@ interface SnapshotRow {
 }
 
 interface SnapshotSummary {
+  reconciliation?: Reconciliation | null;
   games: number;
   total_winnings: number;
   mtt_winnings: number;
@@ -146,6 +176,8 @@ interface SnapshotSummary {
   cash_fee?: number;
   mtt_fee?: number;
   hands: number;
+  /** Chips seated players hold now (union basis: shown, not in winnings). */
+  on_felt?: number;
 }
 
 interface Snapshot {
@@ -168,6 +200,11 @@ interface Snapshot {
   union_id: string | null;
   data_updated_at: string | null;
   generated_at: string;
+  accounting_basis?: string;
+  day_basis?: string;
+  /** fn_ca_club_acct_coverage (union basis only). */
+  accounting_coverage?: ClubDataCoverage | null;
+  previous_coverage?: ClubDataCoverage | null;
 }
 
 interface PlayerRow {
@@ -345,6 +382,10 @@ interface CachedPlayerLedger {
   hasMore: boolean;
 }
 
+/** The Rake Snapshot's basis, said beside a union club's invoice-basis figures. */
+const AGENT_RAKE_PRODUCTION_NOTE =
+  'Invoice Headlines Include All Recorded Fees. Agent Rows Show Gross Cash Rake By Seat Club And Downline In Pacific Midnight Days.';
+
 /** What a money tile shows when there is no figure to show. Never "0.00". */
 const NO_VALUE = '-';
 
@@ -402,6 +443,7 @@ function coldRead<T>(
     maxRetries,
     baseDelayMs: COLD_READ_RETRY_DELAY_MS,
     isMountedRef,
+    shouldRetryError: (error) => !isClubDataPacificIncomplete(error),
   });
 }
 
@@ -582,9 +624,28 @@ function isInvoiceRow(value: unknown): value is InvoiceRow {
   ) {
     return false;
   }
+  try {
+    if (value.breakdown) parseWeeklyPlayerResults(value.breakdown as Record<string, unknown>);
+  } catch {
+    return false;
+  }
   const amountCents = Math.abs(Math.round(value.amount * 100));
   const paidCents = Math.round(value.paid_total * 100);
   return Math.round(value.outstanding * 100) === Math.max(amountCents - paidCents, 0);
+}
+
+/**
+ * A UNION CLUB'S READER CLAMPS THE LAST DAY TO THE ACCOUNTING DAY STILL OPEN
+ * (stage 2). Until an answer states the basis, this page asks for the
+ * calendar day; between midnight and 02:00 Chicago that is one day past the
+ * open accounting day, so a union club answers for the day before. True when
+ * `answeredEnd` is exactly that clamp of `requestedEnd`: the answer is not
+ * an error, it tells the page its basis, and the page re-reads the window it
+ * actually holds instead of painting or caching one it did not ask for.
+ */
+function isAccountingDayClamp(answeredEnd: unknown, requestedEnd: string): boolean {
+  const open = clubDataDayOn('accounting');
+  return answeredEnd === open && requestedEnd > open;
 }
 
 function isValidDate(value: unknown): value is string {
@@ -856,7 +917,42 @@ function isVerifiedCachedPlayerLedger(
   );
 }
 
-function rowsToCsv(rows: SnapshotRow[]): string {
+/**
+ * The window every exported row belongs to, as two exact instants, so a file
+ * read on its own says which accounting period it is ([start, end), UTC ISO).
+ */
+interface ExportWindow {
+  start: string;
+  end: string;
+  club: string;
+  first: string;
+  last: string;
+  game: string;
+  stakes: string;
+  search: string;
+  timeZone: string;
+}
+const reportCsvHeaders = [
+  'source_id',
+  'report_club_id',
+  'report_start_date_inclusive',
+  'report_end_date_inclusive',
+  'game_filter',
+  'stakes_filter',
+  'search_filter',
+  'report_time_zone',
+];
+const reportCsvValues = (window: ExportWindow) => [
+  window.club,
+  window.first,
+  window.last,
+  window.game,
+  window.stakes,
+  window.search,
+  window.timeZone,
+];
+
+function rowsToCsv(rows: SnapshotRow[], window: ExportWindow): string {
   const esc = csvEscape;
   const head = [
     'started_at',
@@ -869,6 +965,9 @@ function rowsToCsv(rows: SnapshotRow[]): string {
     'players',
     'fee',
     'winnings',
+    ...reportCsvHeaders,
+    'window_start',
+    'window_end',
   ];
   const lines = rows.map((r) =>
     [
@@ -882,6 +981,10 @@ function rowsToCsv(rows: SnapshotRow[]): string {
       r.players,
       r.fee_exact ?? r.fee,
       r.winnings,
+      r.id,
+      ...reportCsvValues(window),
+      window.start,
+      window.end,
     ]
       .map(esc)
       .join(',')
@@ -889,11 +992,36 @@ function rowsToCsv(rows: SnapshotRow[]): string {
   return [head.join(','), ...lines].join('\n');
 }
 
-function playersToCsv(rows: PlayerRow[]): string {
+function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
   const esc = csvEscape;
-  const head = ['user_id', 'username', 'hands', 'rake', 'net', 'cash_net', 'tournament_net'];
+  const head = [
+    'user_id',
+    'username',
+    'hands',
+    'rake',
+    'net',
+    'cash_net',
+    'tournament_net',
+    ...reportCsvHeaders,
+    'window_start',
+    'window_end',
+  ];
   const lines = rows.map((r) =>
-    [r.user_id, r.username, r.hands, r.rake, r.net, r.cash_net, r.tournament_net].map(esc).join(',')
+    [
+      r.user_id,
+      r.username,
+      r.hands,
+      r.rake,
+      r.net,
+      r.cash_net,
+      r.tournament_net,
+      r.user_id,
+      ...reportCsvValues(window),
+      window.start,
+      window.end,
+    ]
+      .map(esc)
+      .join(',')
   );
   return [head.join(','), ...lines].join('\n');
 }
@@ -901,7 +1029,7 @@ function playersToCsv(rows: PlayerRow[]): string {
 export default function ClubDataPage() {
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, isHydrating } = useAuthUser();
   // Every protected read is account-scoped, not profile-object-scoped.
   // IdentityDNA may replace the same user's object when delayed profile
@@ -914,17 +1042,75 @@ export default function ClubDataPage() {
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   const [clubName, setClubName] = useState<string>('');
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
-  const [preset, setPreset] = usePlayerPreference<PresetId>('club/ClubDataPage:preset', 14);
-  const [endDate, setEndDate] = useState<string>(() => chicagoDay());
-  const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
-  const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
+  const [preset, setPreset] = useState<PresetId>(1);
+  // Every Data report begins on the Pacific calendar day; verified answers
+  // retain their distinct accounting or net-flow financial basis.
+  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
+  const dayBasisRef = useRef<ClubDataDayBasis>('pacific');
+  dayBasisRef.current = dayBasis;
+  const [endDate, setEndDate] = useState<string>(
+    () => readClubDataRange(searchParams, clubDataDayOn('pacific'))?.end ?? clubDataDayOn('pacific')
+  );
+  const [customStart, setCustomStart] = useState<string | null>(
+    () => readClubDataRange(searchParams, clubDataDayOn('pacific'))?.start ?? null
+  );
+  const customStartRef = useRef(customStart);
+  customStartRef.current = customStart;
+  const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
+  const [editingDates, setEditingDates] = useState(false);
+  const routeDatesKey = searchParams.toString();
+  const handledRouteDates = useRef(routeDatesKey);
+  const selectReportDates = useCallback(
+    (first: string | null, last: string) => {
+      setCustomStart(first);
+      setEndDate(last);
+      const next = new URLSearchParams(searchParams);
+      next.delete('dataUntil');
+      if (first !== null) next.set('dataStart', first);
+      else next.delete('dataStart');
+      if (first !== null || last !== clubDataDayOn(dayBasisRef.current)) next.set('dataEnd', last);
+      else next.delete('dataEnd');
+      handledRouteDates.current = next.toString();
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams]
+  );
+  useEffect(() => {
+    if (handledRouteDates.current === routeDatesKey) return;
+    handledRouteDates.current = routeDatesKey;
+    const requested = readClubDataRange(
+      new URLSearchParams(routeDatesKey),
+      clubDataDayOn(dayBasisRef.current)
+    );
+    setCustomStart(requested?.start ?? null);
+    setEndDate(requested?.end ?? clubDataDayOn(dayBasisRef.current));
+  }, [routeDatesKey]);
+
+  const endDateRef = useRef(endDate);
+  endDateRef.current = endDate;
+  // Which reads a clamped answer is waiting to repeat (see the [dayBasis]
+  // effect), and whether the clamped read was foreground (it raised the
+  // skeleton, so its re-read must own and clear it) or background (it never
+  // raised it, so its re-read must not raise it either).
+  type BasisReread = 'foreground' | 'background' | null;
+  const basisRereadRef = useRef<{ games: BasisReread; players: BasisReread }>({
+    games: null,
+    players: null,
+  });
+  // The newest reads, for the [dayBasis] effect declared before them.
+  const loadRef = useRef<(showSpinner: boolean, preserveOnError?: boolean) => Promise<boolean>>(
+    async () => false
+  );
+  const loadPlayersRef = useRef<(preserveOnError?: boolean) => Promise<boolean>>(async () => false);
+  const { game, setGame, stakes, setStakes, searchInput, setSearchInput, clearFilters } =
+    useClubDataFilters('club/ClubDataPage');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
     'club/ClubDataPage:gameSort',
     'recent'
   );
-  const [searchInput, setSearchInput] = usePlayerPreference('club/ClubDataPage:searchInput', '');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => searchInput.trim());
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [sourceRow, setSourceRow] = useState<{ key: string; row: ClubDataSourceRow } | null>(null);
   const [, setGameCursor] = useState<PageCursor | null>(null);
   const [gamesHasMore, setGamesHasMore] = useState(false);
   const [gamesLoadingMore, setGamesLoadingMore] = useState(false);
@@ -942,8 +1128,44 @@ export default function ClubDataPage() {
   const [ledgerSource, setLedgerSource] = useState<'cold' | 'cached' | 'live' | 'degraded'>('cold');
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
-  const [advanced, setAdvanced] = usePlayerPreference('club/ClubDataPage:advanced', false);
-  const [tab, setTab] = usePlayerPreference<'games' | 'players'>('club/ClubDataPage:tab', 'games');
+  const [savedAdvanced, saveAdvanced] = usePlayerPreference('club/ClubDataPage:advanced', false);
+  // Report is an explicit navigation choice, including after a saved Simple
+  // preference hydrates. The URL also lets the user switch modes normally.
+  const requestedView = searchParams.get('view');
+  const advanced = requestedView === 'advanced' || (requestedView !== 'simple' && savedAdvanced);
+  const setAdvanced = (next: boolean) => {
+    saveAdvanced(next);
+    const params = new URLSearchParams(searchParams);
+    params.set('view', next ? 'advanced' : 'simple');
+    setSearchParams(params, { replace: true });
+  };
+  const [savedTab, saveTab] = usePlayerPreference<'games' | 'players'>(
+    'club/ClubDataPage:tab',
+    'games'
+  );
+  const tab =
+    searchParams.get('dataTab') === 'games'
+      ? 'games'
+      : searchParams.get('dataTab') === 'players'
+        ? 'players'
+        : savedTab;
+  const setTab = (next: 'games' | 'players') => {
+    saveTab(next);
+    const params = new URLSearchParams(searchParams);
+    params.set('dataTab', next);
+    setSearchParams(params, { replace: true });
+  };
+  const openReportBreakdown = (next: 'games' | 'players') => {
+    saveTab(next);
+    saveAdvanced(true);
+    const params = new URLSearchParams(searchParams);
+    params.set('dataTab', next);
+    params.set('view', 'advanced');
+    setSearchParams(params, { replace: true });
+    requestAnimationFrame(() =>
+      document.getElementById('club-data-tab-games')?.scrollIntoView({ block: 'start' })
+    );
+  };
   /** Read by the poll/visibility handlers, which must not re-register per tab. */
   const tabRef = useRef<'games' | 'players'>('games');
   useEffect(() => {
@@ -1067,7 +1289,7 @@ export default function ClubDataPage() {
   const mountedRef = useRef(false);
   const manualRefreshingRef = useRef(false);
   const manualRefreshVersion = useRef(0);
-  const observedUtcDayRef = useRef(chicagoDay());
+  const observedUtcDayRef = useRef(clubDataDayOn('pacific'));
   const gamesTabRef = useRef<HTMLButtonElement>(null);
   const playersTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -1086,10 +1308,55 @@ export default function ClubDataPage() {
   }, []);
   useEffect(() => {
     snapshotRef.current = snapshot;
+    // Both verified Data bases use the same Pacific calendar day.
+    if (isUnionClubAnswer(snapshot)) setDayBasis('accounting');
+    else if (clubDataDayBasis(snapshot) === 'pacific') setDayBasis('pacific');
   }, [snapshot]);
+  // Every new club or account begins on the current Pacific day.
+  useEffect(() => {
+    setDayBasis('pacific');
+  }, [clubUuid, userId]);
+  // When the answer moves the day (a union club between midnight and 02:00
+  // Chicago), an owner pinned to "today" follows; a chosen past day stays.
+  useEffect(() => {
+    const today = clubDataDayOn(dayBasis);
+    const previousToday = observedUtcDayRef.current;
+    observedUtcDayRef.current = today;
+    const cur = endDateRef.current;
+    const moves = cur > today || (customStartRef.current === null && cur === previousToday);
+    if (cur > today) setCustomStart(null);
+    setEndDate((current) =>
+      current > today || (customStartRef.current === null && current === previousToday)
+        ? today
+        : current
+    );
+    // A clamped answer kept the skeleton up for the re-read the move causes.
+    // If 02:00 passed in between, the end does not move: read again here so
+    // the skeleton never waits for the next poll.
+    const pending = basisRereadRef.current;
+    basisRereadRef.current = { games: null, players: null };
+    if (!moves) {
+      // A background poll's re-read stays a background read: it never raises
+      // the skeleton its own request did not raise.
+      if (pending.games === 'foreground') void loadRef.current(true);
+      else if (pending.games === 'background') void loadRef.current(false, true);
+      if (pending.players === 'foreground') void loadPlayersRef.current();
+      else if (pending.players === 'background') void loadPlayersRef.current(true);
+    }
+  }, [dayBasis]);
   useEffect(() => {
     playersRef.current = players;
   }, [players]);
+
+  useClubDataDayRollover(dayBasis, (today) => {
+    const previousToday = observedUtcDayRef.current;
+    observedUtcDayRef.current = today;
+    setEndDate((current) =>
+      current > today || (customStartRef.current === null && current === previousToday)
+        ? today
+        : current
+    );
+  });
 
   // debounce the search box so typing does not fire an RPC per keystroke
   useEffect(() => {
@@ -1098,10 +1365,11 @@ export default function ClubDataPage() {
   }, [searchInput]);
 
   const startDate = useMemo(() => {
+    if (customStart !== null) return customStart;
     const d = new Date(`${endDate}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - (preset - 1));
     return toISODate(d);
-  }, [endDate, preset]);
+  }, [endDate, preset, customStart]);
 
   const expectedGameSnapshot = useMemo<ExpectedSnapshotRequest>(
     () => ({
@@ -1118,7 +1386,7 @@ export default function ClubDataPage() {
     [startDate, endDate]
   );
 
-  const isToday = endDate >= chicagoDay();
+  const isToday = endDate >= clubDataDayOn(dayBasis);
 
   const gameCacheKey = useMemo(
     () =>
@@ -1137,7 +1405,7 @@ export default function ClubDataPage() {
     () => clubDataQueryKey({ kind: 'players', startDate, endDate, playerSort }),
     [startDate, endDate, playerSort]
   );
-  const gameScopeKey = [userId, clubUuid, gameCacheKey].join(':');
+  const gameScopeKey = [userId, clubUuid, gameCacheKey, reportRangeError].join(':');
   const gameSummaryScope = JSON.stringify([
     userId,
     clubUuid,
@@ -1147,7 +1415,7 @@ export default function ClubDataPage() {
     stakes,
     search,
   ]);
-  const playerScopeKey = [userId, clubUuid, playerCacheKey].join(':');
+  const playerScopeKey = [userId, clubUuid, playerCacheKey, reportRangeError].join(':');
   const invoiceCacheKey = 'kind=invoices';
   const exportViewKey = [
     userId,
@@ -1160,6 +1428,7 @@ export default function ClubDataPage() {
     tab === 'players' ? '' : stakes,
     tab === 'players' ? '' : search,
     tab === 'players' ? '' : gameSort,
+    reportRangeError,
   ].join(':');
 
   // A complete financial export belongs to the exact painted question. Abort
@@ -1314,7 +1583,13 @@ export default function ClubDataPage() {
       preserveOnError = false,
       allowSortSummary = false
     ): Promise<boolean> => {
-      if (!clubUuid || isHydrating || !userId || restoredGameKeyRef.current !== gameScopeKey)
+      if (
+        !clubUuid ||
+        isHydrating ||
+        !userId ||
+        reportRangeError ||
+        restoredGameKeyRef.current !== gameScopeKey
+      )
         return false;
       // Pagination owns its cursor while it is in flight. A heartbeat is a
       // recovery mechanism, not a reason to supersede that operator action.
@@ -1360,6 +1635,9 @@ export default function ClubDataPage() {
           ? heldSummary.snapshot
           : null;
       if (!sortOnlySummary) verifiedGameSummaryRef.current = null;
+      // Set when the answer only told the page its day basis; the re-read it
+      // causes owns the skeleton, so this one does not take it down.
+      let basisReread = false;
       try {
         // The snapshot already owns the optimized recent-row query. Running a
         // second 42k-row page sort beside it doubled cold database pressure and
@@ -1417,7 +1695,15 @@ export default function ClubDataPage() {
         const data = snapshotResult.data;
         const page = pageResult?.data as GamePage | null | undefined;
         if (rpcError) {
-          if (isAuthzError(rpcError)) {
+          if (isClubDataPacificIncomplete(rpcError)) {
+            reportError(rpcError, 'ClubDataPage.pacific_coverage');
+            removeClubDataCaches(userId, clubUuid);
+            setSnapshot(null);
+            setPlayers(null);
+            setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+            setLedgerSource('cold');
+            setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+          } else if (isAuthzError(rpcError)) {
             setError('You need to be an owner or admin of this club to see its data.');
             removeClubDataCaches(userId, clubUuid);
             setLedgerSource('cold');
@@ -1436,6 +1722,19 @@ export default function ClubDataPage() {
             if (outcome.clearData) setSnapshot(null);
           }
           if (isAuthzError(rpcError)) setSnapshot(null);
+          return false;
+        } else if (
+          dayBasisRef.current !== 'accounting' &&
+          isRecord(data) &&
+          clubDataDayBasis(data) === 'accounting' &&
+          isRecord(data.range) &&
+          isAccountingDayClamp(data.range.end, endDate)
+        ) {
+          // A union club answered for the open accounting day. Adopt its basis;
+          // the [dayBasis] effect moves the pinned end there and reads again.
+          basisReread = true;
+          basisRereadRef.current.games = showSpinner ? 'foreground' : 'background';
+          setDayBasis('accounting');
           return false;
         } else if (
           !isVerifiedSnapshot(data, expectedGameSnapshot) ||
@@ -1631,7 +1930,12 @@ export default function ClubDataPage() {
         // when a newer foreground load has taken it over - never on the
         // ordering of background polls, which is what left it up for ever.
         // See the note beside `spinnerVersion`.
-        if (!cancelledRef.current && showSpinner && spinnerVersion.current === myVersion) {
+        if (
+          !cancelledRef.current &&
+          showSpinner &&
+          spinnerVersion.current === myVersion &&
+          !basisReread
+        ) {
           setLoading(false);
         }
       }
@@ -1650,6 +1954,7 @@ export default function ClubDataPage() {
       userId,
       gameCacheKey,
       gameScopeKey,
+      reportRangeError,
     ]
   );
 
@@ -1673,6 +1978,18 @@ export default function ClubDataPage() {
     setGameCursor(null);
     gameCursorRef.current = null;
     restoredGameCacheHitRef.current = false;
+    if (reportRangeError) {
+      snapshotRef.current = null;
+      verifiedGameSummaryRef.current = null;
+      setSnapshot(null);
+      setGamesHasMore(false);
+      setError(null);
+      setLedgerSource('cold');
+      setLastVerifiedAt(null);
+      setLastRequestMs(null);
+      setLoading(false);
+      return;
+    }
     const cached = readClubDataCache<CachedGameLedger>(userId, clubUuid, gameCacheKey);
     if (!isVerifiedCachedGameLedger(cached, expectedGameSnapshot)) {
       if (cached) removeClubDataCaches(userId, clubUuid);
@@ -1699,7 +2016,15 @@ export default function ClubDataPage() {
     setLedgerSource('cached');
     const generatedAt = Date.parse(cached.snapshot.generated_at);
     setLastVerifiedAt(Number.isFinite(generatedAt) ? generatedAt : Date.now());
-  }, [clubUuid, expectedGameSnapshot, gameCacheKey, gameScopeKey, isHydrating, userId]);
+  }, [
+    clubUuid,
+    expectedGameSnapshot,
+    gameCacheKey,
+    gameScopeKey,
+    isHydrating,
+    userId,
+    reportRangeError,
+  ]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -1718,7 +2043,13 @@ export default function ClubDataPage() {
   // the same window and there is no reason to pay for it on every visit.
   const loadPlayers = useCallback(
     async (preserveOnError = false): Promise<boolean> => {
-      if (!clubUuid || isHydrating || !userId || restoredPlayerKeyRef.current !== playerScopeKey)
+      if (
+        !clubUuid ||
+        isHydrating ||
+        !userId ||
+        reportRangeError ||
+        restoredPlayerKeyRef.current !== playerScopeKey
+      )
         return false;
       // Pagination owns the cursor while it is in flight. A heartbeat is a
       // recovery mechanism, not a reason to invalidate that user action.
@@ -1750,6 +2081,7 @@ export default function ClubDataPage() {
       const showSpinner = !preserveOnError || !playersRef.current;
       let settleColdRead: ((success: boolean) => void) | undefined;
       let readSucceeded = false;
+      let basisReread = false;
       if (showSpinner) {
         playersSpinnerVersion.current = myVersion;
         setPlayersLoading(true);
@@ -1795,7 +2127,15 @@ export default function ClubDataPage() {
         const data = breakdownResult.data;
         const page = pageResult.data as PlayerPage | null;
         if (rpcError) {
-          if (isAuthzError(rpcError)) {
+          if (isClubDataPacificIncomplete(rpcError)) {
+            reportError(rpcError, 'ClubDataPage.pacific_player_coverage');
+            removeClubDataCaches(userId, clubUuid);
+            setPlayers(null);
+            setSnapshot(null);
+            setLedgerSource('cold');
+            setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+            setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+          } else if (isAuthzError(rpcError)) {
             setPlayersError('You need to be an owner or admin of this club to see player data.');
             removeClubDataCaches(userId, clubUuid);
           } else {
@@ -1809,6 +2149,18 @@ export default function ClubDataPage() {
             if (outcome.clearData) setPlayers(null);
           }
           if (isAuthzError(rpcError)) setPlayers(null);
+          return false;
+        } else if (
+          dayBasisRef.current !== 'accounting' &&
+          isRecord(data) &&
+          isRecord(data.range) &&
+          isAccountingDayClamp(data.range.end, endDate)
+        ) {
+          // The player readers keep their shape and state no basis; the same
+          // clamp tells the page this is a union club. Re-read, never paint.
+          basisReread = true;
+          basisRereadRef.current.players = showSpinner ? 'foreground' : 'background';
+          setDayBasis('accounting');
           return false;
         } else if (
           !isVerifiedPlayerBreakdown(data, expectedPlayerRange) ||
@@ -1892,7 +2244,12 @@ export default function ClubDataPage() {
         // The skeleton comes down when the request that RAISED it settles, or
         // when a newer foreground load has taken it over. Never on the
         // ordering of background polls. See `spinnerVersion`.
-        if (!cancelledRef.current && showSpinner && playersSpinnerVersion.current === myVersion) {
+        if (
+          !cancelledRef.current &&
+          showSpinner &&
+          playersSpinnerVersion.current === myVersion &&
+          !basisReread
+        ) {
           setPlayersLoading(false);
         }
       }
@@ -1907,10 +2264,33 @@ export default function ClubDataPage() {
       userId,
       playerCacheKey,
       playerScopeKey,
+      reportRangeError,
     ]
   );
 
   useLayoutEffect(() => {
+    // A rejected date question retires player reads even while its tab is hidden.
+    if (reportRangeError) {
+      if (restoredPlayerKeyRef.current !== playerScopeKey) {
+        restoredPlayerKeyRef.current = playerScopeKey;
+        playersQueryEpoch.current += 1;
+        playersVersion.current += 1;
+        playersSpinnerVersion.current = playersVersion.current;
+        playersReadInFlight.current = null;
+        coldPlayersRead.current = null;
+        playersMoreRef.current = false;
+      }
+      playersRef.current = null;
+      playerCursorRef.current = null;
+      setPlayers(null);
+      setPlayerCursor(null);
+      setPlayersHasMore(false);
+      setPlayersLoadingMore(false);
+      setPlayersPageError(null);
+      setPlayersError(null);
+      setPlayersLoading(false);
+      return;
+    }
     if (tab !== 'players') return;
     if (!clubUuid || isHydrating || !userId) return;
     const restoreKey = playerScopeKey;
@@ -1957,7 +2337,12 @@ export default function ClubDataPage() {
     userId,
     playerCacheKey,
     playerScopeKey,
+    reportRangeError,
   ]);
+
+  loadRef.current = (showSpinner: boolean, preserveOnError = false) =>
+    load(showSpinner, preserveOnError);
+  loadPlayersRef.current = (preserveOnError = false) => loadPlayers(preserveOnError);
 
   const loadMoreGames = useCallback(async () => {
     if (
@@ -2050,6 +2435,16 @@ export default function ClubDataPage() {
         whileCurrent(mountedRef, stale)
       );
       if (stale()) return;
+      if (isClubDataPacificIncomplete(pageError)) {
+        reportError(pageError, 'ClubDataPage.pacific_pagination_coverage');
+        removeClubDataCaches(userId, clubUuid);
+        setSnapshot(null);
+        setPlayers(null);
+        setLedgerSource('cold');
+        setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        return;
+      }
       const page = data as GamePage | null;
       if (
         pageError ||
@@ -2165,6 +2560,16 @@ export default function ClubDataPage() {
         PLAYER_REQUEST_TIMEOUT_MS
       );
       if (stale()) return;
+      if (isClubDataPacificIncomplete(pageError)) {
+        reportError(pageError, 'ClubDataPage.pacific_pagination_coverage');
+        removeClubDataCaches(userId, clubUuid);
+        setSnapshot(null);
+        setPlayers(null);
+        setLedgerSource('cold');
+        setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        return;
+      }
       const page = data as PlayerPage | null;
       if (
         pageError ||
@@ -2287,15 +2692,17 @@ export default function ClubDataPage() {
   // near-real-time: re-poll on an interval and whenever the tab regains focus
   useEffect(() => {
     if (!clubUuid || isHydrating || !userId) return;
-    // Roll `endDate` forward across Chicago midnight. It was set once at mount, so
+    // Roll `endDate` forward across the reporting midnight. It was set once at mount, so
     // a page left open overnight polled YESTERDAY's window forever: the owner
     // watched live rake stop growing and the forward arrow silently arm itself.
     // Only for someone still pinned to today - a deliberate step back stays.
     const pinToToday = () => {
-      const today = chicagoDay();
+      const today = clubDataDayOn(dayBasisRef.current);
       const previousToday = observedUtcDayRef.current;
       observedUtcDayRef.current = today;
-      setEndDate((cur) => (cur === previousToday || cur > today ? today : cur));
+      setEndDate((cur) =>
+        cur > today || (customStartRef.current === null && cur === previousToday) ? today : cur
+      );
     };
     const id = setInterval(() => {
       if (manualRefreshingRef.current) return;
@@ -2613,13 +3020,15 @@ export default function ClubDataPage() {
   const shiftRange = useCallback(
     (direction: -1 | 1) => {
       const d = new Date(`${endDate}T00:00:00Z`);
-      d.setUTCDate(d.getUTCDate() + direction * preset);
+      const days = clubDataRangeDays(startDate, endDate);
+      d.setUTCDate(d.getUTCDate() + direction * days);
       const next = toISODate(d);
-      const today = chicagoDay();
+      const today = clubDataDayOn(dayBasisRef.current);
       observedUtcDayRef.current = today;
-      setEndDate(next > today ? today : next);
+      const last = next > today ? today : next;
+      selectReportDates(customStart !== null ? addCalendarDays(last, 1 - days) : null, last);
     },
-    [endDate, preset]
+    [endDate, startDate, customStart, selectReportDates]
   );
 
   const refreshAll = useCallback(async () => {
@@ -2674,7 +3083,17 @@ export default function ClubDataPage() {
   }, [clubUuid, isHydrating, userId, load, loadInvoices, loadPlayers, tab, realtimeFeeds]);
 
   const exportCsv = useCallback(async () => {
-    if (!clubUuid || exporting) return;
+    // The window comes from the verified answer this export belongs to: the
+    // reader's own boundary instants when it states them (union basis),
+    // otherwise the selection on the basis that answer was given on. With no
+    // verified answer for this window there is no export (the control is
+    // disabled too): a basis is never guessed into a file.
+    const answered = snapshotRef.current;
+    if (!clubUuid || exporting || !answered) return;
+    const coverage = answered.accounting_coverage;
+    const instant = (at: string | undefined) =>
+      at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null;
+    const computed = clubDataWindow(startDate, endDate, clubDataDayBasis(answered));
     const controller = new AbortController();
     const generation = ++exportGenerationRef.current;
     const viewKey = exportViewKey;
@@ -2682,6 +3101,21 @@ export default function ClubDataPage() {
     setExporting(true);
     setExportNote(null);
     setExportProgress({ stage: 'preparing', loaded: 0, total: null });
+    const csvWindow: ExportWindow = {
+      timeZone:
+        clubDataDayBasis(snapshot) === 'calendar' ? 'America/Chicago' : 'America/Los_Angeles',
+      club: clubUuid,
+      first: startDate,
+      last: endDate,
+      game: tab === 'players' ? 'ALL' : game,
+      stakes: tab === 'players' ? 'ALL' : stakes,
+      search: tab === 'players' ? '' : search,
+      start: instant(coverage?.window_start) ?? computed?.start.toISOString() ?? '',
+      end: instant(coverage?.window_end) ?? computed?.end.toISOString() ?? '',
+    };
+    // The file name carries the pair the owner picked: first day, and the
+    // boundary the window stops at.
+    const fileWindow = `${startDate}_to_${addCalendarDays(endDate, 1)}`;
     const ownsExport = () =>
       !cancelledRef.current &&
       exportControllerRef.current === controller &&
@@ -2710,8 +3144,8 @@ export default function ClubDataPage() {
         });
         if (!ownsExport()) return;
         const downloaded = await downloadCsv(
-          `club_players_${startDate}_${endDate}.csv`,
-          playersToCsv(rows),
+          `club_players_${fileWindow}.csv`,
+          playersToCsv(rows, csvWindow),
           ownsExport
         );
         if (!ownsExport()) return;
@@ -2745,8 +3179,8 @@ export default function ClubDataPage() {
       });
       if (!ownsExport()) return;
       const downloaded = await downloadCsv(
-        `club_data_${startDate}_${endDate}.csv`,
-        rowsToCsv(rows),
+        `club_data_${fileWindow}.csv`,
+        rowsToCsv(rows, csvWindow),
         ownsExport
       );
       if (!ownsExport()) return;
@@ -2841,9 +3275,31 @@ export default function ClubDataPage() {
   );
 
   const summary = snapshot?.summary;
+  // Every label states the basis the visible answer was given on, including
+  // older Chicago answers during a compatible rollout;
+  // before an answer, the basis "today" is counted on.
+  const answerBasis: ClubDataDayBasis = snapshot ? clubDataDayBasis(snapshot) : dayBasis;
+  // The window by its real boundaries: the reader's own instants when it
+  // stated them, otherwise the selection on this club's basis.
+  const completeWindowLabel =
+    (snapshot && coverageWindowLabel(snapshot.accounting_coverage)) ||
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const windowLabel = isToday
+    ? completeWindowLabel.replace(/ To .*$/, ' To Now')
+    : completeWindowLabel;
+  const notices = coverageNotices(snapshot?.accounting_coverage);
+  const unionBasis = answerBasis === 'accounting';
   const filtersActive = game !== 'ALL' || stakes !== 'ALL' || search.trim() !== '';
+  const weeklyPlayerResults = useMemo(() => {
+    if (!latestInvoice?.breakdown) return null;
+    try {
+      return parseWeeklyPlayerResults(latestInvoice.breakdown);
+    } catch {
+      return null;
+    }
+  }, [latestInvoice]);
   const unionOwesClub = latestInvoice?.direction === 'union owes club';
-  const delta = snapshot?.delta;
+  const delta = snapshot?.previous_coverage?.complete === false ? undefined : snapshot?.delta;
   const prevRange = snapshot?.previous_range;
 
   const onTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -2864,6 +3320,10 @@ export default function ClubDataPage() {
   // "Vs Prev 14 Days" under a headline number. Null pct means the prior window was
   // zero, and nothing is a percentage of nothing - so nothing is shown.
   const prevDaysCount = prevRange?.days ?? preset;
+  const prevWindowLabel = prevRange
+    ? clubDataWindowLabel(prevRange.start, prevRange.end, answerBasis) ||
+      `${prevRange.start} To ${prevRange.end}`
+    : '';
   const prevDays = `${prevDaysCount} Day${prevDaysCount === 1 ? '' : 's'}`;
   const pctNote = (pct: number | null | undefined) => {
     if (pct === null || pct === undefined || !Number.isFinite(Number(pct))) return null;
@@ -2874,7 +3334,7 @@ export default function ClubDataPage() {
     return (
       <span
         className={`${styles.delta} ${cls}`}
-        title={prevRange ? `Previous Period ${prevRange.start} To ${prevRange.end}` : undefined}
+        title={prevRange ? `Previous Period ${prevWindowLabel}` : undefined}
       >
         {v > 0 ? '+' : ''}
         {/* prevRange, not `preset`: the preset flips the instant the button is
@@ -2892,7 +3352,7 @@ export default function ClubDataPage() {
     return (
       <span
         className={`${styles.delta} ${cls}`}
-        title={prevRange ? `Previous Period ${prevRange.start} To ${prevRange.end}` : undefined}
+        title={prevRange ? `Previous Period ${prevWindowLabel}` : undefined}
       >
         {v > 0 ? '+' : ''}
         {`${money(v)} Vs Prev ${prevDays}`}
@@ -3039,6 +3499,15 @@ export default function ClubDataPage() {
       data-page="club-data"
       data-club-data-mode={advanced ? 'advanced' : 'simple'}
     >
+      {sourceRow?.key === gameScopeKey && clubUuid && (
+        <ClubDataSourceDetails
+          row={sourceRow.row}
+          clubId={clubUuid}
+          start={startDate}
+          end={endDate}
+          onClose={() => setSourceRow(null)}
+        />
+      )}
       <header className={styles.simpleHeader}>
         <button
           type="button"
@@ -3055,8 +3524,12 @@ export default function ClubDataPage() {
             className={styles.word}
             aria-pressed={!advanced}
             onClick={() => {
-              setAdvanced(false);
-              setTab('games');
+              saveAdvanced(false);
+              saveTab('games');
+              const next = new URLSearchParams(searchParams);
+              next.set('view', 'simple');
+              next.set('dataTab', 'games');
+              setSearchParams(next, { replace: true });
             }}
           >
             Simple
@@ -3136,7 +3609,8 @@ export default function ClubDataPage() {
                 else void exportCsv();
               },
               disabled:
-                !exporting && (tab === 'players' ? !sortedPlayers.length : !snapshot?.rows?.length),
+                !exporting &&
+                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
               'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
               title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
             },
@@ -3189,13 +3663,22 @@ export default function ClubDataPage() {
           )}
         </SpadeConsole>
 
-        {clubUuid && (
+        {/* Rake production and invoice results retain their own financial
+          definitions, while this Data panel shares the Pacific date window. */}
+        {clubUuid && unionBasis && (
+          <DataHelpTip label="About Agent Rake Production">
+            <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
+          </DataHelpTip>
+        )}
+        {clubUuid && !reportRangeError && (
           <RakeSnapshotPanel
+            reportBasis="pacific"
+            reportRange={{ start: startDate, end: endDate }}
             unframed
             clubId={clubUuid}
             userId={userId}
             scopes={rakeScopes}
-            active={advanced}
+            active={advanced && !reportRangeError}
             refreshToken={rakeRefreshKey}
           />
         )}
@@ -3298,17 +3781,25 @@ export default function ClubDataPage() {
               className={`${styles.word} ${styles.arrow} sc-ink--white`}
               onClick={() => shiftRange(-1)}
               aria-label="Previous Period"
+              disabled={
+                addCalendarDays(startDate, -clubDataRangeDays(startDate, endDate)) <
+                clubDataOldestDay(clubDataDayOn('pacific'))
+              }
             >
               Prev
             </button>
-            <span className={`sc-ink--silver ${styles.rangeChip}`}>
-              <span>{startDate}</span>
-              <span className={`sc-ink--muted ${styles.rangeDivider}`}>-</span>
-              <span>{endDate}</span>
+            <button
+              type="button"
+              className={`${styles.word} sc-ink--silver ${styles.rangeChip}`}
+              aria-label="Select Date Range"
+              aria-expanded={editingDates}
+              onClick={() => setEditingDates(true)}
+            >
+              <span>{windowLabel}</span>
               <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>
                 {CLUB_DATA_ZONE_LABEL}
               </span>
-            </span>
+            </button>
             <button
               type="button"
               className={`${styles.word} ${styles.arrow} sc-ink--white`}
@@ -3320,23 +3811,53 @@ export default function ClubDataPage() {
             </button>
           </div>
 
-          <label className={styles.calendarField}>
-            <span>Period Ending ({CLUB_DATA_ZONE_LABEL})</span>
-            <input
-              type="date"
-              aria-label={`Period Ending (${CLUB_DATA_ZONE_LABEL})`}
-              value={endDate}
-              max={chicagoDay()}
-              onChange={(event) => {
-                const value = event.target.value;
-                const today = chicagoDay();
-                if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value <= today) {
-                  observedUtcDayRef.current = today;
-                  setEndDate(value);
-                }
+          {reportRangeError && (
+            <p role="alert" className={styles.note}>
+              {reportRangeError}
+            </p>
+          )}
+          <ClubDataReportGuide
+            start={startDate}
+            end={endDate}
+            basis={answerBasis}
+            union={unionBasis}
+          />
+
+          {editingDates && (
+            <ClubDataRangeCalendar
+              start={startDate}
+              end={endDate}
+              today={clubDataDayOn(dayBasis)}
+              zoneLabel={
+                answerBasis === 'accounting'
+                  ? 'Pacific Accounting Dates'
+                  : answerBasis === 'pacific'
+                    ? 'Pacific Calendar Dates'
+                    : 'Chicago Calendar Dates'
+              }
+              onClose={() => setEditingDates(false)}
+              onApply={(first, last) => {
+                selectReportDates(first, last);
+                setEditingDates(false);
               }}
             />
-          </label>
+          )}
+          <DataHelpTip alert={Boolean(notices.incomplete)}>
+            <p>{clubDataDayRule(answerBasis)}.</p>
+            {snapshot && answerBasis === 'accounting' && <p>{UNION_BASIS_DEFINITIONS}</p>}
+            {unionBasis && (
+              <p>
+                Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total
+                Winnings. On The Felt Now Is Not Added To Total Winnings.
+              </p>
+            )}
+            {notices.provisional && <p role="status">{notices.provisional}</p>}
+            {notices.incomplete && (
+              <p className="sc-ink--red" role="alert">
+                {notices.incomplete}
+              </p>
+            )}
+          </DataHelpTip>
           {/* role="group" + aria-pressed, not a tablist. These control no tabpanel,
           and the stakes row is a TOGGLE - tapping the active chip clears it,
           which is impossible for a tab and leaves a tablist with nothing
@@ -3346,9 +3867,12 @@ export default function ClubDataPage() {
               <button
                 key={p}
                 type="button"
-                aria-pressed={preset === p}
-                className={`${styles.word} ${preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
-                onClick={() => setPreset(p)}
+                aria-pressed={customStart === null && preset === p}
+                className={`${styles.word} ${customStart === null && preset === p ? 'sc-ink--white' : 'sc-ink--muted'}`}
+                onClick={() => {
+                  selectReportDates(null, clubDataDayOn(dayBasisRef.current));
+                  setPreset(p);
+                }}
               >
                 {p === 1 ? '1 Day' : `${p} Days`}
               </button>
@@ -3378,6 +3902,11 @@ export default function ClubDataPage() {
               {summary ? money(summary.total_winnings) : NO_VALUE}
             </dd>
             {summary && <dd className={styles.figureMeta}>{absNote(delta?.winnings_abs)}</dd>}
+            {summary && unionBasis && typeof summary.on_felt === 'number' && (
+              <dd className={`sc-ink--muted ${styles.figureMeta}`}>
+                On The Felt Now {money(summary.on_felt)}
+              </dd>
+            )}
           </div>
           <div className={`${styles.dataRow} ${styles.figureRow}`}>
             <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>MTT Winnings</dt>
@@ -3420,6 +3949,31 @@ export default function ClubDataPage() {
           RENDERED on the Games tab. Switching to Players left Omaha-only totals
           sitting above a whole-club per-player breakdown with nothing saying
           so. Say so. */}
+        {snapshot && (
+          <ClubDataReconciliation
+            basis={snapshot.accounting_basis}
+            coverage={snapshot.accounting_coverage}
+            range={snapshot.range}
+            reconciliation={summary?.reconciliation}
+            generatedAt={snapshot.generated_at}
+            onGames={() => openReportBreakdown('games')}
+            onPlayers={() => openReportBreakdown('players')}
+            onHistory={
+              latestInvoice
+                ? () => {
+                    setAdvanced(true);
+                    setShowInvoiceDetail(true);
+                    setShowInvoiceHistory(true);
+                    requestAnimationFrame(() =>
+                      document
+                        .getElementById('club-data-statement-title')
+                        ?.scrollIntoView({ block: 'start' })
+                    );
+                  }
+                : undefined
+            }
+          />
+        )}
         {summary && filtersActive && (
           <p className={`sc-copy ${styles.note}`} role="status">
             These Totals Are Filtered{game !== 'ALL' ? ` - ${titleCase(game)}` : ''}
@@ -3492,15 +4046,16 @@ export default function ClubDataPage() {
                   <div className={styles.dataRow}>
                     <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Period</span>
                     <span className={`sc-ink--silver ${styles.dataValue}`}>
-                      {String(latestInvoice.period_start || '').slice(0, 10)} To{' '}
-                      {String(latestInvoice.period_end || '').slice(0, 10)}
+                      {latestInvoice.period_start && latestInvoice.period_end
+                        ? `${chicagoBoundaryStamp(latestInvoice.period_start)} To ${chicagoBoundaryStamp(latestInvoice.period_end)} ${CLUB_DATA_ZONE_LABEL}`
+                        : 'Unknown'}
                     </span>
                   </div>
                   {latestInvoice.due_at && (
                     <div className={styles.dataRow}>
                       <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Due</span>
                       <span className={`sc-ink--silver ${styles.dataValue}`}>
-                        {String(latestInvoice.due_at).slice(0, 10)}
+                        {chicagoBoundaryStamp(latestInvoice.due_at)} {CLUB_DATA_ZONE_LABEL}
                       </span>
                     </div>
                   )}
@@ -3554,6 +4109,11 @@ export default function ClubDataPage() {
                     <span className={`sc-label sc-ink--blue ${styles.blockLabel}`}>
                       Statement Detail
                     </span>
+                    <p className="sc-copy">
+                      Negative Player Net Loss Means Players Won. Full Weekly Net Is A Summary, Not
+                      An Additional Payment Request. The Unpaid Balance Follows The Statement
+                      Direction.
+                    </p>
                     {[
                       // The figures come from the invoice; the percentages used to be
                       // literals, so any club on a non-standard deal got a label that
@@ -3568,6 +4128,19 @@ export default function ClubDataPage() {
                         latestInvoice.breakdown.union_fee_kept,
                       ],
                       ['Player Win/Loss', latestInvoice.breakdown.players_won],
+                      ['Cash Player Net Loss', weeklyPlayerResults?.cash_net_loss ?? null],
+                      [
+                        'Tournament Player Net Loss',
+                        weeklyPlayerResults?.tournament_net_loss ?? null,
+                      ],
+                      ['Total Player Net Loss', weeklyPlayerResults?.total_net_loss ?? null],
+                      ['Less Club Rakeback Credit', weeklyPlayerResults?.rakeback_credit ?? null],
+                      ['ECO Charge Or Credit', weeklyPlayerResults?.eco_charge ?? null],
+                      [
+                        'Full Weekly Net (Positive Club Owes)',
+                        weeklyPlayerResults?.weekly_net_due_to_union ?? null,
+                      ],
+                      ['Remaining Unpaid Balance', latestInvoice.outstanding],
                       ['Settled In Chips', latestInvoice.breakdown.settled_in_chips],
                       ['Combined ECO Adjustment', latestInvoice.breakdown.eco_amount],
                       ...unionEcoRows(latestInvoice.breakdown),
@@ -3599,8 +4172,9 @@ export default function ClubDataPage() {
                     {olderInvoices.map((inv) => (
                       <div className={styles.dataRow} key={inv.invoice_id}>
                         <span className={`sc-copy ${styles.lineLabel}`}>
-                          {String(inv.period_start || '').slice(0, 10)} To{' '}
-                          {String(inv.period_end || '').slice(0, 10)}
+                          {inv.period_start && inv.period_end
+                            ? `${chicagoBoundaryStamp(inv.period_start)} To ${chicagoBoundaryStamp(inv.period_end)}`
+                            : 'Unknown'}
                         </span>
                         <span
                           className={`${inv.direction === 'union owes club' ? 'sc-ink--green' : 'sc-ink--silver'} ${styles.dataValue}`}
@@ -3779,9 +4353,7 @@ export default function ClubDataPage() {
                   type="button"
                   className={`${styles.word} sc-ink--white`}
                   onClick={() => {
-                    setGame('ALL');
-                    setStakes('ALL');
-                    setSearchInput('');
+                    clearFilters();
                     setSearch('');
                   }}
                 >
@@ -3889,9 +4461,14 @@ export default function ClubDataPage() {
                       </div>
 
                       <div className={styles.rowMain}>
-                        <span className={`sc-ink--silver ${styles.rowName}`} title={gameName}>
+                        <button
+                          type="button"
+                          className={`${styles.word} ${styles.rowName}`}
+                          onClick={() => setSourceRow({ key: gameScopeKey, row })}
+                          title="View Game Source"
+                        >
                           {gameName}
-                        </span>
+                        </button>
                         <span className={styles.rowTags}>
                           {row.rake_percent !== null && (
                             <span className={`sc-label sc-ink--blue ${styles.tag}`}>
@@ -4013,7 +4590,7 @@ export default function ClubDataPage() {
                   {money(playerTotals.net)} Net
                 </span>
                 <span className={`sc-ink--silver ${styles.totalsItem}`}>
-                  {money(playerTotals.rake)} Rake
+                  {money(playerTotals.rake)} {unionBasis ? 'Fee' : 'Rake'}
                 </span>
               </div>
             )}
@@ -4109,7 +4686,8 @@ export default function ClubDataPage() {
                           {playerName}
                         </span>
                         <span className={`sc-ink--muted ${styles.rowSub}`}>
-                          {compactInt(pl.hands)} Hands &middot; {money(pl.rake)} Rake
+                          {compactInt(pl.hands)} Hands &middot; {money(pl.rake)}{' '}
+                          {unionBasis ? 'Fee' : 'Rake'}
                         </span>
                       </div>
 
@@ -4166,22 +4744,27 @@ export default function ClubDataPage() {
             )}
 
             {players && !playersError && (
-              <p className={`sc-copy ${styles.note}`}>
-                A Positive Net Means The Player Is Up.
-                {(() => {
-                  // Sliced, not compared raw: this is typed `string` and a
-                  // timestamp would both fail the comparison - silently
-                  // suppressing the caveat exactly when it matters - and print
-                  // its time component into the sentence.
-                  const through = String(players.rake_complete_through || '').slice(0, 10);
-                  return through && through < endDate
-                    ? ` Per-Player Rake Is Complete Through ${through}. Today's Rake Lands In Tomorrow's Rollup.`
-                    : '';
-                })()}
-                {players.player_count > sortedPlayers.length
-                  ? ` Loaded ${compactInt(sortedPlayers.length)} Of ${compactInt(players.player_count)} Players, Ordered By ${PLAYER_SORTS.find((option) => option.id === playerSort)?.label || 'Server Rank'}.`
-                  : ''}
-              </p>
+              <DataHelpTip label="About These Player Figures">
+                <p>
+                  A Positive Net Means The Player Is Up.
+                  {unionBasis
+                    ? " Union Invoice Basis: Net Is The Player's Total Winnings And Fee Is The Rake Credited For The Player, In This Window."
+                    : ''}
+                  {(() => {
+                    // Sliced, not compared raw: this is typed `string` and a
+                    // timestamp would both fail the comparison - silently
+                    // suppressing the caveat exactly when it matters - and print
+                    // its time component into the sentence.
+                    const through = String(players.rake_complete_through || '').slice(0, 10);
+                    return through && through < endDate
+                      ? ` Per-Player Rake Is Complete Through ${through}. Today's Rake Lands In Tomorrow's Rollup.`
+                      : '';
+                  })()}
+                  {players.player_count > sortedPlayers.length
+                    ? ` Loaded ${compactInt(sortedPlayers.length)} Of ${compactInt(players.player_count)} Players, Ordered By ${PLAYER_SORTS.find((option) => option.id === playerSort)?.label || 'Server Rank'}.`
+                    : ''}
+                </p>
+              </DataHelpTip>
             )}
           </div>
         )}

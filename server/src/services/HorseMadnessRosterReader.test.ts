@@ -54,7 +54,9 @@ describe('the existing roster read supplies advisory Madness performance', () =>
           bomb_pot_enabled: true,
           big_blind_ante_enabled: true,
           nit_game: true,
-          maintain_percent_min: 50,
+          // Every PLO table reads 40 since 2026-11-17; the ruleset is the identity.
+          maintain_percent_min: 40,
+          rules_profile: 'madness_without_lightning',
         },
         getPloPerformance()
       )[0].h.id

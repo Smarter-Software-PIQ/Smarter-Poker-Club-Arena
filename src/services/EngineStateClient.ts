@@ -627,7 +627,7 @@ export class EngineStateClient {
           window.clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
-        this.inbox = [];
+        this.clearInboxFrames();
         const dead = this.ws;
         this.ws = null;
         if (dead instanceof MuxTableSocket) {
@@ -1071,7 +1071,159 @@ export class EngineStateClient {
    *    the old zero-latency fast path.
    */
   private inbox: ServerMessage[] = [];
+  /** Arrival time (epoch ms) of each queued frame, index for index with `inbox`. */
+  private inboxArrivedAt: number[] = [];
   private drainScheduled = false;
+  /**
+   * ═══ THE QUEUE NEVER SHOWS THE PAST (2026-11-14) ═══
+   *
+   * The FIFO above had an order and no clock. One EVENT per macrotask, each a
+   * full synchronous render, is free on a fast device. On a device that
+   * renders an event slower than the engine emits them the queue only grows,
+   * and everything behind it, the state frames and the player's own
+   * `turn_change` included, is shown later and later.
+   *
+   * Whytegold502, Android tablet, 2026-11-14: his answers took 4 seconds at
+   * the start of a session, 26 seconds ten minutes in, and then his taps
+   * reached the engine 5 to 22 seconds after his clock had already expired.
+   * Twenty-four of his next 25 turns were folded or checked for him at 17 seconds
+   * and he was sat out again and again, while he sat there pressing Fold on
+   * a table that was showing him the past. A reload emptied the queue and it
+   * began to fill again.
+   *
+   * Two bounds, both measured from when a frame ARRIVED:
+   *
+   *  - Past INBOX_CATCH_UP_MS the drain stops yielding between events. Each
+   *    event still reaches its listener on its own, in order, so nothing is
+   *    lost; what is saved is a paint and a timer wait per event.
+   *  - Past INBOX_STALE_MS, on a visible page, the moments in the queue are
+   *    history. `skipToPresent` applies every queued STATE frame, delivers
+   *    what is still owed, and reports the hole once as `engine_event_gap`,
+   *    the notice a reconnect raises and the table already recovers from.
+   *
+   * A device that keeps up never reaches either bound.
+   */
+  static readonly INBOX_CATCH_UP_MS = 400;
+  static readonly INBOX_STALE_MS = 3_000;
+  /** Events one drain may dispatch back to back before it lets input in. */
+  static readonly INBOX_CATCH_UP_BURST = 8;
+
+  private headWaitMs(): number {
+    const arrivedAt = this.inboxArrivedAt[0];
+    return typeof arrivedAt === 'number' ? Date.now() - arrivedAt : 0;
+  }
+
+  private takeHead(): ServerMessage {
+    this.inboxArrivedAt.shift();
+    return this.inbox.shift()!;
+  }
+
+  /** Counts every emptying of the queue, so a walk over old frames can tell. */
+  private inboxEpoch = 0;
+
+  private clearInboxFrames(): void {
+    this.inbox = [];
+    this.inboxArrivedAt = [];
+    this.inboxEpoch++;
+  }
+
+  /**
+   * The head of the queue arrived more than INBOX_STALE_MS ago. Bring the
+   * table to the present. Frames are walked in arrival order:
+   *
+   *  - every STATE frame is applied, so the table ends exactly current;
+   *  - an event the ENGINE says is still owed is delivered. The hub's own
+   *    rule decides that, not a list kept here: an event carrying a numeric
+   *    `replay_until` is one the hub would hand again to a client that missed
+   *    it, and it arrives tagged `replayed: true` as a hub replay does;
+   *  - the newest `turn_change` is delivered, under the same rule as the live
+   *    path (released only against the state it belongs to);
+   *  - every other event is a moment that has passed. It is what a client
+   *    that reconnected a second ago would never have been sent.
+   */
+  private skipToPresent(): void {
+    const frames = this.inbox;
+    const waitedMs = this.headWaitMs();
+    this.clearInboxFrames();
+    let newestTurnChange = -1;
+    for (let i = 0; i < frames.length; i++) {
+      const msg = frames[i];
+      if (msg.type === 'EVENT' && msg.payload?.type === 'turn_change') newestTurnChange = i;
+    }
+    const expectedEventSeq = this.lastEventSeq + 1;
+    let gapReported = false;
+    let skipped = 0;
+    this.eventGapReportedForSeq = 0;
+    this.pendingTurnChange = null;
+    const epoch = this.inboxEpoch;
+    for (let i = 0; i < frames.length; i++) {
+      // A listener closed or replaced the socket: these frames are a dead
+      // connection's now, and must not reach the next one.
+      if (this.inboxEpoch !== epoch) return;
+      const msg = frames[i];
+      if (msg.type === 'SNAPSHOT' || msg.type === 'DELTA') {
+        this.applyStateFrame(msg);
+        continue;
+      }
+      if (msg.type !== 'EVENT') continue;
+      noteServerTime((msg as { ts?: number }).ts);
+      const seq = (msg as { seq?: number }).seq;
+      if (typeof seq === 'number' && seq > 0) {
+        if (seq <= this.lastEventSeq) continue;
+        this.lastEventSeq = seq;
+      }
+      const payload = msg.payload;
+      const stillOwed = Number.isFinite(Number(payload?.replay_until ?? NaN));
+      if (i !== newestTurnChange && !stillOwed) {
+        skipped++;
+        if (!gapReported) {
+          gapReported = true;
+          // Once, and before anything later: the table arms its recovery here.
+          this.reportEventGap('event_sequence_gap', expectedEventSeq, this.lastEventSeq);
+        }
+        continue;
+      }
+      if (i === newestTurnChange) {
+        const decision = payload?.action_context;
+        if (
+          typeof decision === 'string' &&
+          decision.length > 0 &&
+          decision !== this.snapshot?.action_context
+        ) {
+          this.pendingTurnChange = payload;
+          this.requestResync();
+          continue;
+        }
+      }
+      try {
+        this.opts.onEvent(i === newestTurnChange ? payload : { ...payload, replayed: true });
+      } catch (err) {
+        console.error('[EngineStateClient] onEvent listener threw', err);
+      }
+    }
+    if (skipped > 0) this.noteSkippedToPresent(skipped, waitedMs);
+  }
+
+  private lastSkipReportedAt = 0;
+
+  /** Somebody has to be told (CLAUDE.md 10.83). One report a minute, never awaited. */
+  private noteSkippedToPresent(skippedEvents: number, waitedMs: number): void {
+    const now = Date.now();
+    if (now - this.lastSkipReportedAt < 60_000) return;
+    this.lastSkipReportedAt = now;
+    void import('../utils/errorReporter')
+      .then((m) =>
+        m.reportError(
+          new Error('Table Display Fell Behind The Engine And Was Brought To The Present'),
+          'EngineStateClient.inbox_skipped_to_present',
+          { skippedEvents, waitedMs: Math.round(waitedMs) }
+        )
+      )
+      .catch(() => {
+        /* telemetry never disturbs the table */
+      });
+  }
+
   /**
    * SHOWDOWN POLISH review fix: consume the hub's per-table EVENT seq —
    * duplicates and out-of-order replays on the SAME connection are dropped.
@@ -1149,7 +1301,7 @@ export class EngineStateClient {
       msg.type === 'EVENT' &&
       (msg.payload as { type?: string } | undefined)?.type === 'engine_restarting'
     ) {
-      this.inbox = [];
+      this.clearInboxFrames();
       this.lastEventSeq = 0;
       this.eventGapReportedForSeq = 0;
       this.pendingTurnChange = null;
@@ -1221,6 +1373,7 @@ export class EngineStateClient {
       return;
     }
     this.inbox.push(msg);
+    this.inboxArrivedAt.push(Date.now());
     this.scheduleDrain();
   }
 
@@ -1234,8 +1387,20 @@ export class EngineStateClient {
   }
 
   private drainInbox(): void {
+    let dispatched = 0;
     while (this.inbox.length > 0) {
-      const msg = this.inbox.shift()!;
+      // Only in front of somebody. A hidden tab's timers are throttled by the
+      // browser, so its queue is late by design; it is brought to the present
+      // on the first drain after it is shown again.
+      if (
+        this.headWaitMs() >= EngineStateClient.INBOX_STALE_MS &&
+        !(typeof document !== 'undefined' && document.visibilityState === 'hidden')
+      ) {
+        this.skipToPresent();
+        return;
+      }
+      const arrivedAt = this.inboxArrivedAt[0];
+      const msg = this.takeHead();
       if (msg.type === 'EVENT') {
         // BBJ build plan phase 1: every EVENT envelope carries the engine's
         // clock at send time. Noted BEFORE dispatch so a listener that
@@ -1257,6 +1422,7 @@ export class EngineStateClient {
             this.eventGapReportedForSeq = seq;
             this.requestResync();
             this.inbox.unshift(msg);
+            this.inboxArrivedAt.unshift(arrivedAt);
             this.reportEventGap('event_sequence_gap', this.lastEventSeq + 1, seq);
             this.scheduleDrain();
             return;
@@ -1288,7 +1454,15 @@ export class EngineStateClient {
           // message pump — it would kill the connection.
           console.error('[EngineStateClient] onEvent listener threw', err);
         }
-        // One render per event: yield before anything else is observed.
+        // One render per event: yield before anything else is observed,
+        // unless the queue has fallen behind. Then the next event follows at
+        // once, still on its own dispatch, for a bounded burst.
+        dispatched++;
+        if (
+          dispatched < EngineStateClient.INBOX_CATCH_UP_BURST &&
+          this.headWaitMs() >= EngineStateClient.INBOX_CATCH_UP_MS
+        )
+          continue;
         if (this.inbox.length > 0) this.scheduleDrain();
         return;
       }
@@ -1348,7 +1522,7 @@ export class EngineStateClient {
    */
   private resetInbox(): void {
     this.clearForegroundStateProbe();
-    this.inbox = [];
+    this.clearInboxFrames();
     this.lastEventSeq = 0;
     this.eventGapReportedForSeq = 0;
     this.pendingTurnChange = null;

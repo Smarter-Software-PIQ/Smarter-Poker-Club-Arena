@@ -490,7 +490,16 @@ export function seatPodPx(
   const pod = isHero ? rung.hero : rung.villain;
   if (!canvasWidthPx || !Number.isFinite(canvasWidthPx)) return pod;
   const avatar = Math.min(124, Math.max(50, canvasWidthPx * 0.158));
-  const proportionalWidth = isHero ? avatar * (4 / 3) * (8 / 7) : avatar * 1.143;
+  // Six-seat portrait tables use the same hero slot as the other chairs.
+  // Match SeatSlot.css so marker clearance measures the actual player pod.
+  const heroRatio =
+    viewportWidthPx > PHONE_TABLE_MAX_DEVICE_WIDTH_PX &&
+    viewportWidthPx <= 640 &&
+    (ring?.canvasHeightPx ?? 0) > canvasWidthPx &&
+    ring?.seats === 6
+      ? 1
+      : 4 / 3;
+  const proportionalWidth = isHero ? avatar * heroRatio * (8 / 7) : avatar * 1.143;
   const minWidth = Math.min(112, Math.max(66, canvasWidthPx * 0.235));
   const mobile = viewportWidthPx <= 640;
   const minimumHeight = mobile ? Math.min(48, Math.max(40, canvasWidthPx * 0.105)) : 54;
@@ -499,7 +508,7 @@ export function seatPodPx(
   const padding = mobile ? Math.min(7, Math.max(3, canvasWidthPx * 0.012)) : 8;
   // Two 1.3-line-height lines, both vertical pads and the 1.5px border.
   const plateHeight = Math.max(minimumHeight, (nameFont + stackFont) * 1.3 + padding * 2 + 3);
-  const slot = isHero ? avatar * (4 / 3) : avatar;
+  const slot = isHero ? avatar * heroRatio : avatar;
   return {
     w: Math.max(minWidth, proportionalWidth),
     h: slot + plateHeight - Math.max(3, slot * 0.0714),
@@ -546,6 +555,18 @@ export function fitSeatToViewport(
   // occupy, so a top player's plate and tag landed on the high side player's
   // tag and bounty. They now keep their ring x (27/73 on 7-9 max), which puts
   // them over the top of the rail, clear of both side columns.
+  // Nine seats on the phone's 600px canvas use three mirrored rail stations.
+  // The middle side chair is halfway between the two corner chairs.
+  if (maxPlayers === 9 && viewportWidthPx > 480 && viewportWidthPx <= 640 && canvas.h > canvas.w) {
+    const y = seat.y === 58 ? (25 + 82.5) / 2 : seat.y;
+    // The viewport is a clipping boundary. Side chairs belong to the
+    // painted rail, even when the shorter observer canvas leaves wide gutters.
+    // The 605px chassis has opaque side rail at x=20 and the lower
+    // shoulder begins at x=40. Keep the chair axis just inside that rim.
+    const rail = seat.y === 82.5 ? 8 : 6;
+    const x = seat.y >= 20 && seat.y < 100 ? (seat.x < 50 ? rail : 100 - rail) : seat.x;
+    return { x: Math.max(minX, Math.min(maxX, x)), y };
+  }
   const portraitPhone = viewportWidthPx <= 480 && canvas.h > canvas.w;
   // Full-width spectator caps keep their desktop ring positions. The very
   // shortest phones retain the separate compact cap lanes.
@@ -1366,15 +1387,11 @@ function feltTextRectSq(size: Size): RectSq {
   const metaPx =
     FELT_TEXT_BAND.lines * FELT_TEXT_BAND.lineHeightPx +
     (FELT_TEXT_BAND.lines - 1) * FELT_TEXT_BAND.lineGapPx;
-  // Phone CSS: 3px logo gap, single identity line at 7px/1.15,
-  // game clamp(7px, 6.5cqw, 10px), hand/bomb 6px, three 1px row gaps.
-  const phoneGamePx = Math.max(7, Math.min(10, brandPx * 0.065));
+  // Mirror the phone caption and cash stakes clamps in TablePage.css.
+  const captionPx = 0.67 * Math.max(11, Math.min(13, brandPx * 0.06));
+  const stakesPx = 0.67 * Math.max(13, Math.min(16, brandPx * 0.105));
   const heightPx = size.railBets
-    ? brandPx / FELT_TEXT_BAND.logoAspect +
-      3 +
-      (size.w <= 340 * 0.82 ? 6 : 7) * 1.15 +
-      (phoneGamePx + 6 + 6) * 1.6 +
-      3
+    ? brandPx / FELT_TEXT_BAND.logoAspect + 3 + (captionPx * 3 + stakesPx) * 1.3 + 3
     : brandPx / FELT_TEXT_BAND.logoAspect + FELT_TEXT_BAND.logoToMetaGapPx + metaPx;
   const u = unitPx(size);
   const topYPct = FELT_WINDOW.top + (FELT_TEXT_BAND.topOfFeltYPct / 100) * FELT_WINDOW.height;

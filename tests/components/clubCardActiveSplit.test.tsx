@@ -45,11 +45,11 @@ describe('the club card prints active players by game', () => {
   it('opens on zeros, never the word unavailable, until the split lands', () => {
     render(
       <ClubCardPanel
-        clubName="SHARK CLUB"
+        clubName="CLUB JAQK"
         totalMembers={null}
         clubLevel={null}
         activePlayers={null}
-        clubId={25450}
+        clubId={77777}
       />
     );
     expect(splitText()).toBe('0 CASH 0 EVENTS');

@@ -155,6 +155,27 @@ describe('the decision closure', () => {
     expect(closure.some(isHorseDecisionClosureRegistry)).toBe(false);
   });
 
+  /**
+   * 2026-11-14. The engine alert plumbing is operations code, not decision code. When client.ts imported the
+   * telemetry gap alert, four alert files joined this closure, so any later alert edit would have moved the
+   * decision policy digest and spent another lane's held-out qualification. The decision path reports through a
+   * sink the main process injects (index.ts, setBrainTelemetryGapSink) and never imports an alert module.
+   */
+  it('holds no engine alert file', () => {
+    const alertFile = /(?:^|\/)(?:engineAlert[A-Za-z]*|horseTelemetryGapAlert)\.ts$/;
+    expect(closure.filter((p) => alertFile.test(p))).toEqual([]);
+    // the guard is real: the files it names exist outside the closure
+    for (const p of [
+      'src/services/engineAlerts.ts',
+      'src/services/engineAlertDelivery.ts',
+      'src/services/engineAlertJournal.ts',
+      'src/services/horseTelemetryGapAlert.ts',
+    ]) {
+      expect(alertFile.test(p), p).toBe(true);
+      expect(existsSync(path.join(serverRoot, p)), p).toBe(true);
+    }
+  });
+
   it('a new runtime import enters the closure; a type-only import does not', () => {
     const files: Record<string, string> = {
       'src/a.ts':

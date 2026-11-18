@@ -260,8 +260,15 @@ export function CardImage({
   useLayoutEffect(() => {
     const canvas = artworkRef.current;
     if (!canvas) return;
-    if (loading === 'eager' && imagePath !== null) drawDecodedCardImage(imagePath, canvas);
+    const paint = () => {
+      if (loading === 'eager' && imagePath !== null) drawDecodedCardImage(imagePath, canvas);
+    };
+    paint();
+    // Table switches and responsive layouts change the actual card resolution.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(paint);
+    observer?.observe(canvas.parentElement ?? canvas);
     return () => {
+      observer?.disconnect();
       delete canvas.dataset.cardArtworkReady;
       canvas.width = 0;
       canvas.height = 0;

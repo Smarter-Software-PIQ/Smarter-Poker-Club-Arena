@@ -55,6 +55,16 @@ export const LONE_TABLE_MINUTES = 10;
  */
 export const OPENING_FEEDER_GRACE_MINUTES = 3;
 
+/**
+ * A GAME IS NOT BROKEN RIGHT AWAY AFTER A HUMAN LEAVES (Dan 2026-11-11:
+ * "20-30 MINUTE MINIMUM TIME TO BREAK A GAME"). A lone horse at a table a
+ * playing human left inside the table's human-departure dwell stays seated,
+ * so the game is still there to rejoin and the fleet has time to refill it.
+ * The default is the top of the owner's window; callers pass the table's own
+ * deterministic 20-30 minute dwell (HorseUnionCashPlan).
+ */
+export const HUMAN_DEPARTURE_DEFAULT_DWELL_MINUTES = 30;
+
 export interface SeedPlan {
   /** The table belongs to a must-move game (`tables.cluster_id` set). */
   clusterTable: boolean;
@@ -114,6 +124,10 @@ export interface LoneStandSituation {
   minutesSeated: number;
   /** Minutes since the last hand recorded at this table; null when none was. */
   minutesSinceLastHand: number | null;
+  /** Minutes since a playing human was last seen here; null when never seen. */
+  minutesSinceHumanLeft?: number | null;
+  /** This table's human-departure dwell in minutes (20-30); default 30. */
+  humanLeftDwellMinutes?: number;
 }
 
 export type LoneStandVerdict =
@@ -121,6 +135,7 @@ export type LoneStandVerdict =
   | 'not_cluster'
   | 'not_alone'
   | 'human_present'
+  | 'human_recently_left'
   | 'partner_inbound'
   | 'opening_grace'
   | 'too_soon'
@@ -141,6 +156,13 @@ export function loneStandVerdict(s: LoneStandSituation): LoneStandVerdict {
   if (!s.clusterTable) return 'not_cluster';
   if (s.seatedCount !== 1) return 'not_alone';
   if (s.humanPresent) return 'human_present';
+  if (
+    s.minutesSinceHumanLeft != null &&
+    s.minutesSinceHumanLeft >= 0 &&
+    s.minutesSinceHumanLeft < (s.humanLeftDwellMinutes ?? HUMAN_DEPARTURE_DEFAULT_DWELL_MINUTES)
+  ) {
+    return 'human_recently_left';
+  }
   if (s.inboundPending) return 'partner_inbound';
   if (s.lifecycle === 'opening' && s.tableAgeMinutes < OPENING_FEEDER_GRACE_MINUTES) {
     return 'opening_grace';

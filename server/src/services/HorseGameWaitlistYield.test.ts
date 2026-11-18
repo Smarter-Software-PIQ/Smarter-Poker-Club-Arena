@@ -29,6 +29,12 @@ import { planFloor } from './StableHandController.js';
 import { setMaintenanceFrozen } from '../maintenance/freezeState.js';
 import { MIDWAY_UNION_ID, JAQK_CLUB_ID } from './StableHand.js';
 
+/* These tests drive the real rotation for OTHER rules; the work schedule and
+   days off (owner 2026-11-12) are pinned on duty here and proven on their own
+   in HorseWorkSchedule.law.test.ts, so a fixture horse's real-clock hours do
+   not decide what these assert. */
+vi.mock('./HorseWorkSchedule.js', () => ({ offDutyReason: () => null, onDuty: () => true }));
+
 const NOW = Date.parse('2026-10-22T09:15:00Z');
 const LIGHTNING = 'aaaaaaaa-0000-4000-8000-000000000001';
 const MUSTMOVE = 'aaaaaaaa-0000-4000-8000-000000000002';
@@ -274,9 +280,11 @@ describe('the rotator stands exactly one horse up for a game-list person', () =>
   };
 
   it.each([
-    ['off-peak high stakes, no human', '2026-11-04T05:00:00-06:00', true, false, false, 6],
-    ['off-peak high stakes, playing human', '2026-11-04T05:00:00-06:00', true, true, false, 0],
-    ['off-peak high stakes, sitting-out human', '2026-11-04T05:00:00-06:00', true, true, true, 5],
+    // Relaunch (Dan 2026-11-11): 1/2 runs full time, so the overnight hours
+    // stand nobody up any more than prime time does.
+    ['overnight 1/2, no human', '2026-11-04T05:00:00-06:00', true, false, false, 0],
+    ['overnight 1/2, playing human', '2026-11-04T05:00:00-06:00', true, true, false, 0],
+    ['overnight 1/2, sitting-out human', '2026-11-04T05:00:00-06:00', true, true, true, 0],
     ['prime-time high stakes, no human', '2026-11-04T18:00:00-06:00', true, false, false, 0],
     [
       'overnight scheduled low stakes, no human',

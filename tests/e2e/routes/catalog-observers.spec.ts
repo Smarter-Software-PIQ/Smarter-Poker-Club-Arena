@@ -10,6 +10,11 @@ test.describe('Visible catalog production reads', () => {
     'Requires the isolated production account'
   );
 
+  // Standings are read through the public view since #10272 (readTournamentStandings),
+  // so the waits below must name that relation, not the base table.
+  // tests/catalog-observers-wait-on-the-relation-the-page-reads.law.test.ts pins it.
+  const STANDINGS_RELATION = 'tournament_players_public';
+
   const read = (page: Page, table: string, predicate: (url: URL) => boolean) =>
     page.waitForResponse(
       (response) => {
@@ -38,7 +43,7 @@ test.describe('Visible catalog production reads', () => {
     const current = rows[0];
     const selected = read(
       page,
-      'tournament_players',
+      STANDINGS_RELATION,
       (url) => url.searchParams.get('tournament_id') === `eq.${current.id}`
     );
     await page.getByText(current.name, { exact: true }).first().click();
@@ -49,7 +54,7 @@ test.describe('Visible catalog production reads', () => {
     const nextList = read(page, 'tournaments', match);
     const nextStanding = read(
       page,
-      'tournament_players',
+      STANDINGS_RELATION,
       (url) => url.searchParams.get('tournament_id') === `eq.${current.id}`
     );
     const [listRefresh, standingRefresh] = await Promise.all([nextList, nextStanding]);

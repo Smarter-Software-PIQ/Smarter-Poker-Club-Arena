@@ -164,31 +164,100 @@ export function compareSpinReportingContract(source, response) {
   return differences;
 }
 
-/** A replaced Prometheus rule starts unevaluated even after reload succeeds.
- * Wait once for its declared 60-second cadence, then read again. This is part
- * of this explicit verification call: no reload, repair, recurring observer,
- * or repeated retry. A still-unknown rule fails the unchanged final checks.
+/**
+ * ---------------------------------------------------------------------------
+ *  EVERY LOADED RULE MUST BE EVALUATING CLEANLY (2026-11-11)
+ * ---------------------------------------------------------------------------
+ *
+ * Until now only SpinUnfilledBacklog had its `health` read. Every other rule
+ * was counted as loaded by NAME, so a rule whose query errors on every
+ * evaluation (a bad vector match, a many-to-many join, a label_replace on the
+ * wrong type) read as deployed coverage while it evaluated to an error and
+ * could never fire. Prometheus says so in /api/v1/rules: health "err" with
+ * the error in lastError.
+ *
+ * So every alerting AND recording rule must now report health "ok" with an
+ * empty or omitted lastError. A rule replaced by the reload starts as health
+ * "unknown" with no lastError until its group's first evaluation; that state
+ * gets at most ONE declared group interval (the largest among the groups
+ * holding such a rule, read from the response) and one re-read, inside this
+ * one explicit verification call. Still unknown after that is a failure.
+ * An error never waits. No reload, repair, recurring observer or repeated
+ * retry.
  */
-export async function readEvaluatedSpinRules(
-  source,
+export const MAX_RULE_GRACE_SECONDS = 300;
+
+const emptyError = (rule) => rule.lastError === undefined || rule.lastError === '';
+
+/** Every rule in a /api/v1/rules response that is not evaluating cleanly. */
+export function ruleHealthFailures(response) {
+  if (response?.status !== 'success' || !Array.isArray(response?.data?.groups)) {
+    throw new Error('Prometheus rule response is unavailable or malformed');
+  }
+  const failures = [];
+  let count = 0;
+  for (const group of response.data.groups) {
+    if (!group || !Array.isArray(group.rules)) {
+      throw new Error('Prometheus rule group is malformed');
+    }
+    for (const rule of group.rules) {
+      count++;
+      const healthy =
+        rule &&
+        (rule.type === 'alerting' || rule.type === 'recording') &&
+        rule.health === 'ok' &&
+        emptyError(rule);
+      if (healthy) continue;
+      failures.push({
+        group: group?.name,
+        file: group?.file,
+        name: rule?.name,
+        type: rule?.type,
+        health: rule?.health,
+        lastError: rule?.lastError,
+        lastEvaluation: rule?.lastEvaluation,
+        unevaluated:
+          !!rule &&
+          (rule.type === 'alerting' || rule.type === 'recording') &&
+          rule.health === 'unknown' &&
+          emptyError(rule),
+        interval: group?.interval,
+      });
+    }
+  }
+  if (count === 0) throw new Error('Prometheus reports no loaded rules');
+  return failures;
+}
+
+/**
+ * Read the rules; when the only unhealthy rules are ones that have not yet
+ * evaluated, wait one declared group interval and read once more. Anything
+ * else (an error, a malformed entry, an interval that is not a positive
+ * number of seconds up to MAX_RULE_GRACE_SECONDS) is returned at once for
+ * ruleHealthFailures to refuse.
+ */
+export async function readEvaluatedRules(
   readRules,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 ) {
   const response = await readRules();
-  const { group, rule, differences } = spinReportingEvidence(source, response);
-  const unevaluated =
-    rule.type === 'alerting' &&
-    rule.health === 'unknown' &&
-    (rule.lastError === undefined || rule.lastError === '') &&
-    rule.lastEvaluation === '0001-01-01T00:00:00Z';
-  if (unevaluated && differences.length === 0 && group.interval === 60) {
-    console.log(
-      '[alert-rules] Exact Spin rule awaits its first evaluation; one declared interval allowed.'
-    );
-    await wait(group.interval * 1000);
-    return readRules();
+  const failures = ruleHealthFailures(response);
+  if (failures.length === 0 || !failures.every((f) => f.unevaluated)) return response;
+  const intervals = failures.map((f) => f.interval);
+  if (
+    !intervals.every(
+      (s) => typeof s === 'number' && Number.isFinite(s) && s > 0 && s <= MAX_RULE_GRACE_SECONDS
+    )
+  ) {
+    return response;
   }
-  return response;
+  const grace = Math.max(...intervals);
+  console.log(
+    `[alert-rules] ${failures.length} rule(s) await their first evaluation; ` +
+      `one declared group interval (${grace}s) allowed, then one re-read.`
+  );
+  await wait(grace * 1000);
+  return readRules();
 }
 
 /** Which rule files Prometheus is told to load. */
@@ -422,11 +491,15 @@ async function main() {
   let amAlerts;
   let seriesNames;
   let spinDifferences;
+  let unhealthy;
   try {
     const spinSource = readFileSync(join(MON, 'spin-rules.yml'), 'utf8');
-    rules = await readEvaluatedSpinRules(spinSource, () => ask(`${promUrl}/api/v1/rules`));
+    // The general first-evaluation grace covers the Spin rule too, so the
+    // Spin contract below is compared against the final read.
+    rules = await readEvaluatedRules(() => ask(`${promUrl}/api/v1/rules`));
     amAlerts = ask(`${amUrl}/api/v2/alerts`);
     seriesNames = ask(`${promUrl}/api/v1/label/__name__/values`);
+    unhealthy = ruleHealthFailures(rules);
     spinDifferences = compareSpinReportingContract(spinSource, rules);
   } catch (err) {
     // COULD NOT ASK IS NOT CLEAN. The whole point of this check is that a
@@ -438,8 +511,12 @@ async function main() {
   }
 
   const loaded = new Set();
+  let loadedRecording = 0;
   for (const g of rules?.data?.groups ?? []) {
-    for (const r of g.rules ?? []) if (r.type === 'alerting') loaded.add(r.name);
+    for (const r of g.rules ?? []) {
+      if (r.type === 'alerting') loaded.add(r.name);
+      if (r.type === 'recording') loadedRecording++;
+    }
   }
 
   /* A rule whose metric has no series is a rule that cannot fire. Recording
@@ -532,6 +609,26 @@ async function main() {
   console.log(`[alert-rules] repo declares ${declared.size}; the box is running ${loaded.size}.`);
 
   let bad = false;
+
+  if (unhealthy.length) {
+    bad = true;
+    console.error('');
+    console.error(`RULES THAT ARE NOT EVALUATING CLEANLY (${unhealthy.length}):`);
+    for (const f of unhealthy) {
+      const why = f.unevaluated
+        ? 'never evaluated within one group interval'
+        : `health=${JSON.stringify(f.health)} lastError=${JSON.stringify(f.lastError)}`;
+      console.error(`   ${f.name}   (${f.type}, group ${f.group}, ${f.file}): ${why}`);
+    }
+    console.error('  A rule that errors on every evaluation can never fire, and a rule that has');
+    console.error(
+      '  not evaluated has proved nothing. Fix the expression; do not delete the rule.'
+    );
+  } else {
+    console.log(
+      `[alert-rules] rule health: all ${loaded.size} alerting and ${loadedRecording} recording rules report health=ok with no lastError.`
+    );
+  }
 
   if (spinDifferences.length) {
     bad = true;

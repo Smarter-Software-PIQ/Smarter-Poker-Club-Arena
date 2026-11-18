@@ -66,14 +66,30 @@ export function tickAgeCopy(lastTickAt: string | null | undefined, now: number):
   return `Tick ${h}h Ago`;
 }
 
-/** The whole line. */
+/**
+ * A game in a Lightning mode is run by the Lightning drive and its pool, and
+ * the must-move tick stands down for it by design (fn_cash_cluster_tick
+ * answers lightning_cluster_stands_down without stamping last_tick_at). Its
+ * last must-move tick is history, not the controller's current state.
+ */
+export const LIGHTNING_TICK_LINE = 'Lightning Pool Running, Must Move Tick Rests';
+
+/**
+ * The whole line. A stalled controller's last actions are not printed as if
+ * they were current (Dan 2026-11-11: "Tick 442h Ago: Quiet" on an empty
+ * game); the age alone says how long the controller has been silent.
+ */
 export function staffTickLine(
   lastTickAt: string | null | undefined,
   actions: TickActions,
-  now: number
+  now: number,
+  opts: { lightning?: boolean } = {}
 ): string {
+  if (opts.lightning) return LIGHTNING_TICK_LINE;
   const age = tickAgeCopy(lastTickAt, now);
-  return lastTickAt ? `${age}: ${tickActionsCopy(actions)}` : age;
+  if (!lastTickAt) return age;
+  if (tickIsStale(lastTickAt, now)) return `${age}: Controller Stalled`;
+  return `${age}: ${tickActionsCopy(actions)}`;
 }
 
 /**

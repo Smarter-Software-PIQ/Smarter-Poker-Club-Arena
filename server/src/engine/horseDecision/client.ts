@@ -1,3 +1,4 @@
+import { horseSavedProfilePresence } from '../../services/HorseSavedProfilePresence.js';
 import { HorseRequestRetentionBudget, horseRequestAllowance } from './requestRetentionBudget.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { HorseOwnPublicHistoryLoader } from './ownPublicHistoryProvenance.js';
@@ -6,6 +7,7 @@ import {
   type V31ControlRequest,
   type V31ControlAck,
 } from './v31ReloadControl.js';
+import type { StyleSwitchStateMessage } from './styleSwitchDelivery.js';
 import {
   isolateMemoryIsValid,
   type IsolateMemorySample,
@@ -57,13 +59,25 @@ import { horsePhase6AttributionMismatch } from '../HorsePhase6Attribution.js';
 import { horseDecisionRefusalError } from './refusalContext.js';
 import { Worker } from 'node:worker_threads';
 import { HorseCommittedDecisionTracker } from '../HorseCommittedDecisionTracker.js';
-import { noteFire } from '../BrainTelemetry.js';
+import {
+  computeHorseUpgradeActivationManifest,
+  isValidHorseUpgradeActivationManifest,
+  verifyWorkerUpgradeManifestCompatibility,
+  type HorseUpgradeActivationManifest,
+} from '../HorseUpgradeActivationManifest.js';
+import {
+  mergeBrainWatchcounterDeltas,
+  noteFire,
+  type HorseWatchcounterEntry,
+} from '../BrainTelemetry.js';
+import { horseDecisionShard } from './shard.js';
 import { observeHorsePolicyDecision } from '../HorsePolicyLedgerObserver.js';
 import {
   horseDecisionJournalConfigured,
   relayHorseDecisionJournalHealth,
 } from '../../services/HorseDecisionJournal.js';
 import { horseJournalJson } from '../../services/horseDecisionJournal/record.js';
+import { relayBrainTelemetryGapEvent } from '../../services/BrainTelemetryFlush.js';
 import { isHorseLifecycleRequest } from '../../services/horseDecisionJournal/lifecycle.js';
 import type { HorseDiscardExecutionObservation } from '../../services/horseDecisionJournal/discard.js';
 import {
@@ -112,7 +126,13 @@ import type {
 } from './protocol.js';
 import { horseDecisionSolverStoresAreValid } from './protocol.js';
 import {
-  horseDecisionReceiptRefusal,
+  DELIVERED_SWITCH_CONFIGS_NONE,
+  type DeliveredSwitchConfigs,
+  deliveredSwitchConfigsNote,
+  deliveredSwitchConfigsPrevious,
+  horseDecisionReceiptRefusalForGates,
+  omahaPricedRaiseGateCandidates,
+  omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
   horseComputeMetadataIsValid,
   horseSamplingStateIsValid,
@@ -120,7 +140,9 @@ import {
 } from './responseValidation.js';
 
 export interface WorkerLike {
-  postMessage(message: HorseDecisionWorkerRequest | V31ControlRequest): void;
+  postMessage(
+    message: HorseDecisionWorkerRequest | V31ControlRequest | StyleSwitchStateMessage
+  ): void;
   on(event: 'message', listener: (message: HorseDecisionWorkerResponse) => void): this;
   on(event: 'error', listener: (error: Error) => void): this;
   on(event: 'exit', listener: (code: number) => void): this;
@@ -230,6 +252,7 @@ export interface LiveHorseDecisionWorkerStatus {
   solverStores: HorseDecisionWorkerReady['solverStores'] | null;
   solverPolicyArtifact: HorseDecisionWorkerReady['solverPolicyArtifact'] | null;
   governor: HorseDecisionWorkerReady['governor'] | null;
+  upgradeManifest?: HorseUpgradeActivationManifest | null;
   statusSampledAt: number | null;
   isolateMemory?: IsolateMemorySample | null;
   isolateMemoryAgeMs?: number | null;
@@ -287,9 +310,52 @@ interface QueuedJob {
   captureLane?: boolean;
   /** Queued in the effect lane, ahead of every unposted decision (see HORSE_EFFECT_LANE_TYPES). */
   effectLane?: boolean;
+  /** Real-time turn action (`DECIDE_FAST` / `DECIDE_DISCARD`), ahead of background work. */
+  turnLane?: boolean;
+  /** Background/speculative work (`DECIDE_DEEP`, mirrored completed hands, status refresh). */
+  backgroundLane?: boolean;
   keepIssuedPlan?: boolean;
   terminalEffect?: boolean;
 }
+
+export interface HorseStreetPrewarmInput {
+  fence: string;
+  street: 'flop' | 'turn' | 'river';
+  board: ReadonlyArray<{ rank: string; suit: string }>;
+  variant?: string;
+  mode?: 'cash' | 'tournament';
+  effectiveStackBB?: number;
+}
+
+const activeShardRegistry = {
+  count: 0,
+  clients: new Map<number, LiveHorseDecisionWorkerClient>(),
+};
+
+/** Idle-only street board/solver prewarm routed to the table's decision shard. */
+export function prewarmHorseDecisionStreet(input: HorseStreetPrewarmInput): boolean {
+  if (!input?.fence || activeShardRegistry.clients.size === 0) return false;
+  const count = Math.max(1, activeShardRegistry.count);
+  const shardIdx = horseDecisionShard(input.fence, count);
+  const client = activeShardRegistry.clients.get(shardIdx) ?? activeShardRegistry.clients.get(0);
+  return client ? client.prewarmStreet(input) : false;
+}
+
+/** True when the table's decision shard already has queued or active real-time turn jobs. */
+export function isHorseDecisionShardBusy(fence: string): boolean {
+  if (!fence || activeShardRegistry.clients.size === 0) return false;
+  const count = Math.max(1, activeShardRegistry.count);
+  const shardIdx = horseDecisionShard(fence, count);
+  const client = activeShardRegistry.clients.get(shardIdx) ?? activeShardRegistry.clients.get(0);
+  return client ? client.hasPendingTurnJobs() : false;
+}
+
+const HORSE_TURN_LANE_TYPES: ReadonlySet<string> = new Set(['DECIDE_FAST', 'DECIDE_DISCARD']);
+const HORSE_BACKGROUND_LANE_TYPES: ReadonlySet<string> = new Set(['DECIDE_DEEP', 'STATUS']);
+const tablePrefixOfFence = (fence: string): string => {
+  const colon = fence.indexOf(':');
+  return colon >= 0 ? fence.slice(0, colon) : fence;
+};
 
 /**
  * THE JOURNAL'S EVIDENCE DOES NOT WAIT BEHIND THE DECISIONS IT DESCRIBES
@@ -599,6 +665,7 @@ export class LiveHorseDecisionWorkerClient {
   private solverStores: HorseDecisionWorkerReady['solverStores'] | null = null;
   private solverPolicyArtifact: HorseDecisionWorkerReady['solverPolicyArtifact'] | null = null;
   private governor: HorseDecisionWorkerReady['governor'] | null = null;
+  private upgradeManifest: HorseUpgradeActivationManifest | null = null;
   private statusSampledAt: number | null = null;
   private lastError: string | null = null;
   private lastCompletedAt: number | null = null;
@@ -670,8 +737,16 @@ export class LiveHorseDecisionWorkerClient {
 
   private isolateMemory: IsolateMemorySample | null = null;
   private readonly shardIndex: number | undefined;
+  private readonly registeredInPool: boolean;
+  private readonly requiresUpgradeManifest: boolean;
   constructor(options: LiveHorseDecisionWorkerClientOptions = {}) {
     this.shardIndex = options.shard?.index ?? 0;
+    this.registeredInPool = options.shard !== undefined;
+    this.requiresUpgradeManifest = options.workerFactory === undefined;
+    if (options.shard) {
+      activeShardRegistry.count = Math.max(activeShardRegistry.count, options.shard.count ?? 1);
+      activeShardRegistry.clients.set(options.shard.index, this);
+    }
     seedHorseDecisionWorkerMemory(this.shardIndex ?? 0);
     this.onFatal = options.onFatal;
     this.ownPublicHistory = options.ownPublicHistory
@@ -787,6 +862,7 @@ export class LiveHorseDecisionWorkerClient {
         ? structuredClone(this.solverPolicyArtifact)
         : null,
       governor: this.governor ? { ...this.governor } : null,
+      upgradeManifest: this.upgradeManifest ? structuredClone(this.upgradeManifest) : null,
       statusSampledAt: this.statusSampledAt,
       isolateMemory: this.isolateMemory ? { ...this.isolateMemory } : null,
       isolateMemoryAgeMs: this.isolateMemory
@@ -842,6 +918,8 @@ export class LiveHorseDecisionWorkerClient {
       ...captured,
       type: 'DECIDE_FAST',
       requestId: this.nextRequestId++,
+      // The original host owns this private saving-store diagnostic.
+      savedProfilePresence: horseSavedProfilePresence.forSnapshot(captured),
       // Never accept a caller-authored history packet through the snapshot.
       ownPublicHistory: context
         ? this.ownPublicHistory?.forSnapshot(context, captured.decisionTimeMs)
@@ -894,7 +972,8 @@ export class LiveHorseDecisionWorkerClient {
     // The accepted producer calls here only after its authoritative commit.
     // This local reconciliation does not await I/O or delay worker dispatch.
     try {
-      this.committedDecisions.observe(observation);
+      if (observation.terminalOnlySourceRelease === undefined)
+        this.committedDecisions.observe(observation);
     } catch {
       // Incomplete audit evidence cannot suppress the committed-hand learner.
       noteFire('phase15_hand_binding_internal_error');
@@ -930,6 +1009,7 @@ export class LiveHorseDecisionWorkerClient {
     }
     const mirror: CompletedHandObservation = { ...observation };
     delete mirror.acceptedActorRoster;
+    delete mirror.horseTurnClocks;
     const request = {
       ...mirror,
       type: 'OBSERVE_COMPLETED_HAND' as const,
@@ -938,7 +1018,14 @@ export class LiveHorseDecisionWorkerClient {
     this.pendingMirrors++;
     let settled: Promise<HorseDecisionWorkerAck>;
     try {
-      settled = this.enqueue<HorseDecisionWorkerAck>(request, 'ACK');
+      settled = this.enqueue<HorseDecisionWorkerAck>(
+        request,
+        'ACK',
+        undefined,
+        false,
+        undefined,
+        true
+      );
     } catch {
       settled = Promise.reject(new Error('mirror enqueue failed'));
     }
@@ -1179,6 +1266,13 @@ export class LiveHorseDecisionWorkerClient {
    * the worker to flush and stop its owned services. No abrupt normal path.
    */
   stop(): Promise<void> {
+    if (
+      this.registeredInPool &&
+      this.shardIndex !== undefined &&
+      activeShardRegistry.clients.get(this.shardIndex) === this
+    ) {
+      activeShardRegistry.clients.delete(this.shardIndex);
+    }
     this.v31Control?.close(Error('v31_control_worker_stopping'));
     if (this.stopPromise) return this.stopPromise;
     if (this.phase === 'stopped') return Promise.resolve();
@@ -1239,12 +1333,52 @@ export class LiveHorseDecisionWorkerClient {
     return this.stopPromise;
   }
 
+  /** True when real-time turn jobs (`DECIDE_FAST` / `DECIDE_DISCARD`) are active or queued. */
+  hasPendingTurnJobs(): boolean {
+    return (
+      this.inFlight.some((j) => !j.settled && HORSE_TURN_LANE_TYPES.has(j.request.type)) ||
+      this.queue.some((j) => !j.settled && HORSE_TURN_LANE_TYPES.has(j.request.type))
+    );
+  }
+
+  /**
+   * Idle-only street prewarm: fires only when this shard has zero in-flight
+   * and zero queued jobs so it can never delay a live turn decision.
+   */
+  prewarmStreet(input: HorseStreetPrewarmInput): boolean {
+    if (
+      this.phase !== 'ready' ||
+      this.dispatchHoldDepth > 0 ||
+      this.inFlight.length > 0 ||
+      this.queue.length > 0 ||
+      !Array.isArray(input?.board) ||
+      input.board.length < 3 ||
+      input.board.length > 5
+    ) {
+      // Evidence only: a prewarm asked for and not posted. Beside the
+      // worker's poker_horse_street_prewarm_total it shows how often the
+      // idle-only rule leaves a street unwarmed.
+      noteFire('upgrade05_prewarm_refused_seen');
+      return false;
+    }
+    return this.safePost({
+      type: 'PREWARM_STREET',
+      fence: input.fence,
+      street: input.street,
+      board: structuredClone(input.board),
+      variant: input.variant,
+      mode: input.mode,
+      effectiveStackBB: input.effectiveStackBB,
+    });
+  }
+
   private enqueue<T extends JobResult>(
     request: HorseDecisionJobRequest,
     expected: T['type'],
     signal?: AbortSignal,
     priority = false,
-    deadlineMs?: number
+    deadlineMs?: number,
+    background = false
   ): Promise<T> {
     if (this.phase === 'stopping' || this.phase === 'stopped') {
       return Promise.reject(
@@ -1287,6 +1421,8 @@ export class LiveHorseDecisionWorkerClient {
           : HORSE_OBSERVATION_TYPES.has(request.type)
             ? this.observationDeadlineMs
             : this.jobTimeoutMs;
+      const isTurn = HORSE_TURN_LANE_TYPES.has(request.type);
+      const isBackground = background || HORSE_BACKGROUND_LANE_TYPES.has(request.type);
       const job: QueuedJob = {
         request,
         expected,
@@ -1299,6 +1435,8 @@ export class LiveHorseDecisionWorkerClient {
         deadlineTimer: null,
         executionTimer: null,
         executionDeadlineCheck: null,
+        ...(isTurn ? { turnLane: true } : {}),
+        ...(isBackground ? { backgroundLane: true } : {}),
       };
       job.deadlineTimer = setTimeout(() => this.onJobDeadline(job), callerDeadlineMs);
       job.deadlineTimer.unref?.();
@@ -1321,11 +1459,38 @@ export class LiveHorseDecisionWorkerClient {
       } else if (priority && this.priorityInsertIndex !== null) {
         this.queue.splice(this.priorityInsertIndex, 0, job);
         this.priorityInsertIndex += 1;
+      } else if (isTurn && this.priorityInsertIndex === null) {
+        const turnIndex = this.turnLaneInsertIndex(request.fence);
+        this.queue.splice(turnIndex, 0, job);
       } else {
         this.queue.push(job);
       }
       this.maybeDispatch();
     });
+  }
+
+  /**
+   * Real-time turn priority: `DECIDE_FAST` and `DECIDE_DISCARD` queue behind
+   * front-lane (`capture`/`effect`), earlier turn-lane jobs, and same-table
+   * causal `OBSERVE_COMPLETED_HAND` jobs, but ahead of background jobs
+   * (`DECIDE_DEEP`, mirrored completed hands, status polls, and other-table
+   * observations).
+   */
+  private turnLaneInsertIndex(fence: string): number {
+    const tablePrefix = tablePrefixOfFence(fence);
+    let index = 0;
+    while (index < this.queue.length) {
+      const existing = this.queue[index]!;
+      if (existing.backgroundLane) break;
+      if (
+        existing.request.type === 'OBSERVE_COMPLETED_HAND' &&
+        tablePrefixOfFence(existing.request.fence) !== tablePrefix
+      ) {
+        break;
+      }
+      index++;
+    }
+    return index;
   }
 
   /** After the capture and effect jobs already waiting, in arrival order; null
@@ -1410,9 +1575,21 @@ export class LiveHorseDecisionWorkerClient {
     const canDispatch =
       this.phase === 'ready' || (this.phase === 'stopping' && this.readyAt !== null);
     if (this.dispatchHoldDepth > 0 || !canDispatch) return;
+    const backgroundCeiling = this.maxInFlight >= 16 ? this.maxInFlight - 8 : this.maxInFlight;
     while (this.queue.length > 0 && this.inFlight.length < this.maxInFlight) {
+      const head = this.queue[0]!;
+      if (head.settled) {
+        this.queue.shift();
+        continue;
+      }
+      if (
+        head.backgroundLane &&
+        this.phase !== 'stopping' &&
+        this.inFlight.length >= backgroundCeiling
+      ) {
+        break;
+      }
       const job = this.queue.shift()!;
-      if (job.settled) continue;
       this.inFlight.push(job);
       if (this.inFlight.length === 1) this.startExecutionClock(job);
       if (!this.safePost(job.request)) return;
@@ -1524,6 +1701,28 @@ export class LiveHorseDecisionWorkerClient {
     if (next) this.startExecutionClock(next);
   }
 
+  /**
+   * 2026-11-13 STYLE READ LIVE SWITCH: hands this worker the current configuration. Never fails the client: a
+   * worker that did not get it ages its last configuration out and turns every option off (HorseStyleSwitch).
+   */
+  postStyleSwitch(message: StyleSwitchStateMessage): boolean {
+    try {
+      this.worker.postMessage(message);
+      // What this worker was last handed (null: an unreadable answer). The
+      // receipt validation reads the PLO6 gate's row from it.
+      // The configuration it held before a change is kept for one poll
+      // interval: the worker may still be deciding under it.
+      this.deliveredSwitchConfigs = deliveredSwitchConfigsNote(
+        this.deliveredSwitchConfigs,
+        message.status === 'ok' ? message.config : null,
+        Date.now()
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  private deliveredSwitchConfigs: DeliveredSwitchConfigs = DELIVERED_SWITCH_CONFIGS_NONE;
   private v31Control?: V31ControlClient;
   requestV31Control(request: V31ControlRequest): Promise<V31ControlAck> {
     if (this.phase !== 'ready') return Promise.reject(Error('v31_control_worker_not_ready'));
@@ -1539,10 +1738,30 @@ export class LiveHorseDecisionWorkerClient {
       return ack;
     });
   }
-  private onMessage(message: HorseDecisionWorkerResponse | V31ControlAck): void {
+  private onMessage(
+    message:
+      | HorseDecisionWorkerResponse
+      | V31ControlAck
+      | { type: 'HORSE_TELEMETRY_GAP'; gap: unknown }
+  ): void {
     if (message?.type === 'V31_STORE_CONTROL_ACK') {
       this.v31Control?.receive(message);
       return;
+    }
+    if (message?.type === 'WATCHCOUNTER_DELTA') {
+      mergeBrainWatchcounterDeltas(message.watchcounterDeltas);
+      return;
+    }
+    if (message?.type === 'HORSE_TELEMETRY_GAP') {
+      // A worker thread's telemetry gap event. What is done with it is wired by the main process (index.ts),
+      // never imported here: this file is in the decision closure and the alert files must stay out of it.
+      relayBrainTelemetryGapEvent(message.gap);
+      return;
+    }
+    const piggybackedDeltas = (message as { watchcounterDeltas?: HorseWatchcounterEntry[] })
+      ?.watchcounterDeltas;
+    if (piggybackedDeltas) {
+      mergeBrainWatchcounterDeltas(piggybackedDeltas);
     }
 
     if (
@@ -1567,6 +1786,20 @@ export class LiveHorseDecisionWorkerClient {
         this.fail(new Error('live horse decision worker returned invalid governor'));
         return;
       }
+      if (this.requiresUpgradeManifest || message.upgradeManifest !== undefined) {
+        const compat = verifyWorkerUpgradeManifestCompatibility(
+          computeHorseUpgradeActivationManifest(),
+          message.upgradeManifest
+        );
+        if (!compat.compatible) {
+          this.fail(
+            new Error(
+              `live horse decision worker returned incompatible upgrade activation manifest (${compat.reason})`
+            )
+          );
+          return;
+        }
+      }
       if (message.phase8GuardAuthority) {
         this.phase8GuardWorkerEpoch = message.phase8GuardAuthority.epoch;
         liveHorsePhase8GuardAuthority.observeWorker(message.phase8GuardAuthority);
@@ -1576,11 +1809,15 @@ export class LiveHorseDecisionWorkerClient {
       this.solverStores = structuredClone(message.solverStores);
       this.solverPolicyArtifact = structuredClone(message.solverPolicyArtifact);
       this.governor = { ...message.governor };
+      this.upgradeManifest = message.upgradeManifest
+        ? structuredClone(message.upgradeManifest)
+        : null;
       this.statusSampledAt = Date.now();
       this.resolveReady({
         ...(message.solverStoreIdentity === undefined
           ? {}
           : { solverStoreIdentity: structuredClone(message.solverStoreIdentity) }),
+        ...(this.upgradeManifest ? { upgradeManifest: structuredClone(this.upgradeManifest) } : {}),
         solverStores: this.solverStores,
         solverPolicyArtifact: this.solverPolicyArtifact,
         governor: this.governor,
@@ -1969,10 +2206,30 @@ export class LiveHorseDecisionWorkerClient {
         delete message.decision.jointPolicy;
         noteFire('phase13_shadow_receipt_binding_dropped');
       }
-      const receiptRefusal = horseDecisionReceiptRefusal(
+      // PLO6 lane: the validator admits PLO6 to the Omaha strategy admissions
+      // only under the gate the worker may have run: the live switch row this
+      // client last delivered to it, else the request's own option
+      // (omahaStrategyInPlo6GateCandidates). The Omaha priced raise -> call
+      // is admitted the same way, only under the priced-raise options the
+      // worker may have run (omahaPricedRaiseGateCandidates).
+      const previous = deliveredSwitchConfigsPrevious(this.deliveredSwitchConfigs, Date.now());
+      const receiptRefusal = horseDecisionReceiptRefusalForGates(
         message.decision,
         active.request.gameState.gameVariant,
-        { player: active.request.player, gameState: active.request.gameState }
+        {
+          player: active.request.player,
+          gameState: active.request.gameState,
+        },
+        omahaStrategyInPlo6GateCandidates(
+          active.request.opts,
+          this.deliveredSwitchConfigs.current,
+          previous
+        ),
+        omahaPricedRaiseGateCandidates(
+          active.request.opts as Readonly<Record<string, unknown>> | undefined,
+          this.deliveredSwitchConfigs.current,
+          previous
+        )
       );
       if (receiptRefusal !== null) {
         this.refuseDecision(
@@ -2447,6 +2704,13 @@ export class LiveHorseDecisionWorkerClient {
   }
 
   private terminateWorker(): Promise<void> {
+    if (
+      this.registeredInPool &&
+      this.shardIndex !== undefined &&
+      activeShardRegistry.clients.get(this.shardIndex) === this
+    ) {
+      activeShardRegistry.clients.delete(this.shardIndex);
+    }
     // Only terminal STOPPED/startup cancellation/failure reaches this owner.
     // Ordinary null ACK recovery keeps this same cache and exact originals.
     this.ownPublicHistory?.dispose();

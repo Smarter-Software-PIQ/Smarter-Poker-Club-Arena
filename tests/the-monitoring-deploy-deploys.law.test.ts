@@ -37,6 +37,43 @@ const AM = readFileSync(join(ROOT, 'infra/monitoring/alertmanager.yml'), 'utf8')
 
 const stripComments = (s: string) => s.replace(/^\s*#[^\n]*$/gm, '');
 
+describe('the independent read-only collector travels with monitoring', () => {
+  it('ships and authenticates the emitter before reloading its consumers', () => {
+    const emitter = 'server/scripts/collect-monitoring-health.sh';
+    expect(WF).toContain(`- '${emitter}'`);
+    for (const start of ['git diff --quiet', 'git ls-tree -r --name-only', 'tar -C . -cf -']) {
+      const block = WF.replace(/\\\n\s*/g, ' ')
+        .split('\n')
+        .find((line) => line.includes(start));
+      expect(block, start).toContain(emitter);
+    }
+    expect(WF).toContain(
+      'cp /opt/smarter-poker-monitoring-src.incoming/server/scripts/collect-monitoring-health.sh'
+    );
+    expect(WF).toContain("['git', 'rev-list', 'HEAD', '--', path]");
+    expect(WF).toContain('Unknown installed collector; refusing to overwrite it.');
+    expect(DEPLOY).toContain('--expected-current "$STAMP_COLLECTOR_PREVIOUS"');
+    const install = DEPLOY.indexOf(
+      'python3 "$SRC_DIR/infra/monitoring/install-health-collector.py"'
+    );
+    expect(install).toBeGreaterThan(DEPLOY.indexOf('Monitoring release compare-and-swap failed'));
+    expect(install).toBeLessThan(DEPLOY.indexOf('Reloading Prometheus and Alertmanager'));
+  });
+
+  it('atomically updates only the existing collector and refuses a busy or miswired owner', () => {
+    const result = spawnSync(
+      'python3',
+      [join(ROOT, 'tests/monitoring_health_collector_install_test.py')],
+      {
+        encoding: 'utf8',
+        timeout: 20000,
+      }
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  });
+});
+
 describe('a reload of an old mounted inode cannot acknowledge a new release', () => {
   it('checks the real process fingerprint, including failed and unavailable reloads', () => {
     const result = spawnSync('python3', [join(ROOT, 'tests/alertmanager_loaded_config_test.py')], {

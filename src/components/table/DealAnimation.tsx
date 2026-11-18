@@ -71,6 +71,7 @@ import './DealAnimation.css';
 // =================================================================================
 
 export interface DealAnimationProps {
+  onPaint?: (frame: DealFrame) => void;
   /** Active when a new hand just started */
   active: boolean;
   /** Observation identity only; never a deal trigger. */
@@ -86,6 +87,8 @@ export interface DealAnimationProps {
    * caller passes buys nothing.
    */
   dealerSeatIndex: number;
+  /** Lightning's private-card count. All rounds share the serving engine's clock budget. */
+  cardsPerSeat?: number;
   /**
    * Optional per-hand token. When it changes the deal runs again, WITHOUT the
    * caller having to remount the component with a new React key.
@@ -133,7 +136,7 @@ interface DealRun {
 }
 
 /** What is actually on screen for the current run. */
-interface DealFrame {
+export interface DealFrame {
   id: number;
   handNumber: number;
   cards: FlyingCard[];
@@ -190,13 +193,13 @@ const WAIT_POLL_MS = 60;
  * multiplier, and WRITES the result back as an inline --da-flight-duration so
  * both sides are always the same number by construction.
  */
-function flightDurationMs(): number {
+function flightDurationMs(speed: number): number {
   let base = 320;
   if (typeof window !== 'undefined' && window.matchMedia) {
     if (window.matchMedia('(max-width: 480px)').matches) base = 250;
     else if (window.matchMedia('(max-width: 768px)').matches) base = 280;
   }
-  return Math.round(base * getAnimationSpeed());
+  return Math.round(base * speed);
 }
 
 /**
@@ -214,7 +217,8 @@ function buildDealCards(
   seatPositions: { x: number; y: number }[],
   originPct: { x: number; y: number } | undefined,
   flightMs: number,
-  speed: number
+  speed: number,
+  cardsPerSeat: number
 ): FlyingCard[] {
   /**
    * Dan 2026-08-21 (bug list item 14): "cards need to appear from the MIDDLE of
@@ -243,15 +247,21 @@ function buildDealCards(
   const seats = order.filter((seatIdx) => seatPositions[seatIdx]);
   if (seats.length === 0) return [];
 
+  // The serving engine reserves a two-round presentation window. Spread
+  // Omaha's extra cards across that same window without delaying the clock.
   const cardCount = seats.length * 2;
+  const flyingCards = seats.length * cardsPerSeat;
   const settle = Math.round(SETTLE_BUFFER_MS * speed);
   const room = Math.max(0, Math.round(MAX_DEAL_MS * speed) - flightMs - settle);
-  const fit = cardCount > 1 ? Math.floor(room / (cardCount - 1)) : CARD_STAGGER_MS;
-  const stagger = Math.max(MIN_CARD_STAGGER_MS, Math.min(Math.round(CARD_STAGGER_MS * speed), fit));
+  const fit = Math.floor(room / (cardCount - 1));
+  const budgetStagger = Math.max(
+    MIN_CARD_STAGGER_MS,
+    Math.min(Math.round(CARD_STAGGER_MS * speed), fit)
+  );
+  const stagger = (budgetStagger * (cardCount - 1)) / (flyingCards - 1);
 
   const cards: FlyingCard[] = [];
-  // Two rounds of dealing (two cards per player)
-  for (let round = 0; round < 2; round++) {
+  for (let round = 0; round < cardsPerSeat; round++) {
     seats.forEach((seatIdx, orderIdx) => {
       const pos = seatPositions[seatIdx];
       cards.push({
@@ -263,7 +273,7 @@ function buildDealCards(
         targetY: pos.y,
         originX: origin.x,
         originY: origin.y,
-        delay: (round * seats.length + orderIdx) * stagger,
+        delay: Math.round((round * seats.length + orderIdx) * stagger),
       });
     });
   }
@@ -275,10 +285,12 @@ function buildDealCards(
 // =================================================================================
 
 function DealAnimationComponent({
+  onPaint,
   active,
   handNumber = 0,
   activeSeats,
   dealerSeatIndex,
+  cardsPerSeat,
   dealKey,
   originPct,
   seatPositions,
@@ -312,11 +324,19 @@ function DealAnimationComponent({
   const propsRef = useRef({
     activeSeats,
     dealerSeatIndex,
+    cardsPerSeat,
     originPct,
     seatPositions,
     playSounds,
   });
-  propsRef.current = { activeSeats, dealerSeatIndex, originPct, seatPositions, playSounds };
+  propsRef.current = {
+    activeSeats,
+    dealerSeatIndex,
+    cardsPerSeat,
+    originPct,
+    seatPositions,
+    playSounds,
+  };
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
@@ -349,8 +369,10 @@ function DealAnimationComponent({
     if (!run || run.launched || run.completed || run.cancelled) return;
 
     const p = propsRef.current;
-    const speed = getAnimationSpeed();
-    const flight = flightDurationMs();
+    // A slow-motion preference cannot extend the server's first-turn budget.
+    const speed =
+      p.cardsPerSeat === undefined ? getAnimationSpeed() : Math.min(1, getAnimationSpeed());
+    const flight = flightDurationMs(speed);
     const cards = buildDealCards(
       run.id,
       p.activeSeats,
@@ -358,7 +380,8 @@ function DealAnimationComponent({
       p.seatPositions,
       p.originPct,
       flight,
-      speed
+      speed,
+      p.cardsPerSeat ?? 2
     );
 
     if (cards.length === 0) {
@@ -478,14 +501,29 @@ function DealAnimationComponent({
   );
 
   useLayoutEffect(() => {
+    if (frame) onPaint?.(frame);
     if (frame)
       observeDealPresentationTiming({
         handNumber: frame.handNumber,
         phase: 'frame-committed',
         cardCount: frame.cards.length,
       });
-  }, [frame]);
+  }, [frame, onPaint]);
 
+  return frame ? <DealFlight frame={frame} /> : null;
+}
+
+export function DealFlight({
+  frame,
+  rate = 1,
+  startOffset = 0,
+  paused = false,
+}: {
+  frame: DealFrame;
+  rate?: number;
+  startOffset?: number;
+  paused?: boolean;
+}) {
   if (!frame || frame.cards.length === 0) return null;
 
   return (
@@ -495,7 +533,7 @@ function DealAnimationComponent({
       aria-hidden="true"
       /* JS is the single source of truth for flight duration -- see
          flightDurationMs(). Inline var out-specifies the CSS breakpoints. */
-      style={{ '--da-flight-duration': `${frame.flightMs}ms` } as React.CSSProperties}
+      style={{ '--da-flight-duration': `${frame.flightMs / rate}ms` } as React.CSSProperties}
     >
       {frame.cards.map((card) => (
         <div
@@ -507,7 +545,8 @@ function DealAnimationComponent({
               '--origin-y': `${card.originY}%`,
               '--target-x': `${card.targetX}%`,
               '--target-y': `${card.targetY}%`,
-              '--delay': `${card.delay}ms`,
+              '--delay': `${(card.delay - startOffset) / rate}ms`,
+              animationPlayState: paused ? 'paused' : undefined,
             } as React.CSSProperties
           }
         />

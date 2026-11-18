@@ -17,8 +17,10 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import TableMenu, { createDefaultMenuSections, type MenuSection } from './TableMenu';
 import { TileViewIcon } from './TableMenuIcons';
 import { masterBus } from '../../core/MasterBus';
+import { HUB_SOCIAL_FEED_PATH } from '../../utils/hubTab';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 import { useButtonImage } from '../../hooks/useButtonImage';
+import { useSoundSwitch, useVibrationSwitch } from '../../hooks/useSoundSwitches';
 import { isTournamentGameCode } from '../../utils/gameCode';
 import { tournamentTabEventName } from '../../lib/tournamentTabLabel';
 import './TableTabBar.css';
@@ -46,18 +48,24 @@ export interface TabInfo {
    *  Diamond tournament seat has no top-up writer, and both items reached the
    *  page only to be refused there in silence. Absent keeps both. */
   canAddFunds?: boolean;
+  seatChangeEnabled?: boolean;
+  seatChangeOffInLightning?: boolean;
+  /** Reported by the owning table page, like `isAutoRebuyEnabled`. */
   standUpNextBB?: boolean;
-  soundEnabled?: boolean;
-  vibrationsEnabled?: boolean;
+  /** The seat may straddle (host enabled it, cash game, hero seated). */
+  straddleAvailable?: boolean;
+  straddleEnabled?: boolean;
+  straddleBusy?: boolean;
+  /** The owning table page's answer; `false` drops the seat-only rows. */
+  heroSeated?: boolean;
+  /** A leave is queued for the end of the current hand. */
+  leaveNextHandQueued?: boolean;
   /**
    * PokerBros parity: the hero's hole cards at this table, comma-joined
    * ("Ah,Qc" / "Td,9h"; "" or undefined when not in a hand or folded).
    * When present the tab renders mini cards instead of the table name.
    */
   holeCards?: string;
-  /** Hero's last action this street ('fold', 'call', ...) for the
-   *  transient badge under the tab. */
-  lastAction?: string;
   /** Hero folded this hand — the tab dims (roadmap batch 1). */
   folded?: boolean;
   /** Showdown outcome edge: "win:<hand>" / "loss:<hand>" / "". The tab
@@ -180,23 +188,6 @@ const MiniCards = React.memo(function MiniCards({ cards }: { cards: string }) {
   );
 });
 
-/** Display labels for the transient last-action chip. */
-const ACTION_LABEL: Record<string, string> = {
-  fold: 'Fold',
-  check: 'Check',
-  call: 'Call',
-  bet: 'Bet',
-  raise: 'Raise',
-  all_in: 'All In',
-  /* PHASE 3 AUDIT 2026-08-31. The fallback below is `ACTION_LABEL[flash] ?? flash`,
-     i.e. the RAW engine token, so a missing entry ships a lowercase word to the
-     tab strip - and CLAUDE.md 5.7 is Title Case Every Word. 'discard' was
-     unreachable here until Phase 3, because nothing on the client ever put it
-     in lastActions; now the engine records it and the hero's own click sets it,
-     so this tab would have flashed "discard". */
-  discard: 'Discard',
-};
-
 export interface TableTabBarProps {
   tabs: TabInfo[];
   activeTabId: string;
@@ -293,57 +284,16 @@ export function TableTabBar({
   const addScreenIcon = useButtonImage('icon-addscreen');
   const [addIconFailed, setAddIconFailed] = useState(false);
 
-  // ─── Transient last-action chips (PokerBros parity, Dan 2026-08-20) ───
-  // When a tab's lastAction changes to a new non-empty value, flash it on the
-  // tab for 2.5s, then clear. Timers live in a ref keyed by tab id so a
-  // re-render (the turn clock ticks tabs every second) never cancels a
-  // pending expiry — an effect-cleanup clearTimeout here would leave chips
-  // stuck on screen whenever the clock was running.
-  const [actionFlash, setActionFlash] = useState<Record<string, string>>({});
-  const prevActionsRef = useRef<Record<string, string>>({});
-  const flashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  useEffect(() => {
-    for (const tab of tabs) {
-      const prev = prevActionsRef.current[tab.id] ?? '';
-      const cur = tab.lastAction ?? '';
-      if (cur && cur !== prev) {
-        setActionFlash((p) => ({ ...p, [tab.id]: cur }));
-        clearTimeout(flashTimersRef.current[tab.id]);
-        flashTimersRef.current[tab.id] = setTimeout(() => {
-          setActionFlash((p) => {
-            if (!(tab.id in p)) return p;
-            const next = { ...p };
-            delete next[tab.id];
-            return next;
-          });
-        }, 2500);
-      }
-      prevActionsRef.current[tab.id] = cur;
-    }
-    // Audit 2026-08-20: closing a tab left its entries behind in all three
-    // stores forever (and a pending timer could later setState for a tab that
-    // no longer exists). Prune everything keyed by an id that is gone.
-    const liveIds = new Set(tabs.map((t) => t.id));
-    for (const id of Object.keys(prevActionsRef.current)) {
-      if (!liveIds.has(id)) {
-        delete prevActionsRef.current[id];
-        clearTimeout(flashTimersRef.current[id]);
-        delete flashTimersRef.current[id];
-        setActionFlash((p) => {
-          if (!(id in p)) return p;
-          const next = { ...p };
-          delete next[id];
-          return next;
-        });
-      }
-    }
-  }, [tabs]);
-  // Clear all pending flash timers on unmount only.
-  useEffect(() => {
-    const timers = flashTimersRef.current;
-    return () => Object.values(timers).forEach(clearTimeout);
-  }, []);
-
+  /* ── THE PILL NEVER SAYS WHAT THE HERO DID (Dan 2026-11-11, item 5) ──────
+     "The action bar pill is for displaying the hero's cards ONLY. The hero's
+     own action text must never be displayed inside it; it should show where
+     other players' actions show." A transient chip used to flash the hero's
+     last action ("Check", "Call", ...) on the pill for 2.5s after every act,
+     beside the cards. It is deleted with its timers and the last-action
+     plumbing that fed it: the hero's action is printed on the hero's own seat
+     (`.seat__action`, SeatSlot), exactly as every opponent's is.
+     Pinned by tests/live-turn/phone-table-layout.pw.ts and
+     tests/unit/tabBarQuietWhileObserving.test.ts. */
   // ─── Showdown result flash (roadmap batch 1) ──────────────────────────
   // Same rising-edge machinery as the action chips: when a tab's handResult
   // becomes a new non-empty value, pulse the tab green (win) or red (loss)
@@ -569,15 +519,26 @@ export function TableTabBar({
     [onReorder, endGesture]
   );
 
+  /* TAP TO OPEN (Dan 2026-11-13): "YOU SHOULDN'T HAVE TO HOLD DOWN THE
+     ACTION PILL ON MOBILE TO OPEN IT, CHANGE IT TO TAP TO OPEN." A tap on the
+     pill of the table you are already at opens its menu (a second tap closes
+     it). A tap on another table's pill still switches to that table, which is
+     what a tap on it has always meant; long-press and right-click still open
+     the menu on any pill. */
   const handleTabClick = useCallback(
-    (tabId: string) => {
+    (tabId: string, anchor?: HTMLElement) => {
       if (gestureRef.current?.suppressClick && gestureRef.current.id === tabId) {
         gestureRef.current = null;
         return;
       }
+      if (tabId === activeTabId && anchor) {
+        if (quickMenu?.tabId === tabId) setQuickMenu(null);
+        else openQuickMenu(tabId, anchor.getBoundingClientRect());
+        return;
+      }
       onTabSelect(tabId);
     },
-    [onTabSelect]
+    [onTabSelect, activeTabId, quickMenu, openQuickMenu]
   );
 
   /** A LOBBY tab is a placeholder, not a seat — no engine, no chips. A HUB
@@ -590,6 +551,17 @@ export function TableTabBar({
      menu's Leave Table / Close Lobby emits the same FORCE_LEAVE_TABLE. */
 
   const handleMenuClose = useCallback(() => setIsMenuOpen(false), []);
+  /**
+   * THE SOUNDS AND VIBRATIONS BADGES READ THE GATES (2026-11-14).
+   *
+   * Both badges used to read `soundEnabled` / `vibrationsEnabled` off the
+   * active tab, and no table page ever reported either field, so both read
+   * OFF forever. Sound and haptics are one setting per account, not one per
+   * table, so there is nothing for a tab to report. These are the same two
+   * readings every table's own switch shows and the engine plays by.
+   */
+  const soundOn = useSoundSwitch();
+  const vibrationOn = useVibrationSwitch();
   const handleMenuToggle = useCallback(() => setIsMenuOpen((prev) => !prev), []);
 
   /**
@@ -664,6 +636,18 @@ export function TableTabBar({
                   tableId: activeTabId,
                   action: 'STAND_UP_BB',
                 }),
+              onToggleStraddle: tabs.find((t) => t.id === activeTabId)?.straddleAvailable
+                ? () =>
+                    masterBus.emit('TABLE_MENU_ACTION', {
+                      tableId: activeTabId,
+                      action: 'TOGGLE_STRADDLE',
+                    })
+                : undefined,
+              onOpenMarketplace: () =>
+                masterBus.emit('TABLE_MENU_ACTION', {
+                  tableId: activeTabId,
+                  action: 'CLUB_MARKETPLACE',
+                }),
               onRebuy: () =>
                 masterBus.emit('TABLE_MENU_ACTION', { tableId: activeTabId, action: 'REBUY' }),
               onAutoTopUp: () =>
@@ -720,26 +704,38 @@ export function TableTabBar({
              picker is TableMenu's own in-app gallery. */
             },
             {
-              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB
+              /* Every switch says ON or OFF. A switch with no badge when off
+                 reads as a row that does nothing. */
+              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'ON' : 'OFF',
+              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'ON' : 'OFF',
+              leaveNextHandBadge: tabs.find((t) => t.id === activeTabId)?.leaveNextHandQueued
                 ? 'ON'
                 : undefined,
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
                 ? 'ON'
-                : undefined,
-              soundsBadge: tabs.find((t) => t.id === activeTabId)?.soundEnabled ? 'ON' : 'OFF',
-              vibrationsBadge: tabs.find((t) => t.id === activeTabId)?.vibrationsEnabled
-                ? 'ON'
                 : 'OFF',
+              soundsBadge: soundOn ? 'ON' : 'OFF',
+              vibrationsBadge: vibrationOn ? 'ON' : 'OFF',
               profitTrackingBadge: onToggleProfitTracking
                 ? profitTrackingEnabled
                   ? 'ON'
                   : 'OFF'
                 : undefined,
               canAddFunds: tabs.find((t) => t.id === activeTabId)?.canAddFunds,
+              heroSeated: tabs.find((t) => t.id === activeTabId)?.heroSeated,
+              straddleBusy: tabs.find((t) => t.id === activeTabId)?.straddleBusy,
               isTournament: tabs.find((t) => t.id === activeTabId)?.isTournament,
             }
           ),
-    [activeTabId, tabs, activeIsLobby, profitTrackingEnabled, onToggleProfitTracking]
+    [
+      activeTabId,
+      tabs,
+      activeIsLobby,
+      profitTrackingEnabled,
+      onToggleProfitTracking,
+      soundOn,
+      vibrationOn,
+    ]
   );
 
   const menuSections = useMemo(
@@ -822,7 +818,6 @@ export function TableTabBar({
           const isMyTurn = !observing && tab.isMyTurn;
           const isUrgent = isMyTurn && tab.timeRemaining !== undefined && tab.timeRemaining < 10;
           const hasCards = !observing && heroHasCards;
-          const flash = observing ? undefined : actionFlash[tab.id];
           const result = observing ? undefined : resultFlash[tab.id];
           const isMuted = !!mutedIds?.includes(tab.id);
           // Dan 2026-08-21: 5 seconds left on ANY clock at this table - turn,
@@ -875,7 +870,7 @@ export function TableTabBar({
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => handleTabClick(tab.id)}
+              onClick={(e) => handleTabClick(tab.id, e.currentTarget as HTMLElement)}
               onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
               onPointerMove={(e) => handleTabPointerMove(e, tab.id)}
               onPointerUp={(e) => handleTabPointerUp(e, tab.id)}
@@ -983,14 +978,6 @@ export function TableTabBar({
                       tab.stakes && <span className="table-tab-bar__tab-sub">{tab.stakes}</span>
                     ))}
                 </span>
-              )}
-
-              {/* Transient last-action chip ("Fold", "Call", ...). Only ever on
-                  a tab where it is NOT the hero's turn, so it never shares the
-                  pill with the timer bar and never pushes the cards off centre
-                  at the moment Dan is looking at them. */}
-              {flash && !isMyTurn && (
-                <span className="table-tab-bar__action-chip">{ACTION_LABEL[flash] ?? flash}</span>
               )}
 
               {/* ── THE COUNTDOWN BADGE IS GONE (Dan 2026-08-28, item 3) ──────
@@ -1166,7 +1153,7 @@ export function TableTabBar({
               [
                 ['Open Lobby', onOpenLobby ? () => onOpenLobby() : null],
                 ['Open Hub', onOpenHub ? () => onOpenHub('/hub') : null],
-                ['Social', onOpenHub ? () => onOpenHub('/hub/social') : null],
+                ['Social', onOpenHub ? () => onOpenHub(HUB_SOCIAL_FEED_PATH) : null],
                 ['Messages', onOpenHub ? () => onOpenHub('/hub/messenger') : null],
               ] as const
             ).map(([label, fn]) =>
@@ -1223,6 +1210,7 @@ export function TableTabBar({
                 aria-label={`${tab.name} Quick Actions`}
               >
                 <div className="table-tab-bar__qmenu-title">{formatGameTitle(tab.name)}</div>
+                {!isLobby && item('Sit Down', () => onTabSelect(tab.id))}
                 {onQuickAction &&
                   !isLobby &&
                   item(tab.sittingOut ? "I'm Back" : 'Sit Out', () =>
@@ -1275,7 +1263,7 @@ export function TableTabBar({
                   !isHubId(tab.id) &&
                   item('Leave Table Next Hand', () => onQuickAction(tab.id, 'leave-next-hand'))}
                 {onQuickAction &&
-                  (!isLobby || tabs.length > 1) &&
+                  (!isLobby || isHubId(tab.id) || tabs.length > 1) &&
                   item(
                     isHubId(tab.id) ? 'Close Tab' : isLobby ? 'Close Lobby' : 'Leave Table',
                     () => onQuickAction(tab.id, 'leave'),
@@ -1305,6 +1293,10 @@ export function TableTabBar({
               : activeIsLobby
                 ? 'Lobby'
                 : formatGameTitle(tabs.find((t) => t.id === activeTabId)?.name) || 'Table'
+          }
+          seatChangeEnabled={tabs.find((t) => t.id === activeTabId)?.seatChangeEnabled}
+          seatChangeOffInLightning={
+            tabs.find((t) => t.id === activeTabId)?.seatChangeOffInLightning
           }
           handNumber={tabs.find((t) => t.id === activeTabId)?.handNumber}
           onOpenIdentity={activeIsLobby ? undefined : handleOpenIdentity}

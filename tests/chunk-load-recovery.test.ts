@@ -8,82 +8,88 @@ import {
 } from '../src/utils/lazyWithRetry';
 
 describe('stale deployment chunk recovery', () => {
-  it('lets an optional Safari preload failure retry without replacing the active table document', async () => {
-    vi.resetModules();
-    const browser = new EventTarget();
-    const replace = vi.fn();
-    Object.assign(browser, {
-      location: { href: 'https://example.test/table/observer', replace, reload: replace },
-    });
-    vi.stubGlobal('window', browser);
-    vi.stubGlobal('navigator', {});
-    vi.stubGlobal('caches', undefined);
-    sessionStorage.clear();
-    const recovery = await import('../src/utils/lazyWithRetry');
-    const uninstall = recovery.installVitePreloadErrorRecovery();
-    const module = { warmTable: vi.fn() };
-    let attempts = 0;
-    const load = vi.fn(async () => {
-      attempts += 1;
-      if (attempts > 1) return module;
-      const event = new Event('vite:preloadError', { cancelable: true }) as Event & {
-        payload?: unknown;
-      };
-      event.payload = new TypeError('Importing a module script failed.');
-      browser.dispatchEvent(event);
-      // Vite resolves a cancelled event to undefined instead of rejecting.
-      if (event.defaultPrevented) return undefined;
-      throw event.payload;
-    });
-    await expect(recovery.importWithRetry(load, 2, 0)).resolves.toBe(module);
-    expect(load).toHaveBeenCalledTimes(2);
-    expect(replace).not.toHaveBeenCalled();
-    expect(sessionStorage.getItem(recovery.chunkReloadGuardKey())).toBeNull();
-    uninstall();
-  });
+  it.each(['Importing a module script failed.', 'Unable to preload CSS for /assets/optional.css'])(
+    'lets an optional preload retry without replacing the active table: %s',
+    async (message) => {
+      vi.resetModules();
+      const browser = new EventTarget();
+      const replace = vi.fn();
+      Object.assign(browser, {
+        location: { href: 'https://example.test/table/observer', replace, reload: replace },
+      });
+      vi.stubGlobal('window', browser);
+      vi.stubGlobal('navigator', {});
+      vi.stubGlobal('caches', undefined);
+      sessionStorage.clear();
+      const recovery = await import('../src/utils/lazyWithRetry');
+      const uninstall = recovery.installVitePreloadErrorRecovery();
+      const module = { warmTable: vi.fn() };
+      let attempts = 0;
+      const load = vi.fn(async () => {
+        attempts += 1;
+        if (attempts > 1) return module;
+        const event = new Event('vite:preloadError', { cancelable: true }) as Event & {
+          payload?: unknown;
+        };
+        event.payload = new TypeError(message);
+        browser.dispatchEvent(event);
+        // Vite resolves a cancelled event to undefined instead of rejecting.
+        if (event.defaultPrevented) return undefined;
+        throw event.payload;
+      });
+      await expect(recovery.importWithRetry(load, 2, 0)).resolves.toBe(module);
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(replace).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(recovery.chunkReloadGuardKey())).toBeNull();
+      uninstall();
+    }
+  );
 
-  it('recovers a critical lazy import only after its bounded preload retries', async () => {
-    vi.useFakeTimers();
-    vi.resetModules();
-    vi.doMock('react', () => ({ lazy: (load: () => Promise<unknown>) => load }));
-    const browser = new EventTarget();
-    const replace = vi.fn();
-    Object.assign(browser, {
-      location: { href: 'https://example.test/table/observer', replace, reload: replace },
-    });
-    vi.stubGlobal('window', browser);
-    vi.stubGlobal('navigator', {});
-    vi.stubGlobal('caches', undefined);
-    sessionStorage.clear();
-    const recovery = await import('../src/utils/lazyWithRetry');
-    const uninstall = recovery.installVitePreloadErrorRecovery();
-    const importFn = vi.fn(async () => {
-      const event = new Event('vite:preloadError', { cancelable: true }) as Event & {
-        payload?: unknown;
-      };
-      event.payload = new TypeError('Importing a module script failed.');
-      browser.dispatchEvent(event);
-      if (!event.defaultPrevented) throw event.payload;
-      return undefined as never;
-    });
-    const load = recovery.lazyWithRetry(importFn) as unknown as () => Promise<unknown>;
-    let state = 'pending';
-    void load().then(
-      () => (state = 'resolved'),
-      () => (state = 'rejected')
-    );
-    await vi.advanceTimersByTimeAsync(0);
-    expect(importFn).toHaveBeenCalledTimes(1);
-    expect(replace).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(importFn).toHaveBeenCalledTimes(2);
-    expect(replace).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(importFn).toHaveBeenCalledTimes(3);
-    expect(replace).toHaveBeenCalledTimes(1);
-    expect(state).toBe('pending');
-    uninstall();
-  });
+  it.each(['Importing a module script failed.', 'Unable to preload CSS for /assets/critical.css'])(
+    'recovers a critical lazy import only after bounded retries: %s',
+    async (message) => {
+      vi.useFakeTimers();
+      vi.resetModules();
+      vi.doMock('react', () => ({ lazy: (load: () => Promise<unknown>) => load }));
+      const browser = new EventTarget();
+      const replace = vi.fn();
+      Object.assign(browser, {
+        location: { href: 'https://example.test/table/observer', replace, reload: replace },
+      });
+      vi.stubGlobal('window', browser);
+      vi.stubGlobal('navigator', {});
+      vi.stubGlobal('caches', undefined);
+      sessionStorage.clear();
+      const recovery = await import('../src/utils/lazyWithRetry');
+      const uninstall = recovery.installVitePreloadErrorRecovery();
+      const importFn = vi.fn(async () => {
+        const event = new Event('vite:preloadError', { cancelable: true }) as Event & {
+          payload?: unknown;
+        };
+        event.payload = new TypeError(message);
+        browser.dispatchEvent(event);
+        if (!event.defaultPrevented) throw event.payload;
+        return undefined as never;
+      });
+      const load = recovery.lazyWithRetry(importFn) as unknown as () => Promise<unknown>;
+      let state = 'pending';
+      void load().then(
+        () => (state = 'resolved'),
+        () => (state = 'rejected')
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(importFn).toHaveBeenCalledTimes(1);
+      expect(replace).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(importFn).toHaveBeenCalledTimes(2);
+      expect(replace).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(importFn).toHaveBeenCalledTimes(3);
+      expect(replace).toHaveBeenCalledTimes(1);
+      expect(state).toBe('pending');
+      uninstall();
+    }
+  );
 
   it.each([undefined, {}, { default: undefined }])(
     'rejects an invalid module outside recovery: %s',
@@ -475,7 +481,7 @@ describe('stale deployment chunk recovery', () => {
   });
 
   it.each([true, false])(
-    'keeps guarded CSS recovery when the failed link is present: %s',
+    'returns a failed CSS preload to its caller without replacing a usable page (link present: %s)',
     async (linkPresent) => {
       vi.resetModules();
       const browser = new EventTarget();
@@ -486,6 +492,8 @@ describe('stale deployment chunk recovery', () => {
       vi.stubGlobal('window', browser);
       vi.stubGlobal('navigator', {});
       vi.stubGlobal('caches', undefined);
+      const fetchMock = vi.fn(async () => new Response('Not Found', { status: 404 }));
+      vi.stubGlobal('fetch', fetchMock);
       sessionStorage.clear();
       const recovery = await import('../src/utils/lazyWithRetry');
       const uninstall = recovery.installVitePreloadErrorRecovery();
@@ -493,253 +501,20 @@ describe('stale deployment chunk recovery', () => {
       link.rel = 'stylesheet';
       link.setAttribute('href', 'data:text/css,.recovery{}');
       if (linkPresent) document.head.appendChild(link);
-      // The origin answers a retired hashed stylesheet with 404.
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response('Not Found', { status: 404 }))
-      );
       const event = new Event('vite:preloadError', { cancelable: true }) as Event & {
         payload?: unknown;
       };
       event.payload = new Error('Unable to preload CSS for data:text/css,.recovery{}');
       browser.dispatchEvent(event);
-      for (let i = 0; i < 20; i++) await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
-      for (let i = 0; i < 20; i++) await Promise.resolve();
       expect(document.querySelector('link[href="data:text/css,.recovery{}"]')).toBeNull();
       expect(event.defaultPrevented).toBe(false);
-      expect(replace).toHaveBeenCalledTimes(1);
-      expect(sessionStorage.getItem(recovery.chunkReloadGuardKey())).toBe('1');
+      expect(replace).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(recovery.chunkReloadGuardKey())).toBeNull();
       uninstall();
     }
   );
-
-  /* 2026-10-25, production post-deploy run 40242809027: leaving the Kings
-     Club lobby aborted its background route preloads, the aborted CSS reached
-     recovery as "Unable to preload CSS", and with no beforeunload to mark the
-     departure the page being left reloaded itself over the navigation. */
-  describe('a cancelled stylesheet preload', () => {
-    const HREF = 'https://example.test/hub/club-arena/assets/PlayerAvatar-D24RRM7w-v6.css';
-    async function freshDocument() {
-      vi.resetModules();
-      const browser = new EventTarget();
-      const replace = vi.fn();
-      Object.assign(browser, {
-        location: { href: 'https://example.test/clubs/kings-club', replace, reload: replace },
-      });
-      vi.stubGlobal('window', browser);
-      vi.stubGlobal('navigator', {});
-      vi.stubGlobal('caches', undefined);
-      sessionStorage.clear();
-      document.head.querySelectorAll('link[rel="stylesheet"]').forEach((node) => node.remove());
-      const recovery = await import('../src/utils/lazyWithRetry');
-      return { browser, replace, recovery };
-    }
-    // A stylesheet the test document can really load once it is put back.
-    const SERVED = 'data:text/css,.avatar{}';
-    const cancelledCss = (href = HREF) => {
-      const event = new Event('vite:preloadError', { cancelable: true }) as Event & {
-        payload?: unknown;
-      };
-      event.payload = new Error(`Unable to preload CSS for ${href}`);
-      return event;
-    };
-    const settle = async () => {
-      for (let i = 0; i < 20; i++) await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(0);
-      for (let i = 0; i < 20; i++) await Promise.resolve();
-    };
-    // The module's own build id in this suite (no VITE_APP_VERSION is set).
-    const THIS_BUILD = 'dev';
-    const NEWER_BUILD = 'ne0000000000000000000000000000000000000002';
-    /** The stylesheet answers 200 text/css; build-info answers `live`. */
-    const servedWithLive = (live: string | Error) =>
-      vi.fn(async (input: unknown) => {
-        if (String(input).endsWith('build-info.json')) {
-          if (live instanceof Error) throw live;
-          return new Response(JSON.stringify({ ca_sha: live }), { status: 200 });
-        }
-        return new Response('.a{}', { status: 200, headers: { 'content-type': 'text/css' } });
-      });
-    afterEach(() => {
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-    });
-
-    it('never reloads the page over a stylesheet the server still serves', async () => {
-      vi.useFakeTimers();
-      const { browser, replace, recovery } = await freshDocument();
-      const fetchMock = vi.fn(
-        async () =>
-          new Response('.avatar{}', {
-            status: 200,
-            headers: { 'content-type': 'text/css; charset=utf-8' },
-          })
-      );
-      vi.stubGlobal('fetch', fetchMock);
-      const uninstall = recovery.installVitePreloadErrorRecovery();
-      // No beforeunload: a browser-initiated navigation does not always send one.
-      browser.dispatchEvent(cancelledCss(SERVED));
-      await settle();
-      await vi.advanceTimersByTimeAsync(recovery.NAVIGATION_GRACE_MS * 2);
-      await settle();
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(String(fetchMock.mock.calls[0][0])).toBe(SERVED);
-      expect(replace).not.toHaveBeenCalled();
-      expect(sessionStorage.getItem(chunkReloadGuardKey())).toBeNull();
-      // Put back exactly once, so the route can never render unstyled.
-      expect(document.querySelectorAll(`link[rel="stylesheet"][href="${SERVED}"]`)).toHaveLength(1);
-      uninstall();
-    });
-
-    it('asks the server at the exact asset address it failed to load', async () => {
-      const { recovery } = await freshDocument();
-      const fetchMock = vi.fn(
-        async () => new Response('.a{}', { status: 200, headers: { 'content-type': 'text/css' } })
-      );
-      vi.stubGlobal('fetch', fetchMock);
-      expect(await recovery.probeStylesheet(HREF)).toBe('present');
-      expect(String(fetchMock.mock.calls[0][0])).toBe(HREF);
-      expect(fetchMock.mock.calls[0][1]).toMatchObject({ cache: 'no-store' });
-    });
-
-    /* The stylesheet the server still serves is put back, and its own load
-       then fails. That replaces the document only when production serves a
-       different build: from a page already on the live build a reload fetches
-       the same files, and on WebKit (no beforeunload) the failure is usually
-       the departure itself cancelling the reinstated load (run 40260290873). */
-    async function reinstatedThenFails(live: string | Error) {
-      vi.useFakeTimers();
-      const doc = await freshDocument();
-      vi.stubGlobal('fetch', servedWithLive(live));
-      const uninstall = doc.recovery.installVitePreloadErrorRecovery();
-      const failing = 'data:text/css,.gone{}';
-      doc.browser.dispatchEvent(cancelledCss(failing));
-      await settle();
-      const restored = document.querySelector(`link[rel="stylesheet"][href="${failing}"]`);
-      expect(restored).not.toBeNull();
-      expect(doc.replace).not.toHaveBeenCalled();
-      restored!.dispatchEvent(new Event('error'));
-      await settle();
-      expect(document.querySelector(`link[href="${failing}"]`)).toBeNull();
-      return { ...doc, uninstall };
-    }
-
-    it('recovers when the stylesheet put back cannot load and a newer build is live', async () => {
-      const { replace, uninstall } = await reinstatedThenFails(NEWER_BUILD);
-      expect(replace).toHaveBeenCalledTimes(1);
-      expect(String(replace.mock.calls[0][0])).toContain('_cb=');
-      uninstall();
-    });
-
-    it('never reloads a page already on the live build when the stylesheet put back fails', async () => {
-      const { replace, recovery, uninstall } = await reinstatedThenFails(THIS_BUILD);
-      await vi.advanceTimersByTimeAsync(recovery.CURRENT_BUILD_PATIENCE_MS * 2);
-      await settle();
-      expect(replace).not.toHaveBeenCalled();
-      expect(sessionStorage.getItem(chunkReloadGuardKey())).toBeNull();
-      uninstall();
-    });
-
-    it('does not reload when the live build remains unreadable past its bounded patience', async () => {
-      const { replace, recovery, uninstall } = await reinstatedThenFails(
-        new TypeError('Fetch API cannot load build-info.json due to access control checks.')
-      );
-      await vi.advanceTimersByTimeAsync(recovery.NAVIGATION_GRACE_MS * 3);
-      await settle();
-      expect(replace).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(recovery.CURRENT_BUILD_PATIENCE_MS);
-      await settle();
-      expect(replace).not.toHaveBeenCalled();
-      uninstall();
-    });
-
-    it('still recovers a stylesheet the server has retired', async () => {
-      vi.useFakeTimers();
-      const { browser, replace, recovery } = await freshDocument();
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response('Not Found', { status: 404 }))
-      );
-      const uninstall = recovery.installVitePreloadErrorRecovery();
-      browser.dispatchEvent(cancelledCss());
-      await settle();
-      expect(replace).toHaveBeenCalledTimes(1);
-      expect(String(replace.mock.calls[0][0])).toContain('_cb=');
-      expect(document.querySelector(`link[href="${HREF}"]`)).toBeNull();
-      uninstall();
-    });
-
-    it('treats an HTML answer for the stylesheet as retired', async () => {
-      vi.useFakeTimers();
-      const { replace, recovery } = await freshDocument();
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(
-          async () =>
-            new Response('<!doctype html>', {
-              status: 200,
-              headers: { 'content-type': 'text/html' },
-            })
-        )
-      );
-      expect(await recovery.probeStylesheet(HREF)).toBe('gone');
-      expect(replace).not.toHaveBeenCalled();
-    });
-
-    /* Nothing can be read (offline, or a WebKit departure cancelling every
-       fetch of the page being left). A slow navigation can outlast one grace,
-       so recovery asks for at most CURRENT_BUILD_PATIENCE_MS, then stops
-       without replacing a document whose departure remains unknown. */
-    it('ends bounded stylesheet probes without reloading when nothing can be asked', async () => {
-      vi.useFakeTimers();
-      const { browser, replace, recovery } = await freshDocument();
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => {
-          throw new TypeError('Failed to fetch');
-        })
-      );
-      const uninstall = recovery.installVitePreloadErrorRecovery();
-      browser.dispatchEvent(cancelledCss());
-      await settle();
-      await vi.advanceTimersByTimeAsync(recovery.NAVIGATION_GRACE_MS + 1);
-      await settle();
-      // One grace is not enough: a slow navigation is still loading here.
-      expect(replace).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(recovery.CURRENT_BUILD_PATIENCE_MS);
-      await settle();
-      expect(replace).not.toHaveBeenCalled();
-      uninstall();
-    });
-
-    it('puts the stylesheet back after the grace when the page turns out to be live', async () => {
-      vi.useFakeTimers();
-      const { browser, replace, recovery } = await freshDocument();
-      let reachable = false;
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (input: unknown) => {
-          if (!reachable) throw new TypeError('Load failed');
-          if (String(input).endsWith('build-info.json'))
-            return new Response(JSON.stringify({ ca_sha: THIS_BUILD }), { status: 200 });
-          return new Response('.a{}', { status: 200, headers: { 'content-type': 'text/css' } });
-        })
-      );
-      const uninstall = recovery.installVitePreloadErrorRecovery();
-      browser.dispatchEvent(cancelledCss(SERVED));
-      await settle();
-      reachable = true;
-      await vi.advanceTimersByTimeAsync(recovery.NAVIGATION_GRACE_MS + 1);
-      await settle();
-      expect(replace).not.toHaveBeenCalled();
-      expect(document.querySelectorAll(`link[rel="stylesheet"][href="${SERVED}"]`)).toHaveLength(1);
-      await vi.advanceTimersByTimeAsync(recovery.CURRENT_BUILD_PATIENCE_MS * 2);
-      await settle();
-      expect(replace).not.toHaveBeenCalled();
-      uninstall();
-    });
-  });
 
   /* Dan 2026-10-14: the lobby drew with no CSS on an iPad. A failed
      stylesheet link stayed in the document, and Vite's preloader treats any

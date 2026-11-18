@@ -328,6 +328,14 @@ export function withCalledRiverMucks<T extends Record<string, any>>(
 }
 
 class HandHistoryServiceClass {
+  private async reviewRows(args: Record<string, unknown>): Promise<any[]> {
+    const { data, error } = await supabase
+      .rpc('ca_table_review_hands', args)
+      .select(HAND_HISTORY_COLUMNS);
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  }
+
   /**
    * Get a single hand by ID.
    *
@@ -343,13 +351,22 @@ class HandHistoryServiceClass {
    */
   async getHand(
     handId: string,
-    opts: { throwOnPrivateError?: boolean } = {}
+    opts: { throwOnPrivateError?: boolean; includeObserved?: boolean } = {}
   ): Promise<HandRecord | null> {
-    const { data, error } = await supabase
+    const result = await supabase
       .from('hand_history')
       .select(HAND_HISTORY_COLUMNS)
       .eq('id', handId)
       .maybeSingle();
+    let { data } = result;
+    const { error } = result;
+    if (opts.includeObserved !== false && !error && !data) {
+      try {
+        [data] = await this.reviewRows({ p_hand_ids: [handId], p_limit: 1 });
+      } catch (readError) {
+        reportError(readError, 'HandHistoryService.getObservedHand');
+      }
+    }
 
     if (error || !data) {
       if (error) reportError(error, 'HandHistoryService.getHand_query');
@@ -402,6 +419,41 @@ class HandHistoryServiceClass {
     });
   }
 
+  /** Resolve only the deal selected on this viewer's Lightning table. */
+  async getPreviousLightningHand(
+    viewer: string,
+    room: string,
+    deal: { id: string | null; number: number },
+    receipt?: { archiveId: string | null }
+  ): Promise<{ state: 'pending' | 'unavailable' } | { state: 'ready'; hand: HandRecord }> {
+    if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+    let archiveId = receipt?.archiveId;
+    let settled = !!receipt;
+    if (!receipt) {
+      const recent = await fetchLightningRecentHands({ poolSessionId: room });
+      const exact = recent.find((row) =>
+        deal.id ? row.handId === deal.id : row.handNumber === deal.number
+      );
+      settled = !!exact;
+      archiveId = exact?.handHistoryId;
+      // A review can stay open past the recent-session page. A current engine
+      // archives by deal UUID. RLS and the number/participant checks below
+      // still apply, including when a legacy row has a different archive id.
+      if (!exact && recent.length === LIGHTNING_RECENT_HANDS_LIMIT) archiveId = deal.id;
+    }
+    if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+    if (archiveId) {
+      const [hand] = await this.getHandsByIds([archiveId]);
+      if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+      if (
+        hand?.hand_number === deal.number &&
+        hand.players.some((player) => player.user_id === viewer)
+      )
+        return { state: 'ready', hand };
+    }
+    return { state: settled ? 'unavailable' : 'pending' };
+  }
+
   /**
    * Get hands for a player.
    *
@@ -424,6 +476,8 @@ class HandHistoryServiceClass {
        */
       tableId?: string | null;
       gameMode?: 'cash' | 'tournament';
+      /** Transport-certified full-hand observers, for the table's Previous Hand UI. */
+      includeObserved?: boolean;
       /** Older physical-table hands, anchored independently of newly completed hands. */
       beforeHandNumber?: number | null;
       /** Lightning rooms are pool sessions, not hand_history.table_id values. */
@@ -505,6 +559,28 @@ class HandHistoryServiceClass {
       } catch (error) {
         if (opts.throwOnError) throw error;
         reportError(error, 'HandHistoryService.getPlayerHands_lightning_query');
+        return [];
+      }
+    }
+    if (opts.includeObserved && opts.tableId && !clubId) {
+      try {
+        return await this.mapPlayerHandRows(
+          await this.reviewRows({
+            p_table_id: opts.tableId,
+            p_before:
+              typeof opts.beforeHandNumber === 'number' &&
+              Number.isFinite(opts.beforeHandNumber) &&
+              opts.beforeHandNumber > 0
+                ? opts.beforeHandNumber
+                : null,
+            p_limit: limit,
+            p_game_mode: opts.gameMode ?? null,
+            p_offset: offset,
+          })
+        );
+      } catch (error) {
+        if (opts.throwOnError) throw error;
+        reportError(error, 'HandHistoryService.getTableReviewHands');
         return [];
       }
     }
@@ -1065,6 +1141,14 @@ class HandHistoryServiceClass {
       replayInputFromRow(row, {
         discardedCards,
         privateHoleCards,
+        /* The seat art travels on the model, so the replay, the Previous Hand
+           sheet and every shared link drawn from this record show it. */
+        avatars: Object.fromEntries(
+          jsonbPlayers.map((p: any) => [
+            String(p?.userId || ''),
+            profileMap.get(String(p?.userId || ''))?.avatar_url ?? null,
+          ])
+        ),
       })
     );
     /* The model resolves the button the same way (`replayInputFromRow`); the

@@ -1,0 +1,55 @@
+/* Owner 2026-11-10: no panel, name header or speech tail. */
+.add-on-flight {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 24;
+  width: max-content;
+  pointer-events: none;
+  color: #00e5ff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 3px #000;
+  animation-name: addOnBankToCrown;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+@keyframes addOnBankToCrown {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, var(--add-on-start, 0px));
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+    transform: translate(-50%, var(--add-on-end, -100px));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, var(--add-on-end, -100px));
+  }
+}
+
+/* Keep the readable flash and its duration, collapse only the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .add-on-flight {
+    animation-name: addOnCrownFade;
+  }
+}
+@keyframes addOnCrownFade {
+  0%,
+  85% {
+    opacity: 1;
+    transform: translate(-50%, var(--add-on-end, -100px));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, var(--add-on-end, -100px));
+  }
+}

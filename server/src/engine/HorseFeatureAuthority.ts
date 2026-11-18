@@ -398,8 +398,10 @@ export function featureDomainMatches(d: HorseFeatureDomain, gs: HorseGameStateV2
       .filter((p) => gs.dealtSeatIds?.includes(p.seat))
       .every(
         (p) =>
+          Number.isFinite(p.stack) &&
+          p.stack >= 0 &&
           Number.isFinite(p.totalInvested) &&
-          Math.abs((p.stack + p.totalInvested) / bb - d.startingStackBB) < 1e-9
+          p.totalInvested >= 0
       ) &&
     d.remainingPlayers.includes(active.length) &&
     Number.isFinite(depth) &&

@@ -74,7 +74,8 @@ describe('public215 feature contract v2 (appended R8 categories)', () => {
   it('declares two contracts with their own descriptors and widths, never inferred', () => {
     expect(public215FeatureContract(PUBLIC_HIST215_V1)?.featureCount).toBe(215);
     expect(public215FeatureContract(PUBLIC_HIST215_V2)?.featureCount).toBe(246);
-    expect(public215FeatureContract('holdem-public-hist215-v3')).toBeNull();
+    // v3 exists since V31 cell contract v3 (GtoPublicHist215FeatureContractV3.test.ts); v4 does not.
+    expect(public215FeatureContract('holdem-public-hist215-v4')).toBeNull();
     expect(public215FeatureContractBySchema(PUBLIC_HIST215_V1_FEATURE_SCHEMA_SHA256)?.version).toBe(
       PUBLIC_HIST215_V1
     );

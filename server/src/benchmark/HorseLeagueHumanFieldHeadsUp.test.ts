@@ -14,6 +14,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HUMAN_HU_BB_DEFENDS_TO_PRICE,
+  HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB,
+  HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF,
+  HUMAN_HU_COMMIT_UNDER_POT,
+  HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF,
+  HU_READS_OFF_CARDS,
+  HU_BB_UNREAD_CARDS,
+  HU_EXPLOITER_CARDS,
+  HU_LIMP_EVERY_BUTTON_PERSONA,
+  HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_WIDE_SB_AGGRESSOR_PERSONA,
   HUMAN_FIELD_HERO_SEAT,
   HUMAN_FIELD_PAIRS,
@@ -165,5 +176,344 @@ describe('the heads-up human-field card', { timeout: 180_000 }, () => {
     expect(horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })).toBe(
       true
     );
+  });
+});
+
+/**
+ * HU-NLH-001 (2026-11-12): V85 widens the heads-up cash big blind above 50bb
+ * only, so the 80bb cards measure the flag on top of V85. The 40bb pair
+ * measures it in the band the V11 bars still decide.
+ */
+describe('the 40bb heads-up pair (HU-NLH-001)', { timeout: 180_000 }, () => {
+  const mirror = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price_40bb')!;
+  const twin = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB)!;
+
+  it('is on the nightly card at 40bb with the 80bb pair unchanged', () => {
+    const base = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price')!;
+    expect(base.stackBB).toBe(80);
+    expect(mirror()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      pairs: base.pairs,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+    });
+    expect(mirror().a).toEqual({ huBbDefendsToPrice: true });
+    expect(mirror().b).toEqual({});
+    expect(twin()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      pairs: HUMAN_FIELD_PAIRS,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+      opponentPopulation: HUMAN,
+      humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
+    });
+    expect(twin().a).toEqual(mirror().a);
+    expect(twin().b).toEqual(mirror().b);
+    const eighty = LEAGUE_MATCHUPS.find((m) => m.name === HUMAN_HU_BB_DEFENDS_TO_PRICE)!;
+    expect(eighty.stackBB).toBe(80);
+  });
+
+  it('both cards deal a measurement at 40bb: the arms diverge and nothing is illegal', async () => {
+    for (const card of [mirror(), twin()]) {
+      const r = await runMatchup(card, 300, 20261112);
+      expect(r.hands).toBe(600);
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.inert).not.toBe(true);
+      expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  it('the flag still defaults off', () => {
+    expect(mirror().b).toEqual({});
+    expect(twin().b).toEqual({});
+  });
+});
+
+/**
+ * HU-AUDIT-002 (2026-11-12): commitUnderPot has been default off since
+ * 2026-11-07 and no card dealt it, so the nightly league could never
+ * measure it. Both cards must reach the rule.
+ */
+describe('the commit-under-the-pot pair (HU-AUDIT-002)', { timeout: 300_000 }, () => {
+  const mirror = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === 'hu_commit_under_pot')!;
+  const twin = (): LeagueMatchup =>
+    LEAGUE_MATCHUPS.find((m) => m.name === HUMAN_HU_COMMIT_UNDER_POT)!;
+
+  it('is on the nightly card heads-up at 40bb, flag on against live defaults', () => {
+    expect(mirror()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+    });
+    expect(mirror().a).toEqual({ commitUnderPot: true });
+    expect(mirror().b).toEqual({});
+    expect(twin()).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      pairs: HUMAN_FIELD_PAIRS,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
+    });
+    expect(twin().a).toEqual(mirror().a);
+    expect(twin().b).toEqual({});
+  });
+
+  it('both cards reach the rule: the arms diverge and nothing is illegal', async () => {
+    // 2026-11-15 (league fidelity, LeagueDecisionState.ts): the mirror is dealt
+    // at its own nightly size. Its 1500 pairs of seed 20261112 reached the rule
+    // in exactly one pair while the league handed the brain its reduced legacy
+    // state (1 of 1500 diverged, one commit_under_pot fire). The league now
+    // hands the brain the live decision state, the hands play differently, and
+    // that sample holds no such spot (0 of 1500, no fire). The rule is as
+    // reachable as before at the card's 6000 pairs: seed 20261112 diverges in
+    // 3 pairs (3 fires; legacy state 10 pairs, 5 fires) and seed 777001 in 16
+    // (6 fires; legacy 7 pairs, 5 fires). The twin's sample is unchanged.
+    const samples: Array<[LeagueMatchup, number]> = [
+      [mirror(), mirror().pairs ?? 6000],
+      [twin(), 1500],
+    ];
+    for (const [card, pairs] of samples) {
+      const r = await runMatchup(card, pairs, 20261112);
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.inert).not.toBe(true);
+      expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * THE HEADS-UP EXPLOITERS (2026-11-12, HU-NLH-001): each persona plays its
+ * one line every time, and each card deals the live brain against it.
+ */
+describe('the heads-up exploiter personas and cards', { timeout: 600_000 }, () => {
+  const byPersona = (persona: string) =>
+    HU_EXPLOITER_CARDS.find((m) => m.humanPersona === persona)!;
+
+  it('every persona is refused anywhere but heads-up NLH of the calibrated field', () => {
+    for (const persona of [
+      HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      HU_LIMP_EVERY_BUTTON_PERSONA,
+      HU_THREE_BET_EVERY_HAND_PERSONA,
+      HU_SMALL_STAB_EVERY_STREET_PERSONA,
+    ]) {
+      expect(humanFieldPersonaProfile(persona, HU_TABLE).id).toContain(persona);
+      expect(() => humanFieldPersonaProfile(persona, { ...HU_TABLE, seats: 6 })).toThrow();
+    }
+    expect(humanFieldPersonaProfile(HU_MINRAISE_EVERY_BUTTON_PERSONA, HU_TABLE).sizing).toEqual({
+      preflopRaiseToMultiple: 2,
+    });
+  });
+
+  it('the wide small blind persona is unchanged by the refactor', () => {
+    const p = humanFieldPersonaProfile(HU_WIDE_SB_AGGRESSOR_PERSONA, HU_TABLE);
+    expect(p.sizing).toBeUndefined();
+    expect(p.cutoffs?.['preflop/unopened']).toEqual({ fold: 0.2, raise: 0.3 });
+  });
+
+  it('every card is on the nightly set, heads-up 40bb, at the human-field sample', () => {
+    expect(HU_EXPLOITER_CARDS).toHaveLength(4);
+    for (const c of HU_EXPLOITER_CARDS) {
+      expect(LEAGUE_MATCHUPS).toContain(c);
+      expect(c).toMatchObject({
+        seats: 2,
+        stackBB: 40,
+        pairs: HUMAN_FIELD_PAIRS,
+        opponentPopulation: HUMAN,
+      });
+    }
+  });
+
+  it.each([
+    [HU_MINRAISE_EVERY_BUTTON_PERSONA, 'preflop/unopened', ['raise'], 1],
+    [HU_LIMP_EVERY_BUTTON_PERSONA, 'preflop/unopened', ['call'], 1],
+    [HU_THREE_BET_EVERY_HAND_PERSONA, 'preflop/facing_raise', ['raise', 'all_in'], 1],
+    [HU_SMALL_STAB_EVERY_STREET_PERSONA, 'flop/checked_to', ['bet', 'all_in'], 1],
+    [HU_SMALL_STAB_EVERY_STREET_PERSONA, 'river/checked_to', ['bet', 'all_in'], 1],
+  ] as const)(
+    '%s plays its line at %s every time; the arms diverge; nothing illegal',
+    async (persona, node, actions, share) => {
+      const r = await runMatchup(byPersona(persona), 300, 20261112);
+      expect(r.illegalActions).toBe(0);
+      expect(r.truncatedStreets).toBe(0);
+      expect(r.inert).not.toBe(true);
+      expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+      expect(shareOf(r.humanResponses?.[node], ...actions)).toBe(share);
+    }
+  );
+});
+
+/**
+ * THE READS-OFF CARDS (2026-11-13, HU-EVAL-014): huBbDefendsToPrice where the
+ * Horse has no read on its opponent, the case no card measured.
+ */
+describe('the reads-off heads-up cards', { timeout: 600_000 }, () => {
+  const human = HU_READS_OFF_CARDS.find(
+    (m) => m.name === HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF
+  )!;
+  const mirror = HU_READS_OFF_CARDS.find((m) => m.name === HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF)!;
+
+  it('both are on the nightly set: the flag on against off, 40bb, memory learning off', () => {
+    expect(HU_READS_OFF_CARDS).toHaveLength(2);
+    for (const c of HU_READS_OFF_CARDS) {
+      expect(LEAGUE_MATCHUPS).toContain(c);
+      expect(c).toMatchObject({
+        seats: 2,
+        stackBB: 40,
+        hybridBaseline: true,
+        moodClock: 'deal_seed',
+        memoryLearning: 'off',
+        a: { huBbDefendsToPrice: true },
+        b: {},
+      });
+    }
+    expect(human).toMatchObject({
+      pairs: HUMAN_FIELD_PAIRS,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+    });
+    expect(mirror.opponentPopulation).toBeUndefined();
+    expect(mirror.pairs).toBe(6000);
+    expect(new Set(LEAGUE_MATCHUPS.map((m) => m.name)).size).toBe(LEAGUE_MATCHUPS.length);
+  });
+
+  it('they are the existing 40bb cards with learning off and nothing else changed', () => {
+    const { memoryLearning: _h, name: _hn, ...humanRest } = human;
+    const { name: _en, ...exploiter } = HU_EXPLOITER_CARDS.find(
+      (m) => m.humanPersona === HU_MINRAISE_EVERY_BUTTON_PERSONA
+    )!;
+    expect(humanRest).toEqual(exploiter);
+    const { memoryLearning: _m, name: _mn, ...mirrorRest } = mirror;
+    const { name: _bn, ...base } = LEAGUE_MATCHUPS.find(
+      (m) => m.name === 'hu_bb_defends_to_price_40bb'
+    )!;
+    expect(mirrorRest).toEqual(base);
+    // The cards they are built from carry no such option: their rows are unchanged.
+    // The one other card that keeps reads at their empty prior by design is the
+    // unread big blind card (HU-NLH-001d), named here and pinned below.
+    for (const m of LEAGUE_MATCHUPS) {
+      if (!HU_READS_OFF_CARDS.includes(m) && !HU_BB_UNREAD_CARDS.includes(m))
+        expect(m.memoryLearning).toBeUndefined();
+    }
+  });
+
+  it('the unread big blind card is the only other reads-off card, and its row says so', () => {
+    expect(HU_BB_UNREAD_CARDS).toHaveLength(1);
+    const unread = HU_BB_UNREAD_CARDS[0]!;
+    expect(LEAGUE_MATCHUPS).toContain(unread);
+    expect(unread).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      memoryLearning: 'off',
+      a: { huBbDefendsUnreadToPrice: true },
+      b: {},
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+    });
+    expect(leagueResultConfig(unread, 'a')).toEqual({
+      huBbDefendsUnreadToPrice: true,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(unread, 'b')).toEqual({
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+  });
+
+  it('the stored row says the reads were off, on these cards only', () => {
+    expect(leagueResultConfig(human, 'a')).toEqual({
+      huBbDefendsToPrice: true,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(human, 'b')).toEqual({
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(mirror, 'a')).toEqual({
+      huBbDefendsToPrice: true,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(mirror, 'b')).toEqual({ memoryLearning: 'off' });
+    const plain = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price_40bb')!;
+    expect(leagueResultConfig(plain, 'a')).toBe(plain.a);
+  });
+
+  it('the flag still defaults off: the card measures, it switches nothing on', () => {
+    expect(human.b).toEqual({});
+    expect(mirror.b).toEqual({});
+  });
+
+  it.each([
+    [HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF],
+    [HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF],
+  ])('%s: no decision observes, the arms diverge, nothing illegal', async (name) => {
+    const cardUnderTest = HU_READS_OFF_CARDS.find((m) => m.name === name)!;
+    const observed: unknown[] = [];
+    const original = HorseLogic.decide.bind(HorseLogic);
+    vi.spyOn(HorseLogic, 'decide').mockImplementation((player, gs, style, mods, opts) => {
+      observed.push(opts?.observeMind);
+      return original(player, gs, style, mods, opts);
+    });
+    const r = await runMatchup(cardUnderTest, 300, 20261112);
+    expect(observed.length).toBeGreaterThan(300);
+    expect(new Set(observed)).toEqual(new Set([false]));
+    expect(r.illegalActions).toBe(0);
+    expect(r.truncatedStreets).toBe(0);
+    expect(r.inert).not.toBe(true);
+    expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+    expect(horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })).toBe(
+      true
+    );
+    if (cardUnderTest.opponentPopulation) {
+      expect(shareOf(r.humanResponses?.['preflop/unopened'], 'raise')).toBe(1);
+    }
+  });
+
+  it('with no read the big blind folds far more to the min-raise than with one, flag off', async () => {
+    // The reason the card exists: the same brain, flag off, 300 pairs each.
+    const plain = HU_EXPLOITER_CARDS.find(
+      (m) => m.humanPersona === HU_MINRAISE_EVERY_BUTTON_PERSONA
+    )!;
+    const foldShare = async (m: LeagueMatchup) => {
+      let faced = 0;
+      let folded = 0;
+      const original = HorseLogic.decide.bind(HorseLogic);
+      const spy = vi
+        .spyOn(HorseLogic, 'decide')
+        .mockImplementation((player, gs, style, mods, opts) => {
+          const d = original(player, gs, style, mods, opts);
+          const facingOnlyOpen =
+            gs.stage === 'preflop' &&
+            (gs.actionHistory?.length ?? 0) === 1 &&
+            opts?.huBbDefendsToPrice !== true;
+          if (facingOnlyOpen) {
+            faced++;
+            if (d.action === 'fold') folded++;
+          }
+          return d;
+        });
+      await runMatchup(m, 300, 20261112);
+      spy.mockRestore();
+      return { faced, share: folded / Math.max(1, faced) };
+    };
+    const noRead = await foldShare(human);
+    const withRead = await foldShare(plain);
+    expect(noRead.faced).toBeGreaterThan(100);
+    expect(withRead.faced).toBeGreaterThan(100);
+    expect(noRead.share).toBeGreaterThan(0.4);
+    expect(noRead.share).toBeGreaterThan(withRead.share + 0.2);
   });
 });

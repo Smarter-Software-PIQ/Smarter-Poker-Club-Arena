@@ -162,7 +162,8 @@ describe('a disabled or paused fleet seats nobody and removes nobody', () => {
        waitlist prune, the diagnostics, the overflow and retirement passes and
        the heartbeat with it, and the console would see an engine that had
        apparently died. */
-    expect(CYCLE).toMatch(/const tablesToSeed = cycleWithheld \? \[\] : orderedTables;/);
+    expect(CYCLE).toMatch(/const tablesToSeed = cycleWithheld\s+\? queueCycleWithheld\s+\? \[\]/);
+    expect(CYCLE).toMatch(/orderedTables\.filter\(\(table\) =>\s+isFullClassicQueueTable\(/);
     expect(CYCLE).toMatch(/for \(const table of tablesToSeed\)/);
     // A policy-withheld cycle remains live and still prunes/reports. Process
     // shutdown withdraws that generation entirely; only its explicit fence
@@ -254,7 +255,7 @@ describe('a cap of N never seats N+1', () => {
     );
     expect(CYCLE).toMatch(/globalPolicy\.maxHorses === null[\s\S]{0,120}POSITIVE_INFINITY/);
     expect(CYCLE).toMatch(/Math\.max\(0, globalPolicy\.maxHorses - seatedHorseCount\)/);
-    expect(LOOP).toMatch(/seatsNeeded = Math\.min\(seatsNeeded, seatBudget\)/);
+    expect(LOOP).toMatch(/seatsNeeded = queueOnly \? 0 : Math\.min\(seatsNeeded, seatBudget\)/);
     expect(LOOP).toContain('seatBudget--');
     expect(CYCLE).toContain('seatBudget -= claimed');
   });

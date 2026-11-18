@@ -20,6 +20,7 @@ import {
   type ExploitHandAction,
 } from './HorseOpponentExploit.js';
 import { decodeHorseDecisionReads, encodeHorseDecisionReads } from './HorseDecisionReadFrame.js';
+import { withoutLongParticipation } from './HorseLongParticipation.test-support.js';
 import type { ActionRecord, SeatPlayer } from '../types.js';
 
 const BB = 2;
@@ -159,13 +160,15 @@ describe('probe bets are not aggression', () => {
     expect(HorseMind.getStats(OPP)?.ctBets).toBeUndefined();
   });
 
-  it('carries the tallies through a v11 read frame, and keeps v10-or-older bytes without them', () => {
+  it('carries probe and flop tallies through v15, and keeps historical bytes without either', () => {
     play(() => BB, 12);
     const players = [{ user_id: HERO }, { user_id: OPP }] as SeatPlayer[];
     const ctx = { variant: 'nlh', mode: 'cash', size: 'hu' } as const;
     const view = HorseMind.snapshotDecisionReads(players, null, ctx);
     const frame = encodeHorseDecisionReads(view, players, null);
-    expect(frame.version).toBe('horse-decision-reads-v11');
+    expect(view.flopStab?.size).toBeGreaterThan(0);
+    // Learned rows carry the long participation window since 2026-11-15 (v15, which carries every v13 list).
+    expect(frame.version).toBe('horse-decision-reads-v15');
     const restored = decodeHorseDecisionReads(frame, players, null);
     expect(restored.stats.get(OPP)).toMatchObject({ ctBets: 36, ctProbes: 36 });
     expect(encodeHorseDecisionReads(restored, players, null)).toEqual(frame);
@@ -174,8 +177,10 @@ describe('probe bets are not aggression', () => {
       delete row.ctBets;
       delete row.ctProbes;
     }
-    const older = encodeHorseDecisionReads(view, players, null);
+    delete view.flopStab;
+    const older = encodeHorseDecisionReads(withoutLongParticipation(view), players, null);
     expect(older.version).not.toBe('horse-decision-reads-v11');
+    expect(older.version).not.toBe('horse-decision-reads-v13');
     expect(older.json).not.toContain('probeTallies');
   });
 });

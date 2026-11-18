@@ -51,8 +51,9 @@
  * MIXING. The best action by EV is taken most of the time, but never always:
  * actions within a small margin of the best are mixed by their EV gap, so at
  * a true indifference the engine plays the solver's mixed frequency instead
- * of a deterministic tell. The margin is a fraction of the pot, never a flat
- * number, which is what Dan asked to remove from the river line.
+ * of a deterministic tell. Legacy callers retain their pot-relative margin.
+ * Live Hybrid callers additionally cap the estimated loss at 0.12 big blinds
+ * relative to the highest priced EV, with stable per-horse preferences.
  *
  * SCOPE. Used as the ARBITER for the games with no solver export — Omaha
  * (4/5/6), PLO8, short deck, pineapple, fixed limit — and for every river
@@ -82,8 +83,54 @@ import {
   continuationMixWindow,
   type BarrelContinuation,
 } from './HorseContinuation.js';
+import { noteFire } from './BrainTelemetry.js';
+import {
+  HORSE_INDIFFERENCE_EV_BAND_BB,
+  indifferenceStyleSeedsFor,
+  resolveIndifferenceTieBreak,
+} from './HorsePersona.js';
 export { barrelContinuationValue } from './HorseContinuation.js';
 export type { BarrelContinuation } from './HorseContinuation.js';
+
+export interface EvRunoutLookahead {
+  /** Share of unseen next-street cards that improve hero (`0..1`). */
+  goodShare: number;
+  /** Share of unseen next-street cards that bring scare / counterfeit runouts (`0..1`). */
+  scareShare: number;
+  /** Hero's estimated equity lift on good runouts (`0..0.35`). */
+  goodEquityLift?: number;
+  /** Hero's estimated equity drop on scare runouts (`0..0.35`). */
+  scareEquityDrop?: number;
+  /** Whether hero holds the nut blocker to leverage scare runouts in position / with lead. */
+  scareBlockerLeverage?: boolean;
+}
+
+/** Supplied only by the live Hybrid profile. EV remains in chips; this is its BB conversion. */
+export interface HorseEvIndifferenceContext {
+  horseId: string;
+  mode: 'cash' | 'tournament';
+  bigBlind: number;
+  /** Trusted ICM bubble factor, when available; never widens the band. */
+  bubbleFactor?: number;
+  handKey?: string | number;
+  /** Count this decision's indifference evidence (live telemetry-on decisions only). */
+  telemetry?: boolean;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle, default off): the aggression
+   * tie-break of this decision in place of the Horse's own seed, clamped to
+   * the seed's own range (plus or minus HORSE_INDIFFERENCE_EV_BAND_BB). Like
+   * the seed it acts only among candidates inside the indifference band.
+   * Absent on every decision without the option: the Horse's own seed.
+   */
+  aggressionBias?: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle.omahaPlayStyleTieBandMul, default
+   * off): the indifference band is multiplied by this (1..2) for a candidate
+   * MORE aggressive than the best only (a bet against a check). Absent on
+   * every decision without the option: the band as it is.
+   */
+  aggressionBandMul?: number;
+}
 
 export interface EvSpot {
   /** hero's equity vs the range in the pot (0..1), caps already applied */
@@ -105,6 +152,12 @@ export interface EvSpot {
   /** equity realization factor (0..1]; 1 on the river */
   realization: number;
   continuation?: BarrelContinuation;
+  /** Optional bounded 2-street (`good / neutral / scare`) stratified lookahead on flop/turn. */
+  runout?: EvRunoutLookahead;
+  /** Optional combinatorial card-removal fold-equity delta (`-0.08 .. +0.12`). */
+  cardRemovalFoldDelta?: number;
+  /** Optional side-game pot overlay in chips (`7-2` bounty / active `Kill Pot` incentive). */
+  sideGamePotOverlay?: number;
   /** marginal rake on the pot in cash (0..0.5) */
   rakeMarg?: number;
   /** Total fraction deducted from the projected call award (0..1).
@@ -125,6 +178,10 @@ export interface EvSpot {
    * assumption is corrected by this factor (0.85 on the check side).
    */
   initiative?: boolean;
+  /** Optional Hybrid individuality, bounded against the highest estimated candidate EV. */
+  indifference?: HorseEvIndifferenceContext;
+  /** Map a nominal wager to the exact executable increment before pricing it. */
+  normalizeWager?: (amount: number) => number | null;
   /** PRNG for the mixed strategy */
   rand: () => number;
 }
@@ -172,11 +229,70 @@ export function continuingEquity(equity: number, foldFrac: number): number {
   return clamp(eq, 0.03, 0.99);
 }
 
+function indifferenceBand(context: HorseEvIndifferenceContext): number {
+  if (
+    typeof context.horseId !== 'string' ||
+    !context.horseId.trim() ||
+    (context.mode !== 'cash' && context.mode !== 'tournament') ||
+    !Number.isFinite(context.bigBlind) ||
+    context.bigBlind <= 0
+  )
+    return 0;
+  const bf =
+    context.mode === 'tournament' && Number.isFinite(context.bubbleFactor)
+      ? Math.max(1, context.bubbleFactor!)
+      : 1;
+  return HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf));
+}
+
+const actionPressure = (action: EvAction): number =>
+  action.kind === 'bet' || action.kind === 'raise' ? 1 : action.kind === 'call' ? 0.5 : 0;
+
+function personallyIndifferent(
+  candidate: EvAction,
+  best: EvAction,
+  context: HorseEvIndifferenceContext,
+  street: string,
+  maxWager: number
+): boolean {
+  if (candidate === best) return true;
+  const baseBand = indifferenceBand(context);
+  const bandMul =
+    context.aggressionBandMul !== undefined &&
+    Number.isFinite(context.aggressionBandMul) &&
+    actionPressure(candidate) > actionPressure(best)
+      ? clamp(context.aggressionBandMul, 1, 2)
+      : undefined;
+  const band = bandMul !== undefined ? baseBand * bandMul : baseBand;
+  const gapBB = (candidate.ev - best.ev) / context.bigBlind;
+  if (!(band > 0) || !Number.isFinite(gapBB) || gapBB < -band) return false;
+  const seeds = indifferenceStyleSeedsFor(context.horseId, context.mode);
+  const size = (a: EvAction) => ('amount' in a ? a.amount / Math.max(0.01, maxWager) : 0);
+  const ownAggressionBias =
+    context.aggressionBias !== undefined && Number.isFinite(context.aggressionBias)
+      ? clamp(context.aggressionBias, -HORSE_INDIFFERENCE_EV_BAND_BB, HORSE_INDIFFERENCE_EV_BAND_BB)
+      : seeds.indifferenceAggressionBias;
+  // The widened band carries a bias scaled with it: the top of the seed range
+  // stays the top of the (wider) band.
+  const aggressionBias = bandMul !== undefined ? ownAggressionBias * bandMul : ownAggressionBias;
+  const bias =
+    (actionPressure(candidate) - actionPressure(best)) * aggressionBias +
+    (size(candidate) - size(best)) * seeds.sizingMixBias;
+  return resolveIndifferenceTieBreak(gapBB, bias, {
+    bubbleFactor: context.mode === 'tournament' ? context.bubbleFactor : undefined,
+    handKey: context.handKey,
+    street,
+    ...(bandMul !== undefined ? { bandMul } : {}),
+  });
+}
+
 export function evaluateSpot(spot: EvSpot): EvVerdict {
   const r = clamp(spot.realization > 0 ? spot.realization : 1, 0.3, 1);
   const rake = clamp(spot.rakeMarg ?? 0, 0, 0.5);
   const risk = clamp(spot.riskPremium ?? 0, 0, 0.15);
   const P = Math.max(0.01, spot.pot);
+  const sideBonus = Math.max(0, spot.sideGamePotOverlay ?? 0);
+  const effectivePotWin = P + sideBonus;
   const c = Math.max(0, Math.min(spot.toCall, spot.stack));
   const facing = c > 0;
   const stack = Math.max(0, spot.stack);
@@ -189,34 +305,64 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
     if (models[i]?.canRespond !== false) hasResponder = true;
   }
 
+  // Bounded 2-street stratified runout lookahead (`good / neutral / scare`):
+  // When `spot.runout` is supplied on flop/turn, computes expected next-street
+  // realization & implied value shift across good, blank, and scare cards.
+  let runoutEqDelta = 0;
+  let runoutCheckBonus = 0;
+  if (spot.runout && (spot.street === 'flop' || spot.street === 'turn')) {
+    const gShare = clamp(spot.runout.goodShare, 0, 1);
+    const sShare = clamp(spot.runout.scareShare, 0, Math.max(0, 1 - gShare));
+    const gLift = clamp(spot.runout.goodEquityLift ?? 0.16, 0, 0.35);
+    const sDrop = clamp(spot.runout.scareEquityDrop ?? 0.14, 0, 0.35);
+    runoutEqDelta = gShare * gLift - sShare * sDrop * (spot.inPosition ? 0.65 : 0.9);
+    if (spot.runout.scareBlockerLeverage && spot.inPosition) {
+      runoutEqDelta += sShare * 0.06;
+    }
+    // Pot-controlling medium equity when scare share is heavy preserves EV on check:
+    if (sShare > gShare + 0.12 && eq >= 0.38 && eq <= 0.62) {
+      runoutCheckBonus = (sShare - gShare) * 0.04 * P;
+    }
+  }
+  const effectiveEq = clamp(eq + runoutEqDelta * 0.35, 0, 1);
+  const foldCardRemovalDelta = clamp(spot.cardRemovalFoldDelta ?? 0, -0.08, 0.12);
+
   // Realized equity, net of rake and the survival premium. The premium is
   // charged in proportion to the share of the stack a line puts at risk, so
   // a cheap call pays almost none of it and a stack-off pays all of it.
   const realized = (share: number): number =>
-    clamp(eq * r * (1 - rake) - risk * Math.sqrt(clamp(share, 0, 1)), 0, 1);
+    clamp(effectiveEq * r * (1 - rake) - risk * Math.sqrt(clamp(share, 0, 1)), 0, 1);
 
   const candidates: EvAction[] = [];
 
   if (facing) {
     candidates.push({ kind: 'fold', ev: 0 });
     // Calling: the pot already holds the wager; hero puts in c to see it.
-    const evCall = callContinuationValue({
-      equity: eq,
-      realization: r,
-      pot: P,
-      call: c,
-      stack,
-      rake,
-      callDeductionFraction: spot.callDeductionFraction,
-      risk,
-      continuation: spot.continuation,
-    });
+    // When `spot.continuation` is already provided, next-street continuation is
+    // explicitly modeled inside `callContinuationValue`; avoid double-counting `runoutEqDelta`.
+    const callEq = spot.continuation ? eq : effectiveEq;
+    const evCall =
+      callContinuationValue({
+        equity: callEq,
+        realization: r,
+        pot: P,
+        call: c,
+        stack,
+        rake,
+        callDeductionFraction: spot.callDeductionFraction,
+        risk,
+        continuation: spot.continuation,
+      }) +
+      callEq * sideBonus;
     candidates.push({ kind: 'call', ev: evCall });
   } else {
     // A check with the lead is not a free card: the opponent gets to bet
     // the pot hero declined to, and part of the equity never gets realized.
     const checkMul = spot.initiative && hasResponder ? 0.85 : 1;
-    candidates.push({ kind: 'check', ev: realized(0) * checkMul * P });
+    candidates.push({
+      kind: 'check',
+      ev: realized(0) * checkMul * P + realized(0) * sideBonus * 0.5 + runoutCheckBonus,
+    });
   }
 
   // Bets / raises. `s` is the extra hero puts in beyond the call; for a
@@ -234,8 +380,20 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
   }
   if (jam >= spot.minBet && jam <= spot.maxBet + 1e-9) amounts.add(Math.round(jam * 100) / 100);
 
-  for (const s of amounts) {
-    if (!(s > 0)) continue;
+  const pricedAmounts = new Set<number>();
+  for (const nominal of amounts) {
+    const s = spot.normalizeWager ? spot.normalizeWager(nominal) : nominal;
+    if (
+      s === null ||
+      !Number.isFinite(s) ||
+      !(s > 0) ||
+      s < spot.minBet ||
+      s > spot.maxBet + 1e-9 ||
+      s > jam + 1e-9 ||
+      pricedAmounts.has(s)
+    )
+      continue;
+    pricedAmounts.add(s);
     // Each opponent decides against the pot THEY see: the pot plus hero's
     // whole wager (c + s). Everyone must fold for the pot to be taken.
     let foldAll = 1;
@@ -245,10 +403,16 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      foldAll *= mdfFold(P + c, s, m);
+      const baseMdf = mdfFold(P + c, s, m);
+      const singleFold = clamp(
+        baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
+        0.02,
+        0.94
+      );
+      foldAll *= singleFold;
     }
     // The range that continues folded its weakest foldAll share.
-    const eqCont = continuingEquity(eq, foldAll);
+    const eqCont = continuingEquity(effectiveEq, foldAll);
     const share = (c + s) / Math.max(1, stack);
     const realizedCont = clamp(
       // Putting the effective stack in ends future betting. Discounting
@@ -259,8 +423,8 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
     );
     // When called: final pot = P + c + s (hero) + s (caller); hero's cost c + s.
     // Multiway callers are folded into the equity number already.
-    const evCalled = realizedCont * (P + c + 2 * s) - (c + s);
-    const ev = foldAll * P + (1 - foldAll) * evCalled;
+    const evCalled = realizedCont * (effectivePotWin + c + 2 * s) - (c + s);
+    const ev = foldAll * effectivePotWin + (1 - foldAll) * evCalled;
     candidates.push({
       kind: facing ? 'raise' : 'bet',
       ev,
@@ -278,18 +442,31 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
   // largest share; a candidate at exactly the same EV shares evenly.
   // A near-indifference mix cannot cost a large part of the chips behind.
   const window = continuationMixWindow(P, eff, MIX_WINDOW_POT);
-  const pool = candidates.filter((a) => best.ev - a.ev <= window);
+  const legacyPool = candidates.filter((a) => best.ev - a.ev <= window);
   let pick = best;
-  if (pool.length > 1) {
+  if (legacyPool.length > 1) {
+    // Consume exactly the existing draw even if the BB cap removes every alternative.
+    const draw = spot.rand();
+    const pool = spot.indifference
+      ? legacyPool.filter((a) =>
+          personallyIndifferent(a, best, spot.indifference!, spot.street, jam)
+        )
+      : legacyPool;
     const weights = pool.map((a) => 1 - (best.ev - a.ev) / (window + 1e-9));
     const total = weights.reduce((s, w) => s + w, 0);
-    let roll = spot.rand() * total;
+    let roll = draw * total;
     for (let i = 0; i < pool.length; i++) {
       roll -= weights[i];
       if (roll <= 0) {
         pick = pool[i];
         break;
       }
+    }
+    if (spot.indifference?.telemetry) {
+      // Evidence only, after the draw and the pick: the persona band was
+      // asked about a real choice, and whether it moved the action.
+      noteFire('upgrade11_indifference_pool');
+      if (pick !== best) noteFire('upgrade11_indifference_mixed_pick');
     }
   }
   return { pick, best, candidates };
@@ -307,9 +484,11 @@ export function riverCallVerdict(args: {
   pot: number;
   toCall: number;
   stack: number;
+  sideGamePotOverlay?: number;
   rakeMarg?: number;
   callDeductionFraction?: number;
   riskPremium?: number;
+  indifference?: HorseEvIndifferenceContext;
   rand: () => number;
 }): { call: boolean; required: number; evCall: number } {
   const c = Math.max(0, Math.min(args.toCall, args.stack));
@@ -317,7 +496,8 @@ export function riverCallVerdict(args: {
   const rake = exact ? clamp(args.callDeductionFraction!, 0, 1) : clamp(args.rakeMarg ?? 0, 0, 0.5);
   const risk = clamp(args.riskPremium ?? 0, 0, 0.15);
   const riskShare = risk * Math.sqrt(clamp(c / Math.max(1, args.stack), 0, 1));
-  const award = (args.pot + c) * (1 - rake);
+  const sideBonus = Math.max(0, args.sideGamePotOverlay ?? 0);
+  const award = (args.pot + c) * (1 - rake) + sideBonus;
   // Report the same stack-share risk used by the unchanged action threshold.
   // Charging the full premium here could report a negative EV for a call
   // whose policy-adjusted equity is clearly above its price.
@@ -327,11 +507,23 @@ export function riverCallVerdict(args: {
   // call. Do not turn that price into a 99% threshold or mix into it.
   if (exact && c > 0 && award < c)
     return { call: false, required: award > 0 ? c / award : 1, evCall };
-  const rawRequired = c / ((args.pot + c) * (1 - rake)) + riskShare,
+  const rawRequired = c / award + riskShare,
     required = exact ? Math.max(0, rawRequired) : clamp(rawRequired, 0, 0.99);
   // Indifference band: within 1.5 equity points of the required number the
   // solver mixes; so does this.
   const gap = args.equity - required;
-  if (Math.abs(gap) <= 0.015) return { call: args.rand() < 0.5 + gap / 0.03, required, evCall };
-  return { call: gap > 0, required, evCall };
+  if (Math.abs(gap) <= 0.015) {
+    const draw = args.rand();
+    if (args.indifference) {
+      if (args.indifference.telemetry) noteFire('upgrade11_indifference_call_band');
+      const call: EvAction = { kind: 'call', ev: evCall };
+      const fold: EvAction = { kind: 'fold', ev: 0 };
+      const best = evCall >= 0 ? call : fold;
+      const other = best === call ? fold : call;
+      if (!personallyIndifferent(other, best, args.indifference, 'river', c))
+        return { call: best === call, required, evCall };
+    }
+    return { call: draw < 0.5 + gap / 0.03, required, evCall };
+  }
+  return { call: args.indifference ? evCall >= 0 : gap > 0, required, evCall };
 }

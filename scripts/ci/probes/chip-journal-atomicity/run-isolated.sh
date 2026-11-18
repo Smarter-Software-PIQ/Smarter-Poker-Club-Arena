@@ -40,6 +40,10 @@ python3 "$probe_dir/test_deferred_settlement.py"
 # rebuy debits, a released seat cannot buy, and a raced rebuy is refunded once.
 python3 "$probe_dir/test_bust_rebuy_window.py"
 
+# A cash add-on (2026-11-11): the real door and core charge one original key
+# once, under replay, a changed request, a later key and two real sessions.
+python3 "$probe_dir/test_addon_receipts.py"
+
 python3 "$probe_dir/test_satellite_split.py"
 
 "$PGNODE" "$probe_dir/postgres-runtime/lease-heartbeat-concurrency.mjs"

@@ -1,4 +1,12 @@
-import { permanentAvatarFocusScale, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import { NINE_SEAT_PHONE_RAIL_BUST } from './mobileAvatarSize';
+import { privateCardLane } from './heroPrivateReservations';
+import {
+  crownActionReservation,
+  nineSeatHeroArtRatio,
+  permanentAvatarFocusScale,
+  restingAvatarBox,
+  tableRenderScale,
+} from './avatarCrownBounds';
 /** Opponent artwork only: the hero, slot dimensions and table tokens stay owned
  * by their existing renderers. Image metadata never changes the source image. */
 type Alpha = {
@@ -20,6 +28,31 @@ export type OpponentAvatarState = {
   captionPreimages?: WeakMap<HTMLElement, { value: string; priority: string }>;
   idleReservedKey?: string;
 };
+/** Largest common bust multiplier that leaves the side portrait between its
+ * screen edge and the reserved board. Image transforms use their bottom centre. */
+export function fixedRailBustLimit(
+  paint: Box,
+  pivotX: number,
+  viewport: Box,
+  board: Box,
+  air: number,
+  /** The largest factor returned. 1 (the default) answers "how far must it
+   * shrink"; Infinity also answers "how far may it grow back". */
+  cap = 1
+) {
+  let left = viewport.left + air,
+    right = viewport.left + viewport.width - air;
+  if (paint.top < board.top + board.height && paint.top + paint.height > board.top) {
+    if (pivotX < board.left) right = Math.min(right, board.left - air);
+    if (pivotX > board.left + board.width) left = Math.max(left, board.left + board.width + air);
+  }
+  return Math.min(
+    cap,
+    paint.left < pivotX ? (pivotX - left) / (pivotX - paint.left) : cap,
+    paint.left + paint.width > pivotX ? (right - pivotX) / (paint.left + paint.width - pivotX) : cap
+  );
+}
+
 /** Original inline facts belong to their DOM node, never to a render revision. */
 export function syncOpponentCaptionBoundary(
   state: OpponentAvatarState,
@@ -119,15 +152,73 @@ const box = (element: Element): Box => {
   const r =
     element instanceof HTMLElement && element.matches('.seat__position-badge') && scaler
       ? restingAvatarBox(element, tableRenderScale(scaler))
-      : element.getBoundingClientRect();
+      : element instanceof HTMLImageElement && element.matches('.seat__avatar-img') && scaler
+        ? unpaintedImageBox(element, tableRenderScale(scaler))
+        : element.getBoundingClientRect();
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 };
+/** The portrait image's box with the fixed mobile paint layer's zoom undone.
+ * Dan 2026-11-12: the enlarged paint stays displayed through every relayout,
+ * so every solver measures the character's own slot, never its zoomed
+ * picture; the zoomed footprint enters a solver only through its own
+ * reservation (mobileAvatarCardReservation). Without this, a deferred pass
+ * read the zoomed image as the obstacle and pushed cards onto chips. */
+function unpaintedImageBox(image: HTMLImageElement, _ratio: number): DOMRect {
+  const paint = image.closest<HTMLElement>('.seat__avatar-paint');
+  const avatar = image.closest<HTMLElement>('.seat__avatar');
+  if (!paint || !avatar || !avatar.style.getPropertyValue('--sp-mobile-art-scale'))
+    return image.getBoundingClientRect();
+  const style = getComputedStyle(paint);
+  const k = parseFloat(style.scale) || 1;
+  const translate =
+    style.translate === 'none' ? [0, 0] : style.translate.split(/\s+/).map(parseFloat);
+  const tx = translate[0] || 0,
+    ty = translate[1] || 0;
+  const r = image.getBoundingClientRect();
+  if (!(k > 0) || !image.offsetWidth) return r;
+  // Local px to viewport px, read from the zoomed image itself.
+  const unit = r.width / (image.offsetWidth * k);
+  // The paint layer scales about its own bottom centre (transform-origin
+  // 50% 100%), so that point is fixed under the zoom and only translated.
+  const p = paint.getBoundingClientRect();
+  const originX = p.left + p.width / 2 - tx * unit;
+  const originY = p.bottom - ty * unit;
+  const left = originX + (r.left - tx * unit - originX) / k;
+  const top = originY + (r.top - ty * unit - originY) / k;
+  return new DOMRect(left, top, r.width / k, r.height / k);
+}
 const moved = (r: Box, x: number, y: number): Box => ({ ...r, left: r.left + x, top: r.top + y });
 const overlap = (a: Box, b: Box, gap = 3) =>
   a.left < b.left + b.width + gap &&
   a.left + a.width + gap > b.left &&
   a.top < b.top + b.height + gap &&
   a.top + a.height + gap > b.top;
+
+// For a fixed X, only obstacles that overlap a part horizontally can reject a Y.
+// Keep overlap's exact floating-point operation order at all contact edges.
+function allowedShiftYs(parts: Box[], fixed: Box[], bounds: Box, gap: number, x: number) {
+  const contacts: { part: Box; obstacle: Box }[] = [];
+  for (const part of parts) {
+    const left = part.left + x;
+    if (left < bounds.left || left + part.width > bounds.left + bounds.width) return null;
+    for (const obstacle of fixed) {
+      if (left < obstacle.left + obstacle.width + gap && left + part.width + gap > obstacle.left)
+        contacts.push({ part, obstacle });
+    }
+  }
+  return (y: number) => {
+    for (const part of parts) {
+      const top = part.top + y;
+      if (top < bounds.top || top + part.height > bounds.top + bounds.height) return false;
+    }
+    for (const { part, obstacle } of contacts) {
+      const top = part.top + y;
+      if (top < obstacle.top + obstacle.height + gap && top + part.height + gap > obstacle.top)
+        return false;
+    }
+    return true;
+  };
+}
 
 /** Minimum movement among the exact obstacle edges, keeping a chair on its
  * original half of the table. No dimensions are reduced to make it fit. */
@@ -138,7 +229,8 @@ function opponentShiftCandidates(
   side: number,
   outwardOnly = false,
   hints: Box[] = [],
-  gap = 3
+  gap = 3,
+  limit = Infinity
 ): Array<[number, number]> {
   if (!parts.length) return [[0, 0]];
   const xs = new Set([0]);
@@ -174,35 +266,30 @@ function opponentShiftCandidates(
           0,
           Math.max(...parts.map((part) => part.left + part.width)) - bounds.left - bounds.width
         );
-  const candidates: Array<[number, number]> = [];
+  let candidates: Array<[number, number]> = [];
+  const byCost = (a: [number, number], b: [number, number]) =>
+    a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1];
+  // Keep the original enumeration order at ties. Prune only after enough
+  // closer feasible grid points have already been found.
+  const orderedYs = [...ys];
+  let cutoff = Infinity;
   for (const x of xs) {
     if (outwardOnly && side && x * side < -inward - 0.01) continue;
     const centre = parts[0].left + parts[0].width / 2 + x;
     if (side && (centre - bounds.left - bounds.width / 2) * side < 0) continue;
-    if (
-      !parts.every(
-        (part) =>
-          part.left + x >= bounds.left && part.left + x + part.width <= bounds.left + bounds.width
-      )
-    )
-      continue;
-    for (const y of ys) {
-      if (
-        parts.every((part) => {
-          const next = moved(part, x, y);
-          return (
-            next.left >= bounds.left &&
-            next.top >= bounds.top &&
-            next.left + next.width <= bounds.left + bounds.width &&
-            next.top + next.height <= bounds.top + bounds.height &&
-            obstacles.every((other) => !overlap(next, other, gap))
-          );
-        })
-      )
-        candidates.push([x, y]);
+    const acceptsY = allowedShiftYs(parts, obstacles, bounds, gap, x);
+    if (!acceptsY) continue;
+    for (const y of orderedYs) {
+      if (x * x + y * y > cutoff) continue;
+      if (acceptsY(y)) candidates.push([x, y]);
+    }
+    if (candidates.length > limit * 2) {
+      candidates = candidates.sort(byCost).slice(0, limit);
+      const [dx, dy] = candidates[candidates.length - 1];
+      cutoff = dx * dx + dy * dy;
     }
   }
-  return candidates.sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1]);
+  return candidates.sort(byCost).slice(0, limit);
 }
 
 export function nearestOpponentShift(
@@ -323,7 +410,7 @@ const centreOfParts = (parts: Box[]): ChairPoint | null => {
 /** Jointly place only opponent pods. A finite search avoids freezing a first
  * neighbour where it prevents the remaining rail from fitting. */
 export function jointOpponentShifts(
-  items: Array<{ parts: Box[]; side: number; outwardOnly: boolean }>,
+  items: Array<{ parts: Box[]; side: number; outwardOnly: boolean; fixedRow?: boolean }>,
   fixed: Box[],
   bounds: Box,
   gap = 3,
@@ -335,8 +422,15 @@ export function jointOpponentShifts(
   otherChairs: readonly ChairPoint[] = [],
   /** 'own-seat' (opponentSeatsKept) unless the caller has already learned that
    * no own-seat layout exists for this ring (opponentSeatsCompact). */
-  seatRule: 'own-seat' | 'compact' = 'own-seat'
+  seatRule: 'own-seat' | 'compact' = 'own-seat',
+  incompatibleGeometries?: Set<string>
 ): Array<[number, number]> | null {
+  // Both seating rules traverse exactly the same search until a complete geometric
+  // assignment is reached. Reuse a failure only when the rule was never consulted.
+  const geometryKey = incompatibleGeometries
+    ? JSON.stringify([items, fixed, bounds, gap, closeVerticalChains, topLaneBottom, lowerLane])
+    : undefined;
+  if (geometryKey && incompatibleGeometries?.has(geometryKey)) return null;
   if (
     items.every((item) =>
       item.parts.every(
@@ -357,8 +451,7 @@ export function jointOpponentShifts(
     )
   )
     return items.map(() => [0, 0]);
-  const withinAuxiliaryLane = (item: (typeof items)[number], x: number, y: number) => {
-    if (topLaneBottom === undefined || !item.parts.length) return true;
+  const extents = items.map((item) => {
     const low = Math.min(...item.parts.map((p) => p.top));
     const high = Math.max(...item.parts.map((p) => p.top + p.height));
     const clamp =
@@ -368,6 +461,13 @@ export function jointOpponentShifts(
             0,
             Math.max(...item.parts.map((p) => p.left + p.width)) - bounds.left - bounds.width
           );
+    return { low, high, clamp };
+  });
+  const withinAuxiliaryLane = (index: number, x: number, y: number) => {
+    const item = items[index];
+    if (item.fixedRow && y !== 0) return false;
+    if (topLaneBottom === undefined || !item.parts.length) return true;
+    const { low, high, clamp } = extents[index];
     return (
       Math.abs(y) <= (high - low) / 2 &&
       (!item.outwardOnly ||
@@ -384,8 +484,9 @@ export function jointOpponentShifts(
       item.side,
       topLaneBottom === undefined && item.outwardOnly,
       items.filter((_, other) => other !== index).flatMap((other) => other.parts),
-      gap
-    ).slice(0, 96)
+      gap,
+      96
+    )
   );
   if (closeVerticalChains) {
     // Three contacts cover a dense side column. Propagate exact translated
@@ -441,6 +542,10 @@ export function jointOpponentShifts(
     });
     for (let round = 0; round < 3; round++) {
       const next = ys.map((set) => new Set(set));
+      const cutoffs = ys.map((set) => {
+        if (set.size < 512) return Infinity;
+        return [...set].map(Math.abs).sort((a, b) => a - b)[511];
+      });
       for (let i = 0; i < items.length; i++)
         for (let j = 0; j < items.length; j++) {
           if (i === j) continue;
@@ -451,20 +556,29 @@ export function jointOpponentShifts(
                 part.left + part.width + gap <= peer.left
               )
                 continue;
-              for (const y of ys[j])
-                for (const candidate of [
-                  peer.top + peer.height + y + gap + 0.001 - part.top,
-                  peer.top + y - gap - 0.001 - part.top - part.height,
-                ]) {
-                  if (
-                    items[i].parts.every(
-                      (p) =>
-                        p.top + candidate >= bounds.top &&
-                        p.top + p.height + candidate <= bounds.top + bounds.height
-                    )
+              const add = (candidate: number) => {
+                const value = Math.round(candidate * 1e6) / 1e6;
+                if (Math.abs(value) > cutoffs[i] || next[i].has(value)) return;
+                if (
+                  items[i].parts.every(
+                    (p) =>
+                      p.top + candidate >= bounds.top &&
+                      p.top + candidate + p.height <= bounds.top + bounds.height
                   )
-                    next[i].add(Math.round(candidate * 1e6) / 1e6);
+                )
+                  next[i].add(value);
+                if (next[i].size >= 1536) {
+                  const nearest = [...next[i]]
+                    .sort((a, b) => Math.abs(a) - Math.abs(b))
+                    .slice(0, 512);
+                  next[i] = new Set(nearest);
+                  cutoffs[i] = Math.abs(nearest[511]);
                 }
+              };
+              for (const y of ys[j]) {
+                add(peer.top + peer.height + y + gap + 0.001 - part.top);
+                add(peer.top + y - gap - 0.001 - part.top - part.height);
+              }
             }
         }
       ys = next.map(
@@ -521,48 +635,39 @@ export function jointOpponentShifts(
         topLaneBottom === undefined
           ? [0]
           : [...new Set([0, ...[...anchors].flatMap((x) => [x - low, x - high])])];
-      const extra = xs
-        .flatMap((x) => [...ys[i]].map((y): [number, number] => [x, y]))
-        .filter(([x, y]) => {
-          if (!withinAuxiliaryLane(item, x, y)) return false;
-          if (
-            item.side &&
-            (item.parts[0].left + item.parts[0].width / 2 + x - bounds.left - bounds.width / 2) *
-              item.side <
-              0
-          )
-            return false;
-          return item.parts.every((part) => {
-            const r = moved(part, x, y);
-            return (
-              r.left >= bounds.left &&
-              r.left + r.width <= bounds.left + bounds.width &&
-              r.top >= bounds.top &&
-              r.top + r.height <= bounds.top + bounds.height &&
-              fixed.every((other) => !overlap(r, other, gap))
-            );
-          });
-        });
+      const extra: Array<[number, number]> = [];
+      const nearestAtEachX: Array<[number, number]> = [];
+      for (const x of xs) {
+        if (
+          item.side &&
+          (item.parts[0].left + item.parts[0].width / 2 + x - bounds.left - bounds.width / 2) *
+            item.side <
+            0
+        )
+          continue;
+        const acceptsY = allowedShiftYs(item.parts, fixed, bounds, gap, x);
+        if (!acceptsY) continue;
+        const column: Array<[number, number]> = [];
+        for (const y of ys[i]) {
+          if (!withinAuxiliaryLane(i, x, y) || !acceptsY(y)) continue;
+          const shift: [number, number] = [x, y];
+          extra.push(shift);
+          if (topLaneBottom !== undefined) column.push(shift);
+        }
+        if (column.length)
+          nearestAtEachX.push(...column.sort((a, b) => a[1] * a[1] - b[1] * b[1]).slice(0, 4));
+      }
       const seen = new Set<string>();
       const seeds =
         topLaneBottom === undefined
           ? extra.filter((shift) => seedYs[i].has(shift[1]))
           : extra
               .filter(
-                ([, y]) =>
-                  seedYs[i].has(y) ||
-                  Math.abs(y - (bounds.top - Math.min(...item.parts.map((p) => p.top)))) < 0.002
+                ([, y]) => seedYs[i].has(y) || Math.abs(y - (bounds.top - extents[i].low)) < 0.002
               )
-              .concat(
-                xs.flatMap((x) =>
-                  extra
-                    .filter((p) => p[0] === x)
-                    .sort((a, b) => a[1] * a[1] - b[1] * b[1])
-                    .slice(0, 4)
-                )
-              );
+              .concat(nearestAtEachX);
       const candidates = [...options[i], ...extra]
-        .filter(([x, y]) => withinAuxiliaryLane(item, x, y))
+        .filter(([x, y]) => withinAuxiliaryLane(i, x, y))
         .sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1])
         .filter((shift) => {
           const key = lowerLane
@@ -595,6 +700,10 @@ export function jointOpponentShifts(
         ...uniqueSeeds,
       ].sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1]);
     });
+  }
+  for (const [i, item] of items.entries()) {
+    if (item.fixedRow) options[i] = options[i].filter(([, y]) => y === 0);
+    if (!options[i].length) return null;
   }
   const shapes = items.map((item, i) =>
     options[i].map((shift) => item.parts.map((part) => moved(part, ...shift)))
@@ -694,10 +803,12 @@ export function jointOpponentShifts(
   const chosen = Array<number>(items.length).fill(-1);
   let best: Array<[number, number]> | null = null;
   let bestCost = Infinity;
+  let reachedGeometrySolution = false;
   let budget = 12000;
   const visit = (remaining: number, total: number) => {
     if (--budget < 0 || total >= bestCost) return;
     if (!remaining) {
+      reachedGeometrySolution = true;
       const solution = chosen.map((option, i) => options[i][option]);
       // THE CHAIRS NEVER CHANGE ORDER: a cheaper layout that carries a chair
       // past a neighbour is not a layout, keep searching.
@@ -732,6 +843,7 @@ export function jointOpponentShifts(
     }
   };
   visit(items.length, 0);
+  if (!reachedGeometrySolution && geometryKey) incompatibleGeometries?.add(geometryKey);
   return best;
 }
 
@@ -1083,6 +1195,21 @@ export function createOpponentAvatarLayout(
     images().find((image) => image.closest('.seat--hero')) ??
     images().find((image) => image.closest('.seat-wrapper--hero'));
   const anchorSeat = () => anchorImage()?.closest<HTMLElement>('.seat');
+  const fixedPhoneRail = () =>
+    page.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
+  // The two lower opponents share a rail row. Reserve their vertical position
+  // before allocating space for wagers and captions around them.
+  const fixedLowerRow = (seat: HTMLElement) => {
+    if (
+      page.dataset.seats !== '6' ||
+      page.dataset.hero !== 'true' ||
+      !matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+    )
+      return false;
+    const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
+    return !!wrapper && parseFloat(wrapper.style.top) > 50 && parseFloat(wrapper.style.left) !== 50;
+  };
   const movableSeats = (includeEmpty = false) => {
     const anchor = anchorSeat();
     return Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
@@ -1152,6 +1279,48 @@ export function createOpponentAvatarLayout(
       reset = true;
     }
     return reset;
+  };
+  const futureCaption = (seat: HTMLElement | null | undefined): Box[] => {
+    if (
+      !seat ||
+      seat.classList.contains('seat--empty') ||
+      !['6', '9'].includes(page.dataset.seats || '') ||
+      window.innerWidth <= 480 ||
+      window.innerWidth > 640 ||
+      window.innerHeight <= window.innerWidth
+    )
+      return [];
+    // A revealed hand may use the existing compact caption position above its
+    // card row. Its caption and animation occupy that translated lane only.
+    const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
+    const translated =
+      action?.style.translate && seat.querySelector('.seat__cards--revealed')
+        ? action.style.translate
+        : null;
+    const [dx, dy] = translated ? translated.split(/\s+/).map(parseFloat) : [0, 0];
+    const scale = tableRenderScale(scaler);
+    const rect = box(seat);
+    const style = getComputedStyle(seat);
+    return [
+      crownActionReservation({
+        seatLeft: rect.left + (dx || 0) * scale,
+        seatTop: rect.top + (dy || 0) * scale,
+        seatWidth: rect.width,
+        rise: parseFloat(style.getPropertyValue('--sp-art-rise')) || 0,
+        tagHeight: parseFloat(style.getPropertyValue('--sp-tag-h')) || 20,
+        scale,
+      }),
+    ];
+  };
+  const fixedHeroCards = () => {
+    const seat = anchorSeat();
+    if (
+      !seat?.classList.contains('seat--hero') ||
+      !['6', '9'].includes(page.dataset.seats || '') ||
+      !matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+    )
+      return [];
+    return privateCardLane(scaler, page, seat, tableRenderScale(scaler)).boxes;
   };
   const anchorFacts = () =>
     Array.from(
@@ -1240,6 +1409,7 @@ export function createOpponentAvatarLayout(
     const hero = anchorImage();
     const heroParts = [
       ...(hero ? paintedParts(hero) : []),
+      ...futureCaption(anchorSeat()),
       ...anchorFacts()
         .map(box)
         .filter((part) => part.width > 0 && part.height > 0),
@@ -1342,8 +1512,21 @@ export function createOpponentAvatarLayout(
     if (!hero) return false;
     const heroAlpha = resolved.get(source(hero));
     if (!heroAlpha) return false; // Preserve existing visible artwork if its public metadata is unavailable.
-    const target = subject(hero, heroAlpha, false).height;
-    const baseTarget = subject(hero, heroAlpha, false, undefined, false).height;
+    // Side portraits share the regular seat diameter. Using the enlarged
+    // hero as their target makes the side-clearance limit shrink the whole
+    // ring, cancelling the hero's gain on the actual painted character.
+    // An empty bottom chair still has the seated table's full-size slot.
+    // A side chair supplies the decoded artwork, never its compact diameter.
+    const observerReference =
+      !anchor && fixedPhoneRail() && page.classList.contains('table-page--tournament');
+    const referenceGain = observerReference
+      ? Math.min(124, Math.max(50, scaler.clientWidth * 0.158)) /
+        parseFloat(getComputedStyle(hero.closest('.seat__avatar')!).height)
+      : 1;
+    const heroPremium = nineSeatHeroArtRatio(page, hero);
+    const target = (subject(hero, heroAlpha, false).height * referenceGain) / heroPremium;
+    const baseTarget =
+      (subject(hero, heroAlpha, false, undefined, false).height * referenceGain) / heroPremium;
     /* THE HERO'S CIRCLE IS THE CEILING (Dan 2026-11-09).
        Dan, with a PLO4 Lightning screenshot: "the 'hero' avatar is smaller then
        all the other avatars at the table, it should always be the same size."
@@ -1381,12 +1564,12 @@ export function createOpponentAvatarLayout(
         ? parseFloat(declared)
         : avatar.offsetHeight;
     };
-    const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!);
+    const heroSlot = slotHeight(hero.closest<HTMLElement>('.seat__avatar')!) * referenceGain;
     const scales: string[] = [];
     for (const image of all) {
       const avatar = image.closest<HTMLElement>('.seat__avatar')!;
       const seat = image.closest<HTMLElement>('.seat')!;
-      if (image === hero) {
+      if (image === hero && !observerReference) {
         avatar.style.removeProperty('--sp-opponent-art-scale');
         continue;
       }
@@ -1405,6 +1588,68 @@ export function createOpponentAvatarLayout(
       );
       scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${baseValue}`);
     }
+    // Set the baseline before cards, captions or wagers are allocated. The
+    // later paint fitter only enlarges, so it cannot repair a wide native bust.
+    // Dan 2026-11-18: one wide portrait used to shrink the WHOLE ring, and for
+    // the rest of the session: the shared `--sp-nine-rail-bust` started from
+    // its own last value and could only ever be multiplied down. Now the ring
+    // always takes the approved base, and a portrait whose own art is too
+    // wide for the rail beside the board takes the largest size that clears,
+    // on its own chair only. Each chair's value is a function of its own
+    // portrait and the table geometry, so it is the same on every pass,
+    // nobody else's size moves when a player comes or goes, and it returns to
+    // the base when that player leaves the chair.
+    // tests/mobile-avatars-never-ratchet-smaller.law.test.ts
+    if (fixedPhoneRail()) {
+      const board = scaler.querySelector('.community-area')?.getBoundingClientRect();
+      if (board && board.width) {
+        const viewport = page.getBoundingClientRect(),
+          ratio = tableRenderScale(scaler);
+        for (const image of all) {
+          const wrapper = image.closest<HTMLElement>('.seat-wrapper');
+          const own = resolved.get(source(image));
+          if (!wrapper || !own || !image.closest('.seat__avatar--bust')) continue;
+          const current =
+            parseFloat(wrapper.style.getPropertyValue('--sp-seat-rail-bust')) ||
+            NINE_SEAT_PHONE_RAIL_BUST;
+          const rect = restingAvatarBox(image, ratio);
+          const paint = subject(image, own, true, rect);
+          const limit = fixedRailBustLimit(
+            paint,
+            rect.left + rect.width / 2,
+            viewport,
+            board,
+            2 * ratio,
+            Infinity
+          );
+          if (!Number.isFinite(limit) || limit <= 0) continue;
+          // The 2px of air is a cushion, not a display. A portrait that would
+          // only enter the cushion at the base keeps the base, so the ring
+          // stays one size; only one that would actually reach the screen edge
+          // or the board takes its own smaller size.
+          const touch = fixedRailBustLimit(
+            paint,
+            rect.left + rect.width / 2,
+            viewport,
+            board,
+            0,
+            Infinity
+          );
+          const next =
+            current * touch >= NINE_SEAT_PHONE_RAIL_BUST
+              ? NINE_SEAT_PHONE_RAIL_BUST
+              : Math.min(NINE_SEAT_PHONE_RAIL_BUST, Math.floor(current * limit * 1000) / 1000);
+          if (next >= NINE_SEAT_PHONE_RAIL_BUST - 0.0005)
+            wrapper.style.removeProperty('--sp-seat-rail-bust');
+          else if (Math.abs(next - current) >= 0.001)
+            wrapper.style.setProperty('--sp-seat-rail-bust', String(next));
+        }
+        // A chair left empty keeps no portrait's size.
+        for (const wrapper of scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))
+          if (!wrapper.querySelector('.seat:not(.seat--empty) .seat__avatar--bust'))
+            wrapper.style.removeProperty('--sp-seat-rail-bust');
+      }
+    }
     if (state.lowerLaneKey && !state.locked) {
       const limits = lowerLaneLimits();
       const signature = limits ? `${limits.top}:${limits.bottom}` : '';
@@ -1414,6 +1659,7 @@ export function createOpponentAvatarLayout(
         );
         const heroParts = [
           ...(anchor ? paintedParts(anchor) : []),
+          ...futureCaption(anchorSeat()),
           ...anchorFacts()
             .map(box)
             .filter((part) => part.width > 0 && part.height > 0),
@@ -1424,6 +1670,7 @@ export function createOpponentAvatarLayout(
             const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
             const parts = [
               ...(image ? paintedParts(image) : []),
+              ...futureCaption(seat),
               ...Array.from(
                 seat.querySelectorAll(
                   ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
@@ -1472,13 +1719,21 @@ export function createOpponentAvatarLayout(
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
-    if (state.locked || !old || !Number.isFinite(deltaY) || seat === anchorSeat()) return false;
+    if (
+      fixedPhoneRail() ||
+      state.locked ||
+      !old ||
+      !Number.isFinite(deltaY) ||
+      seat === anchorSeat()
+    )
+      return false;
     const ratio = tableRenderScale(scaler);
     const parts = (owner: HTMLElement): Box[] => {
       const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
       const own = image && resolved.get(source(image));
       return [
         ...(image && own ? paintedParts(image) : []),
+        ...futureCaption(owner),
         ...Array.from(
           owner.querySelectorAll(
             ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
@@ -1503,6 +1758,7 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const hero = anchorImage();
     if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
+    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards());
     const seats = movableSeats();
     if (seats.some((other) => !state.shifts.has(other))) return false;
     const board = page.querySelector('.community-area');
@@ -1528,8 +1784,8 @@ export function createOpponentAvatarLayout(
     }));
     // A wager may make room locally, never move a chair to another row or
     // leap over the board. The same bound applies to each contacted peer.
-    const maximumMotion = pods.map(({ parts }) =>
-      parts.length
+    const maximumMotion = pods.map(({ parts }, index) =>
+      !fixedLowerRow(seats[index]) && parts.length
         ? (Math.max(...parts.map((p) => p.top + p.height)) - Math.min(...parts.map((p) => p.top))) /
           2
         : 0
@@ -1779,13 +2035,27 @@ export function createOpponentAvatarLayout(
       const panel = referenceSeat.querySelector(':scope > .seat__info');
       if (panel) {
         const panelBox = box(panel);
-        const intrusion = panelBox.top + panelBox.height + 3 - box(footer).top;
+        const footerBox = box(footer);
+        const overlapsFooter =
+          panelBox.left < footerBox.left + footerBox.width &&
+          panelBox.left + panelBox.width > footerBox.left;
+        const intrusion = overlapsFooter ? panelBox.top + panelBox.height + 3 - footerBox.top : 0;
         if (intrusion > 0) {
           const current = parseFloat(referenceSeat.style.getPropertyValue('--sp-opponent-y')) || 0;
           referenceSeat.style.setProperty('--sp-opponent-y', `${current - intrusion / ratio}px`);
           changed = true;
         }
       }
+    }
+    // The nine phone chairs belong to the mirrored rail. A player joining,
+    // an action caption or a wager must not send a chair across the felt.
+    if (fixedPhoneRail()) {
+      for (const seat of movableSeats()) {
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
+        state.shifts.set(seat, [0, 0]);
+      }
+      return changed;
     }
     const pageBox = box(page);
     const header = page
@@ -1808,12 +2078,14 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const heroImage = anchorImage();
     if (heroImage && resolved.get(source(heroImage))) fixed.push(...paintedParts(heroImage));
+    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards());
     const seats = movableSeats();
     const parts = (seat: HTMLElement) => {
       const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
       const own = image && resolved.get(source(image));
       return [
         ...(image && own ? paintedParts(image) : []),
+        ...futureCaption(seat),
         ...Array.from(
           seat.querySelectorAll(
             ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
@@ -1908,6 +2180,7 @@ export function createOpponentAvatarLayout(
     if (!ordered.length) return false;
     const describe = () =>
       ordered.map(({ seat }) => ({
+        fixedRow: fixedLowerRow(seat),
         parts: parts(seat),
         side:
           page.getAttribute('data-seats') === '6' &&
@@ -1919,6 +2192,7 @@ export function createOpponentAvatarLayout(
     const board = page.querySelector('.community-area');
     const topLaneBottom = board ? box(board).top : top;
     let lowerLane: { top: number; bottom: number } | undefined;
+    const incompatibleGeometries = new Set<string>();
     const solve = (rule: 'own-seat' | 'compact') => {
       let shifts: Array<[number, number]> | null = jointOpponentShifts(
         describe(),
@@ -1929,7 +2203,8 @@ export function createOpponentAvatarLayout(
         undefined,
         undefined,
         otherChairs(),
-        rule
+        rule,
+        incompatibleGeometries
       );
       if (!shifts) {
         // Only the compact ring needs this fallback: the same caption fits
@@ -1937,10 +2212,24 @@ export function createOpponentAvatarLayout(
         for (const { seat } of ordered) {
           const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
           const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
-          if (action && info) {
+          // Enlarged phone portraits reserve captions above their crowns.
+          // The compact raw-width fallback would put them over the inward
+          // card fan, and its inline translate survives a failed ring solve.
+          const crownCaption =
+            matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
+              .matches && ['6', '9'].includes(page.dataset.seats || '');
+          // A crowded showdown still needs its compact allocation, but its
+          // caption must clear the revealed row as well as the name plate.
+          if (action && info && (!crownCaption || seat.querySelector('.seat__cards--revealed'))) {
             const a = box(action),
               p = box(info);
-            action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;
+            const cardTops = crownCaption
+              ? Array.from(seat.querySelectorAll('.seat__cards--revealed .seat__card'))
+                  .map(box)
+                  .filter((card) => card.width > 0 && card.height > 0)
+                  .map((card) => card.top)
+              : [];
+            action.style.translate = `0px ${(Math.min(p.top, ...cardTops) - a.height - 3 - a.top) / ratio}px`;
           }
         }
         shifts = jointOpponentShifts(
@@ -1952,7 +2241,8 @@ export function createOpponentAvatarLayout(
           undefined,
           undefined,
           otherChairs(),
-          rule
+          rule,
+          incompatibleGeometries
         );
       }
       if (!shifts) {
@@ -1967,7 +2257,8 @@ export function createOpponentAvatarLayout(
           topLaneBottom,
           undefined,
           otherChairs(),
-          rule
+          rule,
+          incompatibleGeometries
         );
       }
       if (!shifts) {
@@ -1985,7 +2276,8 @@ export function createOpponentAvatarLayout(
             topLaneBottom,
             lowerLane,
             otherChairs(),
-            rule
+            rule,
+            incompatibleGeometries
           );
       }
       return shifts;
@@ -2082,6 +2374,31 @@ export function createOpponentAvatarLayout(
     paintedTouches: (image: HTMLImageElement, target: Box, gap = 0, permanent = true): boolean =>
       preparePaintedTouch(image, permanent)(target, gap),
     paintedParts,
+    paintedRuns: (image: HTMLImageElement): Box[] => {
+      const own = resolved.get(source(image));
+      if (!own?.spans?.length) return [];
+      const ratio = tableRenderScale(scaler);
+      const wrap = image.closest<HTMLElement>('.seat__avatar-wrap');
+      const transforms = [
+        getComputedStyle(image).transform,
+        wrap ? getComputedStyle(wrap).getPropertyValue('--sp-avatar-rest-transform').trim() : '',
+      ];
+      if (
+        !transforms.every((transform) => {
+          if (!transform || transform === 'none') return true;
+          const matrix = new DOMMatrix(transform);
+          return matrix.is2D && Math.abs(matrix.b) < 1e-8 && Math.abs(matrix.c) < 1e-8;
+        })
+      )
+        return [];
+      const rect = restingAvatarBox(image, ratio);
+      const content = subject(image, { left: 0, top: 0, right: 1, bottom: 1 }, true, rect);
+      const origin = idleOrigin(image);
+      const spans = origin ? opponentIdleSpans(own.spans, content, origin, ratio) : own.spans;
+      return spans
+        .map((part) => subject(image, part, true, rect))
+        .filter((part) => part.width > 0 && part.height > 0);
+    },
     anchorCards: () => anchorFacts().filter((fact) => fact.matches('.seat__card')),
     paintedBox: (image: HTMLImageElement, permanent = false, restBox?: Box) => {
       const own = resolved.get(source(image));

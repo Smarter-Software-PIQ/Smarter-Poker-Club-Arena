@@ -82,6 +82,7 @@ function turnHarness(
     performAction,
   };
   engine.preActionEngine = {
+    getPreAction: () => undefined,
     executePreAction: () =>
       options.preAction
         ? { executed: true, action: options.preAction.action, amount: options.preAction.amount }
@@ -137,7 +138,13 @@ describe('horse decision work follows the authoritative turn boundary', () => {
     expect(performAction).not.toHaveBeenCalled();
     releaseBeat();
     await handling;
-    expect(performAction).toHaveBeenCalledWith(CURRENT_SEAT, 'check', undefined, 'pre_action');
+    expect(performAction).toHaveBeenCalledWith(
+      CURRENT_SEAT,
+      'check',
+      undefined,
+      'pre_action',
+      undefined
+    );
     pending.dispose();
   });
 

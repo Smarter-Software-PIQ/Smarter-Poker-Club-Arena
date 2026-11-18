@@ -22,12 +22,31 @@
  *      throwId, from the horse's own user id. A reaction is the same
  *      `[REACTION:<glyph>:<own seat>]` payload TableReactions sends.
  *
+ * Dan, verbatim (2026-11-11): "HORSES ARE STILL NOT THROWING EMOJI'S IN
+ * TOURNAMENTS, MAKE THAT FULLY FUNCTIONAL. THEY SHOULD BE THROWING THEM
+ * RANDOMLY BEFORE CALLING ALL IN'S AFTER WINNING BIG POTS, OR SUCKING OUT,
+ * OR EVEN LOSING OR IF SOMEONE MAKES A NICE CALL, OR JUST TO ANNOY A
+ * PLAYER... FIX IT AND MAKE IT FUNCTIONAL FOR MTT'S AND OTHER TOURNAMNETS".
+ * The charge, the broadcast and the client render were verified live on
+ * tournament tables that day (engine httpSend to table:<id> reaches a
+ * subscribed browser; receipts existed at MTT tables). What kept tournaments
+ * silent was the economics: showdown-only moments, a shove-only all-in hook,
+ * and caps tuned so a lone human at an MTT table could watch an hour and see
+ * nothing. Tournament tables roll at TOURNAMENT_GESTURE_MULT, a big pot (the
+ * suckouts and hero calls live there) boosts the result moments, a horse
+ * gestures when it CALLS an all in too, and a rare "annoy" needle fires on
+ * ordinary hands with no showdown at all.
+ *
  * WHEN, and only sometimes:
  *
- *   lost        a horse lost at showdown; it may throw at the winner
- *   won         a horse won a showdown; it may throw at someone it beat
- *   all_in      a horse is moving all in; it may say good luck in chat, throw
- *               something lucky at the player it faces, or send a reaction
+ *   lost        a horse lost at showdown; it may throw at the winner (a big
+ *               pot raises the odds)
+ *   won         a horse won a showdown; it may throw at someone it beat (a
+ *               big pot raises the odds)
+ *   all_in      a horse is moving all in, or calling one; it may say good
+ *               luck in chat (cash), throw something lucky, or send a reaction
+ *   annoy       no showdown needed: now and then a horse needles a seated
+ *               person just to get a rise out of them
  *
  * Each moment rolls a hash of (table, hand, moment, horse) against
  * GESTURE_CHANCE_PCT, picks the item from a voice-shaped pool (the same dial
@@ -66,19 +85,41 @@ import {
   type TalkVoice,
 } from './HorseTableTalk.js';
 
-export type GestureMoment = 'lost' | 'won' | 'all_in';
+export type GestureMoment = 'lost' | 'won' | 'all_in' | 'annoy';
 
 /** How often a qualifying horse makes a gesture at all, in percent. */
 export const GESTURE_CHANCE_PCT: Readonly<Record<GestureMoment, number>> = {
-  lost: 30,
-  won: 18,
-  all_in: 30,
+  lost: 35,
+  won: 25,
+  all_in: 35,
+  annoy: 6,
 };
 
+/** A pot this many big blinds deep is a big pot (Dan 2026-11-11: "AFTER WINNING BIG POTS, OR SUCKING OUT"). */
+export const BIG_POT_BB = 40;
+/** Extra percentage points on the won/lost rolls when the pot was big. */
+export const BIG_POT_BOOST_PCT = 20;
+/** Tournament tables roll livelier (Dan 2026-11-11: "MAKE IT FUNCTIONAL FOR MTT'S AND OTHER TOURNAMNETS"). */
+export const TOURNAMENT_GESTURE_MULT = 1.5;
+
+/**
+ * The base chance a moment rolls against, before the horse's own habit
+ * (personalThrowChance) shapes and caps it. Pure, so the test pins the math.
+ */
+export function gestureChancePct(
+  moment: GestureMoment,
+  isTournament: boolean,
+  potBB: number
+): number {
+  const bigPot = (moment === 'won' || moment === 'lost') && potBB >= BIG_POT_BB;
+  const boosted = GESTURE_CHANCE_PCT[moment] + (bigPot ? BIG_POT_BOOST_PCT : 0);
+  return Math.round(boosted * (isTournament ? TOURNAMENT_GESTURE_MULT : 1));
+}
+
 /** At most this many throws or reactions per horse per rolling hour. */
-export const HORSE_GESTURES_PER_HOUR = 4;
+export const HORSE_GESTURES_PER_HOUR = 6;
 /** A table sees at most one horse gesture per this window. */
-export const TABLE_GESTURE_SPACING_MS = 30_000;
+export const TABLE_GESTURE_SPACING_MS = 20_000;
 
 /**
  * What a horse throws, by moment and voice. Every id is in the live catalog
@@ -137,6 +178,23 @@ export const THROW_POOLS: Record<GestureMoment, Record<TalkVoice, readonly strin
     friendly: ['heart', 'beer', 'thumbs_up', 'rose', 'cake', 'bad_beat_bandage'],
     quiet: ['blush', 'thumbs_up', 'coffee', 'ok_smug'],
   },
+  // thrown at any seated player, horse or human, for no reason at all
+  // (Dan 2026-11-11: "OR JUST TO ANNOY A PLAYER"); no showdown required
+  annoy: {
+    needler: [
+      'tomato',
+      'poop',
+      'fish',
+      'donkey',
+      'banana_peel',
+      'snowball',
+      'water_gun',
+      'cracked_egg',
+      'rat_card',
+    ],
+    friendly: ['beer', 'tomato', 'snowball', 'thumbs_up', 'star'],
+    quiet: ['thinking', 'coffee', 'sleeping', 'snowball'],
+  },
   // thrown at the player the horse is moving in against
   all_in: {
     needler: ['rocket', 'lightning_bolt', 'cool_sunglasses_emoji', 'dice', 'magic_8_ball', 'bomb'],
@@ -179,11 +237,12 @@ export function rollsGesture(
   moment: GestureMoment,
   horseId: string,
   tableId: string,
-  handNumber: number
+  handNumber: number,
+  basePct: number = GESTURE_CHANCE_PCT[moment]
 ): boolean {
   return (
     personaHash(`${tableId}|${handNumber}|${moment}|${horseId}|gesture`) % 100 <
-    personalThrowChance(horseId, GESTURE_CHANCE_PCT[moment])
+    personalThrowChance(horseId, basePct)
   );
 }
 
@@ -218,38 +277,125 @@ export interface GestureCandidate {
   targetSeat: number;
 }
 
+/** The players a horse has thrown at recently (user ids). */
+export type RecentlyHit = (horseId: string) => ReadonlySet<string>;
+
+/**
+ * Annoy-target weights (Dan 2026-11-13, "pick more natural targets"): the
+ * player who just took the pot draws the most needles, anyone who went to
+ * showdown more than a bystander, and every other seat still can be hit.
+ * Horse or human is never read (CLAUDE.md 10.5).
+ */
+export const ANNOY_WEIGHT = { winner: 4, showdown: 2, seated: 1 } as const;
+
+/**
+ * Do not throw at the same player twice inside this window while anyone
+ * else at the table is available (Dan 2026-11-13, "lower the odds of hitting
+ * the same player twice in a short span").
+ */
+export const REPEAT_TARGET_WINDOW_MS = 20 * 60_000;
+
+/**
+ * Weighted, deterministic per (horse, hand): the same inputs always pick the
+ * same seat, so the test pins the distribution. Players the horse hit inside
+ * REPEAT_TARGET_WINDOW_MS are skipped unless nobody else is seated.
+ */
+export function pickAnnoyTarget(
+  horseId: string,
+  handNumber: number,
+  others: readonly TalkSeat[],
+  winnerIds: ReadonlySet<string>,
+  showdownIds: ReadonlySet<string>,
+  recentlyHitIds: ReadonlySet<string>
+): number | null {
+  if (others.length === 0) return null;
+  const fresh = others.filter((s) => !recentlyHitIds.has(s.userId));
+  const pool = [...(fresh.length > 0 ? fresh : others)].sort((a, b) => a.seat - b.seat);
+  const weightOf = (s: TalkSeat): number =>
+    winnerIds.has(s.userId)
+      ? ANNOY_WEIGHT.winner
+      : showdownIds.has(s.userId)
+        ? ANNOY_WEIGHT.showdown
+        : ANNOY_WEIGHT.seated;
+  const total = pool.reduce((sum, s) => sum + weightOf(s), 0);
+  let roll = personaHash(`${horseId}|${handNumber}|annoy|target`) % total;
+  for (const s of pool) {
+    roll -= weightOf(s);
+    if (roll < 0) return s.seat;
+  }
+  return pool[pool.length - 1].seat;
+}
+
 /**
  * After a hand: every horse that lost a showdown may throw at the winner, and
  * every horse that won one may throw at a player it beat. One candidate per
  * hand at most, chosen by the (table, hand) hash among the horses that rolled.
  */
-export function detectAfterHand(input: TableTalkInput): GestureCandidate | null {
+export function detectAfterHand(
+  input: TableTalkInput,
+  recentlyHit: RecentlyHit = recentlyHitNow
+): GestureCandidate | null {
   const winners = new Set(input.winners.map((w) => w.userId));
   const seatOf = (id: string): number | undefined =>
     input.seated.find((s) => s.userId === id)?.seat;
   const seatedHorse = (id: string): TalkSeat | undefined =>
     input.seated.find((s) => s.userId === id && s.isHorse);
+  const potBB = input.table.bigBlind > 0 ? input.potSize / input.table.bigBlind : 0;
+  const chance = (m: GestureMoment): number => gestureChancePct(m, input.table.isTournament, potBB);
   const losers = input.showdownResults.filter((r) => !winners.has(r.userId));
-  if (losers.length === 0 || winners.size === 0) return null;
-  const winnerSeat = seatOf(input.winners[0].userId);
   const out: GestureCandidate[] = [];
-  for (const r of losers) {
-    const horse = seatedHorse(r.userId);
-    if (!horse || winnerSeat === undefined || winnerSeat === horse.seat) continue;
-    if (!rollsGesture('lost', horse.userId, input.table.tableId, input.handNumber)) continue;
-    out.push({ moment: 'lost', horse, targetSeat: winnerSeat });
+  if (losers.length > 0 && winners.size > 0) {
+    const winnerSeat = seatOf(input.winners[0].userId);
+    for (const r of losers) {
+      const horse = seatedHorse(r.userId);
+      if (!horse || winnerSeat === undefined || winnerSeat === horse.seat) continue;
+      if (
+        !rollsGesture('lost', horse.userId, input.table.tableId, input.handNumber, chance('lost'))
+      )
+        continue;
+      out.push({ moment: 'lost', horse, targetSeat: winnerSeat });
+    }
+    for (const w of input.winners) {
+      const horse = seatedHorse(w.userId);
+      if (!horse) continue;
+      if (!rollsGesture('won', horse.userId, input.table.tableId, input.handNumber, chance('won')))
+        continue;
+      const allBeaten = losers
+        .map((r) => input.seated.find((s) => s.userId === r.userId))
+        .filter((s): s is TalkSeat => s !== undefined && s.seat !== horse.seat);
+      if (allBeaten.length === 0) continue;
+      // Spread the needles: a player this horse hit recently is skipped while
+      // anyone else it beat is available (Dan 2026-11-13).
+      const hit = recentlyHit(horse.userId);
+      const fresh = allBeaten.filter((s) => !hit.has(s.userId));
+      const beaten = (fresh.length > 0 ? fresh : allBeaten).map((s) => s.seat).sort((a, b) => a - b);
+      const targetSeat =
+        beaten[personaHash(`${horse.userId}|${input.handNumber}|won|target`) % beaten.length];
+      out.push({ moment: 'won', horse, targetSeat });
+    }
   }
-  for (const w of input.winners) {
-    const horse = seatedHorse(w.userId);
-    if (!horse) continue;
-    if (!rollsGesture('won', horse.userId, input.table.tableId, input.handNumber)) continue;
-    const beaten = losers
-      .map((r) => seatOf(r.userId))
-      .filter((s): s is number => s !== undefined && s !== horse.seat);
-    if (beaten.length === 0) continue;
-    const targetSeat =
-      beaten[personaHash(`${horse.userId}|${input.handNumber}|won|target`) % beaten.length];
-    out.push({ moment: 'won', horse, targetSeat });
+  // Dan 2026-11-11, verbatim: "OR JUST TO ANNOY A PLAYER". No showdown needed:
+  // most tournament hands end with everyone folding, and those hands used to
+  // be structurally silent.
+  // Dan 2026-11-12, verbatim: "MAKE SURE THE THROWABLES AREN'T ONLY TARGETING
+  // HUMANS, ITS SHOULD BE TARGETING ANY AND ALL PLAYERS AT THE TABLE". The
+  // target is ANY seated player but the thrower: horse or human is never read
+  // here (CLAUDE.md 10.5). Spending a throw on an empty rail is already
+  // refused upstream by hasAudience(), not by who sits in the seat.
+  for (const h of input.seated.filter((s) => s.isHorse)) {
+    const others = input.seated.filter((s) => s.seat !== h.seat);
+    if (others.length === 0) continue;
+    if (!rollsGesture('annoy', h.userId, input.table.tableId, input.handNumber, chance('annoy')))
+      continue;
+    const targetSeat = pickAnnoyTarget(
+      h.userId,
+      input.handNumber,
+      others,
+      winners,
+      new Set(input.showdownResults.map((r) => r.userId)),
+      recentlyHit(h.userId)
+    );
+    if (targetSeat !== null) out.push({ moment: 'annoy', horse: h, targetSeat });
   }
   if (out.length === 0) return null;
   out.sort((a, b) => a.horse.userId.localeCompare(b.horse.userId));
@@ -281,10 +427,45 @@ function noteGesture(tableId: string, horseId: string, now: number): void {
   }
 }
 
+const hitByHorse = new Map<string, Map<string, number>>();
+
+/** Remember who this horse just threw at, for REPEAT_TARGET_WINDOW_MS. */
+export function noteTargetHit(horseId: string, targetUserId: string | undefined, now: number): void {
+  if (!targetUserId) return;
+  const hits = hitByHorse.get(horseId) ?? new Map<string, number>();
+  hits.set(targetUserId, now);
+  hitByHorse.set(horseId, hits);
+  if (hitByHorse.size > 4_000) {
+    for (const [id, m] of hitByHorse) {
+      for (const [u, t] of m) if (now - t > REPEAT_TARGET_WINDOW_MS) m.delete(u);
+      if (m.size === 0) hitByHorse.delete(id);
+    }
+  }
+}
+
+function recentlyHitAt(now: number): RecentlyHit {
+  return (horseId) => {
+    const hits = hitByHorse.get(horseId);
+    if (!hits) return new Set<string>();
+    const out = new Set<string>();
+    for (const [u, t] of hits) {
+      if (now - t < REPEAT_TARGET_WINDOW_MS) out.add(u);
+      else hits.delete(u);
+    }
+    if (hits.size === 0) hitByHorse.delete(horseId);
+    return out;
+  };
+}
+
+function recentlyHitNow(horseId: string): ReadonlySet<string> {
+  return recentlyHitAt(Date.now())(horseId);
+}
+
 /** Test hook. */
 export function _resetGesturesForTests(): void {
   byHorse.clear();
   byTable.clear();
+  hitByHorse.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -357,7 +538,44 @@ export async function throwItem(
     `[THROW:${throwableId}:${targetSeat}]`,
     requestId
   );
+  // The allowance was already charged; a quiet delivery failure here is how
+  // "charged but never seen" hides. Say so (2026-11-11).
+  if (!sent)
+    reportError(new Error('throw broadcast unsent after charge'), 'HorseTableGestures.unsent', {
+      tableId,
+    });
+  // Record who was hit, through the same door a browser uses (Dan 2026-11-13:
+  // "record who gets hit"). After the charge and the broadcast; it never
+  // changes the outcome of the throw.
+  await recordThrowTarget(tableId, horseId, requestId, targetSeat);
   return sent ? 'thrown' : 'unsent';
+}
+
+/** One throw_targets row per charged horse throw; failures are reported, never retried. */
+export async function recordThrowTarget(
+  tableId: string,
+  horseId: string,
+  requestId: string,
+  targetSeat: number
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('fn_horse_record_throw_target', {
+      p_horse_id: horseId,
+      p_request_id: requestId,
+      p_table_id: tableId,
+      p_target_seat: targetSeat,
+    });
+    if (error) {
+      reportError(new Error(error.message), 'HorseTableGestures.recordTarget', { tableId });
+      return false;
+    }
+    return (data as { success?: unknown } | null)?.success === true;
+  } catch (err) {
+    reportError(err instanceof Error ? err : new Error(String(err)), 'HorseTableGestures.recordTarget', {
+      tableId,
+    });
+    return false;
+  }
 }
 
 export async function sendReaction(
@@ -367,6 +585,8 @@ export async function sendReaction(
   ownSeat: number
 ): Promise<GestureOutcome> {
   const sent = await broadcastChat(tableId, horseId, `[REACTION:${glyph}:${ownSeat}]`);
+  if (!sent)
+    reportError(new Error('reaction broadcast unsent'), 'HorseTableGestures.unsent', { tableId });
   return sent ? 'reacted' : 'unsent';
 }
 
@@ -399,7 +619,12 @@ export const gestureAfterHand = bindToProcessRoot(
       );
       // Reactions used to exist only on the uncommon all-in path. Ordinary
       // showdowns should sometimes get the same quick reaction a person taps.
-      if (afterHandForm(pick.horse.userId, input.handNumber) === 'reaction') {
+      // An annoy needle is always a throw: a reaction floating over the
+      // horse's own seat annoys nobody in particular.
+      if (
+        pick.moment !== 'annoy' &&
+        afterHandForm(pick.horse.userId, input.handNumber) === 'reaction'
+      ) {
         const pool = pick.moment === 'lost' ? LOST_REACTIONS : WON_REACTIONS;
         const glyph =
           pool[
@@ -407,6 +632,11 @@ export const gestureAfterHand = bindToProcessRoot(
           ];
         return await sendReaction(input.table.tableId, pick.horse.userId, glyph, pick.horse.seat);
       }
+      noteTargetHit(
+        pick.horse.userId,
+        input.seated.find((x) => x.seat === pick.targetSeat)?.userId,
+        Date.now()
+      );
       return await throwItem(input.table.tableId, pick.horse.userId, item, pick.targetSeat);
     } catch (err) {
       reportError(err, 'HorseTableGestures.afterHand', { tableId: input.table.tableId });
@@ -425,8 +655,10 @@ export interface AllInGestureInput {
 }
 
 /**
- * A horse is moving all in. Sometimes, never every time, it says good luck,
- * throws something lucky at the player it faces, or taps a reaction.
+ * A horse is moving all in, or calling one (Dan 2026-11-11: "THROWING THEM
+ * RANDOMLY BEFORE CALLING ALL IN'S"). Sometimes, never every time, it says
+ * good luck, throws something lucky at the player it faces, or taps a
+ * reaction.
  */
 export const gestureBeforeAllIn = bindToProcessRoot(
   async (input: AllInGestureInput | null): Promise<GestureOutcome> => {
@@ -435,12 +667,18 @@ export const gestureBeforeAllIn = bindToProcessRoot(
       const { table, horse, handNumber } = input;
       if (!hasAudience(table.tableId)) return 'no_audience';
       const form = allInForm(horse.userId, handNumber, tableRefusal(table) === null);
-      // Choose the form before its participation roll: a chat-only horse can
-      // still speak, while a silent horse never gets chat via its throw habit.
+      // Choose the form before its participation roll so talking and
+      // gestures retain their independent personal frequencies.
       const participates =
         form === 'chat'
           ? speaksThisTime('all_in', horse.userId, table.tableId, handNumber)
-          : rollsGesture('all_in', horse.userId, table.tableId, handNumber);
+          : rollsGesture(
+              'all_in',
+              horse.userId,
+              table.tableId,
+              handNumber,
+              gestureChancePct('all_in', table.isTournament, 0)
+            );
       if (!participates) return 'no_gesture';
       const now = Date.now();
       if (form === 'chat') {
@@ -456,6 +694,11 @@ export const gestureBeforeAllIn = bindToProcessRoot(
       if (form === 'throw' && input.targetSeat !== null && input.targetSeat !== horse.seat) {
         const voice = voiceFor(horse.horseProfile, horse.userId);
         const item = pickItem('all_in', voice, horse.userId, handNumber);
+        noteTargetHit(
+          horse.userId,
+          input.seated.find((x) => x.seat === input.targetSeat)?.userId,
+          Date.now()
+        );
         return await throwItem(table.tableId, horse.userId, item, input.targetSeat);
       }
       const glyph =
@@ -507,7 +750,11 @@ export function buildAllInGestureInput(
   ) {
     targetSeat = lastAggressorSeat;
   } else if (live.length > 0) {
-    const ordered = [...live].sort((a, b) => a.seat - b.seat);
+    // No bettor to answer: any live opponent, preferring one this horse has
+    // not hit inside REPEAT_TARGET_WINDOW_MS (Dan 2026-11-13).
+    const hit = recentlyHitNow(horseUserId);
+    const fresh = live.filter((p) => !hit.has(p.user_id));
+    const ordered = [...(fresh.length > 0 ? fresh : live)].sort((a, b) => a.seat - b.seat);
     targetSeat =
       ordered[personaHash(`${horseUserId}|${handNumber}|all_in|target`) % ordered.length].seat;
   }

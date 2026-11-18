@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 /**
  * LAW: A MIGRATION THAT NEEDS THE LIVE TABLES WAITS FOR THE DAILY BREAK
  * (2026-10-22).
@@ -39,12 +40,13 @@ import {
   ownerWindowPredicate,
 } from '../scripts/ci/owner-window-migration.mjs';
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
+import { migrationCorpus } from './helpers/migrationCorpus';
 import {
   WINDOW_ANNOTATION,
   WINDOW_LOCK_TIMEOUT_MS,
@@ -377,7 +379,10 @@ describe('the route runs on the daily schedule that already exists', () => {
 
   it('runs on daily preparation or an explicit expiring owner migration window', () => {
     expect(job.needs).toBe('detect');
-    expect(job.if).toContain("needs.detect.result == 'success'");
+    // The install never waits on the engine's release-control check
+    // (tests/a-window-migration-does-not-wait-on-engine-release-controls.law.test.ts).
+    expect(job.if).not.toContain('needs.detect.result');
+    expect(job.if).toContain("needs.detect.outputs.window_sha != ''");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(stage.on.schedule).toEqual([
@@ -405,6 +410,7 @@ describe('the route runs on the daily schedule that already exists', () => {
   it('is qualified natively on every pull request that touches it', () => {
     const wf = parse(read('.github/workflows/maintenance-window-migrations.yml'));
     expect(wf.on.pull_request.paths).toContain('scripts/ci/maintenance-window-migrations.mjs');
+    expect(wf.on.pull_request.paths).toContain('scripts/ci/read-migration-corpus.mjs');
     expect(wf.on.pull_request.paths).toContain('scripts/ci/apply-recorded-migration.mjs');
     const run = wf.jobs.qualify.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
     expect(run).toContain('bash scripts/ci/test-maintenance-window-migrations.sh');
@@ -424,7 +430,21 @@ describe('the route runs on the daily schedule that already exists', () => {
 
   it('every declared migration on main passes the window rules', () => {
     const dir = resolve(root, 'supabase/migrations');
-    for (const f of readdirSync(dir).filter((n) => /^\d{14}_[a-z0-9_]+\.sql$/.test(n))) {
+    // Read the complete corpus in rg's native scanner before loading the
+    // declared files. Sequential JS opens took40.8s on the shared external
+    // volume and exceeded this unchanged30s test deadline even in isolation.
+    // Unknown/failed selection is a failure, never an empty passing corpus.
+    const selection = nativeMigrationSelection('@install-window', 'supabase/migrations', {
+      cwd: root,
+      timeout: 25_000,
+    });
+    expect(selection.error).toBeUndefined();
+    expect([0, 1]).toContain(selection.status);
+    expect(selection.stderr).toBe('');
+    const names = selection.stdout
+      .split('\n')
+      .map((path) => path.replace(/^supabase\/migrations\//, ''));
+    for (const f of names.filter((n) => /^\d{14}_[a-z0-9_]+\.sql$/.test(n))) {
       const sql = readFileSync(resolve(dir, f), 'utf8');
       if (!/@install-window/.test(sql)) continue;
       expect(() => validateWindowMigration(f, sql, { preamble: [] }), f).not.toThrow();
@@ -513,11 +533,22 @@ describe('a superseded window migration is never queued', () => {
     const name = '20261024020328_agents_can_watch_every_live_downline_table.sql';
     const sql = read(`supabase/migrations/${name}`);
     expect(sql.split('\n')[0]).toBe('-- SUPERSEDED BY 20261024193818');
-    expect(
-      readdirSync(resolve(root, 'supabase/migrations')).some((f) => f.startsWith('20261024193818_'))
-    ).toBe(true);
-    const run = runInstaller(root);
-    expect(run.stdout).toContain(`skipped \`${name}\`: SUPERSEDED BY 20261024193818`);
+    const successor = readdirSync(resolve(root, 'supabase/migrations')).find((f) =>
+      f.startsWith('20261024193818_')
+    );
+    expect(successor).toBeDefined();
+    // Exercise the actual installer on this exact superseded pair. Scanning
+    // unrelated migrations again took52s on the shared volume. The separate
+    // corpus test above still validates every declared file on main.
+    const cwd = tree({ [name]: sql, [successor!]: read(`supabase/migrations/${successor}`) });
+    try {
+      const run = runInstaller(cwd);
+      expect(run.stdout).toContain(`skipped \`${name}\`: SUPERSEDED BY 20261024193818`);
+      expect(run.stdout).toContain('NOTHING QUEUED');
+      expect(run.status).toBe(0);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -529,7 +560,7 @@ describe('explicit database-only owner-window continuation', () => {
     expect(workflow.on.workflow_dispatch.inputs.request_engine_release.default).toBe(false);
     expect(workflow.jobs['window-migrations'].if).toContain('!inputs.request_engine_release');
     expect(workflow.jobs.detect.if).toBe(
-      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
     );
     expect(workflow.jobs.selection.needs).toBe('detect');
     expect(workflow.jobs.signal.needs).toEqual(['detect', 'selection']);
