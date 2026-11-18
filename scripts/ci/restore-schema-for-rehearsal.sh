@@ -40,7 +40,12 @@ trap 'rc=$?; log "failed (exit $rc) at line $LINENO: $BASH_COMMAND"' ERR
 psql_db() { docker exec -i -e PGPASSWORD="$REHEARSAL_DB_PASSWORD" "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres "$@"; }
 admin_exec() { docker exec -e PGPASSWORD="$REHEARSAL_DB_PASSWORD" "$NAME" "$@"; }
 
-docker run -d --name "$NAME" -e POSTGRES_PASSWORD="$REHEARSAL_DB_PASSWORD" "$IMAGE" >/dev/null
+# The image's own command (Dockerfile-17: postgres -D /etc/postgresql), with
+# room in the lock table for the owner step, which alters production's ~11,000
+# functions and ~2,000 relations in one transaction ("out of shared memory" at
+# the default 64 on 2026-11-18).
+docker run -d --name "$NAME" -e POSTGRES_PASSWORD="$REHEARSAL_DB_PASSWORD" "$IMAGE" \
+  postgres -D /etc/postgresql -c max_locks_per_transaction=1024 >/dev/null
 for _ in $(seq 1 90); do
   docker exec "$NAME" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1 && break
   sleep 2
