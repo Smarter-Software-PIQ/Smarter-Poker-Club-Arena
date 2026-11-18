@@ -175,7 +175,7 @@ jobs:
       - name: Install the queue in the installer's order
         if: needs.scope.outputs.rehearse == 'true'
         env:
-          REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
+          REHEARSAL_PSQL: docker exec -i -e PGPASSWORD=rehearsal-only window-rehearsal-db psql -U postgres -d postgres
           MIG_DIR: ${{ runner.temp }}/mig
           INSTALLED: ${{ runner.temp }}/in/installed.txt
           CHANGED: ${{ runner.temp }}/in/changed.txt

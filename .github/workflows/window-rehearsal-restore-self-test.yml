@@ -1,0 +1,29 @@
+# The window-migration rehearsal runs its tooling from the DEFAULT branch
+# (pull_request_target), so a change to that tooling can never prove itself on
+# its own pull request. This job runs the PR head's restore script in
+# --self-test mode: it starts the pinned image and proves supabase_admin and
+# postgres both connect. No archive, no secrets, no production connection.
+# (2026-11-18: the rehearsal had never once restored; psql prompted for the
+# supabase_admin password and every migration PR failed the rehearsal.)
+name: Window Rehearsal Restore Self-Test
+
+on:
+  pull_request:
+    paths:
+      - scripts/ci/restore-schema-for-rehearsal.sh
+      - server/standby/standby-engine.sh
+      - .github/workflows/window-migrations-install-before-merge.yml
+      - .github/workflows/window-rehearsal-restore-self-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    name: The rehearsal database answers as both roles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the pinned image and connect as supabase_admin and postgres
+        run: bash scripts/ci/restore-schema-for-rehearsal.sh --self-test window-rehearsal-selftest
