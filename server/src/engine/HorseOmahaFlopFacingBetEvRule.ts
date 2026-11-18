@@ -156,7 +156,9 @@ export function omahaFlopFacingBetEvAnswer(
     gs.communityCards ?? [],
     player.knownDeadCards ?? [],
     read,
-    tree ? { rake: ctx.rake, inPosition: ctx.inPosition, tree } : { rake: ctx.rake, inPosition: ctx.inPosition }
+    tree
+      ? { rake: ctx.rake, inPosition: ctx.inPosition, tree }
+      : { rake: ctx.rake, inPosition: ctx.inPosition }
   );
   return verdict ? { spot, verdict } : null;
 }
@@ -187,7 +189,9 @@ export function omahaFlopFacingBetEvRule(
       if (ctx.flopDefenceOnly !== true)
         noteFire(verdict.call ? 'omaha_flop_facing_bet_ev_call' : 'omaha_flop_facing_bet_ev_fold');
       if (tree) {
-        noteFire(verdict.call ? 'omaha_flop_defence_priced_call' : 'omaha_flop_defence_priced_fold');
+        noteFire(
+          verdict.call ? 'omaha_flop_defence_priced_call' : 'omaha_flop_defence_priced_fold'
+        );
         if (tree.raiseEv !== null && tree.raiseEv > Math.max(0, tree.ev) + verdict.margin)
           noteFire('omaha_flop_defence_raise_priced_higher');
       }

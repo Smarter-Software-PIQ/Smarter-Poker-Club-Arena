@@ -2594,7 +2594,11 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopFacingBetEv: true, omahaFlopDefenceIsPriced: true },
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261116,
+      omahaFlopFacingBetEv: true,
+      omahaFlopDefenceIsPriced: true,
+    },
     b: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopFacingBetEv: true },
   })),
   // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default

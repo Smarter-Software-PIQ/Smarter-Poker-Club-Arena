@@ -70,8 +70,14 @@ describe('the tree, unit', () => {
     expect(OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS).toBeCloseTo(0.885, 3);
     expect(OMAHA_FLOP_DEFENCE_RIVER_BLUFF_ODDS).toBeCloseTo(0.602, 3);
     // the measured composition itself: 45% non-value on the flop -> 42% turn, 33% river
-    expect(omahaFlopDefenceShiftedShare(0.45, OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS)).toBeCloseTo(0.42, 6);
-    expect(omahaFlopDefenceShiftedShare(0.45, OMAHA_FLOP_DEFENCE_RIVER_BLUFF_ODDS)).toBeCloseTo(0.33, 6);
+    expect(omahaFlopDefenceShiftedShare(0.45, OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS)).toBeCloseTo(
+      0.42,
+      6
+    );
+    expect(omahaFlopDefenceShiftedShare(0.45, OMAHA_FLOP_DEFENCE_RIVER_BLUFF_ODDS)).toBeCloseTo(
+      0.33,
+      6
+    );
     // street by street: the river step applied to his turn betting range lands on the measured river share
     expect(OMAHA_FLOP_DEFENCE_RIVER_STEP_ODDS).toBeCloseTo(0.68, 2);
     expect(
@@ -142,9 +148,13 @@ describe('the tree, unit', () => {
       expect(t.raiseContinueBluff).toBeCloseTo(Math.max(0, (0.45 - f) / (1 - f)), 9);
     }
     // he always folds: the raise wins the pot as it stands
-    expect(omahaFlopDefenceTreeEv(r.rows, r.turnOf, SPOT, { ...PERSON, foldToRaise: 1 })!.raiseEv).toBeCloseTo(70, 9);
+    expect(
+      omahaFlopDefenceTreeEv(r.rows, r.turnOf, SPOT, { ...PERSON, foldToRaise: 1 })!.raiseEv
+    ).toBeCloseTo(70, 9);
     // nothing behind: no raise to measure
-    expect(omahaFlopDefenceTreeEv(r.rows, r.turnOf, { ...SPOT, left: 0 }, PERSON)!.raiseEv).toBeNull();
+    expect(
+      omahaFlopDefenceTreeEv(r.rows, r.turnOf, { ...SPOT, left: 0 }, PERSON)!.raiseEv
+    ).toBeNull();
   });
 
   it('refuses rows it cannot read', () => {
@@ -161,7 +171,12 @@ const headsUpFirstBet = (r: RecordedFlopFacingBet): boolean => {
   const st = at(r);
   const a = omahaFlopFacingBetEvAnswer(st.hero, st.gs as never, BASE);
   return (
-    !!a && !a.spot.final && !a.spot.isRaise && a.spot.callers === 0 && a.spot.allIns === 0 && a.spot.behind === 0
+    !!a &&
+    !a.spot.final &&
+    !a.spot.isRaise &&
+    a.spot.callers === 0 &&
+    a.spot.allIns === 0 &&
+    a.spot.behind === 0
   );
 };
 
@@ -226,7 +241,9 @@ describe('recorded spots (the flop verdict with and without the tree)', () => {
       expect(a.on!.verdict.call).toBe(true);
     }
     // every audited-wrong heads-up fold the flop verdict already calls stays a call
-    for (const r of RECORDED_FLOP_FACING_BETS.filter((x) => x.group === 'wrongFold' && headsUpFirstBet(x)))
+    for (const r of RECORDED_FLOP_FACING_BETS.filter(
+      (x) => x.group === 'wrongFold' && headsUpFirstBet(x)
+    ))
       expect(answers(r).on!.verdict.call).toBe(true);
     // reported, not judged: 59833693 (paired flop, two-pair class) stays a priced fold at EV -1.6 under the tree,
     // and 59831538 (a call that lost 65 bb) stays a fold within the margin
@@ -237,7 +254,9 @@ describe('recorded spots (the flop verdict with and without the tree)', () => {
   it('decide: the option off (unset or false) is byte-identical; outside its spot it changes nothing, alone or with the flop verdict', () => {
     const r = rec(59848622, 3);
     const flop = decide(r, { omahaFlopFacingBetEv: true });
-    expect(decide(r, { omahaFlopFacingBetEv: true, omahaFlopDefenceIsPriced: false })).toEqual(flop);
+    expect(decide(r, { omahaFlopFacingBetEv: true, omahaFlopDefenceIsPriced: false })).toEqual(
+      flop
+    );
     expect(decide(r, { omahaFlopDefenceIsPriced: false })).toEqual(decide(r, {}));
     // every recorded spot outside the heads-up first bet (multiway, a raise faced): alone it is the decision with nothing on
     let outside = 0;
@@ -257,7 +276,9 @@ describe('recorded spots (the flop verdict with and without the tree)', () => {
     let witnessed = 0;
     for (const r of RECORDED_FLOP_FACING_BETS.filter(headsUpFirstBet)) {
       const alone = decide(r, { omahaFlopDefenceIsPriced: true });
-      expect(alone).toEqual(decide(r, { omahaFlopFacingBetEv: true, omahaFlopDefenceIsPriced: true }));
+      expect(alone).toEqual(
+        decide(r, { omahaFlopFacingBetEv: true, omahaFlopDefenceIsPriced: true })
+      );
       const base = decide(r, {}).map((b) => JSON.parse(b).action);
       if (!base.every((a) => a === 'fold')) continue;
       const st = at(r);
@@ -282,7 +303,10 @@ describe('recorded spots (the flop verdict with and without the tree)', () => {
 
   it('Lightning and fixed limit are outside the tree', () => {
     const st = at(rec(59848622, 3));
-    for (const edit of [{ publicMemoryDomain: { speed: 'lightning' } }, { bettingStructure: 'fixed_limit' }]) {
+    for (const edit of [
+      { publicMemoryDomain: { speed: 'lightning' } },
+      { bettingStructure: 'fixed_limit' },
+    ]) {
       const gs = { ...(st.gs as object), ...edit } as never;
       const a = omahaFlopFacingBetEvAnswer(st.hero, gs, { ...BASE, flopDefenceTree: true });
       expect(a?.verdict.tree ?? null).toBeNull();
@@ -295,6 +319,7 @@ describe('recorded spots (the flop verdict with and without the tree)', () => {
       const d = JSON.parse(b);
       expect(d.action).toBe('call');
     }
-    for (const b of decide(r, { omahaFlopFacingBetEv: true })) expect(JSON.parse(b).action).toBe('fold');
+    for (const b of decide(r, { omahaFlopFacingBetEv: true }))
+      expect(JSON.parse(b).action).toBe('fold');
   });
 });

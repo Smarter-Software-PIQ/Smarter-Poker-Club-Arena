@@ -84,14 +84,14 @@ import type { StreetReadCounters } from './HorseOmahaStreetRead.js';
 const ROW = 4;
 
 /** Odds of non-value to value in his turn / river bets over the same odds on the flop (VALUE-BLUFF.md section 1). */
-export const OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS = (0.42 / 0.58) / (0.45 / 0.55);
-export const OMAHA_FLOP_DEFENCE_RIVER_BLUFF_ODDS = (0.33 / 0.67) / (0.45 / 0.55);
+export const OMAHA_FLOP_DEFENCE_TURN_BLUFF_ODDS = 0.42 / 0.58 / (0.45 / 0.55);
+export const OMAHA_FLOP_DEFENCE_RIVER_BLUFF_ODDS = 0.33 / 0.67 / (0.45 / 0.55);
 /**
  * The river step from the turn (0.680): applied to the range he holds on the
  * turn, so that a flop bet, turn bet and river bet line lands on the measured
  * river composition (0.885 x 0.680 = 0.602) instead of shrinking twice.
  */
-export const OMAHA_FLOP_DEFENCE_RIVER_STEP_ODDS = (0.33 / 0.67) / (0.42 / 0.58);
+export const OMAHA_FLOP_DEFENCE_RIVER_STEP_ODDS = 0.33 / 0.67 / (0.42 / 0.58);
 /** His turn barrel after a called flop bet, share of the pot (ATTRIBUTION 1.4, heads-up, n 81). */
 export const OMAHA_FLOP_DEFENCE_TURN_SIZE = 0.73;
 /** The river bet, share of the pot: the turn figure (stated). */
@@ -158,7 +158,11 @@ export function omahaFlopDefenceShiftedShare(q: number, oddsRatio: number): numb
 }
 
 /** The non-value share of the range he checks with, given his whole range, his bet rate and his betting range. */
-export function omahaFlopDefenceCheckingShare(q: number, betRate: number, betShare: number): number {
+export function omahaFlopDefenceCheckingShare(
+  q: number,
+  betRate: number,
+  betShare: number
+): number {
   const b = clamp01(betRate);
   if (b >= 1) return clamp01(betShare);
   return clamp01((clamp01(q) - b * clamp01(betShare)) / (1 - b));
@@ -308,9 +312,7 @@ export function omahaFlopDefenceTreeEv(
   if (more > 0) {
     let s = 0;
     for (let k = 0; k < n; k++) s += share(k, qR);
-    raiseEv =
-      fR * spot.winnable +
-      (1 - fR) * ((s / n) * (Pc + 2 * more) * keep - spot.paid - more);
+    raiseEv = fR * spot.winnable + (1 - fR) * ((s / n) * (Pc + 2 * more) * keep - spot.paid - more);
   }
   return {
     raiseEv,
