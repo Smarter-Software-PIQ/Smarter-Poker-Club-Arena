@@ -128,6 +128,15 @@ const VALUE_LEADER = {
 };
 const PAIRED = BUILT.filter((s) => s.board.startsWith('9dQsQh') && s.bet === 0);
 
+/** Each priced family's receipt for a spot it could not price (the categorical rule then acts). */
+const UNPRICED_KEPT: Readonly<Record<string, readonly string[]>> = {
+  omahaTurnRiverRaiseIsPriced: ['omaha_priced_raise_unpriced_kept'],
+  omahaDrawRaiseIsPriced: ['omaha_priced_draw_raise_unpriced_kept'],
+  omahaOopTurnBarrelIsPriced: ['omaha_priced_oop_turn_barrel_unpriced_kept'],
+  omahaPairedBoardBetIsPriced: ['omaha_priced_paired_board_bet_unpriced_kept'],
+  omahaPressureIsPriced: ['omaha_priced_pressure_unpriced_kept'],
+  omahaBigBetCallsArePriced: ['omaha_priced_big_bet_call_unpriced_kept'],
+};
 function play(opts: HorseDecideOpts, leader = false): Played[] {
   enableBrainTelemetry();
   const out: Played[] = [];
@@ -277,13 +286,25 @@ describe('with every priced option on, no registered categorical rule decides', 
   it('with the options on none of them fires: every changed action carries a priced receipt', () => {
     on = [...play(ON), ...play(ON, true)];
     const violations: string[] = [];
+    const fellClosed: string[] = [];
     for (const p of on)
       for (const site of OMAHA_CATEGORICAL_RULE_SITES) {
         const fired = siteFired(site, p.fires);
         if (fired.length === 0) continue;
         if (site.sharedWith && p.fires.some((f) => site.sharedWith!.includes(f))) continue;
+        // A spot its priced comparison could not price falls CLOSED: the categorical rule acts as with
+        // the option off, only beside that family's own `_unpriced_kept` receipt (review N4 of
+        // REVIEW-9f803db63df-013U37.md). Without that receipt it is a violation.
+        const unpriced = UNPRICED_KEPT[site.pricedBy] ?? [];
+        if (unpriced.some((u) => p.fires.includes(u))) {
+          fellClosed.push(`${p.where}: audit ${site.audit}`);
+          continue;
+        }
         violations.push(`${p.where}: audit ${site.audit} (${site.rule}) fired ${fired.join(', ')}`);
       }
+    console.log(
+      `[law] unpriceable spots that fell closed: ${fellClosed.length} ${fellClosed.join(' | ')}`
+    );
     expect(
       violations,
       'a categorical rule decided a PLO4/PLO5 cash action with its priced option on'

@@ -5052,7 +5052,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
-    'a raise in the option scope whose hand could not be counted: the decision given is kept (no categorical rule decides)',
+    'a raise in the option scope whose hand could not be counted: the categorical rule acts as with the option off (fall closed)',
     'V94'
   ),
   receipt(
@@ -5070,7 +5070,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_draw_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
-    'the same decision, no sample could be drawn: the decision given is kept',
+    'the same decision, no sample could be drawn (three or more opponents, one all in): the bar acts as with the option off (fall closed)',
     'V94'
   ),
   receipt(
@@ -5100,7 +5100,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_oop_turn_barrel_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaOopTurnBarrelIsPriced)',
-    'the same decision, outside the card-impact model: the decision given is kept',
+    'the same decision, outside the card-impact model: the categorical rule acts as with the option off (fall closed)',
     'V94'
   ),
   receipt(
@@ -5118,7 +5118,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_paired_board_bet_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
-    'the same decision, outside the card-impact model: the decision given is kept',
+    'the same decision, outside the card-impact model: the categorical rule acts as with the option off (fall closed)',
     'V94'
   ),
   receipt(
@@ -5152,6 +5152,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_priced_pressure_unpriced_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
+    'the pressure play against this bettor where no comparison could be computed: the label test acts as with the option off',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_big_bet_call_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
     'PLO4/PLO5 cash turn or river call in the big-bet cells scope: the exact count prices the call above the margin and it stands',
@@ -5166,7 +5172,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_big_bet_call_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
-    'the same decision, the hand could not be counted: the decision given is kept',
+    'the same decision, the hand could not be counted: the cells act as with the option off (fall closed)',
     'V94'
   ),
   receipt(
