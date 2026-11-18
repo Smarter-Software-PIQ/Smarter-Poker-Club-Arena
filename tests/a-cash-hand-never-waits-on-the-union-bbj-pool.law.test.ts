@@ -29,7 +29,21 @@
  *      table or player lock and ends its pass; the outbox cannot leave early;
  *   4. a stored obligation is on the felt in the tally and both meters;
  *   5. no timer; no later migration puts the calls back into the envelope;
- *   6. the two-session proof on real PostgreSQL stays wired.
+ *   6. the two-session proof on real PostgreSQL stays wired;
+ *   7. a bad obligation still fails the ENVELOPE (every precondition the
+ *      deferred calls check on the obligation runs there), and a stored one
+ *      that cannot bank pages CRITICAL through fn_post_commit_stranded_watchdog
+ *      after ten minutes, for cash_rake_pending and this table alike;
+ *   8. a stored insurance payout is reserved at insurance_wallet's spend door;
+ *      the banker re-reads the club's union.
+ *
+ * JACKPOT TIMING, compared with before. A drop stored while a jackpot payout
+ * (or any other holder) has the pool lands in the pool after that holder
+ * commits, from the hand's continuation. Before this change the hand's
+ * envelope waited on the same pool row and landed after it too: the order in
+ * which drops and payouts reach the pool is the same; only the dealing table
+ * no longer waits for it. A hit is decided by the hand that hits, never by
+ * the drops still in flight, as before.
  */
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
@@ -44,7 +58,7 @@ const SWITCH = '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_
 const ENVELOPE = 'fn_ca_process_hand_post_commit_obligations';
 const LIVE = '8b81e8bb218cacb235832285e4fbbb24';
 const PRE = 'da123635a0f1cdb035bd9b518ebf07f0';
-const POST = '11f769218554c9585f92ee2c5745e61f';
+const POST = 'd41bfee494141a366d72d3649a0208e5';
 
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -73,10 +87,9 @@ const bankFixture = JSON.parse(
 ) as { functions: Record<string, { md5: string; definition: string }> };
 const live = fixture.functions[ENVELOPE].definition;
 const pre = once(live, dollar(rakeSwitch, 'oenv0'), dollar(rakeSwitch, 'nenv0'));
-const post = once(
-  once(pre, dollar(sw, 'oenv1'), dollar(sw, 'nenv1')),
-  dollar(sw, 'oenv2'),
-  dollar(sw, 'nenv2')
+const post = ['0', '1', '2'].reduce(
+  (text, i) => once(text, dollar(sw, `oenv${i}`), dollar(sw, `nenv${i}`)),
+  pre
 );
 const banker = code(
   dollar(part1.split('CREATE FUNCTION public.fn_ca_bank_pending_hand_obligations')[1], 'fn')
@@ -98,6 +111,52 @@ describe("a cash hand never waits on the union's BBJ pool or insurance bank", ()
       expect(code(dollar(sw, tag))).toMatch(
         /INSERT INTO public\.hand_bank_obligation_pending[\s\S]*ON CONFLICT \(hand_id, kind, item_key\) DO NOTHING;/
       );
+  });
+
+  it('every precondition the deferred calls check on the obligation is still refused by the envelope', () => {
+    const drop = code(dollar(sw, 'nenv1'));
+    expect(drop).toMatch(/<> round\(\(v_bbj->>'amount'\)::numeric, 2\)/);
+    expect(drop).toMatch(/positive whole-cent amount/);
+    const leg = code(dollar(sw, 'nenv2'));
+    expect(leg).toMatch(/NOT BETWEEN 0 AND 100/);
+    expect(leg).toMatch(/a::text IN \('NaN', 'Infinity', '-Infinity'\) OR a < 0/);
+    expect(leg).toMatch(/NOT IN \('insurance', 'ev_cashout'\)/);
+    expect(leg).toMatch(/Insurance table does not belong to supplied club/);
+    expect(leg).toMatch(/union_wallets_insurance_wallet_nonneg/);
+    // One receipt per player per hand, whatever the kind: the receipt's identity.
+    expect(leg).toMatch(/'insurance', lower\(v_item->>'player_id'\),/);
+    expect(leg).toMatch(/Insurance identity reused with a different payment payload/);
+    // The envelope reads the bank, it never locks it.
+    expect(leg).not.toMatch(/FOR (NO KEY )?UPDATE|FOR SHARE/);
+  });
+
+  it('a stored obligation that cannot bank pages CRITICAL like a stranded envelope, for both tables', () => {
+    const watch = code(dollar(part1, 'nwatch1'));
+    expect(watch).toMatch(/from cash_rake_pending rp\s+where rp\.created_at < now\(\) - interval '10 minutes'/);
+    expect(watch).toMatch(
+      /from hand_bank_obligation_pending bp\s+where bp\.created_at < now\(\) - interval '10 minutes'/
+    );
+    expect(watch).toMatch(/'attempts', attempts, 'last_error', last_error/);
+    expect(code(dollar(part1, 'nwatch2'))).toMatch(/if v_n \+ v_pending > 0 then/);
+    expect(part1).toContain("'a459b8438ac006de92495a8325220ed5', 'a16ceda2073f0dbb3cd28feb841106e9'");
+    // I9 lists a hand once even when its rake waits too.
+    expect(code(dollar(part1, 'ninv3'))).toMatch(
+      /AND NOT EXISTS \(SELECT 1 FROM cash_rake_pending rp\s+WHERE rp\.hand_id = bp\.hand_id/
+    );
+  });
+
+  it('a stored payout is reserved at the wallet spend door, and a covered payout can be paid', () => {
+    expect(code(dollar(part1, 'ndoor1'))).toMatch(
+      /IF v_wallet_column = 'insurance_wallet' THEN[\s\S]*bp\.felt_amount < 0;[\s\S]*IF v_before - v_reserved < p_amount THEN/
+    );
+    expect(part1).toContain("'2b51a9540e5ed24961aed8434a8ffdd8', '09f80760439fe2e2883dcbc95ad00bf5'");
+    // The proposed INSERT row of an upsert is CHECKed before the conflict is
+    // found: the bank row is updated first.
+    expect(code(dollar(part1, 'oins0'))).toMatch(/ON CONFLICT \(union_id\) DO UPDATE/);
+    expect(code(dollar(part1, 'nins0'))).toMatch(
+      /UPDATE union_wallets[\s\S]*WHERE union_id = v_bank_entity;\s+IF NOT FOUND THEN\s+INSERT INTO union_wallets/
+    );
+    expect(part1).toContain("'cb02192b5c7520212a307d8b4c47510e', 'bf0ba9220c9bdc77aaaa0933ff491a7b'");
   });
 
   it('nothing in the envelope locks the pool, banks, or writes a union-wide row', () => {
@@ -150,8 +209,13 @@ describe("a cash hand never waits on the union's BBJ pool or insurance bank", ()
     expect(banker).not.toMatch(/pg_advisory_xact_lock\s*\(/);
     expect(banker).toMatch(/FOR UPDATE SKIP LOCKED/);
     expect(banker).toMatch(/WHEN lock_not_available THEN\s+v_state := 'busy';/);
-    // The called functions are the production text, unchanged by this work.
-    for (const name of ['bbj_record_contribution', 'record_insurance_transaction', 'fn_bbj_allocate']) {
+    // The club's union is read when the drop banks, not taken from the row.
+    expect(banker).toMatch(
+      /SELECT c\.union_id INTO v_union FROM public\.clubs c\s+WHERE c\.id = \(p\.obligation->>'club_id'\)::uuid;[\s\S]*'bbj-pool:' \|\| COALESCE\(v_union::text/
+    );
+    expect(banker).not.toMatch(/\bp\.union_id/);
+    // The called BBJ functions are the production text, unchanged by this work.
+    for (const name of ['bbj_record_contribution', 'fn_bbj_allocate']) {
       const f = bankFixture.functions[name];
       expect(md5(f.definition)).toBe(f.md5);
       for (const sql of [part1, sw])

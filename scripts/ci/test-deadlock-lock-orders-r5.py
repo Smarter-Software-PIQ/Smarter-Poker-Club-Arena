@@ -796,11 +796,25 @@ BANK_POST = {
     'fn_ca_tally_balance_move': '710154d55d4cb9fb1d425f3df13087c4',
     'fn_ca_supply_snapshot': 'c14f15b5933a8ee0e24f1f918bdc6d6f',
     'fn_ca_account_balance': 'abe021e4c5a42b02f3b4c00c8bd1ffc9',
-    'fn_rake_bbj_invariants': '4902b430962c700e89c6f15fd00f8049',
+    'fn_rake_bbj_invariants': '2a8c79452ced863cfb15364d1e62a40c',
     'fn_project_hand_side_effects': '39d043cda727119e0a6d883a3fb25d50',
     'trg_finish_hand_post_commit_obligations': '2d9d0d7cab537e608da36be3319e347e',
-    'fn_ca_process_hand_post_commit_obligations': '11f769218554c9585f92ee2c5745e61f',
+    'fn_ca_process_hand_post_commit_obligations': 'd41bfee494141a366d72d3649a0208e5',
 }
+BANK_POST_EXTRA = {
+    'fn_post_commit_stranded_watchdog': 'a16ceda2073f0dbb3cd28feb841106e9',
+    'fn_union_debit_wallet_zd3core': '09f80760439fe2e2883dcbc95ad00bf5',
+    'record_insurance_transaction': 'bf0ba9220c9bdc77aaaa0933ff491a7b',
+}
+
+
+def bank_insurance_repair_sql():
+    """Only the record_insurance_transaction repair of part 1, with its pinned
+    substitution helper: the reference run needs a payout that can be paid."""
+    part1 = (MIGRATIONS / BANK_PART1).read_text()
+    helper = part1[part1.index('CREATE FUNCTION pg_temp.ca_bank_subst'):part1.index('END $h$;') + len('END $h$;')]
+    start = part1.index("SELECT pg_temp.ca_bank_subst(\n  'public.record_insurance_transaction(")
+    return 'BEGIN;\n' + helper + '\n' + part1[start:part1.index('\n);\n', start) + 4] + 'COMMIT;\n'
 BANK_POOL = 'b0000000-0000-0000-0000-0000000000b1'
 # hand id, table, hand number, rake, bbj drop, pot, contributions, insurance legs (premium, payout)
 BANK_HANDS = [
@@ -838,6 +852,9 @@ CREATE TABLE insurance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(
   player_won boolean NOT NULL DEFAULT false, net_result numeric(10,2) NOT NULL, bank_type varchar(10) NOT NULL,
   bank_entity_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), kind varchar(16) NOT NULL DEFAULT 'insurance');
 CREATE UNIQUE INDEX insurance_transactions_table_hand_player_uidx ON insurance_transactions(table_id, hand_number, player_id);
+ALTER TABLE financial_alerts ADD COLUMN resolved boolean NOT NULL DEFAULT false,
+  ADD COLUMN resolved_at timestamptz, ADD COLUMN resolution text;
+ALTER TABLE union_wallets ADD CONSTRAINT union_wallets_insurance_wallet_nonneg CHECK (insurance_wallet >= 0);
 INSERT INTO ca_bbj_policy VALUES (1, 100000, 0.5, 0.3, 0.3, 0.3, 'harness', now());
 INSERT INTO ca_bbj_pool_policy VALUES ('{BANK_POOL}', 0.05, 0.20, 0.05, 0.20, 'the Midway Union rule', now());
 INSERT INTO bbj_pools(id, union_id) VALUES ('{BANK_POOL}', '{RU}');
@@ -863,18 +880,28 @@ def bank_database(db, fixture, extra):
             run(db, f"GRANT EXECUTE ON FUNCTION {f['signature']} TO {grantee};")
         check(f'hand bank: {name} is the production text', md5(db, f['signature']) == f['md5'])
     run(db, BANK_TRIGGERS)
+    # The union's insurance bank holds 10.00, minted with its journal row.
+    run(db, f"""
+BEGIN;
+SELECT set_config('app.ledger_category', 'mint', true), set_config('app.ledger_counterparty', 'system_mint', true);
+UPDATE union_wallets SET insurance_wallet = 10 WHERE union_id = '{RU}';
+COMMIT;""")
     # #11256 is installed: it is what production runs from 2026-11-18.
     run(db, (MIGRATIONS / RAKE_PART1).read_text())
     run(db, (MIGRATIONS / RAKE_SWITCH).read_text())
 
 
-def bank_accept(db, hand):
+def bank_accept(db, hand, mutate=None):
+    run(db, 'BEGIN;\n' + bank_accept_sql(hand, mutate) + '\nCOMMIT;')
+
+
+def bank_accept_sql(hand, mutate=None):
     """The accepted-hand transaction: the seats pay rake + drop + premium -
     payout, the receipt carries it as felt, the outbox row is the
     continuation."""
     hand_id, table, number, rake, drop, pot, contributions, legs = hand
     inflow = sum(float(pay) - float(prem) for prem, pay in legs)
-    payload = json.dumps({
+    body = ({
         'time_banks': [], 'promo_playthrough': [], 'pending_addons': None,
         'bbj_contribution': {'amount': float(drop), 'club_id': RC, 'big_blind': 0.5},
         'insurance': [{'club_id': RC, 'player_id': RP1, 'premium': float(prem), 'payout': float(pay),
@@ -882,8 +909,10 @@ def bank_accept(db, hand):
                       for prem, pay in legs],
         'rake': {'amount': float(rake), 'club_id': RC, 'bbj': float(drop), 'pot': pot, 'num_players': 2,
                  'contributions': contributions, 'returned_uncalled': {}, 'method': 'WEIGHTED_CONTRIBUTED'}})
-    run(db, f"""
-BEGIN;
+    if mutate:
+        mutate(body)
+    payload = json.dumps(body)
+    return f"""
 INSERT INTO hand_history(id, table_id, hand_number, players)
 VALUES ('{hand_id}', '{table}', {number}, '[{{"userId":"{RP1}"}},{{"userId":"{RP2}"}}]');
 UPDATE table_seats SET stack = stack - ({rake} + {drop} - ({inflow})) WHERE table_id = '{table}';
@@ -893,8 +922,7 @@ SELECT '{table}', {number}, '{hand_id}', 'h', jsonb_build_object('rake', {rake},
        encode(extensions.digest(convert_to(p::text, 'UTF8'), 'sha256'), 'hex')
   FROM (SELECT $j${payload}$j$::jsonb AS p) x;
 INSERT INTO hand_projection_outbox VALUES ('{hand_id}', '{table}', {number});
-COMMIT;
-""")
+"""
 
 
 BANK_BOOKS = f"""
@@ -960,6 +988,12 @@ def prove_hand_bank_never_waits_on_the_union_pool():
 
     # BEFORE: #11256 installed. A held pool stops a BBJ hand's envelope.
     bank_database('bankpre', fixture, extra)
+    # The reference pays h3's payout, which production's text cannot (see
+    # prove_bad_obligations_still_fail_the_envelope): only that repair is added.
+    run('bankpre', bank_insurance_repair_sql())
+    check('hand bank: the reference carries only the insurance repair',
+          md5('bankpre', extra['functions']['record_insurance_transaction']['signature'])
+          == BANK_POST_EXTRA['record_insurance_transaction'])
     for hand in BANK_HANDS:
         bank_accept('bankpre', hand)
     holder = bank_hold('bankpre')
@@ -983,7 +1017,7 @@ def prove_hand_bank_never_waits_on_the_union_pool():
     reference = json.loads(run('bankpre', BANK_BOOKS))
     check('hand bank: the reference run banked every drop and leg exactly once',
           reference['pool'][3] == 1.7 and len(reference['contributions']) == 3 and len(reference['insurance']) == 2
-          and reference['wallet'][4] == -2 and reference['outbox'] == 0 and reference['findings'] == 0, reference)
+          and reference['wallet'][4] == 8 and reference['outbox'] == 0 and reference['findings'] == 0, reference)
 
     # AFTER: both files, exactly as written, on top of #11256.
     bank_database('bankpost', fixture, extra)
@@ -991,6 +1025,9 @@ def prove_hand_bank_never_waits_on_the_union_pool():
     for name in list(BANK_POST)[:6]:
         check(f'hand bank: part 1 reproduces the postimage of {name}',
               md5('bankpost', fixture['functions'][name]['signature']) == BANK_POST[name])
+    for name, want in BANK_POST_EXTRA.items():
+        check(f'hand bank: part 1 reproduces the postimage of {name}',
+              md5('bankpost', extra['functions'][name]['signature']) == want)
     refused = subprocess.run(list(map(str, psql('bankpost'))), input=(MIGRATIONS / BANK_PART1).read_text(),
                              text=True, capture_output=True, env=env)
     check('hand bank: part 1 refuses a second run', refused.returncode != 0)
@@ -1046,12 +1083,41 @@ def prove_hand_bank_never_waits_on_the_union_pool():
         check('hand bank: the outbox row cannot leave while its obligations are pending',
               guarded.returncode != 0 and 'remains pending' in guarded.stderr
               and run('bankpost', 'SELECT count(*) FROM hand_projection_outbox') == '2', guarded.stderr[-300:])
+        quiet = json.loads(run('bankpost', 'SELECT public.fn_post_commit_stranded_watchdog()'))
+        check('hand bank: within the grace the stranded watchdog stays quiet',
+              quiet.get('pending_obligations') == 0
+              and run('bankpost', "SELECT count(*) FROM financial_alerts WHERE source = 'fn_post_commit_stranded_watchdog'") == '0',
+              quiet)
+        run('bankpost', """
+ALTER TABLE hand_bank_obligation_pending DISABLE TRIGGER hand_bank_obligation_is_immutable;
+ALTER TABLE cash_rake_pending DISABLE TRIGGER cash_rake_pending_is_immutable;
+UPDATE hand_bank_obligation_pending SET created_at = created_at - interval '11 minutes';
+UPDATE cash_rake_pending SET created_at = created_at - interval '11 minutes';
+ALTER TABLE hand_bank_obligation_pending ENABLE TRIGGER hand_bank_obligation_is_immutable;
+ALTER TABLE cash_rake_pending ENABLE TRIGGER cash_rake_pending_is_immutable;""")
+        paged = json.loads(run('bankpost', 'SELECT public.fn_post_commit_stranded_watchdog()'))
+        alert = json.loads(run('bankpost', "SELECT jsonb_build_object('severity', severity, 'context', context) "
+                                           "FROM financial_alerts WHERE source = 'fn_post_commit_stranded_watchdog' "
+                                           "AND NOT resolved"))
+        check('hand bank: a stored rake, drop or leg past the grace pages CRITICAL with its attempts and last error',
+              paged.get('pending_obligations') == 6 and alert['severity'] == 'critical'
+              and alert['context']['pending_obligations'] == 6
+              and {o['obligation'] for o in alert['context']['pending_sample']} == {'rake', 'bbj_contribution', 'insurance'}
+              and all('attempts' in o and 'last_error' in o for o in alert['context']['pending_sample']),
+              {'watchdog': paged, 'alert': alert})
         meters = run('bankpost', "SELECT round((SELECT sum(felt_amount) FROM hand_bank_obligation_pending) "
                                  "+ (SELECT sum(amount) FROM cash_rake_pending), 2)")
         check('hand bank: while held, what is stored is exactly what the receipts released', meters == '3.75', meters)
     finally:
         send(holder, 'ROLLBACK;\n')
         finish(holder)
+
+    # The wallet is free again; the payout stored for h3 (4.00) is still owed from it.
+    door = json.loads(run('bankpost', f"SELECT public.fn_union_debit_wallet_zd3core('{RU}', 'insurance', 7, "
+                                       "'withdrawal', NULL, NULL, 'test', NULL)"))
+    check('hand bank: a stored insurance payout is reserved at the wallet\'s debit door',
+          door.get('success') is False and door.get('error') == 'insufficient balance'
+          and float(door.get('reserved_for_pending_payouts')) == 4.0 and float(door.get('balance')) == 10.0, door)
 
     for hand in (h1, h3):
         projected, passes = drain('bankpost', hand[0])
@@ -1060,6 +1126,12 @@ def prove_hand_bank_never_waits_on_the_union_pool():
               and any(p.get('hand_bank', {}).get('status') == 'banked' for p in passes), passes)
         again = json.loads(run('bankpost', f"SELECT public.fn_ca_bank_pending_hand_obligations('{hand[0]}')"))
         check('hand bank: banking is once per obligation', again.get('status') == 'absent', again)
+    resolved = json.loads(run('bankpost', 'SELECT public.fn_post_commit_stranded_watchdog()'))
+    check('hand bank: the stranded alert resolves once nothing is left',
+          resolved.get('pending_obligations') == 0 and resolved.get('stranded') == 0
+          and run('bankpost', "SELECT count(*) FROM financial_alerts WHERE source = 'fn_post_commit_stranded_watchdog' "
+                              "AND NOT resolved") == '0', resolved)
+    run('bankpost', "DELETE FROM financial_alerts WHERE source = 'fn_post_commit_stranded_watchdog'")
     after = json.loads(run('bankpost', BANK_BOOKS))
     check('hand bank: nothing is left pending',
           run('bankpost', 'SELECT count(*) FROM hand_bank_obligation_pending') == '0'
@@ -1069,6 +1141,84 @@ def prove_hand_bank_never_waits_on_the_union_pool():
           'equal the uncontended reference exactly', not differing,
           {k: {'reference': reference[k], 'after': after[k]} for k in differing})
 
+
+
+def prove_bad_obligations_still_fail_the_envelope():
+    """Everything the deferred calls would refuse about an obligation is
+    refused by the envelope itself, as before: nothing malformed is stored to
+    fail later behind a completed envelope."""
+    fixture = json.loads(RAKE_FIXTURE.read_text())
+    extra = json.loads(BANK_FIXTURE.read_text())
+    bank_database('bankbad', fixture, extra)
+    payout = ('f0000000-0000-0000-0000-0000000000aa', RT2, 700, '1.00', '0.50', '20.00', {RP1: 10.0, RP2: 10.0},
+              [('1.00', '5.00')])
+    r = subprocess.run(list(map(str, psql('bankbad'))), text=True, capture_output=True, env=env,
+                       input='BEGIN;\n' + bank_accept_sql(payout)
+                             + f"\nSELECT public.fn_ca_process_hand_post_commit_obligations('{payout[0]}');\nCOMMIT;\n")
+    check('hand bank: on the production text a covered insurance payout is refused by the CHECK on the '
+          'proposed INSERT row (the defect part 1 repairs)',
+          r.returncode != 0 and 'union_wallets_insurance_wallet_nonneg' in r.stderr
+          and run('bankbad', f"SELECT insurance_wallet FROM union_wallets WHERE union_id = '{RU}'") == '10',
+          r.stderr[-300:])
+    run('bankbad', (MIGRATIONS / BANK_PART1).read_text())
+    run('bankbad', (MIGRATIONS / BANK_SWITCH).read_text())
+    leg = {'club_id': RC, 'player_id': RP1, 'premium': 1.0, 'payout': 0, 'insured_amount': 10,
+           'equity_percent': 20, 'player_won': False, 'kind': 'insurance'}
+    cases = [
+        ('a drop that is not whole cents', lambda b: b['bbj_contribution'].update(amount=0.505),
+         'positive whole-cent amount'),
+        ('two legs for one player (the receipt identity)',
+         lambda b: b.update(insurance=[dict(leg), dict(leg, kind='ev_cashout', premium=2.0)]),
+         'Insurance identity reused with a different payment payload'),
+        ('equity above 100', lambda b: b.update(insurance=[dict(leg, equity_percent=150)]),
+         'Invalid insurance payment identity or amounts'),
+        ('a negative amount', lambda b: b.update(insurance=[dict(leg, premium=-1)]),
+         'Invalid insurance payment identity or amounts'),
+        ('an unknown kind', lambda b: b.update(insurance=[dict(leg, kind='side_bet')]),
+         'Invalid insurance payment identity or amounts'),
+        ('a table of another club',
+         lambda b: b.update(insurance=[dict(leg, club_id='a0000000-0000-0000-0000-0000000000c9')]),
+         'Insurance table does not belong to supplied club'),
+        ('a payout the bank cannot cover', lambda b: b.update(insurance=[dict(leg, premium=0, payout=10.01)]),
+         'insurance payout exceeds the union insurance bank'),
+    ]
+    for n, (what, mutate, message) in enumerate(cases):
+        hand = ('f0000000-0000-0000-0000-00000000000' + str(n), RT1, 500 + n, '1.00', '0.50', '20.00',
+                {RP1: 10.0, RP2: 10.0}, [])
+        r = subprocess.run(list(map(str, psql('bankbad'))), text=True, capture_output=True, env=env,
+                           input='BEGIN;\n' + bank_accept_sql(hand, mutate)
+                                 + f"\nSELECT public.fn_ca_process_hand_post_commit_obligations('{hand[0]}');\nCOMMIT;\n")
+        check(f'hand bank: the envelope still refuses {what}', r.returncode != 0 and message in r.stderr,
+              r.stderr[-400:])
+    check('hand bank: nothing malformed was stored',
+          run('bankbad', 'SELECT count(*) FROM hand_bank_obligation_pending') == '0')
+    same = [dict(leg), dict(leg)]
+    hand = ('f0000000-0000-0000-0000-0000000000ff', RT1, 600, '1.00', '0.50', '20.00', {RP1: 10.0, RP2: 10.0},
+            [('1.00', '0.00')])
+    bank_accept('bankbad', hand, lambda b: b.update(insurance=same))
+    ok = json.loads(run('bankbad', f"SELECT public.fn_ca_process_hand_post_commit_obligations('{hand[0]}')"))
+    r = subprocess.run(list(map(str, psql('bankbad'))), text=True, capture_output=True, env=env,
+                       input='BEGIN;\n' + bank_accept_sql(payout)
+                             + f"\nSELECT public.fn_ca_process_hand_post_commit_obligations('{payout[0]}');"
+                             + f"\nSELECT public.fn_ca_bank_pending_hand_obligations('{payout[0]}')->>'status';\n"
+                             + f"SELECT insurance_wallet FROM union_wallets WHERE union_id = '{RU}';\nROLLBACK;\n")
+    check('hand bank: after part 1 the same covered payout is stored and banks',
+          r.returncode == 0 and r.stdout.strip().splitlines()[-2:] == ['banked', '6.00'], (r.stdout[-300:], r.stderr[-300:]))
+    moved = ('f0000000-0000-0000-0000-0000000000bb', RT2, 701, '1.00', '0.50', '20.00', {RP1: 10.0, RP2: 10.0}, [])
+    r = subprocess.run(list(map(str, psql('bankbad'))), text=True, capture_output=True, env=env,
+                       input='BEGIN;\n' + bank_accept_sql(moved)
+                             + f"\nSELECT public.fn_ca_process_hand_post_commit_obligations('{moved[0]}');"
+                             + f"\nUPDATE clubs SET union_id = NULL WHERE id = '{RC}';"
+                             + f"\nSELECT public.fn_ca_bank_pending_hand_obligations('{moved[0]}')->>'status';"
+                             + f"\nSELECT (p.club_id = '{RC}')::text || '|' || (p.union_id IS NULL)::text FROM bbj_contributions b"
+                             + f" JOIN bbj_pools p ON p.id = b.pool_id WHERE b.hand_id = '{moved[0]}';\nROLLBACK;\n")
+    check('hand bank: the banker reads the club\'s union when it banks: a club that left its union while the drop '
+          'waited banks it to its own pool, never to the union it left',
+          r.returncode == 0 and r.stdout.strip().splitlines()[-2:] == ['banked', 'true|true'],
+          (r.stdout[-300:], r.stderr[-300:]))
+    check('hand bank: the same leg repeated is one receipt, as the call returned it before',
+          ok.get('ok') is True and run('bankbad', "SELECT count(*) FROM hand_bank_obligation_pending "
+                                                  "WHERE kind = 'insurance'") == '1', ok)
 
 
 try:
@@ -1131,6 +1281,7 @@ try:
 
     # ---- hand bank obligations ------------------------------------------
     prove_hand_bank_never_waits_on_the_union_pool()
+    prove_bad_obligations_still_fail_the_envelope()
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')

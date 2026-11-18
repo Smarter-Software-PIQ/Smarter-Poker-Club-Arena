@@ -40,7 +40,7 @@
 --
 -- It refuses to install unless part 1 is installed.
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = '11f769218554c9585f92ee2c5745e61f')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = 'd41bfee494141a366d72d3649a0208e5')
 
 BEGIN;
 
@@ -113,8 +113,10 @@ END $m$;
 
 SELECT pg_temp.ca_bank_subst(
   'public.fn_ca_process_hand_post_commit_obligations(uuid)',
-  'da123635a0f1cdb035bd9b518ebf07f0', '11f769218554c9585f92ee2c5745e61f',
-  ARRAY[$oenv1$    PERFORM pg_advisory_xact_lock(hashtextextended(
+  'da123635a0f1cdb035bd9b518ebf07f0', 'd41bfee494141a366d72d3649a0208e5',
+  ARRAY[$oenv0$  v_insurance_id uuid;
+$oenv0$,
+        $oenv1$    PERFORM pg_advisory_xact_lock(hashtextextended(
       'bbj-pool:' || COALESCE(v_union_id::text, 'club:' || (v_bbj->>'club_id')),
       0
     ));
@@ -184,20 +186,31 @@ $oenv1$,
       RAISE EXCEPTION 'insurance obligation produced no receipt for hand %', p_hand_id;
     END IF;
 $oenv2$],
-  ARRAY[$nenv1$    /* A CASH HAND NEVER WAITS ON THE UNION'S BBJ POOL (20261118071736). The
+  ARRAY[$nenv0$  v_insurance_id uuid;
+  v_insurance_club uuid;
+  v_insurance_union uuid;
+  v_insurance_delta numeric;
+$nenv0$,
+        $nenv1$    /* A CASH HAND NEVER WAITS ON THE UNION'S BBJ POOL (20261118071736). The
        drop used to be banked here: the union's 'bbj-pool:' lock, its one
        active pool row FOR UPDATE and its allocator row, held from this step
        to COMMIT. With the rake off union_wallets (20261118035606) that made
        the pool every BBJ table's single queue in the union. The obligation is
-       stored instead, exactly as it would have been passed, with the union
-       read here as before; fn_ca_bank_pending_hand_obligations makes the same
-       bbj_record_contribution call on the same pool from the hand's own
-       projection continuation and never waits for the pool. The casts the
-       call made are still made here, so a malformed obligation is refused by
-       the envelope as before. Until it is banked the drop is on the felt by
-       the tally (fn_ca_tally_balance_move). */
+       stored instead, exactly as it would have been passed;
+       fn_ca_bank_pending_hand_obligations makes the same
+       bbj_record_contribution call from the hand's own projection
+       continuation and never waits for the pool. Everything that call would
+       refuse about the obligation itself is refused HERE, as before, so a bad
+       drop fails the envelope (and pages as stranded) instead of being stored:
+       the casts, and a positive whole-cent amount. Until it is banked the drop
+       is on the felt by the tally (fn_ca_tally_balance_move). */
     PERFORM COALESCE((v_bbj->>'big_blind')::numeric, 2),
             v_commit.hand_number::integer;
+    IF (v_bbj->>'amount')::numeric::text IN ('NaN', 'Infinity', '-Infinity')
+       OR (v_bbj->>'amount')::numeric <> round((v_bbj->>'amount')::numeric, 2) THEN
+      RAISE EXCEPTION 'BBJ contribution requires a stable hand identity and positive whole-cent amount'
+        USING ERRCODE = '22023';
+    END IF;
     INSERT INTO public.hand_bank_obligation_pending
       (hand_id, kind, item_key, table_id, hand_number, union_id, felt_amount, obligation)
     VALUES (v_commit.hand_id, 'bbj_contribution', '', v_commit.table_id, v_commit.hand_number,
@@ -211,21 +224,61 @@ $nenv1$,
        stored instead, exactly as it would have been passed, and banked with
        the same call by the hand's projection continuation, never waiting for
        the bank row. felt_amount is the bank's side of the leg in the cents
-       record_insurance_transaction rounds to: premium - payout. */
-    PERFORM COALESCE((v_item->>'equity_percent')::numeric, 0),
-            COALESCE((v_item->>'insured_amount')::numeric, 0),
+       record_insurance_transaction rounds to: premium - payout.
+
+       Everything that call would refuse is refused HERE, as before, so a bad
+       leg fails the envelope instead of being stored: the amounts and equity,
+       the kind, the table's club, one receipt per player per hand (its
+       identity is (table, hand, player) whatever the kind: a second leg for
+       the same player is the identity reuse it refuses unless it is the same
+       payment), and a payout the bank cannot cover. The bank is chosen as the
+       call chooses it; the cover is read without a lock and net of the
+       payouts already stored for that union, which its debit door reserves
+       (20261118071728). */
+    PERFORM COALESCE((v_item->>'insured_amount')::numeric, 0),
             COALESCE((v_item->>'player_won')::boolean, false),
-            COALESCE(NULLIF(v_item->>'kind', ''), 'insurance')::varchar,
             v_commit.hand_number::integer;
+    IF EXISTS (SELECT 1 FROM unnest(ARRAY[COALESCE((v_item->>'premium')::numeric, 0),
+                                          COALESCE((v_item->>'insured_amount')::numeric, 0),
+                                          COALESCE((v_item->>'payout')::numeric, 0)]) a
+                WHERE a::text IN ('NaN', 'Infinity', '-Infinity') OR a < 0)
+       OR COALESCE((v_item->>'equity_percent')::numeric, 0)::text IN ('NaN', 'Infinity', '-Infinity')
+       OR COALESCE((v_item->>'equity_percent')::numeric, 0) NOT BETWEEN 0 AND 100
+       OR COALESCE(NULLIF(v_item->>'kind', ''), 'insurance') NOT IN ('insurance', 'ev_cashout') THEN
+      RAISE EXCEPTION 'Invalid insurance payment identity or amounts' USING ERRCODE = '22023';
+    END IF;
+    SELECT t.club_id, CASE WHEN COALESCE(t.is_private, false) THEN NULL
+                           ELSE COALESCE(t.union_id, (SELECT c.union_id FROM public.clubs c
+                                                       WHERE c.id = t.club_id)) END
+      INTO v_insurance_club, v_insurance_union
+      FROM public.tables t WHERE t.id = v_commit.table_id;
+    IF v_insurance_club IS DISTINCT FROM (v_item->>'club_id')::uuid THEN
+      RAISE EXCEPTION 'Insurance table does not belong to supplied club' USING ERRCODE = '22023';
+    END IF;
+    v_insurance_delta := round(COALESCE((v_item->>'premium')::numeric, 0), 2)
+                       - round(COALESCE((v_item->>'payout')::numeric, 0), 2);
+    IF v_insurance_delta < 0 AND v_insurance_union IS NOT NULL
+       AND COALESCE((SELECT w.insurance_wallet FROM public.union_wallets w
+                      WHERE w.union_id = v_insurance_union), 0)
+           - (SELECT COALESCE(sum(-bp.felt_amount), 0)
+                FROM public.hand_bank_obligation_pending bp
+               WHERE bp.kind = 'insurance' AND bp.union_id = v_insurance_union
+                 AND bp.felt_amount < 0)
+           + v_insurance_delta < 0 THEN
+      RAISE EXCEPTION 'insurance payout exceeds the union insurance bank for hand % (union_wallets_insurance_wallet_nonneg)',
+        p_hand_id USING ERRCODE = '23514';
+    END IF;
     INSERT INTO public.hand_bank_obligation_pending
-      (hand_id, kind, item_key, table_id, hand_number, felt_amount, obligation)
-    VALUES (v_commit.hand_id, 'insurance',
-            lower(v_item->>'player_id') || ':' || COALESCE(NULLIF(v_item->>'kind', ''), 'insurance'),
-            v_commit.table_id, v_commit.hand_number,
-            round(COALESCE((v_item->>'premium')::numeric, 0), 2)
-              - round(COALESCE((v_item->>'payout')::numeric, 0), 2),
-            v_item)
+      (hand_id, kind, item_key, table_id, hand_number, union_id, felt_amount, obligation)
+    VALUES (v_commit.hand_id, 'insurance', lower(v_item->>'player_id'),
+            v_commit.table_id, v_commit.hand_number, v_insurance_union, v_insurance_delta, v_item)
     ON CONFLICT (hand_id, kind, item_key) DO NOTHING;
+    IF NOT FOUND AND NOT EXISTS (
+      SELECT 1 FROM public.hand_bank_obligation_pending bp
+       WHERE bp.hand_id = v_commit.hand_id AND bp.kind = 'insurance'
+         AND bp.item_key = lower(v_item->>'player_id') AND bp.obligation = v_item) THEN
+      RAISE EXCEPTION 'Insurance identity reused with a different payment payload' USING ERRCODE = '22023';
+    END IF;
 $nenv2$]
 );
 

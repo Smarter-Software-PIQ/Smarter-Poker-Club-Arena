@@ -72,12 +72,35 @@
 --      counts it as table_stack; fn_ca_supply_snapshot (posthand_transit) and
 --      fn_ca_account_balance (table_stack) add the same sum.
 --   5. Visibility. fn_rake_bbj_invariants: a drop waiting in the row is not I5
---      (never banked); a row older than five minutes is I9 (owed).
+--      (never banked); a row older than five minutes is I9 (owed), one line
+--      per hand even when its rake waits too. fn_post_commit_stranded_watchdog
+--      (CRITICAL, ten-minute grace, same alert source) now also counts rows of
+--      cash_rake_pending AND hand_bank_obligation_pending older than the grace,
+--      with attempts and last_error, and resolves only when none remain: a
+--      stored obligation that cannot bank pages exactly as loudly as the
+--      envelope that could not complete did before #11256 (that gap was
+--      #11256's too, and is closed here for both tables).
+--   6. Refusal stays at the envelope. The switch (part 2) runs every
+--      precondition the deferred calls check on the obligation itself, so a
+--      malformed drop or leg fails the envelope as before instead of being
+--      stored to fail later: whole cents; equity 0-100, non-negative amounts,
+--      a known kind, the table's club; one insurance receipt per player per
+--      hand; a payout the bank cannot cover net of stored payouts.
+--   7. A stored insurance payout is reserved. fn_union_debit_wallet_zd3core,
+--      the one spend door of union_wallets.insurance_wallet, treats stored
+--      payouts for the union as spent, so the leg can always bank under
+--      union_wallets_insurance_wallet_nonneg.
+--   8. The banker re-reads the club's union when it banks a drop, so a club
+--      that joined or left a union while its drop waited banks it where it
+--      plays now.
+--   9. record_insurance_transaction updates the union bank row before it
+--      would insert one, so a net payout is judged against the wallet's real
+--      balance, not refused by the CHECK on a proposed new row (see below).
 --
--- bbj_record_contribution, fn_bbj_allocate and record_insurance_transaction are
--- not changed.
+-- bbj_record_contribution and fn_bbj_allocate are not changed.
+-- record_insurance_transaction changes in one statement only (9 below).
 --
--- @live-proof: (SELECT to_regclass('public.hand_bank_obligation_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_hand_obligations(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = '710154d55d4cb9fb1d425f3df13087c4' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = 'c14f15b5933a8ee0e24f1f918bdc6d6f' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'abe021e4c5a42b02f3b4c00c8bd1ffc9' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = '4902b430962c700e89c6f15fd00f8049' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '39d043cda727119e0a6d883a3fb25d50' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = '2d9d0d7cab537e608da36be3319e347e')
+-- @live-proof: (SELECT to_regclass('public.hand_bank_obligation_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_hand_obligations(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = '710154d55d4cb9fb1d425f3df13087c4' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = 'c14f15b5933a8ee0e24f1f918bdc6d6f' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'abe021e4c5a42b02f3b4c00c8bd1ffc9' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = '2a8c79452ced863cfb15364d1e62a40c' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '39d043cda727119e0a6d883a3fb25d50' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = '2d9d0d7cab537e608da36be3319e347e' AND md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure)) = 'a16ceda2073f0dbb3cd28feb841106e9' AND md5(pg_get_functiondef('public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)'::regprocedure)) = '09f80760439fe2e2883dcbc95ad00bf5' AND md5(pg_get_functiondef('public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)'::regprocedure)) = 'bf0ba9220c9bdc77aaaa0933ff491a7b')
 
 BEGIN;
 
@@ -160,15 +183,23 @@ CREATE TABLE public.hand_bank_obligation_pending (
     CHECK (kind <> 'bbj_contribution'
            OR (item_key = '' AND felt_amount > 0
                AND (obligation ->> 'amount')::numeric = felt_amount)),
+  -- One insurance leg per player per hand: insurance_transactions is unique
+  -- on (table_id, hand_number, player_id), whatever the kind.
   CONSTRAINT hand_bank_obligation_insurance_is_the_bank_delta
     CHECK (kind <> 'insurance'
-           OR (union_id IS NULL
+           OR (item_key = lower(obligation ->> 'player_id')
                AND felt_amount = round(COALESCE((obligation ->> 'premium')::numeric, 0), 2)
                                - round(COALESCE((obligation ->> 'payout')::numeric, 0), 2)))
 );
 COMMENT ON TABLE public.hand_bank_obligation_pending IS
  'A cash hand''s BBJ drop and insurance bank legs, stored by its completed post-commit envelope and banked by fn_ca_bank_pending_hand_obligations from the hand''s projection continuation, so the envelope never waits on the union''s shared BBJ pool or insurance bank. felt_amount is on the felt by the tally until banked. Empty when every hand is banked.';
 CREATE INDEX hand_bank_obligation_pending_created ON public.hand_bank_obligation_pending (created_at);
+-- The insurance payouts a union still owes from its insurance_wallet: read by
+-- the wallet's debit door (the reservation below) and by the envelope.
+CREATE INDEX hand_bank_obligation_pending_payouts ON public.hand_bank_obligation_pending (union_id)
+  WHERE kind = 'insurance' AND felt_amount < 0;
+COMMENT ON COLUMN public.hand_bank_obligation_pending.union_id IS
+ 'The bank union as the envelope resolved it (insurance: the union whose insurance_wallet the leg moves; NULL for a club bank). The banker re-reads the union for a BBJ drop; for insurance it reserves a pending payout against this union''s insurance_wallet.';
 
 ALTER TABLE public.hand_bank_obligation_pending ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.hand_bank_obligation_pending FROM PUBLIC, anon, authenticated, service_role;
@@ -256,14 +287,22 @@ BEGIN
 
       IF p.kind = 'bbj_contribution' THEN
         /* NEVER WAIT FOR THE UNION'S POOL. The same advisory key and the same
-           pool choice the envelope used (20260908: one active pool per union,
-           else per club), each refused at once if anyone holds it. */
+           pool choice the envelope made (one active pool per union, else per
+           club), each refused at once if anyone holds it. The club's union is
+           read NOW, as the envelope read it at its own run: a club that joined
+           or left a union while its drop waited banks it to the pool it plays
+           under today, never to a closed or orphaned club pool. */
+        SELECT c.union_id INTO v_union FROM public.clubs c
+         WHERE c.id = (p.obligation->>'club_id')::uuid;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'BBJ obligation club not found for hand %', p_hand_id;
+        END IF;
         IF NOT pg_try_advisory_xact_lock(hashtextextended(
-             'bbj-pool:' || COALESCE(p.union_id::text, 'club:' || (p.obligation->>'club_id')), 0)) THEN
+             'bbj-pool:' || COALESCE(v_union::text, 'club:' || (p.obligation->>'club_id')), 0)) THEN
           RAISE EXCEPTION 'bbj pool lock held' USING ERRCODE = '55P03';
         END IF;
         v_pool_id := NULL;
-        IF p.union_id IS NULL THEN
+        IF v_union IS NULL THEN
           SELECT bp.id INTO v_pool_id
             FROM public.bbj_pools bp
            WHERE bp.club_id = (p.obligation->>'club_id')::uuid
@@ -274,7 +313,7 @@ BEGIN
         ELSE
           SELECT bp.id INTO v_pool_id
             FROM public.bbj_pools bp
-           WHERE bp.union_id = p.union_id
+           WHERE bp.union_id = v_union
              AND bp.status = 'active'
            ORDER BY bp.created_at, bp.id
            LIMIT 1
@@ -282,12 +321,12 @@ BEGIN
         END IF;
         PERFORM set_config('lock_timeout', '250ms', true);
         IF v_pool_id IS NULL THEN
-          IF p.union_id IS NULL THEN
+          IF v_union IS NULL THEN
             INSERT INTO public.bbj_pools(club_id, main_balance, backup_balance, promo_balance, status)
             VALUES ((p.obligation->>'club_id')::uuid, 0, 0, 0, 'active') RETURNING id INTO v_pool_id;
           ELSE
             INSERT INTO public.bbj_pools(union_id, main_balance, backup_balance, promo_balance, status)
-            VALUES (p.union_id, 0, 0, 0, 'active') RETURNING id INTO v_pool_id;
+            VALUES (v_union, 0, 0, 0, 'active') RETURNING id INTO v_pool_id;
           END IF;
         END IF;
 
@@ -477,7 +516,7 @@ $nacct1$]
 
 SELECT pg_temp.ca_bank_subst(
   'public.fn_rake_bbj_invariants(integer)',
-  'd23a4053d2578ce628381f87e9c20652', '4902b430962c700e89c6f15fd00f8049',
+  'd23a4053d2578ce628381f87e9c20652', '2a8c79452ced863cfb15364d1e62a40c',
   ARRAY[$oinv2$                                AND abs(b.amount - s.bbj) <= 0.01) LIMIT 20) x
 $oinv2$,
         $oinv3$           WHERE rp.created_at < v_grace
@@ -493,9 +532,13 @@ $ninv2$,
           UNION ALL
           -- 20261118071728: a completed envelope's BBJ drop or insurance leg
           -- still waiting to be banked.
+          -- One line per hand: a hand already listed above for its rake is not
+          -- counted again.
           SELECT bp.hand_id, bp.table_id, bp.hand_number, min(bp.created_at)
             FROM hand_bank_obligation_pending bp
            WHERE bp.created_at < v_grace
+             AND NOT EXISTS (SELECT 1 FROM cash_rake_pending rp
+                              WHERE rp.hand_id = bp.hand_id AND rp.created_at < v_grace)
            GROUP BY 1, 2, 3
 $ninv3$]
 );
@@ -567,6 +610,143 @@ $otrg1$],
     END IF;
   END IF;
 $ntrg1$]
+);
+
+/* A STORED OBLIGATION THAT CANNOT BANK PAGES AS LOUDLY AS AN ENVELOPE THAT
+   CANNOT COMPLETE. Before #11256 a hand whose rake or drop could not be posted
+   left its envelope uncompleted, and fn_post_commit_stranded_watchdog raised a
+   CRITICAL alert after ten minutes. Once the envelope completes by storing
+   the obligation, a refused row would only be I9 (hourly warning) while its
+   table's outbox row can never leave, so that table's projections stop. The
+   watchdog now counts rows of BOTH pending tables older than its ten-minute
+   grace, with their attempts and last error, in the same critical alert; it
+   resolves only when none remain. */
+SELECT pg_temp.ca_bank_subst(
+  'public.fn_post_commit_stranded_watchdog()',
+  'a459b8438ac006de92495a8325220ed5', 'a16ceda2073f0dbb3cd28feb841106e9',
+  ARRAY[$owatch0$declare v_n int; v_oldest timestamptz; v_sample jsonb;
+$owatch0$,
+        $owatch1$             and committed_at < now() - interval '10 minutes') s;
+$owatch1$,
+        $owatch2$  if v_n > 0 then
+$owatch2$,
+        $owatch3$        v_n || ' committed hand(s) still have unfinished post-commit work after 10+ minutes (oldest ' || v_oldest || '). Players'' balances, stats or rake for these hands may be incomplete.',
+        jsonb_build_object('stranded', v_n, 'oldest', v_oldest, 'sample', v_sample));
+$owatch3$,
+        $owatch4$  return jsonb_build_object('stranded', v_n, 'oldest', v_oldest);
+$owatch4$],
+  ARRAY[$nwatch0$declare v_n int; v_oldest timestamptz; v_sample jsonb;
+  v_pending int; v_pending_oldest timestamptz; v_pending_sample jsonb;
+$nwatch0$,
+        $nwatch1$             and committed_at < now() - interval '10 minutes') s;
+
+  /* 20261118071728: a completed envelope's rake, BBJ drop or insurance leg
+     still stored after the same grace. Its hand's outbox row cannot leave, so
+     that table's projections wait on it: page, with why it has not banked. */
+  select count(*), min(created_at),
+         coalesce(jsonb_agg(jsonb_build_object('obligation', kind, 'hand_id', hand_id, 'table_id', table_id,
+                                               'hand_number', hand_number, 'stored_at', created_at,
+                                               'attempts', attempts, 'last_error', last_error))
+                  filter (where rn <= 10), '[]')
+    into v_pending, v_pending_oldest, v_pending_sample
+    from (select u.*, row_number() over (order by u.created_at) rn
+            from (select 'rake'::text kind, rp.hand_id, rp.table_id, rp.hand_number, rp.created_at,
+                         rp.attempts, rp.last_error
+                    from cash_rake_pending rp
+                   where rp.created_at < now() - interval '10 minutes'
+                  union all
+                  select bp.kind, bp.hand_id, bp.table_id, bp.hand_number, bp.created_at,
+                         bp.attempts, bp.last_error
+                    from hand_bank_obligation_pending bp
+                   where bp.created_at < now() - interval '10 minutes') u) s;
+$nwatch1$,
+        $nwatch2$  if v_n + v_pending > 0 then
+$nwatch2$,
+        $nwatch3$        (v_n + v_pending) || ' committed hand obligation(s) still unfinished after 10+ minutes (' || v_n || ' envelope(s), oldest ' || coalesce(v_oldest::text, '-') || '; ' || v_pending || ' stored rake/BBJ/insurance obligation(s), oldest ' || coalesce(v_pending_oldest::text, '-') || '). Players'' balances, stats or rake for these hands may be incomplete.',
+        jsonb_build_object('stranded', v_n, 'oldest', v_oldest, 'sample', v_sample,
+                           'pending_obligations', v_pending, 'pending_oldest', v_pending_oldest,
+                           'pending_sample', v_pending_sample));
+$nwatch3$,
+        $nwatch4$  return jsonb_build_object('stranded', v_n, 'oldest', v_oldest,
+                            'pending_obligations', v_pending, 'pending_oldest', v_pending_oldest);
+$nwatch4$]
+);
+
+/* AN INSURANCE PAYOUT WAITING TO BE BANKED IS RESERVED. A stored leg whose
+   payout exceeds its premium will debit the union's insurance_wallet when it
+   banks; union_wallets_insurance_wallet_nonneg refuses a debit below zero. If
+   anything spent that money first, the stored leg could never bank. The one
+   spend door of insurance_wallet on production (read 2026-11-18: the only
+   function that maps a debit onto the column) is fn_union_debit_wallet_zd3core;
+   it now treats pending payouts as already spent. The smaller of the two
+   designs: a reservation read at the one door, instead of a reserve column
+   every reader of insurance_wallet would have to learn. The envelope refuses
+   a payout the wallet cannot cover net of the same reservation, as the
+   wallet's CHECK refused it in the envelope before. */
+SELECT pg_temp.ca_bank_subst(
+  'public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)',
+  '2b51a9540e5ed24961aed8434a8ffdd8', '09f80760439fe2e2883dcbc95ad00bf5',
+  ARRAY[$odoor0$  v_cp text;
+BEGIN
+$odoor0$,
+        $odoor1$  IF v_before < p_amount THEN
+    RETURN jsonb_build_object(
+      'success', false, 'error', 'insufficient balance',
+      'wallet', v_wallet_column, 'balance', v_before, 'requested', p_amount
+    );
+  END IF;
+$odoor1$],
+  ARRAY[$ndoor0$  v_cp text;
+  v_reserved numeric := 0;
+BEGIN
+$ndoor0$,
+        $ndoor1$  /* 20261118071728: insurance payouts stored by completed hands and not
+     yet banked are already owed from this wallet. */
+  IF v_wallet_column = 'insurance_wallet' THEN
+    SELECT COALESCE(sum(-bp.felt_amount), 0) INTO v_reserved
+      FROM public.hand_bank_obligation_pending bp
+     WHERE bp.kind = 'insurance' AND bp.union_id = p_union_id AND bp.felt_amount < 0;
+  END IF;
+
+  IF v_before - v_reserved < p_amount THEN
+    RETURN jsonb_build_object(
+      'success', false, 'error', 'insufficient balance',
+      'wallet', v_wallet_column, 'balance', v_before, 'requested', p_amount,
+      'reserved_for_pending_payouts', v_reserved
+    );
+  END IF;
+$ndoor1$]
+);
+
+/* AN INSURANCE PAYOUT CAN BE PAID FROM THE UNION'S BANK AT ALL. Found while
+   proving this file on PostgreSQL: record_insurance_transaction credits the
+   union bank with INSERT ... VALUES (union, delta) ON CONFLICT DO UPDATE.
+   PostgreSQL checks a CHECK constraint on the proposed INSERT row before it
+   looks for the conflict, so for every leg whose payout exceeds its premium
+   (delta < 0) union_wallets_insurance_wallet_nonneg refuses the proposed row
+   (insurance_wallet = delta < 0) even though the union's wallet row exists and
+   covers it. On production today that fails the hand's envelope; stored, it
+   would be refused for ever. The existing row is updated first and a row is
+   inserted only for a union that has none, so the CHECK judges the wallet's
+   real balance. A credit (delta > 0) writes the same row values as before. */
+SELECT pg_temp.ca_bank_subst(
+  'public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)',
+  'cb02192b5c7520212a307d8b4c47510e', 'bf0ba9220c9bdc77aaaa0933ff491a7b',
+  ARRAY[$oins0$      INSERT INTO union_wallets (union_id, insurance_wallet)
+      VALUES (v_bank_entity, v_bank_delta)
+      ON CONFLICT (union_id) DO UPDATE
+        SET insurance_wallet = COALESCE(union_wallets.insurance_wallet, 0) + v_bank_delta,
+            updated_at = NOW();
+$oins0$],
+  ARRAY[$nins0$      UPDATE union_wallets
+         SET insurance_wallet = COALESCE(union_wallets.insurance_wallet, 0) + v_bank_delta,
+             updated_at = NOW()
+       WHERE union_id = v_bank_entity;
+      IF NOT FOUND THEN
+        INSERT INTO union_wallets (union_id, insurance_wallet)
+        VALUES (v_bank_entity, v_bank_delta);
+      END IF;
+$nins0$]
 );
 
 SELECT public.fn_ca_declare_guard_redefinition('fn_ca_tally_balance_move',
