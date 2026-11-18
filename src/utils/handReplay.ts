@@ -1525,6 +1525,13 @@ export function replayInputFromRow(
   extras: {
     discardedCards?: Record<string, StoredCard> | null;
     privateHoleCards?: Record<string, StoredCard[]> | null;
+    /**
+     * Each seat's avatar, keyed by user id. The stored row carries no art, so
+     * the caller resolves it from the profiles it already read. Without this
+     * the model had no avatar for any archived hand, and every replay and
+     * every shared link built from one drew bare name plates.
+     */
+    avatars?: Record<string, string | null | undefined> | null;
   } = {}
 ): ReplayInput {
   const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -1533,11 +1540,14 @@ export function replayInputFromRow(
     v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
   const players = arr(row.players).map((p) => {
     const r = rec(p);
+    const userId = String(r.userId ?? '');
+    const avatarUrl = extras.avatars?.[userId] || undefined;
     return {
-      userId: String(r.userId ?? ''),
+      userId,
       username: String(r.username ?? 'Player'),
       seat: Number(r.seat) || 0,
       stack: r.stack === undefined || r.stack === null ? null : Number(r.stack),
+      ...(avatarUrl ? { avatarUrl } : {}),
     };
   });
   const actions = arr(row.actions).map((a) => {

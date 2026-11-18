@@ -92,6 +92,7 @@ export function replayFromServiceRecord(h: ServiceHandRecord): ReplayModel {
       username: p.username,
       seat: p.seat,
       stack: null,
+      avatarUrl: p.avatar_url ?? null,
     })),
     actions: (h.actions || []).map((a) => ({
       seat: seatOf.get(a.player_id) ?? 0,
