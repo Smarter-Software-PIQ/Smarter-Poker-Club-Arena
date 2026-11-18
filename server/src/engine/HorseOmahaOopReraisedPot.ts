@@ -17,9 +17,17 @@
  * PREFLOP RULE (omahaOopReraisedPotStrongRange). PLO4/PLO5 cash, high only,
  * one board, no bomb pot. The Horse's decision is a CALL, the last raiser is
  * not all in, and either
- *   - it faces a 3-bet or more and acts BEFORE the last raiser on every later
- *     street (out of position), or
- *   - it faces a 4-bet or more, in either position.
+ *   - it faces a 3-bet or more and is out of position: it does not act last
+ *     among the players who will see the flop (PLO4/PLO5, finding F-02
+ *     2026-11-17, omahaReraisedPositionOf: the last raiser, every player
+ *     already in for the price and every earlier raiser still to act, by seat
+ *     order; a caller who has not yet answered the re-raise is not counted.
+ *     PLO6 keeps the six-card lane's reading), or
+ *   - it faces a 4-bet or more, in either position, or
+ *   - it has put nothing in voluntarily (a cold call), in either position.
+ * In PLO4/PLO5 every call the rule examines is PRICED (omahaReraisedCallPriced,
+ * 2026-11-17): position enters as the realization of the call, never as a
+ * verdict. The class rules below serve PLO6 only.
  * The call stands only when one of these holds:
  *   - ACES WITH A SUIT (the engine's class `aa_ds`): never examined, played
  *     as today.
@@ -235,7 +243,12 @@ export interface OmahaOopReraisedInput {
   variant: string;
   hole: readonly Card[];
   dead: readonly Card[];
-  /** hero acts before the last raiser on every later street */
+  /**
+   * PLO4/PLO5: hero does not act last among the players who will see the flop
+   * (omahaReraisedPositionOf: the re-raiser, players in for the price, earlier
+   * raisers still to act). PLO6: the six-card lane's reading (before the last
+   * raiser, or a live player in for more than a big blind behind).
+   */
   outOfPosition: boolean;
   /** hero put no voluntary money (> bb) in before facing this 3-bet+ */
   coldCall?: boolean;
@@ -449,10 +462,13 @@ export function omahaOopReraisedClassCell(
  *    narrowed once per raise beyond the 3-bet by the engine's line rule
  *    (reRaiseLineWidth).
  *  - R (realization): the share of that equity a call gets back, from the
- *    position actually held after the call (after the re-raiser and after every
- *    player already in for the price; a player still to act who has not raised
- *    is not counted, measured below), the stack-to-pot ratio after the call, and
- *    the other players in the pot. A call that is all in realizes 1.
+ *    position as the fit measured it (omahaReraisedPositionOf.ipVsRaiser:
+ *    hero acts after the re-raiser, nothing else), the stack-to-pot ratio
+ *    after the call, and the other players in the pot (in for the price, or a
+ *    raiser of this hand still to act: the second is charged more than the
+ *    fit measured, see omahaReraisedCallPricingOf). A player still to act who
+ *    has not raised is not counted (measured below). A call that is all in
+ *    realizes 1.
  *  - rake: the engine's own call deduction (exact when the table's rake is
  *    known), the same figure the reference price uses.
  * What hero already put in is in the pot; whether hero raised earlier is not a
@@ -496,8 +512,14 @@ export interface OmahaReraisedCallPricing {
   /** decayed opportunities behind `rate` (0: the population mean) */
   opportunities: number;
   rateSource: 'measured' | 'population' | 'fallback';
-  /** hero acts after the re-raiser and after every other player already in for the price */
+  /**
+   * the realization's position term. PLO4/PLO5 cash: the fit's definition, hero
+   * acts after the re-raiser (omahaReraisedPositionOf.ipVsRaiser). Tournaments,
+   * Lightning: after the re-raiser and every player already in for the price.
+   */
   inPosition: boolean;
+  /** the seat-order facts behind inPosition (receipts; absent: not derived) */
+  position?: OmahaReraisedPosition;
   /** other players in the pot besides the re-raiser: already in for the price, or a raiser of this hand still to act */
   othersIn: number;
   /** what the re-raiser has behind */
@@ -612,6 +634,85 @@ export function omahaReraisedCallPriced(
   );
   if (equity === null) return null;
   return omahaReraisedCallEv(equity, width, call, pot, stack, p);
+}
+
+/**
+ * THE POSITION HELD AFTER A PREFLOP CALL OF A RE-RAISE (finding F-02, WooWoo
+ * 48-hour audit 2026-11-17; PLO4/PLO5). One answer for the wrapper's scope, the
+ * cell and the priced call, from seat order alone against the players who will
+ * see the flop with hero:
+ *   - the re-raiser faced;
+ *   - every player already in for the current price (not all in: an all-in
+ *     player makes no later decision, so holds no position);
+ *   - every player who raised earlier this hand and has not yet answered the
+ *     current price (a raiser still to act; he is counted among the other
+ *     players in the pot by the priced call already).
+ * A player who only called an earlier price and has not yet answered this
+ * re-raise is NOT counted: he may fold, and the measured cost of such a player
+ * is nil (HorseOmahaPreflopReraiseDefence, 2,023 recorded calls: -0.09, SE 0.13
+ * in position; 0.01, SE 0.15 out of position). He is reported
+ * (callersPendingBehind) and never decides the position. Before this, the
+ * wrapper called hero out of position whenever such a caller sat behind
+ * (236 recorded fires: 41 of them in position against the re-raiser with only
+ * an un-acted caller behind), while the priced call did not: two answers to one
+ * question. Pure.
+ */
+export interface OmahaReraisedSeatFacts {
+  seat: number;
+  /** what he has in on this street */
+  bet: number;
+  allIn: boolean;
+  /** he made a preflop raise earlier in this hand */
+  raisedPreflop: boolean;
+}
+export interface OmahaReraisedPosition {
+  /** hero acts after the re-raiser on every later street */
+  ipVsRaiser: boolean;
+  /** players already in for the price, not all in, who act after hero */
+  inForBehind: number;
+  /** earlier raisers who have not answered the price, not all in, who act after hero */
+  raisersPendingBehind: number;
+  /** callers of an earlier price who have not answered this one and act after hero (reported, not counted) */
+  callersPendingBehind: number;
+  /**
+   * hero acts last among the players who will see the flop: the wrapper's
+   * SCOPE (is the call examined). The PRICE reads ipVsRaiser, the term the
+   * realization constants were fitted with.
+   */
+  inPosition: boolean;
+}
+export function omahaReraisedPositionOf(
+  heroSeat: number,
+  raiserSeat: number,
+  dealerSeat: number | undefined,
+  /** live players other than hero and the re-raiser (not folded, not sitting out) */
+  others: readonly OmahaReraisedSeatFacts[],
+  /** the current price to stay in (gs.currentBet) */
+  price: number,
+  bigBlind: number
+): OmahaReraisedPosition {
+  const mine = omahaPostflopOrder(heroSeat, dealerSeat);
+  const behind = (p: OmahaReraisedSeatFacts): boolean =>
+    !p.allIn && omahaPostflopOrder(p.seat, dealerSeat) > mine;
+  const inFor = (p: OmahaReraisedSeatFacts): boolean =>
+    Number.isFinite(p.bet) && p.bet >= price - 0.005;
+  const ipVsRaiser = mine > omahaPostflopOrder(raiserSeat, dealerSeat);
+  let inForBehind = 0;
+  let raisersPendingBehind = 0;
+  let callersPendingBehind = 0;
+  for (const p of others) {
+    if (!behind(p)) continue;
+    if (inFor(p)) inForBehind++;
+    else if (p.raisedPreflop) raisersPendingBehind++;
+    else if (Number.isFinite(p.bet) && p.bet > bigBlind + 0.005) callersPendingBehind++;
+  }
+  return {
+    ipVsRaiser,
+    inForBehind,
+    raisersPendingBehind,
+    callersPendingBehind,
+    inPosition: ipVsRaiser && inForBehind === 0 && raisersPendingBehind === 0,
+  };
 }
 
 export type OmahaFlopContinueReason =

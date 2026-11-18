@@ -43,6 +43,7 @@ import {
   omahaReraisedCallPriced,
   omahaReraiseByPositionCell,
   omahaReraisedFlopContinueCell,
+  omahaReraisedPositionOf,
   type OmahaOopReraisedInput,
 } from './HorseOmahaOopReraisedPot.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
@@ -1406,5 +1407,151 @@ describe('omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition in t
       ).toBeNull();
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+// ─── finding F-02 (WooWoo 48-hour audit, 2026-11-17): one position, by seat order ───
+// Synthetic public states with the geometry of the recorded fires (no hand or
+// player id, no recorded cards): six seats, dealer on 5, so the order to act
+// after the flop is 1 (small blind), 2, 3, 4, 5, 6... wraps to the dealer last.
+describe('F-02: position against the players who will see the flop', () => {
+  const others = (
+    rows: Array<[seat: number, bet: number, raisedPreflop?: boolean, allIn?: boolean]>
+  ) =>
+    rows.map(([seat, bet, raisedPreflop, allIn]) => ({
+      seat,
+      bet,
+      raisedPreflop: raisedPreflop === true,
+      allIn: allIn === true,
+    }));
+  it('a caller who has not answered the re-raise does not decide the position', () => {
+    // hero 4 in position against the small-blind re-raiser; the button called the open and is still to act
+    const p = omahaReraisedPositionOf(4, 1, 5, others([[5, 8]]), 34, 2);
+    expect(p).toEqual({
+      ipVsRaiser: true,
+      inForBehind: 0,
+      raisersPendingBehind: 0,
+      callersPendingBehind: 1,
+      inPosition: true,
+    });
+  });
+  it('a player in for the price behind, and an earlier raiser still to act behind, do', () => {
+    expect(omahaReraisedPositionOf(4, 1, 5, others([[5, 34]]), 34, 2).inPosition).toBe(false);
+    const pending = omahaReraisedPositionOf(3, 1, 5, others([[4, 8, true]]), 34, 2);
+    expect(pending.raisersPendingBehind).toBe(1);
+    expect(pending.inPosition).toBe(false);
+    // the same raiser sitting before hero in the order holds no position on hero
+    expect(omahaReraisedPositionOf(4, 1, 5, others([[3, 8, true]]), 34, 2).inPosition).toBe(true);
+  });
+  it('an all-in player holds no position; before the re-raiser is out of position', () => {
+    expect(omahaReraisedPositionOf(4, 1, 5, others([[5, 34, false, true]]), 34, 2).inPosition).toBe(
+      true
+    );
+    const oop = omahaReraisedPositionOf(1, 4, 5, [], 34, 2);
+    expect(oop.ipVsRaiser).toBe(false);
+    expect(oop.inPosition).toBe(false);
+  });
+  it('a blind that has only posted is not a pending caller', () => {
+    expect(omahaReraisedPositionOf(4, 1, 5, others([[2, 2]]), 34, 2).callersPendingBehind).toBe(0);
+  });
+});
+
+describe('F-02 in the decision (omahaOopReraisedPotStrongRange on)', () => {
+  const ON: HorseDecideOpts = { omahaOopReraisedPotStrongRange: true };
+  const BASE = {
+    hand: 0,
+    variant: 'plo5',
+    bb: 2,
+    dealer: 5,
+    stacks: '1:398,2:398,3:400,4:400,5:400,6:400',
+  };
+  // Seat 3 opens, hero (4) calls, the button (5) calls, the small blind (1)
+  // re-raises, the big blind folds and the opener calls: hero is last to act
+  // after the flop among the players in (1, 3, hero); the button has not
+  // answered. A call of a 3-bet in position is outside the rule.
+  const SANDWICHED: Recorded = {
+    ...BASE,
+    seat: 4,
+    hole: 'Ts9s8h7h6d',
+    actions: '1ps1,2pb2,3pR7,4pC7,5pC7,6pF,1pR36,2pF,3pC29,4pC29',
+  };
+  // Hero (3) limps, seat 4 raises, the small blind re-raises, the big blind
+  // folds: hero acts after the re-raiser but the first raiser, still to act,
+  // sits behind it. The scope examines the call (hero is not last to act);
+  // the price, when the class cell folds, reads the fit's position: after the
+  // re-raiser, so in position (the raiser still to act is charged as another
+  // player in, the one conservative deviation left).
+  const RAISER_BEHIND: Recorded = {
+    ...BASE,
+    seat: 3,
+    hole: 'Ts9s8h7h6d',
+    actions: '1ps1,2pb2,3pC2,4pR9,5pF,6pF,1pR30,2pF,3pC28',
+  };
+  it('in position with only an un-acted caller behind: not examined, the call stands', () => {
+    const build = () => stateAt(SANDWICHED, 2);
+    const unset = playMany(build, {});
+    const on = playMany(build, ON);
+    expect(calls(unset)).toBeGreaterThan(0);
+    expect(on.bytes).toEqual(unset.bytes);
+    expect(on.next).toEqual(unset.next);
+    expect(count(on, 'omaha_reraised_call_priced_call')).toBe(0);
+    expect(count(on, 'omaha_reraised_call_priced_fold')).toBe(0);
+    expect(count(on, 'omaha_oop_reraised_call_folded')).toBe(0);
+    expect(count(on, 'omaha_reraised_call_in_position_caller_pending_seen')).toBe(calls(unset));
+    expect(count(unset, 'omaha_reraised_call_in_position_caller_pending_seen')).toBe(0);
+  });
+  it('an earlier raiser still to act behind: examined; a priced fold is priced in position (the fit: after the re-raiser)', () => {
+    const build = () => stateAt(RAISER_BEHIND, 2);
+    const unset = playMany(build, {});
+    const on = playMany(build, ON);
+    expect(calls(unset)).toBeGreaterThan(0);
+    expect(on.next).toEqual(unset.next);
+    // examined on every call of the reference: kept or folded by the cell
+    expect(
+      count(on, 'omaha_oop_reraised_call_kept') + count(on, 'omaha_oop_reraised_call_folded')
+    ).toBe(calls(unset));
+    // the position receipt fires exactly with a priced verdict, never out of position here
+    expect(count(on, 'omaha_reraised_call_priced_out_of_position')).toBe(0);
+    expect(count(on, 'omaha_reraised_call_priced_in_position')).toBe(
+      count(on, 'omaha_reraised_call_priced_call') + count(on, 'omaha_reraised_call_priced_fold')
+    );
+    expect(count(on, 'omaha_reraised_call_in_position_caller_pending_seen')).toBe(0);
+  });
+  it('Lightning keeps the earlier reading: the sandwiched call is still examined', () => {
+    const build = () => {
+      const st = stateAt(SANDWICHED, 2);
+      (st.gs as unknown as { publicMemoryDomain: object }).publicMemoryDomain = {
+        version: 1,
+        speed: 'lightning',
+        ante: 'none',
+      };
+      return st;
+    };
+    const unset = playMany(build, {});
+    const on = playMany(build, ON);
+    expect(calls(unset)).toBeGreaterThan(0);
+    expect(on.next).toEqual(unset.next);
+    expect(count(on, 'omaha_reraised_call_in_position_caller_pending_seen')).toBe(0);
+    // examined on every call (the cell answers: kept or folded); a class keep
+    // is not priced since the corrected hotfix, so priced receipts are not owed
+    expect(
+      count(on, 'omaha_oop_reraised_call_kept') + count(on, 'omaha_oop_reraised_call_folded')
+    ).toBe(calls(unset));
+    // the position receipt fires exactly with a priced verdict
+    expect(
+      count(on, 'omaha_reraised_call_priced_in_position') +
+        count(on, 'omaha_reraised_call_priced_out_of_position')
+    ).toBe(
+      count(on, 'omaha_reraised_call_priced_call') + count(on, 'omaha_reraised_call_priced_fold')
+    );
+  });
+  it('PLO6 keeps the six-card reading (the gate is off: nothing fires, nothing moves)', () => {
+    const six: Recorded = { ...SANDWICHED, variant: 'plo6', hole: 'Ts9s8h7h6d5c' };
+    const build = () => stateAt(six, 2);
+    const unset = playMany(build, {});
+    const on = playMany(build, ON);
+    expect(on.bytes).toEqual(unset.bytes);
+    expect(on.next).toEqual(unset.next);
+    expect(count(on, 'omaha_reraised_call_in_position_caller_pending_seen')).toBe(0);
   });
 });
