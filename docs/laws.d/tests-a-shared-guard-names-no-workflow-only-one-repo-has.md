@@ -1,3 +1,0 @@
-# tests/a-shared-guard-names-no-workflow-only-one-repo-has.law.test.ts
-
-Shared merge automation is event-driven and repository-neutral: `agent-autopilot.yml` reacts only to pull-request changes from a branch owned by this repository, uses a freshly minted GitHub App token, and carries no schedule, repository dispatch, workflow-name lookup, branch refresh, or Actions-run reconciler. Fork pull requests can run ordinary CI but never receive merge authority. `queue-pr.sh` reads the base ruleset and refuses a direct merge when required checks are absent; no shared guard may assume a workflow name owned by only one repository.

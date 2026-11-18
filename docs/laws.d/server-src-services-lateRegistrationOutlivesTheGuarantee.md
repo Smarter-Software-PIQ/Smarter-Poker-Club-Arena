@@ -1,3 +1,0 @@
-# server/src/services/lateRegistrationOutlivesTheGuarantee.law.test.ts
-
-Dan 2026-10-19: "just because the 'guarantee was met' doesn't mean horses shouldn't still late register throughout the tournament." Owner update November 1: Horse purchase counts and timing must vary randomly. Pins that every RUNNING MTT whose late registration is open keeps taking event-specific paced entries through the whole level or clock window, with bounded slices and published capacity. The planned remainder replaces fixed late-field ratios; guarantee, prize-pool or overlay completion does not stop arrivals. The pass stays inside the HorseOverlayGuard cycle, and a closed or unreadable late-registration answer or maintenance freeze enters nobody.

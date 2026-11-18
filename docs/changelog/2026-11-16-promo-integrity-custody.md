@@ -1,9 +1,0 @@
-# Review-held winnings preserve original custody
-
-A provable heads-up loss of promo principal can place only attributable incoming winnings under source review. Each case carries its own custody through cash play, pending additions, direct tournament entries and earned satellite capabilities. Clean funds are spent first, then review-held winnings, then promo principal. Actual losses retire the corresponding restriction, so later rakeback or deposits remain cashable. Table departure returns the same restriction to the wallet.
-
-The original paid entry entitlement retires its exact held fee share from event custody; later accounting sources verify the immutable expense. Accepted busted-entry receipts retire only their original charge generation, preserving later real reentries. Exact source refunds restore spent fees and witnessed lost stakes only while the original case remains unreviewed; refunds after reviewed release remain free. Original promo fee refunds return through the original funding owner without reopening a grant. Combined P/H cent rounding never spends a fee cent twice.
-
-The original club owner or admin can release a case with a recorded reason. Release is independent of the 4x promo target, retains immutable review evidence and never reprices historical earnings. Ambiguous multiway or insurance-bearing transfers retain evidence without guessing a held amount. No recipient promo grant or additional fee target is created.
-
-Qualification uses throwaway PostgreSQL, the actual accepted-hand owner and response-loss replay, original earning producers and the certified rakeback writer, plus stock PostgreSQL concurrency schedules for review against movement. Production enforcement still requires all original custody, entry, expiry and compatible engine prerequisites; qualification alone is not live activation.

@@ -48,8 +48,8 @@
 
 import type { ReplayFrame } from '../utils/replayFrames';
 import { replayBeatMs, type ReplayRate } from '../utils/replayMotion';
-import { buildReplay, replayInputFromRow, type HandHistoryRowLike } from '../utils/handReplay';
-import type { StoredCard } from '../utils/deckCards';
+import { type HandHistoryRowLike } from '../utils/handReplay';
+import { handHistoryService } from '../services/HandHistoryService';
 import type { ReplaySource } from '../components/replay/HandReplay';
 
 // ── Contract C1: the injected payload ────────────────────────────────────────
@@ -239,12 +239,10 @@ interface ClipReveal {
  */
 export function clipSourceFrom(payload: ClipPayload): ReplaySource {
   const row = payload.row;
-  const model = buildReplay(
-    replayInputFromRow(row, {
-      discardedCards: payload.discardedCards,
-      privateHoleCards: payload.privateHoleCards,
-    })
-  );
+  const model = handHistoryService.buildModel(row, {
+    discardedCards: payload.discardedCards,
+    privateHoleCards: payload.privateHoleCards,
+  });
   const showdownByUser = new Map<string, Record<string, unknown>>();
   if (Array.isArray(row.showdown)) {
     for (const e of row.showdown) {

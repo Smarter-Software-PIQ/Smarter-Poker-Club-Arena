@@ -1,8 +1,0 @@
-{
-  "_owner": "agent/claude-timebank-gate-0928/chore/record-the-written-down-debit-migration",
-  "tables": ["smarter_private.time_bank_consume_unconfirmed"],
-  "functions": [
-    "fn_record_unconfirmed_time_bank_consume",
-    "smarter_private.time_bank_consume_unconfirmed_immutable"
-  ]
-}

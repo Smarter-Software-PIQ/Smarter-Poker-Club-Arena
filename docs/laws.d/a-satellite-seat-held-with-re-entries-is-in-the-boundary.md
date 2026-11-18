@@ -1,3 +1,0 @@
-# tests/a-satellite-seat-held-with-re-entries-is-in-the-boundary.law.test.ts
-
-Dan, 2026-11-14: the weekly union statements must be 100% true and accurate. The law pins that fn_union_pnl_boundary holds a satellite-won seat at its one funding row's value, for the club that funded it, even when the seat holder also bought chips in the same open tournament; that a seat it cannot prove (more than one seat row, a non-positive value, no seat owner, or a credit not attributed to the registration's entries) is refused rather than guessed; and that the union close's proof source list moves to the new body in the same transaction.

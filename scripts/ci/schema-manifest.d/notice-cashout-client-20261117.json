@@ -1,5 +1,0 @@
-{
-  "_owner": "codex/notice-cashout-client-20261117",
-  "_comment": "World Hub Notice Board migrations installed and read back 2026-11-17T21:03:52Z (history 20261117210315 and 20261117210322). Declare the authenticated escalation and capability queue RPCs consumed by this client; no allowlist or permission change.",
-  "functions": ["fn_cashout_escalate_v2", "fn_cashout_queue_v2"]
-}

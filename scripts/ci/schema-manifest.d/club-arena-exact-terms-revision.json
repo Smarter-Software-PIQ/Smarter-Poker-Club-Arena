@@ -1,7 +1,0 @@
-{
-  "_owner": "agent/promo-exact-terms-live-01a1e4d3",
-  "_comment": "Migration 20261116195541 records the exact reviewed terms revision; ProfileService reads this nullable text column through the authenticated SELECT grant.",
-  "columns": {
-    "profiles": ["club_arena_tos_revision"]
-  }
-}

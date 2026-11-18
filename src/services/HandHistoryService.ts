@@ -336,6 +336,13 @@ class HandHistoryServiceClass {
     return Array.isArray(data) ? data : [];
   }
 
+  buildModel(
+    row: any,
+    options: { privateHoleCards?: any; discardedCards?: any } = {}
+  ): ReplayModel {
+    return buildReplay(replayInputFromRow(row, options));
+  }
+
   /**
    * Get a single hand by ID.
    *
@@ -1137,12 +1144,10 @@ class HandHistoryServiceClass {
        jackpot fee) and keep only `net` from the result. The replay hook read
        the same row with a different half. The model built here is now THE
        model every surface renders; see HandRecord.replay. */
-    const replay = buildReplay(
-      replayInputFromRow(row, {
-        discardedCards,
-        privateHoleCards,
-      })
-    );
+    const replay = this.buildModel(row, {
+      discardedCards,
+      privateHoleCards,
+    });
     /* The model resolves the button the same way (`replayInputFromRow`); the
        `players[].isButton` floor above is kept for the position badges on the
        legacy per-player shape only. */

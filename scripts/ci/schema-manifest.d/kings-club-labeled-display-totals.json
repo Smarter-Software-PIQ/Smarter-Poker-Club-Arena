@@ -1,5 +1,0 @@
-{
-  "_owner": "agent/codex/kings-display-01a1ec08",
-  "_comment": "Presentation-only Kings Club member and active totals (20261118002641). Declared here pending protected migration installation.",
-  "functions": ["fn_kings_club_display_totals"]
-}

@@ -1,1 +1,0 @@
-REVOKE SELECT ON SEQUENCE cron.jobid_seq, cron.runid_seq FROM PUBLIC RESTRICT;

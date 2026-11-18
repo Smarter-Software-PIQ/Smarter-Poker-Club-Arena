@@ -1,7 +1,0 @@
-{
-  "_owner": "fix/final-table-deal-write-scope",
-  "_comment": "The final-table deal doors' manager scope check, installed by 20261115052022 (it was called since 20260910125453 and defined only in an unapplied Stage-B file).",
-  "tables": [],
-  "functions": ["fn_assert_tournament_manager_write_scope"],
-  "columns": {}
-}

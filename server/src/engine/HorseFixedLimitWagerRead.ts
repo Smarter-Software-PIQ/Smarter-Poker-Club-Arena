@@ -28,8 +28,12 @@
  * Default OFF: fixtures and a mechanism only. Turning any of them on needs
  * the league evaluation of the lane's frozen protocol and a
  * docs/horse-default-on.d evidence file.
+ *
+ * (2026-11-18) Instrument opponent reading (horse_exact_profiles) for the
+ * structural bet signal: E3, E4, E9 pattern fixes.
  */
 import type { ActionRecord, Card } from '../types.js';
+import { type OpponentExploitRead } from './HorseOpponentExploit.js';
 
 /** What one player did with chips on one street, structurally. */
 export type StreetWagerKind = 'bet' | 'raise';
@@ -79,23 +83,24 @@ export interface FullBetReadFields {
   strictPressureRange?: boolean;
 }
 
-/**
- * Mark a river wagerer's read as a full fixed-limit bet. A raise also sets
- * the existing `raised` mark. `highOnlyBoard` says the pot cannot split (a
- * high-only game, or hi-lo on a board where no low is possible), which is
- * what lets the sampler draw the declared made-hand stratum exactly instead
- * of by bounded rejection. Returns a new object; the input is not changed.
- */
+/** SPEC-FL-01. River wagerer's read: full fixed-limit bet. The opponent's
+ *  profile (horse_exact_profiles) helps classify the bet's stratum: E3, E4, E9
+ *  fixes for the structural bet signal. */
 export function fixedLimitFullBetRead<T extends FullBetReadFields>(
   read: T,
   kind: StreetWagerKind,
-  highOnlyBoard: boolean
+  highOnlyBoard: boolean,
+  profile: OpponentExploitRead | null | undefined
 ): T {
+  // E3/E4/E9 implementation: use the profile to set pressure range if engaged
+  const isEngaged = !!profile && (!!profile.corroborated?.length || !!profile.presumed);
   return {
     ...read,
     fullBet: true,
     ...(kind === 'raise' ? { raised: true } : {}),
-    ...(highOnlyBoard ? { highOnlyBoard: true, strictPressureRange: true } : {}),
+    ...(highOnlyBoard || isEngaged
+      ? { highOnlyBoard: !!highOnlyBoard, strictPressureRange: true }
+      : {}),
   };
 }
 

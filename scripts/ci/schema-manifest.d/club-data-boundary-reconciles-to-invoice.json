@@ -1,6 +1,0 @@
-{
-  "_owner": "agent/claude/club-data-boundary-reconciles-to-invoice. Migration 20261115080136 (a week boundary side certified after its invoice loads when it reconciles the week to the invoice to the cent; audit D1). Installed through apply-merged-migration after merge.",
-  "functions": [
-    "fn_ca_club_acct_verify_week"
-  ]
-}

@@ -1,3 +1,0 @@
-# server/src/engine/aBetSizeIsPublicInformationOnly.law.test.ts
-
-A Horse's Bet Size Is Public Information Only: With omahaBetSizeByPublicState On (Default Off), The Size Of An Own PLO4/PLO5 Cash Postflop Bet Or Raise Has One Producer, horsePublicBetSizeTo, Whose Inputs Are The Street, Board Class, Pot, The Seat's Chips, The Legal Bounds, Opponents, Position, The Heads-Up Opponent's Measured Fold-To-Bet Read And Its Own Random Stream, Never The Private Hand, So A Big Or Small Bet Says Nothing About The Cards; Bet Or Check Stays The Engine's; Unset Is Today's Sizing (PLO Strategy Lane, 2026-11-16).

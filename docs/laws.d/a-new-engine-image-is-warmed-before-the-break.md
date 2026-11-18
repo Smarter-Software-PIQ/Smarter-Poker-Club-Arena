@@ -1,3 +1,0 @@
-# tests/a-new-engine-image-is-warmed-before-the-break.law.test.ts
-
-2026-10-24: candidate preparation reads the immutable application and dependency files with bounded memory in the existing throwaway image container before any maintenance announcement. It retains the ephemeral loopback port and carries no production env file, engine labels or serving port. Incomplete or refused preparation stops before a pause. The 75-second replacement budget, full 285-second certificate reserve and rollback safeguards remain unchanged. Native fixtures exercise full byte coverage, multichunk reads, skipped configuration and links, and failure/deadline refusal.

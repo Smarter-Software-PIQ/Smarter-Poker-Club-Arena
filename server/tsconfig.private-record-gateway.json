@@ -1,7 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "outDir": "./dist-private-record-gateway"
-  },
-  "include": ["src/privateRecordGateway.ts"]
-}

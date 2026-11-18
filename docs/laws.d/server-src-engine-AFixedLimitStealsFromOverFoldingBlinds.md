@@ -1,3 +1,0 @@
-# server/src/engine/AFixedLimitStealsFromOverFoldingBlinds.law.test.ts
-
-A Fixed-Limit Steal Widens Against Over-Folding Blinds Only: With fixedLimitStealVsTightBlinds On (Default Off), A Flh Or Flo8 First-In Open From The Cutoff, Button Or Small Blind Widens By At Most 15 Points Only When Every Player Still To Act Has His Own Adequate Over-Folder Read (FoldToBet Engaged High On At Least 15 Decayed Opportunities, Not Presumed, Nothing Preflop Engaged Wide); Unknown, Presumed, Sparse, Wide And Wrong-Opponent Reads Change Nothing, A Folded Player's Read Neither Enables Nor Blocks It, And An Early Seat Never Steals (Fixed-Limit Lane W5, 2026-11-15).

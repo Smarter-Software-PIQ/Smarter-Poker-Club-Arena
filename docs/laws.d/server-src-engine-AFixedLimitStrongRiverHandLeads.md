@@ -1,3 +1,0 @@
-# server/src/engine/AFixedLimitStrongRiverHandLeads.law.test.ts
-
-A Fixed-Limit Strong River Hand Leads: With The Opt-In Option fixedLimitRiverStrongHandLeads On, A Fixed-Limit Horse First To Act On An Unbet River Whose Reference Checks And Whose Full House Or Better At Most 12 Percent Of The Acting Opponents' Holdings Beat (Card-Exact With The Engine's Scorers; Hold'em Also Refuses An Under-Full Boat And A Board That Plays) Bets One Big Bet; Hi-Lo With A Low Live And No Horse Low Leads Only Into Two Or More Opponents; An Aggressive Read On The Next Opponent Keeps The Check; Checked-To, Facing-A-Wager, No-Limit And Pot-Limit Decisions Are Unchanged, And The Receipt Fires Only When The Action Changes (Fixed-Limit Lane W8).

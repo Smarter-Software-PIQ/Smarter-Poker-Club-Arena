@@ -25,7 +25,9 @@ import {
 } from '../services/HandFlagService';
 import { resolveClubUUIDStrict } from '../utils/clubIdResolver';
 import { reportError } from '../utils/errorReporter';
-import { buildReplay, replayInputFromRow, type ReplayModel } from '../utils/handReplay';
+import { handHistoryService } from '../services/HandHistoryService';
+import { type ReplayModel } from '../utils/handReplay';
+
 import { titleCase } from '../utils/titleCase';
 import './ClubHandReviewPage.css';
 
@@ -264,11 +266,9 @@ export default function ClubHandReviewPage() {
   const model: ReplayModel | null = useMemo(() => {
     if (!activeRead) return null;
     try {
-      return buildReplay(
-        replayInputFromRow(activeRead.row as never, {
-          privateHoleCards: activeRead.allHoleCards as never,
-        })
-      );
+      return handHistoryService.buildModel(activeRead.row as never, {
+        privateHoleCards: activeRead.allHoleCards as never,
+      });
     } catch (error) {
       reportError(error, 'ClubHandReviewPage.buildReplay');
       return null;

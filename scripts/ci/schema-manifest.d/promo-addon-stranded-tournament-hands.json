@@ -1,5 +1,0 @@
-{
-  "_owner": "claude/promo-addon-stranded-hands-settle-once",
-  "_comment": "Migration 20261117170259: source-correction proof for the 2 Morning Free Buy f6990f30 tournament hands refused original_tournament_earning_hand_players_mismatch by the promo add-on rebase guard (fixed by 20261117164841), installed through apply-merged-migration after merge.",
-  "functions": ["smarter_private.promo_addon_rebase_source_correction_proof"]
-}

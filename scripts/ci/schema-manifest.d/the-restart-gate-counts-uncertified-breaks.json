@@ -1,8 +1,0 @@
-{
-  "_owner": "engine/phase6-health-fixes-2026-10-31",
-  "tables": [],
-  "functions": [],
-  "columns": {
-    "engine_maintenance_break_log": ["breaks_since_restart_certified"]
-  }
-}

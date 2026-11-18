@@ -1,1 +1,0 @@
-A Horse with a flush on an unpaired high-only Omaha river now value bets after an opponent checks when exactly one remaining two-card holding can beat the flush. The existing river-nuts rule still sizes unbeatable hands.

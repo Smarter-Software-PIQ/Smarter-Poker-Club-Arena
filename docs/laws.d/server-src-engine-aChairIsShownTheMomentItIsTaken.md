@@ -1,3 +1,0 @@
-# server/src/engine/aChairIsShownTheMomentItIsTaken.law.test.ts
-
-A chair is shown to every viewer the moment it is taken (Dan 2026-11-17): a + tap publishes the player's own face in that chair, labelled buying in with no chips, for the sixty-second buy-in window and closes it on time; a committed buy-in the database holds is published at once with its real stack on the live, idle, resync and observer payloads without touching the hand; a seated, held or invalid chair, an already-seated player and a missing profile are refused; an unpaid close releases only a hold, never a bought chair; the hand roster supersedes every arrival and a committed arrival two rosters miss is dropped; tournament tables never use it; anonymous tables are scrubbed.

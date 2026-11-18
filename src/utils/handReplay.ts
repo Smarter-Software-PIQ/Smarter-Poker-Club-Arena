@@ -1538,6 +1538,7 @@ export function replayInputFromRow(
       username: String(r.username ?? 'Player'),
       seat: Number(r.seat) || 0,
       stack: r.stack === undefined || r.stack === null ? null : Number(r.stack),
+      avatarUrl: String(r.avatar_url ?? r.avatarUrl ?? ''),
     };
   });
   const actions = arr(row.actions).map((a) => {

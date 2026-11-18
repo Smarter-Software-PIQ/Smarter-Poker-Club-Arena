@@ -1,5 +1,0 @@
-The original weekly accounting reader rejected two genuine 400-chip cash refunds in one transaction. Its distinct candidate key erased the journal count and required one matching application receipt, although two different funded occupancies had each been refunded once.
-
-Both full and bounded readers now require exact journal/application cardinality and distinct original funding identities for the transaction, table, wallet club, player and amount. Every original occupancy and add-on predicate remains enforced; missing, extra, duplicate or mismatched evidence refuses. The maintained native PostgreSQL route reproduces the original rejection, checks the pair and an unchanged single refund, and retains financial, private-access, source-pin and atomic-rollback checks.
-
-This changes evidence qualification only. No wallet, settled journal, original capture, payment, timeout or release window is rewritten. The original book owner admission pin and the complete source guard change atomically, so the natural book owner must prove the new generation before the original ECO debt can close.

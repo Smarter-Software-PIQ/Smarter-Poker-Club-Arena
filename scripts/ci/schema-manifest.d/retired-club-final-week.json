@@ -1,4 +1,0 @@
-{
-  "_owner": "Weekly accounting. The final earned week of a retired standalone club uses its original payout transaction.",
-  "functions": ["smarter_private.retired_club_owns_final_round"]
-}

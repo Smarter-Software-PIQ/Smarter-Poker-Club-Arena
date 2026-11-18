@@ -1,9 +1,0 @@
-{
-  "_owner": "agent/claude/club-data-history-loads-in-parts. Migration 20261115063000 (Club Data accounting history loads a day in bounded parts). Installed through apply-merged-migration after merge.",
-  "functions": [
-    "fn_ca_club_acct_in_snapshot",
-    "fn_ca_club_acct_seed_begin",
-    "fn_ca_club_acct_seed_slice",
-    "fn_ca_club_acct_seed_finish"
-  ]
-}

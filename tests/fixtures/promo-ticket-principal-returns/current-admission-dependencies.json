@@ -1,9 +1,0 @@
-[
-  {
-    "proname": "fn_ca_satellite_value_ticket_marked",
-    "signature": "fn_ca_satellite_value_ticket_marked(uuid)",
-    "md5": "50d7d3fe841721ffe98aaec5a4f458ba",
-    "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_satellite_value_ticket_marked(p_ticket_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n SELECT EXISTS(SELECT 1 FROM public.tournament_tickets t\n   JOIN public.tournament_payouts p ON p.tournament_id=t.source_satellite_id\n   WHERE t.id=p_ticket_id AND p.source='satellite_ticket' AND p.metadata->>'ticket_id'=p_ticket_id::text\n     AND p.metadata->>'ticket_contract'='same_value_entry_v1');\n$function$\n",
-    "acl": "{postgres=X/postgres}"
-  }
-]

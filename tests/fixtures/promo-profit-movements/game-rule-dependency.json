@@ -1,8 +1,0 @@
-[
-  {
-    "signature": "fn_cash_game_never_moves_players(text,jsonb)",
-    "acl": "{postgres=X/postgres,service_role=X/postgres}",
-    "md5": "a6427b19298a33ce906d62536bbba4fa",
-    "definition": "CREATE OR REPLACE FUNCTION public.fn_cash_game_never_moves_players(p_template text, p_ruleset jsonb)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\n SET search_path TO 'pg_catalog'\nAS $function$\n  -- Dan 2026-11-07: \"EVERY SINGLE GAME IS A MUST MOVE GAME\". Classic games do\n  -- not convert to Lightning; they still move players like every other game.\n  SELECT false\n$function$\n"
-  }
-]

@@ -1,3 +1,0 @@
-# server/src/engine/HorseHeadsUpBigBlindDefendsUnreadToPrice.law.test.ts
-
-The default-off huBbDefendsUnreadToPrice option (heads-up big blind facing the only open from an opener with no engaged read) only ever turns a fold into a call the price and the hand's equity at a 0.7 realisation support, acts only at 20-50bb in no-limit hold'em with exactly two dealt in (cash, or a tournament whose trusted context says two players are left and that is not a satellite), stands aside once the opener is read, changes no decision when off, and records a receipt only for a call that is still the final decision (2026-11-15, heads-up lane round 2, HU-NLH-001d).

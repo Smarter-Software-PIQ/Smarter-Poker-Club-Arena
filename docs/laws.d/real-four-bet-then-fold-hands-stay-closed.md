@@ -1,3 +1,0 @@
-# server/src/engine/HorseFourBetThenFoldRealHands.law.test.ts
-
-Phase 3: the 83 real no-limit hold'em hands in which a horse 4-bet and then folded to the re-raise (2026-11-02 04:00-16:00 UTC, pre-rule-4 engine) are replayed exactly, from each hand's recorded table snapshot at the real 4-bet and at the real fold, through today's brain for every style (opponent memory off for determinism); no hand and no style both raises (not all in) at the 4-bet and folds to the re-raise, rule 4b is reached, rule 4a prices every opponent who already put chips in voluntarily (the deeper-opener path), and with the premium-aggression module off the replay reproduces the leak, so the law is not vacuous.

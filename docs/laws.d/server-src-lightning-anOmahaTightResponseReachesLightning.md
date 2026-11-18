@@ -1,3 +1,0 @@
-# server/src/lightning/anOmahaTightResponseReachesLightning.law.test.ts
-
-The Omaha tight-opponent response (omahaTightOpponent, default OFF and held OFF by its owner until its promotion evidence passes) is not excluded from Lightning: on a Lightning cash snapshot (public memory domain speed lightning, big-blind ante) it is byte-identical when off, consults the tight read on every proven-tight spot when on and answers with the tight-respect action (respect only continues less, steal only opens more), gives unknown players the baseline, and keeps that answer when the Lightning participation cells (lightningParticipationOmaha) are on as well. Nothing in this law switches an option on.

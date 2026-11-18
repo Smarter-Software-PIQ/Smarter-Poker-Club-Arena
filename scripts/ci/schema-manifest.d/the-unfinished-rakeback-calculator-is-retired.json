@@ -1,4 +1,0 @@
-{
-  "_owner": "chore/retired-rakeback-calculator-tombstone (follow-up to PR #10983, migration 20261115164443)",
-  "removedFunctions": ["fn_calculate_rakeback"]
-}

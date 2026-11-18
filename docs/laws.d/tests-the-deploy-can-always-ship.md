@@ -1,3 +1,0 @@
-# tests/the-deploy-can-always-ship.law.test.ts
-
-The Club Arena engine has one fail-closed Hetzner release authority. Every protected-main server change immediately emits one exact-SHA repository event; the release workflow accepts no timer, manual dispatch, push, force, or maintenance-bypass input. It proves checkout identity, protected-main ancestry, current engine-component ownership, and the engine-authored durable maintenance certificate before the host transaction can cut over. Every no-cutover result is explicit and written to the append-only deployment receipt. The static publisher remains a separate non-cancelling Hetzner lane with its own exact events and cannot wait on or share serialization with the engine.

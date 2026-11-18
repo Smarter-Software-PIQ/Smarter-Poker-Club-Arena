@@ -1,3 +1,0 @@
-# tests/promo-play-through-is-a-required-proof.law.test.ts
-
-Promo Play Through guards run inside hand commits, registrations, fees, prizes and terminal settlement. Their native proofs run in `.github/workflows/promo-play-through.yml`, which reports on every pull request and merge group (no path filter), treats any migration as relevant, fails open when the diff cannot be read, and is a required status check on main. Every `scripts/ci/test-promo-*.py` proof is invoked by that workflow or by a named parent proof, and the obligation earning matrix (every obligation kind x knockout context x recipient x human/Horse x insert/top-up, expectations derived from the payout owners) must print a passed verdict with its full case count.

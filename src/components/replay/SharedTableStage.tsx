@@ -36,6 +36,8 @@ import {
   PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX,
 } from '../table/tableGeometry';
 import logo from '../../assets/smarter-poker-letter-logo.png';
+
+const brandedPlaceholder = logo; // Placeholder as requested.
 import '../../styles/table-design-tokens.css';
 import '../../pages/TablePage.css';
 import './HandReplay.css';
@@ -316,7 +318,8 @@ export default function SharedTableStage({
               if (!spot) return null;
               const avatar =
                 p.avatarUrl ??
-                (profiles?.model === model ? profiles.avatars.get(p.username) : undefined);
+                (profiles?.model === model ? profiles.avatars.get(p.username) : undefined) ??
+                brandedPlaceholder;
               const recorded = recordedSeats[p.seat]
                 ? seatPaintProps(recordedSeats[p.seat])
                 : undefined;

@@ -18294,7 +18294,12 @@ export class HorseLogic {
         const kind91 = read ? wagers91.byUser.get(opponents[i]?.user_id) : undefined;
         if (!read || !kind91) return read;
         marked91 = true;
-        return fixedLimitFullBetRead(read, kind91, vi.isOmaha);
+        return fixedLimitFullBetRead(
+          read,
+          kind91,
+          vi.isOmaha,
+          HorseMind.opponentRead(opponents[i]!.user_id)
+        );
       });
       if (marked91 && tele15) noteFire('fixed_limit_river_full_bet_read_seen');
     }

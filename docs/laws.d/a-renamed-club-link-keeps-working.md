@@ -1,3 +1,0 @@
-# tests/a-renamed-club-link-keeps-working.law.test.tsx
-
-A club's former slug (club-jaqk, renamed to the-felt-society on 2026-11-14) keeps opening that club: every `clubs` read keyed by a route param goes through the one resolver (`clubIdResolver.ts`: clubs table first, `club_slug_history` second, a history answer never cached and a slug never persisted, so the club holding a slug now always wins), the arena entitlement is re-read by `fn_poker_arena_context` for the resolved id so membership and authorization are unchanged, and SlugEnforcer rewrites `/clubs/<former>/<rest>?<query>#<hash>` to the current slug.

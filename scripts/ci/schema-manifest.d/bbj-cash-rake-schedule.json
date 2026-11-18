@@ -1,4 +1,0 @@
-{
-  "_owner": "Authenticated price readers declared by 20261115012500_bbj_diamond_cash_rake_schedule.sql. Installation follows protected merge.",
-  "functions": ["fn_bbj_chip_rake_brackets", "fn_bbj_diamond_cash_rake_schedule"]
-}

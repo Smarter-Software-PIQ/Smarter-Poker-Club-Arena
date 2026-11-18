@@ -1,6 +1,0 @@
-{
-  "_owner": "fix/horses-read-an-ordinary-tight-regular-as-tight-20261115",
-  "_comment": "Declared by migration 20261115015341 (the exact opponent profile keeps a long participation window); source declaration only, not installation proof.",
-  "functions": ["fn_horse_long_participation_add"],
-  "columns": { "horse_exact_profiles": ["long_counters"] }
-}

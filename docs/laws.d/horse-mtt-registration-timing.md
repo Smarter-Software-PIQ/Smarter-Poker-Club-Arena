@@ -1,3 +1,0 @@
-# server/src/services/HorseMttRegistrationTiming.law.test.ts
-
-Owner November 1, 2026: regular MTTs have a handful of Horse entries from one hour ahead and an increasing random trickle toward start; freerolls and Free Buys can build fields hours ahead (six-hour admission horizon). Zero initial charge and explicit Free Buy classification differ from paid bounty net prize share. Creation, discovery and registration rechecks use the same policy; paid retries, legal late entry, bought-seat formats and funding safeguards remain. Native PostgreSQL coverage runs scripts/ci/test-horse-registration-timing.py in the required accounting job. This supersedes the earlier blanket T-10 admission rule.

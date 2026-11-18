@@ -1,6 +1,0 @@
-.lightning-entry {
-  width: 100%;
-  min-height: 60vh;
-  padding: clamp(12px, 3vw, 28px);
-  box-sizing: border-box;
-}
