@@ -411,11 +411,20 @@ describe('an opponent is read by street and by flop texture', () => {
         .sort();
     // the accessor is defined in HorseMind; since 2026-11-18 (omahaReadIsByStreetAndTexture, default off) it is
     // called only by HorseMind's own two per-street readers (the value-leader label and the facing-bet bet rate,
-    // each behind omahaReadByStreetNow().on) and by the option's per-decision installer
+    // each behind omahaReadByStreetNow().on) and by the option's per-decision installer; and, since the dark batch
+    // of 2026-11-18, by the default-off flop defence tree (omahaFlopDefenceIsPriced), which reads the bettor's
+    // counters only inside its own `ctx.flopDefenceTree === true` branch
     expect(naming(/omahaStreetReadOf\(/)).toEqual([
       'engine/HorseMind.ts',
+      'engine/HorseOmahaFlopFacingBetEvRule.ts',
       'engine/HorseOmahaReadByStreetRule.ts',
     ]);
+    const flopRule = readFileSync(join(root, 'engine/HorseOmahaFlopFacingBetEvRule.ts'), 'utf8');
+    expect(flopRule.match(/omahaStreetReadOf\(/g)).toHaveLength(1);
+    expect(flopRule.indexOf('ctx.flopDefenceTree === true')).toBeGreaterThan(-1);
+    expect(flopRule.indexOf('ctx.flopDefenceTree === true')).toBeLessThan(
+      flopRule.indexOf('omahaStreetReadOf(')
+    );
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
     expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(3);
     expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(2);
