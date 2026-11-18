@@ -47,3 +47,11 @@ Regression: `tests/an-ordinary-migration-waits-for-the-daily-engine-selection.la
 - An owner-booked database window, or a hand outage install, inside 23:45-04:15 still stales the night's certificate. The selector then keeps serving, which is safe.
 - If GitHub delivers the nightly Backup schedule more than about two hours late, no current certificate exists at 03:30.
 - An engine change merged after about 02:00 Chicago cannot be certified by 03:30 and waits a day.
+
+## Follow-up: a window migration installs against production before it merges
+
+The "Install Queued Daily-Maintenance Migrations" job refused its queue on 11-13, 11-14 and 11-17; each defect (a missing function or table, a lock timeout, a raising guard) was first found inside the 04:00 break. `.github/workflows/window-migrations-install-before-merge.yml` now answers it on the pull request: a default-branch, read-only job captures production's schema with the Backup engine's own export, and a secret-free job restores it into a throwaway PostgreSQL and installs production's uninstalled ordinary migrations, then every uninstalled `-- @install-window: daily-maintenance` file (main's and the branch's) in the installer's order. A window file the branch adds or changes that does not install fails the check before merge. One answer per pull-request event: no schedule, no watcher, nothing installed in production.
+
+Regression: `scripts/ci/test-window-queue-rehearsal.sh` (native, in the existing maintenance-window-migrations lane) proves a window file calling a function production lacks fails and names it, and a file depending on an earlier queued window file passes; `tests/a-window-migration-installs-against-production-before-it-merges.law.test.ts` pins the workflow's trust split and the lane wiring.
+
+Recovery note: agent D was ended by a session restart during its third pre-push attempt. Attempts 1-3 failed only on vitest timeouts (load 30-40 on 28 cores from unrelated evaluation jobs), never an assertion. The continuing push uses the documented `VITEST_MAX_THREADS` budget (`scripts/ci/client-vitest-worker-budget.mjs`) to bound local parallelism; no check is skipped.
