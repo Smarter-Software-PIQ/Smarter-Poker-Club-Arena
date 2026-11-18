@@ -44,13 +44,47 @@ export const MIGRATION_FILE = /^(\d{14})_[a-z0-9_]+\.sql$/;
  * @param {Set<string>} installed                 versions production holds
  * @param {Set<string>} [changed]                 file names the pull request adds or modifies
  */
+export const PENDING_HORIZON_HOURS = 48;
+
+/**
+ * The oldest version still "pending" rather than history: PENDING_HORIZON_HOURS
+ * before the newest version production holds. The tree carries ~1,000 old
+ * files that production recorded under other versions or names (Supabase's
+ * transport stamps its own; check-migrations-are-live.mjs matches them by name
+ * and object), so "not in schema_migrations by version" alone named 1,003
+ * "prerequisites" on 2026-11-18 and replayed months-old function bodies over
+ * production's schema before the rehearsal judged anything. A file older than
+ * this is not in any install queue.
+ */
+export function pendingFloor(installed) {
+  const newest = [...installed]
+    .filter((v) => /^\d{14}$/.test(v))
+    .sort()
+    .pop();
+  if (!newest) return '00000000000000';
+  const t =
+    Date.UTC(
+      +newest.slice(0, 4),
+      +newest.slice(4, 6) - 1,
+      +newest.slice(6, 8),
+      +newest.slice(8, 10),
+      +newest.slice(10, 12),
+      +newest.slice(12, 14)
+    ) -
+    PENDING_HORIZON_HOURS * 3600e3;
+  return new Date(t).toISOString().replace(/[-:T]/g, '').slice(0, 14);
+}
+
 export function planRehearsal(files, installed, changed = new Set()) {
   const names = files.map((f) => f.name);
+  const floor = pendingFloor(installed);
   const ordinary = [];
   const windows = [];
   const superseded = [];
   const invalid = [];
-  for (const { name, sql } of [...files].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+  for (const { name, sql } of [...files].sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+  )) {
     const m = MIGRATION_FILE.exec(name);
     if (!m || installed.has(m[1])) continue;
     const by = supersededBy(sql, names);
@@ -59,7 +93,8 @@ export function planRehearsal(files, installed, changed = new Set()) {
       continue;
     }
     if (!declaresMaintenanceWindow(sql)) {
-      ordinary.push(name);
+      // History, not a prerequisite (see pendingFloor); a changed file is always judged.
+      if (m[1] >= floor || changed.has(name)) ordinary.push(name);
       continue;
     }
     try {
@@ -121,7 +156,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else if (cmd === 'sql') {
     process.stdout.write(rehearsalSQL(a, readFileSync(join(dir, a), 'utf8')));
   } else {
-    console.error('usage: window-queue-rehearsal.mjs plan <dir> <installed> [changed] | sql <dir> <file>');
+    console.error(
+      'usage: window-queue-rehearsal.mjs plan <dir> <installed> [changed] | sql <dir> <file>'
+    );
     process.exit(2);
   }
 }

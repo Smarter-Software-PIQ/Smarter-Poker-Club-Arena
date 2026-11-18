@@ -12,7 +12,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
-import { planRehearsal, rehearsalSQL } from '../scripts/ci/window-queue-rehearsal.mjs';
+import {
+  pendingFloor,
+  planRehearsal,
+  rehearsalSQL,
+} from '../scripts/ci/window-queue-rehearsal.mjs';
 
 const ROOT = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -45,6 +49,21 @@ describe('the window queue is rehearsed in the installer order before merge', ()
     expect(plan.superseded).toEqual([
       { name: '20261102000000_replaced.sql', by: '20261116154719' },
     ]);
+  });
+
+  it('a file older than the pending horizon is history, not a prerequisite (1,003 were replayed on 2026-11-18)', () => {
+    const ORD2 = 'BEGIN;\nSELECT 1;\nCOMMIT;\n';
+    const plan = planRehearsal(
+      [
+        { name: '20260124120000_ancient.sql', sql: ORD2 },
+        { name: '20261117100000_recent.sql', sql: ORD2 },
+        { name: '20260301000000_changed_old.sql', sql: ORD2 },
+      ],
+      new Set(['20261118092009']),
+      new Set(['20260301000000_changed_old.sql'])
+    );
+    expect(pendingFloor(new Set(['20261118092009']))).toBe('20261116092009');
+    expect(plan.ordinary).toEqual(['20260301000000_changed_old.sql', '20261117100000_recent.sql']);
   });
 
   it('a statically invalid window file is named, and charged to the pull request that changes it', () => {

@@ -108,12 +108,7 @@ jobs:
           run-id: ${{ needs.locate.outputs.run_id }}
           github-token: ${{ github.token }}
       - name: Restore production's schema into a throwaway database
-        run: |
-          set +e
-          BASH_XTRACEFD=9 bash -x scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db 9>"$RUNNER_TEMP/trace"
-          rc=$?
-          grep -v 'docker exec\|^+* sleep\|^+* for _' "$RUNNER_TEMP/trace" | tail -60
-          exit $rc
+        run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db
       - name: Install the queue in the installer's order (that capture's own changed files)
         env:
           REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres

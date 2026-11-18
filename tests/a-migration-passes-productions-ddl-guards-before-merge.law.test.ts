@@ -369,7 +369,9 @@ COMMIT;`;
     expect(sh).toContain('psql_db() { docker exec -i -e PGPASSWORD="$REHEARSAL_DB_PASSWORD"');
     expect(sh).toContain('-e POSTGRES_PASSWORD="$REHEARSAL_DB_PASSWORD"');
     expect(sh).not.toMatch(/-U supabase_admin[^\n]*2>\/dev\/null/);
-    expect(sh).toContain('last answer: $answer');
+    expect(sh).toContain('last answer: ${answer:-}');
+    expect(sh).toContain('max_locks_per_transaction=1024');
+    expect(sh).toContain('rehearsal-auth-schema.sql');
     for (const line of sh.split('\n').filter((l) => /docker exec[^\n]*-U supabase_admin/.test(l)))
       expect(line).toContain('PGPASSWORD');
     // The standby keeps its own definition on the Backup host.
