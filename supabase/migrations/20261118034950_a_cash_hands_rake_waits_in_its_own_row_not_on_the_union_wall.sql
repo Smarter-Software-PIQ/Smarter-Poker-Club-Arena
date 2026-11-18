@@ -135,7 +135,7 @@ COMMENT ON TABLE public.cash_rake_pending IS
 CREATE INDEX cash_rake_pending_created ON public.cash_rake_pending (created_at);
 
 ALTER TABLE public.cash_rake_pending ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.cash_rake_pending FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.cash_rake_pending FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.cash_rake_pending TO service_role;
 
 CREATE FUNCTION public.fn_ca_cash_rake_pending_is_immutable()
