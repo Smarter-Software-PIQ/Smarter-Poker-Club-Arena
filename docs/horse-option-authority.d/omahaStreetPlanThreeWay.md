@@ -1,6 +1,6 @@
 # omahaStreetPlanThreeWay: authority for the live switch
 
-The Omaha street plan's turn layer for exactly two live opponents (HorseOmahaStreetPlan.ts). Evidence NOT MET.
+The Omaha street plan's turn layer for exactly two live opponents (HorseOmahaStreetPlan.ts). Evidence NOT MET: league INCONCLUSIVE (2026-11-18), real-decision replay judged worse.
 
 ## What it does
 
@@ -25,7 +25,8 @@ HorseOmahaStreetPlanLayers.test.ts; HorseOmahaStrategyPrecedence.test.ts and its
 
 - Mechanism, scope, visibility (flag row and receipts in HorseDataLedger.ts), tests: MET on the branch.
 - Option unset: decisions identical to the base (decision digest, plo4/plo5 x dev/horse, 150 pairs, seed 5560001: b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1).
-- Value, continuation, reach: NOT MET. The constants are unmeasured (population priors and owner-order readings, not fitted); evaluation NOT RUN. The league cards are declared, not run.
+- Value, continuation, reach: NOT MET. The constants are unmeasured (population priors and owner-order readings, not fitted). League evaluation 2026-11-18 on build bac65c601d2 (archive plo-handoff-review-01a1cbbd/wave2c-013U37 (PASS-BAR.md declared before the runs; eval/RESULTS.md; REPLAY.md); this option's code is unchanged by that build), 32 live options on in both arms, 3 seeds x 4,000 mirrored pairs per cell, bb/100 A-B pooled +/- SE: PLO4 field -0.36 +/- 1.58 (27 divergent pairs: INCONCLUSIVE), PLO4 Horse-only +0.49 +/- 0.47 EQUAL, PLO5 field +1.36 +/- 2.29 EQUAL, PLO5 Horse-only +0.31 +/- 0.53 EQUAL; 0 illegal, truncated or fallbacks. Verdict INCONCLUSIVE (not FAIL: stays switchable, default OFF).
+- Real decisions (REPLAY.md): on the same 833 real decisions the option only turns bets into checks: 91 changed, 0 judged fixed, 44 judged newly wrong of 74 judged (judge -442 bb). Recommendation: do not switch on.
 
 Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaStreetPlanThreeWay docs/horse-option-authority.d/omahaStreetPlanThreeWay.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261118013329 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
