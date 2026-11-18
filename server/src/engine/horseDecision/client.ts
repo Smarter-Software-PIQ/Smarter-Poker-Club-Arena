@@ -130,7 +130,8 @@ import {
   type DeliveredSwitchConfigs,
   deliveredSwitchConfigsNote,
   deliveredSwitchConfigsPrevious,
-  horseDecisionReceiptRefusalForPlo6Gates,
+  horseDecisionReceiptRefusalForGates,
+  omahaPricedRaiseGateCandidates,
   omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
   horseComputeMetadataIsValid,
@@ -2208,8 +2209,11 @@ export class LiveHorseDecisionWorkerClient {
       // PLO6 lane: the validator admits PLO6 to the Omaha strategy admissions
       // only under the gate the worker may have run: the live switch row this
       // client last delivered to it, else the request's own option
-      // (omahaStrategyInPlo6GateCandidates).
-      const receiptRefusal = horseDecisionReceiptRefusalForPlo6Gates(
+      // (omahaStrategyInPlo6GateCandidates). The Omaha priced raise -> call
+      // is admitted the same way, only under the priced-raise options the
+      // worker may have run (omahaPricedRaiseGateCandidates).
+      const previous = deliveredSwitchConfigsPrevious(this.deliveredSwitchConfigs, Date.now());
+      const receiptRefusal = horseDecisionReceiptRefusalForGates(
         message.decision,
         active.request.gameState.gameVariant,
         {
@@ -2219,7 +2223,12 @@ export class LiveHorseDecisionWorkerClient {
         omahaStrategyInPlo6GateCandidates(
           active.request.opts,
           this.deliveredSwitchConfigs.current,
-          deliveredSwitchConfigsPrevious(this.deliveredSwitchConfigs, Date.now())
+          previous
+        ),
+        omahaPricedRaiseGateCandidates(
+          active.request.opts as Readonly<Record<string, unknown>> | undefined,
+          this.deliveredSwitchConfigs.current,
+          previous
         )
       );
       if (receiptRefusal !== null) {

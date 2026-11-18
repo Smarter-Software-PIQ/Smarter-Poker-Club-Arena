@@ -548,6 +548,9 @@ export interface OmahaBigDrawInput {
   dead?: readonly Card[];
   /** the decision examined: only a check or a call can change */
   action: string;
+  /** omahaDrawRaiseIsPriced: position and the combo-draw class are not bars; out of position the
+   *  called wager realizes OMAHA_BIG_DRAW_OOP_REALISATION of its share when chips stay behind. */
+  priced?: boolean;
   /** chips on the table, the wager faced included */
   pot: number;
   toCall: number;
@@ -656,8 +659,8 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
   if (toCall > 0.005 && heroBet > 0.005) return held('reraise');
   // Owner 2026-11-15 12:30: no draw raise and no new draw lead out of
   // position; in position a raise only with a combo draw.
-  if (!i.inPosition) return held('out_of_position');
-  if (toCall > 0.005 && !omahaComboDrawForRaise(i.hole, i.board, i.dead ?? []))
+  if (!i.inPosition && i.priced !== true) return held('out_of_position');
+  if (toCall > 0.005 && i.priced !== true && !omahaComboDrawForRaise(i.hole, i.board, i.dead ?? []))
     return held('not_combo');
   const facing = toCall > 0.005;
   const total = heroBet + stack;
@@ -713,7 +716,12 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
     risk > 0 ? omahaIcmPremiumOf(risk, chips, stackNow) * atStake : 0;
   const evAggressive =
     foldEquity * pot +
-    (1 - foldEquity) * (called * (pot + cost + x) - cost - charge(cost, pot + cost + x));
+    (1 - foldEquity) *
+      ((i.priced === true && !i.inPosition && !jam ? OMAHA_BIG_DRAW_OOP_REALISATION : 1) *
+        called *
+        (pot + cost + x) -
+        cost -
+        charge(cost, pot + cost + x));
   const realised = i.inPosition ? 1 : OMAHA_BIG_DRAW_OOP_REALISATION;
   const evPassive = facing
     ? realised * equities.bet * (pot + toCall) - toCall - charge(toCall, pot + toCall)
