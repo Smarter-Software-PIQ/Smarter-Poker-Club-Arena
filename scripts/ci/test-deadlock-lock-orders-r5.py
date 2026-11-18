@@ -31,6 +31,8 @@ import subprocess
 import tempfile
 import time
 
+from legacy_wager_projection_proof import prove_legacy_wager_projection
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / 'supabase' / 'migrations'
 parser = argparse.ArgumentParser(description=__doc__)
@@ -467,6 +469,7 @@ try:
     check('proj: both hands wrote every pass exactly once', stats == f'{A}:2:1,{B}:2:1', stats)
 
     prove_projection_transaction_boundary('proj')
+    prove_legacy_wager_projection(ROOT, MIGRATIONS, run, spawn, finish, check, definition, C, T, A)
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')
