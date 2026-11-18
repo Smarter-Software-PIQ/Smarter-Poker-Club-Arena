@@ -100,7 +100,7 @@
 -- bbj_record_contribution and fn_bbj_allocate are not changed.
 -- record_insurance_transaction changes in one statement only (9 below).
 --
--- @live-proof: (SELECT to_regclass('public.hand_bank_obligation_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_hand_obligations(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = '710154d55d4cb9fb1d425f3df13087c4' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = 'c14f15b5933a8ee0e24f1f918bdc6d6f' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'abe021e4c5a42b02f3b4c00c8bd1ffc9' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = '2a8c79452ced863cfb15364d1e62a40c' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '39d043cda727119e0a6d883a3fb25d50' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = '2d9d0d7cab537e608da36be3319e347e' AND md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure)) = 'a16ceda2073f0dbb3cd28feb841106e9' AND md5(pg_get_functiondef('public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)'::regprocedure)) = '09f80760439fe2e2883dcbc95ad00bf5' AND md5(pg_get_functiondef('public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)'::regprocedure)) = 'bf0ba9220c9bdc77aaaa0933ff491a7b')
+-- @live-proof: (SELECT to_regclass('public.hand_bank_obligation_pending') IS NOT NULL AND to_regprocedure('public.fn_ca_bank_pending_hand_obligations(uuid)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_ca_tally_balance_move()'::regprocedure)) = '710154d55d4cb9fb1d425f3df13087c4' AND md5(pg_get_functiondef('public.fn_ca_supply_snapshot()'::regprocedure)) = 'c14f15b5933a8ee0e24f1f918bdc6d6f' AND md5(pg_get_functiondef('public.fn_ca_account_balance(text,uuid,uuid,text)'::regprocedure)) = 'abe021e4c5a42b02f3b4c00c8bd1ffc9' AND md5(pg_get_functiondef('public.fn_rake_bbj_invariants(integer)'::regprocedure)) = '2a8c79452ced863cfb15364d1e62a40c' AND md5(pg_get_functiondef('public.fn_project_hand_side_effects(uuid)'::regprocedure)) = '39d043cda727119e0a6d883a3fb25d50' AND md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations()'::regprocedure)) = '2d9d0d7cab537e608da36be3319e347e' AND md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure)) = 'a16ceda2073f0dbb3cd28feb841106e9' AND md5(pg_get_functiondef('public.fn_union_debit_wallet_zd3core(uuid,text,numeric,text,uuid,uuid,text,uuid)'::regprocedure)) = '09f80760439fe2e2883dcbc95ad00bf5' AND md5(pg_get_functiondef('public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)'::regprocedure)) = '6724ca97c0afc65959b02f24caffa106')
 
 BEGIN;
 
@@ -728,10 +728,13 @@ $ndoor1$]
    covers it. On production today that fails the hand's envelope; stored, it
    would be refused for ever. The existing row is updated first and a row is
    inserted only for a union that has none, so the CHECK judges the wallet's
-   real balance. A credit (delta > 0) writes the same row values as before. */
+   real balance. A credit (delta > 0) writes the same row values as before;
+   a union with no bank row still takes the old upsert, so two first legs
+   racing merge as before and a net payout with no row is still refused by
+   the CHECK. */
 SELECT pg_temp.ca_bank_subst(
   'public.record_insurance_transaction(uuid,uuid,integer,uuid,numeric,numeric,numeric,numeric,boolean,character varying)',
-  'cb02192b5c7520212a307d8b4c47510e', 'bf0ba9220c9bdc77aaaa0933ff491a7b',
+  'cb02192b5c7520212a307d8b4c47510e', '6724ca97c0afc65959b02f24caffa106',
   ARRAY[$oins0$      INSERT INTO union_wallets (union_id, insurance_wallet)
       VALUES (v_bank_entity, v_bank_delta)
       ON CONFLICT (union_id) DO UPDATE
@@ -743,8 +746,13 @@ $oins0$],
              updated_at = NOW()
        WHERE union_id = v_bank_entity;
       IF NOT FOUND THEN
+        -- Only a union with no bank row yet gets here; two such first legs
+        -- racing still merge, exactly as the old upsert did.
         INSERT INTO union_wallets (union_id, insurance_wallet)
-        VALUES (v_bank_entity, v_bank_delta);
+        VALUES (v_bank_entity, v_bank_delta)
+        ON CONFLICT (union_id) DO UPDATE
+          SET insurance_wallet = COALESCE(union_wallets.insurance_wallet, 0) + v_bank_delta,
+              updated_at = NOW();
       END IF;
 $nins0$]
 );

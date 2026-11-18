@@ -154,9 +154,13 @@ describe("a cash hand never waits on the union's BBJ pool or insurance bank", ()
     // found: the bank row is updated first.
     expect(code(dollar(part1, 'oins0'))).toMatch(/ON CONFLICT \(union_id\) DO UPDATE/);
     expect(code(dollar(part1, 'nins0'))).toMatch(
-      /UPDATE union_wallets[\s\S]*WHERE union_id = v_bank_entity;\s+IF NOT FOUND THEN\s+INSERT INTO union_wallets/
+      /UPDATE union_wallets[\s\S]*WHERE union_id = v_bank_entity;\s+IF NOT FOUND THEN\s+INSERT INTO union_wallets[\s\S]*ON CONFLICT \(union_id\) DO UPDATE\s+SET insurance_wallet = COALESCE\(union_wallets\.insurance_wallet, 0\) \+ v_bank_delta,/
     );
-    expect(part1).toContain("'cb02192b5c7520212a307d8b4c47510e', 'bf0ba9220c9bdc77aaaa0933ff491a7b'");
+    // Two first legs for a union with no bank row still merge (two-session proof).
+    expect(read('scripts', 'ci', 'test-deadlock-lock-orders-r5.py')).toContain(
+      'two first insurance legs for a union with no bank row merge, as the old upsert did'
+    );
+    expect(part1).toContain("'cb02192b5c7520212a307d8b4c47510e', '6724ca97c0afc65959b02f24caffa106'");
   });
 
   it('nothing in the envelope locks the pool, banks, or writes a union-wide row', () => {

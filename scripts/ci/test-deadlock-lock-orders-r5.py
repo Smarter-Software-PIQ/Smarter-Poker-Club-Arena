@@ -804,7 +804,7 @@ BANK_POST = {
 BANK_POST_EXTRA = {
     'fn_post_commit_stranded_watchdog': 'a16ceda2073f0dbb3cd28feb841106e9',
     'fn_union_debit_wallet_zd3core': '09f80760439fe2e2883dcbc95ad00bf5',
-    'record_insurance_transaction': 'bf0ba9220c9bdc77aaaa0933ff491a7b',
+    'record_insurance_transaction': '6724ca97c0afc65959b02f24caffa106',
 }
 
 
@@ -1221,6 +1221,61 @@ def prove_bad_obligations_still_fail_the_envelope():
                                                   "WHERE kind = 'insurance'") == '1', ok)
 
 
+def prove_first_insurance_legs_still_merge():
+    """record_insurance_transaction updates the union bank row first; a union
+    with no row yet still takes the old upsert, so two first legs racing in two
+    sessions merge instead of one failing on the union's unique key."""
+    fixture = json.loads(RAKE_FIXTURE.read_text())
+    extra = json.loads(BANK_FIXTURE.read_text())
+    db = 'bankrace'
+    bank_database(db, fixture, extra)
+    run(db, (MIGRATIONS / BANK_PART1).read_text())
+    check('hand bank race: the repaired insurance function is installed',
+          md5(db, extra['functions']['record_insurance_transaction']['signature'])
+          == BANK_POST_EXTRA['record_insurance_transaction'])
+    u2, c2, t2 = ('fade0000-0000-0000-0000-0000000000f2', 'a0000000-0000-0000-0000-0000000000f2',
+                  'c0000000-0000-0000-0000-0000000000f2')
+    run(db, f"""
+INSERT INTO unions VALUES ('{u2}');
+INSERT INTO clubs(id, name, union_id) VALUES ('{c2}', 'Race Club', '{u2}');
+INSERT INTO tables(id, club_id, union_id) VALUES ('{t2}', '{c2}', '{u2}');
+BEGIN;
+SELECT set_config('app.ledger_category', 'mint', true), set_config('app.ledger_counterparty', 'system_mint', true);
+INSERT INTO chip_ledger(from_type, to_type, to_entity_id, amount, category, table_id)
+VALUES ('system_mint', 'table_stack', '{t2}', 100, 'mint', '{t2}');
+INSERT INTO table_seats(table_id, user_id, stack) VALUES ('{t2}', '{RP1}', 100);
+COMMIT;""")
+    check('hand bank race: the union has no bank row yet',
+          run(db, f"SELECT count(*) FROM union_wallets WHERE union_id = '{u2}'") == '0')
+
+    def leg(hand_number):
+        # The leg and the felt it leaves, so each transaction balances on its own.
+        return (f"BEGIN;\nSELECT 'leg:' || (r.id IS NOT NULL) FROM public.record_insurance_transaction("
+                f"'{t2}', '{c2}', {hand_number}, '{RP1}', 20, 1.00, 10, 0, false, 'insurance') r;\n"
+                f"UPDATE table_seats SET stack = stack - 1.00 WHERE table_id = '{t2}';\n")
+    first = spawn(db, leg(1))
+    check('hand bank race: the first session holds its new bank row', first.stdout.readline().strip() == 'leg:true')
+    second = spawn(db, leg(2) + 'COMMIT;\n')
+    time.sleep(1.0)
+    check('hand bank race: the second session waits for the first one\'s row', second.poll() is None)
+    send(first, 'COMMIT;\n')
+    first_result = finish(first)
+    second_result = finish(second)
+    check('hand bank race: two first insurance legs for a union with no bank row merge, as the old upsert did',
+          first_result[0] == 0 and second_result[0] == 0 and 'leg:true' in second_result[1]
+          and run(db, f"SELECT count(*) || '|' || sum(insurance_wallet) FROM union_wallets WHERE union_id = '{u2}'")
+          == '1|2.00'
+          and run(db, f"SELECT count(*) FROM insurance_transactions WHERE union_id = '{u2}'") == '2'
+          and run(db, 'SELECT count(*) FROM ca_ledger_invariant_findings') == '0',
+          {'first': first_result, 'second': second_result})
+    refused = subprocess.run(list(map(str, psql(db))), text=True, capture_output=True, env=env,
+                             input="BEGIN;\nSELECT public.record_insurance_transaction("
+                                   "'c0000000-0000-0000-0000-0000000000a1', '" + RC + "', 9001, '" + RP1
+                                   + "', 20, 0, 10, 99999, true, 'insurance');\nROLLBACK;\n")
+    check('hand bank race: a payout the bank row cannot cover is still refused by the CHECK',
+          refused.returncode != 0 and 'union_wallets_insurance_wallet_nonneg' in refused.stderr, refused.stderr[-300:])
+
+
 try:
     command(as_owner + [pg / 'initdb', '-D', cluster / 'data', '-A', 'trust', '-U', 'postgres'])
     command(as_owner + [pg / 'pg_ctl', '-D', cluster / 'data', '-o',
@@ -1282,6 +1337,7 @@ try:
     # ---- hand bank obligations ------------------------------------------
     prove_hand_bank_never_waits_on_the_union_pool()
     prove_bad_obligations_still_fail_the_envelope()
+    prove_first_insurance_legs_still_merge()
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')
