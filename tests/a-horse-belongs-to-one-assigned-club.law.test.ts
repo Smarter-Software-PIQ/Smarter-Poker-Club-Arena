@@ -94,15 +94,14 @@ describe('a horse belongs to one assigned club', () => {
     expect(sql).toContain('horse_club_split_must_install_inactive');
   });
 
-  it('keeps the Kings Club adjustments in explicitly labelled display totals', () => {
+  it('keeps the Kings Club adjustments in presentation-only totals', () => {
     expect(sql).toMatch(/UPDATE public\.club_display_member_boost\s+SET boost = 0/);
     expect(sql).toContain(`('${KINGS}', 1500, 233, 'Bonus'`);
     const card = readFileSync(
       join(__dirname, '..', 'src', 'components', 'club', 'ClubCardPanel.tsx'),
       'utf8'
     );
-    // The old bonus never enters the measured data. A card may show the
-    // separately calculated display totals only with their disclosures.
+    // The adjusted totals are rendered separately from the measured cache.
     expect(card).not.toContain('displayAddition');
     expect(card).not.toContain('totalMembers + addMembers');
     expect(card).not.toContain('activePlayers + addActive');
@@ -110,8 +109,8 @@ describe('a horse belongs to one assigned club', () => {
     expect(card).toContain('active: shownActive');
     expect(card).toContain('const shownMembers = totalMembers');
     expect(card).toContain('const shownActive = activePlayers');
-    expect(card).toContain('member_addition.toLocaleString()} CONFIGURED');
-    expect(card).toContain('active_addition.toLocaleString()} CONFIGURED');
+    expect(card).toContain('kingsDisplayTotals?.member_total');
+    expect(card).toContain('kingsDisplayTotals?.active_total');
   });
 
   it('is not redefined later without the enforcement', () => {

@@ -1161,8 +1161,7 @@ function HomePageInner() {
                 p_union_ids: floorUnionIds,
               }),
               supabase.from('unions').select('id, name').in('id', floorUnionIds),
-              /* Dan 2026-11-17: the union total and how many of those accounts
-                 are Horses, from the same read the club's invite words. */
+              // Use the same measured union floor as the invitation.
               supabase.rpc('fn_batch_union_floor_players', { p_union_ids: floorUnionIds }),
             ]);
             if (floorResult.error) reportError(floorResult.error, 'HomePage.memberClubUnionFloor');
@@ -1174,12 +1173,9 @@ function HomePageInner() {
               });
             if (floorPlayersResult.error)
               reportError(floorPlayersResult.error, 'HomePage.memberClubUnionFloorPlayers');
-            const floorPlayers = new Map<string, { players: number; horses: number }>();
+            const floorPlayers = new Map<string, number>();
             for (const r of (floorPlayersResult.data as any[]) || [])
-              floorPlayers.set(String(r.union_id), {
-                players: Number(r.active_count) || 0,
-                horses: Number(r.horse_count) || 0,
-              });
+              floorPlayers.set(String(r.union_id), Number(r.active_count) || 0);
             const floorName = new Map<string, string>();
             for (const r of (floorNamesResult.data as any[]) || [])
               if (r?.name) floorName.set(String(r.id), String(r.name));
@@ -1194,8 +1190,7 @@ function HomePageInner() {
                 activeEvents: split.events,
                 splitFloorLabel: (floorName.get(unionId) || 'Union').toUpperCase(),
                 // Unknown stays unknown: no union total is printed without its read.
-                floorPlaying: floorPlayers.get(unionId)?.players ?? null,
-                floorHorses: floorPlayers.get(unionId)?.horses ?? null,
+                floorPlaying: floorPlayers.get(unionId) ?? null,
               };
             }
           } catch (e) {
