@@ -211,6 +211,13 @@ def main():
   no_expiry=gift(10)
   db.run(f"INSERT INTO ca_promo_profit_custody VALUES('{no_expiry}','{C}','{A}','player_wallet','{A}',10);UPDATE ca_promo_play_through_grants SET expires_at=clock_timestamp() WHERE id='{no_expiry}'")
   check('existing player-owned W does not expire with original principal',f"SELECT fn_ca_promo_profit_locked_at('{C}','{A}','player_wallet','{A}')",'10')
+  visibility=ROOT/'tests/fixtures/promo-profit-source-visibility/native.py'
+  track(visibility)
+  runfile(ROOT/'supabase/migrations/20261118010644_promo_source_observation_preserves_original_transaction_visi.sql')
+  source_spec=importlib.util.spec_from_file_location('promo_source_visibility',visibility)
+  source_visibility=importlib.util.module_from_spec(source_spec)
+  source_spec.loader.exec_module(source_visibility)
+  source_visibility.qualify(db,check)
   # Actual accepted-source helpers execute on explicitly typed monetary frames;
   # the maintained full-hand proof separately invokes their engine DB owner.
   def cash_frame(before,after,other_before,other_after,investment,other_investment,insurance=None):
