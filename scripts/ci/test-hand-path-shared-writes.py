@@ -20,6 +20,12 @@ connection), the two guards of incident 075013fd lane F:
          migration that ADDS a shared write to the hand path (nothing is
          installed), admits the same file when it declares it, and splices
          nothing into a data-only file.
+  G3  (lane H2) a hand on a full spin table that busts a seat commits while
+      another session holds the spin pool, club and union wallet rows; the
+      diamond expiry burn a jackpot credit can reach retires the player's
+      diamonds without touching a club or union row; positive controls show
+      the same rows DO block a third-seat fill, a tournament status change
+      and a chip burn.
   G2  fn_ca_post_commit_lag_watch() (20261118084759): warns per table when
       p95 commit->post_commit_completed_at over five minutes exceeds 2 s,
       goes critical above 15 s or for a hand pending 15 s, never raises twice
@@ -40,6 +46,8 @@ MIGRATIONS = ROOT / 'supabase' / 'migrations'
 R5 = ROOT / 'scripts' / 'ci' / 'test-deadlock-lock-orders-r5.py'
 MODULE = ROOT / 'scripts' / 'ci' / 'hand-path-shared-writes.mjs'
 G1_FILE = '20261118084747_a_hands_money_path_never_writes_a_shared_row.sql'
+# The reader as it stands now: an UPDATE OF trigger fires on a SET target only (lane H2).
+G1_SET_FILE = '20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql'
 G2_FILE = '20261118084759_post_commit_lag_warns_before_the_cascade.sql'
 CHECKED = '20261118090000_applier_proof.sql'  # a name the applier checks
 
@@ -151,6 +159,7 @@ def production_before(db):
     run(db, 'CREATE FUNCTION fn_ca_commit_hand_settlement() RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;'
             'CREATE FUNCTION fn_ca_commit_hand_submission() RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$;')
     run(db, (MIGRATIONS / G1_FILE).read_text())
+    run(db, (MIGRATIONS / G1_SET_FILE).read_text())
 
 
 # What #11270 (re-land of #11256) and #11266 take off the hand path, as the
@@ -221,6 +230,41 @@ CREATE FUNCTION fn_synth_seat_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN UPDATE unions SET id = id WHERE id = NEW.id; RETURN NEW; END $$;
 CREATE TRIGGER t_stack AFTER UPDATE OF stack ON table_seats FOR EACH ROW EXECUTE FUNCTION fn_synth_seat_stack_trg();
 CREATE TRIGGER t_leave AFTER UPDATE OF left_at ON table_seats FOR EACH ROW EXECUTE FUNCTION fn_synth_seat_leave_trg();
+-- UPDATE OF left_at is a SET-target rule (lane H2): a WHERE that compares
+-- left_at fires nothing; a SET target, a quoted target and a tuple target do.
+CREATE TABLE seat_where(id uuid PRIMARY KEY, stack numeric, left_at timestamptz, note text);
+CREATE TABLE seat_set(id uuid PRIMARY KEY, stack numeric, left_at timestamptz);
+CREATE TABLE seat_quoted(id uuid PRIMARY KEY, stack numeric, left_at timestamptz);
+CREATE TABLE seat_tuple(id uuid PRIMARY KEY, stack numeric, left_at timestamptz);
+CREATE TABLE seat_upsert(id uuid PRIMARY KEY, stack numeric, left_at timestamptz);
+CREATE TABLE seat_unqualified_where(id uuid PRIMARY KEY, stack numeric, left_at timestamptz);
+CREATE FUNCTION fn_synth_where_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = 1 WHERE id = NEW.id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_set_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = 2 WHERE id = NEW.id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_quoted_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = 3 WHERE id = NEW.id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_tuple_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = 4 WHERE id = NEW.id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_upsert_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = 5 WHERE id = NEW.id; RETURN NEW; END $$;
+CREATE FUNCTION fn_synth_unqualified_leave_trg() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN UPDATE clubs SET table_count = 6 WHERE id = NEW.id; RETURN NEW; END $$;
+CREATE TRIGGER t_where AFTER UPDATE OF left_at ON seat_where FOR EACH ROW EXECUTE FUNCTION fn_synth_where_leave_trg();
+CREATE TRIGGER t_set AFTER UPDATE OF left_at ON seat_set FOR EACH ROW EXECUTE FUNCTION fn_synth_set_leave_trg();
+CREATE TRIGGER t_quoted AFTER UPDATE OF left_at ON seat_quoted FOR EACH ROW EXECUTE FUNCTION fn_synth_quoted_leave_trg();
+CREATE TRIGGER t_tuple AFTER UPDATE OF left_at ON seat_tuple FOR EACH ROW EXECUTE FUNCTION fn_synth_tuple_leave_trg();
+CREATE TRIGGER t_upsert AFTER UPDATE OF left_at ON seat_upsert FOR EACH ROW EXECUTE FUNCTION fn_synth_upsert_leave_trg();
+CREATE TRIGGER t_unq AFTER UPDATE OF left_at ON seat_unqualified_where FOR EACH ROW EXECUTE FUNCTION fn_synth_unqualified_leave_trg();
+CREATE FUNCTION fn_synth_seat_writes(h uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE public.seat_where s SET stack = 0, note = 'x' WHERE s.id = h AND s.left_at IS NULL AND s.left_at = s.left_at;
+  UPDATE seat_set SET stack = 0, left_at = now() WHERE id = h;
+  UPDATE seat_quoted SET "left_at" = now() WHERE id = h;
+  UPDATE seat_tuple SET (stack, left_at) = (0, now()) WHERE id = h;
+  INSERT INTO seat_upsert VALUES (h, 0, NULL) ON CONFLICT (id) DO UPDATE SET left_at = excluded.left_at;
+  UPDATE seat_unqualified_where SET stack = 0 WHERE id = h AND left_at = now();
+END $$;
 -- a chain of 13 calls: the 13th is beyond the call bound
 DO $d$ BEGIN
   EXECUTE 'CREATE FUNCTION fn_synth_deep_13() RETURNS void LANGUAGE plpgsql AS $b$ BEGIN UPDATE unions SET id = id WHERE false; END $b$';
@@ -236,6 +280,7 @@ BEGIN
   RAISE NOTICE 'see fn_synth_literal_only(%)', h;  -- comment: fn_synth_literal_only()
   PERFORM 'fn_synth_literal_only()';
   UPDATE table_seats SET stack = stack - 1 WHERE id = h;
+  PERFORM fn_synth_seat_writes(h);
   RETURN '{}';
 END $$;
 CREATE FUNCTION fn_ca_commit_hand_settlement() RETURNS void LANGUAGE plpgsql AS $$ BEGIN PERFORM fn_synth_deep_1(); END $$;
@@ -277,6 +322,251 @@ def lag_alerts(db):
       ORDER BY context->>'table_id', created_at, severity), '[]') FROM financial_alerts
       WHERE source = 'fn_ca_post_commit_lag_watch'"""))
 
+# ── G3: a hand on a spin / tournament table never waits on a shared row ────
+# Lane H2 (incident 075013fd). The production texts of the seat-first count
+# trigger chain and of the diamond expiry -> burn chain (md5-equal to
+# production on 2026-11-18), and the hand's own seat and roster statements
+# copied verbatim from the production commit functions (each found by strpos
+# in production on 2026-11-18; the fixture names the function and its md5).
+# What a hand must never reach is STUBBED TO BLOCK: fn_spin_book_entry locks
+# the club's spin_bonus_pools row, and the two BEFORE UPDATE OF status guards
+# on tournaments lock the club and union wallet rows, exactly the rows the
+# reader names. A second session holds those rows; if the hand reached any of
+# them it would wait and fail on lock_timeout. Positive controls prove the
+# stubs block when their real event happens (a third seat fills; a tournament
+# changes status; a chip burn), so the harness cannot pass by being blind.
+G3_FIXTURE = ROOT / 'scripts' / 'ci' / 'fixtures' / 'hand-path-shared-writes' / 'tournament-spin-diamond-production.json'
+
+G3_SCHEMA = """
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA auth;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
+CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$ SELECT 'service_role'::text $$;
+CREATE SCHEMA realtime;
+CREATE FUNCTION realtime.send(jsonb, text, text, boolean) RETURNS void LANGUAGE sql AS $$ $$;
+CREATE TABLE g3_calls(fn text, at timestamptz DEFAULT clock_timestamp());
+CREATE TABLE unions(id uuid PRIMARY KEY, name text);
+CREATE TABLE clubs(id uuid PRIMARY KEY, union_id uuid, name text, chip_treasury numeric DEFAULT 0);
+CREATE TABLE union_wallets(union_id uuid PRIMARY KEY, chip_balance numeric DEFAULT 0, updated_at timestamptz);
+CREATE TABLE spin_bonus_pools(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), club_id uuid UNIQUE, owner_kind text,
+  balance numeric DEFAULT 0);
+CREATE TABLE tournaments(id uuid PRIMARY KEY, club_id uuid, status text, format_contract text, max_players int,
+  variant text, current_players int, updated_at timestamptz);
+CREATE TABLE tables(id uuid PRIMARY KEY, club_id uuid, tournament_id uuid, status text, current_players int,
+  updated_at timestamptz);
+CREATE TABLE table_seats(id uuid PRIMARY KEY, table_id uuid, user_id uuid, seat_number int, stack numeric,
+  joined_at timestamptz, left_at timestamptz, status text, leave_pending boolean, is_sitting_out boolean,
+  is_away boolean, sit_out_at timestamptz, scheduled_leave_hands int, time_bank_uses_remaining int,
+  time_bank_remaining int, club_id uuid);
+CREATE TABLE tournament_players(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, user_id uuid,
+  status text, chips integer, table_id uuid, seat_number int, rebuy_prompt_until timestamptz);
+CREATE TABLE profiles(id uuid PRIMARY KEY, diamonds bigint DEFAULT 0, username text, full_name text, role text);
+CREATE TABLE diamond_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, type text,
+  transaction_type text, amount bigint, balance_after bigint, description text, source text, metadata jsonb,
+  counterparty text, issuance_class text, reference_id text, created_at timestamptz DEFAULT now());
+CREATE TABLE lifetime_vip_diamond_lots(id uuid PRIMARY KEY, user_id uuid, status text, remaining_amount int,
+  consumed_amount int DEFAULT 0, expired_amount int DEFAULT 0, expires_at timestamptz, issued_at timestamptz,
+  expiry_transaction_id uuid, updated_at timestamptz);
+CREATE TABLE lifetime_vip_diamond_lot_allocations(transaction_id uuid, lot_id uuid, user_id uuid, amount int);
+CREATE TABLE ca_op_claims(op_id text, fn_name text, claimed_by uuid, result jsonb, finalized_at timestamptz,
+  PRIMARY KEY (op_id, fn_name));
+CREATE TABLE ca_mint_ledger(op_id text, action text, asset text, holder_type text, holder_id uuid, holder_label text,
+  amount numeric, balance_before numeric, balance_after numeric, supply_after numeric, reason text,
+  performed_by uuid, performed_by_label text, chip_ledger_id uuid, diamond_tx_id uuid);
+CREATE TABLE chip_transactions(club_id uuid, from_user_id uuid, to_user_id uuid, amount numeric,
+  transaction_type text, notes text, balance_after numeric);
+CREATE TABLE chip_ledger(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), idempotency_key text);
+CREATE FUNCTION fn_ca_tournament_recorded_seat_first(uuid, boolean) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
+CREATE FUNCTION fn_tournament_primary_table(uuid) RETURNS uuid LANGUAGE sql AS
+  $$ SELECT id FROM tables WHERE tournament_id = $1 AND lower(COALESCE(status, '')) <> 'closed' ORDER BY id LIMIT 1 $$;
+CREATE FUNCTION fn_poker_diamond_tournament(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
+CREATE FUNCTION fn_ca_declare_ledger(text, text, uuid, uuid, text, uuid) RETURNS void LANGUAGE sql AS $$ $$;
+CREATE FUNCTION fn_ca_release_claim(text, text, jsonb) RETURNS jsonb LANGUAGE sql AS $$ SELECT $3 $$;
+-- What a hand must never reach, stubbed to take exactly the shared row the reader names.
+CREATE FUNCTION fn_spin_book_entry(p uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO g3_calls(fn) VALUES ('fn_spin_book_entry');
+  PERFORM 1 FROM spin_bonus_pools sp JOIN tournaments t ON t.club_id = sp.club_id WHERE t.id = p FOR UPDATE OF sp;
+  RETURN jsonb_build_object('ok', true, 'reason', 'booked');
+END $$;
+CREATE FUNCTION fn_sync_tournament_current_players() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN  -- production SETs only tournaments.current_players
+  INSERT INTO g3_calls(fn) VALUES ('fn_sync_tournament_current_players');
+  UPDATE tournaments SET current_players = current_players WHERE id = COALESCE(NEW.tournament_id, OLD.tournament_id);
+  RETURN NULL;
+END $$;
+CREATE FUNCTION fn_ca_fund_overlay_on_lock() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO g3_calls(fn) VALUES ('fn_ca_fund_overlay_on_lock');
+  PERFORM 1 FROM clubs WHERE id = NEW.club_id FOR UPDATE;
+  PERFORM 1 FROM union_wallets w JOIN clubs c ON c.union_id = w.union_id WHERE c.id = NEW.club_id FOR UPDATE OF w;
+  RETURN NEW;
+END $$;
+CREATE FUNCTION fn_guard_tournament_start_readiness() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO g3_calls(fn) VALUES ('fn_guard_tournament_start_readiness');
+  PERFORM 1 FROM clubs WHERE id = NEW.club_id FOR UPDATE;
+  PERFORM 1 FROM union_wallets w JOIN clubs c ON c.union_id = w.union_id WHERE c.id = NEW.club_id FOR UPDATE OF w;
+  RETURN NEW;
+END $$;
+"""
+
+G3_IDS = dict(
+    U='a3000000-0000-0000-0000-000000000001', C='a3000000-0000-0000-0000-000000000002',
+    T='a3000000-0000-0000-0000-000000000003', TB='a3000000-0000-0000-0000-000000000004',
+    P1='a3000000-0000-0000-0000-000000000011', P2='a3000000-0000-0000-0000-000000000012',
+    P3='a3000000-0000-0000-0000-000000000013', S1='a3000000-0000-0000-0000-000000000021',
+    S2='a3000000-0000-0000-0000-000000000022', S3='a3000000-0000-0000-0000-000000000023',
+    LOT_OLD='a3000000-0000-0000-0000-000000000031', LOT_NEW='a3000000-0000-0000-0000-000000000032')
+
+G3_SEED = """
+INSERT INTO unions VALUES ('{U}', 'Union');
+INSERT INTO clubs VALUES ('{C}', '{U}', 'Club', 1000);
+INSERT INTO union_wallets VALUES ('{U}', 1000, now());
+INSERT INTO spin_bonus_pools(club_id, owner_kind, balance) VALUES ('{U}', 'union', 500), ('{C}', 'club', 500);
+INSERT INTO tournaments VALUES ('{T}', '{C}', 'RUNNING', 'spin-v1', 3, 'spin', 3, now());
+INSERT INTO tables VALUES ('{TB}', '{C}', '{T}', 'active', 3, now());
+INSERT INTO table_seats(id, table_id, user_id, seat_number, stack, joined_at, status, club_id)
+VALUES ('{S1}', '{TB}', '{P1}', 1, 500, now() - interval '1 minute', 'active', '{C}'),
+       ('{S2}', '{TB}', '{P2}', 2, 500, now() - interval '1 minute', 'active', '{C}'),
+       ('{S3}', '{TB}', '{P3}', 3, 500, now() - interval '1 minute', 'active', '{C}');
+INSERT INTO tournament_players(tournament_id, user_id, status, chips, table_id, seat_number)
+VALUES ('{T}', '{P1}', 'playing', 500, '{TB}', 1), ('{T}', '{P2}', 'playing', 500, '{TB}', 2),
+       ('{T}', '{P3}', 'playing', 500, '{TB}', 3);
+INSERT INTO profiles(id, diamonds, username, role) VALUES ('{P1}', 1000, 'p1', 'player');
+INSERT INTO lifetime_vip_diamond_lots(id, user_id, status, remaining_amount, expires_at, issued_at)
+VALUES ('{LOT_OLD}', '{P1}', 'active', 100, now() - interval '1 day', now() - interval '31 days'),
+       ('{LOT_NEW}', '{P1}', 'active', 300, now() + interval '20 days', now() - interval '10 days');
+""".format(**G3_IDS)
+
+# One hand on the full spin table: P3 busts to P1. The seat and roster
+# statements are the production texts, in the order the commit runs them.
+G3_HAND = """
+DO $hand$
+DECLARE
+  p_table_id uuid := '{TB}';
+  v_tournament_id uuid := '{T}';
+  v_lightning_seats jsonb := '{{}}'::jsonb;
+  v_exact_seat_generation boolean := true;
+  v_result jsonb := '{{}}'::jsonb;
+  v_item jsonb;
+  e jsonb;
+  v_uid uuid;
+  v_target numeric;
+  v_targets jsonb := jsonb_build_object('{P1}', 1000, '{P2}', 500, '{P3}', 0);
+  v_zero_stack_seat_ids uuid[] := ARRAY['{S3}'::uuid];
+  v_zero_stack_vacated_at timestamptz := clock_timestamp();
+  v_table_live_seat_count integer;
+  v_written numeric;
+  v_seat record;
+  v_prompt_until timestamptz := now() + interval '10 seconds';
+BEGIN
+  -- the commit's time-bank write (fn_ca_commit_hand_settlement)
+  FOR v_item IN SELECT jsonb_build_object('user_id', s.user_id, 'uses_remaining', 2, 'seconds_remaining', 30,
+                         'seat_id', s.id, 'seat_joined_at', s.joined_at)
+                  FROM table_seats s WHERE s.table_id = p_table_id AND s.left_at IS NULL LOOP
+    UPDATE public.table_seats s
+         SET time_bank_uses_remaining = (v_item->>'uses_remaining')::integer,
+             time_bank_remaining = (v_item->>'seconds_remaining')::integer
+       WHERE s.table_id = COALESCE((v_lightning_seats->>(v_item->>'user_id'))::uuid, p_table_id)
+         AND s.user_id = (v_item->>'user_id')::uuid;
+  END LOOP;
+  -- the stack write, one per seat (fn_ca_settle_hand_stacks_absolute)
+  FOR e IN SELECT jsonb_build_object('user_id', s.user_id, 'seat_id', s.id, 'seat_joined_at', s.joined_at)
+             FROM table_seats s WHERE s.table_id = p_table_id AND s.left_at IS NULL ORDER BY s.id LOOP
+    v_uid := (e->>'user_id')::uuid;
+    v_target := (v_targets->>(v_uid::text))::numeric;
+          UPDATE public.table_seats ts SET stack = v_target
+           WHERE ts.id = (e->>'seat_id')::uuid
+             AND ts.joined_at = (e->>'seat_joined_at')::timestamptz
+             AND ts.table_id = COALESCE((v_lightning_seats->>v_uid::text)::uuid, p_table_id)
+             AND ts.user_id = v_uid
+             AND ts.left_at IS NULL;
+  END LOOP;
+      UPDATE public.tournament_players tp
+         SET chips = target.stack
+        FROM (
+          SELECT x.key::uuid AS user_id,x.value::numeric AS stack
+            FROM jsonb_each_text(v_targets) AS x(key,value)
+        ) target
+       WHERE tp.tournament_id = v_tournament_id
+         AND tp.user_id = target.user_id
+         AND tp.status::text = 'playing';
+        UPDATE public.table_seats ts
+           SET left_at = v_zero_stack_vacated_at,
+               status = 'left',
+               leave_pending = false,
+               is_sitting_out = false,
+               is_away = false,
+               sit_out_at = NULL,
+               scheduled_leave_hands = NULL
+         WHERE ts.id = ANY(v_zero_stack_seat_ids)
+           AND ts.table_id = p_table_id
+           AND ts.left_at IS NULL
+           AND ts.stack = 0;
+      SELECT count(*) INTO v_table_live_seat_count
+        FROM public.table_seats ts
+       WHERE ts.table_id = p_table_id AND ts.left_at IS NULL;
+      UPDATE public.tables tb
+         SET current_players = v_table_live_seat_count,
+             updated_at = now()
+       WHERE tb.id = p_table_id
+         AND tb.current_players IS DISTINCT FROM v_table_live_seat_count;
+  -- the lease generation's roster writes (fn_ca_commit_hand_settlement_before_lease_generation)
+  FOR v_seat IN SELECT * FROM table_seats s WHERE s.table_id = p_table_id AND s.left_at IS NULL LOOP
+    v_uid := v_seat.user_id;
+    v_written := v_seat.stack;
+        UPDATE public.tournament_players tp
+           SET chips=greatest(v_written,0)::integer,
+               table_id=p_table_id,
+               seat_number=v_seat.seat_number
+         WHERE tp.tournament_id=v_tournament_id AND tp.user_id=v_uid
+           AND tp.status='playing';
+          UPDATE public.tournament_players tp
+             SET rebuy_prompt_until=v_prompt_until
+           WHERE tp.tournament_id=v_tournament_id AND tp.user_id=v_uid
+             AND tp.status='playing';
+  END LOOP;
+END $hand$;
+""".format(**G3_IDS)
+
+
+def g3_hold(db, sql):
+    """A second session that takes `sql`'s locks and keeps its transaction open."""
+    proc = subprocess.Popen(list(map(str, psql(db))), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, env=env)
+    proc.stdin.write("SET application_name = 'g3_holder';\nBEGIN;\n" + sql + "\nSELECT pg_sleep(120);\n")
+    proc.stdin.flush()
+    for _ in range(200):
+        if run(db, "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'g3_holder' "
+                   "AND wait_event = 'PgSleep'") == '1':
+            return proc
+        subprocess.run(['sleep', '0.05'])
+    proc.kill()
+    raise RuntimeError('the holder session never took its locks')
+
+
+def g3_release(db, proc):
+    run(db, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'g3_holder'")
+    try:
+        proc.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def g3_try(db, sql):
+    """Run `sql` from a third session that refuses to wait more than 2 s on any lock."""
+    return attempt(db, "SET lock_timeout = '2s';\nSET statement_timeout = '20s';\n" + sql)
+
+
+G3_HOLD_SHARED = """
+SELECT 1 FROM spin_bonus_pools FOR UPDATE;
+SELECT 1 FROM clubs FOR UPDATE;
+SELECT 1 FROM union_wallets FOR UPDATE;
+UPDATE union_wallets SET chip_balance = chip_balance + 1;
+UPDATE clubs SET chip_treasury = chip_treasury + 1;
+"""
+
 
 try:
     command(as_owner + [pg / 'initdb', '-D', cluster / 'data', '-A', 'trust', '-U', 'postgres'])
@@ -288,6 +578,10 @@ try:
     run('postgres', 'CREATE DATABASE synth')
     run('synth', SYNTH)
     run('synth', (MIGRATIONS / G1_FILE).read_text())
+    status, _, err = attempt('synth', guarded(G1_SET_FILE, (MIGRATIONS / G1_SET_FILE).read_text()))
+    check('G1 rules: the SET-target reader installs through the applier check', status == 0, err[-600:])
+    proof = (MIGRATIONS / G1_SET_FILE).read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('G1 rules: the SET-target reader carries its live proof', run('synth', 'SELECT ' + proof) == 't', proof)
     a = answer('synth')
     k = keys(a)
     paths = {f"{v['function']}|{v['kind']}|{v['target']}": v['path'] for v in a['violations']}
@@ -310,6 +604,11 @@ try:
     check('G1 rules: an UPDATE OF trigger is followed only when the statement names its column',
           paths.get('fn_synth_seat_stack_trg|write|clubs') == 'fn_ca_process_hand_post_commit_obligations =T=> fn_synth_seat_stack_trg'
           and not any(x.startswith('fn_synth_seat_leave_trg|') for x in k), paths)
+    leave = {x.split('|')[0] for x in k if x.startswith('fn_synth_') and x.endswith('_leave_trg|write|clubs')}
+    check('G1 rules: an UPDATE OF trigger fires on a SET target (plain, quoted, tuple, upsert, unqualified WHERE '
+          'compare kept conservatively), never on a column only a qualified WHERE compares',
+          leave == {'fn_synth_set_leave_trg', 'fn_synth_quoted_leave_trg', 'fn_synth_tuple_leave_trg',
+                    'fn_synth_upsert_leave_trg', 'fn_synth_unqualified_leave_trg'}, sorted(leave))
     check('G1 rules: the call bound stops at 12 calls',
           not any(x.startswith('fn_synth_deep_13|') for x in k) and a['closure'] > 0, k)
     run('synth', 'ALTER FUNCTION fn_ca_commit_hand_submission() RENAME TO fn_ca_commit_hand_submission_old')
@@ -363,6 +662,77 @@ COMMIT;
     banker = run('handpre', "SELECT count(*) FROM pg_proc WHERE proname IN "
                             "('fn_ca_bank_pending_cash_rake', 'fn_ca_bank_pending_hand_obligations')")
     check('G1 production AFTER: both bankers are installed (and excluded by name)', banker == '2', banker)
+
+    # ── G3 a hand on a spin / tournament table never waits on a shared row ──
+    run('postgres', 'CREATE DATABASE g3')
+    run('g3', G3_SCHEMA)
+    g3fx = json.loads(G3_FIXTURE.read_text())
+    load_fixture('g3', g3fx, 'G3 production text')
+    for tdef in g3fx['triggers'].values():
+        run('g3', tdef + ';')
+    run('g3', G3_SEED)
+    seeded = run('g3', "SELECT string_agg(DISTINCT fn, ',' ORDER BY fn) FROM g3_calls")
+    check('G3 seed: the third paid seat booked the spin when it was seated (the event that owns the booking)',
+          seeded == 'fn_spin_book_entry,fn_sync_tournament_current_players', seeded)
+    run('g3', 'TRUNCATE g3_calls')
+    holder = g3_hold('g3', G3_HOLD_SHARED)
+    try:
+        status, _, err = g3_try('g3', G3_HAND)
+        check('G3 spin hand: a hand that busts a seat on a full spin table commits while another session holds '
+              'the spin pool, the club and the union wallet rows', status == 0, err[-600:])
+    finally:
+        g3_release('g3', holder)
+    state = run('g3', "SELECT (SELECT count(*) FROM table_seats WHERE left_at IS NULL) || '|' || "
+                      "(SELECT current_players FROM tournaments) || '|' || "
+                      "COALESCE((SELECT string_agg(DISTINCT fn, ',' ORDER BY fn) FROM g3_calls), '')")
+    check('G3 spin hand: the seat-first count ran on the vacate (2 live seats, tournament count 2) and nothing '
+          'booked, funded or readied anything', state == '2|2|', state)
+    # Positive controls: the same stubs DO block when their own event happens.
+    run('g3', "TRUNCATE g3_calls; UPDATE tournaments SET current_players = 2")
+    holder = g3_hold('g3', G3_HOLD_SHARED)
+    try:
+        status, _, err = g3_try('g3', ("UPDATE table_seats SET left_at = NULL, status = 'active', stack = 500, "
+                                       "joined_at = clock_timestamp() WHERE id = '{S3}'").format(**G3_IDS))
+        check('G3 control: a third seat FILLING the spin table books the entry and waits on the held spin pool',
+              status != 0 and 'lock timeout' in err, err[-300:])
+        status, _, err = g3_try('g3', "UPDATE tournaments SET status = 'LOCKED'")
+        check('G3 control: a tournament STATUS transition reaches the overlay/readiness guards and waits on the '
+              'held club row', status != 0 and 'lock timeout' in err, err[-300:])
+        status, _, err = g3_try('g3', ("SELECT fn_ca_burn('chips', 'club', '{C}', 1, 'a proof chip retirement', "
+                                       "'g3-chips')").format(**G3_IDS))
+        check('G3 control: a CHIP burn from a club waits on the held club row', status != 0 and 'lock timeout' in err,
+              err[-300:])
+    finally:
+        g3_release('g3', holder)
+    # The diamond chain: a jackpot credit to a player with an open receivable
+    # writes the negative debt-settlement row (add_diamonds_to_balance), which
+    # fires allocate -> expire -> fn_ca_burn('diamonds', 'player', ...).
+    holder = g3_hold('g3', G3_HOLD_SHARED)
+    try:
+        status, _, err = g3_try('g3', ("INSERT INTO diamond_transactions(user_id, amount, transaction_type, type, "
+                                       "balance_after, reference_id, counterparty, issuance_class) VALUES "
+                                       "('{P1}', 50, 'arena_withdraw', 'arena_withdraw', 1050, 'bbjpay:x:1:loser:{P1}', "
+                                       "'arena_custody:x', 'arena');").format(**G3_IDS))
+        check('G3 diamond: a positive jackpot credit fires no spend allocation', status == 0, err[-300:])
+        fired = run('g3', 'SELECT count(*) FROM lifetime_vip_diamond_lot_allocations') + '|' + \
+            run('g3', "SELECT count(*) FROM ca_mint_ledger")
+        check('G3 diamond: nothing allocated, nothing burned for a credit', fired == '0|0', fired)
+        status, _, err = g3_try('g3', ("INSERT INTO diamond_transactions(user_id, amount, transaction_type, type, "
+                                       "balance_after, reference_id, counterparty, issuance_class) VALUES "
+                                       "('{P1}', -50, 'debt_settlement', 'debt_settlement', 1000, 'debt-settlement:x', "
+                                       "'receivable:diamond_debts', 'spend');").format(**G3_IDS))
+        check('G3 diamond: the debt-settlement row expires an overdue VIP lot through fn_ca_burn while another '
+              'session holds the club and union wallet rows', status == 0, err[-600:])
+    finally:
+        g3_release('g3', holder)
+    burned = run('g3', ("SELECT (SELECT status || ':' || expired_amount FROM lifetime_vip_diamond_lots WHERE id = '{LOT_OLD}') "
+                        "|| '|' || (SELECT remaining_amount FROM lifetime_vip_diamond_lots WHERE id = '{LOT_NEW}') "
+                        "|| '|' || (SELECT holder_type || ':' || amount FROM ca_mint_ledger) "
+                        "|| '|' || (SELECT diamonds FROM profiles WHERE id = '{P1}') "
+                        "|| '|' || (SELECT chip_treasury FROM clubs) || '|' || (SELECT chip_balance FROM union_wallets)"
+                        ).format(**G3_IDS))
+    check('G3 diamond: the expiry burned 100 from the player (not a club or union), allocated 50 to the live lot, '
+          'and the club and union wallets are untouched', burned == 'expired:100|250|player:100|900|1000|1000', burned)
 
     # ── G2 the lag watch ───────────────────────────────────────────────────
     run('postgres', 'CREATE DATABASE lag')
