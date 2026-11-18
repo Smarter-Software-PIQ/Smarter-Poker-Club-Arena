@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { readMobileTableLayout, waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
+import { PHONE_AVATAR_MIN_HEIGHT_PX } from '../../../src/components/table/mobileAvatarSize';
 
 export const FIXED_MOBILE_ARTWORK_CASES = [
   { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '', shortPhone: true },
@@ -26,8 +27,9 @@ export async function checkFixedMobileArtwork(
   // its approval screenshots, without the preceding test's injected poses.
   const shortPhone = 'shortPhone' in settings;
   await page.setViewportSize({ width: 600, height: shortPhone ? 1065 : 1298 });
-  // Each case is a fresh device session: no game-type size recorded yet.
-  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v3'));
+  // Dan 2026-11-18: nothing about a portrait's size is kept on the device, so
+  // there is no record to clear: a fresh session and a returning one draw the
+  // same size (tests/mobile-avatars-never-ratchet-smaller.law.test.ts).
   await page.reload();
   await page.evaluate((settings) => {
     for (const style of document.querySelectorAll('style'))
@@ -606,16 +608,6 @@ export async function checkFixedMobileArtwork(
         ).toBeGreaterThanOrEqual(r.headBottom);
       }
     }
-    // Dan 2026-11-13: every table of this game type on this device takes the
-    // size this one settled; it is recorded as the displayed height.
-    const recorded = await page.evaluate(() =>
-      Object.values(
-        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v3') || '{}') as Record<
-          string,
-          number
-        >
-      )
-    );
     // The displayed height of every grown portrait (the table renders at its
     // layout size here, so viewport px are layout px).
     const { heights, heroHeight } = await page.evaluate(() => {
@@ -639,9 +631,19 @@ export async function checkFixedMobileArtwork(
         'painted hero retains its base-slot ratio'
       ).toBeLessThan(1);
     }
-    const shown = peerHeight;
-    expect(recorded.length, 'the game type size is recorded').toBe(1);
-    expect(Math.abs(recorded[0] - shown), 'recorded as the displayed height').toBeLessThan(3);
+    // Dan 2026-11-18: absolute sizes, never just "bigger than 1x". The CSS
+    // base alone is already above 1x, so a relative check passed every shrink.
+    const floor =
+      settings.seats === '9'
+        ? PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponent
+        : PHONE_AVATAR_MIN_HEIGHT_PX.sixSeat;
+    expect(peerHeight, 'opponent portraits keep the approved phone size').toBeGreaterThanOrEqual(
+      floor
+    );
+    if (heroHeight !== null)
+      expect(heroHeight, 'the hero keeps the approved phone size').toBeGreaterThanOrEqual(
+        settings.seats === '9' ? PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatHero : floor
+      );
     for (const p of before.paint)
       if (p[0])
         expect(Math.abs(parseFloat(p[1]) || 0), 'centred over its frame box').toBeLessThan(1);

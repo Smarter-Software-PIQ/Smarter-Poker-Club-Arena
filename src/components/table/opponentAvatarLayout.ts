@@ -1,3 +1,4 @@
+import { NINE_SEAT_PHONE_RAIL_BUST } from './mobileAvatarSize';
 import { privateCardLane } from './heroPrivateReservations';
 import {
   crownActionReservation,
@@ -29,10 +30,6 @@ export type OpponentAvatarState = {
 };
 /** Largest common bust multiplier that leaves the side portrait between its
  * screen edge and the reserved board. Image transforms use their bottom centre. */
-/** The approved nine-seat phone rail bust, the size every portrait takes when
- * the seated art allows it. SeatSlot.css carries the same number as the
- * fallback of `--sp-nine-rail-bust`; the law keeps the two equal. */
-export const NINE_SEAT_PHONE_RAIL_BUST = 1.7;
 export function fixedRailBustLimit(
   paint: Box,
   pivotX: number,
