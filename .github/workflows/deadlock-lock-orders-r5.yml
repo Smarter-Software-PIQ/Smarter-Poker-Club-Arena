@@ -22,6 +22,15 @@ on:
       - supabase/migrations/20261002082303_satellite_board_stands_down_for_a_scheduled_series_and_orpha.sql
       - supabase/migrations/20261117225600_commit_hand_obligations_before_stats_projection.sql
       - supabase/migrations/20261019151125_tournament_table_writers_wait_for_their_shared_lane.sql
+      - supabase/migrations/20261118010500_project_legacy_wagers_after_the_original_hand_commits.sql
+      - supabase/migrations/20260908043400_post_commit_obligations_are_atomic_and_resumable.sql
+      - supabase/migrations/20261001160611_a_balance_never_moves_without_its_ledger_row.sql
+      - supabase/migrations/20261019194410_replay_holds_no_lock_past_its_receipt_player_stats_key_order.sql
+      - supabase/migrations/20261109234320_prove_all_original_posthand_pending_escrow_completions.sql
+      - scripts/ci/fixtures/satellite-qualifiers/current-money-ddl-guard-20260917.json
+      - scripts/ci/fixtures/tournament-cancellation-lane/hold-reader/installed-preimage.json
+      - scripts/ci/legacy_wager_projection_proof.py
+      - scripts/ci/fixtures/legacy-wager-projection.sql
       - scripts/ci/test-deadlock-lock-orders-r5.py
       - .github/workflows/deadlock-lock-orders-r5.yml
 
