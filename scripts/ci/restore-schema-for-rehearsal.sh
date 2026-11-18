@@ -71,10 +71,8 @@ for role in "${EXPECTED_RESTORE_ROLES[@]}"; do
   psql_db -qc "DO \$\$ BEGIN CREATE ROLE $role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null
 done
 
-# auth.users as production has it (see rehearsal-auth-users-columns.txt).
-grep -vE '^(#|$)' "$ROOT/scripts/ci/rehearsal-auth-users-columns.txt" \
-  | sed -E 's/^([a-z_]+) (.+)$/ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS \1 \2;/' \
-  | psql_db -q >/dev/null
+# The auth schema as production's objects use it (see rehearsal-auth-schema.sql).
+psql_db -q < "$ROOT/scripts/ci/rehearsal-auth-schema.sql" >/dev/null
 docker cp "$DUMP" "$NAME:/tmp/schema.dump"
 docker exec "$NAME" pg_restore --list /tmp/schema.dump > "$WORKDIR/toc.list"
 awk '$4 == "SCHEMA" && $5 == "-" && $6 == "public" { print ";" $0; found++; next }
@@ -93,10 +91,10 @@ if ! admin_exec pg_restore -U supabase_admin -d postgres --no-owner --exit-on-er
   log "the restore stopped at its first error:"
   grep -m1 -A2 -E 'ERROR:' "$WORKDIR/restore.log" >&2 || tail -20 "$WORKDIR/restore.log" >&2
   # Everything before the stop is already in place; carry on past every error
-  # and list the ones that are not just "already exists".
+  # and list the ones that are not a re-run of what is already there.
   admin_exec pg_restore -U supabase_admin -d postgres --no-owner \
     --use-list /tmp/restore.list --schema-only /tmp/schema.dump > "$WORKDIR/restore-diagnosis.log" 2>&1 || true
-  grep -E 'ERROR:' "$WORKDIR/restore-diagnosis.log" | grep -v 'already exists' \
+  grep -E 'ERROR:' "$WORKDIR/restore-diagnosis.log" | grep -vE 'already exists|multiple primary keys' \
     | sed -E 's/^.*ERROR: +//' | sort | uniq -c | sort -rn > "$WORKDIR/restore-errors.txt" || true
   log "every other error in a full restore ($(wc -l < "$WORKDIR/restore-errors.txt") distinct):"
   head -60 "$WORKDIR/restore-errors.txt" >&2
