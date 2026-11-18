@@ -14,9 +14,10 @@
  *  1. A device-wide size record in localStorage that could only move down, so
  *     one crowded table shrank that game type on that phone for good and no
  *     deploy could undo it (mobileAvatarEnlargement.ts, retired keys deleted).
- *  2. A nine-seat rail size that started from its own last value and could
- *     only be multiplied down, so one wide portrait shrank the whole ring for
- *     the session (opponentAvatarLayout.ts, now recomputed from the base).
+ *  2. A nine-seat rail size shared by the whole ring that started from its
+ *     own last value and could only be multiplied down, so one wide portrait
+ *     shrank every chair for the session (opponentAvatarLayout.ts: every
+ *     chair now takes the base; a too-wide portrait limits only its own).
  *  3. Size decided by whatever was on the felt at the first fit (wagers, the
  *     puck's current chair, a tabled hand) and then locked for the session.
  *
@@ -33,10 +34,9 @@
  * 481-640px portrait. SeatSlot.css carries the same number. */
 export const SIX_SEAT_PHONE_BUST_SCALE = 2.1;
 
-/** The nine-seat phone rail bust every portrait takes when the seated art
- * allows it (`--sp-nine-rail-bust` fallback in SeatSlot.css). The rail may go
- * below it only for a portrait too wide for the rail, and only while that
- * portrait is seated. */
+/** The nine-seat phone rail bust every chair takes (the `--sp-seat-rail-bust`
+ * fallback in SeatSlot.css). Only a portrait whose own art is too wide for the
+ * rail beside the board goes below it, on its own chair, while it is seated. */
 export const NINE_SEAT_PHONE_RAIL_BUST = 1.7;
 
 /** Rendered `.seat__avatar-img` heights, in layout px at the 600px phone

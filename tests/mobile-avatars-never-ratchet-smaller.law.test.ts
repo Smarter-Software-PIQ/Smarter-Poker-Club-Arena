@@ -11,8 +11,9 @@
  *  1. `sp-mobile-avatar-size-v1/v2/v3`: a per-device size record that could
  *     only move DOWN and capped every later table of that game type. One
  *     crowded table shrank that phone for good; no deploy could undo it.
- *  2. `--sp-nine-rail-bust` started from its own last value and could only be
- *     multiplied down: one wide portrait shrank the full ring all session.
+ *  2. `--sp-nine-rail-bust` (one value for the whole ring) started from its
+ *     own last value and could only be multiplied down: one wide portrait
+ *     shrank every full-ring chair all session.
  *  3. The locked size was chosen from the moment the table opened: wagers on
  *     the felt, the chair the puck sat beside, a tabled hand.
  *  4. Six-max tournaments had no profile at all.
@@ -73,7 +74,7 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     );
     expect(phone, 'the six/nine phone bust rule is where the law reads it').not.toBeNull();
     expect(Number(phone![1])).toBe(SIX_SEAT_PHONE_BUST_SCALE);
-    const rail = css.match(/--sp-bust-scale: var\(--sp-nine-rail-bust, ([\d.]+)\);/g) ?? [];
+    const rail = css.match(/--sp-bust-scale: var\(--sp-seat-rail-bust, ([\d.]+)\);/g) ?? [];
     expect(rail.length, 'one nine-seat rail fallback').toBe(1);
     expect(Number(rail[0].match(/([\d.]+)\);$/)![1])).toBe(NINE_SEAT_PHONE_RAIL_BUST);
   });
@@ -93,15 +94,18 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     expect(localStorage.getItem('sp-unrelated')).toBe('kept');
   });
 
-  it('the nine-seat rail is recomputed from the approved base, and grows back', () => {
+  it('one wide portrait limits only its own chair, and the rail never ratchets', () => {
     const source = read(RAIL);
-    // The rail asks how far it may grow, not only how far it must shrink...
+    // No ring-wide rail value is written any more...
+    expect(source).not.toMatch(/setProperty\(\s*'--sp-nine-rail-bust'/);
+    expect(read(CSS)).not.toMatch(/--sp-nine-rail-bust/);
+    // ...each chair asks how far it may grow, not only how far it must shrink,
     expect(source).toMatch(
       /fixedRailBustLimit\(\s*paint,\s*rect\.left \+ rect\.width \/ 2,\s*viewport,\s*board,\s*2 \* ratio,\s*Infinity\s*\)/
     );
     // ...is clamped to the approved base, and clears itself back to it.
-    expect(source).toMatch(/Math\.min\(\s*NINE_SEAT_PHONE_RAIL_BUST,/);
-    expect(source).toMatch(/scaler\.style\.removeProperty\('--sp-nine-rail-bust'\)/);
+    expect(source).toMatch(/Math\.min\(NINE_SEAT_PHONE_RAIL_BUST, Math\.floor\(current \* limit \* 1000\) \/ 1000\)/);
+    expect(source).toMatch(/wrapper\.style\.removeProperty\('--sp-seat-rail-bust'\)/);
     expect(source).not.toMatch(/\|\| 1\.7;/);
     // The geometry: room to spare answers a factor above 1 once uncapped.
     const viewport = { left: 0, top: 0, width: 600, height: 1200 };

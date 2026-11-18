@@ -1592,49 +1592,49 @@ export function createOpponentAvatarLayout(
     }
     // Set the baseline before cards, captions or wagers are allocated. The
     // later paint fitter only enlarges, so it cannot repair a wide native bust.
-    // Dan 2026-11-18: the rail size is a function of the portraits seated NOW.
-    // It used to start from its own last value and could only ever be
-    // multiplied down, so one wide portrait shrank the whole ring for the rest
-    // of the session and nothing ever grew it back. It is now computed from
-    // the approved base every pass: as large as the widest seated portrait
-    // allows, never larger than the base, and back at the base when that
-    // portrait leaves. tests/mobile-avatars-never-ratchet-smaller.law.test.ts
+    // Dan 2026-11-18: one wide portrait used to shrink the WHOLE ring, and for
+    // the rest of the session: the shared `--sp-nine-rail-bust` started from
+    // its own last value and could only ever be multiplied down. Now the ring
+    // always takes the approved base, and a portrait whose own art is too
+    // wide for the rail beside the board takes the largest size that clears,
+    // on its own chair only. Each chair's value is a function of its own
+    // portrait and the table geometry, so it is the same on every pass,
+    // nobody else's size moves when a player comes or goes, and it returns to
+    // the base when that player leaves the chair.
+    // tests/mobile-avatars-never-ratchet-smaller.law.test.ts
     if (fixedPhoneRail()) {
       const board = scaler.querySelector('.community-area')?.getBoundingClientRect();
       if (board && board.width) {
         const viewport = page.getBoundingClientRect(),
           ratio = tableRenderScale(scaler);
-        const current =
-          parseFloat(scaler.style.getPropertyValue('--sp-nine-rail-bust')) ||
-          NINE_SEAT_PHONE_RAIL_BUST;
-        let limit = Infinity;
         for (const image of all) {
+          const wrapper = image.closest<HTMLElement>('.seat-wrapper');
           const own = resolved.get(source(image));
-          if (!own || !image.closest('.seat__avatar--bust')) continue;
+          if (!wrapper || !own || !image.closest('.seat__avatar--bust')) continue;
+          const current =
+            parseFloat(wrapper.style.getPropertyValue('--sp-seat-rail-bust')) ||
+            NINE_SEAT_PHONE_RAIL_BUST;
           const rect = restingAvatarBox(image, ratio);
           const paint = subject(image, own, true, rect);
-          limit = Math.min(
-            limit,
-            fixedRailBustLimit(
-              paint,
-              rect.left + rect.width / 2,
-              viewport,
-              board,
-              2 * ratio,
-              Infinity
-            )
+          const limit = fixedRailBustLimit(
+            paint,
+            rect.left + rect.width / 2,
+            viewport,
+            board,
+            2 * ratio,
+            Infinity
           );
-        }
-        if (Number.isFinite(limit) && limit > 0) {
-          const next = Math.min(
-            NINE_SEAT_PHONE_RAIL_BUST,
-            Math.floor(current * limit * 1000) / 1000
-          );
+          if (!Number.isFinite(limit) || limit <= 0) continue;
+          const next = Math.min(NINE_SEAT_PHONE_RAIL_BUST, Math.floor(current * limit * 1000) / 1000);
           if (next >= NINE_SEAT_PHONE_RAIL_BUST - 0.0005)
-            scaler.style.removeProperty('--sp-nine-rail-bust');
+            wrapper.style.removeProperty('--sp-seat-rail-bust');
           else if (Math.abs(next - current) >= 0.001)
-            scaler.style.setProperty('--sp-nine-rail-bust', String(next));
+            wrapper.style.setProperty('--sp-seat-rail-bust', String(next));
         }
+        // A chair left empty keeps no portrait's size.
+        for (const wrapper of scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))
+          if (!wrapper.querySelector('.seat:not(.seat--empty) .seat__avatar--bust'))
+            wrapper.style.removeProperty('--sp-seat-rail-bust');
       }
     }
     if (state.lowerLaneKey && !state.locked) {

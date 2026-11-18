@@ -705,6 +705,11 @@ export const createMobilePaintState = (): MobilePaintState => ({
  * so sub-pixel drift between passes cannot count as a new layout. The
  * viewport height is deliberately absent: an iOS toolbar or keyboard
  * changes it without moving a chair, and it used to refit the whole table. */
+/** Each nine-seat phone chair's own rail size, where its art set one. */
+const seatRailBusts = (scaler: HTMLElement) =>
+  Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))
+    .map((wrapper) => wrapper.style.getPropertyValue('--sp-seat-rail-bust'))
+    .join(',');
 export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
   const round = (value: number) => Math.round(value * 10) / 10;
   const roundProperty = (value: string) => {
@@ -719,7 +724,7 @@ export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
     round(scaler.getBoundingClientRect().top),
     Math.round(tableRenderScale(scaler) * 1000) / 1000,
     page.dataset.seats,
-    scaler.style.getPropertyValue('--sp-nine-rail-bust'),
+    seatRailBusts(scaler),
     page.dataset.killEnabled,
     page.dataset.holeCardCount,
     page.dataset.hero,
@@ -925,7 +930,7 @@ export function enlargeMobileAvatars(
   // never searches again. Only a different ring (another capacity, or the
   // viewer sitting down or standing up) starts over.
   const railBust =
-    page.dataset.seats === '9' ? scaler.style.getPropertyValue('--sp-nine-rail-bust') : '';
+    page.dataset.seats === '9' ? seatRailBusts(scaler) : '';
   if (state && (state.locked?.ring !== profileKey || state.locked.railBust !== railBust))
     state.locked = { ring: profileKey, railBust };
   const lock = state?.locked;
