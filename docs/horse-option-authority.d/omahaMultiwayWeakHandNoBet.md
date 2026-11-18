@@ -1,6 +1,6 @@
 # omahaMultiwayWeakHandNoBet: authority for the live switch
 
-Lane brief of 2026-11-16 (PLO4/PLO5 defence, part 2). Evidence NOT MET: evaluation NOT RUN.
+Lane brief of 2026-11-16 (PLO4/PLO5 defence, part 2). Evidence NOT MET: league INCONCLUSIVE (2026-11-18), real-decision replay judged worse.
 
 ## What it does
 
@@ -10,7 +10,7 @@ The PLO6 lane's plo6NoMultiwayBetWithWeakMadeHand (not on main at 963b71f394b; r
 
 Precedence: an owner-ruled check (`omahaOopCheckRules`, after the older owner-ruled checks), kept outermost by `omahaOwnerRuledFinal`; one receipt per decision.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayWeakHandNoBet docs/horse-option-authority.d/omahaMultiwayWeakHandNoBet.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261118001216 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayWeakHandNoBet docs/horse-option-authority.d/omahaMultiwayWeakHandNoBet.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261118013329 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on
 
@@ -26,13 +26,14 @@ omaha_multiway_weak_hand_bet_checked; its `_vetoed` twin omaha_multiway_weak_han
 
 ## Tests
 
-HorseOmahaMultiwayDiscipline.test.ts (16 seeds per class: top pair three-way on the turn checks at every seed with the population prior; opponents measured to fold to almost every bet keep the bet by the comparison; heads-up, a nut straight draw and two pair unchanged; byte-identical when unset or false; admitted by the receipt validator).
+HorseOmahaMultiwayDiscipline.test.ts (16 seeds per class: top pair three-way on the turn checks at every seed with the population prior; opponents measured to fold to almost every bet keep the bet by the comparison; heads-up, a nut straight draw and two pair unchanged; byte-identical when unset or false; admitted by the receipt validator). An opponent already all in has no fold equity and is not a party to the bet's chips (2026-11-18, review N2 of #11211): six tests in the same file, four of which fail on the code before the fix.
 
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts in HorseDataLedger.ts), tests: MET.
 - Option unset or false: decisions identical to the base (decision digest pin, plo4/plo5 x dev/horse, 150 pairs, seed 5560001, the strategy-head method: unset and all three options false both give b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1, 446 / 2714 / 428 / 2844 decisions, 0 illegal, 0 fallbacks; archive defense2-20261116/fp-\*.json).
-- Value, continuation, reach: NOT MET. Evaluation NOT RUN (league cards plo4/plo5 `_omaha_multiway_weak_hand_no_bet` dealt, not run).
+- Value, continuation, reach: NOT MET. League evaluation 2026-11-18 on build bac65c601d2 (the all-in fold-equity fix; archive plo-handoff-review-01a1cbbd/wave2c-013U37 (PASS-BAR.md declared before the runs; eval/RESULTS.md; REPLAY.md)), 32 live options on in both arms, 3 seeds x 4,000 mirrored pairs per cell, bb/100 A-B pooled +/- SE: PLO4 field -0.51 +/- 0.47 (13 divergent pairs: INCONCLUSIVE), PLO4 Horse-only +0.12 +/- 0.36 EQUAL, PLO5 field +0.93 +/- 1.53 EQUAL, PLO5 Horse-only +0.28 +/- 0.50 EQUAL; 0 illegal, truncated or fallbacks. Verdict INCONCLUSIVE (not FAIL: stays switchable, default OFF).
+- Real decisions (REPLAY.md): on 833 real multiway turn/river nothing-to-call Horse decisions (audit2 PLO5 and Nov 16) the option only turns bets into checks: 58 changed, 0 judged fixed, 26 judged newly wrong of 43 judged by the audit's rules (judge -365 bb). Recommendation: do not switch on.
 
 ## Limits
 
