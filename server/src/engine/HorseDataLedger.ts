@@ -1066,7 +1066,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'vpipFloorLimpOnly',
-    'Owner 2026-11-17 14:34 Chicago, finding F-10 ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops."): on every floored cash table judged over more than ten dealt hands (the Classic rolling window; an Action or Madness table judged at ten hands keeps the floor as it is) (VPIP_FLOOR_LIMP_ONLY_VARIANTS lists every variant with its measured selection: every unraised fold under the line on PLO5, PLO6 and the unmeasured variants, the priced ones on PLO4 and hold-em; a Horse the limp cannot keep over the floor is evicted and replaced, owner 2026-11-17 18:38; never tournaments, All-In-Or-Fold, bomb pots or Lightning) the table VPIP floor no longer widens a bar (vpipFloorMul), calls a raise (vpipFloorCallDown) or swaps an intent (omahaVpipFloorByLimp): every decision is the unfloored one. Its one action: a Horse whose own judged VPIP is under its line (the floor plus VPIP_LIMP_BUFFER_HANDS hands of the judged window, 18 of 30 on a 50% table) turns a preflop fold in a pot nobody has raised, at a price of at most the big blind and less than its stack, into the limp or the small blind completion always (selection every) or, on the priced variants, when the expected value of that limp (equity against the ranges still to act from reads or the measured population envelope, flop realization by position, the chance of a raise behind and the hand own EV when raised) is at least minus the price times the share of the three-hand buffer still needed (owner 15:30: priced, never blanket); no straddled hand; no judged sample yet means no action. Default off (opt-in) until its declared evaluation passes.',
+    'Owner 2026-11-17 14:34 Chicago, finding F-10 ("Table VPIP must limp fold for a bb. smh nothing else if there vpip drops."): on every floored cash table except one known to be judged at ten hands or fewer (an Action or Madness table keeps the floor as it is, on purpose, receipt vpip_floor_limp_only_not_governed_ten_hand_window; a table whose window cannot be read is governed, and a variant key the table does not list is governed with every) (VPIP_FLOOR_LIMP_ONLY_VARIANTS lists every variant with its measured selection: every unraised fold under the line on PLO5, PLO6 and the unmeasured variants, the priced ones on PLO4 and hold-em; a Horse the limp cannot keep over the floor is evicted and replaced, owner 2026-11-17 18:38; never tournaments, All-In-Or-Fold, bomb pots or Lightning) the table VPIP floor no longer widens a bar (vpipFloorMul), calls a raise (vpipFloorCallDown) or swaps an intent (omahaVpipFloorByLimp): every decision is the unfloored one. Its one action: a Horse whose own judged VPIP is under its line (the floor plus VPIP_LIMP_BUFFER_HANDS hands of the judged window, 18 of 30 on a 50% table) turns a preflop fold in a pot nobody has raised, at a price of at most the big blind and less than its stack, into the limp or the small blind completion always (selection every) or, on the priced variants, when the expected value of that limp (equity against the ranges still to act from reads or the measured population envelope, flop realization by position, the chance of a raise behind and the hand own EV when raised) is at least minus the price times the share of the three-hand buffer still needed (owner 15:30: priced, never blanket); no straddled hand; no judged sample yet means no action. Default off (opt-in) until its declared evaluation passes.',
     'V94'
   ),
   flag(
@@ -3265,6 +3265,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'vpip_floor_limp_only_seen',
     'HorseLogic (VPIP floor, vpipFloorLimpOnly)',
     'a floored cash decision under vpipFloorLimpOnly: the floor widened no bar and may only limp (owner 2026-11-17)',
+    'VPIP',
+    'vpip_floor'
+  ),
+  receipt(
+    'vpip_floor_limp_only_not_governed_ten_hand_window',
+    'HorseLogic (VPIP floor, vpipFloorLimpOnly)',
+    'vpipFloorLimpOnly is on and this floored cash table is known to be judged the Action / Madness way (the sitting at ten hands or fewer, no warning): left on the old floor on purpose (unmeasured mode, integrator decision 2026-11-18), so the floor may still widen and call here',
     'VPIP',
     'vpip_floor'
   ),

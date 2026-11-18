@@ -5078,6 +5078,7 @@ function omahaVpipLimpTarget(
   gs: {
     vpipFloor?: number;
     vpipWindowHands?: number;
+    ownVpip?: unknown;
     gameVariant?: string;
     allInOrFold?: boolean;
     bombPot?: boolean;
@@ -5389,8 +5390,9 @@ export type VpipFloorLimpOnlySelection = 'every' | 'priced';
  *   plo8, flo8, flh, short_deck, pineapple: 'every'. Not measured; the limp's
  *     pricing model (vpipFloorLimpEv) was not checked on hi-lo, fixed-limit,
  *     short-deck or pineapple, so the ruling is applied as written.
- * The table's floor is read from the table (gs.vpipFloor), never assumed, and
- * only a table judged the Classic way is governed (vpipFloorLimpOnlyApplies).
+ * The table's floor is read from the table (gs.vpipFloor), never assumed. A
+ * variant key not listed here is governed with 'every'. The one exception is
+ * a table known to be judged at ten hands (vpipFloorLimpOnlyTenHandTable).
  * HorseVpipFloorLimpOnly.test.ts pins this table.
  */
 export const VPIP_FLOOR_LIMP_ONLY_VARIANTS: Readonly<
@@ -5408,25 +5410,32 @@ export const VPIP_FLOOR_LIMP_ONLY_VARIANTS: Readonly<
 };
 
 /** The selection vpipFloorLimpOnly uses on this variant; undefined = not governed. */
-export function vpipFloorLimpOnlySelectionFor(
-  gameVariant: unknown
-): VpipFloorLimpOnlySelection | undefined {
+export function vpipFloorLimpOnlySelectionFor(gameVariant: unknown): VpipFloorLimpOnlySelection {
   const key = String(gameVariant ?? '').toLowerCase();
-  return Object.prototype.hasOwnProperty.call(VPIP_FLOOR_LIMP_ONLY_VARIANTS, key)
-    ? VPIP_FLOOR_LIMP_ONLY_VARIANTS[key]
-    : undefined;
+  // A variant key the table does not list (an alias such as pineapple_holdem,
+  // a variant added later, or none at all) is governed all the same, by the
+  // ruling as written ('every'): no floored table is left on the old floor
+  // because of how its variant is spelled.
+  return (
+    (Object.prototype.hasOwnProperty.call(VPIP_FLOOR_LIMP_ONLY_VARIANTS, key)
+      ? VPIP_FLOOR_LIMP_ONLY_VARIANTS[key]
+      : undefined) ?? 'every'
+  );
 }
 
-/** True when vpipFloorLimpOnly governs this decision's floor. */
-export function vpipFloorLimpOnlyApplies(
-  gs: {
-    vpipFloor?: number;
-    vpipWindowHands?: number;
-    gameVariant?: string;
-    allInOrFold?: boolean;
-    bombPot?: boolean;
-    publicMemoryDomain?: { speed?: string } | null;
-  },
+interface VpipFloorLimpOnlyScopeState {
+  vpipFloor?: number;
+  vpipWindowHands?: number;
+  ownVpip?: unknown;
+  gameVariant?: string;
+  allInOrFold?: boolean;
+  bombPot?: boolean;
+  publicMemoryDomain?: { speed?: string } | null;
+}
+
+/** The option is on and this is a floored cash decision it could govern (before the window is asked). */
+function vpipFloorLimpOnlyInScope(
+  gs: VpipFloorLimpOnlyScopeState,
   opts: HorseDecideOpts,
   tournament: boolean
 ): boolean {
@@ -5436,13 +5445,54 @@ export function vpipFloorLimpOnlyApplies(
     gs.allInOrFold !== true &&
     gs.bombPot !== true &&
     gs.publicMemoryDomain?.speed !== 'lightning' &&
-    Number(gs.vpipFloor ?? 0) > 0 &&
-    // Only the Classic way of judging (a rolling window of more than ten dealt
-    // hands, with a warning and a grace): that is what was measured. An Action
-    // or Madness table judges the sitting at ten hands and evicts on the spot,
-    // on floors up to 70; limping tops out near 51%, so there today's floor stands.
-    validVpipWindow(gs.vpipWindowHands) > VPIP_JUDGED_OVER_HANDS &&
-    vpipFloorLimpOnlySelectionFor(gs.gameVariant) !== undefined
+    Number(gs.vpipFloor ?? 0) > 0
+  );
+}
+
+/**
+ * True on the one kind of floored cash table vpipFloorLimpOnly leaves on
+ * today's floor ON PURPOSE (integrator decision 2026-11-18): a table KNOWN to
+ * be judged the Action / Madness way, the sitting at ten hands or fewer with
+ * no warning and no grace, on floors up to 70. That mode was not measured and
+ * limping tops out near 51% VPIP, so every Horse would be stood up every
+ * sitting; there the floor still widens and still calls. Receipt
+ * vpip_floor_limp_only_not_governed_ten_hand_window marks every such decision.
+ *
+ * "Known" means the window came with the Horse's own judged row: the engine
+ * hands the POLICY window (fn_nit_status) together with ownVpip, and without
+ * a row it falls back to tables.maintain_hands or a default of ten
+ * (ServerTableEngineBase.horseVpipDecisionInputs), which says nothing about
+ * how the table is judged. So with no row, or a window that is not a positive
+ * whole number, the table is governed: the floor then takes no action at all
+ * (no judged sample), which is the owner's ruling failing safe. A Classic
+ * table can therefore never fall back to the old floor on a failed read.
+ */
+export function vpipFloorLimpOnlyTenHandTable(
+  gs: VpipFloorLimpOnlyScopeState,
+  opts: HorseDecideOpts,
+  tournament: boolean
+): boolean {
+  if (!vpipFloorLimpOnlyInScope(gs, opts, tournament)) return false;
+  const w = gs.vpipWindowHands;
+  return (
+    gs.ownVpip !== undefined &&
+    gs.ownVpip !== null &&
+    Number.isInteger(w) &&
+    Number(w) > 0 &&
+    Number(w) <= VPIP_JUDGED_OVER_HANDS
+  );
+}
+
+/** True when vpipFloorLimpOnly governs this decision's floor: every floored
+ *  cash decision in scope except a table known to be judged at ten hands. */
+export function vpipFloorLimpOnlyApplies(
+  gs: VpipFloorLimpOnlyScopeState,
+  opts: HorseDecideOpts,
+  tournament: boolean
+): boolean {
+  return (
+    vpipFloorLimpOnlyInScope(gs, opts, tournament) &&
+    !vpipFloorLimpOnlyTenHandTable(gs, opts, tournament)
   );
 }
 
@@ -13200,10 +13250,15 @@ export class HorseLogic {
           noteFire('vpip_floor');
           noteFire('vpip_floor_limp_only_seen');
         }
-      } else if (limpTargetVf !== undefined) applyFloorMul(vpipFloorMul(gs, limpTargetVf));
-      else {
-        const vfMul = vpipFloorMul(gs);
-        applyFloorMul(vfMul);
+      } else {
+        // vpipFloorLimpOnly on, at a table known to be judged at ten hands: today's floor, on purpose.
+        if (telemetryOn(opts) && vpipFloorLimpOnlyTenHandTable(gs, opts, isTournamentMode(gs)))
+          noteFire('vpip_floor_limp_only_not_governed_ten_hand_window');
+        if (limpTargetVf !== undefined) applyFloorMul(vpipFloorMul(gs, limpTargetVf));
+        else {
+          const vfMul = vpipFloorMul(gs);
+          applyFloorMul(vfMul);
+        }
       }
     }
 
