@@ -505,6 +505,26 @@ export interface HandCompletionOpts {
    * the table longer.
    */
   allInShowdown?: boolean;
+  /**
+   * ── THE SWEEP IS HELD ONLY WHEN IT PLAYS (hand delay, 2026-11-18) ──
+   *
+   * Dan 2026-11-17: "hand delay" is the time to finish one hand, move the
+   * button and start the next; under a second, two at most. Measured on
+   * production the same day, 97% of tournament showdowns and 70% of cash
+   * showdowns had NO chips committed on the river (an all-in run out, or a
+   * river checked through). TablePage ships the pot after BETS_SWEEP_MS only
+   * when chips are still on the felt (`betsStillOnFelt` in the pot_win
+   * handler); with nothing to sweep it ships at once. The hold still counted
+   * the 500 ms sweep on every hand, so on those showdowns the felt sat for
+   * half a second after the muck with no animation playing.
+   *
+   * `false` means the engine has proved there is nothing on the felt to
+   * sweep (ShowdownSweepOwed.ts: a single-board showdown whose river
+   * carried no committed chips). Default true: anything unproven keeps the
+   * sweep, so the hold can only ever be at least as long as the felt.
+   * Ignored on a run-it-multiple hand, whose reveal timeline owns the ship.
+   */
+  betsSweepOwed?: boolean;
 }
 
 /**
@@ -556,7 +576,9 @@ export function handCompletionHoldMs(opts: HandCompletionOpts): number {
   // multi-winner case because the arithmetic only ever described one.
   const groups = Math.max(1, Math.floor(opts.potAwardGroups ?? 1));
   const staggerTail = (groups - 1) * H.POT_AWARD_STAGGER_MS;
-  const push = H.BETS_SWEEP_MS + H.POT_PUSH_MS + H.MUCK_MS + H.POST_PUSH_PAUSE_MS + staggerTail;
+  const multiBoard = (opts.ritRuns ?? 0) >= 2;
+  const sweep = opts.betsSweepOwed === false && !multiBoard ? 0 : H.BETS_SWEEP_MS;
+  const push = sweep + H.POT_PUSH_MS + H.MUCK_MS + H.POST_PUSH_PAUSE_MS + staggerTail;
 
   if (!opts.wentToShowdown) return push;
 

@@ -75,7 +75,25 @@ describe('the next deal follows the pushed pot', () => {
         expect(hold).toBeGreaterThanOrEqual(
           floatLandsAt({ wentToShowdown, allIn, betsOnFelt: false })
         );
+        // Hand delay 2026-11-18: when the engine has proved nothing is on the
+        // felt (betsSweepOwed: false), the hold drops the unplayed sweep and
+        // the float again lands exactly one muck before the table is free -
+        // never earlier (the animation always plays), never later.
+        const noSweepHold = handCompletionHoldMs({
+          wentToShowdown,
+          showdownHands: 2,
+          allInShowdown: allIn,
+          betsSweepOwed: false,
+        });
+        expect(noSweepHold - floatLandsAt({ wentToShowdown, allIn, betsOnFelt: false })).toBe(
+          H.MUCK_MS
+        );
       }
     }
+  });
+
+  it('a run-it-multiple hand keeps its sweep whatever the flag says', () => {
+    const rit = { wentToShowdown: true, showdownHands: 2, ritRuns: 2, ritStreetsPerRun: 3 };
+    expect(handCompletionHoldMs({ ...rit, betsSweepOwed: false })).toBe(handCompletionHoldMs(rit));
   });
 });
