@@ -14,7 +14,6 @@ import './MemberIntegrityReview.css';
 export function MemberIntegrityReview({
   clubId,
   userId,
-  revision,
   onChanged,
 }: {
   clubId: string;
@@ -76,7 +75,7 @@ export function MemberIntegrityReview({
       alive.current = false;
       controller.current?.abort();
     };
-  }, [load, revision]);
+  }, [load]);
   const release = async (caseId: string) => {
     const requestScope = scope;
     const reason = reasons[caseId]?.trim();

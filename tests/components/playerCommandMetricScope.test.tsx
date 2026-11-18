@@ -192,6 +192,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -545,8 +546,8 @@ it.each(['player', 'agent'])(
 );
 
 it('shows agent, full downline and combined activity separately and refreshes all three together', async () => {
-  let extra = 0;
-  state.getMemberDetail.mockImplementation(async (_club, _member, range) => ({
+  const renderErrors = vi.spyOn(console, 'error');
+  const detailFor = (range: { from: string | null; to: string | null }, extra: number) => ({
     ...memberDetail,
     identity: { ...memberDetail.identity, role: 'agent' },
     range: { ...range, is_overall: false },
@@ -564,7 +565,8 @@ it('shows agent, full downline and combined activity separately and refreshes al
         total_fee_text: '53.25',
       },
     },
-  }));
+  });
+  state.getMemberDetail.mockImplementation(async (_club, _member, range) => detailFor(range, 0));
   render(<MemberManagementPage />);
   const own = await screen.findByRole('region', { name: 'Agent Only' });
   const downline = screen.getByRole('region', { name: 'Downline Only' });
@@ -577,22 +579,40 @@ it('shows agent, full downline and combined activity separately and refreshes al
     'aria-pressed',
     'true'
   );
-  extra = 5;
-  // The broadcast starts an asynchronous authority/metrics read. Flush that
-  // interaction before asserting the current regions, including any remount.
-  await act(async () => {
-    state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId });
-  });
-  await within(screen.getByRole('region', { name: 'Agent + Downline' })).findByText(
-    '605',
-    {},
-    // The broadcast re-reads authority then metrics; a loaded CI runner can
-    // take past the 1 s default (Client Unit Tests shard 3, run 44184728823).
-    { timeout: 5000 }
+  const [club, member, range] = state.getMemberDetail.mock.calls[0];
+  let deliver!: () => void;
+  state.getMemberDetail.mockImplementationOnce(
+    (_club, _member, requestedRange) =>
+      new Promise((resolve) => {
+        deliver = () => resolve(detailFor(requestedRange, 5));
+      })
   );
-  expect(
-    within(screen.getByRole('region', { name: 'Downline Only' })).getByText('405')
-  ).toBeVisible();
+  act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
+  await waitFor(() => {
+    expect(state.getMemberDetail).toHaveBeenCalledTimes(2);
+    expect(state.getMemberDetail).toHaveBeenLastCalledWith(
+      club,
+      member,
+      range,
+      expect.any(AbortSignal)
+    );
+  });
+  expect(deliver).toBeTypeOf('function');
+  await act(async () => deliver());
+  await waitFor(() => {
+    expect(
+      within(screen.getByRole('region', { name: 'Agent Only' })).getByText('200')
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('region', { name: 'Downline Only' })).getByText('405')
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('region', { name: 'Agent + Downline' })).getByText('605')
+    ).toBeVisible();
+  });
+  expect(renderErrors.mock.calls.some(([message]) => String(message).includes('same key'))).toBe(
+    false
+  );
 });
 
 it('keeps a player-only account on individual activity', async () => {

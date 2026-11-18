@@ -22,7 +22,7 @@ export function MemberPromoPlayThrough({
   revision: number;
   canOverride?: boolean;
 }) {
-  const { members, reload } = useMemberPromoPlayThrough(clubId, [userId], revision);
+  const { members, requested, loading, reload } = useMemberPromoPlayThrough(clubId, [userId]);
   const summary = members?.[userId];
   const [reason, setReason] = useState('');
   const [pending, setPending] = useState(false);
@@ -84,17 +84,31 @@ export function MemberPromoPlayThrough({
   const activePromo = summary ? hasActivePromoPlayThrough(summary) : false;
   const showReview = canOverride && summary?.integrity_review_available === true;
   const showOverride = canOverride && summary?.override_available === true;
-  if (summary && !hasPromoRestrictionDetails(summary) && !showReview && !showOverride) return null;
+  if (!requested)
+    return (
+      <button type="button" className="promo-progress__retry" onClick={() => void reload()}>
+        Check Promo Progress
+      </button>
+    );
   return (
     <section
       className="mm-card mm-stats"
       aria-label={activePromo || !summary ? 'Promo Play Through' : 'Chip Restrictions'}
     >
       {(activePromo || !summary) && <h2 className="mm-card__title">Promo Play Through</h2>}
-      {members === undefined ? (
+      {loading ? (
         <p role="status">Reading Promo Progress...</p>
       ) : summary ? (
-        <PromoPlayThroughFigure summary={summary} />
+        <>
+          {hasPromoRestrictionDetails(summary) ? (
+            <PromoPlayThroughFigure summary={summary} />
+          ) : (
+            <p role="status">No Current Promo Restrictions.</p>
+          )}
+          <button className="promo-progress__retry" type="button" onClick={() => void reload()}>
+            Refresh Promo Progress
+          </button>
+        </>
       ) : (
         <p role="status">
           Promo Progress Is Unavailable.{' '}

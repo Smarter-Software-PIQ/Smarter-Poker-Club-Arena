@@ -252,7 +252,7 @@ test('databaseWindows are held to the same rule; certified recovery stays exempt
 test('an engine window on the exact owner notice waiver (2026-11-17) books without playerNoticeAt', () => {
   const now = at('2026-11-17T17:30:00Z');
   const waived = {
-    id: 'waived',
+    id: '2026-11-17-owner-no-notice-engine-2330z',
     ownerOrder: `Synthetic order. ${OWNER_NOTICE_WAIVER_INSTRUCTION}`,
     ownerNoticeWaiver: OWNER_NOTICE_WAIVER_INSTRUCTION,
     notBefore: '2026-11-17T18:40:00Z',
@@ -277,6 +277,10 @@ test('an engine window on the exact owner notice waiver (2026-11-17) books witho
     assert.equal(refused.length, 1);
     assert.match(refused[0], /ownerNoticeWaiver is accepted only/);
   }
+  // The waiver is spent on its one window: any other id is refused even before the expiry (N1).
+  const second = bookingRecordViolations(doc(), doc([{ ...waived, id: 'waived-second' }]), now);
+  assert.equal(second.length, 1);
+  assert.match(second[0], /spent on window 2026-11-17-owner-no-notice-engine-2330z/);
   // Without the field a missing notice is refused exactly as before.
   const { ownerNoticeWaiver, ...plain } = waived;
   assert.match(bookingRecordViolations(doc(), doc([plain]), now)[0], /playerNoticeAt is required/);
