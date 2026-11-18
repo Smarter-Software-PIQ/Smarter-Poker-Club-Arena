@@ -147,6 +147,7 @@ export async function readMyPromoPlayThrough(
     (requestSignal) =>
       supabase
         .rpc('fn_ca_my_promo_play_through', { p_club_id: clubUUID })
+        .setHeader('x-ca-promo-request', 'explicit')
         .abortSignal(requestSignal),
     { signal }
   );
@@ -169,6 +170,7 @@ export async function readMemberPromoPlayThrough(
           p_club_id: clubId,
           p_user_ids: [...userIds],
         })
+        .setHeader('x-ca-promo-request', 'explicit')
         .abortSignal(requestSignal),
     { signal }
   );
