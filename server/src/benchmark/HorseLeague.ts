@@ -2192,6 +2192,22 @@ export const OMAHA_PRICED_FAMILY_CARDS: ReadonlyArray<
   ['omahaBigBetCallsArePriced', 'big_bet_calls_are_priced'],
   ['omahaUnderpairMultiwayIsPriced', 'underpair_multiway_is_priced'],
 ];
+/** The priced sites of the 2026-11-18 option batch (option, card name). */
+export const OMAHA_PRICED_SITE_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaFlopBetIsPriced', 'flop_bet_is_priced'],
+  ['omahaMadeHandBetIsPriced', 'made_hand_bet_is_priced'],
+  ['omahaTurnSetSizeIsPriced', 'turn_set_size_is_priced'],
+  ['omahaBlockerBluffIsPriced', 'blocker_bluff_is_priced'],
+];
+/** The priced2 inputs of the 2026-11-18 option batch (option, card name); both arms carry every family on. */
+export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaPricedPriorsByOpponentKind', 'priced_priors_by_opponent_kind'],
+  ['omahaRaiseEvCountsLossesOnce', 'raise_ev_counts_losses_once'],
+];
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
 ) as HorseDecideOpts;
@@ -2859,6 +2875,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, omahaPricedMix: true },
       b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
     },
+    // 2026-11-18 option batch: the priced sites (HorseOmahaPricedSites, each default OFF; two off-only)
+    // act where the rule they replace is on, so both arms carry the live options and arm A adds one.
+    ...OMAHA_PRICED_SITE_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+    })),
+    // 2026-11-18 option batch: the priced2 inputs (omahaPricedPriorsByOpponentKind default OFF,
+    // omahaRaiseEvCountsLossesOnce off-only) change only what the priced families compute, so both arms
+    // carry every priced family on (OMAHA_PRICED_FAMILIES_ON) and arm A adds the one input.
+    ...OMAHA_PRICED_INPUT_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
+    })),
   ]),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with

@@ -45,3 +45,5 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
 **OFF-ONLY** (ploFailed in HorseOptionSwitch.ts): the replay on audited real decisions FAILED its bar (sites-013U37/REPLAY-20261118.md: pooled 3 fixed, 5 newly wrong; judge +159 bb, n 14). Do not switch on.
+
+League cards (HorseLeague.ts, declared, not run): plo4_omaha_made_hand_bet_is_priced and plo5_omaha_made_hand_bet_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaMadeHandBetIsPriced.

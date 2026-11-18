@@ -45,3 +45,5 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
 Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 action change, sizes unjudged), no league yet; do not switch on.**
+
+League cards (HorseLeague.ts, declared, not run): plo4_omaha_turn_set_size_is_priced and plo5_omaha_turn_set_size_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaTurnSetSizeIsPriced.

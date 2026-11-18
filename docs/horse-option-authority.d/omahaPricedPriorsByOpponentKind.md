@@ -22,3 +22,5 @@ Measurements behind the kind priors: archive plo-handoff-review-01a1cbbd/priced2
 - Overall: NOT MET. Do not switch on.
 
 Non-blocking review notes carried: riverCall is not re-centred on the kind (HorseOmahaPricedRules.ts omahaPricedRead, a posterior read as is); the priced code holds the pseudo-opportunity count (6) once: OMAHA_PRICED_SHRINK is OMAHA_PRICED_READ_PRIOR_STRENGTH; it equals HorseOpponentExploit.EXPLOIT_PRIOR_STRENGTH, which HorseOmahaPricedMode does not import (it stays a leaf module).
+
+League cards (HorseLeague.ts, declared, not run): plo4_omaha_priced_priors_by_opponent_kind and plo5_omaha_priced_priors_by_opponent_kind: the live options of 2026-11-16 in both arms, arm A adds omahaPricedPriorsByOpponentKind (both arms carry every priced family on).

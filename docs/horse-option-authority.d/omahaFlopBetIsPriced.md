@@ -52,3 +52,5 @@ Changes in the batch (reviews R3 of sites 27852aafb40):
 - N3: OMAHA_PRICED_SITES_FLOP_RAISE_SHARE (0.15) is measured on PERSONS raising Horse flop bets; no Horse measurement of a raise of a flop bet exists, so the same share is used for every opponent kind (a stated limit).
 - N4: the FAIL replay above ran on the old sampler and the 0.42 prior, before N2 and the kind prior.
 - N5: evCheck values the check at the Horse's realized equity and ignores a bet by him after the check-back (stated limit).
+
+League cards (HorseLeague.ts, declared, not run): plo4_omaha_flop_bet_is_priced and plo5_omaha_flop_bet_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaFlopBetIsPriced.
