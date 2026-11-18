@@ -1,6 +1,6 @@
 # omahaReadIsByStreetAndTexture: authority for the live switch
 
-Built 2026-11-18 by the PLO Strategy lane (readwire). Evidence NOT MET: the declared league evaluation has not been recorded in this file yet. This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
+Built 2026-11-18 by the PLO Strategy lane (readwire). Evidence NOT MET: the declared league evaluation is EQUAL (below), not WIN; the replay bar is MET. This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
 
 ## What it does
 
@@ -45,11 +45,20 @@ omaha_read_by_street_carried (a postflop decision with the mode on in which a li
 
 ## Evaluation
 
-Declared before it ran: archive `readwire-013U37/PASS-BAR.md`. Result: not yet recorded here.
+Declared before it ran: archive `readwire-013U37/PASS-BAR.md` (written 2026-11-18T02:05Z; launched 03:07:52Z on commit fb900cf162f in a detached worktree, `RUN-SOURCE.txt`; engine file sha256 unchanged at the end). Arm A: the 2026-11-16 production list (activation-0106z/ON-LIST.txt) + omahaTurnRiverRaiseIsPriced + this option; arm B the same without it. runMatchup, duplicate deals, six seats, 100 big blinds, cash, EQUITY_GOVERNOR=off; the league learns the street read in each session's sandbox (`HorseLeagueStreetRead.ts`). Result (archive `readwire-013U37/RESULT.json`, per-session lines in `eval/`):
+
+| cell | table                                          | sessions x pairs | A minus B, bb/100 | SE   | z     | divergent pairs |
+| ---- | ---------------------------------------------- | ---------------- | ----------------- | ---- | ----- | --------------- |
+| F4   | PLO4, one Horse vs five human-calibrated seats | 400 x 500        | +0.09             | 0.21 | +0.42 | 77              |
+| F5   | PLO5, the same                                 | 400 x 500        | -0.54             | 0.30 | -1.84 | 90              |
+| M4   | PLO4, Horse-only, production styles            | 100 x 500        | +0.15             | 0.18 | +0.85 | 634             |
+| M5   | PLO5, the same                                 | 100 x 500        | +0.28             | 0.13 | +2.14 | 281             |
+
+Pooled: human-like -0.23 bb/100, SE 0.18; Horse-only +0.22 bb/100, SE 0.11. Validity: illegal actions 0, brain exception fallbacks 0, truncated streets 0, every session present once, no inert cell. Verdict under the bar: EQUAL (no cell or pooled figure below -2 SE; the human-like pooled figure is not above +2 SE). The option is not off-only. The human-like field does not change its play by street, so the read rarely moves a label there (fewer than 1 in 2,000 pairs diverge); the replay against the measured winner's reconstructed read is the closer test of what the option is for.
 
 ## Evidence rows
 
-Value row: NOT MET (league evaluation not recorded). Reach row: NOT MET in production (migration 20261117175407 not installed; no stored street record exists).
+Value row: NOT MET (league EQUAL, not WIN). Replay row: MET (above). Reach row: NOT MET in production (migration 20261117175407 not installed; no stored street record exists). Recommendation of the lane at this evidence: do not switch on until the stored street record exists in production and a measurement against live opponents is possible; it is byte-identical until then.
 
 ## Limits
 
