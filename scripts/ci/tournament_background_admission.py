@@ -8,6 +8,7 @@ from tournament_background_admission_fixture import install_sources, open_siblin
 
 
 MIGRATION = 'supabase/migrations/20261118015251_keep_background_tournament_registration_from_queueing_behind.sql'
+ACTIVATION = 'supabase/migrations/20261118024212_activate_scoped_funded_tournament_attendance.sql'
 TOURNAMENT = '46462000-0000-4000-8000-000000000003'
 ENTRANT = '46468100-0000-4000-8000-000000000005'
 CLUB = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
@@ -65,7 +66,14 @@ def qualify_background_admission(e, database, target_input):
             if old_rc:
                 raise RuntimeError('Original funded request failed once its wallet became available: '+old_error)
 
-        e.sql(case,file=e.root/MIGRATION,label='install-background-registration-guard')
+        rc, _, error = e.sql(case,file=e.root/ACTIVATION,label='refuse-activation-without-private-preparation',check=False)
+        if rc != 3 or 'funded_mtt_admission_preparation_changed' not in error:
+            raise RuntimeError('A missing private dependency must refuse activation with its original source intact')
+        e.sql(case,file=e.root/MIGRATION,label='install-inactive-private-preparation')
+        _, original, _ = sql("SELECT md5(pg_get_functiondef('public.fn_register_horse_for_tournament_to_target(uuid,uuid,boolean,bigint)'::regprocedure));",'prepared-original-public-door')
+        if original.strip() != 'afb54a9112c4fe974ef3b398d8dbe748':
+            raise RuntimeError('Private preparation changed serving paid admission')
+        e.sql(case,file=e.root/ACTIVATION,label='install-background-registration-guard')
         before=e.snapshot(case,'original-busy-before')
         holder.stdin.write(f"BEGIN; DO $$BEGIN PERFORM 1 FROM public.club_members WHERE "
                            f"club_id='{CLUB}' AND user_id='{ENTRANT}' FOR UPDATE; END$$; "
