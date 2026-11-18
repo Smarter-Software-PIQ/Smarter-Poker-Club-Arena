@@ -1,0 +1,340 @@
+
+ DEV  v4.1.11 /Users/smarter.poker/Documents/club-arena
+
+ ❯ tests/unit/theDeployDocsNameTheLiveRoute.test.ts (7 tests | 1 failed) 7961ms
+     ✓ .agent/architecture/deploy-paths.md gives no dead instruction 2ms
+     ✓ AGENTS-PUSH-GUIDE.md gives no dead instruction 1ms
+     ✓ .env.example gives no dead instruction 1ms
+     ✓ deploy-paths.md names the origin the bundle actually goes to 1ms
+     ✓ AGENTS-PUSH-GUIDE.md describes publishing as the pipeline, not as a command 1ms
+     ✓ AGENTS-PUSH-GUIDE.md says how to confirm a publish landed 0ms
+     × no markdown or shell file in this repo gives a dead deploy instruction 7954ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/theDeployDocsNameTheLiveRoute.test.ts > the deploy documents name the live route > no markdown or shell file in this repo gives a dead deploy instruction
+AssertionError: these files tell an agent to publish through the World Hub. Next.js serves public/ BEFORE the rewrite, so following them SHADOWS the live bundle rather than duplicating it - production freezes on the committed copy while the publisher publishes where nobody reads:
+  .cowork-trees/agent-horseseat/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/agent-horseseat/MIGRATION-CHANGELOG.md
+    line 1419: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 12994: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13082: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/agent-horseseat/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/agent-horseseat/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/agent-horseseat/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/claude-clusterdoor/MIGRATION-CHANGELOG.md
+    line 1419: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 12994: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13082: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/claude-clusterdoor/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/claude-clusterdoor/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-clusterdoor/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/claude-feederseed/MIGRATION-CHANGELOG.md
+    line 1419: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 12994: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13082: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/claude-feederseed/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/claude-feederseed/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-feederseed/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/claude-gamelist/MIGRATION-CHANGELOG.md
+    line 1419: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 12994: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13082: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/claude-gamelist/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/claude-gamelist/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gamelist/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/claude-gate5/MIGRATION-CHANGELOG.md
+    line 1419: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 12994: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13082: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/claude-gate5/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/claude-gate5/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-gate5/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/claude-mustmove/MIGRATION-CHANGELOG.md
+    line 1419: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 12994: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13082: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/claude-mustmove/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/claude-mustmove/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-mustmove/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/claude-tablestakes/MIGRATION-CHANGELOG.md
+    line 1449: names the publisher by a name it lost on 2026-09-03 -> misconfig), nothing serves from it; the real pipeline (build-for-world-hub ->
+    line 13024: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 13112: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/claude-tablestakes/docs/HANDOFF-2026-09-02-push-publish-cost-audit.md
+    line 93: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                                                                                                                       | THE publisher: `publish-needed` -> `client-tests` (4 shards) + `build-and-store` -> `sync-to-world-hub`. Tip-of-main resolution, chain step, `actions: write`. Critical path.                                                                                                                                                                                                                                                                     | yes (heavily)              | yes, with the law test green       |
+    line 272: names the publisher by a name it lost on 2026-09-03 -> | `.github/workflows/build-for-world-hub.yml`                       | modified         | publisher         | shards; tip-of-main; target sha everywhere; `actions: write`; chain step; comments | live run #3017 + law                                                    | main (#2599, #2619)                 |
+    line 455: names the publisher by a name it lost on 2026-09-03 -> **Phase 3 - Finish the offload.** Files: `.github/workflows/ci.yml` (jobs `changes`, `source_windows`, `stub_gate`, `verdict`, `build` [Live Production E2E], `post-deploy-check` [CSS Beat E2E]), `.github/workflows/build-for-world-hub.yml` (`client-tests`, `build-and-store`). Steps: (a) `git checkout agent/cowork-audit/offload-rest && git merge origin/main && git stash pop` (resolve script hunks by taking main); (b) push in two PRs - first the small guards + Live Production E2E, then CSS Beat E2E, then a third for the publisher; (c) for each, confirm via API that the job ran on `estate-ci-*` and passed, and measure duration vs hosted; (d) keep the tool audit list in `provision-ci-box.sh` in sync with any new binary a routed job calls. Tests: the four publisher pins + law. Completion: no `runs-on: ubuntu-latest` left in `ci.yml` except `auto-revert` (disabled), publisher shards on the box, hosted minutes/day measurably near the watchdog/autopilot floor. Risks: box saturation (watch load and swap; raise cap or add a second box), browser-flow flakes (revert that job only).
+    line 499: names the publisher by a name it lost on 2026-09-03 -> 3. `perf(ci): publish shards and build on the estate runner` - `build-for-world-hub.yml` `client-tests` + `build-and-store`; tests: `no-commit-left-behind`, `deployAndPublishAreHonest`; verify #-run on box and publish latency.
+  .cowork-trees/claude-tablestakes/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/claude-tablestakes/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/.agent/AGENT-OPERATIONS-GUIDE.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "chore(club-arena): sync build <sha>"
+  .cowork-trees/mobile/.agent/architecture/deploy-paths.md
+    line 77: tells the reader to deploy this bundle with the Vercel CLI -> | How to deploy        | Manual: `vercel --prod` from repo root, or trigger from Vercel dashboard                                      |
+    line 105: tells the reader to deploy this bundle with the Vercel CLI -> │      → THIS repo, src/, then `vercel --prod`
+  .cowork-trees/mobile/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/mobile/.agent/workflows/build-verify.md
+    line 90: tells the reader to deploy this bundle with the Vercel CLI -> vercel --prod --yes
+  .cowork-trees/mobile/.agent/workflows/completion-protocol.md
+    line 42: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "chore: update Club Arena — [describe changes]"
+    line 82: names a sync script deleted from main -> 5. ATOMIC DEPLOY     — cd ~/Documents/Smarter-Poker-World-Hub && bash scripts/sync-club-arena.sh "message"
+    line 106: names a sync script deleted from main -> - [ ] Atomic build run via `scripts/sync-club-arena.sh` in the World Hub
+  .cowork-trees/mobile/.agent/workflows/deploy-troubleshooting.md
+    line 19: names a sync script deleted from main -> 2. Sync dist → World Hub  (scripts/sync-club-arena.sh)
+    line 61: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "your commit message here"
+  .cowork-trees/mobile/.agent/workflows/deploy.md
+    line 37: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh /Users/smarter.poker/Documents/Smarter-Poker-World-Hub
+    line 71: names a sync script deleted from main -> - `scripts/sync-to-world-hub.sh` — One-command build + sync script
+  .cowork-trees/mobile/.github/scripts/publish-watchdog.sh
+    line 30: names the publisher by a name it lost on 2026-09-03 -> PUBLISH_WORKFLOW="${PUBLISH_WORKFLOW:-build-for-world-hub.yml}"
+  .cowork-trees/mobile/.memory/context/001-architecture.md
+    line 20: names a sync script deleted from main -> 3. bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/.memory/context/004-vercel-deploy.md
+    line 22: names a sync script deleted from main -> 2. Sync to World Hub: `bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub`
+  .cowork-trees/mobile/CLAUDE.md
+    line 48: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "feat(ca): <describe what changed>"
+    line 57: names the publisher by a name it lost on 2026-09-03 -> 3. A GitHub Action (`build-for-world-hub.yml`) will automatically build and sync it to the World Hub repository, which triggers the Vercel deploy.
+    line 65: names a build script deleted from main -> - `WH scripts/build-club-arena.sh` → `sync-club-arena.sh`
+    line 66: names a sync script deleted from main -> - `CA scripts/sync-to-world-hub.sh` → `sync-club-arena.sh`
+  .cowork-trees/mobile/MIGRATION-CHANGELOG.md
+    line 10812: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 10900: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/mobile/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/mobile/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/mobile/scripts/post-migration-cleanup-deploy.sh
+    line 80: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh "$WORLD_HUB_ROOT"
+  .cowork-trees/mobile/scripts/sync-to-world-hub.sh
+    line 3: names a sync script deleted from main -> # DEPRECATED — use ~/Documents/Smarter-Poker-World-Hub/scripts/sync-club-arena.sh
+    line 15: names a sync script deleted from main -> CANONICAL="$WH/scripts/sync-club-arena.sh"
+  .cowork-trees/swarm-db-perf/.agent/AGENT-OPERATIONS-GUIDE.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "chore(club-arena): sync build <sha>"
+  .cowork-trees/swarm-db-perf/.agent/architecture/deploy-paths.md
+    line 77: tells the reader to deploy this bundle with the Vercel CLI -> | How to deploy        | Manual: `vercel --prod` from repo root, or trigger from Vercel dashboard                                      |
+    line 105: tells the reader to deploy this bundle with the Vercel CLI -> │      → THIS repo, src/, then `vercel --prod`
+  .cowork-trees/swarm-db-perf/.agent/handoffs/apply-and-push-2026-08-20.sh
+    line 86: names the publisher by a name it lost on 2026-09-03 -> say "Pushed. The build-for-world-hub GitHub Action will sync the build to the World Hub and Vercel will deploy it."
+  .cowork-trees/swarm-db-perf/.agent/workflows/build-verify.md
+    line 90: tells the reader to deploy this bundle with the Vercel CLI -> vercel --prod --yes
+  .cowork-trees/swarm-db-perf/.agent/workflows/completion-protocol.md
+    line 42: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "chore: update Club Arena — [describe changes]"
+    line 82: names a sync script deleted from main -> 5. ATOMIC DEPLOY     — cd ~/Documents/Smarter-Poker-World-Hub && bash scripts/sync-club-arena.sh "message"
+    line 106: names a sync script deleted from main -> - [ ] Atomic build run via `scripts/sync-club-arena.sh` in the World Hub
+  .cowork-trees/swarm-db-perf/.agent/workflows/deploy-troubleshooting.md
+    line 19: names a sync script deleted from main -> 2. Sync dist → World Hub  (scripts/sync-club-arena.sh)
+    line 61: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "your commit message here"
+  .cowork-trees/swarm-db-perf/.agent/workflows/deploy.md
+    line 37: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh /Users/smarter.poker/Documents/Smarter-Poker-World-Hub
+    line 71: names a sync script deleted from main -> - `scripts/sync-to-world-hub.sh` — One-command build + sync script
+  .cowork-trees/swarm-db-perf/.github/scripts/publish-watchdog.sh
+    line 30: names the publisher by a name it lost on 2026-09-03 -> PUBLISH_WORKFLOW="${PUBLISH_WORKFLOW:-build-for-world-hub.yml}"
+  .cowork-trees/swarm-db-perf/.memory/context/001-architecture.md
+    line 20: names a sync script deleted from main -> 3. bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/.memory/context/004-vercel-deploy.md
+    line 22: names a sync script deleted from main -> 2. Sync to World Hub: `bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub`
+  .cowork-trees/swarm-db-perf/CLAUDE.md
+    line 48: names a sync script deleted from main -> bash scripts/sync-club-arena.sh "feat(ca): <describe what changed>"
+    line 57: names the publisher by a name it lost on 2026-09-03 -> 3. A GitHub Action (`build-for-world-hub.yml`) will automatically build and sync it to the World Hub repository, which triggers the Vercel deploy.
+    line 65: names a build script deleted from main -> - `WH scripts/build-club-arena.sh` → `sync-club-arena.sh`
+    line 66: names a sync script deleted from main -> - `CA scripts/sync-to-world-hub.sh` → `sync-club-arena.sh`
+  .cowork-trees/swarm-db-perf/MIGRATION-CHANGELOG.md
+    line 11578: names a sync script deleted from main -> | U5.4  | **done**    | single entrypoint `scripts/sync-club-arena.sh`                                                                                                                                                                                                                                                                                                                                                                                                       |
+    line 11666: names the publisher by a name it lost on 2026-09-03 -> Deploy note: the CA repo's build-for-world-hub GitHub Action auto-syncs
+  .cowork-trees/swarm-db-perf/docs/_archive/MASTER_BLUEPRINT.md
+    line 538: tells the reader to deploy this bundle with the Vercel CLI -> 5. **VERCEL --PROD** — All deployments via production flag
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/ANIMATION-FIX-HANDOFF.md
+    line 184: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-2026-04-17.md
+    line 82: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-NOGO2-CLIENT.md
+    line 118: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-1.3-PR-C-D.md
+    line 123: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/ANTIGRAVITY-HANDOFF-PHASE-2-BATCH-A.md
+    line 189: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/CHAT-HANDOFF-2026-04-17.md
+    line 389: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/docs/_archive/handoffs/HANDOFF-2026-04-16.md
+    line 56: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh ~/Documents/Smarter-Poker-World-Hub
+  .cowork-trees/swarm-db-perf/scripts/post-migration-cleanup-deploy.sh
+    line 80: names a sync script deleted from main -> bash scripts/sync-to-world-hub.sh "$WORLD_HUB_ROOT"
+  .cowork-trees/swarm-db-perf/scripts/sync-to-world-hub.sh
+    line 3: names a sync script deleted from main -> # DEPRECATED — use ~/Documents/Smarter-Poker-World-Hub/scripts/sync-club-arena.sh
+    line 15: names a sync script deleted from main -> CANONICAL="$WH/scripts/sync-club-arena.sh"
+  .cowork-trees/swarm-db-perf/wait_for_pr_and_deploy.sh
+    line 16: names the publisher by a name it lost on 2026-09-03 -> LATEST_RUN=$(gh run list --workflow build-for-world-hub.yml --branch main --json databaseId,status --jq '.[0].databaseId'): expected [ …(122) ] to have a length of +0 but got 122
+
+- Expected
++ Received
+
+- 0
++ 122
+
+ ❯ tests/unit/theDeployDocsNameTheLiveRoute.test.ts:228:7
+    226|         'while the publisher publishes where nobody reads:\n  ' +
+    227|         offenders.join('\n  ')
+    228|     ).toHaveLength(0);
+       |       ^
+    229|   });
+    230| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  01:10:46
+   Duration  8.98s (transform 40ms, setup 286ms, import 12ms, tests 7.96s, environment 573ms)
+
+ FAIL  Tests failed. Watching for file changes...
+       press h to show help, press q to quit

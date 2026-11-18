@@ -1,0 +1,19 @@
+0 verbose cli /Users/smarter.poker/.nvm/versions/node/v24.15.0/bin/node /Users/smarter.poker/.nvm/versions/node/v24.15.0/bin/npm
+1 info using npm@11.12.1
+2 info using node@v24.15.0
+3 silly config load:file:/Users/smarter.poker/.nvm/versions/node/v24.15.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/smarter.poker/.gemini/antigravity/worktrees/***/swarm-fl-engineer-v2-abe4fbab/.npmrc
+5 silly config load:file:/Users/smarter.poker/.npmrc
+6 silly config load:file:/Users/smarter.poker/.nvm/versions/node/v24.15.0/etc/npmrc
+7 verbose title npm test server/src/engine/HorseFixedLimitWagerRead.test.ts
+8 verbose argv "test" "--" "server/src/engine/HorseFixedLimitWagerRead.test.ts"
+9 verbose logfile logs-max:10 dir:/Users/smarter.poker/.gemini/antigravity/worktrees/***/swarm-fl-engineer-v2-abe4fbab/.npm-cache/_logs/2026-11-18T16_42_25_606Z-
+10 verbose logfile /Users/smarter.poker/.gemini/antigravity/worktrees/***/swarm-fl-engineer-v2-abe4fbab/.npm-cache/_logs/2026-11-18T16_42_25_606Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 verbose cwd /Users/smarter.poker/.gemini/antigravity/worktrees/***/swarm-fl-engineer-v2-abe4fbab
+14 verbose os Darwin 25.5.0
+15 verbose node v24.15.0
+16 verbose npm  v11.12.1
+17 verbose exit 127
+18 verbose code 127
