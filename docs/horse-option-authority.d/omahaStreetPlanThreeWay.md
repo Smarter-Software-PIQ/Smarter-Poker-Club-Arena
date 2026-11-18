@@ -27,7 +27,7 @@ HorseOmahaStreetPlanLayers.test.ts; HorseOmahaStrategyPrecedence.test.ts and its
 - Option unset: decisions identical to the base (decision digest, plo4/plo5 x dev/horse, 150 pairs, seed 5560001: b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1).
 - Value, continuation, reach: NOT MET. The constants are unmeasured (population priors and owner-order readings, not fitted); evaluation NOT RUN. The league cards are declared, not run.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaStreetPlanThreeWay docs/horse-option-authority.d/omahaStreetPlanThreeWay.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261118001216 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaStreetPlanThreeWay docs/horse-option-authority.d/omahaStreetPlanThreeWay.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261118013329 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## Limits
 
