@@ -166,6 +166,39 @@ describe('each site answers by the priced comparison', () => {
     expect(fires()).toContain('omaha_priced_site_blocker_bluff_unpriced_kept');
     expect(seen.size).toBeGreaterThan(0);
   });
+  it('river blocker bluff: a size the check beats is refused even when a smaller size beats the check (review R3 B1)', () => {
+    // A river spot where the small bet is priced above the check and the pot-sized bet below it: the old
+    // admission ("some bet beats the check") let the unpriced pot-sized bet through; the placed amount decides.
+    enableBrainTelemetry();
+    const st = pricedSpot({ hole: 'Qd9c6c5d2s', board: '9dQsJh7h2c', bet: 0, heroBetTurn: true });
+    const read = omahaPricedSitesReadOf(st.gs as never, ON);
+    const pot = (st.gs as { pot: number }).pot;
+    const small = Math.round(pot * 0.1);
+    const v = omahaPricedBet(st.hero as never, st.gs as never, read)!;
+    const vSmall = omahaPricedBet(st.hero as never, st.gs as never, read, small)!;
+    const vPot = omahaPricedBet(st.hero as never, st.gs as never, read, pot)!;
+    // the spot has both answers
+    expect(v.best !== null && v.best.ev > v.evCheck).toBe(true);
+    expect(vSmall.proposed!.ev).toBeGreaterThan(vSmall.evCheck);
+    expect(vPot.proposed!.ev).toBeLessThan(vPot.evCheck);
+    drainFires();
+    expect(
+      omahaPricedSitesBlockerBluffAdmits(st.hero as never, st.gs as never, ON, {
+        action: 'bet',
+        amount: small,
+        thinkTime: 0,
+      })
+    ).toBe(true);
+    expect(fires()).toContain('omaha_priced_site_blocker_bluff_admitted');
+    expect(
+      omahaPricedSitesBlockerBluffAdmits(st.hero as never, st.gs as never, ON, {
+        action: 'bet',
+        amount: pot,
+        thinkTime: 0,
+      })
+    ).toBe(false);
+    expect(fires()).toContain('omaha_priced_site_blocker_bluff_refused');
+  });
   it('a spot it cannot price keeps the engine decision and says so', () => {
     enableBrainTelemetry();
     const st = pricedSpot(TURN_OOP);
