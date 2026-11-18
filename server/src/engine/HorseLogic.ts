@@ -746,6 +746,7 @@ import {
   omahaReraiseByPositionCell,
   omahaReraiseByPositionSpot,
   omahaReraisedFlopContinueCell,
+  omahaReraisedPositionOf,
   RERAISE_RATE_FALLBACK,
   type OmahaReraisedCallPricing,
 } from './HorseOmahaOopReraisedPot.js';
@@ -7718,6 +7719,15 @@ function omahaReraisedCallCellJudges(
 }
 
 /**
+ * The WooWoo-audit re-raised-pot repairs of 2026-11-17 (F-02 position, the
+ * priced flop continue, the priced V53 call) are cash-table work: a tournament
+ * hand and a Lightning hand keep what they had.
+ */
+function omahaReraisedLaneUntouched(gs: HorseGameStateV2): boolean {
+  return isTournamentMode(gs) || gs.publicMemoryDomain?.speed === 'lightning';
+}
+
+/**
  * The inputs of the priced call of a re-raise (HorseOmahaOopReraisedPot,
  * omahaReraisedCallPriced): the re-raiser's measured re-raise rate (his
  * posterior mean, the game's population mean when nothing is known of him),
@@ -7727,25 +7737,28 @@ function omahaReraisedCallCellJudges(
  * the engine's own call deduction for rake. Undefined on any failure (the cell
  * then keeps what the class cell keeps and leaves the rest standing).
  *
- * POSITION AND OTHERS IN: A KNOWN CONSERVATIVE DEVIATION FROM THE FIT. Hero is
- * in position here when he acts after the re-raiser and after every player
- * already in for the price; a raiser of this hand still to act behind hero
- * (the opener facing the re-raise) does not move hero out of position and is
- * charged as another player in the pot (othersIn, 0.35). This is the code of
- * the source lane's rule file (HorseOmahaPreflopReraiseDefenceRule at
- * 33a4f1f2b45), NOT the definition the constants were fitted under (review of
- * 10150eebe3e, B1; the fit's scripts step1/fit1.py and step1.py): the fit's
- * position is "after the re-raiser" and nothing else; its 0.35 was measured on
- * players who had CALLED the current raise; an opener still to act was one of
- * its "still to act" players, whose measured terms are -0.09 (SE 0.13) in
- * position and 0.01 (SE 0.15) out of position, that is, no charge. So that
- * opener is charged 0.35 the fit did not measure for him, and a caller behind
- * hero costs position the fit did not take. Both lower the realization: fewer
- * class folds are overturned than the fit would support, and because the
- * pricing can only overturn a fold, no decision is worse than main for it (23
- * of 236 recorded fires have the opener-behind layout; none is overturned).
- * Left as is on purpose; the definition is handed to the follow-up lane, to be
- * changed only with a rerun of the counterfactual.
+ * POSITION FOLLOWS THE FIT; OTHERS IN KEEPS ONE KNOWN CONSERVATIVE DEVIATION
+ * (finding F-02, 2026-11-18; PLO4/PLO5 cash). The realization constants were
+ * fitted (lane 01BNteGZ, step1/step1.py and fit1.py) with position = hero acts
+ * after the re-raiser, nothing else; the other-player charge (0.35) = players
+ * who have CALLED the current price; every live player still to act (an opener
+ * facing the re-raise included) at no charge: -0.09 (SE 0.13) in position,
+ * 0.01 (SE 0.15) out of position.
+ *   - Position: the price reads the fit's term
+ *     (omahaReraisedPositionOf.ipVsRaiser). A player already in for the price
+ *     who acts behind hero no longer costs the position the fit did not take;
+ *     he is charged 0.35 as another player in, as the fit measured him.
+ *   - Others in: a raiser of this hand still to act is STILL charged 0.35,
+ *     which the fit did not measure for him. Removing that charge was built
+ *     and run on the 627 journaled decisions on 2026-11-18 and failed its
+ *     declared bar: 30 class folds became calls, 7 of them folds the audit
+ *     judged correct (18 close, 5 questionable, none wrong). The charge stays
+ *     until a realization fitted with that player in it exists. Direction:
+ *     lower realization, fewer overturned folds, never worse than main.
+ * The wrapper's SCOPE (is this call examined at all) is a different question
+ * and reads the wider seat order (omahaReraisedPositionOf.inPosition: last to
+ * act among everyone who will see the flop). Tournaments and Lightning keep
+ * the reading they had.
  */
 export function omahaReraisedCallPricingOf(
   player: SeatPlayer,
@@ -7796,9 +7809,28 @@ export function omahaReraisedCallPricingOf(
         .map((a) => a.seat)
     );
     const mine = postflopOrder(player.seat, gs.dealerSeat);
-    const inPosition =
-      mine > postflopOrder(raiser.seat, gs.dealerSeat) &&
-      !live.some((p) => inFor(p) && !p.is_all_in && postflopOrder(p.seat, gs.dealerSeat) > mine);
+    // F-02: one seat-order derivation. The wrapper's scope reads
+    // position.inPosition; the price reads position.ipVsRaiser (the fit's term).
+    const position = omahaReraisedPositionOf(
+      player.seat,
+      raiser.seat,
+      gs.dealerSeat,
+      live.map((p) => ({
+        seat: p.seat,
+        bet: Number.isFinite(p.bet) ? (p.bet ?? 0) : 0,
+        allIn: p.is_all_in === true,
+        raisedPreflop: raisedBefore.has(p.seat),
+      })),
+      price,
+      bb
+    );
+    // Tournaments and Lightning keep the reading the priced call had before
+    // F-02 (after the re-raiser and after every player already in for the price).
+    const priorReading = omahaReraisedLaneUntouched(gs);
+    const inPosition = priorReading
+      ? mine > postflopOrder(raiser.seat, gs.dealerSeat) &&
+        !live.some((p) => inFor(p) && !p.is_all_in && postflopOrder(p.seat, gs.dealerSeat) > mine)
+      : position.ipVsRaiser;
     const call = Math.min(toCall, stack);
     const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
     const exact = horseCallDeductionFraction(player, gs, call);
@@ -7810,6 +7842,7 @@ export function omahaReraisedCallPricingOf(
       opportunities,
       rateSource,
       inPosition,
+      ...(priorReading ? {} : { position }),
       othersIn: live.filter((p) => inFor(p) || raisedBefore.has(p.seat)).length,
       raiserBehind: Number.isFinite(raiser.stack) ? Math.max(0, raiser.stack) : 0,
       rakeFraction,
@@ -7932,18 +7965,29 @@ function omahaOopReraisedPotStrongRange(
     // is out of position against the pot (Hand #59728571).
     const bb = gs.bigBlind || 1;
     const myOrder = postflopOrder(player.seat, gs.dealerSeat);
+    const priced = omahaReraisedCallPricingOf(player, gs, opts, raiser, toCall, stack, heroBet);
+    // F-02 (PLO4/PLO5): the scope's position is the seat order against the
+    // players who will see the flop (the re-raiser, players in for the price,
+    // earlier raisers still to act), from the same derivation the priced call
+    // uses. A caller who has not yet answered the re-raise no longer makes
+    // hero out of position.
+    // PLO6, tournaments and Lightning keep the earlier reading, as does a call
+    // whose pricing inputs could not be built.
+    const sixCard = String(gs.gameVariant ?? '').toLowerCase() === 'plo6';
     const outOfPosition =
-      myOrder < postflopOrder(raiser.seat, gs.dealerSeat) ||
-      (gs.players ?? []).some(
-        (p) =>
-          p.seat !== player.seat &&
-          p.seat !== raiser.seat &&
-          !p.is_folded &&
-          !p.is_sitting_out &&
-          !p.is_all_in &&
-          (p.bet ?? 0) > bb + 0.005 &&
-          postflopOrder(p.seat, gs.dealerSeat) > myOrder
-      );
+      !sixCard && priced?.position
+        ? !priced.position.inPosition
+        : myOrder < postflopOrder(raiser.seat, gs.dealerSeat) ||
+          (gs.players ?? []).some(
+            (p) =>
+              p.seat !== player.seat &&
+              p.seat !== raiser.seat &&
+              !p.is_folded &&
+              !p.is_sitting_out &&
+              !p.is_all_in &&
+              (p.bet ?? 0) > bb + 0.005 &&
+              postflopOrder(p.seat, gs.dealerSeat) > myOrder
+          );
     let band: [number, number] | null = null;
     if (opts.mind !== false) {
       try {
@@ -7968,7 +8012,16 @@ function omahaOopReraisedPotStrongRange(
           a.seat === player.seat &&
           (a.action === 'call' || a.action === 'raise' || a.action === 'bet')
       );
-    const priced = omahaReraisedCallPricingOf(player, gs, opts, raiser, toCall, stack, heroBet);
+    const tele = telemetryOn(opts);
+    // The spot the old reading called out of position: in position against
+    // everyone who will see the flop, with a caller behind still to answer.
+    if (
+      tele &&
+      !sixCard &&
+      priced?.position?.inPosition === true &&
+      priced.position.callersPendingBehind > 0
+    )
+      noteFire('omaha_reraised_call_in_position_caller_pending_seen');
     const verdict = omahaOopReraisedCallCell({
       variant: String(gs.gameVariant ?? ''),
       hole: player.cards ?? [],
@@ -7991,7 +8044,6 @@ function omahaOopReraisedPotStrongRange(
     });
     if (verdict === null) return decision;
     omahaReraisedCallCellJudged = true;
-    const tele = telemetryOn(opts);
     if (
       tele &&
       verdict.pricing &&
@@ -8001,6 +8053,12 @@ function omahaOopReraisedPotStrongRange(
       // and EV(call) confirmed the fold (priced_fold) or overturned it
       // (priced_call). A call the class cell kept fires neither: its receipt
       // is omaha_oop_reraised_call_kept alone, as before the pricing existed.
+      // F-02: the position the price was computed with (an input, not a gate).
+      noteFire(
+        verdict.pricing.inPosition
+          ? 'omaha_reraised_call_priced_in_position'
+          : 'omaha_reraised_call_priced_out_of_position'
+      );
       if (verdict.fold) noteFire('omaha_reraised_call_priced_fold');
       else noteFire('omaha_reraised_call_priced_call');
       if (verdict.pricing.heroAlreadyRaised) {
