@@ -36,6 +36,6 @@ HorseOmahaPricedSites.test.ts (the fixture and its KK/QQ forms: priced, determin
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
-- Replay on audited real decisions (PASS-BAR section 1): NOT RUN.
+- Replay on audited real decisions (PASS-BAR section 1): FAIL (audit2 no read: 21 changed, 0 fixed, 3 newly wrong, judge -65.9 bb; winner read: 11 and 13 changed, 1 fixed, 0 newly wrong, +25.9 bb on 2 judged). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
 - League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
 - Overall: NOT MET. Do not switch on.

@@ -38,6 +38,6 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
-- Replay on audited real decisions (PASS-BAR section 1): NOT RUN.
+- Replay on audited real decisions (PASS-BAR section 1): NOT MET (1 change, judged wrong, -57.4 bb). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
 - League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
 - Overall: NOT MET. Do not switch on.
