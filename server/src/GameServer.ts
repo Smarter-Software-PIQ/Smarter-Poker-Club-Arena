@@ -6047,7 +6047,7 @@ export class GameServer {
       livenessQuery?.kind === 'tables' ? new Set(livenessQuery.tableIds) : undefined
     );
     const liveStalledTables = tableLiveness
-      .filter((t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000)
+      .filter((t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 60000)
       .map((t) => ({
         tableId: t.tableId,
         dealable: t.dealable,
@@ -6448,7 +6448,7 @@ export class GameServer {
       // by a restart while a human's could not. This counts tables actually
       // mid-hand, whoever is sitting at them, and is what the gate reads now.
       handsInFlightTotal: tableLiveness.filter(
-        (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress < 120_000
+        (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress < 60000
       ).length,
       /**
        * THE RESTART GATE (Dan 2026-09-01).
@@ -6667,7 +6667,7 @@ export class GameServer {
       tables: liveness,
     });
     const stalled = liveness.filter(
-      (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 120_000
+      (t) => t.dealable >= 2 && !t.paused && t.msSinceProgress > 60000
     );
     const pausedCount = liveness.filter((t) => t.paused).length;
     const failingAdmission = this.tournamentTablesFailingAdmission(now);
@@ -8990,7 +8990,8 @@ export class GameServer {
           if (shouldBeDealing && !parkedOnPurpose) zombieCandidates += 1;
           // A newly entered boot read is progress even after earlier admission
           // work made the engine object older than the zombie threshold.
-          if (shouldBeDealing && !parkedOnPurpose && zombieProgressAge(engine) > 180_000) {
+          const isSuperStalled = engine.msSinceProgress() > 600_000;
+          if (shouldBeDealing && !parkedOnPurpose && (isSuperStalled || zombieProgressAge(engine) > 180_000)) {
             zombieVerdicts.push([id, engine]);
           }
         }
@@ -9052,30 +9053,43 @@ export class GameServer {
          * a whole-fleet judgement belongs.
          */
         if (isFleetWideStall(zombieVerdicts.length, zombieCandidates)) {
-          this.fleetWideZombieRefusals += 1;
-          this.lastFleetWideZombieRefusalAtMs = Date.now();
-          reportError(
-            new Error(
-              'Fleet-wide stall: ' +
-                zombieVerdicts.length +
-                ' of ' +
-                zombieCandidates +
-                ' tables that should be dealing have made no progress for 180s. ' +
-                'That is one systemic pause, not ' +
-                zombieVerdicts.length +
-                ' broken tables - standing down rather than rebuilding the fleet. ' +
-                "Each table's own watchdog still answers for it."
-            ),
-            'GameServer.fleet_wide_zombie_refusal'
-          );
-        } else {
+          // Bypass: allow recovery of tables stalled > 600s
+          const superStalledTables = zombieVerdicts.filter(v => v[1].msSinceProgress() > 600_000);
+          if (superStalledTables.length === 0) {
+            this.fleetWideZombieRefusals += 1;
+            this.lastFleetWideZombieRefusalAtMs = Date.now();
+            reportError(
+              new Error(
+                'Fleet-wide stall: ' +
+                  zombieVerdicts.length +
+                  ' of ' +
+                  zombieCandidates +
+                  ' tables that should be dealing have made no progress for 180s. ' +
+                  'That is one systemic pause, not ' +
+                  zombieVerdicts.length +
+                  ' broken tables - standing down rather than rebuilding the fleet. ' +
+                  "Each table's own watchdog still answers for it."
+              ),
+              'GameServer.fleet_wide_zombie_refusal'
+            );
+            continue;
+          }
+          console.log(`[GameServer] Fleet-wide stall but ${superStalledTables.length} super-stalled tables found - proceeding with selective recovery.`);
+        }
+        
+        // Ensure only super-stalled tables are recovered if fleet-wide stall is detected
+        const tablesToRecover = isFleetWideStall(zombieVerdicts.length, zombieCandidates)
+          ? zombieVerdicts.filter(v => v[1].msSinceProgress() > 600_000)
+          : zombieVerdicts;
+          
+        {
           // A tournament's tables are judged as one stall: when the event's
           // previous rebuild returned to exactly this stall, none of its
           // tables is rebuilt again (repeatedRecoveryLedger.ts).
           const refusedTournaments = new Set<string>();
           const askedTournaments = new Set<string>();
           const sweepNow = Date.now();
-          for (const [id, engine] of zombieVerdicts) {
+          for (const [id, engine] of tablesToRecover) {
             if (!this.tournamentOwnedTables.has(id)) continue;
             const authority = engine.getEngineLeaseAuthority();
             const tournamentId = authority?.scope === 'tournament' ? authority.tournamentId : null;
@@ -9094,7 +9108,7 @@ export class GameServer {
             )
               refusedTournaments.add(tournamentId);
           }
-          for (const [id, engine] of zombieVerdicts) {
+          for (const [id, engine] of tablesToRecover) {
             if (refusedTournaments.size > 0 && this.tournamentOwnedTables.has(id)) {
               const authority = engine.getEngineLeaseAuthority();
               if (
