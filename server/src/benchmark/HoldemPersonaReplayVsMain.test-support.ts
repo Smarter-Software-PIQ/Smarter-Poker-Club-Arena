@@ -12,6 +12,13 @@
  * vitest setup); its `recordedFrom` names the commit. Only exports that exist
  * on main are used, so the same file runs on both sides. Not production code
  * and not imported by any.
+ *
+ * Re-recorded 2026-11-18 when the league began handing the brain production's
+ * decision state (LeagueDecisionState.ts): from main 795b37845fb with ONLY the
+ * league's own two files (HorseLeague.ts, LeagueDecisionState.ts) taken from
+ * that change, so the fixture is main's brain played by the new league and a
+ * branch still equals it only if its brain decides as main's does. A later
+ * change to the league itself is recorded the same way.
  */
 import { createHash } from 'node:crypto';
 import { playHand, leaguePairHandClock, type LeagueGameContext } from './HorseLeague.js';
