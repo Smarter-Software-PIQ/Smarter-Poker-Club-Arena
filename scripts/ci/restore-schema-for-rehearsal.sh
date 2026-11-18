@@ -109,7 +109,11 @@ if ! admin_exec pg_restore -U supabase_admin -d postgres --no-owner --exit-on-er
   exit 1
 fi
 docker cp "$ROOT/server/standby/standby-owners.sql" "$NAME:/tmp/owners.sql"
-admin_exec psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/owners.sql >> "$WORKDIR/restore.log" 2>&1
+if ! admin_exec psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/owners.sql > "$WORKDIR/owners.log" 2>&1; then
+  log "production's owners could not be set on the copy:"
+  grep -v '^NOTICE' "$WORKDIR/owners.log" | tail -20 >&2
+  exit 1
+fi
 psql_db -qc "DELETE FROM cron.job" >/dev/null
 tables=$(psql_db -Atc "select count(*) from pg_tables where schemaname='public'")
 functions=$(psql_db -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where nspname='public'")
