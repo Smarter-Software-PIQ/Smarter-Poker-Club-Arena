@@ -21,6 +21,7 @@ import {
   omahaSmallBetVerdict,
 } from './HorseOmahaSmallBet.js';
 import { OMAHA_SMALL_BET_READ_REFERENCE_SHARE } from './HorseOmahaSmallBetConstants.js';
+import { OPTION_SWITCH_NAMES } from './HorseOptionSwitch.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import {
@@ -233,5 +234,38 @@ describe('omahaSmallBetIsPriced on, through decide', () => {
       expect(on.fires.some((f) => f.startsWith('omaha_small_bet'))).toBe(true);
     }
     expect(changed).toBeGreaterThan(0);
+  });
+});
+
+describe('omahaSmallBetIsPriced receipts describe the final action (blockbet review N2)', () => {
+  // Proposed after the limped-pot floor and settled when decide has its final decision: a small-bet receipt fires
+  // only on the bet that was placed, and its _vetoed receipt fires when a later rule (the outermost owner rules)
+  // replaced it. Every other Omaha option on, so later rules and the floor (omahaBigBetIsPotShare) all run.
+  const EVERYTHING: HorseDecideOpts = Object.fromEntries(
+    OPTION_SWITCH_NAMES.filter((n) => n.startsWith('omaha')).map((n) => [n, true])
+  ) as HorseDecideOpts;
+  it('a made receipt names a bet that stood; a replaced small bet fires _vetoed, never the made receipt', () => {
+    let made = 0;
+    let vetoed = 0;
+    for (const opts of [
+      { omahaSmallBetIsPriced: true },
+      { ...EVERYTHING, omahaSmallBetIsPriced: true },
+    ])
+      for (const build of ALL)
+        for (const seed of SEEDS.slice(0, 4)) {
+          const on = decide(build, opts as HorseDecideOpts, seed);
+          const small = on.fires.filter((f) =>
+            /^omaha_small_bet_(priced_bet|resized)(_vetoed)?$/.test(f)
+          );
+          expect(small.length).toBeLessThanOrEqual(1);
+          if (small.length === 0) continue;
+          if (small[0].endsWith('_vetoed')) vetoed++;
+          else {
+            made++;
+            expect(on.d.action).toBe('bet');
+          }
+        }
+    expect(made).toBeGreaterThan(0);
+    expect(vetoed).toBeGreaterThan(0);
   });
 });
