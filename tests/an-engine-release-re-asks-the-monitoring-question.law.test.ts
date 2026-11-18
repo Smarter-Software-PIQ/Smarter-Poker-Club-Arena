@@ -39,10 +39,11 @@ const CHECKER = readFileSync(join(ROOT, 'scripts/ci/check-alert-rules-match.mjs'
 // read-club-arena-monitoring dispatch and the bot-dispatch refusal), which it
 // must keep: it ADDS one owed case and removes none.
 const ENGINE_RELEASE =
-  "(github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))";
+  "(github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))";
 const PUSH_OR_DEPLOY =
   "(github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))";
-const NO_BOT_RETRY = "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')";
+const NO_BOT_RETRY =
+  "!(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')";
 const OWED = '((' + PUSH_OR_DEPLOY + ') || ' + ENGINE_RELEASE + ') && ' + NO_BOT_RETRY;
 
 describe('an engine release re-asks the monitoring question', () => {
@@ -51,6 +52,16 @@ describe('an engine release re-asks the monitoring question', () => {
     expect(wr, 'deploy-monitoring.yml has no workflow_run trigger').toBeTruthy();
     expect(wr.types).toEqual(['completed']);
     expect(wr.workflows).toEqual([ENGINE.name]);
+    // bound to the one sender file, this repository and its dispatch event,
+    // never to any same-named workflow on a branch or a fork
+    expect(ENGINE_RELEASE).toContain(
+      "github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml'"
+    );
+    expect(ENGINE_RELEASE).toContain(
+      'github.event.workflow_run.head_repository.full_name == github.repository'
+    );
+    expect(ENGINE_RELEASE).toContain("github.event.workflow_run.event == 'repository_dispatch'");
+    expect(ENGINE.on.repository_dispatch).toBeTruthy();
   });
 
   it('keeps the push and recovery triggers it already had', () => {
