@@ -788,6 +788,289 @@ def prove_cash_rake_never_waits_on_the_union_wallet():
           {k: {'reference': reference[k], 'after': after[k]} for k in differing})
 
 
+# ---- hand bank obligations (20261118071728 + 20261118071736) ---------------
+BANK_FIXTURE = ROOT / 'scripts/ci/fixtures/hand-bank-pending/live-definitions.json'
+BANK_PART1 = '20261118071728_a_hands_bbj_drop_and_insurance_wait_in_their_own_rows_not_on.sql'
+BANK_SWITCH = '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql'
+BANK_POST = {
+    'fn_ca_tally_balance_move': '710154d55d4cb9fb1d425f3df13087c4',
+    'fn_ca_supply_snapshot': 'c14f15b5933a8ee0e24f1f918bdc6d6f',
+    'fn_ca_account_balance': 'abe021e4c5a42b02f3b4c00c8bd1ffc9',
+    'fn_rake_bbj_invariants': '4902b430962c700e89c6f15fd00f8049',
+    'fn_project_hand_side_effects': '39d043cda727119e0a6d883a3fb25d50',
+    'trg_finish_hand_post_commit_obligations': '2d9d0d7cab537e608da36be3319e347e',
+    'fn_ca_process_hand_post_commit_obligations': '11f769218554c9585f92ee2c5745e61f',
+}
+BANK_POOL = 'b0000000-0000-0000-0000-0000000000b1'
+# hand id, table, hand number, rake, bbj drop, pot, contributions, insurance legs (premium, payout)
+BANK_HANDS = [
+    ('e0000000-0000-0000-0000-000000000001', RT1, 301, '1.25', '0.50', '25.00', {RP1: 12.5, RP2: 12.5},
+     [('2.00', '0.00')]),
+    ('e0000000-0000-0000-0000-000000000002', RT2, 401, '0.37', '0.20', '7.40', {RP1: 2.4, RP2: 5.0}, []),
+    ('e0000000-0000-0000-0000-000000000003', RT1, 302, '3.00', '1.00', '90.00', {RP1: 60.0, RP2: 30.0},
+     [('1.00', '5.00')]),
+]
+
+# The union's BBJ pool, its allocator and the insurance receipts, with
+# production's column names; the pool's money triggers are the real ones.
+BANK_SCHEMA = f"""
+CREATE TABLE ca_bbj_policy(id integer PRIMARY KEY, pivot_threshold numeric NOT NULL, standard_main numeric NOT NULL,
+  standard_backup numeric NOT NULL, pivot_main numeric NOT NULL, pivot_backup numeric NOT NULL, note text,
+  updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE ca_bbj_pool_policy(pool_id uuid PRIMARY KEY, standard_main numeric NOT NULL, standard_backup numeric NOT NULL,
+  pivot_main numeric NOT NULL, pivot_backup numeric NOT NULL, note text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE ca_bbj_alloc_state(pool_id uuid PRIMARY KEY, main_residue numeric NOT NULL DEFAULT 0,
+  backup_residue numeric NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE bbj_pools(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), club_id uuid UNIQUE, union_id uuid,
+  hands_contributed bigint DEFAULT 0, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+  main_balance numeric(14,2) NOT NULL DEFAULT 0, backup_balance numeric(14,2) NOT NULL DEFAULT 0,
+  promo_balance numeric(14,2) NOT NULL DEFAULT 0, status text NOT NULL DEFAULT 'active', total_contributed numeric DEFAULT 0,
+  alloc_cum_amount numeric(14,4) NOT NULL DEFAULT 0);
+CREATE UNIQUE INDEX uq_bbj_pools_union_active ON bbj_pools(union_id)
+  WHERE club_id IS NULL AND union_id IS NOT NULL AND status = 'active';
+CREATE TABLE bbj_contributions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), pool_id uuid, club_id uuid, table_id uuid,
+  hand_number bigint DEFAULT 0, amount numeric(14,2) NOT NULL, big_blind numeric(10,2), created_at timestamptz DEFAULT now(),
+  main_portion numeric(10,4), backup_portion numeric(10,4), promo_portion numeric(10,4), hand_id uuid);
+CREATE UNIQUE INDEX uq_bbj_contributions_pool_hand ON bbj_contributions(pool_id, hand_id) WHERE hand_id IS NOT NULL;
+CREATE TABLE insurance_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), table_id uuid NOT NULL, club_id uuid NOT NULL,
+  union_id uuid, hand_number integer NOT NULL, player_id uuid NOT NULL, equity_percent numeric(5,2) NOT NULL,
+  premium numeric(10,2) NOT NULL, insured_amount numeric(10,2) NOT NULL, payout numeric(10,2) NOT NULL DEFAULT 0.00,
+  player_won boolean NOT NULL DEFAULT false, net_result numeric(10,2) NOT NULL, bank_type varchar(10) NOT NULL,
+  bank_entity_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), kind varchar(16) NOT NULL DEFAULT 'insurance');
+CREATE UNIQUE INDEX insurance_transactions_table_hand_player_uidx ON insurance_transactions(table_id, hand_number, player_id);
+INSERT INTO ca_bbj_policy VALUES (1, 100000, 0.5, 0.3, 0.3, 0.3, 'harness', now());
+INSERT INTO ca_bbj_pool_policy VALUES ('{BANK_POOL}', 0.05, 0.20, 0.05, 0.20, 'the Midway Union rule', now());
+INSERT INTO bbj_pools(id, union_id) VALUES ('{BANK_POOL}', '{RU}');
+"""
+BANK_TRIGGERS = """
+CREATE TRIGGER trg_ca_autoledger AFTER INSERT OR UPDATE OF main_balance, backup_balance, promo_balance ON bbj_pools
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_autoledger('main_balance=bbj_pool', 'backup_balance=bbj_pool', 'promo_balance=bbj_pool');
+CREATE TRIGGER zy_ca_tally_balance_move AFTER INSERT OR DELETE OR UPDATE OF main_balance, backup_balance, promo_balance
+  ON bbj_pools FOR EACH ROW EXECUTE FUNCTION fn_ca_tally_balance_move();
+CREATE CONSTRAINT TRIGGER zz_ca_balance_has_its_ledger_row AFTER INSERT OR DELETE OR UPDATE OF main_balance,
+  backup_balance, promo_balance ON bbj_pools DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_balance_has_its_ledger_row();
+"""
+
+
+def bank_database(db, fixture, extra):
+    rake_database(db, fixture)
+    run(db, BANK_SCHEMA)
+    for name, f in extra['functions'].items():
+        run(db, 'SET check_function_bodies = off;\n' + f['definition'] + ';')
+        run(db, f"REVOKE ALL ON FUNCTION {f['signature']} FROM PUBLIC;")
+        for grantee in re.findall(r'(\w+)=X/', f['acl'] or ''):
+            run(db, f"GRANT EXECUTE ON FUNCTION {f['signature']} TO {grantee};")
+        check(f'hand bank: {name} is the production text', md5(db, f['signature']) == f['md5'])
+    run(db, BANK_TRIGGERS)
+    # #11256 is installed: it is what production runs from 2026-11-18.
+    run(db, (MIGRATIONS / RAKE_PART1).read_text())
+    run(db, (MIGRATIONS / RAKE_SWITCH).read_text())
+
+
+def bank_accept(db, hand):
+    """The accepted-hand transaction: the seats pay rake + drop + premium -
+    payout, the receipt carries it as felt, the outbox row is the
+    continuation."""
+    hand_id, table, number, rake, drop, pot, contributions, legs = hand
+    inflow = sum(float(pay) - float(prem) for prem, pay in legs)
+    payload = json.dumps({
+        'time_banks': [], 'promo_playthrough': [], 'pending_addons': None,
+        'bbj_contribution': {'amount': float(drop), 'club_id': RC, 'big_blind': 0.5},
+        'insurance': [{'club_id': RC, 'player_id': RP1, 'premium': float(prem), 'payout': float(pay),
+                       'insured_amount': 10, 'equity_percent': 20, 'player_won': float(pay) > 0, 'kind': 'insurance'}
+                      for prem, pay in legs],
+        'rake': {'amount': float(rake), 'club_id': RC, 'bbj': float(drop), 'pot': pot, 'num_players': 2,
+                 'contributions': contributions, 'returned_uncalled': {}, 'method': 'WEIGHTED_CONTRIBUTED'}})
+    run(db, f"""
+BEGIN;
+INSERT INTO hand_history(id, table_id, hand_number, players)
+VALUES ('{hand_id}', '{table}', {number}, '[{{"userId":"{RP1}"}},{{"userId":"{RP2}"}}]');
+UPDATE table_seats SET stack = stack - ({rake} + {drop} - ({inflow})) WHERE table_id = '{table}';
+INSERT INTO hand_atomic_commits(table_id, hand_number, hand_id, payload_hash, stack_result, post_commit_payload,
+  post_commit_payload_hash)
+SELECT '{table}', {number}, '{hand_id}', 'h', jsonb_build_object('rake', {rake}, 'bbj', {drop}, 'inflow', {inflow}), p,
+       encode(extensions.digest(convert_to(p::text, 'UTF8'), 'sha256'), 'hex')
+  FROM (SELECT $j${payload}$j$::jsonb AS p) x;
+INSERT INTO hand_projection_outbox VALUES ('{hand_id}', '{table}', {number});
+COMMIT;
+""")
+
+
+BANK_BOOKS = f"""
+SELECT jsonb_build_object(
+ 'wallet', (SELECT jsonb_build_array(rake_wallet, total_rake_collected, promo_wallet, chip_balance, insurance_wallet)
+              FROM union_wallets WHERE union_id = '{RU}'),
+ 'pool', (SELECT jsonb_build_array(main_balance, backup_balance, promo_balance, total_contributed, alloc_cum_amount,
+              hands_contributed) FROM bbj_pools WHERE id = '{BANK_POOL}'),
+ 'pools', (SELECT count(*) FROM bbj_pools),
+ 'alloc_state', (SELECT jsonb_agg(jsonb_build_array(pool_id, main_residue, backup_residue)) FROM ca_bbj_alloc_state),
+ 'contributions', (SELECT jsonb_agg(jsonb_build_array(pool_id, hand_id, table_id, club_id, hand_number, amount, big_blind,
+     main_portion, backup_portion, promo_portion) ORDER BY hand_id) FROM bbj_contributions),
+ 'insurance', (SELECT jsonb_agg(jsonb_build_array(table_id, club_id, union_id, hand_number, player_id, equity_percent,
+     premium, insured_amount, payout, player_won, net_result, bank_type, bank_entity_id, kind) ORDER BY hand_number)
+     FROM insurance_transactions),
+ 'rake_records', (SELECT jsonb_agg(jsonb_build_array(hand_id, rake_amount, bbj_contribution) ORDER BY hand_id)
+     FROM rake_records),
+ 'ledger', (SELECT jsonb_agg(x ORDER BY x) FROM (SELECT jsonb_build_array(from_type,
+     CASE WHEN from_entity_id = (SELECT id FROM union_wallets WHERE union_id = '{RU}') THEN 'the union wallet row'
+          ELSE from_entity_id::text END, from_label,
+     to_type, to_label, amount, category, club_id, union_id, description) AS x
+     FROM chip_ledger WHERE category IN ('rake', 'bbj_contribution', 'insurance')) l),
+ 'ledger_totals', (SELECT jsonb_object_agg(category, total) FROM (SELECT category, sum(amount) AS total
+     FROM chip_ledger WHERE category IN ('rake', 'bbj_contribution', 'insurance') GROUP BY category) t),
+ 'envelopes', (SELECT jsonb_agg(jsonb_build_array(hand_id, post_commit_completed_at IS NOT NULL,
+     post_commit_result - 'hand_id') ORDER BY hand_id) FROM hand_atomic_commits),
+ 'outbox', (SELECT count(*) FROM hand_projection_outbox),
+ 'felt', (SELECT sum(stack) FROM table_seats),
+ 'alerts', (SELECT count(*) FROM financial_alerts),
+ 'findings', (SELECT count(*) FROM ca_ledger_invariant_findings))::text
+"""
+
+
+def bank_hold(db):
+    """A long transaction holding the union's BBJ pool (its lock and its row)
+    and the union's wallet row: fn_union_promo_send holds both, a tournament
+    settlement held the wallet for 45 s on 2026-11-17."""
+    holder = spawn(db, f"BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('bbj-pool:{RU}', 0)); "
+                       f"SELECT 1 FROM union_wallets WHERE union_id = '{RU}' FOR NO KEY UPDATE; "
+                       f"SELECT 'held' FROM bbj_pools WHERE id = '{BANK_POOL}' FOR UPDATE;\n")
+    lines = [holder.stdout.readline().strip() for _ in range(3)]
+    check('hand bank: the pool lock, the pool row and the wallet row are held', lines[-1] == 'held', lines)
+    return holder
+
+
+def drain(db, hand_id):
+    """The hand's own continuation, pass after pass, as the worker drives it."""
+    passes = []
+    for _ in range(6):
+        r = json.loads(run(db, f"SELECT public.fn_project_hand_side_effects('{hand_id}')"))
+        passes.append(r)
+        if r.get('reason') != 'predecessor_pending':
+            return r, passes
+    return r, passes
+
+
+def prove_hand_bank_never_waits_on_the_union_pool():
+    fixture = json.loads(RAKE_FIXTURE.read_text())
+    extra = json.loads(BANK_FIXTURE.read_text())
+    envelope = "SELECT public.fn_ca_process_hand_post_commit_obligations('{}')"
+    project = "SELECT public.fn_project_hand_side_effects('{}')"
+    h1, h2, h3 = BANK_HANDS
+
+    # BEFORE: #11256 installed. A held pool stops a BBJ hand's envelope.
+    bank_database('bankpre', fixture, extra)
+    for hand in BANK_HANDS:
+        bank_accept('bankpre', hand)
+    holder = bank_hold('bankpre')
+    try:
+        waiting = spawn('bankpre', "SET lock_timeout = '1500ms';\n" + envelope.format(h1[0]) + ';\n')
+        status, _, error = finish(waiting)
+        check('hand bank: BEFORE, with #11256 installed the BBJ hand envelope waits on the held pool and gives up',
+              status != 0 and 'lock timeout' in error
+              and run('bankpre', 'SELECT count(*) FROM hand_atomic_commits WHERE post_commit_completed_at IS NOT NULL') == '0',
+              error[-300:])
+    finally:
+        send(holder, 'ROLLBACK;\n')
+        finish(holder)
+    for hand in (h2, h1, h3):
+        result = json.loads(run('bankpre', envelope.format(hand[0])))
+        check('hand bank: BEFORE, the uncontended envelope banks drop and insurance',
+              result.get('ok') is True and result.get('bbj_contribution') is True
+              and result.get('insurance') == len(hand[7]), result)
+        projected, passes = drain('bankpre', hand[0])
+        check('hand bank: BEFORE, the hand projects', projected.get('ok') is True, passes)
+    reference = json.loads(run('bankpre', BANK_BOOKS))
+    check('hand bank: the reference run banked every drop and leg exactly once',
+          reference['pool'][3] == 1.7 and len(reference['contributions']) == 3 and len(reference['insurance']) == 2
+          and reference['wallet'][4] == -2 and reference['outbox'] == 0 and reference['findings'] == 0, reference)
+
+    # AFTER: both files, exactly as written, on top of #11256.
+    bank_database('bankpost', fixture, extra)
+    run('bankpost', (MIGRATIONS / BANK_PART1).read_text())
+    for name in list(BANK_POST)[:6]:
+        check(f'hand bank: part 1 reproduces the postimage of {name}',
+              md5('bankpost', fixture['functions'][name]['signature']) == BANK_POST[name])
+    refused = subprocess.run(list(map(str, psql('bankpost'))), input=(MIGRATIONS / BANK_PART1).read_text(),
+                             text=True, capture_output=True, env=env)
+    check('hand bank: part 1 refuses a second run', refused.returncode != 0)
+    for hand in BANK_HANDS:
+        bank_accept('bankpost', hand)
+
+    inert = json.loads(run('bankpost', envelope.format(h2[0])))
+    check('hand bank: part 1 alone changes nothing (the envelope still banks the drop, no row is stored)',
+          inert.get('ok') is True and run('bankpost', 'SELECT count(*) FROM hand_bank_obligation_pending') == '0'
+          and run('bankpost', 'SELECT count(*) FROM bbj_contributions') == '1')
+    drain('bankpost', h2[0])
+
+    run('bankpost', (MIGRATIONS / BANK_SWITCH).read_text())
+    check('hand bank: the switch reproduces the postimage derived from production',
+          md5('bankpost', fixture['functions']['fn_ca_process_hand_post_commit_obligations']['signature'])
+          == BANK_POST['fn_ca_process_hand_post_commit_obligations'])
+
+    holder = bank_hold('bankpost')
+    try:
+        started = time.monotonic()
+        held = spawn('bankpost', "SET lock_timeout = '1500ms';\n" + envelope.format(h1[0]) + ';\n')
+        status, output, error = finish(held)
+        elapsed = time.monotonic() - started
+        result = json.loads(output) if status == 0 and output else {}
+        check('hand bank: AFTER, the BBJ hand envelope completes while the pool and the wallet are held',
+              status == 0 and result.get('ok') is True and result.get('bbj_contribution') is True
+              and result.get('insurance') == 1 and elapsed < 1.0,
+              {'status': status, 'seconds': elapsed, 'error': error[-300:], 'result': result})
+        check('hand bank: the drop and the insurance leg are stored on the felt, not banked',
+              run('bankpost', "SELECT string_agg(kind || ':' || round(felt_amount, 2), ',' ORDER BY kind) "
+                              "FROM hand_bank_obligation_pending") == 'bbj_contribution:0.50,insurance:2.00'
+              and run('bankpost', f"SELECT count(*) FROM bbj_contributions WHERE hand_id = '{h1[0]}'") == '0'
+              and run('bankpost', 'SELECT count(*) FROM insurance_transactions') == '0')
+        started = time.monotonic()
+        busy = json.loads(run('bankpost', project.format(h1[0])))
+        check('hand bank: the continuation does not wait for the held pool or bank either, and keeps the obligations',
+              busy.get('ok') is False and busy.get('reason') == 'predecessor_pending'
+              and time.monotonic() - started < 1.0
+              and run('bankpost', 'SELECT count(*) FROM hand_bank_obligation_pending') == '2'
+              and run('bankpost', 'SELECT count(*) FROM cash_rake_pending') == '1', busy)
+        bank = json.loads(run('bankpost', f"SELECT public.fn_ca_bank_pending_hand_obligations('{h1[0]}')"))
+        check('hand bank: a held pool or bank reads busy, never refused',
+              bank.get('status') == 'busy' and {i['status'] for i in bank['items']} == {'busy'}
+              and run('bankpost', 'SELECT max(attempts) FROM hand_bank_obligation_pending') == '0', bank)
+        started = time.monotonic()
+        nxt = json.loads(run('bankpost', "SET lock_timeout = '1500ms'; " + envelope.format(h3[0])))
+        check('hand bank: the next hand at the same table is not delayed either',
+              nxt.get('ok') is True and time.monotonic() - started < 1.0
+              and run('bankpost', 'SELECT count(*), round(sum(felt_amount), 2) FROM hand_bank_obligation_pending') == '4|-0.50',
+              nxt)
+        guarded = subprocess.run(list(map(str, psql('bankpost'))), text=True, capture_output=True, env=env,
+                                 input=f"DELETE FROM hand_projection_outbox WHERE hand_id = '{h1[0]}';")
+        check('hand bank: the outbox row cannot leave while its obligations are pending',
+              guarded.returncode != 0 and 'remains pending' in guarded.stderr
+              and run('bankpost', 'SELECT count(*) FROM hand_projection_outbox') == '2', guarded.stderr[-300:])
+        meters = run('bankpost', "SELECT round((SELECT sum(felt_amount) FROM hand_bank_obligation_pending) "
+                                 "+ (SELECT sum(amount) FROM cash_rake_pending), 2)")
+        check('hand bank: while held, what is stored is exactly what the receipts released', meters == '3.75', meters)
+    finally:
+        send(holder, 'ROLLBACK;\n')
+        finish(holder)
+
+    for hand in (h1, h3):
+        projected, passes = drain('bankpost', hand[0])
+        check('hand bank: once the pool and bank are free the continuation banks them and the hand projects',
+              projected.get('ok') is True
+              and any(p.get('hand_bank', {}).get('status') == 'banked' for p in passes), passes)
+        again = json.loads(run('bankpost', f"SELECT public.fn_ca_bank_pending_hand_obligations('{hand[0]}')"))
+        check('hand bank: banking is once per obligation', again.get('status') == 'absent', again)
+    after = json.loads(run('bankpost', BANK_BOOKS))
+    check('hand bank: nothing is left pending',
+          run('bankpost', 'SELECT count(*) FROM hand_bank_obligation_pending') == '0'
+          and run('bankpost', 'SELECT count(*) FROM cash_rake_pending') == '0')
+    differing = sorted(k for k in reference if reference[k] != after[k])
+    check('hand bank: pool, allocator, contributions, insurance receipts, wallet, ledger and every other row '
+          'equal the uncontended reference exactly', not differing,
+          {k: {'reference': reference[k], 'after': after[k]} for k in differing})
+
+
+
 try:
     command(as_owner + [pg / 'initdb', '-D', cluster / 'data', '-A', 'trust', '-U', 'postgres'])
     command(as_owner + [pg / 'pg_ctl', '-D', cluster / 'data', '-o',
@@ -845,6 +1128,9 @@ try:
 
     # ---- cash rake pending ---------------------------------------------
     prove_cash_rake_never_waits_on_the_union_wallet()
+
+    # ---- hand bank obligations ------------------------------------------
+    prove_hand_bank_never_waits_on_the_union_pool()
 
     # ---- sat ------------------------------------------------------------
     load_live('sat', 'sat')
