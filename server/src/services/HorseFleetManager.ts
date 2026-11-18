@@ -4286,9 +4286,9 @@ export class HorseFleetManager {
                 }))
             ) {
               for (const c of cleared) seatPicker.release(c.seatNumber);
+              varietyFloorStop = true;
               seatCeilingSkipped++;
               noteSkip(diag, 'seat_ceiling');
-              varietyFloorStop = true;
               continue;
             }
           }
