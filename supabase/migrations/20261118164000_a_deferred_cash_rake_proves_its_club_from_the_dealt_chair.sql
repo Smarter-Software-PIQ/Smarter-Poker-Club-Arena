@@ -26,6 +26,8 @@
 -- functions that drops the law, and the frozen rows are immutable (only rows
 -- older than 14 days may be deleted, by the daily prune).
 
+BEGIN;
+
 SET LOCAL lock_timeout = '4s';
 
 CREATE TABLE IF NOT EXISTS smarter_private.cash_hand_chair_clubs (
@@ -369,3 +371,5 @@ CREATE EVENT TRIGGER ca_cash_rake_provenance_law ON ddl_command_end
 -- the prune repairs nothing and compensates for nothing, and a missed run only keeps rows longer.
 SELECT cron.schedule('ca-cash-hand-chair-clubs-prune-daily', '35 5 * * *',
   $cron$DELETE FROM smarter_private.cash_hand_chair_clubs WHERE captured_at < now() - interval '14 days'$cron$);
+
+COMMIT;
