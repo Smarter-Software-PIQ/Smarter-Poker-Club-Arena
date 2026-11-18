@@ -52,6 +52,7 @@ import {
   type RecordedDecision,
 } from './HorseOmahaPricedRules.test-support.js';
 import RECORDED from './HorseOmahaPricedRules.fixture.json';
+import { allSitesPriced } from './HorseOmahaPricedSites.test-support.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -97,6 +98,14 @@ const BUILT: PricedSpot[] = [
     bet: 0,
     heroBetFlop: true,
   })),
+  // river, nothing to call, a nut blocker with no showdown (the nut-blocker bluff), both positions (sites-013U37)
+  ...[false, true].map((inPosition) => ({
+    hole: 'AcAd6c5d2h',
+    board: '9dQs3hJhKc',
+    bet: 0,
+    heroBetTurn: true,
+    inPosition,
+  })),
   // paired turn and river, nothing to call (the paired-board checks), both positions
   ...['AcQd6c5d2h', 'AcAd6c5d2h', 'AcKd6c5d2h'].flatMap((hole) => [
     { hole, board: '9dQsQh7h', bet: 0, heroBetFlop: true },
@@ -126,7 +135,12 @@ const VALUE_LEADER = {
   foldToBet: stat(0.5, 120),
   riverCall: stat(0.2, 60),
 };
-const PAIRED = BUILT.filter((s) => s.board.startsWith('9dQsQh') && s.bet === 0);
+const PAIRED = [
+  ...BUILT.filter((s) => s.board.startsWith('9dQsQh') && s.bet === 0),
+  // a fresh straight or flush card against a value leader, out of position (the made-hand defence bet half, sites-013U37)
+  { hole: 'AcQd6c5d2h', board: '9dQs3h7h4h', bet: 0, heroBetTurn: true },
+  { hole: 'JcTc8s7s2d', board: '9dQs3hJh', bet: 0, heroBetFlop: true },
+];
 
 function play(opts: HorseDecideOpts, leader = false): Played[] {
   enableBrainTelemetry();
@@ -226,12 +240,8 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
     expect(openRules).toEqual(
       [
         'omahaBareOverpairOopFlopCheck',
-        'omahaBeatenMadeHandDefense',
-        'omahaMadeHandDefenseVsValueLeader',
         'omahaOnePairDiscipline',
         'omahaReraisedPotFlopContinueNeedsEquityShape',
-        'omahaRiverNutBlockerBluffReachable',
-        'omahaTurnSetPound',
         'ploPairedBoardFold',
       ].sort()
     );
@@ -259,7 +269,7 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
 });
 
 describe('with every priced option on, no registered categorical rule decides', () => {
-  const ON: HorseDecideOpts = { ...LIVE_OPTIONS, ...allPriced(true) };
+  const ON: HorseDecideOpts = { ...LIVE_OPTIONS, ...allPriced(true), ...allSitesPriced(true) };
   let off: Played[] = [];
   let on: Played[] = [];
   it('the corpus reaches the categorical rules with the options off', () => {
@@ -272,7 +282,16 @@ describe('with every priced option on, no registered categorical rule decides', 
       `[law] decisions ${off.length}; categorical sites reached with the options off: ${reached.join(' | ')}`
     );
     expect(off.some((p) => p.fires.some((f) => f.startsWith('omaha_priced_')))).toBe(false);
-    for (const audit of ['7', '10', '11', '3, 4, 5, 6']) expect(reached).toContain(audit);
+    for (const audit of [
+      '7',
+      '10',
+      '11',
+      '3, 4, 5, 6',
+      'S3 (sites-013U37)',
+      'S5 (sites-013U37)',
+      'S6 (sites-013U37)',
+    ])
+      expect(reached).toContain(audit);
   }, 600000);
   it('with the options on none of them fires: every changed action carries a priced receipt', () => {
     on = [...play(ON), ...play(ON, true)];
@@ -300,6 +319,9 @@ describe('with every priced option on, no registered categorical rule decides', 
       'omaha_priced_oop_turn_barrel_',
       'omaha_priced_paired_board_bet_',
       'omaha_priced_big_bet_',
+      'omaha_priced_site_made_hand_bet_',
+      'omaha_priced_site_turn_set_size_',
+      'omaha_priced_site_blocker_bluff_',
     ])
       expect(
         [...pricedFired].some((f) => f.startsWith(family)),
