@@ -254,16 +254,25 @@ export function omahaFlopHandClass(
 /**
  * THE MEASURED CORRECTION of the realization factor, by hand class and
  * position. The runout model above says how much of its share of the pot a
- * call keeps; production says what such calls really brought back. For every
- * cell, `ratio` is (chips returned to the caller after the flop) divided by
- * (the chips this verdict expected: ITS OWN share of the pot at the end of
- * the flop, against everybody together, times the model's factor), over the
- * first flop call of a bet by a Horse in PLO4/PLO5 cash hands with a person
- * seated, any bettor, with no flop raise after the call and every remaining
- * hand known; `n` is the number of such calls. Because the base is the
- * verdict's own share, the ratio also carries what its ranges get wrong:
- * against the hands really left in, the share was 0.400 where the verdict
- * said 0.465. Source, dates, intervals and the script:
+ * call keeps; production says what such calls really brought back.
+ *
+ * Source: the lane's shared realization table (realfit-013U37,
+ * realization-fit.json): Horse callers, any bettor, PLO4/PLO5 cash with a
+ * person seated, flop calls; realization = chips realized / (EXACT equity
+ * against the hands really left in x the pot at stake), hierarchically shrunk.
+ * Its classes are pooled into ours by equity mass (made = two pair or better;
+ * draw = nut or combo draw + weak draw; pair = one pair + air).
+ *
+ * That realization is on exact equity; this verdict multiplies a share of the
+ * pot against MODELLED ranges, which runs high (exact / model 0.78 to 0.94 by
+ * cell on the same calls). So `ratio` is solved, cell by cell, on the lane's
+ * 2,010 first flop calls by a Horse (starting stacks corrected): the
+ * multiplier on the model's factor for which the verdict's expected realized
+ * chips, sum S x P x (1 + (m x ratio - 1) x L), equal the measured
+ * realization times the exact equity, R x sum E x P (S the verdict's share,
+ * E the exact share, P the pot net of rake, m the model's factor, L the share
+ * of later streets left to play). `n` is the table's number of calls.
+ * Source, intervals, the solve and the scripts:
  * docs/horse-option-authority.d/omahaFlopFacingBetEv.CONSTANTS.md.
  *
  * The factor applied is the model's factor times
@@ -280,16 +289,17 @@ export type OmahaFlopRealizationFit = Readonly<
   Record<OmahaFlopHandClass, Readonly<Record<'ip' | 'oop', OmahaFlopRealizationCell>>>
 >;
 export const OMAHA_FLOP_EV_REALIZATION_FIT: OmahaFlopRealizationFit = {
-  made: { ip: { ratio: 1.13, n: 281 }, oop: { ratio: 0.84, n: 515 } },
-  draw: { ip: { ratio: 0.86, n: 262 }, oop: { ratio: 1.08, n: 380 } },
-  pair: { ip: { ratio: 0.44, n: 168 }, oop: { ratio: 0.69, n: 317 } },
+  made: { ip: { ratio: 0.892, n: 504 }, oop: { ratio: 0.688, n: 829 } },
+  draw: { ip: { ratio: 0.9, n: 333 }, oop: { ratio: 1.027, n: 510 } },
+  pair: { ip: { ratio: 0.576, n: 747 }, oop: { ratio: 0.518, n: 1136 } },
 };
 /**
- * Calls the model's own factor is worth: (the spread of the ratio per call,
- * measured 4.0) over (the uncertainty of the model's factor, stated 0.3),
- * squared (CONSTANTS file, section "Shrinkage").
+ * Calls the model's own factor is worth: (the spread of the realization per
+ * call in the table, measured 2.92 on the flop: SE 0.046 x sqrt(4,059)) over
+ * (the uncertainty of the model's factor, stated 0.3), squared (CONSTANTS
+ * file, section "Shrinkage").
  */
-export const OMAHA_FLOP_EV_REALIZATION_PRIOR_CALLS = 180;
+export const OMAHA_FLOP_EV_REALIZATION_PRIOR_CALLS = 95;
 /** Bounds of the factor after the correction. Above 1: made hands were paid on later streets. */
 export const OMAHA_FLOP_EV_REALIZATION_FLOOR = 0;
 export const OMAHA_FLOP_EV_REALIZATION_CEILING = 1.25;

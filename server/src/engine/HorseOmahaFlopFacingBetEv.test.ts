@@ -975,7 +975,7 @@ describe('the realization factor is corrected by what flop calls returned in pro
         expect(Number.isFinite(fit[klass][pos].ratio)).toBe(true);
         calls += fit[klass][pos].n;
       }
-    expect(calls).toBe(1923); // the calls of the fit (CONSTANTS file)
+    expect(calls).toBe(4059); // every Horse flop call of the shared realization table (CONSTANTS file)
     const used = (klass: 'made' | 'draw' | 'pair', ip: boolean) =>
       omahaFlopFittedRealization(0.8, klass, ip, 1).realization;
     expect(used('pair', true)).toBeLessThan(used('made', true));
@@ -1021,9 +1021,9 @@ describe('the five flop folds of sets and nut straights the 48-hour audit named 
   // 59710501 is the one of the five the verdict does not call. Bottom set of sevens on 7h 9h Jd,
   // out of position, 36 to call into 119 with a caller in and a player behind: counted together
   // with them its share of the pot is at the price (0.23; an independent count of the same ranges
-  // gives 0.28), and made hands called out of position returned less than this verdict expects
-  // (OMAHA_FLOP_EV_REALIZATION_FIT.made.oop). It is a priced fold a few percent of the pot under
-  // its margin on this sample and on eight others: stated here, not forced to a call.
+  // gives 0.28), and two pair or better called out of position by Horses realized 0.81 of its
+  // exact equity in production (the shared realization table; OMAHA_FLOP_EV_REALIZATION_FIT.made.oop).
+  // It is a priced fold about a tenth of the pot under its margin: stated here, not forced to a call.
   const THIN = 59710501;
 
   it('the verdict calls the top set, the bottom set in position and both nut straights', () => {
@@ -1041,7 +1041,7 @@ describe('the five flop folds of sets and nut straights the 48-hour audit named 
     expect(top.v.potShare).toBeGreaterThan(top.v.price + 0.1);
   });
 
-  it('the bottom set with a caller in and a player behind is priced, not folded by a rule: its share is at the price and its EV a few percent of the pot under the margin', () => {
+  it('the bottom set with a caller in and a player behind is priced, not folded by a rule: its share is at the price and its EV about a tenth of the pot under the margin', () => {
     const r = rec(THIN);
     const { spot, v } = verdictOf(r);
     expect([spot.callers, spot.behind]).toEqual([1, 1]);
@@ -1050,7 +1050,7 @@ describe('the five flop folds of sets and nut straights the 48-hour audit named 
     expect(v.call).toBe(false);
     const short = (v.ev - v.margin) / (spot.winnable + spot.paid);
     expect(short).toBeLessThan(0);
-    expect(short).toBeGreaterThan(-0.1);
+    expect(short).toBeGreaterThan(-0.15);
     // nothing but the price decides: the same hand and field at half the bet is a call
     const cheaper = {
       ...r,
