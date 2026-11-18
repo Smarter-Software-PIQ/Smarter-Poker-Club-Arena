@@ -78,6 +78,32 @@ try:
  e.sql(db,"CREATE SCHEMA fixture_only;CREATE TABLE fixture_only.profit_notices(grant_id uuid PRIMARY KEY,unlocked_at timestamptz);CREATE FUNCTION public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz) RETURNS boolean LANGUAGE plpgsql AS $$BEGIN INSERT INTO fixture_only.profit_notices VALUES($1,$2) ON CONFLICT DO NOTHING;RETURN true;END$$;CREATE FUNCTION public.fn_ca_promo_notice_support_override(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;REVOKE ALL ON FUNCTION public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz),public.fn_ca_promo_notice_support_override(uuid) FROM PUBLIC,anon,authenticated,service_role;",label='explicit-notification-only-fixture')
  guarded_w=subprocess.run(['node','--input-type=module','-e',wrapper,winnings.name],input=selected_winnings,text=True,capture_output=True,check=True,cwd=ROOT).stdout
  e.sql(db,guarded_w,label='real-applier-winnings-cash-source-prefix')
+ # The retained funding owner acquired these two original-columns statements in
+ # the union P&L migration after the native hand foundation's snapshot.
+ origin_xid=root/'supabase/migrations/20260917234315_union_weekly_pnl_uses_original_qualified_basis.sql'
+ statements=[line for line in origin_xid.read_text().splitlines() if line.startswith('ALTER TABLE public.cash_hand_provenance_receipts') and 'transaction_id' in line]
+ if len(statements)!=2:raise AssertionError('original cash provenance XID owner changed')
+ e.sql(db,'\n'.join(statements),label='original-prov-xid')
+ # The dated physical Lightning estate predates promo. Use its real seat,
+ # provenance and hand writers with the same installed private clock owners.
+ legacy_clock=(root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql').read_text()
+ legacy_table=legacy_clock[legacy_clock.index('CREATE TABLE public.ca_promo_cash_hand_clocks'):legacy_clock.index('CREATE FUNCTION public.fn_ca_promo_cash_clock_is_immutable')]
+ legacy_table+=winnings_sql[winnings_sql.index('ALTER TABLE public.ca_promo_cash_hand_clocks ADD COLUMN'):winnings_sql.index('DO $original_clock_immutability$')]
+ clock_triggers=legacy_clock[legacy_clock.index('CREATE TRIGGER ca_promo_cash_clock_immutable'):legacy_clock.index('CREATE FUNCTION public.fn_ca_promo_capture_cash_hand_clock')]
+ legacy_functions=e.sql(db,"SELECT pg_get_functiondef(oid)||';' FROM pg_proc WHERE oid IN ('public.fn_ca_promo_cash_clock_is_immutable()'::regprocedure,'public.fn_ca_promo_capture_cash_hand_clock(uuid,uuid)'::regprocedure,'public.fn_ca_promo_integrity_immutable()'::regprocedure) ORDER BY oid",label='lightning-original-clock-prerequisites')[1]
+ observation_migration=ROOT/'supabase/migrations/20261118010644_promo_source_observation_preserves_original_transaction_visi.sql'
+ e.sql(db,file=observation_migration,label='original-source-observation')
+ witness=ROOT/'supabase/migrations/20261118011438_retain_original_accepted_hand_observation_for_cashout.sql'
+ witness_sql=witness.read_text()
+ install_guard=witness_sql[witness_sql.index('DO $guard$'):witness_sql.index('END $guard$;')+len('END $guard$;')]
+ e.sql(db,"BEGIN;ALTER FUNCTION public.fn_ca_promo_source_observation() RENAME TO fixture_missing_original_observation;"
+  +"DO $negative$BEGIN BEGIN EXECUTE $candidate$"+install_guard+"$candidate$; RAISE EXCEPTION 'missing original source was accepted';"
+  +"EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'original hand clock or source observation dependency changed' THEN RAISE;END IF;END;END $negative$;ROLLBACK;",
+  label='missing-original-hand-authority-refused')
+ e.sql(db,file=witness,label='original-hand-visibility')
+ e.sql(db,"SELECT proname,md5(pg_get_functiondef(oid)) FROM pg_proc WHERE oid IN ('public.fn_ca_promo_capture_cash_hand_clock(uuid,uuid)'::regprocedure,'public.fn_ca_promo_cash_clock_is_immutable()'::regprocedure) ORDER BY proname",label='original-hand-catalog-postimages')
+ live_proof='\n'.join("DO $$BEGIN IF ("+row.removeprefix('-- @live-proof: ')+") IS NOT TRUE THEN RAISE EXCEPTION 'original hand observation catalog differs';END IF;END$$;" for row in witness.read_text().splitlines() if row.startswith('-- @live-proof: '))
+ e.sql(db,live_proof,label='original-hand-installed-proof')
  probe='BEGIN;\n'+(out/'opening.sql').read_text()+(root/roster.FIXTURE).read_text()+'''
 UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';
 SELECT fn_ca_promo_play_through_record_grant('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',70,'club_promo','native-full-hand');
@@ -145,6 +171,35 @@ DO $$DECLARE r jsonb;BEGIN
 SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;'''
  e.sql(db,hu_probe,label='actual-heads-up-hold-and-replay',seconds=120)
  e.report['native'].append({'case':'actual-heads-up-hold-and-replay','assertions':4})
+ # A paid hand can be replayed only with its *first* observation, even while
+ # the optional financial cutover remains unsealed. Existing clocks get none.
+ observation=hu_probe[:hu_probe.index('DO $$DECLARE r jsonb;BEGIN')]
+ observation+="""DO $$DECLARE r jsonb; h public.ca_promo_cash_hand_clocks%ROWTYPE; candidate uuid='88400000-0000-0000-0000-000000000008'; BEGIN
+ r:=pg_temp.roster_commit(8800008,candidate);
+ IF r->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'original observation source refused %',r;END IF;
+ SELECT * INTO STRICT h FROM public.ca_promo_cash_hand_clocks WHERE hand_id=candidate;
+ IF h.observation_order IS NULL OR h.writer_xid<>pg_current_xact_id() OR h.visible_xids IS NULL OR h.observed_at IS NULL OR h.lightning_anchors<>'[]'
+ OR NOT EXISTS(SELECT 1 FROM public.cash_hand_provenance_receipts p WHERE p.hand_id=candidate AND p.transaction_id=h.writer_xid AND p.funding_provenance_complete)
+ OR public.fn_ca_promo_source_observation_is_qualified(h.observation_order,h.writer_xid,h.visible_xids) THEN RAISE EXCEPTION 'physical observation has no original authority';END IF;
+ r:=pg_temp.roster_commit(8800008,candidate);
+ PERFORM public.fn_ca_promo_capture_cash_hand_clock(candidate,h.table_id);
+ IF r->>'success' IS DISTINCT FROM 'true' OR NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks c WHERE c.hand_id=candidate AND c.observation_order=h.observation_order AND c.visible_xids::text=h.visible_xids::text AND c.observed_at=h.observed_at) THEN RAISE EXCEPTION 'replay replaced observation';END IF;
+ BEGIN UPDATE public.ca_promo_cash_hand_clocks SET observed_at=clock_timestamp() WHERE hand_id=candidate;
+  RAISE EXCEPTION 'original observation changed';EXCEPTION WHEN check_violation THEN NULL;END;
+ END $$;SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;"""
+ e.sql(db,observation,label='original-cash-observation-and-replay',seconds=120)
+ e.report['native'].append({'case':'original-cash-observation-and-replay','assertions':4})
+ lightning_harness=root/'scripts/dev/test-lightning-phase6-settlement.sh'
+ lightning_fixture=ROOT/'tests/fixtures/promo-profit-source-visibility/original-lightning-hand.sql'
+ lightning_sql=out/'original-lightning-visibility.sql'
+ lightning_sql.write_text(
+  'CREATE TABLE public.ca_promo_play_through_settings(id boolean PRIMARY KEY,enforced_from timestamptz);\n'
+  "INSERT INTO public.ca_promo_play_through_settings VALUES(true,'2000-01-01Z');\n"
+  +legacy_table+legacy_functions+clock_triggers
+  +'REVOKE ALL ON FUNCTION public.fn_ca_promo_capture_cash_hand_clock(uuid,uuid),public.fn_ca_promo_cash_clock_is_immutable(),public.fn_ca_promo_integrity_immutable() FROM PUBLIC,anon,authenticated,service_role;\n'
+  +observation_migration.read_text()+witness.read_text()+live_proof+lightning_fixture.read_text())
+ e.run('original-lightning-host-and-feeder',['env','PG_BIN='+str(args.pg_bin),'LIGHTNING_P6S_FOLLOWUP_SQL='+str(lightning_sql),'bash',str(lightning_harness)],seconds=200)
+ e.report['native'].append({'case':'original-lightning-host-and-feeder-recovery-and-replay','assertions':5})
  # The exact same real accepted HU chain now receives only W-funded chips.
  w_only=hu_probe.replace("SELECT fn_ca_promo_move_custody('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','player_wallet','10000000-0000-0000-0000-000000000001','table_stack','88100000-0000-0000-0000-000000000001',100);", """SELECT fn_ca_promo_profit_credit_owned('cash_win',gen_random_uuid(),(SELECT id FROM ca_promo_play_through_grants WHERE source_ref='native-hu'),'20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','table_stack','88100000-0000-0000-0000-000000000001',100);
  UPDATE ca_promo_principal_custody SET amount=0 WHERE grant_id=(SELECT id FROM ca_promo_play_through_grants WHERE source_ref='native-hu');
@@ -196,7 +251,7 @@ END$$;SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;"""
   root/'scripts/ci/test-accepted-hand-roster.py',root/roster.CAPTURE,root/roster.LIGHTNING,
   root/roster.RETIRED_CASH,root/roster.RAKED_DIAMOND,root/roster.MIGRATION,root/roster.FIXTURE]
  inputs += inputs_w+[fee,ticket,integrity,relations,lineage,manifest_owner,accepted_owner,root/'supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql']
- inputs+=base_migrations
+ inputs+=base_migrations+[origin_xid,observation_migration,witness,lightning_harness,lightning_fixture]
  e.report['source_sha256']={**manifest['source_sha256'],**{str(f):roster.sha(f) for f in inputs}}
  print('actual accepted hand and replay passed')
 finally:
