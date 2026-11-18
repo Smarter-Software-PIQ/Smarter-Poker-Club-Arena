@@ -8045,6 +8045,16 @@ export class TournamentRecurringService {
           if (capRefusal) console.warn(capRefusal);
           failures.set(regError.message, (failures.get(regError.message) || 0) + 1);
           this.horseEntryBackoff.refused(tournamentId, horse.id);
+          // Every candidate shares this event's admission fence. A busy payer
+          // may yield to another entrant in this pass; a busy event waits for
+          // the existing next pass. The previous buyer keeps its real receipt.
+          if (
+            isMtt &&
+            regError.code === '55P03' &&
+            regError.message === 'horse_attendance_lane_busy'
+          ) {
+            break;
+          }
           // The database did not answer: every further call would be one more
           // request queued on a pool that is not serving. The next pass asks.
           if (databaseDidNotAnswer(regError)) {
