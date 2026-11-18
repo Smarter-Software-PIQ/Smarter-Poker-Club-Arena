@@ -25,6 +25,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { sliceBlockAfter, sliceMethod, sliceSqlStatement } from './helpers/sourceWindow';
 
 const root = resolve(__dirname, '..');
 const migrations = join(root, 'supabase/migrations');
@@ -75,15 +76,15 @@ describe("the owner's Free Buy pause holds every start", () => {
     expect(defers).toMatch(/start_time = v_until/);
     expect(defers).toMatch(/interval '30 minutes'/);
     const engine = readFileSync(join(root, 'server/src/tournament/TournamentManagerBase.ts'), 'utf8');
-    const begin = engine.slice(engine.indexOf('private async beginTournamentLaunch('));
-    const frozen = begin.slice(begin.indexOf("result.reason === 'platform_frozen'"));
-    expect(frozen.slice(0, 300)).toMatch(/console\.log\([\s\S]*?return null;/);
-    expect(frozen.slice(0, 300)).not.toMatch(/reportError/);
+    const begin = sliceMethod(engine, 'private async beginTournamentLaunch(');
+    const frozen = sliceBlockAfter(begin, "if (result.reason === 'platform_frozen')");
+    expect(frozen).toMatch(/console\.log\([\s\S]*?return null;/);
+    expect(frozen).not.toMatch(/reportError/);
   });
 
   it('identifies Free Buys by kind, treats horses as players and moves no money', () => {
-    const paused = code(mig.slice(mig.indexOf('CREATE FUNCTION public.fn_ca_free_buy_start_paused')));
-    expect(paused.slice(0, 600)).toMatch(/t\.free_buy IS TRUE/);
+    const paused = code(sliceSqlStatement(mig, 'CREATE FUNCTION public.fn_ca_free_buy_start_paused('));
+    expect(paused).toMatch(/t\.free_buy IS TRUE/);
     const gate = code(
       mig.slice(
         mig.indexOf('CREATE FUNCTION public.fn_ca_free_buy_start_paused'),
