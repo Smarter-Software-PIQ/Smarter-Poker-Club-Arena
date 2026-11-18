@@ -52,12 +52,19 @@ describe('the door rules are read once per cycle', () => {
     expect(read).toContain('.limit(want)');
     expect(read).toMatch(/q\.gt\('id',\s*cursor\)/);
     expect(read).not.toContain('.range(');
-    // every column the two shapes need: the GAME the rule was earned in
-    // (game_scope, Dan 2026-11-18), never the stakes level it was played at
-    for (const col of ['player_id', 'game_scope', 'required_stack', 'barred_until', 'expires_at']) {
+    // every column the two shapes need
+    for (const col of [
+      'player_id',
+      'club_id',
+      'variant',
+      'sb',
+      'bb',
+      'required_stack',
+      'barred_until',
+      'expires_at',
+    ]) {
       expect(read).toContain(col);
     }
-    expect(read).not.toMatch(/\bvariant\b|\bsb\b|\bbb\b/);
   });
 
   it('ONCE - outside the table loop, beside the bankroll loader', () => {

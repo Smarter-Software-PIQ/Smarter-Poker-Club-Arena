@@ -4,8 +4,7 @@
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * `public.cash_rejoin_constraints` carries two rules a cash player meets at
- * the door of a game (the cash game itself, `game_scope`, since 2026-11-18;
- * before that club + variant + sb + bb):
+ * the door of a game (club + variant + sb + bb, the key the floor uses):
  *
  *   - `barred_until`  - booted for low VPIP: NO seat in this game until it
  *                       lifts (fn_cash_rejoin_floor raises VPIP_BARRED);
@@ -22,22 +21,14 @@
  *
  * This module reads the rows into the two shapes the fleet consults, keyed
  * exactly as the SQL joins them. Pure, so it can be proven without a database.
- *
- * ONE GAME, NOT ONE STAKES LEVEL (Dan, 2026-11-18): "WOOWOO CAN NOT TAKE HIS
- * BALANCE FROM A PLO5 MADNESS GAME, INTO A PLO5 LIGHTNING GAME. THEY ARE NOT
- * THE SAME GAME (EVEN THOUGH THEY ARE THE SAME GAME AND STAKES)." The key was
- * club + variant + sb + bb, so a Madness floor followed a player into the
- * Lightning game at the same stakes and forced a 3,762.18 stack into a game
- * whose maximum is 400. The key is now the game: 'cluster:<cash_games.id>'
- * for a must-move / Lightning cluster, otherwise the table's own scope -
- * exactly `public.fn_cash_game_scope_of_table` in
- * 20261118071741_rathole_floor_is_per_game_not_per_stakes.sql.
  */
 
 export interface RejoinConstraintRow {
   player_id: string;
-  /** The cash game the floor or bar was earned in (see rejoinTableKey). */
-  game_scope: string | null;
+  club_id: string;
+  variant: string;
+  sb: number | string;
+  bb: number | string;
   required_stack: number | string | null;
   barred_until: string | null;
   expires_at: string;
@@ -51,19 +42,18 @@ export interface RejoinConstraints {
 }
 
 /**
- * The game key: which cash game a table belongs to. Mirrors
- * public.fn_cash_game_scope_of_table, so a row's `game_scope` and a table's
- * key are the same string. Two tables of different cash games never share a
- * key, whatever their variant and stakes.
+ * The game key, formatted the way BOTH sides must format it. `sb`/`bb` are
+ * numeric(14,2) in Postgres and arrive as strings ("0.50"); the table row
+ * may carry them as numbers (0.5). Number() on both sides makes "0.50" and
+ * 0.5 the same key.
  */
 export function rejoinTableKey(t: {
-  id?: string | null;
-  cluster_id?: string | null;
-  seat_game_scope?: string | null;
+  club_id?: string | null;
+  game_variant?: string | null;
+  small_blind?: number | string | null;
+  big_blind?: number | string | null;
 }): string {
-  if (t.cluster_id) return `cluster:${t.cluster_id}`;
-  if (t.seat_game_scope) return t.seat_game_scope;
-  return `table:${t.id ?? ''}`;
+  return `${t.club_id ?? ''}|${t.game_variant ?? ''}|${Number(t.small_blind)}|${Number(t.big_blind)}`;
 }
 
 export function rejoinPlayerKey(playerId: string, tableKey: string): string {
@@ -84,10 +74,15 @@ export function buildRejoinConstraints(
   for (const r of rows) {
     const expires = Date.parse(r.expires_at);
     if (!Number.isFinite(expires) || expires <= nowMs) continue;
-    // A row with no game cannot be matched to any table; the database
-    // matches it to nothing either (game_scope = NULL is never true).
-    if (!r.game_scope) continue;
-    const key = rejoinPlayerKey(r.player_id, r.game_scope);
+    const key = rejoinPlayerKey(
+      r.player_id,
+      rejoinTableKey({
+        club_id: r.club_id,
+        game_variant: r.variant,
+        small_blind: r.sb,
+        big_blind: r.bb,
+      })
+    );
     const barredUntil = r.barred_until ? Date.parse(r.barred_until) : NaN;
     if (Number.isFinite(barredUntil) && barredUntil > nowMs) barred.add(key);
     const floor = Number(r.required_stack);
