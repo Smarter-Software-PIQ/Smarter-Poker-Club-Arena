@@ -49,6 +49,7 @@ import {
 import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadline.js';
 import type { HandController } from '../engine/HandController.js';
 import type { ActionType, HorseDecision, SeatPlayer } from '../types.js';
+import type { LightningHorseVpipFloorInput } from './LightningHorseVpipLedger.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -89,6 +90,12 @@ export interface LightningHorseTurn {
   savedProfileHumanIds?: readonly string[];
   sevenDeuceEnabled?: boolean;
   sevenDeuceBountyBB?: number;
+  /**
+   * A floored pool (owner 2026-11-18, "if a game requires a vpip horses must
+   * always follow"): the game's floor, window and this Horse's own count
+   * this sitting (LightningHorseVpipLedger). Null or absent: no floor.
+   */
+  vpipFloor?: LightningHorseVpipFloorInput | null;
 }
 
 export interface LightningHorseDecision {
@@ -179,6 +186,20 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     bigBlindAnte: turn.bigBlindAnte,
     allInOrFold: turn.allInOrFold,
     straddleActive: false,
+    // The pool's floor, in its own field: vpipFloor stays absent, so the table floor's widening
+    // and call-down cannot fire here; only lightningVpipFloorLimpOnly reads this.
+    ...(turn.vpipFloor
+      ? {
+          lightningVpipFloor: {
+            floor: turn.vpipFloor.floor,
+            windowHands: turn.vpipFloor.windowHands,
+            own: {
+              hands: turn.vpipFloor.own.hands,
+              vpipHands: turn.vpipFloor.own.vpipHands,
+            },
+          },
+        }
+      : {}),
     ...(turn.sevenDeuceEnabled === true
       ? {
           sevenDeuceEnabled: true,

@@ -1970,6 +1970,18 @@ export interface HorseGameStateV2 extends HorseGameState {
    * first hand is on file. Absent when the engine could not read it.
    */
   ownVpip?: { hands: number; vpip: number | null };
+  /**
+   * A LIGHTNING POOL'S FLOOR (owner 2026-11-18). The game's floor (percent),
+   * its judged window and this Horse's own count this pool sitting
+   * (LightningHorseVpipLedger). Deliberately NOT vpipFloor / ownVpip: only
+   * lightningVpipFloorLimpOnly reads it, so with that option off a pool
+   * decision is the one it was. Absent at a table and in an unfloored pool.
+   */
+  lightningVpipFloor?: {
+    floor: number;
+    windowHands: number;
+    own: { hands: number; vpipHands: number };
+  };
   /** ALL-IN-OR-FOLD table: preflop is fold or shove and nothing else. */
   allInOrFold?: boolean;
   /** The ante is a BIG BLIND ANTE: the big blind posts it once for the whole
@@ -3491,6 +3503,37 @@ export interface HorseDecideOpts {
    * read `=== true`); the league seats no floored table (refused matchups
    * <variant>_vpip_floor_limp_only). */
   vpipFloorLimpOnly?: boolean;
+  /** Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses
+   * must always follow"): a Lightning pool whose game carries a VPIP floor
+   * binds its Horses. The Lightning snapshot carries the game's floor, its
+   * window and the Horse's own count this pool sitting in
+   * gs.lightningVpipFloor (never in vpipFloor, so the table floor's widening
+   * and call-down still cannot fire in a pool), and with this on the floor
+   * has exactly the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep,
+   * the same selection per variant): a Horse under its line turns a preflop
+   * fold in a pot nobody has raised, for at most the big blind and less than
+   * its stack, into the limp or the small blind's completion. It never
+   * raises, never calls a raise and never acts postflop; raised after the
+   * limp, the unfloored decision stands. The line is the ten-hand mode's own
+   * judgement, the whole sitting: the smallest count of entered hands at or
+   * over the floor for the hands dealt so far (never fewer than the window)
+   * plus VPIP_LIMP_BUFFER_HANDS. No All-In-Or-Fold hand, no tournament.
+   * Independent of vpipFloorLimpOnly, which never governs a pool. Default
+   * OFF (opt-in, read `=== true`). */
+  lightningVpipFloorLimpOnly?: boolean;
+  /** The re-raised-pot pricing of 2026-11-18 (finding F-02 position by seat
+   * order and the measured realization, #11287) in a fast-table cash hand:
+   * with this on, omahaReraisedCallPricingOf prices a Lightning PLO4/PLO5
+   * call of a re-raise as it prices a table's (in position = acts after the
+   * re-raiser; the players who called the price read by their bands or
+   * charged as dilution; a raiser or a caller still to act carries no
+   * charge). Off, Lightning keeps the reading it had. A pool hand has real
+   * seats and a button for the hand, so the seat order is the hand's own;
+   * a seat still to act may already have pressed the fast fold, which the
+   * snapshot does not show, and the table reading already gives such a seat
+   * no charge and no position. Tournaments unchanged. Default OFF (opt-in,
+   * read `=== true`). */
+  omahaReraisedPositionInLightning?: boolean;
   /** Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the
    * biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and
    * called his re-raises without aces 22 times; 18 of the 21 4-bets replay as
@@ -5773,6 +5816,51 @@ export function vpipFloorLimpOnlyStep(
   return {
     decision: { ...decision, action: 'call', amount: Math.round(toCall * 100) / 100 },
     receipt: 'vpip_floor_limp_only_limp',
+  };
+}
+
+/**
+ * lightningVpipFloorLimpOnly: the floor inputs of a Lightning pool decision
+ * in the shape vpipFloorLimpOnlyStep reads, or null when the option is off,
+ * the decision is not a floored Lightning cash decision, or the count cannot
+ * be read. The ten-hand mode judges the whole sitting, so the judged sample
+ * is the hands dealt this sitting and never fewer than the game's window:
+ * with N = max(hands, window) the shortfall vpipFloorLimpOnlyShortfall
+ * returns is ceil(floor x N) + VPIP_LIMP_BUFFER_HANDS - entered hands.
+ */
+export function lightningVpipFloorLimpOnlyInputs(
+  gs: {
+    gameMode?: string;
+    allInOrFold?: boolean;
+    bombPot?: boolean;
+    publicMemoryDomain?: { speed?: string } | null;
+    lightningVpipFloor?: {
+      floor: number;
+      windowHands: number;
+      own: { hands: number; vpipHands: number };
+    };
+  },
+  opts: HorseDecideOpts,
+  tournament: boolean
+): { vpipFloor: number; vpipWindowHands: number; ownVpip: { hands: number; vpip: number } } | null {
+  if (opts.lightningVpipFloorLimpOnly !== true || tournament) return null;
+  if (gs.publicMemoryDomain?.speed !== 'lightning' || gs.gameMode !== 'cash') return null;
+  if (gs.allInOrFold === true || gs.bombPot === true) return null;
+  const f = gs.lightningVpipFloor;
+  if (!f || typeof f !== 'object' || !f.own || typeof f.own !== 'object') return null;
+  const floor = Number(f.floor);
+  const window = Number(f.windowHands);
+  const hands = Number(f.own.hands);
+  const entered = Number(f.own.vpipHands);
+  if (!(floor > 0) || !(floor <= 100)) return null;
+  if (!Number.isInteger(window) || !(window > 0)) return null;
+  if (!Number.isInteger(hands) || !Number.isInteger(entered)) return null;
+  if (hands < 0 || entered < 0 || entered > hands) return null;
+  const judged = Math.max(hands, window);
+  return {
+    vpipFloor: floor,
+    vpipWindowHands: judged,
+    ownVpip: { hands, vpip: (100 * entered) / judged },
   };
 }
 
@@ -8220,8 +8308,12 @@ function omahaReraisedCallCellJudges(
  * priced flop continue, the priced V53 call) are cash-table work: a tournament
  * hand and a Lightning hand keep what they had.
  */
-function omahaReraisedLaneUntouched(gs: HorseGameStateV2): boolean {
-  return isTournamentMode(gs) || gs.publicMemoryDomain?.speed === 'lightning';
+function omahaReraisedLaneUntouched(gs: HorseGameStateV2, opts: HorseDecideOpts): boolean {
+  if (isTournamentMode(gs)) return true;
+  // omahaReraisedPositionInLightning (default off): a fast-table cash hand is priced as a table's.
+  return (
+    gs.publicMemoryDomain?.speed === 'lightning' && opts.omahaReraisedPositionInLightning !== true
+  );
 }
 
 /**
@@ -8319,7 +8411,7 @@ export function omahaReraisedCallPricingOf(
     );
     // Tournaments and Lightning keep the reading the priced call had before
     // F-02 (after the re-raiser and after every player already in for the price).
-    const priorReading = omahaReraisedLaneUntouched(gs);
+    const priorReading = omahaReraisedLaneUntouched(gs, opts);
     const inPosition = priorReading
       ? mine > postflopOrder(raiser.seat, gs.dealerSeat) &&
         !live.some((p) => inFor(p) && !p.is_all_in && postflopOrder(p.seat, gs.dealerSeat) > mine)
@@ -13726,6 +13818,34 @@ export class HorseLogic {
             else if (limpOnly.receipt === 'vpip_floor_limp_only_fold_kept')
               noteFire('vpip_floor_limp_only_fold_kept');
             else noteFire('vpip_floor_limp_only_priced_out');
+          }
+        } else if (lightningVpipFloorLimpOnlyInputs(gs, opts, isTournamentMode(gs)) !== null) {
+          // lightningVpipFloorLimpOnly: a floored pool's one action is the same limp.
+          const poolFloor = lightningVpipFloorLimpOnlyInputs(gs, opts, isTournamentMode(gs))!;
+          const limpOnly = vpipFloorLimpOnlyStep(
+            decision,
+            player,
+            {
+              stage: gs.stage,
+              currentBet: gs.currentBet,
+              bigBlind: gs.bigBlind,
+              straddleActive: gs.straddleActive,
+              actionHistory: gs.actionHistory,
+              ...poolFloor,
+            },
+            (price) => vpipLimpEvAt(player, gs, vi, opts, price),
+            vpipFloorLimpOnlySelectionFor(gs.gameVariant)
+          );
+          decision = limpOnly.decision;
+          if (tele) {
+            noteFire('lightning_vpip_floor_limp_only_seen');
+            // Literal keys: the ledger contract finds each receipt by its noteFire call.
+            if (limpOnly.receipt === 'vpip_floor_limp_only_limp')
+              noteFire('lightning_vpip_floor_limp_only_limp');
+            else if (limpOnly.receipt === 'vpip_floor_limp_only_fold_kept')
+              noteFire('lightning_vpip_floor_limp_only_fold_kept');
+            else if (limpOnly.receipt === 'vpip_floor_limp_only_priced_out')
+              noteFire('lightning_vpip_floor_limp_only_priced_out');
           }
         } else if (limpFold && decision.action === 'fold') {
           // omahaVpipFloorByLimp: the limp already counted; the fold stands.

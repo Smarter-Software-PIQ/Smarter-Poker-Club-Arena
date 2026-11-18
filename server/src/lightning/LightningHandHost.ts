@@ -185,6 +185,11 @@ import { buildLightningStatsFacts, type LightningFactsBuilder } from './Lightnin
 import { horseDailyRollupContract } from '../services/HorseDailyRollupContract.js';
 import { writeHandFacts } from '../services/supabase/handFacts.js';
 import { lightningVpipFloor } from './LightningHorseResults.js';
+import {
+  lightningHorseVpipFloorInput,
+  lightningHorseVpipLedger,
+  type LightningHorseVpipLedger,
+} from './LightningHorseVpipLedger.js';
 import type { HorseReviewInput } from '../services/HorseHandReview.js';
 import {
   horseOpponentMemorySchema,
@@ -474,6 +479,8 @@ export interface LightningHandHostDeps {
   horseObservation?: Partial<Pick<LightningObservationDeps, 'schema' | 'readProfiles' | 'report'>>;
   /** Files the settled hand on the horse scoreboard (LightningHorseResults). Injected for tests. */
   recordHorseResults?: (input: HorseReviewInput) => Promise<void>;
+  /** The Horses' own VPIP count per pool sitting (the process-wide ledger otherwise). */
+  horseVpipLedger?: LightningHorseVpipLedger;
   /** Builds the hand's private stats facts (LightningHandFacts). Injected for tests. */
   statsFacts?: LightningFactsBuilder;
   /** The jackpot payout doors (injected for tests; the physical ones otherwise). */
@@ -1901,6 +1908,7 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        vpipFloor: this.horseVpipFloorFor(userId),
         savedProfileHumanIds: [...this.participants.values()]
           .filter(confirmedHuman)
           .map((p) => p.playerId),
@@ -2505,6 +2513,7 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        vpipFloor: this.horseVpipFloorFor(userId),
         savedProfileHumanIds: [...this.participants.values()]
           .filter(confirmedHuman)
           .map((p) => p.playerId),
@@ -3367,6 +3376,19 @@ export class LightningHandHost {
     }
   }
 
+  /** The pool's floor and this Horse's own count this sitting, or null in an unfloored pool. */
+  private horseVpipFloorFor(userId: string) {
+    try {
+      const ledger = this.deps.horseVpipLedger ?? lightningHorseVpipLedger;
+      return lightningHorseVpipFloorInput(
+        this.rules,
+        ledger.read(this.participants.get(userId)?.poolSessionId)
+      );
+    } catch {
+      return null;
+    }
+  }
+
   /** LightningHorseResults: the settled hand's exact horse nets, play and reviews. */
   private recordForHorseScoreboard(
     state: GameState,
@@ -3378,6 +3400,11 @@ export class LightningHandHost {
     playedAtMs = this.now()
   ) {
     const participants = [...this.participants.values()];
+    // The settled hand counts once for every Horse dealt in (LightningHorseVpipLedger).
+    (this.deps.horseVpipLedger ?? lightningHorseVpipLedger).record(
+      participants,
+      this.actions as ReadonlyArray<Record<string, unknown>>
+    );
     void recordLightningHorseResults(
       {
         handHistoryId,
@@ -3768,28 +3795,33 @@ export class LightningHandHost {
           `; hand #${this.handNumber} waited ${attempts} attempt(s). One alert per table stall episode; ` +
           'the outbox row remains authoritative and the projection worker is its successor'
         : `Lightning hand ${this.hostTableId}#${this.handNumber} committed, but its post-commit envelope was refused (${why.reason}); the outbox row remains authoritative and the projection worker is its successor`;
-    void raiseFinancialAlert('critical', 'LightningHandHost.post_commit_obligations_pending', message, {
-      table_id: this.hostTableId,
-      hand_number: this.handNumber,
-      hand_id: handHistoryId,
-      lightning_hand_id: this.handId,
-      attempts,
-      error: describeError(lastError),
-      outcome: why.kind,
-      last_reason: why.reason,
-      ...(why.kind === 'stalled'
-        ? {
-            episode_key: `${this.hostTableId}:${why.episode.firstOldestHandId}`,
-            first_seen_oldest_hand_id: why.episode.firstOldestHandId,
-            oldest_pending_hand_id: why.oldestHandId,
-            oldest_pending_hand_number: why.oldest?.handNumber ?? null,
-            oldest_pending_committed_at: why.oldest?.committedAt ?? null,
-            oldest_pending_age_ms: ageMs,
-            stalled_hands: why.episode.stalledHands,
-            oldest_pending_max_age_ms: why.episode.maxOldestAgeMs,
-          }
-        : {}),
-    }).catch((alertError) =>
+    void raiseFinancialAlert(
+      'critical',
+      'LightningHandHost.post_commit_obligations_pending',
+      message,
+      {
+        table_id: this.hostTableId,
+        hand_number: this.handNumber,
+        hand_id: handHistoryId,
+        lightning_hand_id: this.handId,
+        attempts,
+        error: describeError(lastError),
+        outcome: why.kind,
+        last_reason: why.reason,
+        ...(why.kind === 'stalled'
+          ? {
+              episode_key: `${this.hostTableId}:${why.episode.firstOldestHandId}`,
+              first_seen_oldest_hand_id: why.episode.firstOldestHandId,
+              oldest_pending_hand_id: why.oldestHandId,
+              oldest_pending_hand_number: why.oldest?.handNumber ?? null,
+              oldest_pending_committed_at: why.oldest?.committedAt ?? null,
+              oldest_pending_age_ms: ageMs,
+              stalled_hands: why.episode.stalledHands,
+              oldest_pending_max_age_ms: why.episode.maxOldestAgeMs,
+            }
+          : {}),
+      }
+    ).catch((alertError) =>
       this.logger.error(
         `[LightningHost:${this.instanceId}] post-commit alert not filed`,
         alertError
