@@ -365,5 +365,7 @@ CREATE EVENT TRIGGER ca_cash_rake_provenance_law ON ddl_command_end
   WHEN TAG IN ('CREATE FUNCTION', 'ALTER FUNCTION')
   EXECUTE FUNCTION smarter_private.fn_cash_rake_provenance_law_guard();
 
+-- periodic-work: retention only. The rows are deal-time evidence a stored rake reads within minutes;
+-- the prune repairs nothing and compensates for nothing, and a missed run only keeps rows longer.
 SELECT cron.schedule('ca-cash-hand-chair-clubs-prune-daily', '35 5 * * *',
   $cron$DELETE FROM smarter_private.cash_hand_chair_clubs WHERE captured_at < now() - interval '14 days'$cron$);
