@@ -226,13 +226,13 @@
 
 /* Dan 2026-11-12: a union member club's split counts its union's floor, so
    the union's name sits over it in the same small caps, blue like the labels. */
-.club-card-stat-split-floor {
+.club-card-stat-split-floor.sc-label {
   grid-column: 1 / -1;
-  justify-self: end;
+  text-align: center;
+  white-space: normal;
   margin-top: -0.6cqw;
   font-size: 2.4cqw;
   letter-spacing: 0.08em;
-  white-space: nowrap;
 }
 
 .club-card-stat-split-dot {
