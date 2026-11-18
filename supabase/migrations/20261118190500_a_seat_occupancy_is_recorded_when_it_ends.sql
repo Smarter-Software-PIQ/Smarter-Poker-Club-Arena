@@ -121,8 +121,8 @@ CREATE TRIGGER zz_record_deleted_seat_occupancy
   EXECUTE FUNCTION smarter_private.fn_record_ended_seat_occupancy();
 
 INSERT INTO public.ca_declared_money_triggers (table_name, trigger_name, note)
-VALUES ('table_seats', 'zz_record_ended_seat_occupancy', ¯TER row trigger: records an ended cash seat occupancy into smarter_private.cash_seat_occupancy_history; writes no balance and never refuses'),
-       ('table_seats', 'zz_record_deleted_seat_occupancy', ¯TER DELETE row trigger: records the deleted cash seat occupancy into smarter_private.cash_seat_occupancy_history; writes no balance and never refuses')
+VALUES ('table_seats', 'zz_record_ended_seat_occupancy', 'AFTER row trigger: records an ended cash seat occupancy into smarter_private.cash_seat_occupancy_history; writes no balance and never refuses'),
+       ('table_seats', 'zz_record_deleted_seat_occupancy', 'AFTER DELETE row trigger: records the deleted cash seat occupancy into smarter_private.cash_seat_occupancy_history; writes no balance and never refuses')
 ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE FUNCTION smarter_private.cash_hand_earning_club_evidence(p_hand_id uuid, p_table_id uuid, p_player_id uuid)
