@@ -1,8 +1,9 @@
+-- @install-window: daily-maintenance
 -- Cash and Lightning rake, accounting entry fees and original paid-entry
 -- receipts feed the on-demand wallet meter. Their insertion must never scan
 -- a member's prior fees to send halfway or near-completion notices.
 -- @locks: public.rake_attributions, public.accounting_tournament_fee_sources, public.ca_promo_event_fee_consumption_receipts
--- @live-proof: NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid IN ('public.rake_attributions'::regclass,'public.accounting_tournament_fee_sources'::regclass,'public.ca_promo_event_fee_consumption_receipts'::regclass) AND tgfoid='public.fn_ca_promo_fee_notice()'::regprocedure)
+-- @live-proof: to_regprocedure('public.fn_ca_promo_fee_notice()') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid IN ('public.rake_attributions'::regclass,'public.accounting_tournament_fee_sources'::regclass,'public.ca_promo_event_fee_consumption_receipts'::regclass) AND tgname IN ('ca_promo_fee_notice','ca_promo_entry_notice','ca_promo_paid_entry_notice'))
 BEGIN;
 SET LOCAL search_path TO public, pg_catalog;
 SET LOCAL lock_timeout = '1s';
@@ -15,6 +16,10 @@ LOCK TABLE public.rake_attributions, public.accounting_tournament_fee_sources,
 
 DO $guard$
 BEGIN
+ IF md5(pg_get_functiondef('public.fn_ca_promo_fee_notice()'::regprocedure))
+    <> 'b36196865d51e7d71cdcf672fdf7a491' THEN
+  RAISE EXCEPTION 'promo fee notice retirement has not been installed';
+ END IF;
  IF EXISTS (
   SELECT 1 FROM (VALUES
    ('public.rake_attributions'::regclass,'ca_promo_fee_notice','899bf028fdd5a790b78bf41003f71597'),
@@ -31,5 +36,6 @@ END $guard$;
 DROP TRIGGER ca_promo_fee_notice ON public.rake_attributions;
 DROP TRIGGER ca_promo_entry_notice ON public.accounting_tournament_fee_sources;
 DROP TRIGGER ca_promo_paid_entry_notice ON public.ca_promo_event_fee_consumption_receipts;
+DROP FUNCTION public.fn_ca_promo_fee_notice() RESTRICT;
 
 COMMIT;
