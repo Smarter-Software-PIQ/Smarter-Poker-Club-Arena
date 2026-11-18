@@ -396,6 +396,9 @@ const ALL: HorseDecideOpts = {
   omahaFacingBetEv: true,
   omahaBigDrawAggression: true,
   omahaNoDrawRaiseOutOfPosition: true,
+  omahaStreetPlanFlop: true,
+  omahaStreetPlanThreeWay: true,
+  omahaPreflopStackPlan: true,
 };
 const ARMS: [string, HorseDecideOpts][] = [
   ['the owner-ruled options alone', OWNER],
@@ -406,6 +409,17 @@ const ARMS: [string, HorseDecideOpts][] = [
   [
     '+ omahaBigDrawAggression and omahaStreetPlan',
     { ...OWNER, omahaBigDrawAggression: true, omahaStreetPlan: true },
+  ],
+  // the street plan's flop, three-way and preflop layers (owner 2026-11-15
+  // 11:43): inside the owner-ruled chain, so every ruling below holds.
+  [
+    '+ omahaStreetPlanFlop, omahaStreetPlanThreeWay and omahaPreflopStackPlan',
+    {
+      ...OWNER,
+      omahaStreetPlanFlop: true,
+      omahaStreetPlanThreeWay: true,
+      omahaPreflopStackPlan: true,
+    },
   ],
   ['every option on', ALL],
   // horsePlayStyles (owner 2026-11-15 16:40 / 16:42): the style dials act
