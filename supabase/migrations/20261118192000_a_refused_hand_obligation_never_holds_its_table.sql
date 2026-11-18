@@ -65,7 +65,7 @@ SET LOCAL lock_timeout = '4s';
 -- migration refuses to install rather than silently revert it. Regenerate.
 DO $preimage$
 BEGIN
-  IF md5(pg_get_functiondef('public.fn_project_hand_side_effects'::regproc)) IS DISTINCT FROM '94588bd7bc75f60b9b575eb396549d5c' THEN
+  IF md5(pg_get_functiondef('public.fn_project_hand_side_effects'::regproc)) IS DISTINCT FROM '4f16efbf167945d0df5b54f071988732' THEN
     RAISE EXCEPTION 'preimage of public.fn_project_hand_side_effects changed since this migration was generated' USING ERRCODE = '55000';
   END IF;
   IF md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations'::regproc)) IS DISTINCT FROM '2d9d0d7cab537e608da36be3319e347e' THEN
@@ -399,6 +399,26 @@ BEGIN
       PERFORM pg_sleep(0.025);
     END LOOP;
   END LOOP;
+
+  /* A DEFERRED WALLET RETURN IS BANKED BY THE TABLE'S OWN CONTINUATION
+     (20261118161644). A hand that credited a deleted or split-departed
+     record while its club bank was busy stored the return in
+     hand_wallet_return_pending for this table. This pass banks it here,
+     after the table mutex and the players' keys above (20261118155509) and
+     inside the same 1 s deadline: every lock the banker takes is tried,
+     NOWAIT or bounded by what is left of that deadline, never waited on. The
+     pass ends here either way, so the outbox row that carries the hand stays
+     until the return is banked, and the next pass for this table retries. */
+  IF EXISTS (SELECT 1 FROM public.hand_wallet_return_pending wr WHERE wr.table_id = v_table_id) THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'reason', 'predecessor_pending',
+      'detail', 'wallet_returns',
+      'wallet_returns', public.fn_ca_bank_pending_wallet_returns(v_table_id, v_lock_started + interval '1 second'),
+      'projection_applied', false,
+      'hand_id', p_hand_id
+    );
+  END IF;
 
   v_post_commit :=
     public.fn_ca_process_hand_post_commit_obligations(p_hand_id);
