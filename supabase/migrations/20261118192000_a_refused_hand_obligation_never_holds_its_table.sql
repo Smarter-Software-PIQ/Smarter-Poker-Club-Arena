@@ -48,6 +48,10 @@
 --   * fn_post_commit_stranded_watchdog no longer counts an obligation already
 --     named terminal under the current law (it is paged at its source); an
 --     obligation whose law has changed and still waits is counted as before.
+--     Its guard now silences only its own finding (the oldest unfinished
+--     envelope and stored obligation), per tests/an-open-alert-silences-only-
+--     its-own-finding.law.test.ts: one stale open alert used to silence every
+--     later stranding.
 --
 -- No watcher, sweeper or repair job is added: the re-ask runs inside the
 -- table's own continuation, and the epoch only moves when code is installed.
@@ -55,6 +59,29 @@
 BEGIN;
 
 SET LOCAL lock_timeout = '4s';
+
+-- THE PREIMAGE PIN. Every body below was generated from the live definition
+-- with these md5s. If any has changed since, another change landed first: this
+-- migration refuses to install rather than silently revert it. Regenerate.
+DO $preimage$
+BEGIN
+  IF md5(pg_get_functiondef('public.fn_ca_bank_pending_cash_rake'::regproc)) IS DISTINCT FROM '41b3262d07e6ad9d70cb92d076a59448' THEN
+    RAISE EXCEPTION 'preimage of public.fn_ca_bank_pending_cash_rake changed since this migration was generated' USING ERRCODE = '55000';
+  END IF;
+  IF md5(pg_get_functiondef('public.fn_ca_bank_pending_hand_obligations'::regproc)) IS DISTINCT FROM 'a1ac68083959360811d3b33b8c674f86' THEN
+    RAISE EXCEPTION 'preimage of public.fn_ca_bank_pending_hand_obligations changed since this migration was generated' USING ERRCODE = '55000';
+  END IF;
+  IF md5(pg_get_functiondef('public.fn_project_hand_side_effects'::regproc)) IS DISTINCT FROM '94588bd7bc75f60b9b575eb396549d5c' THEN
+    RAISE EXCEPTION 'preimage of public.fn_project_hand_side_effects changed since this migration was generated' USING ERRCODE = '55000';
+  END IF;
+  IF md5(pg_get_functiondef('public.trg_finish_hand_post_commit_obligations'::regproc)) IS DISTINCT FROM '2d9d0d7cab537e608da36be3319e347e' THEN
+    RAISE EXCEPTION 'preimage of public.trg_finish_hand_post_commit_obligations changed since this migration was generated' USING ERRCODE = '55000';
+  END IF;
+  IF md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog'::regproc)) IS DISTINCT FROM 'a16ceda2073f0dbb3cd28feb841106e9' THEN
+    RAISE EXCEPTION 'preimage of public.fn_post_commit_stranded_watchdog changed since this migration was generated' USING ERRCODE = '55000';
+  END IF;
+END $preimage$;
+
 
 CREATE TABLE IF NOT EXISTS smarter_private.money_law_changes (
   id             bigserial   PRIMARY KEY,
@@ -518,9 +545,27 @@ DECLARE
   v_hand_bank jsonb;
   v_reask jsonb;
   v_reask_hand uuid;
+  v_contract integer := 1;
+  v_lock_key bigint;
+  v_lock_started timestamptz;
+  v_lock_waited numeric;
 BEGIN
   IF NOT (current_user IN ('postgres','service_role')) THEN
     RAISE EXCEPTION 'fn_project_hand_side_effects is engine/service only';
+  END IF;
+
+  /* THE ANSWER CONTRACT (20261118073646, applied here by 20261118155509).
+     Contract 1 is every caller that predates it: it defers
+     predecessor_pending and fails anything else it does not know. Contract 2
+     (the PostgREST header x-ca-post-commit-contract: 2, sent by the engine
+     on this RPC) also knows table_busy and obligation_lock_busy. A
+     contract-1 caller gets predecessor_pending in their place, with the real
+     reason in queued_reason. */
+  IF pg_input_is_valid(COALESCE(current_setting('request.headers', true), ''), 'json')
+     AND (current_setting('request.headers', true)::json
+            ->> 'x-ca-post-commit-contract') ~ '^[0-9]{1,3}$' THEN
+    v_contract := (current_setting('request.headers', true)::json
+                     ->> 'x-ca-post-commit-contract')::integer;
   END IF;
 
   /* LOCK ORDER 1: read the exact durable scope without claiming the outbox.
@@ -661,9 +706,41 @@ BEGIN
 
   /* LOCK ORDER 2: every path that can consume the frozen post-commit envelope
      owns this per-table advisory lock before reaching any player/stat row. */
-  PERFORM pg_advisory_xact_lock(
-    hashtextextended('hand-post-commit:' || v_table_id::text, 0)
-  );
+  /* THE PROJECTION WORKER NEVER QUEUES ON THE TABLE LOCK (20261118155509,
+     incident 075013fd). The mutex is tried for at most 250 ms; a table whose
+     envelope or projection is running answers table_busy (retryable) with
+     nothing written, instead of holding a connection for up to the 8 s
+     lock_timeout the PostgREST worker inherits from authenticator (a SQL
+     caller under the global lock_timeout 0 waited until its statement
+     timeout). Re-entered at once when this transaction already holds it.
+     The f06 tournament lane above keeps its own 4 s wait (separate, out of
+     scope here). */
+  v_lock_key := hashtextextended('hand-post-commit:' || v_table_id::text, 0);
+  v_lock_started := clock_timestamp();
+  WHILE NOT pg_try_advisory_xact_lock(v_lock_key) LOOP
+    IF clock_timestamp() - v_lock_started >= interval '250 milliseconds' THEN
+      RETURN jsonb_build_object(
+        'ok', false,
+        'reason', CASE WHEN v_contract >= 2 THEN 'table_busy' ELSE 'predecessor_pending' END,
+        'queued_reason', 'table_busy',
+        'retryable', true,
+        'projection_applied', false,
+        'hand_id', p_hand_id,
+        'table_id', v_table_id,
+        'hand_number', v_hand_number,
+        'waited_ms', round(extract(epoch FROM clock_timestamp() - v_lock_started) * 1000)
+      );
+    END IF;
+    PERFORM pg_sleep(0.025);
+  END LOOP;
+
+  /* The seated players' locks below (LOCK ORDER 2b, still in uuid order) are
+     tried too, all within one 1 s deadline from here (the envelope's own row
+     bound), and so are LOCK ORDER 4 and the players' 'player-stats-user:'
+     keys (4b). A held one answers obligation_lock_busy with nothing written;
+     this transaction's locks end with it and the worker comes back for the
+     hand. */
+  v_lock_started := clock_timestamp();
 
   /* LOCK ORDER 3: consume the exact stored envelope, or leave the outbox row
      untouched. predecessor_pending is returned unchanged so the event-driven
@@ -683,7 +760,24 @@ BEGIN
        AND (pl->>'userId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
      ORDER BY 1
   LOOP
-    PERFORM pg_advisory_xact_lock(hashtextextended('player-stats:' || v_seat_uid::text, 0));
+    WHILE NOT pg_try_advisory_xact_lock(hashtextextended('player-stats:' || v_seat_uid::text, 0)) LOOP
+      v_lock_waited := extract(epoch FROM clock_timestamp() - v_lock_started);
+      IF v_lock_waited >= 1 THEN
+        RETURN jsonb_build_object(
+          'ok', false,
+          'reason', CASE WHEN v_contract >= 2 THEN 'obligation_lock_busy' ELSE 'predecessor_pending' END,
+          'queued_reason', 'obligation_lock_busy',
+          'retryable', true,
+          'projection_applied', false,
+          'detail', 'player_stats_lock_busy',
+          'hand_id', p_hand_id,
+          'table_id', v_table_id,
+          'hand_number', v_hand_number,
+          'waited_ms', round(v_lock_waited * 1000)
+        );
+      END IF;
+      PERFORM pg_sleep(0.025);
+    END LOOP;
   END LOOP;
 
   v_post_commit :=
@@ -718,9 +812,81 @@ BEGIN
      deletes through a0_finish_hand_post_commit_obligations. The trigger's
      second processor call is an idempotent completed/legacy assertion while
      this transaction still owns both advisory locks. */
-  PERFORM pg_advisory_xact_lock(
-    hashtextextended('hand-projection:' || v_table_id::text, 0)
-  );
+  /* LOCK ORDER 4, TRIED (20261118155509). Only a holder of this table's
+     mutex takes 'hand-projection:<table>' (this function and the
+     after-function it calls), so it is free here; it is tried all the same,
+     within the same 1 s deadline, so that this function makes no blocking
+     lock call at all. */
+  v_lock_key := hashtextextended('hand-projection:' || v_table_id::text, 0);
+  WHILE NOT pg_try_advisory_xact_lock(v_lock_key) LOOP
+    v_lock_waited := extract(epoch FROM clock_timestamp() - v_lock_started);
+    IF v_lock_waited >= 1 THEN
+      RETURN jsonb_build_object(
+        'ok', false,
+        'reason', CASE WHEN v_contract >= 2 THEN 'table_busy' ELSE 'predecessor_pending' END,
+        'queued_reason', 'table_busy',
+        'retryable', true,
+        'projection_applied', false,
+        'detail', 'hand_projection_lock_busy',
+        'hand_id', p_hand_id,
+        'table_id', v_table_id,
+        'hand_number', v_hand_number,
+        'waited_ms', round(v_lock_waited * 1000)
+      );
+    END IF;
+    PERFORM pg_sleep(0.025);
+  END LOOP;
+
+  /* LOCK ORDER 4b, TRIED (20261118155509): every 'player-stats-user:<uuid>'
+     key the after-function will take, in uuid order, within the same 1 s
+     deadline, BEFORE it runs. The after-function takes these keys with a
+     blocking pg_advisory_xact_lock (Projection 2, cash chip hands only) after
+     it has already claimed the outbox row and written the club member
+     projections; the cash commission batch, the cash source retry and the
+     Midway promo take the same keys. Held here first, the after-function's
+     own calls re-enter at once and never queue. The set is the
+     after-function's (the hand's seated uuids, cash hand at a non-Diamond
+     club) or wider, never narrower. A held key answers obligation_lock_busy
+     with nothing written: the envelope is already complete or legacy here
+     (a pass that completes it returned above), so this transaction has
+     written nothing. Never waited on, never out of order: two hands with
+     overlapping players cannot deadlock or convoy on these keys. */
+  IF EXISTS (SELECT 1
+               FROM public.hand_history h
+               JOIN public.tables t ON t.id = h.table_id
+               JOIN public.clubs c ON c.id = t.club_id
+              WHERE h.id = p_hand_id
+                AND h.tournament_id IS NULL
+                AND NOT COALESCE(c.asset = 'diamonds', false)) THEN
+    FOR v_seat_uid IN
+      SELECT DISTINCT (pl->>'userId')::uuid
+        FROM public.hand_history h,
+             jsonb_array_elements(CASE WHEN jsonb_typeof(h.players) = 'array'
+                                       THEN h.players ELSE '[]'::jsonb END) pl
+       WHERE h.id = p_hand_id
+         AND (pl->>'userId') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       ORDER BY 1
+    LOOP
+      WHILE NOT pg_try_advisory_xact_lock(hashtextextended('player-stats-user:' || v_seat_uid::text, 0)) LOOP
+        v_lock_waited := extract(epoch FROM clock_timestamp() - v_lock_started);
+        IF v_lock_waited >= 1 THEN
+          RETURN jsonb_build_object(
+            'ok', false,
+            'reason', CASE WHEN v_contract >= 2 THEN 'obligation_lock_busy' ELSE 'predecessor_pending' END,
+            'queued_reason', 'obligation_lock_busy',
+            'retryable', true,
+            'projection_applied', false,
+            'detail', 'player_stats_user_lock_busy',
+            'hand_id', p_hand_id,
+            'table_id', v_table_id,
+            'hand_number', v_hand_number,
+            'waited_ms', round(v_lock_waited * 1000)
+          );
+        END IF;
+        PERFORM pg_sleep(0.025);
+      END LOOP;
+    END LOOP;
+  END IF;
 
   RETURN public.fn_project_hand_side_effects_after_post_commit_20260908(
     p_hand_id
@@ -773,6 +939,7 @@ CREATE OR REPLACE FUNCTION public.fn_post_commit_stranded_watchdog()
 AS $function$
 declare v_n int; v_oldest timestamptz; v_sample jsonb;
   v_pending int; v_pending_oldest timestamptz; v_pending_sample jsonb;
+  v_key text;
 begin
   select count(*), min(committed_at),
          coalesce(jsonb_agg(jsonb_build_object('table_id', table_id, 'hand_number', hand_number, 'committed_at', committed_at)) filter (where rn <= 10), '[]')
@@ -805,11 +972,21 @@ begin
                      and (bp.terminal_epoch is null or bp.terminal_epoch < smarter_private.money_law_epoch())) u) s;
 
   if v_n + v_pending > 0 then
-    if not exists (select 1 from financial_alerts where source='fn_post_commit_stranded_watchdog' and not resolved) then
+    /* AN OPEN ALERT SILENCES ONLY ITS OWN FINDING (20261118192000). The
+       finding is the oldest unfinished envelope and the oldest unfinished
+       stored obligation. An open alert about older items that have since
+       finished is closed; a newer finding is named on its own. */
+    v_key := 'envelope:' || coalesce(v_oldest::text, '-') || '|obligation:' || coalesce(v_pending_oldest::text, '-');
+    update financial_alerts set resolved = true, resolved_at = now(),
+           resolution = 'the oldest unfinished hand obligation it named has finished'
+     where source='fn_post_commit_stranded_watchdog' and not resolved
+       and context->>'finding_key' is distinct from v_key;
+    if not exists (select 1 from financial_alerts where source='fn_post_commit_stranded_watchdog' and not resolved
+                     and context->>'finding_key' = v_key) then
       insert into financial_alerts (severity, source, message, context)
       values ('critical','fn_post_commit_stranded_watchdog',
         (v_n + v_pending) || ' committed hand obligation(s) still unfinished after 10+ minutes (' || v_n || ' envelope(s), oldest ' || coalesce(v_oldest::text, '-') || '; ' || v_pending || ' stored rake/BBJ/insurance obligation(s), oldest ' || coalesce(v_pending_oldest::text, '-') || '). Players'' balances, stats or rake for these hands may be incomplete.',
-        jsonb_build_object('stranded', v_n, 'oldest', v_oldest, 'sample', v_sample,
+        jsonb_build_object('finding_key', v_key, 'stranded', v_n, 'oldest', v_oldest, 'sample', v_sample,
                            'pending_obligations', v_pending, 'pending_oldest', v_pending_oldest,
                            'pending_sample', v_pending_sample));
     end if;
