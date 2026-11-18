@@ -4,6 +4,8 @@
  * out of scope nothing changes, and a whole decision with every site on is
  * legal and fails no rule.
  */
+import { OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET } from './HorseOmahaBigDrawAggression.js';
+import { omahaPricedKindPrior } from './HorseOmahaPricedMode.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { seedFastRandom } from './HorseEval.js';
@@ -15,6 +17,7 @@ import { omahaBareBigPairOnFlop, omahaHeroHasPreflopLead } from './HorseOmahaOop
 import {
   omahaPricedSitesFlopBet,
   omahaPricedSitesFlopBetEv,
+  omahaPricedSitesFlopNoReadFold,
   omahaPricedSitesBlockerBluffAdmits,
   omahaPricedSitesMadeHandBet,
   omahaPricedSitesOwnsBlockerBluff,
@@ -326,4 +329,25 @@ describe('the worker receipt admits the priced flop check in its public spot onl
         }
     expect(checkedSeen, 'the corpus reaches a priced in-position flop check').toBeGreaterThan(0);
   }, 300000);
+});
+
+describe('omahaFlopBetIsPriced: the no-read fold prior follows omahaPricedPriorsByOpponentKind (lead ruling 2026-11-18)', () => {
+  it("off (unset or false): the documented 0.42 whoever he is; on: his kind's measured flop figure", () => {
+    for (const kind of [null, 'person', 'horse'] as const) {
+      expect(omahaPricedSitesFlopNoReadFold(kind, {} as HorseDecideOpts)).toBe(
+        OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET
+      );
+      expect(
+        omahaPricedSitesFlopNoReadFold(kind, {
+          omahaPricedPriorsByOpponentKind: false,
+        } as HorseDecideOpts)
+      ).toBe(OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET);
+      expect(
+        omahaPricedSitesFlopNoReadFold(kind, {
+          omahaPricedPriorsByOpponentKind: true,
+        } as HorseDecideOpts)
+      ).toBe(omahaPricedKindPrior(kind).foldToBet.flop);
+    }
+    expect(OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET).toBe(0.42);
+  });
 });

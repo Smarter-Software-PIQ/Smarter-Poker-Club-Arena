@@ -48,7 +48,7 @@ Changes in the batch (reviews R3 of sites 27852aafb40):
 
 - N1: the bare big pair's flop bet is reached with this option on even when no categorical flop rule is on (in position or with omahaBareOverpairOopFlopCheck off): `omahaOopCheckRules` no longer returns early for it.
 - N2: the flop one-pair realization has ONE owner, the flop facing-bet verdict's fitted table (`HorseOmahaFlopFacingBetEv.omahaFlopFittedRealization`, class 'pair', by position, shrunk by its sample; flopev2); this sampler has no runout model, so the model factor is 1 and the measured cell carries it, with later streets counted by what is left to bet. The constant OMAHA_PRICED_SITES_FLOP_REALIZATION (0.6131 / 0.645 x 0.884) is deleted.
-- The no-read fold prior 0.42 is replaced by his kind's measured flop fold to a bet (`omahaPricedKindPrior(read.kind).foldToBet.flop`; with omahaPricedPriorsByOpponentKind off the kind is unknown and the figure is the person-measured 0.329).
+- The no-read fold prior follows `omahaPricedPriorsByOpponentKind` (lead ruling): on, his kind's measured flop fold to a bet (`omahaPricedKindPrior(kind).foldToBet.flop`); off, the documented 0.42 this site was built and replayed with (`omahaPricedSitesFlopNoReadFold`, test in HorseOmahaPricedSites.test.ts).
 - N3: OMAHA_PRICED_SITES_FLOP_RAISE_SHARE (0.15) is measured on PERSONS raising Horse flop bets; no Horse measurement of a raise of a flop bet exists, so the same share is used for every opponent kind (a stated limit).
 - N4: the FAIL replay above ran on the old sampler and the 0.42 prior, before N2 and the kind prior.
 - N5: evCheck values the check at the Horse's realized equity and ignores a bet by him after the check-back (stated limit).

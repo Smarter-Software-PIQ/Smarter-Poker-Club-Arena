@@ -60,6 +60,7 @@ import {
   omahaFlopFittedRealization,
 } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaPricedKindPrior } from './HorseOmahaPricedMode.js';
+import { OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET } from './HorseOmahaBigDrawAggression.js';
 import {
   omahaBareBigPairOnFlop,
   omahaHeroHasPreflopLead,
@@ -368,6 +369,21 @@ export function omahaPricedSitesFlopBetEv(
   };
 }
 
+/**
+ * His flop fold to a bet when the priced read has none. With omahaPricedPriorsByOpponentKind on: his
+ * kind's measured flop figure (priced2, HorseOmahaPricedMode.omahaPricedKindPrior). Off: the documented
+ * prior this site was built and replayed with (OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET, 0.42), so the option off
+ * changes nothing here (lead ruling 2026-11-18 on helper H1's note).
+ */
+export function omahaPricedSitesFlopNoReadFold(
+  kind: Parameters<typeof omahaPricedKindPrior>[0],
+  opts: HorseDecideOpts
+): number {
+  return opts.omahaPricedPriorsByOpponentKind === true
+    ? omahaPricedKindPrior(kind).foldToBet.flop
+    : OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET;
+}
+
 /** The spot: a bare big pair on the flop with the betting lead, nothing to call, a wager proposed. */
 export function omahaPricedSitesFlopBetSpot(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   try {
@@ -429,8 +445,7 @@ export function omahaPricedSitesFlopBet(
       bet: amount,
       effective,
       inPosition: !omahaOpponentActsBehind(player, gs),
-      // no read: his kind's measured flop fold to a bet (priced2 HorseOmahaPricedMode.omahaPricedKindPrior)
-      foldToBet: read.foldToBet ?? omahaPricedKindPrior(read.kind).foldToBet.flop,
+      foldToBet: read.foldToBet ?? omahaPricedSitesFlopNoReadFold(read.kind, opts),
     });
     if (v === null) return unpriced();
     if (v.evBet >= v.evCheck) {
