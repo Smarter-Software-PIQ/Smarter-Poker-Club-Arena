@@ -76,8 +76,39 @@ describe('LightningHorseVpipLedger', () => {
   });
 });
 
+describe('LightningHorseVpipLedger.readWindow (the pool window the decision judges)', () => {
+  const horse = { playerId: 'a', poolSessionId: 's1', isHorse: true };
+  const hand = (l: LightningHorseVpipLedger, entered: boolean) =>
+    l.record([horse], entered ? [act('a', 'call')] : [act('a', 'fold')]);
+  it('returns the last n hands, how many entered and whether the oldest of them was entered', () => {
+    const l = new LightningHorseVpipLedger();
+    expect(l.readWindow('s1', 9)).toEqual({ hands: 0, vpipHands: 0, leavingEntered: false });
+    for (const e of [true, false, false, true, false, false, false, false, false, true, false])
+      hand(l, e);
+    // eleven hands; the last nine are F F T F F F F F T... oldest first: hands 3..11
+    expect(l.readWindow('s1', 9)).toEqual({ hands: 9, vpipHands: 2, leavingEntered: false });
+    expect(l.readWindow('s1', 8)).toEqual({ hands: 8, vpipHands: 2, leavingEntered: true });
+    // younger than the window: what there is, and nothing is leaving yet
+    const y = new LightningHorseVpipLedger();
+    hand(y, true);
+    expect(y.readWindow('s1', 9)).toEqual({ hands: 1, vpipHands: 1, leavingEntered: false });
+    expect(y.readWindow(undefined, 9)).toEqual({ hands: 0, vpipHands: 0, leavingEntered: false });
+  });
+  it('keeps a bounded tail per sitting', () => {
+    const l = new LightningHorseVpipLedger();
+    for (let i = 0; i < 200; i++) hand(l, i % 2 === 0);
+    expect(l.readWindow('s1', 1000).hands).toBe(64);
+    expect(l.read('s1')).toEqual({ hands: 200, vpipHands: 100 });
+  });
+});
+
 describe('lightningHorseVpipFloorInput', () => {
-  const own = { hands: 12, vpipHands: 3 };
+  const window = { hands: 9, vpipHands: 3, leavingEntered: false };
+  const asked: number[] = [];
+  const own = (n: number) => {
+    asked.push(n);
+    return window;
+  };
   it('reads the floor as the table engine reads it', () => {
     expect(
       lightningHorseVpipFloorInput(
@@ -87,8 +118,15 @@ describe('lightningHorseVpipFloorInput', () => {
     ).toEqual({
       floor: 40,
       windowHands: 10,
-      own,
+      own: window,
     });
+    // it asks for the window before this hand: maintain_hands - 1
+    expect(asked.at(-1)).toBe(9);
+    lightningHorseVpipFloorInput(
+      { nit_game: true, maintain_percent_min: 40, maintain_hands: 30 },
+      own
+    );
+    expect(asked.at(-1)).toBe(29);
     expect(
       lightningHorseVpipFloorInput({ nit_game: true, maintain_percent_min: 40 }, own)?.windowHands
     ).toBe(10);

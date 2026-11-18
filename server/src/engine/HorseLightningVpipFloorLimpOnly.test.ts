@@ -9,12 +9,8 @@
  * Horse that pressed the fast fold has no recorded cards.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  VPIP_LIMP_BUFFER_HANDS,
-  lightningVpipFloorLimpOnlyInputs,
-  vpipFloorLimpOnlyShortfall,
-  type HorseDecideOpts,
-} from './HorseLogic.js';
+import { lightningVpipFloorLimpOnlyInputs, type HorseDecideOpts } from './HorseLogic.js';
+import { LightningHorseVpipLedger } from '../lightning/LightningHorseVpipLedger.js';
 import { disarmBrainTelemetryForTest, drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   validatedHorsePolicySamplingKey,
@@ -31,10 +27,16 @@ import {
 } from './HorseLightningParity.test-support.js';
 
 const ON: HorseDecideOpts = { ...BASE, lightningVpipFloorLimpOnly: true };
-/** Twenty hands dealt, four entered: under the line (ceil(0.40 x 20) + 3 = 11). */
-const UNDER: PoolFloor = { floor: 40, windowHands: 10, own: { hands: 20, vpipHands: 4 } };
-/** Twenty hands dealt, eleven entered: at the line. */
-const AT_LINE: PoolFloor = { floor: 40, windowHands: 10, own: { hands: 20, vpipHands: 11 } };
+/** The last nine hands hold two entered: folding this one leaves the ten-hand window two short of four. */
+const UNDER: PoolFloor = { floor: 40, windowHands: 10, own: { hands: 9, vpipHands: 2 } };
+/** The last nine hands hold four entered and none leaves entered: at the floor with this hand folded. */
+const AT_LINE: PoolFloor = { floor: 40, windowHands: 10, own: { hands: 9, vpipHands: 4 } };
+/** At the floor, but the entered hand that leaves next would leave the next window one short. */
+const LEAVING: PoolFloor = {
+  floor: 40,
+  windowHands: 10,
+  own: { hands: 9, vpipHands: 4, leavingEntered: true },
+};
 const UNRAISED = [
   'utgFirstIn',
   'hjFirstIn',
@@ -101,43 +103,101 @@ describe('lightningVpipFloorLimpOnlyInputs', () => {
       expect(lightningVpipFloorLimpOnlyInputs(gs(bad), on, false)).toBeNull();
   });
 
-  it('judges the whole sitting, never fewer hands than the window', () => {
-    // 20 dealt, 4 entered: needs ceil(8) + buffer, is 4 short of 8 and the buffer on top
-    const a = lightningVpipFloorLimpOnlyInputs(gs(UNDER), on, false)!;
-    expect(a.vpipWindowHands).toBe(20);
-    expect(vpipFloorLimpOnlyShortfall(a)).toBeCloseTo(8 + VPIP_LIMP_BUFFER_HANDS - 4, 9);
-    // 5 dealt, 1 entered: judged over the ten-hand window (ceil(4) + buffer - 1)
-    const b = lightningVpipFloorLimpOnlyInputs(
-      gs({ floor: 40, windowHands: 10, own: { hands: 5, vpipHands: 1 } }),
-      on,
-      false
-    )!;
-    expect(b.vpipWindowHands).toBe(10);
-    expect(vpipFloorLimpOnlyShortfall(b)).toBeCloseTo(4 + VPIP_LIMP_BUFFER_HANDS - 1, 9);
-    // at the line: nothing short
-    expect(
-      vpipFloorLimpOnlyShortfall(lightningVpipFloorLimpOnlyInputs(gs(AT_LINE), on, false)!)
-    ).toBe(0);
-    // fewer than three hands on the count: no judged sample, no action
-    expect(
-      vpipFloorLimpOnlyShortfall(
-        lightningVpipFloorLimpOnlyInputs(
-          gs({ floor: 40, windowHands: 10, own: { hands: 2, vpipHands: 0 } }),
+  it("judges the pool's own window, projected with this hand; a younger count takes no action", () => {
+    const at = (own: PoolFloor['own'], floor = 40, windowHands = 10) =>
+      lightningVpipFloorLimpOnlyInputs(gs({ floor, windowHands, own }), on, false);
+    // ten-hand window at 40%: four entered; folding this hand leaves need - entered short
+    expect(at({ hands: 9, vpipHands: 2 })).toMatchObject({
+      needHands: 4,
+      shortfallHands: 2,
+      preempt: false,
+    });
+    expect(at({ hands: 9, vpipHands: 3 })).toMatchObject({ shortfallHands: 1, preempt: false });
+    expect(at({ hands: 9, vpipHands: 4 })).toMatchObject({ shortfallHands: 0, preempt: false });
+    // at the floor with an entered hand leaving next: the limp may be spent now, priced
+    expect(at({ hands: 9, vpipHands: 4, leavingEntered: true })).toMatchObject({
+      shortfallHands: 0,
+      preempt: true,
+    });
+    // over the floor: a leaving hand still leaves enough
+    expect(at({ hands: 9, vpipHands: 5, leavingEntered: true })).toMatchObject({
+      shortfallHands: 0,
+      preempt: false,
+    });
+    // a new sitting and every sitting after a restart: fewer than window - 1 hands, no action
+    for (const hands of [0, 2, 5, 8]) expect(at({ hands, vpipHands: 0 })).toBeNull();
+    // a count that is not the window before this hand is refused (it would judge another sample)
+    expect(at({ hands: 20, vpipHands: 4 })).toBeNull();
+    expect(at({ hands: 400, vpipHands: 98 })).toBeNull();
+    // the game's own floor and window are read, never assumed
+    expect(at({ hands: 29, vpipHands: 9 }, 30, 30)).toMatchObject({
+      needHands: 9,
+      shortfallHands: 0,
+    });
+    expect(at({ hands: 9, vpipHands: 3 }, 50, 10)).toMatchObject({
+      needHands: 5,
+      shortfallHands: 2,
+    });
+  });
+
+  it('lands on the floor, not over it: a 25% Horse limps only what the window needs, and no catch-up binge', () => {
+    // Fail-before (integrator 2026-11-19): the first build judged the whole sitting plus a three-hand
+    // buffer, so a Horse that had sat 400 hands at 24.5% before the switch was 65 hands short and limped
+    // every unraised fold for about a hundred hands; replayed fast-table hands went 27.7% -> 87.1%.
+    // Here the Horse enters a quarter of its hands on its own; every other hand is an unraised fold it
+    // could limp, and it limps only when the rule forces it (a preempt is never priced here, the worst case).
+    const run = (hands: number, seed: number) => {
+      const ledger = new LightningHorseVpipLedger();
+      let x = seed >>> 0;
+      const rand = () => {
+        x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+        return x / 2 ** 32;
+      };
+      // the sitting before the switch: 400 hands at the pool's own Horse rate, no floor action
+      for (let h = 0; h < 400; h++) {
+        const e = rand() < 0.245;
+        ledger.record(
+          [{ playerId: 'h', poolSessionId: 's', isHorse: true }],
+          e ? [{ userId: 'h', stage: 'preflop', action: 'call' }] : []
+        );
+      }
+      const entered: boolean[] = [];
+      for (let h = 0; h < hands; h++) {
+        const own = ledger.readWindow('s', 9);
+        const ask = lightningVpipFloorLimpOnlyInputs(
+          gs({ floor: 40, windowHands: 10, own }),
           on,
           false
-        )!
-      )
-    ).toBeNull();
-    // 200 dealt at 41.5%: the buffer is three hands, not thirty points
-    expect(
-      vpipFloorLimpOnlyShortfall(
-        lightningVpipFloorLimpOnlyInputs(
-          gs({ floor: 40, windowHands: 10, own: { hands: 200, vpipHands: 83 } }),
-          on,
-          false
-        )!
-      )
-    ).toBe(0);
+        );
+        const natural = rand() < 0.25;
+        const limp = !natural && ask !== null && ask.shortfallHands > 0;
+        const e = natural || limp;
+        entered.push(e);
+        ledger.record(
+          [{ playerId: 'h', poolSessionId: 's', isHorse: true }],
+          e ? [{ userId: 'h', stage: 'preflop', action: 'call' }] : []
+        );
+      }
+      return entered;
+    };
+    // Twenty sittings. The rule is the fewest limps that keep every ten-hand window at four entered
+    // (limping only when the window would otherwise fall short is the fewest possible), so what lands
+    // over 40% is the Horse's own entries bunching: 44% on average when every fold could be limped,
+    // nearer 40% when fewer folds are unraised (offline, 200 sittings: 44.3% / 41.6% / 38.1% at 100% /
+    // 60% / 35% of folds limpable).
+    const rates: number[] = [];
+    for (let seed = 1; seed <= 20; seed++) {
+      const e = run(400, seed);
+      rates.push(e.filter(Boolean).length / e.length);
+      // every ten-hand window holds the floor (the count already holds the sitting's last nine hands)
+      for (let h = 9; h < e.length; h++)
+        expect(e.slice(h - 9, h + 1).filter(Boolean).length).toBeGreaterThanOrEqual(4);
+      // no catch-up binge after the switch: the first hundred hands land as the rest do
+      expect(e.slice(0, 100).filter(Boolean).length / 100).toBeLessThanOrEqual(0.6);
+    }
+    const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
+    expect(mean).toBeGreaterThanOrEqual(0.4);
+    expect(mean).toBeLessThanOrEqual(0.46);
   });
 });
 
@@ -299,6 +359,34 @@ describe('lightningVpipFloorLimpOnly on', () => {
         expect(onTable.next).toBe(baseTable.next);
       }
     }
+  });
+
+  it('one hand early the limp is spent only when priced; at the floor with nothing leaving it does nothing', () => {
+    let limps = 0;
+    let kept = 0;
+    for (const name of UNRAISED) {
+      for (const [i, hole] of HANDS.entries()) {
+        const seed = 9700 + i;
+        const base = decideLightning(SPOTS[name], hole, BASE, seed, null);
+        const still = decideLightning(SPOTS[name], hole, ON, seed, AT_LINE);
+        expect(core(still)).toEqual(core(base));
+        const early = decideLightning(SPOTS[name], hole, ON, seed, LEAVING);
+        if (base.decision.action !== 'fold') {
+          expect(core(early)).toEqual(core(base));
+          continue;
+        }
+        if (early.decision.action === 'call') {
+          expect(early.decision.amount).toBe(base.toCall);
+          limps++;
+        } else {
+          expect(core(early)).toEqual(core(base));
+          kept++;
+        }
+      }
+    }
+    // priced, not every: some limps spent early, some poor hands left to fold
+    expect(limps).toBeGreaterThan(0);
+    expect(kept).toBeGreaterThan(0);
   });
 
   it('a pool whose game has no floor sees no change at all (owner 2026-11-18 11:03)', () => {

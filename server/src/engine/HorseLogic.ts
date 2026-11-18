@@ -1972,15 +1972,18 @@ export interface HorseGameStateV2 extends HorseGameState {
   ownVpip?: { hands: number; vpip: number | null };
   /**
    * A LIGHTNING POOL'S FLOOR (owner 2026-11-18). The game's floor (percent),
-   * its judged window and this Horse's own count this pool sitting
-   * (LightningHorseVpipLedger). Deliberately NOT vpipFloor / ownVpip: only
+   * its window (tables.maintain_hands) and this Horse's last window - 1
+   * settled hands of this pool sitting (LightningHorseVpipLedger.readWindow):
+   * own.hands of them (fewer when the count is younger), own.vpipHands
+   * entered, own.leavingEntered = the oldest of them was entered (it leaves
+   * the window at the next hand). Deliberately NOT vpipFloor / ownVpip: only
    * lightningVpipFloorLimpOnly reads it, so with that option off a pool
    * decision is the one it was. Absent at a table and in an unfloored pool.
    */
   lightningVpipFloor?: {
     floor: number;
     windowHands: number;
-    own: { hands: number; vpipHands: number };
+    own: { hands: number; vpipHands: number; leavingEntered?: boolean };
   };
   /** ALL-IN-OR-FOLD table: preflop is fold or shove and nothing else. */
   allInOrFold?: boolean;
@@ -3514,10 +3517,11 @@ export interface HorseDecideOpts {
    * fold in a pot nobody has raised, for at most the big blind and less than
    * its stack, into the limp or the small blind's completion. It never
    * raises, never calls a raise and never acts postflop; raised after the
-   * limp, the unfloored decision stands. The line is the ten-hand mode's own
-   * judgement, the whole sitting: the smallest count of entered hands at or
-   * over the floor for the hands dealt so far (never fewer than the window)
-   * plus VPIP_LIMP_BUFFER_HANDS. No All-In-Or-Fold hand, no tournament.
+   * limp, the unfloored decision stands. The line is the pool's own window,
+   * rolling and projected with this hand (lightningVpipFloorLimpOnlyInputs):
+   * the Horse limps only the hands it needs to keep its last window of hands
+   * at the floor, and spends a limp one hand early only when the limp is
+   * priced. No All-In-Or-Fold hand, no tournament.
    * Independent of vpipFloorLimpOnly, which never governs a pool. Default
    * OFF (opt-in, read `=== true`). */
   lightningVpipFloorLimpOnly?: boolean;
@@ -5782,10 +5786,12 @@ export function vpipFloorLimpOnlyStep(
     ownVpip?: { hands: number; vpip: number | null };
   },
   evOfLimp: (price: number) => number,
-  selection: VpipFloorLimpOnlySelection = 'priced'
+  selection: VpipFloorLimpOnlySelection = 'priced',
+  /** lightningVpipFloorLimpOnly: the hands short, judged by the pool's window (absent: the table's line). */
+  shortfallHands?: number | null
 ): { decision: HorseDecision; receipt: VpipFloorLimpOnlyReceipt | null } {
   if (gs.stage !== 'preflop' || decision.action !== 'fold') return { decision, receipt: null };
-  const shortfall = vpipFloorLimpOnlyShortfall(gs);
+  const shortfall = shortfallHands !== undefined ? shortfallHands : vpipFloorLimpOnlyShortfall(gs);
   if (shortfall === null || !(shortfall > 0)) return { decision, receipt: null };
   // Anything that moved the bet is a raise here (an under-raise all-in too),
   // as preflop routing counts it; an all-in call-off is not.
@@ -5820,13 +5826,30 @@ export function vpipFloorLimpOnlyStep(
 }
 
 /**
- * lightningVpipFloorLimpOnly: the floor inputs of a Lightning pool decision
- * in the shape vpipFloorLimpOnlyStep reads, or null when the option is off,
- * the decision is not a floored Lightning cash decision, or the count cannot
- * be read. The ten-hand mode judges the whole sitting, so the judged sample
- * is the hands dealt this sitting and never fewer than the game's window:
- * with N = max(hands, window) the shortfall vpipFloorLimpOnlyShortfall
- * returns is ceil(floor x N) + VPIP_LIMP_BUFFER_HANDS - entered hands.
+ * lightningVpipFloorLimpOnly: what a floored pool asks of this decision, or
+ * null when the option is off, the decision is not a floored fast-table cash
+ * decision, or the count does not hold a full window yet.
+ *
+ * JUDGED BY THE POOL'S OWN WINDOW, PROJECTED WITH THIS HAND (integrator
+ * 2026-11-19). The first build judged the whole sitting plus a three-hand
+ * buffer: a Horse that had sat 400 hands at 24.5% (the pool's recorded
+ * Horse VPIP) was 65 hands short when the option came on and, on PLO5's
+ * 'every' selection, limped every unraised fold for about a hundred hands to
+ * catch up; and the count restarted with the process. Now the line is the
+ * game's window (tables.maintain_hands, ten in every fast-table game), rolling:
+ * the snapshot carries the Horse's last window - 1 settled hands, and with
+ * need = ceil(floor x window) entered hands in the window that ends with this
+ * hand, folding it leaves shortfallHands = max(0, need - entered) short. Above
+ * zero the limp is the minimum that keeps the window at the floor. At exactly
+ * the floor with an entered hand leaving the window next, the next hand would
+ * be one short: preempt is true and the Horse spends that limp now only when
+ * it is priced (vpipFloorLimpOnlySelects at one hand short), so the needed
+ * limps go to the better hands and a poor one waits. The game's floor is read
+ * from the game: no floor, no field, no action (owner 2026-11-18 11:03).
+ *
+ * After an engine restart, and in a new sitting, the count holds fewer than
+ * window - 1 hands and this returns null: the first window - 1 hands are
+ * played unfloored (nine hands in a ten-hand game), the bound on the restart.
  */
 export function lightningVpipFloorLimpOnlyInputs(
   gs: {
@@ -5837,12 +5860,19 @@ export function lightningVpipFloorLimpOnlyInputs(
     lightningVpipFloor?: {
       floor: number;
       windowHands: number;
-      own: { hands: number; vpipHands: number };
+      own: { hands: number; vpipHands: number; leavingEntered?: boolean };
     };
   },
   opts: HorseDecideOpts,
   tournament: boolean
-): { vpipFloor: number; vpipWindowHands: number; ownVpip: { hands: number; vpip: number } } | null {
+): {
+  floor: number;
+  windowHands: number;
+  needHands: number;
+  enteredHands: number;
+  shortfallHands: number;
+  preempt: boolean;
+} | null {
   if (opts.lightningVpipFloorLimpOnly !== true || tournament) return null;
   if (gs.publicMemoryDomain?.speed !== 'lightning' || gs.gameMode !== 'cash') return null;
   if (gs.allInOrFold === true || gs.bombPot === true) return null;
@@ -5855,12 +5885,18 @@ export function lightningVpipFloorLimpOnlyInputs(
   if (!(floor > 0) || !(floor <= 100)) return null;
   if (!Number.isInteger(window) || !(window > 0)) return null;
   if (!Number.isInteger(hands) || !Number.isInteger(entered)) return null;
-  if (hands < 0 || entered < 0 || entered > hands) return null;
-  const judged = Math.max(hands, window);
+  if (entered < 0 || entered > hands) return null;
+  // the window before this hand, exactly: younger counts (a new sitting, a restart) take no action
+  if (hands !== window - 1) return null;
+  const needHands = Math.ceil((floor * window) / 100 - 1e-9);
+  const shortfallHands = Math.max(0, needHands - entered);
   return {
-    vpipFloor: floor,
-    vpipWindowHands: judged,
-    ownVpip: { hands, vpip: (100 * entered) / judged },
+    floor,
+    windowHands: window,
+    needHands,
+    enteredHands: entered,
+    shortfallHands,
+    preempt: shortfallHands === 0 && entered === needHands && f.own.leavingEntered === true,
   };
 }
 
@@ -13820,22 +13856,27 @@ export class HorseLogic {
             else noteFire('vpip_floor_limp_only_priced_out');
           }
         } else if (lightningVpipFloorLimpOnlyInputs(gs, opts, isTournamentMode(gs)) !== null) {
-          // lightningVpipFloorLimpOnly: a floored pool's one action is the same limp.
+          // lightningVpipFloorLimpOnly: a floored pool's one action is the same limp, only as many as
+          // the pool's window needs (forced when short; one hand early only when priced).
           const poolFloor = lightningVpipFloorLimpOnlyInputs(gs, opts, isTournamentMode(gs))!;
-          const limpOnly = vpipFloorLimpOnlyStep(
-            decision,
-            player,
-            {
-              stage: gs.stage,
-              currentBet: gs.currentBet,
-              bigBlind: gs.bigBlind,
-              straddleActive: gs.straddleActive,
-              actionHistory: gs.actionHistory,
-              ...poolFloor,
-            },
-            (price) => vpipLimpEvAt(player, gs, vi, opts, price),
-            vpipFloorLimpOnlySelectionFor(gs.gameVariant)
-          );
+          const forced = poolFloor.shortfallHands > 0;
+          const limpOnly =
+            forced || poolFloor.preempt
+              ? vpipFloorLimpOnlyStep(
+                  decision,
+                  player,
+                  {
+                    stage: gs.stage,
+                    currentBet: gs.currentBet,
+                    bigBlind: gs.bigBlind,
+                    straddleActive: gs.straddleActive,
+                    actionHistory: gs.actionHistory,
+                  },
+                  (price) => vpipLimpEvAt(player, gs, vi, opts, price),
+                  forced ? 'every' : 'priced',
+                  forced ? poolFloor.shortfallHands : 1
+                )
+              : { decision, receipt: null };
           decision = limpOnly.decision;
           if (tele) {
             noteFire('lightning_vpip_floor_limp_only_seen');

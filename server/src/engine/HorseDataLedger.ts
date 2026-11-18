@@ -2761,7 +2761,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   state(
     'lightningVpipFloor',
-    "a floored Lightning pool only (built by LightningHorse.buildLightningHorseSnapshot, never by a table): the game's floor in percent, its judged window and this Horse's own count of dealt and entered hands this pool sitting (LightningHorseVpipLedger); read only with lightningVpipFloorLimpOnly on and outside the policy sampling key",
+    "a floored Lightning pool only (built by LightningHorse.buildLightningHorseSnapshot, never by a table): the game's floor in percent, its window and this Horse's last window - 1 hands this pool sitting, how many entered and whether the oldest was entered (LightningHorseVpipLedger.readWindow); read only with lightningVpipFloorLimpOnly on and outside the policy sampling key",
     'HorseLogic.lightningVpipFloorLimpOnlyInputs'
   ),
   state(

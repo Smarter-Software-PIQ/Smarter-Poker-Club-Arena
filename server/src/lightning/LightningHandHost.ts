@@ -3376,14 +3376,12 @@ export class LightningHandHost {
     }
   }
 
-  /** The pool's floor and this Horse's own count this sitting, or null in an unfloored pool. */
+  /** The pool's floor and this Horse's last hands this sitting (its window), or null in an unfloored pool. */
   private horseVpipFloorFor(userId: string) {
     try {
       const ledger = this.deps.horseVpipLedger ?? lightningHorseVpipLedger;
-      return lightningHorseVpipFloorInput(
-        this.rules,
-        ledger.read(this.participants.get(userId)?.poolSessionId)
-      );
+      const sitting = this.participants.get(userId)?.poolSessionId;
+      return lightningHorseVpipFloorInput(this.rules, (hands) => ledger.readWindow(sitting, hands));
     } catch {
       return null;
     }

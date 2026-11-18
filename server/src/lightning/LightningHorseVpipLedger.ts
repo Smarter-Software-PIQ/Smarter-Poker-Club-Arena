@@ -17,6 +17,11 @@
  * that checks and a walk are dealt hands that were not entered. A limp that
  * folds to a raise is entered.
  *
+ * THE WINDOW (2026-11-19). The decision judges the game's own window, rolling
+ * (HorseLogic.lightningVpipFloorLimpOnlyInputs), so each sitting also keeps
+ * its most recent hands, entered or not (LIGHTNING_HORSE_VPIP_RECENT_HANDS),
+ * and readWindow hands the decision the last window - 1 of them.
+ *
  * WHY A COUNT IN MEMORY, HERE. At a table the Horse reads the judge's own
  * figure (fn_nit_status, ServerTableEngineBase.horseVpipDecisionInputs). A
  * pool has no judge today: a parked anchor runs the sit-out clock alone
@@ -25,9 +30,9 @@
  * mode judges the whole sitting once ten hands are dealt, so the figure is the
  * sitting's running count. When a pool judge is built, this file is replaced
  * by a read of that judge, as at a table. A restart of the process starts the
- * count again: the Horse then takes no floor action until three hands are on
- * the count (HorseLogic.vpipFloorLimpOnlyShortfall), which fails toward the
- * unfloored decision.
+ * count again: the Horse then takes no floor action until the count holds
+ * window - 1 hands (nine in a ten-hand game), which fails toward the
+ * unfloored decision and bounds a restart at those hands.
  *
  * Never throws. Bounded: the oldest sittings leave first.
  */
@@ -38,13 +43,22 @@ export interface LightningHorseVpipCount {
   vpipHands: number;
 }
 
+/** The last hands of a sitting (readWindow): how many, how many entered, and whether the oldest of them was entered. */
+export interface LightningHorseVpipWindow extends LightningHorseVpipCount {
+  leavingEntered: boolean;
+}
+
+/** Recent hands kept per sitting: every fast-table game's window is ten; a longer window than this takes no action. */
+export const LIGHTNING_HORSE_VPIP_RECENT_HANDS = 64;
+
 /** What the Lightning snapshot carries for a floored pool (HorseGameStateV2.lightningVpipFloor). */
 export interface LightningHorseVpipFloorInput {
   /** The game's floor, percent (tables.maintain_percent_min of the host table). */
   floor: number;
   /** The game's judged window, hands (tables.maintain_hands; ten in the ten-hand mode). */
   windowHands: number;
-  own: LightningHorseVpipCount;
+  /** The Horse's last windowHands - 1 settled hands this sitting (fewer while the count is younger). */
+  own: LightningHorseVpipWindow;
 }
 
 /** Sittings kept. A pool holds at most a few hundred at once; this is a memory bound, not a rule. */
@@ -66,7 +80,7 @@ export function lightningHandWasEntered(
 }
 
 export class LightningHorseVpipLedger {
-  private readonly sittings = new Map<string, LightningHorseVpipCount>();
+  private readonly sittings = new Map<string, LightningHorseVpipCount & { recent: boolean[] }>();
 
   constructor(private readonly maxSittings = LIGHTNING_HORSE_VPIP_LEDGER_MAX_SITTINGS) {}
 
@@ -74,6 +88,19 @@ export class LightningHorseVpipLedger {
   read(poolSessionId: string | null | undefined): LightningHorseVpipCount {
     const row = poolSessionId ? this.sittings.get(poolSessionId) : undefined;
     return row ? { hands: row.hands, vpipHands: row.vpipHands } : { hands: 0, vpipHands: 0 };
+  }
+
+  /** The sitting's last `n` settled hands (fewer while the count is younger), oldest first. */
+  readWindow(poolSessionId: string | null | undefined, n: number): LightningHorseVpipWindow {
+    const recent = (poolSessionId ? this.sittings.get(poolSessionId)?.recent : undefined) ?? [];
+    const want = Number.isInteger(n) && n > 0 ? n : 0;
+    const k = Math.min(want, recent.length);
+    const last = recent.slice(recent.length - k);
+    return {
+      hands: k,
+      vpipHands: last.filter(Boolean).length,
+      leavingEntered: k > 0 && k === want ? last[0] === true : false,
+    };
   }
 
   /** One settled hand: every Horse dealt in counts one hand, entered or not. */
@@ -84,9 +111,12 @@ export class LightningHorseVpipLedger {
     try {
       for (const p of participants) {
         if (!p || p.isHorse !== true || !p.poolSessionId || !p.playerId) continue;
-        const row = this.sittings.get(p.poolSessionId) ?? { hands: 0, vpipHands: 0 };
+        const row = this.sittings.get(p.poolSessionId) ?? { hands: 0, vpipHands: 0, recent: [] };
+        const entered = lightningHandWasEntered(p.playerId, actions);
         row.hands += 1;
-        if (lightningHandWasEntered(p.playerId, actions)) row.vpipHands += 1;
+        if (entered) row.vpipHands += 1;
+        row.recent.push(entered);
+        if (row.recent.length > LIGHTNING_HORSE_VPIP_RECENT_HANDS) row.recent.shift();
         // Re-insert so the Map's order is least recently dealt first.
         this.sittings.delete(p.poolSessionId);
         this.sittings.set(p.poolSessionId, row);
@@ -116,15 +146,22 @@ export const lightningHorseVpipLedger = new LightningHorseVpipLedger();
  */
 export function lightningHorseVpipFloorInput(
   rules: Record<string, unknown> | null | undefined,
-  own: LightningHorseVpipCount
+  /** The Horse's last `hands` settled hands this sitting (LightningHorseVpipLedger.readWindow). */
+  ownFor: (hands: number) => LightningHorseVpipWindow
 ): LightningHorseVpipFloorInput | null {
   if (!rules || rules.nit_game !== true) return null;
   const floor = Number(rules.maintain_percent_min ?? 0);
   if (!Number.isFinite(floor) || !(floor > 0)) return null;
-  const window = Number(rules.maintain_hands ?? 10);
+  const raw = Number(rules.maintain_hands ?? 10);
+  const windowHands = Number.isInteger(raw) && raw > 0 ? raw : 10;
+  const own = ownFor(windowHands - 1);
   return {
     floor,
-    windowHands: Number.isInteger(window) && window > 0 ? window : 10,
-    own: { hands: own.hands, vpipHands: own.vpipHands },
+    windowHands,
+    own: {
+      hands: own.hands,
+      vpipHands: own.vpipHands,
+      leavingEntered: own.leavingEntered === true,
+    },
   };
 }
