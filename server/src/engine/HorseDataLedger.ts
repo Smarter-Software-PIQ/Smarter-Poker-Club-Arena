@@ -1010,6 +1010,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReadIsByStreetAndTexture',
+    "PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every decision from the opponent's range and the math): in PLO4/PLO5 cash, one board, no bomb pot, on the flop, the turn and the river, the opponent read #11215 keeps by street and flop texture (HorseMind.omahaStreetReadOf, the exact profile street record) is used (HorseOmahaReadByStreet.ts, installed per decision by HorseOmahaReadByStreetRule.ts): the value-leader label every value-leader rule reads (HorseMind.omahaReadConditionalOf) is read on the decision's street (the flop's texture cell on the flop) as a continuous quantity, the bettor's bet rate beside the Horse mean (the facing-bet bluff-share input, HorseMind.omahaFacingBetEvReadOf) is his street rate, and the priced comparisons' fold to a bet and fold to a raise are his street cells (omahaPricedStreetRatesOf); each blended with the pooled figure by the cell's own decayed opportunities (omahaPricedShrunk), no opportunity threshold. With no street record every decision is byte-identical. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_read_is_by_street_and_texture",
+    'V94'
+  ),
+  flag(
     'omahaTurnBetNeedsRiverPlan',
     'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash heads-up, a turn bet that would leave less than half of the resulting pot behind becomes a check when on more than 35% of the river cards the Horse own river fold rules (HorseOmahaOopChecks.omahaRiverShoveFoldVerdict: the paired-board fold with its price exception when that option is on, then the big-bet tier V81 and V86) would fold to an all-in for what is left; exact enumeration; the reference decision equity fold is not asked. Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -4638,6 +4643,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide, settled at the final decision (HorsePloPairedBoardFold, omahaPairedBoardFoldRespectsPrice)',
     'the paired-board fold stood aside for the price and the final decision of HorseLogic.decide was a fold all the same (a later rule folded it: the owner-ruled turn fold with no out, or another fold rule); fired in place of the proposing receipt, which fires only when the final decision is not a fold',
     'PLO paired-board fold'
+  ),
+  receipt(
+    'omaha_read_by_street_carried',
+    'HorseLogic.decide (HorseOmahaReadByStreetRule, omahaReadIsByStreetAndTexture)',
+    'a PLO4/PLO5 cash postflop decision with the per-street read on in which at least one live opponent carried a street record (the read the decision then used; counted once per decision)',
+    'V94'
   ),
   receipt(
     'omaha_flop_facing_bet_ev_call',

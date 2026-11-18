@@ -113,6 +113,10 @@ let streetRatesSource: OmahaPricedStreetRatesSource | null = null;
 export function omahaPricedSetStreetRatesSource(source: OmahaPricedStreetRatesSource | null): void {
   streetRatesSource = source;
 }
+/** The source registered now (null: none), so a caller that registers one for a decision can put it back. */
+export function omahaPricedStreetRatesSourceNow(): OmahaPricedStreetRatesSource | null {
+  return streetRatesSource;
+}
 export function omahaPricedStreetRatesOf(
   userId: string,
   gs: HorseGameStateV2

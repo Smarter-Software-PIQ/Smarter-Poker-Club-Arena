@@ -391,7 +391,7 @@ describe('an opponent is read by street and by flop texture', () => {
     ).not.toThrow();
   });
 
-  it('8. NO DECISION READS IT: outside its owner and its transport, no engine source names the read', () => {
+  it('8. ONLY ITS OPTION READS IT: outside its owner, its transport and omahaReadIsByStreetAndTexture, no engine source names the read', () => {
     const root = resolve(process.cwd(), 'src');
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -409,12 +409,20 @@ describe('an opponent is read by street and by flop texture', () => {
         .filter((f) => needle.test(readFileSync(f, 'utf8')))
         .map((f) => f.slice(root.length + 1))
         .sort();
-    // the accessor is defined in HorseMind and called by nothing (comments name it without a call)
-    expect(naming(/omahaStreetReadOf\(/)).toEqual(['engine/HorseMind.ts']);
+    // the accessor is defined in HorseMind; since 2026-11-18 (omahaReadIsByStreetAndTexture, default off) it is
+    // called only by HorseMind's own two per-street readers (the value-leader label and the facing-bet bet rate,
+    // each behind omahaReadByStreetNow().on) and by the option's per-decision installer
+    expect(naming(/omahaStreetReadOf\(/)).toEqual([
+      'engine/HorseMind.ts',
+      'engine/HorseOmahaReadByStreetRule.ts',
+    ]);
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
-    expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(1);
+    expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(3);
+    expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(2);
     // the decision's carried state is touched only by its owner, the observer reads that fill it and the frame
     expect(naming(/pooledStreetRead/)).toEqual([
+      // the league's stand-in for the accepted-hand learner (2026-11-18), filling a league sandbox only
+      'benchmark/HorseLeagueStreetRead.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
       'engine/HorseOmahaStreetRead.ts',
@@ -431,8 +439,11 @@ describe('an opponent is read by street and by flop texture', () => {
     ]);
     // the module is imported only by those files (and the memory copy)
     expect(naming(/from '\.\.?\/(?:engine\/)?HorseOmahaStreetRead\.js'/)).toEqual([
+      'benchmark/HorseLeagueStreetRead.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
+      // omahaReadIsByStreetAndTexture's pure read (2026-11-18)
+      'engine/HorseOmahaReadByStreet.ts',
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
     ]);

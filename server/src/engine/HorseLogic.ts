@@ -454,6 +454,7 @@ import {
   omahaRaiseNeedsNutsScope,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import { omahaPricedModeOf, withOmahaPricedMode } from './HorseOmahaPricedMode.js';
+import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
 import {
   omahaPricedBigBetCallRule,
   omahaPricedBlockerBluffAdmits,
@@ -3216,6 +3217,19 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_flop_facing_bet_ev. */
   omahaFlopFacingBetEv?: boolean;
+  /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
+   * decision from the opponent's range and the math): opt-in (`=== true`),
+   * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
+   * street and flop texture (#11215, HorseMind) is USED: the
+   * value-leader label, the bettor's bet rate beside the population (the
+   * facing-bet bluff share input) and the fold to a bet / to a raise the
+   * priced comparisons read are taken from the decision's own street (the
+   * flop's texture cell for the flop bet rate), each blended continuously
+   * with the pooled figure by the cell's own opportunities
+   * (HorseOmahaReadByStreet.ts). No street record: byte-identical. Default
+   * OFF until its declared evaluation passes; league cards plo4/plo5
+   * _omaha_read_is_by_street_and_texture. */
+  omahaReadIsByStreetAndTexture?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -11333,7 +11347,16 @@ export class HorseLogic {
     return withIcmBustPaysPlace(
       opts.icmBustPaysPlace === true || opts.nashPushFoldIcm === true,
       () => {
+        // omahaReadIsByStreetAndTexture (default off): the per-street read mode of this decision and,
+        // for its length, the priced street cells (HorseOmahaReadByStreetRule; off: decidePriced as is).
         const decideIt = () =>
+          withOmahaReadByStreetDecision(
+            opts.omahaReadIsByStreetAndTexture === true,
+            opts,
+            gameState,
+            decidePriced
+          );
+        const decidePriced = () =>
           // The priced-rule mode of this decision (PLO4/PLO5 cash only; off otherwise).
           withOmahaPricedMode(
             omahaPricedModeOf(

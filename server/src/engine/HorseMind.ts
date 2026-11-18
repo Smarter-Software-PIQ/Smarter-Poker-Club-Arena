@@ -37,6 +37,12 @@ import {
   type StreetReadCounters,
 } from './HorseOmahaStreetRead.js';
 import {
+  omahaReadByStreetNow,
+  omahaReadConditionalByStreet,
+  omahaStreetBetRate,
+  type OmahaReadByStreetMeans,
+} from './HorseOmahaReadByStreet.js';
+import {
   respectWinner,
   isProvenWinner,
   WINNER_BLUFF_MOD,
@@ -2867,7 +2873,15 @@ export class HorseMind {
       measured: rc?.measured === true,
       betCheckedToRatio:
         rc?.measured === true && mean > 0 && rc.betCheckedTo.n > 0
-          ? rc.betCheckedTo.mean / mean
+          ? // omahaReadIsByStreetAndTexture (default off): his rate on the decision's street, shrunk toward
+            // the pooled rate by the street cell's own opportunities; the pooled rate with no street cell.
+            omahaStreetBetRate(
+              omahaReadByStreetNow().on
+                ? (this.omahaStreetReadOf(userId, omahaReadByStreetNow().texture)?.counters ?? null)
+                : null,
+              omahaReadByStreetNow(),
+              rc.betCheckedTo.mean
+            ) / mean
           : null,
       postflopManiac:
         rc?.measured === true && exploit !== null && exploit.presumed !== true
@@ -2941,12 +2955,31 @@ export class HorseMind {
       raw && this.probeAwareAggression
         ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
         : raw;
-    return omahaReadConditional(
+    const pooledRead = omahaReadConditional(
       counters,
       scope,
       this.decisionVariant,
       opponentExploitRead(counters, scope, this.decisionVariant)
     );
+    // omahaReadIsByStreetAndTexture (default off): the value-leader label read on the decision's own
+    // street and flop texture, blended continuously with the pooled label (HorseOmahaReadByStreet).
+    const byStreet = omahaReadByStreetNow();
+    if (!byStreet.on) return pooledRead;
+    return omahaReadConditionalByStreet(
+      pooledRead,
+      this.omahaStreetReadOf(userId, byStreet.texture)?.counters ?? null,
+      byStreet,
+      this.omahaReadByStreetMeans()
+    );
+  }
+
+  /** The envelope means the per-street value-leader read compares against (the pooled label's own means). */
+  private static omahaReadByStreetMeans(): OmahaReadByStreetMeans | null {
+    const scope = this.decisionScope;
+    const env = scope ? exploitEnvelopeFor(scope, this.decisionVariant) : undefined;
+    return env
+      ? { bet: env.betCheckedTo.mean, foldToBet: env.foldToBet.mean, riverCall: env.riverCall.mean }
+      : null;
   }
 
   /**

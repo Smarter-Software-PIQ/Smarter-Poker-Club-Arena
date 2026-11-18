@@ -296,6 +296,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
+  omahaReadIsByStreetAndTexture: priced(
+    "the opponent read every priced comparison and the value-leader label take, from the decision's street and flop texture, blended continuously with the pooled read (an input, not a rule site)"
+  ),
   // categorical, replaced
   omahaTurnRiverRaiseNeedsNuts: categorical('omahaTurnRiverRaiseIsPriced'),
   omahaRiverNutRaiseOnly: categorical('omahaTurnRiverRaiseIsPriced'),
