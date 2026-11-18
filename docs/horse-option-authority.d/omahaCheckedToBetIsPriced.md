@@ -40,3 +40,15 @@ omaha_checked_to_bet_priced_bet (the check became the bet; when a rule that outr
 ## Evaluation
 
 Declared before any candidate decision (audit archive `repairs/CHECKED-TO-BET/EVAL-DECLARATION.md`, sha256 73725cf430e52982c349894055d6f4a804d0d2db653ccdacfd60cbcf3b147c37): a counterfactual replay of every journaled decision of two engine builds. Its result is in `repairs/CHECKED-TO-BET/LANE-REPORT.md`. No league matchup has been run (cards `plo4_omaha_checked_to_bet_is_priced`, `plo5_omaha_checked_to_bet_is_priced`): a league result on the declared seeds, a human-like field and a Horse-only field included, must pass before any `on` row. The opponent fold rates were measured against a value-heavy Horse betting range and will fall as bluffs are added: the read is a decayed posterior, so the bets stop when he calls, and that adaptation has not been measured.
+
+## v2 (2026-11-18, lane OFFENCE; REDESIGN-PLAN section 2)
+
+The v1 arithmetic FAILED its declared efficacy bar (repairs/CHECKED-TO-BET/LANE-REPORT.md). v2 changes two inputs and the scope, nothing keyed to a hand class, position, size or account:
+
+- River only. The turn is priced as a whole line by the street plan, which this arithmetic lacks; on the turn the option now returns the decision it was given.
+- The showdown share in EV(check) is the card-impact share against the checking range with the opponent's KIND prior read, mapped through a logistic calibration fitted by maximum likelihood on production river spots (2026-11-01..2026-11-15, read-only export, 814 spots where a Horse acted heads-up after the check; persons n 414, Horses n 400): archive repairs/CHECKED-TO-BET/v2/FIT-TABLE.md. The slope is about 0.35: the raw model was about three times too confident in logit at both ends (model 0.0-0.1 won 25% against persons; 0.9-1.0 won 86%).
+- The equity against the hands that continue (the bet's called branch) is calibrated the same way on the 144 called river bets of the same export (v2/FIT-CE.md, pooled: each kind under 100). The value flag is "calibrated continue equity above one half".
+- Both fits' errors (delta method) and the model's sample error through the map join the standard error the bet must clear.
+- Precedence unchanged: omahaOwnerRuledFinal still re-checks a priced bet where an owner-ruled check, the made-hand defence or the street plan checks (REDESIGN-PLAN asks for an integrator ruling; this lane made none).
+- No option-switch migration on this branch (the integrator regenerates one whitelist follow-up for the batch); the v1 text above that names migration 20261118015651 is superseded.
+  Evaluation: declared v2 (repairs/CHECKED-TO-BET/EVAL-DECLARATION-v2.md, sha256 4be1edb155f1...; amendment 1 sha256 734ae2dbd3df..., both before any run). Result: see the section added after the run.

@@ -2640,7 +2640,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-18 OMAHA CHECKED-TO BET IS PRICED (HorseOmahaCheckedToBet, default
-  // OFF): on the river, or the turn heads-up, when every opponent has checked
+  // OFF): on the river (v2: the turn is out), when every opponent has checked
   // and the answer is a check, the check is priced beside every bet size
   // against each opponent's checking range and measured continue rate; a
   // switches it on, b is today's brain. The mirror's memory learning is on

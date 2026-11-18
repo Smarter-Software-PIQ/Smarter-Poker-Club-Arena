@@ -363,7 +363,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBlockerBluffIsPriced: priced('the river bluff beside the check on the card-impact model'),
   omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
   omahaCheckedToBetIsPriced: priced(
-    'the check priced beside every bet when every opponent has checked the river or the heads-up turn (default OFF)'
+    'the check priced beside every bet when every opponent has checked the river, the showdown share fitted (default OFF)'
   ),
   // priced before 2026-11-17 (the audit: "each compares priced lines")
   omahaFacingBetEv: priced('expected value of the call on the exact count'),

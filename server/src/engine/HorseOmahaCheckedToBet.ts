@@ -11,9 +11,18 @@
  * 35 of 43 such spots; with two or more opponents they bet such hands 0 of 93
  * times; on the turn after a checked-through flop he folded 11 of 22.
  *
+ * v2 (2026-11-18, lane OFFENCE, REDESIGN-PLAN section 2, after the v1
+ * evaluation FAILED on efficacy): (1) the river only: the turn is priced as a
+ * whole line by the street plan; (2) the showdown share in EV(check) and the
+ * equity against the hands that continue are no longer the raw card-impact
+ * figures: each is mapped through a logistic calibration fitted on production
+ * river spots (below, OMAHA_CHECKED_TO_SHOWDOWN_FIT and
+ * OMAHA_CHECKED_TO_CONTINUE_FIT), and the fits' errors join the margin. The
+ * turn text below describes v1 and no longer runs.
+ *
  * What this file does. PLO4/PLO5 cash, one board, high only, no bomb pot, not
  * Lightning (HorseOmahaPricedWiring.omahaPricedInScope), on the river (any
- * number of opponents) or the turn (one opponent), when every live opponent
+ * number of opponents), when every live opponent
  * has checked this street, nobody is all in, and today's answer is a check:
  * the check is priced beside every bet size the engine considers
  * (HorseOmahaCardImpact.omahaCardImpactAmounts) and replaced by the bet of
@@ -109,6 +118,7 @@ import {
   type OmahaPricedRead,
 } from './HorseOmahaPricedRules.js';
 import { omahaPricedInScope } from './HorseOmahaPricedWiring.js';
+import { omahaOpponentKindOf, type OmahaOpponentKind } from './HorseOmahaPricedMode.js';
 
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -138,8 +148,10 @@ export function omahaCheckedToBetScope(
   try {
     if (!omahaPricedInScope(hero, gs)) return null;
     const street = String(gs.stage ?? '');
-    if (street !== 'turn' && street !== 'river') return null;
-    if ((gs.communityCards ?? []).length !== (street === 'turn' ? 4 : 5)) return null;
+    // v2 (REDESIGN-PLAN section 2): the river only. The turn is priced as a whole line by the
+    // street plan, which this arithmetic lacks (no river betting after a called turn bet).
+    if (street !== 'river') return null;
+    if ((gs.communityCards ?? []).length !== 5) return null;
     if (gs.allInOrFold === true || gs.wagersCapped === true) return null;
     if (hero.is_folded || hero.is_all_in || hero.is_sitting_out) return null;
     if (!fin(hero.stack) || !(hero.stack > 0) || !fin(gs.pot) || !(gs.pot > 0)) return null;
@@ -152,7 +164,6 @@ export function omahaCheckedToBetScope(
       (p) => p.seat !== hero.seat && !p.is_folded && !p.is_sitting_out
     );
     if (opponents.length === 0) return null;
-    if (street === 'turn' && opponents.length !== 1) return null;
     if (opponents.some((p) => p.is_all_in || !fin(p.stack) || !(p.stack > 0))) return null;
     const checked = new Set<number>();
     for (const a of gs.actionHistory ?? []) {
@@ -198,6 +209,96 @@ export interface OmahaCheckedToVerdict {
   source: 'street' | 'pooled' | 'prior';
 }
 
+/**
+ * v2 (2026-11-18, lane OFFENCE; REDESIGN-PLAN section 2): THE SHOWDOWN SHARE IS FITTED, NOT ASSUMED.
+ *
+ * The v1 evaluation found the model's showdown share against a checking range at a median 0.67 where the
+ * audit counted 0.44-0.47 at showdown. The share is now the model's share (his kind's prior read: no
+ * personal read enters it) mapped through a logistic calibration fitted on production river spots:
+ *   share = 1 / (1 + exp(-(a + b x))),  x = logit(model share clamped to [0.005, 0.995]).
+ * a, b and their covariance are the maximum-likelihood fit of the Horse's real result against the hand
+ * the checker really held (offline population table, archive woowoo-48h-audit-01BNteGYgf
+ * repairs/CHECKED-TO-BET/v2/FIT-TABLE.md, sha256 c7907ac2b9631d51; production PLO4/PLO5 cash hands 2026-11-01..2026-11-15, read-only
+ * export; every river spot where a Horse acted heads-up after his opponent checked). Hole cards are used
+ * only there, offline, per kind of opponent (a person, a Horse), never per account and never as a
+ * decision input. Fit: persons n 414 (mean model 0.583, mean result 0.585), Horses n 400 (0.537, 0.476); the slope b
+ * is about 0.35 for both, so the model's own logit is about three times too confident at both ends. Its variance is the fit's (delta method) plus the model's sample error carried through
+ * the map.
+ */
+export interface OmahaCheckedToShowdownFit {
+  a: number;
+  b: number;
+  /** covariance of (a, b) */
+  vaa: number;
+  vab: number;
+  vbb: number;
+  /** river spots the fit is made from */
+  n: number;
+}
+export const OMAHA_CHECKED_TO_SHOWDOWN_FIT: Readonly<
+  Record<OmahaOpponentKind | 'pooled', OmahaCheckedToShowdownFit>
+> = Object.freeze({
+  person: { a: 0.122103, b: 0.355705, vaa: 0.014655, vab: -0.000498983, vbb: 0.0012304, n: 414 },
+  horse: { a: -0.354739, b: 0.353924, vaa: 0.015433, vab: -0.00111882, vbb: 0.0012584, n: 400 },
+  pooled: {
+    a: -0.114544,
+    b: 0.354075,
+    vaa: 0.00740293,
+    vab: -0.000398884,
+    vbb: 0.000615673,
+    n: 814,
+  },
+});
+
+/**
+ * v2: THE EQUITY AGAINST THE HANDS THAT CONTINUE IS FITTED TOO. Calibrating the check alone would leave the bet's
+ * called branch on the model's overconfident equity and lean every value bet upward. Same form, fitted on the called
+ * river bets of the same export (repairs/CHECKED-TO-BET/v2/FIT-CE.md, sha256 b929a2c6fa39d694): the Horse bet after the
+ * check and the checker called, raised or went all in; n 144 (persons 78, Horses 66, each under 100, so the pooled fit
+ * serves both kinds); mean model 0.413, mean result 0.486; slope 0.28 (SE 0.047).
+ */
+export const OMAHA_CHECKED_TO_CONTINUE_FIT: Readonly<OmahaCheckedToShowdownFit> = Object.freeze({
+  a: 0.290444,
+  b: 0.279895,
+  vaa: 0.0444859,
+  vab: 0.00327411,
+  vbb: 0.00217208,
+  n: 144,
+});
+
+/** The calibrated equity against the hands that continue and its variance. */
+export function omahaCheckedToContinueCalibrated(
+  model: number,
+  effective: number
+): { share: number; variance: number } {
+  return calibrateWith(OMAHA_CHECKED_TO_CONTINUE_FIT, model, effective);
+}
+
+function calibrateWith(
+  f: OmahaCheckedToShowdownFit,
+  model: number,
+  effective: number
+): { share: number; variance: number } {
+  const p = clamp(fin(model) ? model : 0.5, 0.005, 0.995);
+  const x = Math.log(p / (1 - p));
+  const share = 1 / (1 + Math.exp(-(f.a + f.b * x)));
+  const g = share * (1 - share);
+  const fitVar = g * g * (f.vaa + 2 * x * f.vab + x * x * f.vbb);
+  // The model's own sample error (binomial on the effective size), carried through the map.
+  const slope = (f.b * g) / (p * (1 - p));
+  const sampleVar = slope * slope * ((p * (1 - p)) / Math.max(1, effective));
+  return { share, variance: fitVar + sampleVar };
+}
+
+/** The calibrated showdown share against one checker and its variance. */
+export function omahaCheckedToShowdownCalibrated(
+  model: number,
+  kind: OmahaOpponentKind | null,
+  effective: number
+): { share: number; variance: number } {
+  return calibrateWith(OMAHA_CHECKED_TO_SHOWDOWN_FIT[kind ?? 'pooled'], model, effective);
+}
+
 interface Leg {
   opp: SeatPlayer;
   impact: OmahaCardImpact;
@@ -205,6 +306,9 @@ interface Leg {
   n: number;
   /** his continue rate at the reference size; null: no read (the pot-odds share) */
   rate: number | null;
+  /** v2: the showdown share against his checking range, calibrated to production showdowns, and its variance */
+  share: number;
+  shareVar: number;
 }
 
 /**
@@ -256,17 +360,39 @@ export function omahaCheckedToBet(
         : river && read.riverCall !== null && fin(given?.riverOpportunities)
           ? Math.max(0, given!.riverOpportunities as number)
           : Math.max(0, read.opportunities);
-    legs.push({ opp, impact, n, rate });
+    // v2: the showdown share. The model's share against his checking range with his KIND's prior read
+    // (the exact input the population table was fitted on), mapped through the fitted calibration.
+    const kind = omahaOpponentKindOf(gs, opp.user_id);
+    const kindImpact = omahaCardImpact({
+      hole: hero.cards,
+      board: gs.communityCards ?? [],
+      dead: hero.knownDeadCards ?? [],
+      pot,
+      heroStack: hero.stack,
+      oppStack: opp.stack,
+      heroCloses: true,
+      line: omahaCardImpactLine(hero, opp, gs),
+      read: omahaPricedCardImpactRead({ ...OMAHA_PRICED_NO_READ, kind }, 'river'),
+      amounts: [amounts[0]],
+      seedSalt: opp.seat * 16 + hero.seat,
+    });
+    if (!kindImpact) return null;
+    const cal = omahaCheckedToShowdownCalibrated(
+      kindImpact.showdown,
+      kind,
+      Math.max(1, kindImpact.opp.effective)
+    );
+    legs.push({ opp, impact, n, rate, share: cal.share, shareVar: cal.variance });
   }
-  const showdown = legs.reduce((a, l) => a * clamp(l.impact.showdown, 0, 1), 1);
-  const evCheck = river ? pot * showdown * (1 - r) : legs[0].impact.options[0].ev * (1 - r);
-  // The sample error of the check: the showdown share of each leg.
+  void river;
+  const showdown = legs.reduce((a, l) => a * clamp(l.share, 0, 1), 1);
+  const evCheck = pot * showdown * (1 - r);
+  // The error of the check: each leg's calibrated share (the fit's error, the sample's, the rounding).
   let checkVar = 0;
   for (const l of legs) {
-    const s = clamp(l.impact.showdown, 0, 1);
-    const others = s > 0 ? showdown / s : 0;
-    const eff = Math.max(1, l.impact.opp.effective);
-    checkVar += (pot * others) ** 2 * ((s * (1 - s)) / eff + MODEL_ROUNDING ** 2);
+    const s = clamp(l.share, 0, 1);
+    const others = s > 0 ? showdown / s : legs.reduce((a, m) => (m === l ? a : a * m.share), 1);
+    checkVar += (pot * others * (1 - r)) ** 2 * (l.shareVar + MODEL_ROUNDING ** 2);
   }
   const refOdds = 1 / (1 + OMAHA_CARD_IMPACT_PRIOR.referenceBet);
   const rows: OmahaCheckedToRow[] = [];
@@ -281,16 +407,23 @@ export function omahaCheckedToBet(
     }
     if (opts.length !== legs.length) continue;
     const folds = opts.map((o) => clamp(o.fold, 0, 1));
+    // v2: the equity against the hands that continue, calibrated (FIT-CE.md).
+    const ce = opts.map((o, j) =>
+      omahaCheckedToContinueCalibrated(o.continueEquity, legs[j].impact.opp.effective)
+    );
     const allFold = folds.reduce((x, y) => x * y, 1);
     let ev: number;
     let value: boolean;
     if (legs.length === 1) {
       const o = opts[0];
       const cont = o.call + o.raise;
-      const won =
-        o.fold * pot + cont * o.continueEquity * (pot + 2 * Math.min(a, legs[0].opp.stack));
-      ev = o.ev - r * won;
-      value = o.value;
+      const B0 = Math.min(a, legs[0].opp.stack);
+      const e = ce[0].share;
+      const won = o.fold * pot + cont * e * (pot + 2 * B0);
+      // The model's value with its continue equity replaced by the calibrated one.
+      ev = o.ev + cont * (e - clamp(o.continueEquity, 0, 1)) * (pot + 2 * B0) - r * won;
+      // A value bet: the hands that continue and lose outweigh those that continue and win.
+      value = e > 0.5;
     } else {
       // Every set of callers; a raise by anyone costs the bet.
       const n = legs.length;
@@ -309,7 +442,7 @@ export function omahaCheckedToBet(
             p *= call;
             // Equity against his callers: at least the equity against all the hands that
             // continue (the raisers are the top of them), which is the figure used.
-            win *= clamp(o.continueEquity, 0, 1);
+            win *= ce[j].share;
             chips += Math.min(a, legs[j].opp.stack);
           } else p *= folds[j];
         }
@@ -321,11 +454,11 @@ export function omahaCheckedToBet(
       ev = sum;
       let worse = 0;
       let better = 0;
-      for (const o of opts) {
+      opts.forEach((o, j) => {
         const cont = o.call + o.raise;
-        worse += cont * Math.max(0, 2 * o.continueEquity + o.continueBeats - 1);
-        better += cont * o.continueBeats;
-      }
+        worse += cont * ce[j].share;
+        better += cont * (1 - ce[j].share);
+      });
       value = worse > better;
     }
     // The standard error of ev - evCheck.
@@ -341,9 +474,7 @@ export function omahaCheckedToBet(
         folds[j] > 0 ? allFold / folds[j] : folds.reduce((x, y, k) => (k === j ? x : x * y), 1);
       variance += (sd * (pot + B) * othersFold) ** 2;
       const cont = clamp(o.call + o.raise, 0, 1);
-      const e = clamp(o.continueEquity, 0, 1);
-      const eff = Math.max(1, l.impact.opp.effective);
-      variance += ((pot + 2 * B) * othersFold) ** 2 * ((cont * e * (1 - e)) / eff);
+      variance += (cont * (pot + 2 * B) * othersFold) ** 2 * ce[j].variance;
       variance += 3 * (MODEL_ROUNDING * (pot + 2 * B)) ** 2;
     });
     rows.push({

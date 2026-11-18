@@ -29,6 +29,9 @@ import {
   omahaCheckedToBet,
   omahaCheckedToBetDecision,
   omahaCheckedToBetScope,
+  omahaCheckedToContinueCalibrated,
+  omahaCheckedToShowdownCalibrated,
+  OMAHA_CHECKED_TO_SHOWDOWN_FIT,
   type OmahaCheckedToRead,
 } from './HorseOmahaCheckedToBet.js';
 import RECORDED from './HorseOmahaCheckedToBet.fixture.json';
@@ -134,16 +137,17 @@ afterEach(() => {
   HorseMind.reset();
 });
 
-describe('the spot: a river or a heads-up turn every opponent has checked', () => {
+describe('the spot: a river every opponent has checked (v2: the turn is out)', () => {
   it('the recorded spots are in it, except two where a player is all in or has not checked', () => {
     expect(RIVER_HU.map((s) => omahaCheckedToBetScope(s.hero, s.gs)?.opponents.length)).toEqual([
       1, 1, 1, 1, 1, 1,
     ]);
-    expect(TURN_HU.map((s) => omahaCheckedToBetScope(s.hero, s.gs)?.street)).toEqual([
-      'turn',
-      'turn',
-      'turn',
-      'turn',
+    // v2 (REDESIGN-PLAN section 2): the turn is priced as a whole line by the street plan; failing before: 'turn' x4.
+    expect(TURN_HU.map((s) => omahaCheckedToBetScope(s.hero, s.gs)?.street ?? null)).toEqual([
+      null,
+      null,
+      null,
+      null,
     ]);
     expect(
       RIVER_MW.map((s) => omahaCheckedToBetScope(s.hero, s.gs)?.opponents.length ?? null)
@@ -236,13 +240,20 @@ describe('the comparison: the fold rate decides, not the hand class', () => {
     // EV(check) is the showdown share of the pot.
     expect(v.evCheck).toBeCloseTo(v.showdown * s.gs.pot, -1);
   });
-  it('against a calling station (70% calls) the same hand keeps the check: every bet is worth less than the check', () => {
+  it('against a calling station (70% calls) the same hand keeps the check: no bet clears its error', () => {
     const v = verdict(s, read(STATION))!;
     expect(v.action).toBe('check');
-    for (const row of v.rows) expect(row.ev).toBeLessThan(v.evCheck);
+    for (const row of v.rows) expect(row.ev - v.evCheck).toBeLessThan(row.error);
   });
-  it('against a player at the break-even call rate and one with no read the check stands', () => {
-    expect(verdict(s, read(0.42))!.action).toBe('check');
+  it('the edge falls as his call rate rises; at a 50% call rate and with no read the check stands', () => {
+    // v2: a called bluff wins 25% of the time in production (FIT-CE.md), so the break-even call rate is above v1's 0.42.
+    const edge = (c: number) => {
+      const v = verdict(s, read(c))!;
+      return v.best!.ev - v.evCheck;
+    };
+    expect(edge(0.21)).toBeGreaterThan(edge(0.42));
+    expect(edge(0.42)).toBeGreaterThan(edge(0.6));
+    expect(verdict(s, read(0.5))!.action).toBe('check');
     const none = verdict(s, read(null))!;
     expect(none.action).toBe('check');
     expect(none.source).toBe('prior');
@@ -259,8 +270,8 @@ describe('the comparison: the fold rate decides, not the hand class', () => {
     const e = (n: number) => verdict(s, read(FOLDER, n))!.rows[0].error;
     expect(e(3)).toBeGreaterThan(e(40));
     expect(e(40)).toBeGreaterThan(e(400));
-    // RIVER_HU[2]: the bluff is worth 24 more than the check and the error is 74: the check stands.
-    const close = verdict(RIVER_HU[2], read(FOLDER))!;
+    // RIVER_HU[1] against the station: the best bet is worth a few chips more than the check, inside its error.
+    const close = verdict(s, read(STATION))!;
     expect(close.action).toBe('check');
     expect(close.best!.ev).toBeGreaterThan(close.evCheck);
     expect(close.best!.ev - close.evCheck).toBeLessThan(close.best!.error);
@@ -271,7 +282,7 @@ describe('the comparison: the fold rate decides, not the hand class', () => {
     expect(raked.evCheck).toBeCloseTo(free.evCheck * 0.95, 0);
     expect(raked.rows[0].ev).toBeLessThan(free.rows[0].ev);
   });
-  it('several opponents: everyone folds with the product of their fold rates, and one station keeps the check', () => {
+  it('several opponents: everyone folds with the product of their fold rates; a station shrinks the edge and two keep the check', () => {
     const mw = RIVER_MW[3];
     const scope = omahaCheckedToBetScope(mw.hero, mw.gs)!;
     const [a, b] = scope.opponents.map((p) => p.seat);
@@ -295,13 +306,23 @@ describe('the comparison: the fold rate decides, not the hand class', () => {
       (seat) => read(seat === a ? FOLDER : STATION)(),
       0
     )!;
-    expect(mixed.action).toBe('check');
+    expect(mixed.best!.allFold).toBeLessThan(both.best!.allFold);
+    expect(mixed.best!.ev - mixed.evCheck).toBeLessThan(both.best!.ev - both.evCheck);
+    expect(omahaCheckedToBet(mw.hero, mw.gs, scope, read(STATION), 0)!.action).toBe('check');
   });
-  it('the heads-up turn: the check is worth what the hand realizes when he may bet the river, and the fold rate decides', () => {
-    const t = TURN_HU[2];
-    expect(verdict(t, read(FOLDER))!.action).toBe('bet');
-    expect(verdict(t, read(STATION))!.action).toBe('check');
-    expect(verdict(t, read(null))!.action).toBe('check');
+  it('v2: the heads-up turn is not priced (failing before: the folder was bet into)', () => {
+    for (const t of TURN_HU) {
+      expect(verdict(t, read(FOLDER))).toBeNull();
+      expect(
+        omahaCheckedToBetDecision(
+          { action: 'check', thinkTime: 0 } as never,
+          t.hero,
+          t.gs,
+          read(FOLDER),
+          0
+        ).priced
+      ).toBe(false);
+    }
   });
   it('the same cards and state give the same numbers', () => {
     expect(verdict(s, read(FOLDER))).toEqual(verdict(s, read(FOLDER)));
@@ -331,7 +352,7 @@ describe('through HorseLogic.decide with the recorded option states', () => {
       expect(on.plays).toEqual(['bet', 'bet', 'bet']);
       expect(fired(on, BET)).toBe(3);
     }
-    const close = play(RIVER_HU[2], FOLDER, true);
+    const close = play(RIVER_HU[1], STATION, true);
     expect(close.plays).toEqual(['check', 'check', 'check']);
     expect(fired(close, KEPT)).toBe(3);
   });
@@ -341,13 +362,17 @@ describe('through HorseLogic.decide with the recorded option states', () => {
       expect(play(s, FOLDER, true).plays).toEqual(['bet', 'bet', 'bet']);
     }
   });
-  it('a station: the option adds no bet anywhere (what it decides is what the option off decides)', () => {
+  it('a station: every bet the option adds is a value bet (v2: a hand that wins against his calling range is bet into him)', () => {
     for (const s of SPOTS) {
       const off = play(s, STATION, undefined);
       const on = play(s, STATION, true);
-      expect(on.plays).toEqual(off.plays);
-      expect(fired(on, BET)).toBe(0);
+      if (on.plays.join() === off.plays.join()) continue;
+      const v = verdict(s, read(STATION))!;
+      expect(v.action).not.toBe('check');
+      expect(v.best!.value).toBe(true);
     }
+    // the hand of the folder spot keeps its check against the station
+    expect(play(RIVER_HU[1], STATION, true).plays).toEqual(['check', 'check', 'check']);
   });
   it('no read at all (the opponent memory off): the option adds no bet', () => {
     for (const s of SPOTS) {
@@ -356,12 +381,12 @@ describe('through HorseLogic.decide with the recorded option states', () => {
       expect(on.plays).toEqual(off.plays);
     }
   });
-  it('the heads-up turn: the bet is proposed and the rules that outrank the pricing rules still check it', () => {
+  it('v2: the heads-up turn is byte for byte the option off and no receipt fires (failing before: the bet receipt fired)', () => {
     for (const s of TURN_HU) {
+      const off = play(s, FOLDER, undefined);
       const on = play(s, FOLDER, true);
-      expect(fired(on, BET)).toBe(3);
-      expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(3);
-      expect(on.plays).toEqual(['check', 'check', 'check']);
+      expect(on.bytes).toEqual(off.bytes);
+      expect(fired(on, BET) + fired(on, KEPT)).toBe(0);
     }
   });
   it.each([
@@ -382,5 +407,42 @@ describe('through HorseLogic.decide with the recorded option states', () => {
       expect(on.bytes).toEqual(off.bytes);
       expect(fired(on, BET) + fired(on, KEPT)).toBe(0);
     }
+  });
+});
+
+describe('v2: the showdown share and the continue equity are the fitted calibrations, not the raw model', () => {
+  it('the map is increasing, keeps the order of hands, and pulls the model toward the results it was fitted on', () => {
+    const at = (m: number) => omahaCheckedToShowdownCalibrated(m, 'person', 400).share;
+    expect(at(0.02)).toBeLessThan(at(0.5));
+    expect(at(0.5)).toBeLessThan(at(0.98));
+    // FIT-TABLE.md (persons): model 0.0-0.1 won 0.246 of 112 spots, 0.9-1.0 won 0.861 of 194.
+    expect(at(0.023)).toBeGreaterThan(0.15);
+    expect(at(0.023)).toBeLessThan(0.3);
+    expect(at(0.984)).toBeGreaterThan(0.78);
+    expect(at(0.984)).toBeLessThan(0.9);
+    // called bets (FIT-CE.md): model 0.0-0.2 won 0.250 of 76, 0.8-1.0 won 0.833 of 54.
+    const ce = (m: number) => omahaCheckedToContinueCalibrated(m, 400).share;
+    expect(ce(0.004)).toBeGreaterThan(0.15);
+    expect(ce(0.004)).toBeLessThan(0.3);
+    expect(ce(0.977)).toBeGreaterThan(0.7);
+  });
+  it('the kind picks the fit; an unknown kind takes the pooled fit; the error shrinks with the sample', () => {
+    expect(omahaCheckedToShowdownCalibrated(0.5, 'horse', 400).share).toBeLessThan(
+      omahaCheckedToShowdownCalibrated(0.5, 'person', 400).share
+    );
+    const f = OMAHA_CHECKED_TO_SHOWDOWN_FIT.pooled;
+    expect(omahaCheckedToShowdownCalibrated(0.5, null, 400).share).toBeCloseTo(
+      1 / (1 + Math.exp(-f.a)),
+      6
+    );
+    expect(omahaCheckedToShowdownCalibrated(0.3, 'person', 10).variance).toBeGreaterThan(
+      omahaCheckedToShowdownCalibrated(0.3, 'person', 1000).variance
+    );
+  });
+  it('EV(check) is the calibrated share of the pot (failing before: the raw model share)', () => {
+    const s = RIVER_HU[1];
+    const v = verdict(s, read(FOLDER))!;
+    expect(v.evCheck).toBeCloseTo(v.showdown * s.gs.pot, -1);
+    expect(v.showdown).toBeGreaterThan(0.15);
   });
 });
