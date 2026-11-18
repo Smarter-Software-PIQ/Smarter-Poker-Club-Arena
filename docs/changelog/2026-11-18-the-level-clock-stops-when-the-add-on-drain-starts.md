@@ -45,7 +45,9 @@ the drain holds that remainder:
   ends inside it.
 - `giveBackAddOnDrainLevelClock()` re-arms the clock if the add-on ends without
   ever reaching its break (a window recovered already expired), from
-  `finishAddOnBreak` and from the finalization that ends the add-on for good.
+  `finishAddOnBreak` and after the finalization that ends the add-on for good
+  (`drivePersistedAddOnDeadline`; never inside `finalizeAfterAddOn`, the money
+  close, which a clock must not be able to fail).
   A drain can therefore never leave an event with no level clock.
 
 No money path, no purchase, no window timestamp and no pause authority is

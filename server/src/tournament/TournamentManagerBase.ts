@@ -14277,6 +14277,11 @@ export abstract class TournamentManagerBase {
     }
     await this.finalizeAfterAddOn();
     if (!this.lifecycleIsCurrent(lifecycle)) return;
+    // The add-on is over for good. A drain that stopped the level clock and
+    // never reached its break gives it back here; a break that did, already
+    // has. Kept out of finalizeAfterAddOn: that method is the money close and
+    // nothing about a clock may make it report a failure.
+    if (this.prizePoolFinalized) this.giveBackAddOnDrainLevelClock();
   }
 
   /** Called by the platform thaw after fn_thaw_platform commits and before
@@ -14533,9 +14538,6 @@ export abstract class TournamentManagerBase {
         return false;
       }
       this.prizePoolFinalized = true;
-      // The add-on is over for good. A drain that stopped the level clock and
-      // never reached its break gives it back here; a break that did, already has.
-      this.giveBackAddOnDrainLevelClock();
       if (this.tournamentCache) {
         this.tournamentCache.prize_pool = finalPool;
         this.tournamentCache.prize_pool_finalized = true;
