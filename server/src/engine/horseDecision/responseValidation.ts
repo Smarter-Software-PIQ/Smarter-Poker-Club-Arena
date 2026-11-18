@@ -1518,7 +1518,7 @@ function policyGraphIsValidInScope(
       OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant) &&
       transition.after.action === 'call' &&
       previous !== null &&
-      ['fold', 'raise', 'bet', 'all_in'].includes(previous.action) &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
