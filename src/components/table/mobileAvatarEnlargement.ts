@@ -1,9 +1,5 @@
 import { privateCardLane } from './heroPrivateReservations';
-import {
-  crownActionReservation,
-  restingAvatarBox,
-  tableRenderScale,
-} from './avatarCrownBounds';
+import { crownActionReservation, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
   dealerSeatReservations,
@@ -929,8 +925,7 @@ export function enlargeMobileAvatars(
   // a resize, a toolbar, a new hand or a new player reuses them exactly and
   // never searches again. Only a different ring (another capacity, or the
   // viewer sitting down or standing up) starts over.
-  const railBust =
-    page.dataset.seats === '9' ? seatRailBusts(scaler) : '';
+  const railBust = page.dataset.seats === '9' ? seatRailBusts(scaler) : '';
   if (state && (state.locked?.ring !== profileKey || state.locked.railBust !== railBust))
     state.locked = { ring: profileKey, railBust };
   const lock = state?.locked;
@@ -945,9 +940,7 @@ export function enlargeMobileAvatars(
   // from the table's permanent geometry, never from a moment of play. A hand
   // tabled at showdown is the one display that cannot yet be told where the
   // locked portrait will be; wait for the next deal before choosing.
-  const showdownPending = Boolean(
-    scaler.querySelector('.seat__cards--revealed .seat__card')
-  );
+  const showdownPending = Boolean(scaler.querySelector('.seat__cards--revealed .seat__card'));
   if (!lock?.uniform && (paintPending || showdownPending)) prepared.length = 0;
   if (prepared.length && lock?.uniform) {
     const size = lock.uniform;
@@ -1147,8 +1140,7 @@ export function enlargeMobileAvatars(
           anchors.push([unionPaint(spots.slice(i * per, (i + 1) * per)), wrapper]);
         });
     }
-    const readable = (scale: number) => {
-      if (!anchors.length) return true;
+    const centresAt = (scale: number) => {
       const centres = new Map<Element, [number, number]>();
       for (const item of prepared) {
         const wrapper = item.e.seat.closest('.seat-wrapper');
@@ -1167,18 +1159,33 @@ export function enlargeMobileAvatars(
             2,
         ]);
       }
-      // A clear margin, so the reading never rests on a pixel.
-      const margin = 2 * ratio;
-      return anchors.every(([box, owner]) => {
-        const own = centres.get(owner);
-        if (!own) return true;
-        const x = box.left + box.width / 2,
-          y = box.top + box.height / 2;
-        const mine = Math.hypot(x - own[0], y - own[1]);
-        for (const [wrapper, c] of centres)
-          if (wrapper !== owner && Math.hypot(x - c[0], y - c[1]) < mine + margin) return false;
-        return true;
-      });
+      return centres;
+    };
+    // A clear margin, so the reading never rests on a pixel.
+    const margin = 2 * ratio;
+    const reads = (
+      [box, owner]: (typeof anchors)[number],
+      centres: Map<Element, [number, number]>
+    ) => {
+      const own = centres.get(owner);
+      if (!own) return true;
+      const x = box.left + box.width / 2,
+        y = box.top + box.height / 2;
+      const mine = Math.hypot(x - own[0], y - own[1]);
+      for (const [wrapper, c] of centres)
+        if (wrapper !== owner && Math.hypot(x - c[0], y - c[1]) < mine + margin) return false;
+      return true;
+    };
+    // Growth may not take a button spot away from its player. A spot that
+    // already reads as a neighbour's with every portrait at rest is the
+    // ring's geometry, not something a size can cause or cure, so it does not
+    // veto every size (it vetoed even 1x, and then no size was ever locked).
+    const resting = centresAt(1);
+    const held = anchors.filter((anchor) => reads(anchor, resting));
+    const readable = (scale: number) => {
+      if (!held.length) return true;
+      const centres = centresAt(scale);
+      return held.every((anchor) => reads(anchor, centres));
     };
     if (best && !readable(best[0].scale)) {
       const from = rungs.indexOf(best[0].scale);

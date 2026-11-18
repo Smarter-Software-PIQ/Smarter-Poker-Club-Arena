@@ -49,9 +49,7 @@ export function fixedRailBustLimit(
   return Math.min(
     cap,
     paint.left < pivotX ? (pivotX - left) / (pivotX - paint.left) : cap,
-    paint.left + paint.width > pivotX
-      ? (right - pivotX) / (paint.left + paint.width - pivotX)
-      : cap
+    paint.left + paint.width > pivotX ? (right - pivotX) / (paint.left + paint.width - pivotX) : cap
   );
 }
 
@@ -1625,7 +1623,22 @@ export function createOpponentAvatarLayout(
             Infinity
           );
           if (!Number.isFinite(limit) || limit <= 0) continue;
-          const next = Math.min(NINE_SEAT_PHONE_RAIL_BUST, Math.floor(current * limit * 1000) / 1000);
+          // The 2px of air is a cushion, not a display. A portrait that would
+          // only enter the cushion at the base keeps the base, so the ring
+          // stays one size; only one that would actually reach the screen edge
+          // or the board takes its own smaller size.
+          const touch = fixedRailBustLimit(
+            paint,
+            rect.left + rect.width / 2,
+            viewport,
+            board,
+            0,
+            Infinity
+          );
+          const next =
+            current * touch >= NINE_SEAT_PHONE_RAIL_BUST
+              ? NINE_SEAT_PHONE_RAIL_BUST
+              : Math.min(NINE_SEAT_PHONE_RAIL_BUST, Math.floor(current * limit * 1000) / 1000);
           if (next >= NINE_SEAT_PHONE_RAIL_BUST - 0.0005)
             wrapper.style.removeProperty('--sp-seat-rail-bust');
           else if (Math.abs(next - current) >= 0.001)

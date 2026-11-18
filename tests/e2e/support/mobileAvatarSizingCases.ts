@@ -12,6 +12,8 @@ export const FIXED_MOBILE_ARTWORK_CASES = [
   // Dan, 2026-11-12: six-card tables were the whole point; they grow too.
   { seats: '6', spectator: 'false', cards: '6', occupiedSeats: '' },
   { seats: '6', spectator: 'true', cards: '6', occupiedSeats: '' },
+  // Dan 2026-11-18: six-max tournaments take the same size as cash.
+  { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '', tournament: 'true' },
 ] as const;
 
 export type FixedMobileArtworkSettings = (typeof FIXED_MOBILE_ARTWORK_CASES)[number];
@@ -636,7 +638,9 @@ export async function checkFixedMobileArtwork(
     const floor =
       settings.seats === '9'
         ? PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponent
-        : PHONE_AVATAR_MIN_HEIGHT_PX.sixSeat;
+        : settings.spectator === 'true'
+          ? PHONE_AVATAR_MIN_HEIGHT_PX.sixSeatSpectator
+          : PHONE_AVATAR_MIN_HEIGHT_PX.sixSeat;
     expect(peerHeight, 'opponent portraits keep the approved phone size').toBeGreaterThanOrEqual(
       floor
     );

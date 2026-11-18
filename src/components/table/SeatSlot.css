@@ -5213,6 +5213,11 @@
   .table-page:where([data-seats='6'], [data-seats='9']) .seat-wrapper {
     --sp-bust-scale: 2.1;
   }
+  /* A watched six-max table has no private card row to clear (Dan 2026-11-18:
+     measured, every guard passes at 2.3; 2.4 reaches the dealer button). */
+  .table-page[data-seats='6'][data-hero='false'] .seat-wrapper {
+    --sp-bust-scale: 2.3;
+  }
   .table-page:where([data-seats='6'], [data-seats='9'])
     .seat--cards-left
     .seat__cards--opponent:not(.seat__cards--revealed) {

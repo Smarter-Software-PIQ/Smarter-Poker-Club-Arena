@@ -20,7 +20,7 @@ export function registerObserverAvatarSizingCases() {
   ] as const)
     test(
       mobileArtwork
-        ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}`
+        ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}${'tournament' in mobileArtwork ? ' tournament' : ''}`
         : `spectators match avatar artwork and retain fixed chairs at ${width}px${emptyBottom ? ' with an empty bottom chair' : ''}`,
       async ({ page, browser }, testInfo) => {
         test.setTimeout(60_000);

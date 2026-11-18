@@ -34,6 +34,10 @@
  * 481-640px portrait. SeatSlot.css carries the same number. */
 export const SIX_SEAT_PHONE_BUST_SCALE = 2.1;
 
+/** A watched six-max table (no hero, so no private card row to keep clear).
+ * Measured 2026-11-18: 2.3 passes every guard; 2.4 reaches the dealer button. */
+export const SIX_SEAT_SPECTATOR_PHONE_BUST_SCALE = 2.3;
+
 /** The nine-seat phone rail bust every chair takes (the `--sp-seat-rail-bust`
  * fallback in SeatSlot.css). Only a portrait whose own art is too wide for the
  * rail beside the board goes below it, on its own chair, while it is seated. */
@@ -44,6 +48,7 @@ export const NINE_SEAT_PHONE_RAIL_BUST = 1.7;
  * Measured on the real-component fixture (tests/e2e/table-proportions.spec.ts). */
 export const PHONE_AVATAR_MIN_HEIGHT_PX = {
   sixSeat: 175,
+  sixSeatSpectator: 191,
   nineSeatOpponent: 140,
   nineSeatHero: 187,
 } as const;

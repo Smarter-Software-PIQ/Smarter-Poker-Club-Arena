@@ -33,6 +33,7 @@ import {
   NINE_SEAT_PHONE_RAIL_BUST,
   PHONE_AVATAR_MIN_HEIGHT_PX,
   SIX_SEAT_PHONE_BUST_SCALE,
+  SIX_SEAT_SPECTATOR_PHONE_BUST_SCALE,
 } from '../src/components/table/mobileAvatarSize';
 import { fixedRailBustLimit } from '../src/components/table/opponentAvatarLayout';
 
@@ -45,8 +46,9 @@ const CSS = 'src/components/table/SeatSlot.css';
 /** The approved sizes. Lowering one of these is the regression this law exists for. */
 const APPROVED = {
   six: 2.1,
+  sixSpectator: 2.3,
   nineRail: 1.7,
-  heights: { sixSeat: 175, nineSeatOpponent: 140, nineSeatHero: 187 },
+  heights: { sixSeat: 175, sixSeatSpectator: 191, nineSeatOpponent: 140, nineSeatHero: 187 },
 };
 
 describe('LAW: phone avatars never ratchet smaller', () => {
@@ -57,7 +59,11 @@ describe('LAW: phone avatars never ratchet smaller', () => {
 
   it('the approved sizes are never lowered', () => {
     expect(SIX_SEAT_PHONE_BUST_SCALE).toBeGreaterThanOrEqual(APPROVED.six);
+    expect(SIX_SEAT_SPECTATOR_PHONE_BUST_SCALE).toBeGreaterThanOrEqual(APPROVED.sixSpectator);
     expect(NINE_SEAT_PHONE_RAIL_BUST).toBeGreaterThanOrEqual(APPROVED.nineRail);
+    expect(PHONE_AVATAR_MIN_HEIGHT_PX.sixSeatSpectator).toBeGreaterThanOrEqual(
+      APPROVED.heights.sixSeatSpectator
+    );
     expect(PHONE_AVATAR_MIN_HEIGHT_PX.sixSeat).toBeGreaterThanOrEqual(APPROVED.heights.sixSeat);
     expect(PHONE_AVATAR_MIN_HEIGHT_PX.nineSeatOpponent).toBeGreaterThanOrEqual(
       APPROVED.heights.nineSeatOpponent
@@ -74,6 +80,11 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     );
     expect(phone, 'the six/nine phone bust rule is where the law reads it').not.toBeNull();
     expect(Number(phone![1])).toBe(SIX_SEAT_PHONE_BUST_SCALE);
+    const spectator = css.match(
+      /\.table-page\[data-seats='6'\]\[data-hero='false'\] \.seat-wrapper \{\s*--sp-bust-scale: ([\d.]+);/
+    );
+    expect(spectator, 'the watched six-max rule').not.toBeNull();
+    expect(Number(spectator![1])).toBe(SIX_SEAT_SPECTATOR_PHONE_BUST_SCALE);
     const rail = css.match(/--sp-bust-scale: var\(--sp-seat-rail-bust, ([\d.]+)\);/g) ?? [];
     expect(rail.length, 'one nine-seat rail fallback').toBe(1);
     expect(Number(rail[0].match(/([\d.]+)\);$/)![1])).toBe(NINE_SEAT_PHONE_RAIL_BUST);
@@ -83,7 +94,11 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     const source = read(ENLARGE);
     expect(source).not.toMatch(/localStorage\.(setItem|getItem)/);
     expect(source).not.toMatch(/sharedSizes|recordSharedSize|SHARED_SIZE_STORE/);
-    for (const key of ['sp-mobile-avatar-size', 'sp-mobile-avatar-size-v2', 'sp-mobile-avatar-size-v3'])
+    for (const key of [
+      'sp-mobile-avatar-size',
+      'sp-mobile-avatar-size-v2',
+      'sp-mobile-avatar-size-v3',
+    ])
       localStorage.setItem(key, JSON.stringify({ 'cash|6|600': 90 }));
     localStorage.setItem('sp-unrelated', 'kept');
     vi.resetModules();
@@ -104,7 +119,9 @@ describe('LAW: phone avatars never ratchet smaller', () => {
       /fixedRailBustLimit\(\s*paint,\s*rect\.left \+ rect\.width \/ 2,\s*viewport,\s*board,\s*2 \* ratio,\s*Infinity\s*\)/
     );
     // ...is clamped to the approved base, and clears itself back to it.
-    expect(source).toMatch(/Math\.min\(NINE_SEAT_PHONE_RAIL_BUST, Math\.floor\(current \* limit \* 1000\) \/ 1000\)/);
+    expect(source).toMatch(
+      /Math\.min\(\s*NINE_SEAT_PHONE_RAIL_BUST,\s*Math\.floor\(current \* limit \* 1000\) \/ 1000\s*\)/
+    );
     expect(source).toMatch(/wrapper\.style\.removeProperty\('--sp-seat-rail-bust'\)/);
     expect(source).not.toMatch(/\|\| 1\.7;/);
     // The geometry: room to spare answers a factor above 1 once uncapped.
@@ -127,6 +144,10 @@ describe('LAW: phone avatars never ratchet smaller', () => {
     expect(fit).not.toMatch(/querySelectorAll\('\.seat__bet-chips'\)/);
     expect(fit).not.toMatch(/querySelector<HTMLElement>\('\.dealer-button'\)/);
     expect(fit).toMatch(/if \(!lock\?\.uniform && \(paintPending \|\| showdownPending\)\)/);
+    // A button spot the ring's resting geometry already gives a neighbour is
+    // not a veto on every size (it vetoed 1x itself, so no size ever locked).
+    expect(fit).toMatch(/const resting = centresAt\(1\);/);
+    expect(fit).toMatch(/const held = anchors\.filter\(\(anchor\) => reads\(anchor, resting\)\);/);
   });
 
   it('six-max and full-ring tournaments take the same phone profile as cash', () => {
@@ -136,7 +157,9 @@ describe('LAW: phone avatars never ratchet smaller', () => {
       source.indexOf('const MOBILE_PROFILES')
     );
     expect(key).not.toMatch(/tournament/);
-    expect(source).not.toMatch(/page\.dataset\.seats !== '9' && page\.classList\.contains\('table-page--tournament'\)/);
+    expect(source).not.toMatch(
+      /page\.dataset\.seats !== '9' && page\.classList\.contains\('table-page--tournament'\)/
+    );
   });
 
   it('the browser checks assert absolute sizes, and never hide the device record', () => {
