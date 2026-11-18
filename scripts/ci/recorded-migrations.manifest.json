@@ -2426,6 +2426,17 @@
       "liveVerdict": "Read production 2026-11-16 04:41-04:43 UTC: marker definition MD5 11700b51aab5116d79a8dc0078242def; postgres-owned, STABLE SECURITY DEFINER, search_path public/pg_temp, ACL postgres/service_role only unchanged. No triggers created. Adds one-common-unit whole-chip mystery allocations while retaining canonical cent allocations for legacy awards; all exact total, paid, claimant and non-mystery guards remain. Existing reservation producer forces GREATEST(100, unit). Original 1100-cent award paid 600+500 at 04:42:27.896280 UTC through its existing outbox; no manual payment by this recording task. Installed version was first observed at 04:41:42; actor, original installation route and exact installation timestamp are unknown, with no standard Apply receipt found. Recording is not endorsement of that route. The historical header names 44800 and a 04:45 pre-install measurement; those comments are preserved byte-exact and are not independently asserted by this recording. No migration is replayed."
     },
     {
+      "version": "20261118030451",
+      "name": "madness_plo5_vpip_floor_is_forty",
+      "file": "supabase/migrations/20261118030451_madness_plo5_vpip_floor_is_forty.sql",
+      "md5": "bcd98a965c2b203584d4d16abff5ca1e",
+      "appliedToProductionAt": "2026-11-18T03:04:51Z",
+      "recoveredOn": "2026-11-18",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)) for version 20261118030451, byte for byte (5509 UTF-8 bytes, no appended newline); md5 of the file bytes = bcd98a965c2b203584d4d16abff5ca1e = md5(array_to_string(statements, chr(10))) read 2026-11-18 06:45Z.",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly through the Supabase MCP at 03:04:51Z on 2026-11-18 under the MCP's own version while the repository carried the same change as 20261118025205 (PR #11249, never installed). Read against PRODUCTION 2026-11-18 06:36-06:45Z: fn_cash_game_floor_from_template prosrc md5 = 5b0b03754daf121c77d2a451bb9f8839 (the post-image this SQL verifies); the applier run 44252694913 for 20261118025205 answered ALREADY-APPLIED recorded as version=20261118030451 and changed nothing. The release selector keys candidate migrations by version, so this exact applied version is recorded and 20261118025205 is marked SUPERSEDED BY it. No SQL is replayed."
+    },
+    {
       "version": "20261118071741",
       "name": "rathole_floor_is_per_game_not_per_stakes",
       "file": "supabase/migrations/20261118071741_rathole_floor_is_per_game_not_per_stakes.sql",
