@@ -550,6 +550,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       'omahaOnePairDiscipline',
       'omahaBeatenMadeHandDefense',
       'omahaBluffCatcherRaiseFold',
+      'omahaNutClassValueSize',
     ]) {
       expectStatus(
         name,
@@ -564,7 +565,6 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     for (const name of [
       'omahaReraisedPotStackOffFold',
       'omahaReraisedPotStackOffRealistic',
-      'omahaNutClassValueSize',
       'fixedLimitHiLoNutLowRiverBet',
       'fixedLimitRiverOneBetValueRaise',
       'fixedLimitCallIsNotACommitment',
