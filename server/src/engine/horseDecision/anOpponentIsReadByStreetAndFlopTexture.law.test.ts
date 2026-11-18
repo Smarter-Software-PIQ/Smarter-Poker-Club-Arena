@@ -451,6 +451,8 @@ describe('an opponent is read by street and by flop texture', () => {
       'benchmark/HorseLeagueStreetRead.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
+      // the default-off flop defence tree (omahaFlopDefenceIsPriced, dark batch 2026-11-18): the counters' TYPE only
+      'engine/HorseOmahaFlopDefenceTree.ts',
       // omahaReadIsByStreetAndTexture's pure read (2026-11-18)
       'engine/HorseOmahaReadByStreet.ts',
       // its per-decision mode (types only), the one part HorseMind imports
@@ -458,6 +460,9 @@ describe('an opponent is read by street and by flop texture', () => {
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
     ]);
+    expect(readFileSync(join(root, 'engine/HorseOmahaFlopDefenceTree.ts'), 'utf8')).toMatch(
+      /import type \{ StreetReadCounters \} from '\.\/HorseOmahaStreetRead\.js';/
+    );
     // the four decision files another lane is editing are not touched by this read
     for (const f of [
       'HorseLogic.ts',
