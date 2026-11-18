@@ -90,6 +90,7 @@ import { subscribeTournamentStandings } from '../../services/tournamentStandings
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
 import { reportError } from '../../utils/errorReporter';
 import { serverNow } from '../../utils/serverClock';
+import { addOnClockHold } from '../../utils/addOnLevelClock';
 import { tournamentPaidPlaces } from '../../lib/tournamentPaidPlaces';
 import { useFitText } from '../lobby/game-cards/useFitText';
 import './TournamentHUD.css';
@@ -260,6 +261,12 @@ function hudPause(row: Tournament, nowMs: number): HudPause {
   ) {
     return { kind: 'addon', endsAtMs: addOnEnds };
   }
+  // Dan 2026-11-18: the add-on's drain is a pause too. Entry has reached its
+  // boundary and every table is finishing its hand before the paid minute;
+  // the level clock is stopped (utils/addOnLevelClock) and the dock says so
+  // the same way it says the last hand before a break.
+  const addOn = addOnClockHold(row, nowMs);
+  if (addOn.phase === 'drain') return { kind: 'break', endsAtMs: null };
   return { kind: 'none' };
 }
 

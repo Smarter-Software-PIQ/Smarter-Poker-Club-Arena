@@ -216,7 +216,7 @@ describe('Link sends from a phone in one tap', () => {
     expect(modal).toContain('if (phone && hasShareSheet()) {');
     expect(modal).toContain("source: 'HandDetailModal.sendLink',");
     expect(modal).toContain("if (outcome === 'cancelled') return false;");
-    expect(modal).toContain('void sendLink(hand, link).then((sent) => {');
+    expect(modal).toContain('const sent = await sendLink(hand, link);');
     expect(modal).toContain('useSenderInviteCode(hand?.tableId, heroId, isOpen)');
     setPhone(false);
   });

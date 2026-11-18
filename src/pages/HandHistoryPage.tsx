@@ -1434,6 +1434,7 @@ export default function HandHistoryPage() {
           handId={shareHand.id}
           inviteCode={shareInvite}
           shortUrl={shareShort.url}
+          shortPending={shareShort.pending}
           onShared={shareShort.markSent}
         />
       )}
