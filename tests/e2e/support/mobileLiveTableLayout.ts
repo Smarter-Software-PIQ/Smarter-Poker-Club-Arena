@@ -17,7 +17,6 @@ export async function waitForMobileAvatarGrowth(page: Page) {
             const supported =
               matchMedia('(min-width: 481px) and (max-width: 768px) and (orientation: portrait)')
                 .matches &&
-              !table.classList.contains('table-page--tournament') &&
               ['6', '9'].includes((table as HTMLElement).dataset.seats || '') &&
               (table as HTMLElement).dataset.killEnabled === 'false' &&
               [2, 3, 4, 5, 6].includes(Number((table as HTMLElement).dataset.holeCardCount));
