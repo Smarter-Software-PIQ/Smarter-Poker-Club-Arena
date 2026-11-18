@@ -28,7 +28,8 @@ import { sliceSqlStatement } from './helpers/sourceWindow';
 
 const DIR = join(resolve(__dirname, '..'), 'supabase/migrations');
 const LAW = '20261118192000_a_refused_hand_obligation_never_holds_its_table.sql';
-const sql = readFileSync(join(DIR, LAW), 'utf8');
+const BANKERS = '20261118192001_a_refused_bank_obligation_is_named_once_at_its_source.sql';
+const sql = readFileSync(join(DIR, LAW), 'utf8') + readFileSync(join(DIR, BANKERS), 'utf8');
 
 /** One CREATE OR REPLACE FUNCTION statement in a migration, bounded by its own end. */
 function fnBody(text: string, qualified: string): string | null {
@@ -62,7 +63,7 @@ describe('a refused hand obligation never holds its table', () => {
   it('the bankers, the projection pass and the outbox finish carry the law', () => {
     for (const [fn, markers] of Object.entries(MARKERS)) {
       const body = fnBody(sql, fn);
-      expect(body, `${fn} is redefined by ${LAW}`).not.toBeNull();
+      expect(body, `${fn} is redefined by ${LAW} or ${BANKERS}`).not.toBeNull();
       for (const m of markers) expect(body, `${fn} keeps ${m}`).toContain(m);
     }
   });
@@ -97,7 +98,7 @@ describe('a refused hand obligation never holds its table', () => {
   });
 
   it('no later migration redefines these functions without the law', () => {
-    const later = readdirSync(DIR).filter((f) => f.endsWith('.sql') && f > LAW).sort();
+    const later = readdirSync(DIR).filter((f) => f.endsWith('.sql') && f > BANKERS).sort();
     for (const f of later) {
       const text = readFileSync(join(DIR, f), 'utf8');
       for (const [fn, markers] of Object.entries(MARKERS)) {
