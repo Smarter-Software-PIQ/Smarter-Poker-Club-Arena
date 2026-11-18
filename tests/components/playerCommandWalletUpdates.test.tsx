@@ -175,33 +175,21 @@ afterEach(() => {
   liveRosterRefreshPolicy.minIntervalMs = 180_000;
 });
 
-it('reads progress only for the one authorized roster member who was explicitly selected', async () => {
+it('never offers or reads promo progress from the roster', async () => {
+  // Dan, 2026-11-17: promo progress belongs to the cashier, when a player is
+  // cashing out. Player Management carries no promo control and makes no read.
   const memberB = { ...row, user_id: 'member-b', alias: 'Bob', username: 'bob' };
-  const privateMember = { ...row, user_id: 'member-c', alias: 'Cam', can_view_financials: false };
   f.page.mockResolvedValue({
-    items: [row, memberB, privateMember],
+    items: [row, memberB],
     next_cursor: null,
     has_more: false,
-    filtered_total: 3,
+    filtered_total: 2,
   });
-  f.promo.mockResolvedValue({ 'member-b': null });
   render(tree());
   await ready();
-  const check = screen.getAllByRole('button', { name: 'Check Promo Progress' });
-  expect(check).toHaveLength(2);
+  expect(screen.queryByRole('button', { name: /Promo Progress/ })).toBeNull();
+  expect(screen.queryByText(/Promo|Withdrawable Balance/)).toBeNull();
   expect(f.promo).not.toHaveBeenCalled();
-  expect(screen.queryByText(/Reading Promo|Promo Unavailable/)).toBeNull();
-  await act(async () => fireEvent.click(check[1]));
-  expect(f.promo).toHaveBeenCalledTimes(1);
-  expect(f.promo).toHaveBeenCalledWith(club, ['member-b'], expect.any(AbortSignal));
-  expect(screen.getByText('No Current Promo Restrictions.')).toBeInTheDocument();
-  expect(screen.getAllByRole('button', { name: 'Check Promo Progress' })).toHaveLength(1);
-  expect(screen.queryByText(/Reading Promo|Promo Unavailable/)).toBeNull();
-  await act(async () =>
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh Promo Progress' }))
-  );
-  expect(f.promo).toHaveBeenCalledTimes(2);
-  expect(f.promo).toHaveBeenLastCalledWith(club, ['member-b'], expect.any(AbortSignal));
 });
 
 it('updates an authorized player wallet absolutely without starting another directory read', async () => {
