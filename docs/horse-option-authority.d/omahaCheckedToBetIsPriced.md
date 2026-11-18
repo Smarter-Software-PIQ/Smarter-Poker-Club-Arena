@@ -16,7 +16,7 @@ Precedence: it reads the node's final check where the strong-hand rule did not a
 
 Not built: the flop (owned by the PLO Strategy lane's flop bet model), the turn with several opponents, a spot with a player still to act behind the Horse.
 
-Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261118015651_horse_option_switch_omaha_checked_to_bet_is_priced`, not installed by this lane), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaCheckedToBetIsPriced docs/horse-option-authority.d/omahaCheckedToBetIsPriced.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). Registered in the option switch (the dark-batch follow-up migration `20261118152131_horse_option_switch_dark_batch`, which supersedes the v1 name `20261118015651_horse_option_switch_omaha_checked_to_bet_is_priced`; not installed by this lane), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaCheckedToBetIsPriced docs/horse-option-authority.d/omahaCheckedToBetIsPriced.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The orders it rests on
 
