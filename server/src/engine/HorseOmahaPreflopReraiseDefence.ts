@@ -51,11 +51,12 @@
  *    interface); when he continues, his range is the top (1 - f) of it and
  *    the pot and the ratio are those of the re-raised pot.
  *
- * The out-of-position 4-bet call cell that HorseOmahaOopReraisedPot folds
- * outright (a non-all-in 4-bet or more faced out of position, ratio after the
- * call 2.5 or less, a paired hand that is not aces, whatever the 4-bettor's
- * width) is priced here like every other spot: the 4-bettor's measured width
- * sets the equity, the position, ratio and hand shape set the realization.
+ * This module prices every spot it is asked about the same way, the
+ * out-of-position 4-bet call with a paired hand that is not aces included
+ * (the 4-bettor's measured width sets the equity; position, ratio and hand
+ * shape set the realization). WHETHER it is asked is HorseLogic's: a call the
+ * re-raised-pot call cell of HorseOmahaOopReraisedPot judges belongs to that
+ * cell (one owner per cell) and never reaches this module's rule.
  *
  * Pure: no state, no telemetry, no draw from the brain's random stream.
  */

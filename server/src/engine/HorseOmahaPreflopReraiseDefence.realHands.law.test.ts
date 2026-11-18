@@ -20,10 +20,17 @@
  *
  *  - option unset and false: the decision is byte-identical (timings aside)
  *    and it is what the brain does today (the folds of the audit);
- *  - option on: the five folds become calls, the deep out-of-position call
+ *  - option on, the re-raised-pot call cell not live (its three options
+ *    off): the five folds become calls, the deep out-of-position call
  *    becomes a fold, the deep fold stands, the 4-bet at a ratio under 1
  *    stands; the verdict receipt fires and the changed decision passes the worker
  *    receipt validator;
+ *  - ONE OWNER PER CELL (inbox 2026-11-18 00:06Z): with the live switch list
+ *    the call cell of HorseOmahaOopReraisedPot (the live implementation, WooWoo
+ *    audit lane) judges six of the eight calls. There the option does not
+ *    answer: the decision is byte-identical to the option off, the cell's
+ *    receipts are counted once and none of this option's fires. On the two it
+ *    does not judge, the option answers and the cell's receipts stay silent;
  *  - the equity the verdict prices is within 0.07 of the independent figure.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -112,6 +119,40 @@ const EXPECTED: Record<number, ['fold' | 'call' | 'raise', 'fold' | 'call' | 'ra
   50162905: ['raise', 'raise', 0.553], // 3-bettor 4-bets in position under a ratio of 1: stands
 };
 
+/**
+ * The receipts that say the re-raised-pot call cell judged the call (HorseOmahaOopReraisedPot through
+ * HorseLogic): its own two, and the two of a re-raise range rule whose downgraded re-raise, facing a
+ * 3-bet or more, was handed to that cell (the cell runs silent there; the range rule reports).
+ */
+const CELL_RECEIPTS = [
+  'omaha_oop_reraised_call_kept',
+  'omaha_oop_reraised_call_folded',
+  'omaha_reraise_by_position_called',
+  'omaha_reraise_by_position_folded',
+];
+/** The live list without the three options that reach that cell: the cell is not live. */
+const CELL_NOT_LIVE = {
+  ...LIVE,
+  omahaOopReraisedPotStrongRange: false,
+  omahaReraiseRangeEarlyPosition: false,
+  omahaReraiseRangeOutOfPosition: false,
+};
+/**
+ * The seeds (of 1 and 42) on which the cell judges each hand's call under the live list (measured by
+ * this test, pinned). 59830020: on seed 1 the reference brain folds before any rule, so no call
+ * reaches the cell and the option answers; on seed 42 it calls and the cell folds the call.
+ */
+const CELL_JUDGES_LIVE: Readonly<Record<number, readonly number[]>> = {
+  51520556: [1, 42],
+  59819475: [1, 42],
+  59799408: [1, 42],
+  59793017: [1, 42],
+  59853239: [1, 42],
+  59830020: [42],
+  59800400: [],
+  50162905: [],
+};
+
 const kind = (a: string): 'fold' | 'call' | 'raise' =>
   a === 'fold' ? 'fold' : a === 'call' ? 'call' : 'raise';
 
@@ -158,6 +199,21 @@ function decide(h: RealHand, opts: Record<string, unknown>, seed = 1) {
   return { d, st, fires: drainFires().map((f) => f.feature) };
 }
 
+function decideCounted(h: RealHand, opts: Record<string, unknown>, seed = 1) {
+  const node = horseNodes(h).find((n) => n.ord === h.forbidden[0]!.ord)!;
+  const st = stateAt(h, node);
+  setRead(h);
+  drainFires();
+  seedFastRandom(seed);
+  const d = HorseLogic.decide(st.hero, st.gs, PROFILE.style, PROFILE.mods, {
+    telemetry: true,
+    observeMind: false,
+    ...opts,
+  } as never);
+  const fires = drainFires().sort((a, b) => a.feature.localeCompare(b.feature));
+  return { d, st, fires };
+}
+
 afterEach(() => {
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -185,7 +241,10 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
         expect(kind(unset.d.action)).toBe(today);
         expect(unset.fires.some((f) => f.startsWith('omaha_preflop_reraise_defence_'))).toBe(false);
 
-        const on = decide(h, { ...LIVE, omahaPreflopReraiseDefencePriced: true }, seed);
+        // The rule's own answer: the re-raised-pot call cell not live (its three options off), so
+        // no other rule owns the decision.
+        const on = decide(h, { ...CELL_NOT_LIVE, omahaPreflopReraiseDefencePriced: true }, seed);
+        expect(on.fires.some((f) => CELL_RECEIPTS.includes(f))).toBe(false);
         expect(kind(on.d.action)).toBe(priced);
         expect(on.fires).toContain(`omaha_preflop_reraise_defence_${priced}`);
         // (omaha_preflop_reraise_defence_changed compares with the answer handed to the rule, the
@@ -200,6 +259,27 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
             gameState: on.st.gs,
           } as never)
         ).toBeNull();
+      }
+    });
+    it(`hand ${h.handNumber}: one owner; the call cell judges it on seeds [${CELL_JUDGES_LIVE[h.handNumber]!.join(', ')}] of the live list, the option answers on the others`, () => {
+      for (const seed of [1, 42]) {
+        const off = decideCounted(h, { ...LIVE, omahaPreflopReraiseDefencePriced: false }, seed);
+        const on = decideCounted(h, { ...LIVE, omahaPreflopReraiseDefencePriced: true }, seed);
+        const judged = off.fires.some((f) => CELL_RECEIPTS.includes(f.feature));
+        expect(judged).toBe(CELL_JUDGES_LIVE[h.handNumber]!.includes(seed));
+        const mine = on.fires.filter((f) => f.feature.startsWith('omaha_preflop_reraise_defence_'));
+        if (judged) {
+          // the cell owns the decision: the same bytes, the same receipts counted once each,
+          // none of this option's
+          expect(bytes(on.d)).toBe(bytes(off.d));
+          expect(on.fires).toEqual(off.fires);
+          expect(mine).toEqual([]);
+        } else {
+          // nobody else owns it: the option answers, and the cell's receipts stay silent
+          expect(kind(on.d.action)).toBe(priced);
+          expect(mine.map((f) => f.feature)).toContain(`omaha_preflop_reraise_defence_${priced}`);
+          expect(on.fires.some((f) => CELL_RECEIPTS.includes(f.feature))).toBe(false);
+        }
       }
     });
     it(`hand ${h.handNumber}: the priced equity is within 0.07 of the independent ${step1Equity}`, () => {

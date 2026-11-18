@@ -11,6 +11,14 @@
  * tournament, a single raise, a hand that cannot be sampled, any failure) it returns null and the
  * rules decide exactly as with the option off.
  *
+ * ONE OWNER PER CELL. A call that the re-raised-pot call cell judges
+ * (HorseOmahaOopReraisedPot.omahaOopReraisedCallCell: the live implementation
+ * of the out-of-position and 4-bet call, kept or folded, and of the call a
+ * re-raise range rule hands it) belongs to that cell: HorseLogic does not hand
+ * this rule the decision there, and the answer is the one with this option
+ * off. This rule answers where that cell does not judge (the reference fold,
+ * the in-position call of a 3-bet, the cell switched off or out of scope).
+ *
  * WHAT IT CHANGES. Facing a 3-bet or more preflop in PLO4/PLO5 cash the
  * answer it is given (a fold, a call, a re-raise or an all-in) becomes the
  * verdict: fold, call, or the re-raise that was proposed. It never invents a

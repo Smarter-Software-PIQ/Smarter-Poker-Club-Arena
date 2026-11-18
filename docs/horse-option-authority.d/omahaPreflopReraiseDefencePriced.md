@@ -21,9 +21,14 @@ omahaOopReraisedPotStrongRange, the cold 4-bet rule) becomes one priced decision
   with the stack-to-pot ratio after the call, far more out of position, 0.35 lower for each other player in the pot,
   a small bounded hand-shape term; 1 when the call is all in.
 - Rake: the table's configuration (percentage, cap, player-count cap; none on timed rake).
-- No hand class, position or bet size decides on its own. The out-of-position 4-bet call cell that
-  HorseOmahaOopReraisedPot folds outright (paired non-aces hand, ratio after the call 2.5 or less, not all in, no term
-  for the 4-bettor's width) is priced here like every other spot.
+- No hand class, position or bet size decides on its own inside this rule.
+- One owner per cell (coordination inbox 2026-11-18 00:06Z, PLO Strategy lead and WooWoo audit lane): a call that the
+  re-raised-pot call cell judges (HorseOmahaOopReraisedPot.omahaOopReraisedCallCell through
+  omahaOopReraisedPotStrongRange, live since 2026-11-16, and the call a re-raise range rule hands that cell; the
+  out-of-position 4-bet call included) belongs to that cell, kept or folded. There this option does not answer and the
+  decision is byte-identical to the option off (HorseOmahaPreflopReraiseDefence.realHands.law.test.ts, "one owner").
+  This option answers only where that cell does not judge: the reference brain's own fold or re-raise, a call the cell
+  leaves out of scope, or the cell's options off. The pricing of that cell's folds is the WooWoo audit lane's work.
 
 ## The owner's orders it rests on (verbatim)
 
@@ -94,5 +99,11 @@ The out-of-position 4-bet cell (taken over after the league run, see the limits)
 decisions, 94 folds become calls, unset and false identical, no receipt refusal; real calls of the changed spots +13.94
 bb each (SE 21.24, n 48), not significant (preflop-01BNteGZ/replay/REPLAY.md addendum). The league evaluation above
 ran on 6cbdaf5725b, where that cell was still left to HorseOmahaOopReraisedPot; it was not repeated.
+
+One-owner change after these runs (2026-11-18): every figure above was measured with this option answering before
+the re-raised-pot call cell. With that cell live the option now stands aside wherever the cell judges, so alongside the
+live switch list it changes fewer decisions than the replay and the two "live options in both arms" rows show (of the
+eight fixture hands the cell owns five on both seeds and one on one seed). The figures still describe the rule where it
+answers alone. Neither the league nor the replay was repeated for the narrower scope.
 
 The option stays OFF.

@@ -113,7 +113,8 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 66 since 2026-11-15: HorseLogic takes the think time from horsePublicActionTime.
     // 68 since 2026-11-16: HorseMind reads the heads-up tight-folder read (HorseHuTightBigBlindSteal),
     // which brings the heads-up open bands (HorseNlhOpenSize) into the closure.
-    expect(closure).toHaveLength(68);
+    // 69 since 2026-11-17: HorseMind carries the postflop read by street and flop texture (HorseOmahaStreetRead).
+    expect(closure).toHaveLength(69);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');

@@ -112,3 +112,83 @@ def qualify(root,sql,psql,record,incident,tick,now,ok):
     result=psql(['-f',str(source)])
     assert result.returncode!=0 and 'original verified review changed' in result.stderr, result.stderr
     ok('foreign/malformed/wrong type/old or future episode never borrows a resolution; existing function authority preserved; repeated install refuses stale postimage')
+    # Reproduce the actual late-resolution defect: intake has a real source
+    # resolution, but its historical no-resolve classification already aged.
+    successor=root/'supabase/migrations/20261117231509_proved_owner_source_resolution_survives_stale_incident_class.sql'
+    def aged_owner(key,identity):
+        sql(f"INSERT INTO ca_drift_incidents VALUES('{identity}','open',now()-interval '2 minutes',now()-interval '2 minutes',NULL,now(),NULL,NULL,NULL,NULL,'{{}}')")
+        name=owner_name+' '+key
+        event=record('owner-operational-notifications',key,name,'firing','critical',notification(identity,now()))
+        sql(f"UPDATE smarter_private.reliability_incidents SET last_firing_received_at=clock_timestamp()-interval '7 hours' WHERE alertname='{name}'")
+        tick()
+        assert incident(name)=='stale_unverified'
+        return event,name
+    def close_source(identity):
+        sql(f"UPDATE ca_drift_incidents SET status='resolved',resolved_at=clock_timestamp(),closure_basis='verified_remeasured',root_cause='{cause}',correction_ref='PR #11209',resolution='Original durable receipt and zero residual verified' WHERE id='{identity}'")
+    old_id='a0010000-0000-4000-8000-000000000010'
+    old_event,old_name=aged_owner('aged-before-source-fix',old_id)
+    close_source(old_id)
+    assert proof(old_event)['verified'] and incident(old_name)=='stale_unverified'
+    old_clock=incident(old_name,'last_resolved_at')
+    bad_event,bad_name=aged_owner('aged-without-original-proof','a0010000-0000-4000-8000-000000000011')
+    sql(f"UPDATE operational_alert_events SET status='resolved' WHERE id={bad_event}")
+    assert incident(bad_name)=='stale_unverified' and not proof(bad_event)['verified']
+    sql("CREATE TABLE public.tournaments(id uuid PRIMARY KEY,status text)")
+    successor_sql=successor.read_text()
+    assert successor_sql.count('\nBEGIN;')==1 and successor_sql.count('\nCOMMIT;')==1
+    sql(successor_sql)
+    assert incident(old_name)=='verifying' and incident(old_name,'last_resolved_at')==old_clock
+    assert incident(bad_name)=='stale_unverified'
+    refused=psql(['-c',f"SELECT smarter_private.reliability_transition('{incident(bad_name,'id')}','verifying','unproved')"])
+    assert refused.returncode!=0 and 'no proved same-episode' in refused.stderr
+    tick(now("+ interval '29 minutes'"));assert incident(old_name)=='verifying'
+    tick(now("+ interval '31 minutes'"));assert incident(old_name)=='recovered'
+    ok('actual stale-before-resolution defect reproduced; only existing proved same-episode observation enters original quiet recovery, with receipt clock unchanged')
+    new_id='a0010000-0000-4000-8000-000000000012'
+    new_event,new_name=aged_owner('future-aged-source-resolution',new_id)
+    close_source(new_id)
+    assert incident(new_name)=='verifying' and proof(new_event)['verified']
+    tick(now("+ interval '29 minutes'"));assert incident(new_name)=='verifying'
+    # A genuine newer unresolved member interrupts quiet verification.
+    sql(f"UPDATE ca_drift_incidents SET status='open',resolved_at=NULL,detected_at=clock_timestamp() WHERE id='{new_id}'")
+    refire=record('owner-operational-notifications','future-aged-refire',new_name,'firing','critical',notification(new_id,now()))
+    assert incident(new_name)=='escalated' and not proof(refire)['verified']
+    tick(now("+ interval '31 minutes'"));assert incident(new_name)=='escalated'
+    assert sql("SELECT has_function_privilege('anon','smarter_private.reliability_proved_source_resolution(uuid)','EXECUTE') OR has_function_privilege('authenticated','smarter_private.reliability_proved_source_resolution(uuid)','EXECUTE')")=='f'
+    ok('future actual source close survives historical stale classification; unproved closure stays stale, new firing interrupts quiet, browser authority unchanged')
+    for index,source_name,alert in [(20,'sp-daily-digest','DailyDigest.stuck_tournament'),(21,'sp-critical-pager','CriticalPage.stuck_tournament')]:
+        tid=f'a0010000-0000-4000-8000-{index:012d}'
+        sql(f"INSERT INTO tournaments VALUES('{tid}','RUNNING')")
+        event=record(source_name,'actual-stuck-'+str(index),alert,'firing','critical',{'detail':{'tournament_id':tid}})
+        iid=sql(f"SELECT incident_id FROM smarter_private.reliability_observations WHERE inbox_event_id={event} AND status='firing'")
+        sql(f"UPDATE smarter_private.reliability_incidents SET last_firing_received_at=clock_timestamp()-interval '7 hours' WHERE id='{iid}'")
+        tick()
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id='{iid}'")=='stale_unverified'
+        sql(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{tid}'")
+        # The exact maintained producer's status/payload shape and normal intake.
+        sql(f"UPDATE operational_alert_events SET status='resolved',last_received_at=clock_timestamp(),payload=payload||jsonb_build_object('resolved_by','fn_sp_critical_scan','resolved_at',clock_timestamp(),'resolution','the tournament is COMPLETED, no longer RUNNING') WHERE id={event}")
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id='{iid}'")=='verifying'
+        tick(now("+ interval '29 minutes'"))
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id='{iid}'")=='verifying'
+        tick(now("+ interval '31 minutes'"))
+        assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id='{iid}'")=='recovered'
+    ok('both original stuck-tournament producer identities admit their real ended condition after stale classification and retain full quiet verification')
+    running='a0010000-0000-4000-8000-000000000022'
+    sql(f"INSERT INTO tournaments VALUES('{running}','RUNNING')")
+    event=record('sp-critical-pager','running-not-ended','CriticalPage.stuck_tournament','firing','critical',{'detail':{'tournament_id':running}})
+    iid=sql(f"SELECT incident_id FROM smarter_private.reliability_observations WHERE inbox_event_id={event} AND status='firing'")
+    sql(f"UPDATE smarter_private.reliability_incidents SET last_firing_received_at=clock_timestamp()-interval '7 hours' WHERE id='{iid}'")
+    tick()
+    sql(f"UPDATE operational_alert_events SET status='resolved',payload=payload||jsonb_build_object('resolved_by','fn_sp_critical_scan','resolved_at',clock_timestamp()) WHERE id={event}")
+    assert sql(f"SELECT status FROM smarter_private.reliability_incidents WHERE id='{iid}'")=='stale_unverified'
+    assert sql(f"SELECT smarter_private.reliability_proved_source_resolution('{iid}')")=='f'
+    first='a0010000-0000-4000-8000-000000000023'
+    first_event,name=aged_owner('all-original-members-required',first)
+    second='a0010000-0000-4000-8000-000000000024'
+    sql(f"INSERT INTO ca_drift_incidents VALUES('{second}','open',now()-interval '2 minutes',now()-interval '2 minutes',NULL,now(),NULL,NULL,NULL,NULL,'{{}}')")
+    record('owner-operational-notifications','other-original-member',name,'firing','critical',notification(second,now()))
+    sql(f"UPDATE smarter_private.reliability_incidents SET opened_at=clock_timestamp()-interval '1 minute',last_firing_received_at=clock_timestamp()-interval '7 hours' WHERE alertname='{name}'")
+    tick();assert incident(name)=='stale_unverified'
+    close_source(first);assert incident(name)=='stale_unverified'
+    close_source(second);assert incident(name)=='verifying'
+    ok('a running tournament cannot borrow an ended signal; every current-episode member must actually resolve before stale admission')

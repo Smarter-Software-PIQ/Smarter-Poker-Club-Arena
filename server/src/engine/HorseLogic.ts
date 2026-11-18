@@ -103,6 +103,7 @@ import {
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import {
   OMAHA_TOURNAMENT_SCOPE_OFF,
   omahaCashOnlyExcludes,
@@ -3185,6 +3186,18 @@ export interface HorseDecideOpts {
    * today. Default OFF (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_paired_board_fold_respects_price. */
   omahaPairedBoardFoldRespectsPrice?: boolean;
+  /** PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the
+   * hand, the equity, the opponent's range and the price, never on the size
+   * of the bet alone): opt-in (`=== true`), PLO4/PLO5 cash, the FLOP facing a
+   * bet or a raise. A fold or a call becomes the priced verdict of
+   * HorseOmahaFlopFacingBetEv.ts (sampled two-card runouts with a seed taken
+   * from the cards, the bettor's range by the bet's pot share and his read,
+   * realization from the hand's own runouts), so the stack-share paired-board
+   * fold and the 20 big blind big-bet mark no longer decide that spot.
+   * Independent of omahaFacingBetEv (turn and river). Default OFF until its
+   * declared evaluation passes; league cards plo4/plo5
+   * _omaha_flop_facing_bet_ev. */
+  omahaFlopFacingBetEv?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -7391,6 +7404,37 @@ function postflopOrder(seat: number, dealerSeat: number | undefined): number {
   return d <= 0 ? d + 1024 : d;
 }
 
+/** Set where omahaOopReraisedPotStrongRange's call cell returns a verdict; read only by omahaReraisedCallCellJudges. */
+let omahaReraisedCallCellJudged = false;
+
+/**
+ * Whether the re-raised-pot call cell judges this decision with the options as
+ * they stand (omahaPreflopReraiseDefencePriced aside): a silent run of the
+ * same rules (no telemetry; they draw nothing from the brain's random stream,
+ * so the run that follows answers the same). The cell judges the call the
+ * rules reach, and the call a re-raise range rule hands it.
+ */
+function omahaReraisedCallCellJudges(
+  decision0: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  omahaReraisedCallCellJudged = false;
+  try {
+    omahaOopReraisedPotStrongRange(decision0, player, gs, {
+      ...opts,
+      omahaPreflopReraiseDefencePriced: false,
+      telemetry: false,
+    });
+    return omahaReraisedCallCellJudged;
+  } catch {
+    return false;
+  } finally {
+    omahaReraisedCallCellJudged = false;
+  }
+}
+
 /**
  * omahaOopReraisedPotStrongRange (owner 2026-11-15 11:49 and 11:51; default
  * OFF, read `=== true`): a preflop call of a 3-bet or more, out of position
@@ -7405,11 +7449,18 @@ function omahaOopReraisedPotStrongRange(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  // omahaPreflopReraiseDefencePriced (default off): facing a 3-bet or more
-  // preflop in PLO4/PLO5 cash the priced decision answers first
+  // omahaPreflopReraiseDefencePriced (default off, off-only): facing a 3-bet
+  // or more preflop in PLO4/PLO5 cash the priced decision answers first
   // (HorseOmahaPreflopReraiseDefenceRule.ts); where it answers, the re-raise
   // range rules and the strong-range rule below do not run for the decision.
-  if (opts.omahaPreflopReraiseDefencePriced === true) {
+  // ONE OWNER PER CELL (inbox 2026-11-18 00:06Z): a call that the re-raised-pot
+  // call cell below judges (HorseOmahaOopReraisedPot, the live implementation,
+  // WooWoo audit lane) belongs to that cell, kept or folded; this option then
+  // does not answer and the decision is exactly the one with it off.
+  if (
+    opts.omahaPreflopReraiseDefencePriced === true &&
+    !omahaReraisedCallCellJudges(decision0, player, gs, opts)
+  ) {
     const priced = omahaPreflopReraiseDefenceRule(decision0, player, gs, {
       mind: opts.mind !== false,
       telemetry: telemetryOn(opts),
@@ -7528,6 +7579,7 @@ function omahaOopReraisedPotStrongRange(
       allInOrFold: gs.allInOrFold === true,
     });
     if (verdict === null) return decision;
+    omahaReraisedCallCellJudged = true;
     const tele = telemetryOn(opts);
     if (!verdict.fold) {
       if (tele) noteFire('omaha_oop_reraised_call_kept');
@@ -9340,6 +9392,19 @@ function omahaFacingBetEvRule(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaFlopFacingBetEv (default off): the flop has its own verdict and rule
+  // (HorseOmahaFlopFacingBetEvRule.ts); the turn and river rule below never
+  // answers the flop.
+  if (opts.omahaFlopFacingBetEv === true && gs.stage === 'flop')
+    return omahaFlopFacingBetEvRule(decision, player, gs, {
+      mind: opts.mind !== false,
+      telemetry: telemetryOn(opts),
+      rake: isTournamentMode(gs)
+        ? 0
+        : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+      inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+      bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
+    });
   if (opts.omahaFacingBetEv !== true) return decision;
   try {
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;

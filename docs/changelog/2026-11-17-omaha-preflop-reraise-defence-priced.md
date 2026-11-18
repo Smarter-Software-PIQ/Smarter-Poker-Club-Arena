@@ -17,10 +17,12 @@ confirmed out of position at a stack-to-pot ratio of 5 or more or with players s
 preflop decision facing a 3-bet or more is the largest of folding, calling and the re-raise the earlier rules proposed,
 each valued from the exact hand's equity against the re-raiser's measured width (population mean when unknown),
 a realization measured on recorded calls (position, ratio after the call, players in, hand shape), the price and the
-rake. The out-of-position 4-bet call cell that `HorseOmahaOopReraisedPot` folds outright (paired non-aces hand, ratio after the call 2.5 or less) is priced the same way, against the 4-bettor's measured width. Receipts
+rake. One owner per cell (2026-11-18): a call that the re-raised-pot call cell of `HorseOmahaOopReraisedPot` judges (the
+live implementation; the out-of-position 4-bet call included) stays with that cell, and there the decision is identical
+to the option off; this option answers only where that cell does not judge. Receipts
 `omaha_preflop_reraise_defence_fold`, `_call`, `_raise`, `_changed`. Ledger flag, reference-decision sources, league
 cards plo4/plo5_omaha_preflop_reraise_defence_priced, follow-up switch migration
-20261117191521_horse_option_switch_omaha_preflop_reraise_defence_priced, authority file
+20261118001546_horse_option_switch_omaha_preflop_reraise_defence_priced, authority file
 docs/horse-option-authority.d/omahaPreflopReraiseDefencePriced.md. Unset and false decide byte-identically.
 
 ## Evaluation
@@ -29,4 +31,5 @@ Declared before running, new seeds: EQUAL. PLO5 human-like field (fixed identity
 pairs), PLO4 +35.39 (SE 28.69, 3 x 4,000); Horse-only tables -0.12 (3.74), +1.39 (3.96), and with the live options in
 both arms +0.32 (1.72), -0.82 (2.79). The option acts (152 changed answers in 1,000 pairs) and nothing failed. Replay of
 7,768 real decisions: unset and false identical; 1,409 fixed and 177 newly wrong against Step 1's yardstick. The
-option stays off.
+option stays off. These figures were measured with the option answering before the re-raised-pot call cell; with that
+cell live the option now changes fewer decisions (one owner per cell), and neither run was repeated.

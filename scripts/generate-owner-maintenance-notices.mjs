@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { ownerNoticeWaived } from './ci/owner-notice-waiver.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const SOURCE = 'server/release/owner-maintenance-windows.json';
@@ -26,6 +27,8 @@ export function projectOwnerMaintenanceNotices(doc) {
   ]) {
     for (const w of list) {
       if (Date.parse(w.notAfter) <= Date.parse(SHIP_FROM)) continue;
+      // Owner 2026-11-17: a waived engine window ships no advance notice at all.
+      if (kind === 'engine' && ownerNoticeWaived(w, 'windows')) continue;
       rows.push({
         id: w.id,
         kind,

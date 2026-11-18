@@ -82,6 +82,8 @@ What the command changes (14 files):
 - `PUBLISHING.md`, `docs/ENGINE-RELEASE-RUNBOOK.md`: one dated paragraph; a changelog file.
 - Tests: `tests/operations/engine-activation-floor.test.py` (a generated test for the new window, the previous window's test demoted to its literal digests, every absolute negative index shifted by one except those that follow a `.pop()` chain, the simulated reservation stamp and id count moved), `tests/an-engine-activation-floor-precedes-runtime-writes.law.test.ts` (case list and count), `tests/daily-engine-maintenance.law.test.ts` (pop chain), `tests/a-booked-window-gives-players-notice.law.test.ts` (new notice case).
 
+**No advance notice (owner order of November 17, 2026 only).** For the one release the owner ordered "without an advance player-warning announcement or notice countdown", pass `--no-advance-notice` in place of `--notice-at`. The order file must contain the owner's exact sentence (`scripts/ci/owner-notice-waiver.mjs`) and need not contain `twenty minutes`. The window gets `ownerNoticeWaiver` and no `playerNoticeAt`, the client notice file is not touched, and preflight item 5 (served client carries the booked notice) does not apply. The window must close by 2026-11-18T09:30:00Z; a later release cannot use it. Everything else in this playbook is unchanged, including the engine's own two-minute last-hand drain before the freeze. See `docs/changelog/2026-11-17-one-engine-release-without-advance-player-notice.md`.
+
 Timing rules for the booking (the command enforces the lead, the band, the 420 s fit, the six-hour bound and the 03:30 Chicago limit; the merge-time and certificate rules are yours):
 
 - `playerNoticeAt` at least 20 minutes before `notBefore`, and after the PR's merge time.
