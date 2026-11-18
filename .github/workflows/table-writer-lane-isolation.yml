@@ -1,0 +1,52 @@
+name: A table writer never waits on the platform lane
+
+# Migration 20261118160405 (incident 075013fd, lane T). Runs
+# scripts/ci/test-tournament-lane-isolation.py against a throwaway PostgreSQL
+# 17 cluster, never production: the exact production definitions captured
+# 2026-11-18 (pg_get_functiondef md5 equal to the live functions) must show
+# the defect first - a global authority that only QUEUES for the platform key
+# G pauses another tournament's writer for its full 4 s bound and pauses a
+# cash hand commit - and, after the unmodified migration file, the same
+# interleaving completes at once while every fence still holds (a global
+# authority that HOLDS the lane, a tournament's own settlement and rolling
+# authorities still pause that tournament's writers) and a 480-transaction
+# mixed workload under the documented lock orders logs zero deadlocks.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261118160405_tournament_table_writers_never_wait_on_the_platform_lane.sql
+      - scripts/ci/fixtures/tournament-lane-isolation/**
+      - scripts/ci/test-tournament-lane-isolation.py
+      - .github/workflows/table-writer-lane-isolation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: table-writer-lane-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  table-writer-lane-isolation:
+    name: A table writer never waits on the platform lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: A table writer never waits on the platform lane
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-tournament-lane-isolation.py --output artifacts/table-writer-lane-isolation
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: table-writer-lane-isolation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/table-writer-lane-isolation/result.json
+          retention-days: 7
+          if-no-files-found: warn
