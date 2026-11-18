@@ -295,6 +295,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaTurnCallRealizationByRunout: priced(
+    'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
+  ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
   // wave two (2026-11-16, PR #11211; all default OFF)
   omahaMultiwayWeakHandNoBet: priced(
