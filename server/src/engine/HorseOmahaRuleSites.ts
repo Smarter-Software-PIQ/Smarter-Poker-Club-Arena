@@ -296,6 +296,19 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
+  // wave two (2026-11-16, PR #11211; all default OFF)
+  omahaMultiwayWeakHandNoBet: priced(
+    'a multiway bet with a weak hand becomes a check only when the bet-versus-check expected value over every live range says so'
+  ),
+  omahaStreetPlanThreeWay: priced(
+    'the three-way bet and check priced as whole lines against each opponent range'
+  ),
+  omahaStreetPlanFlop: priced(
+    'the flop bet and check priced as whole lines; off-only (failed its evaluation)'
+  ),
+  omahaMultiwayRiverCallNeedsStrength: priced(
+    'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
+  ),
   // categorical, replaced
   omahaTurnRiverRaiseNeedsNuts: categorical('omahaTurnRiverRaiseIsPriced'),
   omahaRiverNutRaiseOnly: categorical('omahaTurnRiverRaiseIsPriced'),
@@ -330,6 +343,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'the flop continue in a re-raised pot by hand shape; the flop belongs to the flop facing-bet EV build (plo-flopev-01BNteGZ)'
   ),
   omahaTurnSetPound: open('a turn value size by hand class; not in the audit'),
+  omahaNoRiverBluffIntoValueLeader: open(
+    'the river bluff is withheld by an opponent label (measured value leader); off-only in the live switch until it is rewritten as a priced bluff from the fold-to-bet read'
+  ),
   // outside PLO4/PLO5 cash postflop decisions
   ploSuitedAcesFourBet: outside(PREFLOP),
   omahaSmallBlindSteal: outside(PREFLOP),
@@ -346,6 +362,10 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaNoCallColdFourBetWithoutPremium: outside(PREFLOP),
   omahaVpipFloorByLimp: outside(PREFLOP),
   omahaManiacReRaiseWidthMeasured: outside('a read (re-raise width), not a rule'),
+  omahaPreflopStackPlan: outside(PREFLOP + '; off-only under the preflop range hold'),
+  omahaBetSizeByPublicState: outside(
+    'a size chooser from public state only: it never decides a bet against a check, a call or a fold (aBetSizeIsPublicInformationOnly.law)'
+  ),
   omahaPreflopCallWithActionBehind: outside(PREFLOP),
   omahaCommitZoneThreeBetPriceRelief: outside(PREFLOP),
   omahaNeutralUnknown: outside('a read prior'),
