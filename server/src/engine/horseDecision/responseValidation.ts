@@ -53,6 +53,7 @@ import {
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
 import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
+import { omahaPricedAdmitsRaiseToCall } from '../HorseOmahaPricedWiring.js';
 import {
   OMAHA_CARD_IMPACT_VARIANTS,
   omahaCardImpactCheckAdmissible,
@@ -996,6 +997,16 @@ export interface HorseDecisionReceiptContext {
    * today: the option is off-only), the validator is exactly as before.
    */
   omahaStrategyInPlo6?: boolean;
+  /**
+   * Owner 2026-11-17 11:49 (HorseOmahaPricedWiring): the decision's own
+   * omahaTurnRiverRaiseIsPriced or omahaBigBetCallsArePriced, read
+   * `=== true`. Only then is a PLO4/PLO5 cash turn or river raise that became
+   * the call (the priced comparison put the raise below it) admitted.
+   * Absent or false (every caller that does not know the decision's options,
+   * and every decision while both options are off), the validator is exactly
+   * as before.
+   */
+  omahaPricedRaise?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -1518,6 +1529,25 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-17 11:49 (HorseOmahaPricedWiring, options
+    // omahaTurnRiverRaiseIsPriced and omahaBigBetCallsArePriced): on the
+    // PLO4/PLO5 cash turn and river a raise that is not priced above the call
+    // becomes the call. The price is taken on the opponent memory, which the
+    // request does not carry, so raise -> call is admitted only with the
+    // request, only in that scope with a hand that is not nut class (the
+    // rule keeps a nut-class raise), only for the exact chips of the call,
+    // and only for a decision whose own priced-raise option was on
+    // (context.omahaPricedRaise, omahaPricedRaiseGateCandidates).
+    const omahaPricedRaiseCalled =
+      context?.omahaPricedRaise === true &&
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPricedAdmitsRaiseToCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
     // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
     // with a nut-class hand becomes a call at a mixed frequency. The draw and
@@ -1606,6 +1636,7 @@ function policyGraphIsValidInScope(
       !omahaFacingBetEvCalled &&
       !omahaFlopFacingBetEvCalled &&
       !omahaRaiseNeedsNutsCalled &&
+      !omahaPricedRaiseCalled &&
       !omahaSlowplayCalled &&
       !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&
@@ -1752,6 +1783,84 @@ export function horseDecisionReceiptRefusalForPlo6Gates(
       ...context,
       ...(gate ? { omahaStrategyInPlo6: true } : {}),
     });
+    if (refusal === null) return null;
+    if (!seen) {
+      first = refusal;
+      seen = true;
+    }
+  }
+  return first;
+}
+
+/** The two options whose raise -> call the validator admits (context.omahaPricedRaise). */
+export const OMAHA_PRICED_RAISE_GATE_OPTIONS = Object.freeze([
+  'omahaTurnRiverRaiseIsPriced',
+  'omahaBigBetCallsArePriced',
+] as const);
+const omahaPricedRaiseGateOf = (
+  opts: Readonly<Record<string, unknown>> | null | undefined
+): boolean => OMAHA_PRICED_RAISE_GATE_OPTIONS.some((name) => opts?.[name] === true);
+
+/**
+ * The omahaPricedRaise values the worker may have run this decision with,
+ * built exactly as omahaStrategyInPlo6GateCandidates: the live switch row
+ * this client last delivered (either option on), then the request's own
+ * options when they differ, then the configuration delivered before the last
+ * change while it still counts. A switch row that does not name the options
+ * leaves the request's own value.
+ */
+export function omahaPricedRaiseGateCandidates(
+  requestOpts: Readonly<Record<string, unknown>> | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = omahaPricedRaiseGateOf(requestOpts);
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      if (!parsed.ok) return undefined;
+      const switched = optionSwitchDecisionOpts(parsed.states);
+      if (OMAHA_PRICED_RAISE_GATE_OPTIONS.every((name) => switched[name] === undefined))
+        return undefined;
+      // A row names one option; the other keeps the request's own value.
+      return OMAHA_PRICED_RAISE_GATE_OPTIONS.some((name) =>
+        switched[name] === undefined ? requestOpts?.[name] === true : switched[name] === true
+      );
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
+ * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
+ * gate as well: null as soon as one pair of gates admits the decision, else
+ * the refusal under the first (the effective one).
+ */
+export function horseDecisionReceiptRefusalForGates(
+  value: unknown,
+  expectedVariant: string | undefined,
+  context: Omit<HorseDecisionReceiptContext, 'omahaStrategyInPlo6' | 'omahaPricedRaise'>,
+  plo6Gates: readonly boolean[],
+  pricedRaiseGates: readonly boolean[]
+): string | null {
+  let first: string | null = null;
+  let seen = false;
+  for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+    const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+      value,
+      expectedVariant,
+      { ...context, ...(gate ? { omahaPricedRaise: true } : {}) },
+      plo6Gates
+    );
     if (refusal === null) return null;
     if (!seen) {
       first = refusal;
