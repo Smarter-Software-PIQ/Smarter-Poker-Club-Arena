@@ -1,10 +1,3 @@
-import {
-  hasPromoRestrictionDetails,
-  hasPromoWithdrawalRestriction,
-} from '../utils/promoPlayThroughVisibility';
-import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
-import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
-import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -1272,10 +1265,6 @@ export default function ClubMembersPage() {
     viewportHeight: 696,
     buffer: 5,
   });
-  const promoProgress = useMemberPromoPlayThrough(
-    resolvedClubId,
-    virtual.visibleItems.filter((m) => m.can_view_financials).map((m) => m.user_id)
-  );
   const resetVirtual = virtual.reset;
 
   useEffect(() => {
@@ -2082,15 +2071,6 @@ export default function ClubMembersPage() {
               <MemberRow
                 key={member.user_id}
                 member={member}
-                promo={
-                  promoProgress.members === undefined
-                    ? undefined
-                    : (promoProgress.members?.[member.user_id] ?? null)
-                }
-                onCheckPromo={member.can_view_financials ? promoProgress.checkMember : undefined}
-                promoRequested={promoProgress.requestedIds.includes(member.user_id)}
-                promoLoading={promoProgress.loading}
-                promoError={promoProgress.error}
                 position={virtual.startIndex + index + 1}
                 total={filteredTotal}
                 query={debouncedSearch}
@@ -2143,11 +2123,6 @@ function highlight(value: string, query: string) {
 
 export const MemberRow = memo(function MemberRow({
   member,
-  promo,
-  onCheckPromo,
-  promoRequested,
-  promoLoading,
-  promoError,
   position,
   total,
   query,
@@ -2179,11 +2154,6 @@ export const MemberRow = memo(function MemberRow({
   secondaryWinLossUnavailable?: boolean;
   secondaryWinLossLabel?: string;
   member: RosterMember;
-  promo?: PromoPlayThroughSummary | null;
-  onCheckPromo?: (userId: string) => void;
-  promoRequested?: boolean;
-  promoLoading?: boolean;
-  promoError?: boolean;
   position: number;
   total: number;
   query: string;
@@ -2265,32 +2235,6 @@ export const MemberRow = memo(function MemberRow({
                 {highlight(member.upline_name, query)}
               </span>
             )}
-            {member.can_view_financials && (
-              <>
-                {promo && <PromoPlayThroughInline summary={promo} />}
-                {onCheckPromo && (
-                  <button
-                    type="button"
-                    className="promo-progress__retry member-row__promo-check"
-                    onClick={() => onCheckPromo(member.user_id)}
-                    disabled={promoRequested && promoLoading}
-                  >
-                    {promoRequested
-                      ? promoLoading
-                        ? 'Reading Promo Progress...'
-                        : 'Refresh Promo Progress'
-                      : 'Check Promo Progress'}
-                  </button>
-                )}
-                {promoRequested &&
-                  !promoLoading &&
-                  (promoError ? (
-                    <span role="status">Promo Progress Is Unavailable.</span>
-                  ) : !promo || !hasPromoRestrictionDetails(promo) ? (
-                    <span role="status">No Current Promo Restrictions.</span>
-                  ) : null)}
-              </>
-            )}
           </span>
           <span className="member-subline">
             {(!simpleMode || member.role !== 'player') && (
@@ -2348,9 +2292,6 @@ export const MemberRow = memo(function MemberRow({
               >
                 Wallet Balance {walletFigure(member.player_wallet)}
               </span>
-              {promo && hasPromoWithdrawalRestriction(promo) && (
-                <span>Withdrawable Balance {walletFigure(promo.cashable)}</span>
-              )}
               <span
                 className={`member-simple-balance__secondary${secondaryTone}`}
                 aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
@@ -2421,9 +2362,6 @@ export const MemberRow = memo(function MemberRow({
                     label="Balance"
                     value={walletFigure(member.player_wallet_text ?? member.player_wallet)}
                   />
-                  {promo && hasPromoWithdrawalRestriction(promo) && (
-                    <Metric label="Withdrawable Balance" value={walletFigure(promo.cashable)} />
-                  )}
                 </>
               )}
             </span>
