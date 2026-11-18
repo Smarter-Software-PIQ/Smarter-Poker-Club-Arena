@@ -100,6 +100,22 @@ Of the 43 with a verdict the first cut was right on 20 and this build on 28. The
 
 The five RC-02a hands (replayed at this build): 59727433, 59756252, 59806482 and 59842423 (top set, two players behind) are calls on the decision's seed and on eight other seeds each. 59710501 (bottom set on 7h 9h Jd, out of position, a caller in and a player behind, price 0.23) is a fold: counted together its share of the pot is 0.23 on the decision's seed (0.28 on an independent count of the same ranges), made hands called out of position returned 0.84 of what the verdict expects (n 515), and its EV is 1.6 to 6.6% of the pot under the margin on all nine seeds. That fold is priced, not a rule; the audit and the resolution file judged it a call.
 
+### A second yardstick: the 48-hour audit's 563 journaled flop decisions
+
+The 48-hour audit of the same tables replays its 563 journaled flop decisions through the whole decision with the recorded production reads and switches (its harness and records, archive `woowoo-48h-audit-01BNteGYgf/repairs/FLOP-DEFENCE/`), and judges the recorded action of each (a model verdict with flat realization factors, not ground truth). Against the serving configuration, with this option on (archive `flopev2-013U37/w8/XTAB.txt`):
+
+| change against the serving configuration               | first cut                     | this build                   |
+| ------------------------------------------------------ | ----------------------------- | ---------------------------- |
+| audited-bad folds that become a call or a raise        | 40                            | 44                           |
+| audited-ok folds that become a call or a raise         | 23 (heads-up 10, multiway 13) | 36 (heads-up 7, multiway 29) |
+| audited-ok calls that become folds                     | 23 (heads-up 14, multiway 9)  | 26 (heads-up 23, multiway 3) |
+| of those, calls of a strong draw or a strong made hand | 5                             | 4                            |
+| audited-bad calls that become folds                    | 1                             | 1                            |
+
+On that audit's verdicts this build is not better than the first cut: it fixes four more bad folds and breaks sixteen more decisions the audit accepted. The two movements are the two things this build changed. Multiway it calls more (the joint field with the pot credit): 29 folds the audit accepted become calls, most of them one pair or a medium made hand. Heads-up it folds more one-pair hands (the measured realization): 23 calls the audit accepted become folds. Production money does not side with the audit on either count where it can be read: recorded calls with other players in returned 1.09 to 1.12 of what the fitted verdict expects (0.99 with two or more players behind; n 912), and recorded one-pair calls returned nothing over their cost (CONSTANTS file). The calls the option ADDS are hands the brain of those days folded: their return is not in any record and is the part no replay settles.
+
+Of the spec's named lists (its section (e)): made hands multiway that must become a continue, 6 of 7 (the first cut 5; the seventh is 59710501); calls that must stay calls, 10 of 23 kept (the first cut 0 of 23); folds that should stay folds unless the fitted realization supports the call, 4 of 9 kept (the first cut 0 of 9).
+
 ## Evidence rows
 
 - Mechanism, scope, visibility (flag and receipts in `HorseDataLedger.ts`), tests: MET.
