@@ -21,6 +21,9 @@ on:
       - supabase/migrations/20260908155252_hand_projection_takes_post_commit_lock_first.sql
       - supabase/migrations/20261002082303_satellite_board_stands_down_for_a_scheduled_series_and_orpha.sql
       - supabase/migrations/20261117225600_commit_hand_obligations_before_stats_projection.sql
+      - supabase/migrations/20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql
+      - supabase/migrations/20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql
+      - scripts/ci/fixtures/cash-rake-pending/**
       - supabase/migrations/20261019151125_tournament_table_writers_wait_for_their_shared_lane.sql
       - supabase/migrations/20261118015237_an_idle_floor_watchdog_does_not_queue_tournament_admission.sql
       - supabase/migrations/20261014231111_a_floor_park_is_a_lease_that_expires_and_pages_never_a_switc.sql
