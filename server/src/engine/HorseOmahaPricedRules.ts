@@ -410,6 +410,8 @@ export interface OmahaPricedRaiseContext {
   realization?: number;
   /** a raise-to amount another owner proposed: priced beside the steps */
   proposedTo?: number;
+  /** omahaRaiseEvCountsLossesOnce (off-only): the re-raisers' losses counted once; absent/false: #11212 */
+  lossesOnce?: boolean;
 }
 
 /**
@@ -555,21 +557,34 @@ export function omahaPricedRaise(
       // WITHOUT that top. (Before, `called` was averaged over the whole continuing part, the top
       // included, and the top's losses were then charged again.)
       const again = allIn ? 0 : Math.min(OMAHA_PRICED_RERAISE_SHARE, continues);
-      const at =
-        again > 1e-6
-          ? topOf(clamp((counts.valueShare * again) / Math.max(1e-9, 1 - q), 0.001, 0.95))
-          : null;
-      const alone = omahaPricedRaiseAloneEv({
-        win,
-        his,
-        put,
-        rake,
-        real,
-        continues,
-        continuing: top,
-        again,
-        reraisers: at,
-      });
+      let alone: number;
+      if (ctx.lossesOnce === true) {
+        const at =
+          again > 1e-6
+            ? topOf(clamp((counts.valueShare * again) / Math.max(1e-9, 1 - q), 0.001, 0.95))
+            : null;
+        alone = omahaPricedRaiseAloneEv({
+          win,
+          his,
+          put,
+          rake,
+          real,
+          continues,
+          continuing: top,
+          again,
+          reraisers: at,
+        });
+      } else {
+        // #11212 verbatim (omahaRaiseEvCountsLossesOnce off): the called result averaged over the whole
+        // continuing part, the re-raisers' losses then charged again.
+        const w = top.win * real;
+        const t = top.tie * real;
+        const lose = Math.max(0, 1 - w - t);
+        const called = w * (win + his * (1 - rake)) + t * ((win + his - put) / 2) - lose * put;
+        const againTop = again > 0 ? topOf(clamp(counts.valueShare * again, 0.001, 0.95)) : null;
+        const lost = againTop ? again * Math.max(0, 1 - againTop.win - againTop.tie) : 0;
+        alone = (1 - continues) * win + (continues - lost) * called - lost * put;
+      }
       // The field at this price. A player who already called the wager holds the calling
       // range the facing-bet verdict gives him and continues with the minimum-defence share
       // of it at the price the raise lays; a player still to act continues with the verdict's

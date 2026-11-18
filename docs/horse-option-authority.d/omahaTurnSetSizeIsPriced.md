@@ -41,3 +41,7 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 - Replay on audited real decisions (PASS-BAR section 1): NOT MET (1 action change, judged wrong; sizes are not judged). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
 - League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
 - Overall: NOT MET. Do not switch on.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 action change, sizes unjudged), no league yet; do not switch on.**

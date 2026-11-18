@@ -149,3 +149,12 @@ Of the spec's named lists (its section (e)): made hands multiway that must becom
 - No implied odds beyond what the measured cells hold; a player behind who continues is priced as calling, never as raising.
 - The receipt validator admits the flop fold or raise that became a call in the rule's spot for the exact chips; it cannot re-run the verdict (the opponent memory is not in the request), as for `omahaFacingBetEv`.
 - The first cut's replay of 368 audited flop decisions and its 19-agree / 39-disagree cross-check are superseded by the node-joined table above (the 58 were 53 audited nodes: 19 agreements and 34 disagreements).
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Stated limits from review R3 of flopev2 5191ed09f6f (non-blocking):
+
+- N1: on a paired flop a hand that pairs one hole card with the board pair is classed two pair (the made cell); realfit's class definition for that case was not cross-checked.
+- N2: OMAHA_FLOP_EV_BEHIND_CONTINUE is pooled over persons and Horses.
+- N3: when a field holding cannot be drawn from the remaining cards the sample is skewed slightly toward the holdings that can.
+- N4: the PLO4 and PLO5 realization cells are pooled.

@@ -1341,11 +1341,14 @@ export function omahaFacingBetEvSpot(
         value: OMAHA_EV_VALUE_SHARE[street],
         // the measured prior of the bettor's KIND (a person's bluffs for a person, a Horse's for a
         // Horse: HorseOmahaPricedMode.omahaPricedKindPrior), not the stepped table
+        // (omahaPricedPriorsByOpponentKind on; off: the #11212 person-measured table for every bettor)
         bluff: omahaPricedKindPrior(
-          omahaOpponentKindOf(
-            gs,
-            (gs.players ?? []).find((p) => p.seat === faced.bettorSeat)?.user_id
-          )
+          omahaPricedModeNow().priorsByKind === true
+            ? omahaOpponentKindOf(
+                gs,
+                (gs.players ?? []).find((p) => p.seat === faced.bettorSeat)?.user_id
+              )
+            : null
         ).bluff[street],
         lineAggressor: OMAHA_EV_LINE_AGGRESSOR,
         lineCaller: OMAHA_EV_LINE_CALLER,

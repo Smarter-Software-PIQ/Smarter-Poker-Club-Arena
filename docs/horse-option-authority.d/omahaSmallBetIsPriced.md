@@ -33,3 +33,10 @@ Not run. Bar: blockbet-013U37/PASS-BAR.md (replay on audited decisions, then one
 ## Evidence rows
 
 None. Switch-on needs a WIN under the bar, a reviewed head and an evidence row.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+- Replay on audited real decisions (blockbet-013U37 PASS-BAR section 1): MET (fixed 15 / 29 / 14 on the three sets, newly wrong 0).
+- League: not run. **No league yet; do not switch on without a WIN.**
+- Receipts (review R3 N2): `omaha_small_bet_priced_bet` and `omaha_small_bet_resized` are now proposed through omahaProposeReceipt against the bet as the limped-pot floor leaves it and fire only if that is the final decision; otherwise `omaha_small_bet_priced_bet_vetoed` / `omaha_small_bet_resized_vetoed`.
+- Paired boards (review R3 N3): the card-impact rule's conflict-sweep S4 guard (no bet created or enlarged on a paired turn or river with less than a full house against a measured value leader) governs the card-impact press only. This rule runs after it and may still offer a 10-25% pot bet in that spot; the S4 guard does not apply to it (a stated gap, to be priced, not gated).

@@ -37,3 +37,7 @@ HorseOmahaMultiwayDiscipline.test.ts (16 seeds per class: a bluff into a measure
 ## Limits
 
 Stated, not measured: the showdown-value line 0.5, the shown range 0.5, the 2% margin. Measured: the river fold prior 0.60 (full sweep, heads-up Horse river bets with one pair or less, 68 of 113 everyone folded; it pools sizes and reads). The threshold reading of a fold rate is an assumption. After the check no later betting is priced (out of position he may bet), so the check is valued at showdown.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Review R1 N1 of wave2c e2a6457166f: the all-in fold-equity fix (an all-in opponent has no fold equity in `omahaBetVsCheckEv`, HorseOmahaMultiwayDiscipline.ts) also changes this off-only option's comparison, which uses the same function.

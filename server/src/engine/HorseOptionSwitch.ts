@@ -311,6 +311,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBigBetCallsArePriced',
   'omahaUnderpairMultiwayIsPriced',
   'omahaPricedMix',
+  'omahaPricedPriorsByOpponentKind',
+  'omahaRaiseEvCountsLossesOnce',
   'omahaMadeHandBetIsPriced',
   'omahaTurnSetSizeIsPriced',
   'omahaBlockerBluffIsPriced',
@@ -537,8 +539,20 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'human-like field PLO5 -2.18 bb/100 (SE 1.02, z -2.14); pooled field -1.56 (SE 0.73), Horse-only -0.47 (SE 0.68)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
   ),
-  omahaTurnRiverRaiseIsPriced: ploFailed(
-    'Horse-only PLO4 -1.84 bb/100 (SE 0.88, z -2.09) on the opponent-kind source (priced2, fad0d304ffd), field pooled +0.25 +/- 1.64: FAIL under the declared bar',
+  // 2026-11-18 lead ruling (priced2 review R2 B2): the re-raise loss correction lost its provisional league,
+  // so it is off-only; omahaTurnRiverRaiseIsPriced (its #11212 WIN stands for the code on main) stays switchable.
+  // 2026-11-18 PLO Strategy sites (sites-013U37/REPLAY-20261118.md): two priced sites failed their replay bar on
+  // the audited real decisions, so they are off-only until a corrected form passes.
+  omahaFlopBetIsPriced: ploFailed(
+    'replay on audited real decisions FAIL: pooled 1 fixed, 3 newly wrong; audit2 no read 21 changed, judge -65.9 bb (mean -4.71, SE 1.33, n 14)',
+    '2026-11-18 sites replay (sites-013U37/REPLAY-20261118.md, PASS-BAR.md s1)'
+  ),
+  omahaMadeHandBetIsPriced: ploFailed(
+    'replay on audited real decisions FAIL: pooled 3 fixed, 5 newly wrong (judge +159 bb, n 14)',
+    '2026-11-18 sites replay (sites-013U37/REPLAY-20261118.md, PASS-BAR.md s1)'
+  ),
+  omahaRaiseEvCountsLossesOnce: ploFailed(
+    'PROVISIONAL (raw rows lost with SSD1): Horse-only PLO4 -1.84 bb/100 (SE 0.88, z -2.09), PLO5 -0.83 (SE 0.78), field pooled +0.25 +/- 1.64, with the opponent-kind priors and this correction on together (priced2 config 0, fad0d304ffd)',
     '2026-11-18 priced2 league (priced2-013U37/PASS-BAR.md configuration 0, eval/RUN1-LOST-SSD1.md)'
   ),
   omahaPricedMix: ploFailed(

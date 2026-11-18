@@ -44,10 +44,14 @@ export interface OmahaPricedMode {
   /** omahaBluffShareFromBetRate: the bettor's bluff share follows his measured bet rate; the value-leader
    *  label cap (0.65) does not act. */
   readonly bluffShareFromBetRate: boolean;
+  /** omahaPricedPriorsByOpponentKind: every prior a priced comparison assumes is the bettor's KIND's
+   *  (omahaPricedKindPrior); off (absent or false): the prior in force before kinds existed (#11212). */
+  readonly priorsByKind?: boolean;
 }
 export const OMAHA_PRICED_MODE_OFF: OmahaPricedMode = Object.freeze({
   rangeContinuous: false,
   bluffShareFromBetRate: false,
+  priorsByKind: false,
 });
 let current: OmahaPricedMode = OMAHA_PRICED_MODE_OFF;
 
@@ -75,6 +79,7 @@ export function omahaPricedModeOf(
   return Object.freeze({
     rangeContinuous: wanted.rangeContinuous === true,
     bluffShareFromBetRate: wanted.bluffShareFromBetRate === true,
+    priorsByKind: wanted.priorsByKind === true,
   });
 }
 export function withOmahaPricedMode<T>(mode: OmahaPricedMode, fn: () => T): T {

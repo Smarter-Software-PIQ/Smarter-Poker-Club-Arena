@@ -27,8 +27,10 @@ import {
   omahaReadConditionalByStreet,
   omahaStreetBetRate,
   omahaStreetRatesOf,
+  omahaStreetScale,
   omahaStreetValueLeader,
 } from './HorseOmahaReadByStreet.js';
+import { omahaPricedKindPrior } from './HorseOmahaPricedMode.js';
 import { omahaPricedStreetRatesSourceNow } from './HorseOmahaPricedWiring.js';
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
@@ -218,7 +220,9 @@ describe('the bet rate and the priced cells by street', () => {
       mode('turn'),
       0.31
     );
-    expect(deep).toBeGreaterThan(0.8);
+    // the rate is returned on the pooled scale (read beside the all-street mean): times the street's
+    // population ratio it is his turn rate (review R2 B1)
+    expect(deep * omahaStreetScale('bet', 'turn')).toBeGreaterThan(0.8);
     const thin = omahaStreetBetRate(rowOf(2, { turn: { bet: 0.9, fold: 0 } }), mode('turn'), 0.31);
     expect(thin).toBeGreaterThan(0.31);
     expect(thin).toBeLessThan(deep);
@@ -322,4 +326,58 @@ describe('through HorseLogic.decide', () => {
     // the priced street source is a decision's own: nothing is left registered after it
     expect(omahaPricedStreetRatesSourceNow()).toBeNull();
   }, 600000);
+});
+
+describe('a population-average player reads the same on every street (review R2 B1 of readwire 6f5d5ff8dcf)', () => {
+  const K = omahaPricedKindPrior('horse');
+  // the Horse envelope means are all-street figures: the population's pooled rates
+  const POP = { bet: K.betCheckedTo.pooled, foldToBet: K.foldToBet.pooled, riverCall: 0.35 };
+  const OPP = 4000;
+  /** cells exactly at the population's own rate on each street (texture cell on the flop) */
+  function populationRow(): StreetReadCounters {
+    const r = emptyStreetRead();
+    for (const street of ['flop', 'turn', 'river'] as const) {
+      r.bet[street] = { hit: K.betCheckedTo[street] * OPP, opp: OPP };
+      r.foldToBet[street] = { hit: K.foldToBet[street] * OPP, opp: OPP };
+      r.foldToRaise[street] = { hit: 0.3 * OPP, opp: OPP };
+    }
+    r.flopBet.rainbow = { hit: K.betCheckedTo.flop * OPP, opp: OPP };
+    return r;
+  }
+  const average = {
+    ...pooled(false),
+    betCheckedTo: stat(POP.bet, 400),
+    foldToBet: stat(POP.foldToBet, 400),
+    riverCall: stat(0.3, 100),
+  } as OmahaReadConditional;
+  it('the street scale is the population ratio and 1 where the street is the pooled rate', () => {
+    for (const street of ['flop', 'turn', 'river'] as const) {
+      expect(omahaStreetScale('bet', street)).toBeCloseTo(
+        K.betCheckedTo[street] / K.betCheckedTo.pooled,
+        12
+      );
+      expect(omahaStreetScale('foldToBet', street)).toBeCloseTo(
+        K.foldToBet[street] / K.foldToBet.pooled,
+        12
+      );
+    }
+  });
+  it('the value-leader evidence is the same on every street and keeps the pooled label', () => {
+    const row = populationRow();
+    const w = (['flop', 'turn', 'river'] as const).map(
+      (street) =>
+        omahaStreetValueLeader(average, row, street, street === 'flop' ? 'rainbow' : null, POP)!
+    );
+    for (const v of w) expect(v.valueLeader).toBe(false);
+    // each street's posterior sits at its own population rate: P(<= bar) about one half on both
+    // stats on every street, so the evidence does not move with the street
+    for (const v of w) expect(Math.abs(v.weight - w[0].weight)).toBeLessThan(0.05);
+  });
+  it('the bet rate beside the all-street mean is ratio 1 on every street', () => {
+    const row = populationRow();
+    for (const street of ['flop', 'turn', 'river'] as const) {
+      const mode = { on: true, street, texture: street === 'flop' ? 'rainbow' : null } as never;
+      expect(omahaStreetBetRate(row, mode, POP.bet) / POP.bet).toBeCloseTo(1, 3);
+    }
+  });
 });

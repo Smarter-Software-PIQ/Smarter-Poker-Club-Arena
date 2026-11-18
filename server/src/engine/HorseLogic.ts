@@ -3629,6 +3629,19 @@ export interface HorseDecideOpts {
    * sampled share against both players (replaces the categorical fold of
    * omahaUnderpairNoMultiwayFlopContinue). */
   omahaUnderpairMultiwayIsPriced?: boolean;
+  /** PLO Strategy lane 2026-11-18 (priced2, lead ruling on review R2 B1): opt-in (`=== true`). Every prior
+   * and reference rate the priced families read is the opponent's KIND's (a person's for a person, a
+   * Horse's for a Horse: HorseOmahaPricedMode.omahaPricedKindPrior, measured), the card-impact read starts
+   * at his kind's figures, and a spot a priced family cannot price falls CLOSED (the categorical rule acts
+   * as with the family off, beside its _unpriced_kept receipt; omahaTurnRiverRaiseIsPriced owns a spot
+   * only where it can be priced). Off: every priced family is byte-identical to #11212. Default OFF; no
+   * league yet. */
+  omahaPricedPriorsByOpponentKind?: boolean;
+  /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
+   * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
+   * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
+   * (config 0, raw rows lost with SSD1) did not pass. */
+  omahaRaiseEvCountsLossesOnce?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -7669,7 +7682,11 @@ function postflopOrder(seat: number, dealerSeat: number | undefined): number {
   return d <= 0 ? d + 1024 : d;
 }
 
-/** Set where omahaOopReraisedPotStrongRange's call cell returns a verdict; read only by omahaReraisedCallCellJudges. */
+/**
+ * Set where omahaOopReraisedPotStrongRange's call cell, or a re-raise range rule's cell
+ * (omahaReraiseByPositionCell, review R1 B1a of preflop 070d002127e), returns a verdict; read only by
+ * omahaReraisedCallCellJudges.
+ */
 let omahaReraisedCallCellJudged = false;
 
 /**
@@ -7836,7 +7853,21 @@ function omahaOopReraisedPotStrongRange(
       mind: opts.mind !== false,
       telemetry: telemetryOn(opts),
     });
-    if (priced !== null) return priced;
+    if (priced !== null) {
+      // ONE OWNER PER CELL (review R1 B1b): a call this option makes (from a fold, or from a re-raise)
+      // is a call of a 3-bet or more, so it answers to the live call cell whenever that cell's option is
+      // on, exactly as a call the re-raise range rules leave does (omahaReraiseRangeRules).
+      if (priced.action === 'call' && opts.omahaOopReraisedPotStrongRange === true)
+        return omahaOopReraisedPotStrongRange(priced, player, gs, {
+          ...opts,
+          omahaPreflopReraiseDefencePriced: false,
+          omahaReraisedPotFlopContinueNeedsEquityShape: false,
+          omahaReraiseRangeOutOfPosition: false,
+          omahaReraiseRangeEarlyPosition: false,
+          omahaPreflopStackPlan: false,
+        });
+      return priced;
+    }
   }
   // The flop rule (its own option) shares this outermost seat; the two never
   // meet on one decision (one is preflop, the other the flop).
@@ -8043,6 +8074,8 @@ function omahaReraiseRangeRules(
       reraiseCommits,
     });
     if (verdict === null) return decision;
+    // a re-raise cell verdict judges this decision (kept, called or folded): one owner per cell
+    omahaReraisedCallCellJudged = true;
     const tele = telemetryOn(opts);
     if (verdict.reraise) {
       if (tele && verdict.reason === 'aces_commitment')
@@ -8714,10 +8747,13 @@ function omahaBigBetCallFold(
   if (omahaPricedOwnsBigBetCalls(player, gs, opts)) {
     const cell = omahaBigBetCallFoldCells(decision, player, gs, { ...opts, telemetry: false });
     if (cell === decision) return decision;
-    // Unpriceable (null): the cells decide as with the option off (fall closed).
+    // Unpriceable (null): with omahaPricedPriorsByOpponentKind on the cells decide as with the option
+    // off (fall closed); off, the decision given is kept (#11212).
     return (
       omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ??
-      omahaBigBetCallFoldCells(decision, player, gs, opts)
+      (opts.omahaPricedPriorsByOpponentKind === true
+        ? omahaBigBetCallFoldCells(decision, player, gs, opts)
+        : decision)
     );
   }
   return omahaBigBetCallFoldCells(decision, player, gs, opts);
@@ -9776,10 +9812,20 @@ function omahaSmallBetRule(
       if (telemetryOn(opts)) noteFire('omaha_small_bet_owner_check_kept');
       return decision;
     }
-    if (telemetryOn(opts))
-      noteFire(
-        verdict.changed === 'small_bet' ? 'omaha_small_bet_priced_bet' : 'omaha_small_bet_resized'
+    // The receipt describes the final action (blockbet review N2): proposed against the bet as the limped-pot
+    // floor will leave it (that floor runs right after this rule), fired when HorseLogic.decide settles.
+    if (telemetryOn(opts)) {
+      const placed = omahaLimpedPotMinBetFloor(verdict.decision, player, gs, opts);
+      const smallBet = verdict.changed === 'small_bet';
+      omahaProposeReceipt(
+        (f) => omahaSameWager(f, placed),
+        () => noteFire(smallBet ? 'omaha_small_bet_priced_bet' : 'omaha_small_bet_resized'),
+        () =>
+          noteFire(
+            smallBet ? 'omaha_small_bet_priced_bet_vetoed' : 'omaha_small_bet_resized_vetoed'
+          )
       );
+    }
     return verdict.decision;
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
@@ -9893,7 +9939,11 @@ function omahaOopCheckRulesCore(
   const pairedTurnOn = opts.omahaPairedTurnNoBarrelWithoutBoatVsValueLeader === true;
   const planOn = opts.omahaTurnBetNeedsRiverPlan === true;
   const oopTurnOn = opts.omahaOopTurnCheckAfterFlopCall === true;
-  if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn && !oopTurnOn) return decision;
+  // omahaFlopBetIsPriced also prices the bare big pair's flop bet where no categorical rule acts (in
+  // position, or with omahaBareOverpairOopFlopCheck off): it must reach the flop branch (sites review N1).
+  const flopPricedOn = opts.omahaFlopBetIsPriced === true;
+  if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn && !oopTurnOn && !flopPricedOn)
+    return decision;
   // omahaOopTurnCheckAfterFlopCall, facing the turn bet after the check: the
   // one place these rules touch a decision facing a wager. The same rule runs
   // again outermost (omahaOwnerRuledFinal), so no later rule overturns it.
@@ -12549,6 +12599,7 @@ export class HorseLogic {
               {
                 rangeContinuous: opts.omahaFacingBetRangeIsContinuous === true,
                 bluffShareFromBetRate: opts.omahaBluffShareFromBetRate === true,
+                priorsByKind: opts.omahaPricedPriorsByOpponentKind === true,
               },
               gameState
             ),
@@ -21403,11 +21454,10 @@ export class HorseLogic {
           !omahaCashOnlyExcludes(player, gs)
             ? 2
             : 1) &&
-        // omahaBlockerBluffIsPriced (default off): admitted by its price on any board in place of
-        // the equity line and the paired-board bar.
+        // omahaBlockerBluffIsPriced (default off): admitted by the price of the exact bet it places
+        // (below, once sized) on any board in place of the equity line and the paired-board bar.
         (omahaPricedSitesOwnsBlockerBluff(player, gs, opts)
-          ? hasVariantBlocker(player.cards, board, vi) &&
-            omahaPricedSitesBlockerBluffAdmits(player, gs, opts)
+          ? hasVariantBlocker(player.cards, board, vi)
           : equity < 0.28 &&
             hasVariantBlocker(player.cards, board, vi) &&
             // omahaPairedBoardBetIsPriced: on a paired board the bluff is admitted by its price.
@@ -21422,6 +21472,13 @@ export class HorseLogic {
           actionHistory: gs.actionHistory,
         })
       ) {
+        // omahaBlockerBluffIsPriced: the gates below (chips behind, the capped line, the station read and
+        // the frequency draw) still decide whether the bluff is offered: an OPEN site
+        // (HorseOmahaRuleSites S6b, receipt omaha_priced_site_blocker_bluff_gate_withheld).
+        const sitesOwns86 = omahaPricedSitesOwnsBlockerBluff(player, gs, opts);
+        const gateWithheld86 = (): void => {
+          if (sitesOwns86 && tele15) noteFire('omaha_priced_site_blocker_bluff_gate_withheld');
+        };
         const opp86Rb = opponents[0];
         const canResp86 =
           !!opp86Rb && !opp86Rb.is_all_in && !opp86Rb.is_sitting_out && opp86Rb.stack > 0;
@@ -21489,15 +21546,19 @@ export class HorseLogic {
                 { ...params, sizingMultiplier: 1 },
                 false
               );
-              if (bet86Rb.action === 'bet' || bet86Rb.action === 'all_in') {
+              if (
+                (bet86Rb.action === 'bet' || bet86Rb.action === 'all_in') &&
+                // omahaBlockerBluffIsPriced (default off): the exact amount placed is priced beside the check
+                (!sitesOwns86 || omahaPricedSitesBlockerBluffAdmits(player, gs, opts, bet86Rb))
+              ) {
                 if (tele15) noteFire('v86_river_nut_blocker_bluff');
                 riverBluffDeclaredPending = true;
                 v86NutBlockerBluffPending = true;
                 return bet86Rb;
               }
-            }
-          }
-        }
+            } else gateWithheld86();
+          } else gateWithheld86();
+        } else gateWithheld86();
       }
       // ═══ MULTIWAY RIVER BLUFFS (Dan 2026-11-06) ═════════════════════════════
       // The baseline above owns heads-up. Three- and four-way rivers fell to

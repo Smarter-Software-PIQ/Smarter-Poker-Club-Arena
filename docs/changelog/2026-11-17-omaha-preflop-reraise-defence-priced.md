@@ -22,7 +22,7 @@ live implementation; the out-of-position 4-bet call included) stays with that ce
 to the option off; this option answers only where that cell does not judge. Receipts
 `omaha_preflop_reraise_defence_fold`, `_call`, `_raise`, `_changed`. Ledger flag, reference-decision sources, league
 cards plo4/plo5_omaha_preflop_reraise_defence_priced, follow-up switch migration
-20261118001546_horse_option_switch_omaha_preflop_reraise_defence_priced, authority file
+20261118070047_horse_option_switch_omaha_option_batch (the one regenerated follow-up of the 2026-11-18 option batch; the component's own 20261118001546 was deleted), authority file
 docs/horse-option-authority.d/omahaPreflopReraiseDefencePriced.md. Unset and false decide byte-identically.
 
 ## Evaluation

@@ -1185,6 +1185,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPricedPriorsByOpponentKind',
+    "PLO Strategy lane 2026-11-18 (priced2; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Every prior and reference rate the priced families read is the opponent's KIND's, measured (HorseOmahaPricedMode.omahaPricedKindPrior: a person's bluff prior, bet rate, fold rate and card-impact bluff share for a person, a Horse's for a Horse; his posterior re-centred on it), the card-impact read starts at his kind's figures, and a spot a priced family cannot price falls CLOSED: the categorical rule acts as with the family off, beside the family's _unpriced_kept receipt (omahaTurnRiverRaiseIsPriced owns a spot only where it can be priced). Off: every priced family is byte-identical to #11212. No league yet; do not switch on without a WIN.",
+    'V94'
+  ),
+  flag(
+    'omahaRaiseEvCountsLossesOnce',
+    "PLO Strategy lane 2026-11-18 (priced2 review N1). PLO4/PLO5 cash; default off (read === true); OFF-ONLY. The value of a priced raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv, their region in the continuing part's units); serves omahaTurnRiverRaiseIsPriced, omahaPressureIsPriced and omahaBigBetCallsArePriced. Off: the #11212 formula verbatim.",
+    'V94'
+  ),
+  flag(
     'omahaMadeHandBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the spot where the made-hand defence (omahaBeatenMadeHandDefense, or omahaMadeHandDefenseVsValueLeader against measured value leaders) turns a turn bet into the fresh card out of position or a thin river value bet into a check, the wager is priced beside the check against every live opponent whatever his label (HorseOmahaPricedRules.omahaPricedBet, the card-impact model, the Horse cards removed from every range): it stands when it is priced at least at the check, else it is checked. Unpriceable spots keep the wager. With it on the defence bet half does not decide in this scope.',
     'V94'
@@ -4979,6 +4989,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_small_bet_priced_bet_vetoed',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
+    'the small bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_resized_vetoed',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
+    'the resized bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'V94'
+  ),
+  receipt(
     'omaha_small_bet_kept',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
     "the small bets were priced and none beat the owner's check or bet by the margin; the owner's decision stands",
@@ -5535,13 +5557,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_site_blocker_bluff_admitted',
     'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
-    'river nut-blocker bluff spot: some bet is priced above the check: the bluff is admitted',
+    'river nut-blocker bluff spot: the exact bet the bluff places is priced above the check: the bluff is admitted',
     'V94'
   ),
   receipt(
     'omaha_priced_site_blocker_bluff_refused',
     'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
-    'the same spot: no bet is priced above the check: no bluff',
+    'the same spot: the exact bet the bluff places is not priced above the check: no bluff',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_blocker_bluff_gate_withheld',
+    'HorseLogic decidePostflop V86 river nut-blocker bluff (omahaBlockerBluffIsPriced)',
+    'river nut-blocker bluff spot with the option on: the bluff was not offered for pricing because a gate that is not priced (chips behind, the capped line, the station read or the frequency draw) withheld it: an open site (HorseOmahaRuleSites S6b)',
     'V94'
   ),
   receipt(

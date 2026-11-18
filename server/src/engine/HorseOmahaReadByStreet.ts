@@ -51,6 +51,24 @@ import {
   type OmahaPricedStreetRates,
 } from './HorseOmahaPricedRules.js';
 import { betaCdf } from './HorseOpponentExploit.js';
+import { omahaPricedKindPrior } from './HorseOmahaPricedMode.js';
+
+/**
+ * A rate on one street beside the all-street figure (review R2 B1 of readwire 6f5d5ff8dcf): the Horse
+ * envelope means and the pooled posteriors count every postflop street in one counter, but the
+ * population's rates differ by street (Horses bet 0.319/0.403/0.363 when checked to and fold
+ * 0.618/0.592/0.726 to a bet on the flop/turn/river against 0.352/0.625 pooled; priced2's measured
+ * kind prior, HorseOmahaPricedMode.omahaPricedKindPrior('horse'), the envelope's own population). Each
+ * all-street mean and shrink prior is carried to the street by that ratio, so a player at the
+ * population's street rate reads exactly as his pooled read on every street (no street-keyed shift).
+ */
+export function omahaStreetScale(stat: 'bet' | 'foldToBet', street: PostflopStreet): number {
+  const K = omahaPricedKindPrior('horse');
+  const row = stat === 'bet' ? K.betCheckedTo : K.foldToBet;
+  const r = row[street] / row.pooled;
+  return Number.isFinite(r) && r > 0 ? r : 1;
+}
+const clampOpen = (x: number): number => Math.max(1e-6, Math.min(1 - 1e-6, x));
 import {
   OMAHA_READ_BY_STREET_OFF,
   type OmahaReadByStreetMeans,
@@ -213,10 +231,18 @@ export function omahaStreetValueLeader(
   const betCell = omahaStreetBetCell(row, street, texture);
   const opp = betCell ? betCell.opp : 0;
   if (!(opp > 0)) return { weight: label, valueLeader: label === 1, opportunities: 0 };
-  const pooledBet = finite01(pooled.betCheckedTo?.mean) ? pooled.betCheckedTo.mean : means.bet;
-  const pooledFold = finite01(pooled.foldToBet?.mean) ? pooled.foldToBet.mean : means.foldToBet;
-  const pBetLow = probAtOrBelow(betCell, pooledBet, means.bet);
-  const pFoldHigh = 1 - probAtOrBelow(copy(row.foldToBet[street]), pooledFold, means.foldToBet);
+  // every all-street mean and prior carried to this street (omahaStreetScale)
+  const sBet = omahaStreetScale('bet', street);
+  const sFold = omahaStreetScale('foldToBet', street);
+  const pooledBet = clampOpen(
+    (finite01(pooled.betCheckedTo?.mean) ? pooled.betCheckedTo.mean : means.bet) * sBet
+  );
+  const pooledFold = clampOpen(
+    (finite01(pooled.foldToBet?.mean) ? pooled.foldToBet.mean : means.foldToBet) * sFold
+  );
+  const pBetLow = probAtOrBelow(betCell, pooledBet, clampOpen(means.bet * sBet));
+  const pFoldHigh =
+    1 - probAtOrBelow(copy(row.foldToBet[street]), pooledFold, clampOpen(means.foldToBet * sFold));
   // river calls have no street cell: the pooled posterior, as a beta of its own mass
   const rc = pooled.riverCall;
   const rcMass = Math.max(0, Number(rc?.n) || 0);
@@ -245,7 +271,10 @@ export function omahaReadConditionalByStreet(
 
 /**
  * His bet rate on the decision's street (texture cell on the flop), shrunk toward the pooled
- * posterior `pooledRate` by the cell's own opportunities; `pooledRate` itself with no cell.
+ * posterior `pooledRate` carried to that street (omahaStreetScale), then expressed on the pooled
+ * scale (divided by the same ratio): its consumer reads it beside the all-street Horse mean, so a
+ * player at the population's street rate reads ratio 1 on every street. `pooledRate` itself with no
+ * cell.
  */
 export function omahaStreetBetRate(
   row: StreetReadCounters | null | undefined,
@@ -253,5 +282,8 @@ export function omahaStreetBetRate(
   pooledRate: number
 ): number {
   if (!row || !mode.on || !mode.street) return pooledRate;
-  return omahaPricedShrunk(omahaStreetBetCell(row, mode.street, mode.texture), pooledRate);
+  const cell = omahaStreetBetCell(row, mode.street, mode.texture);
+  if (!cell || !(cell.opp > 0)) return pooledRate;
+  const s = omahaStreetScale('bet', mode.street);
+  return omahaPricedShrunk(cell, Math.max(0, Math.min(1, pooledRate * s))) / s;
 }

@@ -1,6 +1,6 @@
 # omahaTurnRiverRaiseIsPriced: authority for the live switch
 
-Owner order of 2026-11-17 11:49 America/Chicago. Evidence MET on the v2 evaluation of the #11212 source; the 2026-11-18 follow-up changes its raise price and its reads, and that source FAILED its re-evaluation (below): the option is OFF-ONLY. It ships OFF and no switch row is written by this change.
+Owner order of 2026-11-17 11:49 America/Chicago. Evidence MET on the v2 evaluation; the option ships OFF and no switch row is written by this change.
 
 ## What it does
 
@@ -35,16 +35,6 @@ omaha_priced_raise_kept, \_called, \_folded, \_made_value, \_made_bluff, \_unpri
 
 HorseOmahaPricedRules.test.ts, HorseOmahaPricedRulesRecorded.test.ts (real decisions from production, per family), HorseOmahaNoBlanketRule.law.test.ts (no registered categorical rule decides with the priced options on; the open parts are pinned), HorseOmahaPricedReceiptGate.test.ts (the worker receipt admits a priced raise that became a call only under the decision's own option), OmahaPricedRangeCalibration.test.ts (the calibration arithmetic and the measured prior). Server tsc 0.
 
-## Follow-up of 2026-11-18 (priced2: opponent kind, review notes N1-N4)
-
-Every opponent figure a priced comparison reads now comes from his own KIND's prior (`omahaPricedKindPrior`, HorseOmahaPricedMode.ts; kind from `gs.humanUserIds`, else the seat's `is_horse`): a Horse is never priced on a person's bluff table, bet rate, fold rate or reference rate, nor a person on a Horse's. Each posterior is re-centred on that prior, so a player with no opportunity reads exactly it (no step at the first opportunity). The Horse figures are measured on the same 5,379-hand production window as the person figures (archive plo-handoff-review-01a1cbbd/priced2-013U37/calib). Where the comparison cannot price a spot at all, the categorical rule acts there as with the option off, beside the `_unpriced_kept` receipt (it no longer falls open). Cause and measurements: archive priced-01BNteGZ/ALLON-DIAGNOSIS-20261118.md. Evaluation protocol of this source: archive priced2-013U37/PASS-BAR.md. The v2 verdict below was measured on the #11212 source and is NOT carried over to this source.
-
-Also (review N1): the strongest part of his range that raises again is counted once in EV(raise) (`omahaPricedRaiseAloneEv`); before, its losses were charged twice and value raises were under-priced. On the recorded production decisions this turns five turn and river calls or folds with a made hand (a set, a full house, top two pair, a flush) into value raises. The option is re-evaluated on this source (priced2-013U37/PASS-BAR.md, configuration 0) before any switch-on.
-
-### Evaluation of the 2026-11-18 source (priced2-013U37/PASS-BAR.md, written before the runs)
-
-Configuration 0 (base + this option vs base), source fad0d304ffd, seeds F mix(9710000+i), M mix(9720000+i): human-like field F4 +1.80 +/- 2.45 bb/100 (80 sessions, 40000 pairs, 413 divergent), F5 -1.29 +/- 2.17 (80, 337 divergent), pooled +0.25 +/- 1.64; Horse-only M4 -1.84 +/- 0.88 (16 sessions, 8000 pairs, 466 divergent), M5 +0.17 +/- 1.29 (16, 282 divergent), pooled -0.83 +/- 0.78. Illegal, fallback, truncated: 0. VERDICT: FAIL (M4 below minus two standard errors). The per-session rows were on SSD1 when it dropped off the Mac (archive priced2-013U37/eval/RUN1-LOST-SSD1.md holds the aggregates as printed). The option is registered OFF-ONLY (ploFailed, HorseOptionSwitch.ts) and may not be switched on until a new build passes a new bar. Replay (priced2-013U37/REPLAY.md): changed 37 / 34 / 28 / 25, fixed 2 / 2 / 1 / 1, newly wrong 1 / 0 / 1 / 1 (bar met; not a value verdict).
-
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
@@ -55,3 +45,7 @@ Configuration 0 (base + this option vs base), source fad0d304ffd, seeds F mix(97
 ## Limits
 
 No bluff raise can be priced in until the per-street read delivers a fold-to-raise cell: a fold to a bet when checked to is not read as a fold to a raise, and against the population a pure bluff raise never has positive expected value in this model. On the turn the share against the continuing part of his value region is read on the turn board as it stands (river improvement is not credited there), which leans against thin turn raises. The re-raise share and the fold-to-raise check are measured on persons and Horses together (the archived file does not split them). The raise margin (4 percent of the pot) is HorseOmahaStrongHandValue own constant.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Lead ruling (2026-11-18, review R2 of priced2): this option is NOT off-only. Its v2 WIN above stands for the code on main (#11212), which the batch keeps byte-identical while the two new options are off: `omahaPricedPriorsByOpponentKind` (default OFF: the opponent-kind priors, the card-impact read by kind, the fall-closed handling of unpriceable spots and the priceable-only ownership) and `omahaRaiseEvCountsLossesOnce` (OFF-ONLY: the re-raisers' losses counted once). The priced2 league of 2026-11-18 (configuration 0, Horse-only PLO4 -1.84 +/- 0.88, FAIL) measured this option WITH those changes on; it is recorded, provisionally (raw rows lost with SSD1), in docs/horse-option-authority.d/omahaRaiseEvCountsLossesOnce.md and does not apply to this option's #11212 form. Test: HorseOmahaPricedKindOptions.test.ts (fixture record 59804454, HorseOmahaPricedRules.fixture.json :578, stays call 88 with this option on and both new options off).

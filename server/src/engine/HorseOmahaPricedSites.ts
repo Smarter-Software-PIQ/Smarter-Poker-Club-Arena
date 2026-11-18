@@ -54,8 +54,12 @@ import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
 import { noteFire, telemetryOn } from './BrainTelemetry.js';
 import { omahaPricedInScope, omahaPricedReadOfUser } from './HorseOmahaPricedWiring.js';
-import { OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET } from './HorseOmahaBigDrawAggression.js';
-import { omahaFlopEvCounts } from './HorseOmahaFlopFacingBetEv.js';
+import {
+  OMAHA_FLOP_EV_REALIZATION_FULL_BEHIND,
+  omahaFlopEvCounts,
+  omahaFlopFittedRealization,
+} from './HorseOmahaFlopFacingBetEv.js';
+import { omahaPricedKindPrior } from './HorseOmahaPricedMode.js';
 import {
   omahaBareBigPairOnFlop,
   omahaHeroHasPreflopLead,
@@ -225,23 +229,30 @@ export function omahaPricedSitesOwnsBlockerBluff(
 
 /**
  * The river nut-blocker bluff's admission in place of its equity line and
- * paired-board bar: some bet is priced above the check (his range after the
+ * paired-board bar: the EXACT bet the bluff would place (`bet`, sized by the
+ * engine before this is asked) is priced above the check (his range after the
  * line, the Horse's cards removed, his measured fold to a bet). False when
  * it cannot be priced (the bluff is not made: the engine's check stands).
+ * Review R3 B1 of sites 27852aafb40: the admission priced "some bet" while a
+ * later, unpriced size was placed; now the placed amount is the priced one.
  */
 export function omahaPricedSitesBlockerBluffAdmits(
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  opts: HorseDecideOpts
+  opts: HorseDecideOpts,
+  bet: HorseDecision
 ): boolean {
   const tele = telemetryOn(opts);
   try {
-    const v = omahaPricedBet(player, gs, omahaPricedSitesReadOf(gs, opts));
-    if (v === null) {
+    const amount = isWager(bet) ? amountOf(bet, player) : NaN;
+    const v = Number.isFinite(amount)
+      ? omahaPricedBet(player, gs, omahaPricedSitesReadOf(gs, opts), amount)
+      : null;
+    if (v === null || v.proposed === null) {
       if (tele) noteFire('omaha_priced_site_blocker_bluff_unpriced_kept');
       return false;
     }
-    const ok = v.best !== null && v.best.ev > v.evCheck;
+    const ok = v.proposed.ev > v.evCheck;
     if (tele)
       noteFire(
         ok ? 'omaha_priced_site_blocker_bluff_admitted' : 'omaha_priced_site_blocker_bluff_refused'
@@ -265,24 +276,26 @@ export function omahaPricedSitesBlockerBluffAdmits(
  */
 export const OMAHA_PRICED_SITES_FLOP_RAISE_SHARE = 0.15;
 /**
- * The share of the pot a flop one-pair holding (a bare overpair is one) realizes
- * over the turn and river with chips behind, heads-up, by position: FITTED from
- * production (realfit-013U37/REALIZATION-FIT-20261118.md, realization-fit.json
- * sha256 0cd708ff5f5e15c6, table "HORSE callers, all bettors", 12,430 fitted
- * flop and turn calls with known hole cards, exact equity, hierarchical
- * continuous shrinkage): flop.one_pair.ip.hu 0.6131 (n 530), flop.one_pair.oop.hu
- * 0.6450 (n 688); raw flop one pair 0.62 (0.49 to 0.76). Those apply to EXACT
- * equity; the flop sampler here is a modelled equity measured optimistic by
- * 0.404 / 0.457 = 0.884 (flopev2 CALIB-OUTPUT, 1,992 Horse flop calls), so the
- * factor used is the product. A called range only (the fit's limit 1). A call
- * that puts the Horse all in realizes its whole equity.
+ * The realization of a flop one-pair holding (a bare overpair is one) over the
+ * turn and river has ONE owner: the flop facing-bet verdict's fitted table
+ * (HorseOmahaFlopFacingBetEv.omahaFlopFittedRealization, class 'pair', by
+ * position, shrunk by its sample; flopev2, review R3 N2 of sites 27852aafb40).
+ * This sampler has no runout model of its own, so the model factor is 1 and
+ * the measured cell carries it; later streets count by what is left to bet,
+ * as there. The constant this site fitted for itself is gone.
  */
-export const OMAHA_PRICED_SITES_FLOP_MODEL_EQUITY_SCALE = 0.404 / 0.457;
-export const OMAHA_PRICED_SITES_FLOP_REALIZATION: Readonly<Record<'ip' | 'oop', number>> =
-  Object.freeze({
-    ip: 0.6131 * OMAHA_PRICED_SITES_FLOP_MODEL_EQUITY_SCALE,
-    oop: 0.645 * OMAHA_PRICED_SITES_FLOP_MODEL_EQUITY_SCALE,
-  });
+export function omahaPricedSitesFlopRealization(
+  inPosition: boolean,
+  pot: number,
+  bet: number,
+  effective: number
+): number {
+  const behindAfter = Math.max(0, effective - bet);
+  const later =
+    pot + 2 * bet > 0 ? behindAfter / ((pot + 2 * bet) * OMAHA_FLOP_EV_REALIZATION_FULL_BEHIND) : 0;
+  return omahaFlopFittedRealization(1, 'pair', inPosition, Math.min(1, Math.max(0, later)))
+    .realization;
+}
 
 export interface OmahaPricedSitesFlopInput {
   /** the Horse's equity against the strongest `share` of his holdings on the flop (card removal applied) */
@@ -329,7 +342,7 @@ export function omahaPricedSitesFlopBetEv(
   const rz = allInNow
     ? 0
     : Math.min(cont, Math.max(0, i.raiseShare ?? OMAHA_PRICED_SITES_FLOP_RAISE_SHARE));
-  const real = OMAHA_PRICED_SITES_FLOP_REALIZATION[i.inPosition ? 'ip' : 'oop'];
+  const real = omahaPricedSitesFlopRealization(i.inPosition, P, b, eff);
   const eqAll = i.equityTop(1);
   const eqCont = i.equityTop(cont);
   const eqRaise = rz > 0 ? i.equityTop(rz) : eqCont;
@@ -341,7 +354,7 @@ export function omahaPricedSitesFlopBetEv(
   const callsRaise = evCallRaise > -b;
   const evFacingRaise = Math.max(-b, evCallRaise);
   const evBet = f * P + (cont - rz) * (eqCall * (P + 2 * b) * callReal - b) + rz * evFacingRaise;
-  const evCheck = eqAll * P * real;
+  const evCheck = eqAll * P * omahaPricedSitesFlopRealization(i.inPosition, P, 0, eff);
   return {
     evBet,
     evCheck,
@@ -416,7 +429,8 @@ export function omahaPricedSitesFlopBet(
       bet: amount,
       effective,
       inPosition: !omahaOpponentActsBehind(player, gs),
-      foldToBet: read.foldToBet ?? OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET,
+      // no read: his kind's measured flop fold to a bet (priced2 HorseOmahaPricedMode.omahaPricedKindPrior)
+      foldToBet: read.foldToBet ?? omahaPricedKindPrior(read.kind).foldToBet.flop,
     });
     if (v === null) return unpriced();
     if (v.evBet >= v.evCheck) {

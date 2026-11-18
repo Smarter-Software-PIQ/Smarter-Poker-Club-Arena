@@ -59,3 +59,7 @@ Constants against the live audit CSVs (`phase2-texture-01BNteGZ/CONSTANTS-GROUND
 - Mechanism, scope, tests: MET.
 - Option unset or false: the verdict is identical key for key (HorseOmahaRunoutRealization.test.ts, "off: the verdict is the one it was").
 - Value, continuation, reach: NOT MET. Evaluation run 2026-11-17: INCONCLUSIVE (above). The bar for switching on is a human-field card above +2 SE with no card below -2 SE; it was not reached. The option stays off. A live read cannot substitute for it while the option is off.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+The component's own follow-up migration 20261118014131 was deleted; the option is in the batch's one regenerated follow-up, 20261118070047_horse_option_switch_omaha_option_batch.

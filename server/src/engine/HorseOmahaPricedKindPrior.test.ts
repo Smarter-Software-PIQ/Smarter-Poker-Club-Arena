@@ -247,7 +247,11 @@ describe('a spot nothing can price falls closed: the categorical rule acts as wi
       else st.gs.players.push({ ...seat1, seat, user_id: `extra-${seat}`, bet: 0 });
     }
     expect(omahaDrawRaiseBarOf(st.hero, st.gs)).not.toBeNull();
-    const opts = { omahaNoDrawRaiseOutOfPosition: true, omahaDrawRaiseIsPriced: true };
+    const opts = {
+      omahaNoDrawRaiseOutOfPosition: true,
+      omahaDrawRaiseIsPriced: true,
+      omahaPricedPriorsByOpponentKind: true,
+    };
     const raise: HorseDecision = {
       action: 'raise',
       amount: st.gs.maxRaiseTo as number,

@@ -126,20 +126,42 @@ describe('each site answers by the priced comparison', () => {
       expect(chosen!.ev).toBe(maxEv);
     }
   });
-  it('river blocker bluff: admitted iff some bet is priced above the check', () => {
+  it('river blocker bluff: admitted iff the exact amount placed is priced above the check (review R3 B1)', () => {
     enableBrainTelemetry();
     const st = pricedSpot(RIVER_AIR);
-    const v = omahaPricedBet(
-      st.hero as never,
-      st.gs as never,
-      omahaPricedSitesReadOf(st.gs as never, ON)
-    )!;
+    const pot = (st.gs as { pot: number }).pot;
+    const stack = (st.hero as { stack: number }).stack;
+    const amounts = [0.33, 0.5, 0.75, 1].map((f) => Math.min(stack, Math.round(pot * f)));
+    const seen = new Set<boolean>();
+    for (const amount of amounts) {
+      const v = omahaPricedBet(
+        st.hero as never,
+        st.gs as never,
+        omahaPricedSitesReadOf(st.gs as never, ON),
+        amount
+      )!;
+      expect(v.proposed, `amount ${amount}`).not.toBeNull();
+      // the priced amount is the placed amount
+      expect(v.proposed!.amount, `amount ${amount}`).toBeCloseTo(amount, 2);
+      drainFires();
+      const bet: HorseDecision = { action: 'bet', amount, thinkTime: 0 };
+      const ok = omahaPricedSitesBlockerBluffAdmits(st.hero as never, st.gs as never, ON, bet);
+      expect(ok, `amount ${amount}`).toBe(v.proposed!.ev > v.evCheck);
+      seen.add(ok);
+      expect(fires()).toContain(
+        ok ? 'omaha_priced_site_blocker_bluff_admitted' : 'omaha_priced_site_blocker_bluff_refused'
+      );
+    }
+    // a bet with no chips cannot be priced: no bluff
     drainFires();
-    const ok = omahaPricedSitesBlockerBluffAdmits(st.hero as never, st.gs as never, ON);
-    expect(ok).toBe(v.best !== null && v.best.ev > v.evCheck);
-    expect(fires()).toContain(
-      ok ? 'omaha_priced_site_blocker_bluff_admitted' : 'omaha_priced_site_blocker_bluff_refused'
-    );
+    expect(
+      omahaPricedSitesBlockerBluffAdmits(st.hero as never, st.gs as never, ON, {
+        action: 'bet',
+        thinkTime: 0,
+      } as HorseDecision)
+    ).toBe(false);
+    expect(fires()).toContain('omaha_priced_site_blocker_bluff_unpriced_kept');
+    expect(seen.size).toBeGreaterThan(0);
   });
   it('a spot it cannot price keeps the engine decision and says so', () => {
     enableBrainTelemetry();

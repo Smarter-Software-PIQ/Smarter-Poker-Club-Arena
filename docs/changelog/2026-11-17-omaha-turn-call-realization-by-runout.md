@@ -28,4 +28,4 @@ The constants are stated, not measured. A paired evaluation on 2026-11-17 (on ve
 - `server/src/engine/HorseOmahaFacingBetEv.ts`: the per-river rows and the verdict hook.
 - `server/src/engine/HorseLogic.ts`: the option, the count memo key and the verdict context.
 - `server/src/engine/HorseDataLedger.ts`, `server/src/benchmark/HorseLeague.ts`: the ledger entry and the two league cards.
-- `supabase/migrations/20261118014131_horse_option_switch_plo_turn_call_realization_by_runout.sql` and `scripts/ci/test-horse-option-switch-evidence-postgres.sh`: the generated switch lists.
+- `supabase/migrations/20261118070047_horse_option_switch_omaha_option_batch.sql` (the option batch's one regenerated follow-up; the component's own 20261118014131 was deleted) and `scripts/ci/test-horse-option-switch-evidence-postgres.sh`: the generated switch lists.

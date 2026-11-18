@@ -266,6 +266,7 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
     expect(OMAHA_OPEN_RULE_SITES.map((x) => `${x.audit}: ${x.legacyReceipts.join(' ')}`)).toEqual([
       '10: omaha_oop_turn_check_fold_no_outs omaha_oop_turn_check_call_nut_draw omaha_oop_turn_check_raise_flatted',
       'S1b (sites-013U37): omaha_bare_overpair_oop_flop_check_called omaha_bare_overpair_oop_flop_check_folded omaha_bare_overpair_oop_flop_check_raise_flatted omaha_bare_overpair_oop_flop_check_failsafe_flatted',
+      'S6b (sites-013U37, review R3 B1): omaha_priced_site_blocker_bluff_gate_withheld',
     ]);
     for (const site of OMAHA_OPEN_RULE_SITES) {
       expect(site.why.length, `audit ${site.audit}: the reason is stated`).toBeGreaterThan(40);

@@ -1,0 +1,18 @@
+0 verbose cli /opt/homebrew/Cellar/node/26.3.0/bin/node /opt/homebrew/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.16.0
+2 info using node@v26.3.0
+3 silly config load:file:/opt/homebrew/lib/node_modules/npm/npmrc
+4 silly config load:file:/Volumes/SmarterWork/agent-work/shared-capacity/plo-batch-013U37/wt/server/.npmrc
+5 silly config load:file:/Users/smarter.poker/.npmrc
+6 silly config load:file:/opt/homebrew/etc/npmrc
+7 verbose title npm exec vitest run src/engine/HorseOmahaPreflopReraiseDefence.realHands.law.test.ts --maxWorkers=1
+8 verbose argv "exec" "--" "vitest" "run" "src/engine/HorseOmahaPreflopReraiseDefence.realHands.law.test.ts" "--maxWorkers=1"
+9 verbose logfile logs-max:10 dir:/Volumes/SmarterWork/agent-work/shared-capacity/plo-batch-013U37/wt/server/.npm-cache/_logs/2026-11-18T06_55_48_450Z-
+10 verbose logfile /Volumes/SmarterWork/agent-work/shared-capacity/plo-batch-013U37/wt/server/.npm-cache/_logs/2026-11-18T06_55_48_450Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /Volumes/SmarterWork/agent-work/shared-capacity/plo-batch-013U37/wt/server
+13 verbose os Darwin 25.5.0
+14 verbose node v26.3.0
+15 verbose npm  v11.16.0
+16 verbose exit 1
+17 verbose code 1

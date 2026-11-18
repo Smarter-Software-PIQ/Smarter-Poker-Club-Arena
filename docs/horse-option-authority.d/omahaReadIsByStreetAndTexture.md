@@ -14,7 +14,7 @@ PLO4/PLO5 cash, one board, no bomb pot, on the flop, the turn and the river. The
 
 The short opening all-in below a minimum bet is counted as "no bet" in the street cells, as in the pooled counters (review note N2 of #11215, decided: kept, because the street figure shrinks toward the pooled one and both must count the same events).
 
-Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261118015457_horse_option_switch_omaha_read_is_by_street_and_texture`), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256. Inert in production until migration 20261117175407 is installed (daily maintenance window) and an engine that reads v18 frames serves. Rollback: the switch row off.
+Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261118070047_horse_option_switch_omaha_option_batch` (the option batch's one regenerated follow-up; the component's own 20261118015457 was deleted)), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256. Inert in production until migration 20261117175407 is installed (daily maintenance window) and an engine that reads v18 frames serves. Rollback: the switch row off.
 
 ## The owner's orders it rests on
 
@@ -63,3 +63,8 @@ Value row: NOT MET (league EQUAL, not WIN). Replay row: MET (above). Reach row: 
 ## Limits
 
 The league's human-like field does not change its play by street the way the measured winner does; the league learns the street read with a stand-in for the database learner. The replay uses a reconstructed read, not the production read at decision time.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Review R2 B1 of readwire 6f5d5ff8dcf, fixed in the batch: the street bet and fold-to-bet cells were tested against ALL-STREET means and shrunk toward all-street posteriors, and a street bet rate was divided by the all-street mean, so an exactly average player flipped label and bluff share by street. Each mean and each shrink prior is now carried to the street by the population's street-to-pooled ratio (`omahaStreetScale`, from priced2's measured Horse kind prior; the envelope means are the Horse population's), in `omahaStreetValueLeader` and `omahaStreetBetRate`. Test: HorseOmahaReadByStreet.test.ts ("a population-average player reads the same on every street"). **The EQUAL league above was measured on fb900cf162f, before this fix.** No league yet on the fixed source; do not switch on without a WIN.
+Note N3: OMAHA_PRICED_SHRINK and priced2's OMAHA_PRICED_READ_PRIOR_STRENGTH are two shrink constants for related reads (not merged here).

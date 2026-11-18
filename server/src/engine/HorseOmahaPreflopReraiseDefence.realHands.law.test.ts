@@ -33,6 +33,7 @@
  *    does not judge, the option answers and the cell's receipts stay silent;
  *  - the equity the verdict prices is within 0.07 of the independent figure.
  */
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseLogic } from './HorseLogic.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
@@ -107,13 +108,19 @@ const LIVE_OMAHA_SWITCHES = [
 ];
 const LIVE = Object.fromEntries(LIVE_OMAHA_SWITCHES.map((o) => [o, true]));
 
-/** hand number -> [today's decision, the priced decision, the independent Step 1 equity] */
+/**
+ * hand number -> [today's decision, the priced decision, the independent Step 1 equity].
+ * "Today" is main with the live list. Since #11247 (main 0edbb56d179, WooWoo audit lane) the
+ * re-raised-pot call cell prices the call its class cell folds (receipt omaha_reraised_call_priced_call),
+ * so five of the audit's folds are calls today: the same direction this option's verdict takes
+ * (batch integration 2026-11-18; before #11247 they were folds). 59830020 differs by seed (TODAY_BY_SEED).
+ */
 const EXPECTED: Record<number, ['fold' | 'call' | 'raise', 'fold' | 'call' | 'raise', number]> = {
-  59799408: ['fold', 'call', 0.548], // opener, 3-bet, in position
-  59793017: ['fold', 'call', 0.553], // opener, 3-bet, in position, suited ace
+  59799408: ['call', 'call', 0.548], // opener, 3-bet, in position
+  59793017: ['call', 'call', 0.553], // opener, 3-bet, in position, suited ace
   59830020: ['fold', 'call', 0.555], // opener, 3-bet, out of position, ratio 2.6
-  59853239: ['fold', 'call', 0.553], // 3-bettor, 4-bet, in position
-  59819475: ['fold', 'call', 0.568], // 3-bettor, 4-bet, out of position, ratio 4
+  59853239: ['call', 'call', 0.553], // 3-bettor, 4-bet, in position
+  59819475: ['call', 'call', 0.568], // 3-bettor, 4-bet, out of position, ratio 4
   51520556: ['call', 'fold', 0.513], // opener, 3-bet, out of position, ratio 10.7: the reverse error
   59800400: ['fold', 'fold', 0.459], // opener, 3-bet, out of position, ratio 18: the fold stands
   50162905: ['raise', 'raise', 0.553], // 3-bettor 4-bets in position under a ratio of 1: stands
@@ -153,6 +160,12 @@ const CELL_JUDGES_LIVE: Readonly<Record<number, readonly number[]>> = {
   50162905: [],
 };
 
+/** Today by seed where it is not one answer: 59830020's reference brain folds before any rule on seed 1
+ *  and calls on seed 42 (the call cell then prices the call and keeps it). */
+const TODAY_BY_SEED: Readonly<Record<number, Readonly<Record<number, 'fold' | 'call' | 'raise'>>>> =
+  {
+    59830020: { 1: 'fold', 42: 'call' },
+  };
 const kind = (a: string): 'fold' | 'call' | 'raise' =>
   a === 'fold' ? 'fold' : a === 'call' ? 'call' : 'raise';
 
@@ -238,7 +251,7 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
         const unset = decide(h, LIVE, seed);
         const off = decide(h, { ...LIVE, omahaPreflopReraiseDefencePriced: false }, seed);
         expect(bytes(off.d)).toBe(bytes(unset.d));
-        expect(kind(unset.d.action)).toBe(today);
+        expect(kind(unset.d.action)).toBe(TODAY_BY_SEED[h.handNumber]?.[seed] ?? today);
         expect(unset.fires.some((f) => f.startsWith('omaha_preflop_reraise_defence_'))).toBe(false);
 
         // The rule's own answer: the re-raised-pot call cell not live (its three options off), so
@@ -275,10 +288,26 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
           expect(on.fires).toEqual(off.fires);
           expect(mine).toEqual([]);
         } else {
-          // nobody else owns it: the option answers, and the cell's receipts stay silent
-          expect(kind(on.d.action)).toBe(priced);
+          // nobody else owns it: the option answers
           expect(mine.map((f) => f.feature)).toContain(`omaha_preflop_reraise_defence_${priced}`);
-          expect(on.fires.some((f) => CELL_RECEIPTS.includes(f.feature))).toBe(false);
+          const cell = on.fires
+            .filter((f) => CELL_RECEIPTS.includes(f.feature))
+            .map((f) => f.feature);
+          if (priced === 'call') {
+            // ONE OWNER PER CELL, seam b (review R1 B1b): the call it makes is a call of a 3-bet or
+            // more, so it answers to the live call cell (its option is on in the live list): the cell
+            // judges it once, and the decision is the cell's verdict on that call
+            expect(cell).toHaveLength(1);
+            expect(['omaha_oop_reraised_call_kept', 'omaha_oop_reraised_call_folded']).toContain(
+              cell[0]
+            );
+            expect(kind(on.d.action)).toBe(
+              cell[0] === 'omaha_oop_reraised_call_kept' ? 'call' : 'fold'
+            );
+          } else {
+            expect(kind(on.d.action)).toBe(priced);
+            expect(cell).toEqual([]);
+          }
         }
       }
     });
@@ -300,4 +329,28 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
       );
     });
   }
+
+  // ONE OWNER PER CELL, seam a (review R1 B1a): a verdict of a re-raise range rule's cell
+  // (omahaReraiseByPositionCell: kept, called or folded) judges the decision, so the option does not
+  // answer there. Every seed of the fixture where such a verdict is reached under the live list.
+  it('seam a: where a re-raise range cell judged, the option does not answer (seeds 1..40)', () => {
+    let judged = 0;
+    for (const h of HANDS)
+      for (let seed = 1; seed <= 40; seed++) {
+        const off = decideCounted(h, { ...LIVE, omahaPreflopReraiseDefencePriced: false }, seed);
+        if (!off.fires.some((f) => f.feature.startsWith('omaha_reraise_by_position_'))) continue;
+        judged++;
+        const on = decideCounted(h, { ...LIVE, omahaPreflopReraiseDefencePriced: true }, seed);
+        expect(bytes(on.d), `hand ${h.handNumber} seed ${seed}`).toBe(bytes(off.d));
+        expect(on.fires).toEqual(off.fires);
+      }
+    expect(judged).toBeGreaterThan(0);
+  }, 300000);
+  it('seam a: the judged flag is set for every non-null re-raise range verdict (source)', () => {
+    const src = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('function omahaReraiseRangeRules('));
+    const at = body.indexOf('if (verdict === null) return decision;');
+    expect(at).toBeGreaterThan(0);
+    expect(body.slice(at, at + 200)).toContain('omahaReraisedCallCellJudged = true;');
+  });
 });

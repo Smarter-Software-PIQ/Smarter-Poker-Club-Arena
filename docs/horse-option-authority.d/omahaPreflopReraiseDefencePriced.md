@@ -135,3 +135,13 @@ at that depth and equity realized 0.38 (n 386, -5 to -6 bb against folding), so 
 the value row is NOT MET.
 
 The option stays OFF.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Review R1 B1 of preflop 070d002127e (one owner per cell), fixed in the batch:
+
+- seam a: a verdict of a re-raise range rule's cell (omahaReraiseByPositionCell: kept, called or folded) now counts as judged, so this option does not answer there (HorseLogic omahaReraiseRangeRules sets the judged flag);
+- seam b: a call this option makes (from a fold or a re-raise) is run through the live re-raised-pot call cell whenever omahaOopReraisedPotStrongRange is on, exactly as a call the re-raise range rules leave.
+  Tests: HorseOmahaPreflopReraiseDefence.realHands.law.test.ts (seam b on hand 59830020 seed 1; seam a on every fixture seed 1-40 a range cell judged, and the source pin).
+  Main moved under this option: since #11247 (0edbb56d179) the live call cell prices the call its class cell folds, so five of the eight audited folds are calls today (the test's "today" column was re-pinned to main).
+  Notes: N1 EV(re-raise) (HorseOmahaPreflopReraiseDefence.ts) assumes the players already in also fold to the re-raise, which overstates a multiway re-raise; N2 the receipt validator's admission of a priced call is option-independent (precedent omahaReraiseToCall).

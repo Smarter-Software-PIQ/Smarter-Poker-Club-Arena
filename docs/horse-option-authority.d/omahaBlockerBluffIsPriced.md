@@ -41,3 +41,9 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 - Replay on audited real decisions (PASS-BAR section 1): NOT MET (1 change, judged wrong, -57.4 bb). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
 - League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
 - Overall: NOT MET. Do not switch on.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 change), no league yet; do not switch on.**
+
+Review R3 B1 of sites 27852aafb40, fixed in the batch: the admission priced "some bet beats the check" while a later, never-priced size (bet86Rb) was placed. Now the engine sizes the bluff first and `omahaPricedSitesBlockerBluffAdmits(player, gs, opts, bet86Rb)` prices THAT exact amount (`omahaPricedBet(..., amount).proposed.ev > evCheck`); a bet it cannot price makes no bluff (test: HorseOmahaPricedSites.test.ts, the placed amount is the priced amount). The gates that decide whether the bluff is offered at all (chips behind, the capped-line and station label reads, the persona frequency draw targetRb86) still act with the option on: they are registered as OPEN site S6b in HorseOmahaRuleSites.ts with their own receipt `omaha_priced_site_blocker_bluff_gate_withheld` (they are not priced).

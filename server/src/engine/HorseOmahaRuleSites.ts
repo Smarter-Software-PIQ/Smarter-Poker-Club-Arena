@@ -240,7 +240,7 @@ export const OMAHA_CATEGORICAL_RULE_SITES: readonly OmahaCategoricalRuleSite[] =
     pricedBy: 'omahaBlockerBluffIsPriced',
     legacyReceipts: ['v86_river_nut_blocker_bluff'],
     sharedWith: ['omaha_priced_site_blocker_bluff_admitted'],
-    guard: 'omahaPricedSitesBlockerBluffAdmits(player, gs, opts)',
+    guard: 'omahaPricedSitesBlockerBluffAdmits(player, gs, opts, bet86Rb)',
   },
 ]);
 
@@ -297,6 +297,19 @@ export const OMAHA_OPEN_RULE_SITES: readonly OmahaOpenRuleSite[] = Object.freeze
       'HorseOmahaFlopFacingBetEv.ts, held by the flopev2 build of this lane); the sites build prices only the bet half ' +
       '(omahaFlopBetIsPriced) and does not decide a flop call.',
   },
+  {
+    audit: 'S6b (sites-013U37, review R3 B1)',
+    rule: 'river nut-blocker bluff: whether the bluff is offered at all - the chips-behind bar, the capped-line and station label gates and the persona frequency draw (targetRb86)',
+    legacyOptions: ['omahaRiverNutBlockerBluffReachable'],
+    where: 'decidePostflop V86 river nut-blocker bluff (before omahaPricedSitesBlockerBluffAdmits)',
+    decidesBy: ['label', 'line'],
+    legacyReceipts: ['omaha_priced_site_blocker_bluff_gate_withheld'],
+    why:
+      'omahaBlockerBluffIsPriced prices the exact bet the bluff places beside the check (S6), but the gates that decide ' +
+      'whether the bluff is offered are a label read (station, capped line), a stack bar and a frequency draw; pricing ' +
+      'them needs a river bluff frequency from his measured fold-to-bet read (owner of the river bluff baseline: PLO ' +
+      'Strategy lane, not built). With the option on they still withhold bluffs; each is receipted.',
+  },
 ]);
 
 export type OmahaOptionClass =
@@ -335,6 +348,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPressureIsPriced: priced('the pressure play by its price'),
   omahaBigBetCallsArePriced: priced('the exact count in place of the big-bet cells'),
   omahaUnderpairMultiwayIsPriced: priced('the multiway flop call on sampled shares'),
+  omahaPricedPriorsByOpponentKind: priced(
+    "the priors and reference rates every priced comparison reads, by the opponent's measured kind; unpriceable spots fall closed (an input, not a rule site)"
+  ),
+  omahaRaiseEvCountsLossesOnce: priced(
+    "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
+  ),
   omahaPricedMix: priced('mixing between two close priced actions'),
   // the priced sites of 2026-11-18 (HorseOmahaPricedSites.ts)
   omahaMadeHandBetIsPriced: priced('the defence wager beside the check on the card-impact model'),

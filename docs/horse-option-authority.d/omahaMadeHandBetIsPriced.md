@@ -41,3 +41,7 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 - Replay on audited real decisions (PASS-BAR section 1): FAIL (pooled over audit2 no read, audit2 winner read, Nov 16 winner read: 3 fixed, 5 newly wrong; judge +159 bb). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
 - League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
 - Overall: NOT MET. Do not switch on.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+**OFF-ONLY** (ploFailed in HorseOptionSwitch.ts): the replay on audited real decisions FAILED its bar (sites-013U37/REPLAY-20261118.md: pooled 3 fixed, 5 newly wrong; judge +159 bb, n 14). Do not switch on.
