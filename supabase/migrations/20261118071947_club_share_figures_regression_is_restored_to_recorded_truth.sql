@@ -6,6 +6,7 @@
 -- the 20261117212227 body, losing 20261118002641 (kings_club_labeled_display_totals).
 -- Restore both to recorded truth. REPLAY-SAFE: refuses unless each object is in the known
 -- stale or restored state.
+-- @live-proof: to_regprocedure('public.fn_club_card_figures(uuid)') IS NULL AND position('kings_club' in pg_get_functiondef('public.fn_club_share_figures(uuid)'::regprocedure)) > 0
 SET LOCAL lock_timeout='5s';
 DO $restore$
 DECLARE v_live text; v_stmt text; v_frag text; v_tag text; v_body text;

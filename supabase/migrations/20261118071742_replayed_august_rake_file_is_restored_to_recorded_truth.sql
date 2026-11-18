@@ -13,6 +13,7 @@
 -- Source files in this repo: 20261102180105 (settle), 20260909014534 (sweep; recorded as
 -- 20260909215641), 20260909165629 (unregister wrapper), 20261103064259 (cancel).
 -- REPLAY-SAFE: refuses unless every target is in the stale (replayed) or restored state.
+-- @live-proof: position('fn_recognize_accounting_tournament_fees' in pg_get_functiondef('public.fn_settle_tournament_rake(uuid,text)'::regprocedure)) > 0 AND NOT has_function_privilege('authenticated', 'public.atomic_cancel_tournament(uuid,uuid)', 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'process_tournament_rebuy' AND pronamespace = 'public'::regnamespace AND pronargs = 6)
 SET LOCAL lock_timeout='5s';
 
 DO $restore$
