@@ -186,7 +186,7 @@ def main():
   principal_test=ROOT/'scripts/ci/test-promo-profit-payout-capacity.py';track(principal_test)
   principal_spec=importlib.util.spec_from_file_location('empty_principal',principal_test)
   principal=importlib.util.module_from_spec(principal_spec);principal_spec.loader.exec_module(principal)
-  principal.verify(db,C,A,T,old,ROOT/'supabase/migrations/20261118021557_tournament_credit_checks_physical_capacity_before_fee_history.sql',runfile,check)
+  principal.verify(db,C,A,T,old,ROOT/'supabase/migrations/20261118021557_tournament_credit_checks_capacity_before_fee_history.sql',runfile,check)
   check('nonagent authoritative balance fields are both absent values',f"SELECT (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_wallet') IS NULL AND (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable') IS NULL",'t')
   check('original grant has one shared phase and original thresholds',f"SELECT count(*)||':'||max(principal_target)::integer||':'||max(profit_target)::integer FROM fn_ca_promo_shared_fee_state('{C}','{A}') WHERE grant_id='{old}'",'1:200:100')
   fee(40)
