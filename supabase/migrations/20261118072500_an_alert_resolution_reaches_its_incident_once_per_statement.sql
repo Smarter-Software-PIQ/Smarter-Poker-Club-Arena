@@ -66,9 +66,11 @@
 --    failure is still filed in ca_incident_file_failures, never raised into
 --    the resolve that triggered it. A failure is now isolated per incident.
 -- 4. Job 354 CALLs public.sp_ca_resolve_settled_financial_alerts_in_pages,
---    which runs the unchanged closer one bounded page at a time and COMMITs
---    after each page, inside a 90 s budget. A slow page can no longer roll
---    back the pages before it. (pg_cron here runs over libpq,
+--    which runs the unreachable-hand resolver first in its own transaction,
+--    then the unchanged closer one bounded page at a time with a COMMIT
+--    after each page, starting no page after 45 s of the role's 2 min
+--    statement_timeout. A slow page can no longer roll back the pages
+--    before it, and the session lock is released on failure too. (pg_cron here runs over libpq,
 --    cron.use_background_workers = off, and CALL with COMMIT is the shape
 --    jobs 176 and 317-319 already run.) Job 227 keeps its command: its
 --    timeouts were this same trigger and it is fixed by item 1.
@@ -456,22 +458,38 @@ CREATE TRIGGER zz_ca_alert_resolution_reaches_the_incident
 
 -- The closer, one committed page at a time. A procedure (not SECURITY
 -- DEFINER, no SET clause) so that its COMMIT is legal; CALL must stay the
--- top-level cron command. Exits when a page closes nothing, after p_pages
--- pages, or at a 90 s budget inside the job's 2 min statement_timeout -
--- whichever comes first; every page before that is already committed.
+-- top-level cron command.
+--
+-- TIME: the postgres role's statement_timeout (2 min) covers the WHOLE CALL;
+-- a COMMIT does not reset it. So the run starts no new page after 45 s. The
+-- slowest single closer statement on record is 74.9 s (job 354, 5,000-row
+-- limit, 02:04 UTC 2026-11-18, pg_stat_statements max); a 500-row page is a
+-- tenth of that work, and 45 s + 74.9 s still ends inside 120 s.
+--
+-- ORDER: fn_ca_resolve_landed_unreachable_hand_alerts runs FIRST, in its own
+-- transaction, so it never waits on (or is skipped by) the pager.
+--
+-- ERRORS: each call runs in its own sub-block (a COMMIT may not run inside
+-- one, so it comes after the block ends). A failure, including a statement
+-- timeout, stops the pager, the session advisory lock is released, and the
+-- first error is re-raised so job_run_details records the run as failed.
+-- Every page committed before it stays committed.
 CREATE OR REPLACE PROCEDURE public.sp_ca_resolve_settled_financial_alerts_in_pages(
   p_page integer DEFAULT 500, p_pages integer DEFAULT 40)
 LANGUAGE plpgsql
 AS $procedure$
 DECLARE
-  c_budget constant interval := interval '90 seconds';
-  v_deadline timestamptz := clock_timestamp() + c_budget;
+  c_start_budget constant interval := interval '45 seconds';
+  v_stop_starting timestamptz := clock_timestamp() + c_start_budget;
   v_lock bigint := hashtext('ca-resolve-settled-alerts');
   v_result jsonb;
   v_closed integer;
   v_total integer := 0;
   v_pages integer := 0;
   v_landed integer;
+  v_failed boolean := false;
+  v_state text;
+  v_msg text;
 BEGIN
   IF p_page IS NULL OR p_page NOT BETWEEN 1 AND 5000 THEN
     RAISE EXCEPTION 'Invalid settled alert page size %', p_page;
@@ -481,28 +499,47 @@ BEGIN
   END IF;
   -- Same session lock key the single-statement job took.
   IF NOT pg_try_advisory_lock(v_lock) THEN
-    RAISE NOTICE 'busy';
+    RAISE WARNING 'ca-resolve-settled-alerts busy: another session holds the closer lock';
     RETURN;
   END IF;
 
-  LOOP
+  -- 1. The unreachable-hand resolver, independent of the pager.
+  PERFORM set_config('search_path', 'pg_catalog, public, pg_temp', true);
+  BEGIN
+    v_landed := public.fn_ca_resolve_landed_unreachable_hand_alerts();
+  EXCEPTION WHEN query_canceled OR OTHERS THEN
+    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    v_failed := true;
+  END;
+  COMMIT;
+
+  -- 2. The settled-alert closer, one committed page at a time.
+  WHILE NOT v_failed LOOP
     -- COMMIT resets transaction-local settings; restore the lookup path.
     PERFORM set_config('search_path', 'pg_catalog, public, pg_temp', true);
-    v_result := public.fn_resolve_settled_financial_alerts(true, p_page);
+    BEGIN
+      v_result := public.fn_resolve_settled_financial_alerts(true, p_page);
+    EXCEPTION WHEN query_canceled OR OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      v_failed := true;
+    END;
+    EXIT WHEN v_failed;
     v_closed := COALESCE((v_result->>'total')::integer, 0)
               + COALESCE((v_result->'accounting_lightning_proven_over'->>'proven_over')::integer, 0)
               + COALESCE((v_result->'accounting_lightning_proven_over'->>'echoes_closed')::integer, 0);
     COMMIT;
     v_pages := v_pages + 1;
     v_total := v_total + v_closed;
-    EXIT WHEN v_closed = 0 OR v_pages >= p_pages OR clock_timestamp() >= v_deadline;
+    EXIT WHEN v_closed = 0 OR v_pages >= p_pages OR clock_timestamp() >= v_stop_starting;
   END LOOP;
 
-  PERFORM set_config('search_path', 'pg_catalog, public, pg_temp', true);
-  v_landed := public.fn_ca_resolve_landed_unreachable_hand_alerts();
-  COMMIT;
-
   PERFORM pg_advisory_unlock(v_lock);
+  IF v_failed THEN
+    RAISE EXCEPTION USING ERRCODE = v_state,
+      MESSAGE = v_msg,
+      DETAIL = format('settled alerts closed %s in %s committed pages of %s before the failure; unreachable_landed=%s',
+                      v_total, v_pages, p_page, COALESCE(v_landed::text, 'not run'));
+  END IF;
   RAISE NOTICE 'settled alerts closed % in % committed pages of %; unreachable_landed=%',
     v_total, v_pages, p_page, v_landed;
 END;

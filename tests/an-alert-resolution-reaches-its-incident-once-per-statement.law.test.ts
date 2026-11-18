@@ -76,7 +76,16 @@ describe('an alert resolution reaches its incident once per statement (202611180
     expect(proc).not.toContain('SECURITY DEFINER');
     expect(proc).toContain('v_result := public.fn_resolve_settled_financial_alerts(true, p_page);');
     expect(proc).toMatch(/fn_resolve_settled_financial_alerts\(true, p_page\);[\s\S]*?COMMIT;/);
-    expect(proc).toContain("interval '90 seconds'");
+    // The role's 2 min statement_timeout covers the whole CALL: no page starts after 45 s.
+    expect(proc).toContain("c_start_budget constant interval := interval '45 seconds';");
+    // The unreachable-hand resolver runs first, in its own transaction.
+    expect(proc.indexOf('fn_ca_resolve_landed_unreachable_hand_alerts()')).toBeLessThan(
+      proc.indexOf('fn_resolve_settled_financial_alerts(true, p_page)')
+    );
+    // Failures (timeouts included) are caught, the lock released, then re-raised.
+    expect(proc.match(/EXCEPTION WHEN query_canceled OR OTHERS THEN/g)).toHaveLength(2);
+    expect(proc).toMatch(/PERFORM pg_advisory_unlock\(v_lock\);\s*IF v_failed THEN\s*RAISE EXCEPTION USING ERRCODE = v_state/);
+    expect(proc).toContain("RAISE WARNING 'ca-resolve-settled-alerts busy");
     expect(sql).toContain(
       "candidate constant text := 'CALL public.sp_ca_resolve_settled_financial_alerts_in_pages(500, 40);';"
     );

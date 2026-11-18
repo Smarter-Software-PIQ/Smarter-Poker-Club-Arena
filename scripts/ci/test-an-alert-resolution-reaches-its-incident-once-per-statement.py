@@ -63,7 +63,6 @@ def install(db):
     sql('postgres', f'CREATE DATABASE {db};')
     sql(db, (FX / 'schema.sql').read_text())
     sql(db, (FX / 'helpers.sql').read_text())
-    sql(db, (ROOT / 'scripts/ci/fixtures/alert-ledger-roots/closure-preimage-fn_ca_resolution_needs_a_cause.sql').read_text())
     sql(db, """CREATE TRIGGER trg_ca_resolution_needs_a_cause BEFORE UPDATE ON ca_drift_incidents
                  FOR EACH ROW EXECUTE FUNCTION fn_ca_resolution_needs_a_cause();
                CREATE TRIGGER zz_ca_incident_resolution_reaches_the_alerts AFTER UPDATE OF status, closure_basis
@@ -191,6 +190,10 @@ try:
     install('pre')
     check('pre', 'preimage-fixture-is-production',
           "md5(pg_get_functiondef('fn_ca_alert_resolution_reaches_the_incident()'::regprocedure))='41c8d8f028e06087ffff5bd89aea8ed2'")
+    check('pre', 'incident-to-alert-cascade-fixture-is-production',
+          "md5(pg_get_functiondef('fn_ca_incident_resolution_reaches_the_alerts()'::regprocedure))='63475ec2c730b162d09a56bff86dc87f'")
+    check('pre', 'resolution-cause-guard-fixture-is-production',
+          "md5(pg_get_functiondef('fn_ca_resolution_needs_a_cause()'::regprocedure))='3688cf5d15276cbed2e2cc1cd781b5ac'")
     sql('pre', SCENARIOS)
     for s in STEPS:
         sql('pre', s)
@@ -248,7 +251,7 @@ try:
 
     # ── 4. the pager: N=5,000 settled, pages of 500, every page committed ──
     perf_fixture('post', 8000, 5000, 'Src.paged')
-    sql('post', "UPDATE financial_alerts SET context=context-'settled' WHERE source<>'Src.paged'; UPDATE closer_calls SET n=0, fail_on_call=NULL;")
+    sql('post', "UPDATE financial_alerts SET context=context-'settled' WHERE source<>'Src.paged'; UPDATE closer_calls SET n=0, fail_on_call=NULL; TRUNCATE landed_calls;")
     timed('post', 'pager_5000_in_pages_of_500',
           "SET statement_timeout='120s'; CALL public.sp_ca_resolve_settled_financial_alerts_in_pages(500, 40);")
     check('post', 'pager-closed-all-settled', "(SELECT count(*)=5000 FROM financial_alerts WHERE source='Src.paged' AND resolved)")
@@ -262,6 +265,41 @@ try:
     except RuntimeError as e:
         assert 'injected page failure' in str(e), str(e)
     check('post', 'failed-page-keeps-earlier-pages', "(SELECT count(*)=1000 FROM financial_alerts WHERE source='Src.fault' AND resolved)")
+    check('post', 'unreachable-resolver-ran-before-the-failed-pager', "(SELECT count(*)=2 FROM landed_calls)")
+
+    # The lock is released on the failure path, in the SAME session (pg_cron
+    # aside, a pooled session would otherwise keep it).
+    out = sql('post', """\\set ON_ERROR_STOP 0
+UPDATE closer_calls SET n=0, fail_on_call=1;
+CALL public.sp_ca_resolve_settled_financial_alerts_in_pages(500, 40);
+SELECT 'locks_held=' || count(*) FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid();""")
+    assert 'locks_held=0' in out, out
+    checks.append('lock-released-after-a-failed-page')
+
+    # A statement timeout during a page: earlier pages stay, the lock is
+    # released, the run reports the cancellation (57014).
+    perf_fixture('post', 2000, 2000, 'Src.slow')
+    sql('post', "UPDATE financial_alerts SET context=context-'settled' WHERE source<>'Src.slow'; UPDATE closer_calls SET n=0, fail_on_call=NULL, sleep_on_call=3;")
+    out = sql('post', """\\set ON_ERROR_STOP 0
+SET statement_timeout='3s';
+CALL public.sp_ca_resolve_settled_financial_alerts_in_pages(500, 40);
+RESET statement_timeout;
+SELECT 'locks_held=' || count(*) FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid();""")
+    assert 'locks_held=0' in out, out
+    check('post', 'timed-out-page-keeps-earlier-pages', "(SELECT count(*)=1000 FROM financial_alerts WHERE source='Src.slow' AND resolved)")
+    sql('post', "UPDATE closer_calls SET sleep_on_call=NULL;")
+
+    # Busy: another session holds the closer lock -> WARNING, nothing runs.
+    holder = subprocess.Popen([str(PG / 'psql'), '-XqAt', '-h', str(SOCK), '-p', PORT, '-U', 'postgres', '-d', 'post', '-c',
+                               "SELECT pg_advisory_lock(hashtext('ca-resolve-settled-alerts')), pg_sleep(6);"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.5)
+    r = subprocess.run([str(PG / 'psql'), '-XqAt', '-h', str(SOCK), '-p', PORT, '-U', 'postgres', '-d', 'post', '-c',
+                        "CALL public.sp_ca_resolve_settled_financial_alerts_in_pages(500, 40);"],
+                       text=True, capture_output=True, timeout=30)
+    holder.wait(timeout=30)
+    assert r.returncode == 0 and 'WARNING:  ca-resolve-settled-alerts busy' in r.stderr, r.stderr
+    checks.append('busy-is-a-warning')
 
     # ── 5. contrast: the preimage on the same 8,000-member incident ──
     n = 5000 if os.environ.get('FULL_PREIMAGE') == '1' else 200

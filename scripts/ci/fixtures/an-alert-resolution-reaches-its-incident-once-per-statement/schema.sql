@@ -53,14 +53,16 @@ CREATE TABLE public.operational_alert_events(
 -- Closer stand-ins with the result keys the pager reads. The stand-in closer
 -- resolves settled alerts in ONE set-based UPDATE per call, like the real
 -- classes, and can be told to fail on its Nth call.
-CREATE TABLE public.closer_calls(n integer NOT NULL, fail_on_call integer);
-INSERT INTO public.closer_calls VALUES (0, NULL);
+CREATE TABLE public.closer_calls(n integer NOT NULL, fail_on_call integer, sleep_on_call integer);
+INSERT INTO public.closer_calls VALUES (0, NULL, NULL);
+CREATE TABLE public.landed_calls(at timestamptz NOT NULL DEFAULT clock_timestamp());
 CREATE FUNCTION public.fn_resolve_settled_financial_alerts(p_apply boolean DEFAULT false, p_limit integer DEFAULT 5000)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp' AS $f$
 DECLARE v_settled integer; v_proven jsonb;
 BEGIN
   UPDATE closer_calls SET n = n + 1;
   IF (SELECT n = fail_on_call FROM closer_calls) THEN RAISE EXCEPTION 'injected page failure'; END IF;
+  IF (SELECT n = sleep_on_call FROM closer_calls) THEN PERFORM pg_sleep(30); END IF;
   WITH c AS (
     UPDATE financial_alerts a SET resolved=true, resolved_at=now(), resolution='verified: completion receipt'
      WHERE a.id IN (SELECT x.id FROM financial_alerts x WHERE NOT x.resolved AND x.context->>'settled'='true'
@@ -73,4 +75,4 @@ END $f$;
 CREATE FUNCTION smarter_private.financial_alerts_proven_over(p_apply boolean, p_limit integer)
 RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('proven_over', 0, 'echoes_closed', 0) $$;
 CREATE FUNCTION public.fn_ca_resolve_landed_unreachable_hand_alerts()
-RETURNS integer LANGUAGE sql AS $$ SELECT 0 $$;
+RETURNS integer LANGUAGE sql AS $$ INSERT INTO landed_calls DEFAULT VALUES; SELECT 0 $$;
