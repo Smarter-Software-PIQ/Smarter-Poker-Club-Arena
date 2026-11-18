@@ -2,6 +2,11 @@
 -- answer. Posting dates deliberately disagree with the authoritative clocks.
 BEGIN;
 UPDATE public.ca_promo_play_through_settings SET enforced_from=now()-interval '4 hours' WHERE id;
+-- Vary only unrelated, fully historical player attributions to exercise both
+-- the short membership lookup and the clock-window lookup with every case.
+INSERT INTO public.rake_attributions(hand_id,club_id,player_id,rake_amount,created_at)
+SELECT md5('historic-fee-'||n)::uuid,:'club',:'member',1,now()-interval '30 days'
+FROM generate_series(1,:historical_rows) n;
 CREATE TEMP TABLE fee_clock_case (
   n integer PRIMARY KEY, posted interval NOT NULL, retained interval,
   original interval, amount numeric NOT NULL

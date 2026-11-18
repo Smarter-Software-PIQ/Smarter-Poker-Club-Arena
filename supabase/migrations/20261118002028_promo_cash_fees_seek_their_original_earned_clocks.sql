@@ -1,6 +1,6 @@
 -- Seek each original cash fee clock in its own time index. A late posting
 -- retains the hand's earned clock. Missing post-enforcement clocks still refuse.
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure))='a66fb0f9c2151ec077ea5c52ba1a4b5b' AND EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid=to_regclass('public.ca_promo_cash_clock_earned_hand') AND i.indisvalid AND i.indisready AND pg_get_indexdef(i.indexrelid)='CREATE INDEX ca_promo_cash_clock_earned_hand ON public.ca_promo_cash_hand_clocks USING btree (accepted_at, hand_id)'))
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure))='ce0857b0f9b897417f1970d99244bf59' AND EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid=to_regclass('public.ca_promo_cash_clock_earned_hand') AND i.indisvalid AND i.indisready AND pg_get_indexdef(i.indexrelid)='CREATE INDEX ca_promo_cash_clock_earned_hand ON public.ca_promo_cash_hand_clocks USING btree (accepted_at, hand_id)'))
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS ca_promo_cash_clock_earned_hand
   ON public.ca_promo_cash_hand_clocks (accepted_at, hand_id);
@@ -28,55 +28,80 @@ CREATE OR REPLACE FUNCTION public.fn_ca_promo_fee_events(p_club uuid, p_user uui
  SET search_path TO 'public', 'pg_temp'
 AS $function$
  WITH cash AS MATERIALIZED (
-  -- A retained clock outranks the original commit, even if that commit is
-  -- outside the interval or was pruned. Seek by the actual earned timestamp.
-  SELECT clock.earned_at,a.rake_amount AS fee_credit
-  FROM (
-    SELECT h.hand_id,h.accepted_at AS earned_at
-    FROM public.ca_promo_cash_hand_clocks h
-    WHERE h.accepted_at>=p_from AND h.accepted_at<p_to
+  -- A new or infrequent player usually has fewer rows than the global
+  -- clock window has hands. Read at most 257 player index entries to select
+  -- a plan. This is a cost decision only: both plans honor every fee.
+  WITH member_probe AS MATERIALIZED (
+    SELECT a.hand_id,a.club_id,a.created_at,a.rake_amount
+    FROM public.rake_attributions a
+    WHERE a.player_id=p_user
+    LIMIT 257
+  ), route AS MATERIALIZED (
+    SELECT count(*)=257 AS use_clock_window FROM member_probe
+  )
+  SELECT COALESCE(h.accepted_at,CASE WHEN isfinite(original.committed_at) THEN original.committed_at END,a.created_at) AS earned_at,
+    CASE WHEN h.hand_id IS NULL AND (original.committed_at IS NULL OR NOT isfinite(original.committed_at))
+      AND a.rake_amount<>0 AND a.created_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id)
+      THEN public.fn_ca_promo_cash_fee_clock_missing(a.hand_id) ELSE a.rake_amount END AS fee_credit
+  FROM member_probe a
+  LEFT JOIN public.ca_promo_cash_hand_clocks h ON h.hand_id=a.hand_id
+  LEFT JOIN public.hand_atomic_commits original ON h.hand_id IS NULL AND original.hand_id=a.hand_id
+  WHERE NOT (SELECT use_clock_window FROM route) AND a.club_id=p_club
+    AND (a.created_at<p_to OR h.accepted_at<p_to OR original.committed_at<p_to)
+  UNION ALL
+  SELECT by_clock.earned_at,by_clock.fee_credit FROM (
+    -- A retained clock outranks the original commit, even if that commit is
+    -- outside the interval or was pruned. Seek by the actual earned timestamp.
+    SELECT clock.earned_at,a.rake_amount AS fee_credit
+    FROM (
+      SELECT h.hand_id,h.accepted_at AS earned_at
+      FROM public.ca_promo_cash_hand_clocks h
+      WHERE h.accepted_at>=p_from AND h.accepted_at<p_to
+      UNION ALL
+      SELECT original.hand_id,original.committed_at
+      FROM public.hand_atomic_commits original
+      WHERE original.committed_at>=p_from AND original.committed_at<p_to
+        AND isfinite(original.committed_at)
+        AND NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks h
+                       WHERE h.hand_id=original.hand_id)
+      -- Visit adjacent B-tree keys together across the global time window.
+      ORDER BY hand_id
+    ) clock
+    CROSS JOIN LATERAL (
+      -- Probe the unique (hand_id,player_id) key for each clock in the window.
+      -- Keep the parameterized lookup so a skewed player cardinality cannot
+      -- pull that player's entire attribution history through both clock joins.
+      SELECT r.rake_amount FROM public.rake_attributions r
+      WHERE r.hand_id=clock.hand_id AND r.player_id=p_user AND r.club_id=p_club
+      OFFSET 0
+    ) a
     UNION ALL
-    SELECT original.hand_id,original.committed_at
+    -- Without either clock the attribution timestamp is the legacy fallback.
+    -- A nonzero post-enforcement fee with no clock must still refuse even
+    -- when its posting predates this grant. Retain the materialization barrier
+    -- so the caller's earned-at filter cannot erase the integrity check.
+    SELECT a.created_at,
+      CASE WHEN a.rake_amount<>0 AND a.created_at>=s.enforced_from
+           THEN public.fn_ca_promo_cash_fee_clock_missing(a.hand_id)
+           ELSE a.rake_amount END
+    FROM public.rake_attributions a
+    CROSS JOIN (SELECT (SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) AS enforced_from) s
+    WHERE a.player_id=p_user AND a.club_id=p_club
+      AND a.created_at>=LEAST(p_from,s.enforced_from) AND a.created_at<p_to
+      AND NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks h WHERE h.hand_id=a.hand_id)
+      AND NOT EXISTS(SELECT 1 FROM public.hand_atomic_commits original WHERE original.hand_id=a.hand_id
+                     AND isfinite(original.committed_at))
+    UNION ALL
+    -- The old upper bound also admitted a missing clock with a minus-infinity
+    -- original before p_to even when its attribution was posted later.
+    SELECT a.created_at,public.fn_ca_promo_cash_fee_clock_missing(a.hand_id)
     FROM public.hand_atomic_commits original
-    WHERE original.committed_at>=p_from AND original.committed_at<p_to
-      AND isfinite(original.committed_at)
-      AND NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks h
-                     WHERE h.hand_id=original.hand_id)
-  ) clock
-  CROSS JOIN LATERAL (
-    -- Probe the unique (hand_id,player_id) key for each clock in the window.
-    -- Keep the parameterized lookup so a skewed player cardinality cannot
-    -- pull that player's entire attribution history through both clock joins.
-    SELECT r.rake_amount FROM public.rake_attributions r
-    WHERE r.hand_id=clock.hand_id AND r.player_id=p_user AND r.club_id=p_club
-    OFFSET 0
-  ) a
-  UNION ALL
-  -- Without either clock the attribution timestamp is the legacy fallback.
-  -- A nonzero post-enforcement fee with no clock must still refuse even
-  -- when its posting predates this grant. Retain the materialization barrier
-  -- so the caller's earned-at filter cannot erase the integrity check.
-  SELECT a.created_at,
-    CASE WHEN a.rake_amount<>0 AND a.created_at>=s.enforced_from
-         THEN public.fn_ca_promo_cash_fee_clock_missing(a.hand_id)
-         ELSE a.rake_amount END
-  FROM public.rake_attributions a
-  CROSS JOIN (SELECT (SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id) AS enforced_from) s
-  WHERE a.player_id=p_user AND a.club_id=p_club
-    AND a.created_at>=LEAST(p_from,s.enforced_from) AND a.created_at<p_to
-    AND NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks h WHERE h.hand_id=a.hand_id)
-    AND NOT EXISTS(SELECT 1 FROM public.hand_atomic_commits original WHERE original.hand_id=a.hand_id
-                   AND isfinite(original.committed_at))
-  UNION ALL
-  -- The old upper bound also admitted a missing clock with a minus-infinity
-  -- original before p_to even when its attribution was posted later.
-  SELECT a.created_at,public.fn_ca_promo_cash_fee_clock_missing(a.hand_id)
-  FROM public.hand_atomic_commits original
-  JOIN public.rake_attributions a ON a.hand_id=original.hand_id
-  WHERE original.committed_at='-infinity'::timestamptz AND original.committed_at<p_to
-    AND a.created_at>=p_to AND a.created_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id)
-    AND a.player_id=p_user AND a.club_id=p_club AND a.rake_amount<>0
-    AND NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks h WHERE h.hand_id=original.hand_id)
+    JOIN public.rake_attributions a ON a.hand_id=original.hand_id
+    WHERE original.committed_at='-infinity'::timestamptz AND original.committed_at<p_to
+      AND a.created_at>=p_to AND a.created_at>=(SELECT enforced_from FROM public.ca_promo_play_through_settings WHERE id)
+      AND a.player_id=p_user AND a.club_id=p_club AND a.rake_amount<>0
+      AND NOT EXISTS(SELECT 1 FROM public.ca_promo_cash_hand_clocks h WHERE h.hand_id=original.hand_id)
+  ) by_clock WHERE (SELECT use_clock_window FROM route)
  ), sources AS MATERIALIZED (
   SELECT s.id,s.rake_record_id,s.tournament_id,s.charged_at,s.rake_credit
    FROM public.accounting_tournament_fee_sources s

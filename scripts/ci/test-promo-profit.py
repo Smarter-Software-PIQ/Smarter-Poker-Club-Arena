@@ -113,11 +113,13 @@ def main():
   fee_clocks=ROOT/'tests/fixtures/promo-profit-fee-clocks/native.sql'
   track(fee_clocks)
   original_cases=f"\\set club '{C}'\n\\set member '{A}'\n\\set table '{T}'\n"+fee_clocks.read_text()
-  db.run(original_cases)
+  for historical_rows in (0,300):
+   db.run(f"\\set historical_rows {historical_rows}\n"+original_cases)
   runfile(ROOT/'supabase/migrations/20261118002028_promo_cash_fees_seek_their_original_earned_clocks.sql')
-  db.run(original_cases)
+  for historical_rows in (0,300):
+   db.run(f"\\set historical_rows {historical_rows}\n"+original_cases)
   check('original fee clock reader remains owner-only and matches the reviewed body',"""
-    SELECT md5(pg_get_functiondef(oid))='a66fb0f9c2151ec077ea5c52ba1a4b5b' AND prosecdef
+    SELECT md5(pg_get_functiondef(oid))='ce0857b0f9b897417f1970d99244bf59' AND prosecdef
       AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
     FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
   """,'t')
