@@ -604,8 +604,9 @@ export const NOT_REHEARSED = {
 const REHEARSED_SCHEMAS = new Set(['public', 'smarter_private']);
 
 /**
- * SQL (run as a superuser on the copy): loadSql puts back the rows production's
- * guards read; triggerSql re-creates production's event triggers.
+ * SQL for the copy: loadSql (as a superuser) puts back the rows production's
+ * guards read; triggerSql (as postgres, their owner on production)
+ * re-creates production's event triggers.
  * @param {string} eventTriggersTsv  name, event, function, schema, tags (|-joined)
  * @param {Record<string, string>} copies  table -> COPY text
  */
@@ -897,7 +898,10 @@ function rehearse() {
     statics.set(name, { sql, pins, guards, fns });
   }
 
-  const triggered = admin(arm.triggerSql);
+  // As postgres, the role production's event triggers belong to: Supabase
+  // refuses a superuser running an event trigger whose function a
+  // non-superuser owns, and production's are owned by postgres.
+  const triggered = psql(arm.triggerSql);
   if (triggered.status !== 0) {
     say(
       `- **UNKNOWN**: production's event triggers could not be re-created on the copy (${triggered.out.trim().split('\n').pop()}); this is not a pass.`
