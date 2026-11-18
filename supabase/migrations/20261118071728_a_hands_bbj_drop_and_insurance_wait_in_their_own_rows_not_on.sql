@@ -255,6 +255,13 @@ SELECT x.t, x.g, x.n
   ) AS x(t, g, n)
 ON CONFLICT (table_name, trigger_name) DO UPDATE SET note = EXCLUDED.note;
 
+-- A function that can move money is registered before it exists
+-- (fn_ca_money_rpc_registry_guard). Production refused this file without it
+-- on 2026-11-18 13:30 UTC (42501); nothing installed.
+INSERT INTO public.ca_money_rpc_registry (proname, status, notes) VALUES
+  ('fn_ca_bank_pending_hand_obligations', 'approved',
+   'Incident 075013fd: banks a hand''s stored BBJ drop and insurance legs (hand_bank_obligation_pending) through the same bbj_record_contribution / record_insurance_transaction calls the envelope used to make, argument for argument. Engine-only (fn_caller_is_engine). Never waits on a shared row: try-lock on the union pool key and insurance-bank key, pool and wallet rows NOWAIT, 250 ms budget. Journaled by the callees; the pending row is deleted in the same transaction and the felt tally (zy_ca_tally_balance_move / zz_ca_balance_has_its_ledger_row) proves the movement. Inserts a bbj_pools row only where the envelope would have.');
+
 CREATE FUNCTION public.fn_ca_bank_pending_hand_obligations(p_hand_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
