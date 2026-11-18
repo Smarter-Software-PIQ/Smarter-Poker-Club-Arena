@@ -158,6 +158,17 @@ describe('per-decision rule receipts', () => {
     ]);
   });
 
+  it('records nothing inside a DEEP second-look capture, and the scope records again after it', () => {
+    const run = telemetry.withDecisionFireScope(() => {
+      const deep = telemetry.withSecondLookFireCapture(() =>
+        telemetry.noteDecisionRuleReceipt('omaha_river_non_nut_raise_flatted', raise, call)
+      );
+      expect(deep.fired.size).toBe(0);
+      telemetry.noteDecisionRuleReceipt('v81_river_set_big_bet_fold', call, fold);
+    });
+    expect(run.ruleReceipts.map((r) => r.receipt)).toEqual(['v81_river_set_big_bet_fold']);
+  });
+
   it('a non-finite or missing amount is recorded as no amount', () => {
     const run = telemetry.withDecisionFireScope(() =>
       telemetry.noteDecisionRuleReceipt(

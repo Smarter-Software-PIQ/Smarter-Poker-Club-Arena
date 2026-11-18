@@ -459,6 +459,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       withHorseDeepDiveCapture: [2, 'detaches the deep-dive collector for a counterfactual'],
       withBrainTelemetrySuspended: [1, 'pauses the counters for the tight-read counterfactual'],
       inSecondLookCapture: [1, 'the live test itself'],
+      noteDecisionRuleReceipt: [
+        6,
+        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the open decision scope; records nothing inside a second-look capture (refused by name), never read before the decision is made',
+      ],
     },
     methods: {
       'bands.some': [1, 'pure read of a local array; chooses a receipt name'],
