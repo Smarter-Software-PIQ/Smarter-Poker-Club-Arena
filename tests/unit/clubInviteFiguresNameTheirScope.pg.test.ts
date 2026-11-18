@@ -8,10 +8,10 @@
  * Installs the real migration on a scratch PostgreSQL over a minimal copy of
  * the production shapes it reads (the member and union-floor counters are the
  * production bodies) and checks what each figure measures and how it is named:
- *   - members are this club's measured members, worded "N Members In <Club>";
+ *   - measured members stay intact; Kings Club also has a disclosed display total;
  *   - activity is distinct players (not seats, not away) on the floor the club
  *     plays on: its own union, named from the database, or the club itself;
- *   - configured display additions are zero and cannot be set again;
+ *   - the retired configuration stays disabled; Kings Club uses its own display RPC;
  *   - an unreadable figure is NULL and its line is omitted, never a zero;
  *   - the landing page / preview read and the copied-message read carry the
  *     same lines.
@@ -27,10 +27,11 @@ const MIGRATIONS = readdirSync(join(ROOT, 'supabase/migrations'))
   .filter(
     (f) =>
       f.includes('_club_invite_counts_name_their_scope_and_show_measured_figure') ||
-      f.includes('_the_union_player_count_names_its_horses_and_club_levels_foll')
+      f.includes('_the_union_player_count_names_its_horses_and_club_levels_foll') ||
+      f.includes('_kings_club_labeled_display_totals')
   )
   .sort();
-const MIGRATION = MIGRATIONS.length === 2 ? MIGRATIONS[0] : undefined;
+const MIGRATION = MIGRATIONS.length === 3 ? MIGRATIONS[0] : undefined;
 const bin = [
   process.env.PG_BIN,
   '/opt/homebrew/opt/postgresql@17/bin',
@@ -273,7 +274,7 @@ describe('club invite figures name their scope', () => {
   it('club members and union activity are separate figures, each named', () => {
     const f = figures(KINGS);
     expect(f.members).toBe(4);
-    expect(f.members_line).toBe('4 Members In KINGS CLUB');
+    expect(f.members_line).toBe('1,504 KINGS CLUB Member Display Total (+1,500 Configured)');
     expect(f.activity_scope).toBe('union');
     expect(f.activity_scope_name).toBe('Midway Union');
     expect(f.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
@@ -344,7 +345,7 @@ describe('club invite figures name their scope', () => {
     expect(f.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
   });
 
-  it('configured display additions are retired and cannot be set again', () => {
+  it('the retired shared configuration stays locked at zero', () => {
     expect(figures(DSS).members).toBe(2);
     expect(
       psql(
@@ -368,23 +369,46 @@ describe('club invite figures name their scope', () => {
     ).not.toBe(0);
   });
 
-  it('the landing page read and the copied-message read carry the same two lines', () => {
+  it('the landing page read and the copied-message read carry the same disclosed totals and separate union line as the card', () => {
     const resolved = json(
       `SELECT (public.fn_club_invite_resolve('ZG9YGMZ', false)->'club')::text;`
     );
     expect(resolved.member_count).toBe(4);
     expect(resolved.players_playing).toBe(3);
-    expect(resolved.members_line).toBe('4 Members In KINGS CLUB');
+    expect(resolved.members_line).toBe('1,504 KINGS CLUB Member Display Total (+1,500 Configured)');
     expect(resolved.activity_line).toBe('3 Players Across Midway Union Now · Includes Horses');
     expect(resolved.activity_scope_name).toBe('Midway Union');
     const link = json(
       `SET test.uid = '${u(1)}'; SELECT (public.fn_club_invite_link('${KINGS}')->'figures')::text;`
     );
+    const card = json('SELECT public.fn_kings_club_display_totals()::text;');
+    expect(card).toEqual({
+      member_total: 1504,
+      active_total: 146,
+      member_addition: 1500,
+      active_addition: 145,
+    });
+    expect(resolved.club_active_display_line).toBe(
+      '146 KINGS CLUB Active Display Total (+145 Configured)'
+    );
+    expect(link.club_active_display_line).toBe(resolved.club_active_display_line);
     expect(link.members_line).toBe(resolved.members_line);
     expect(link.activity_line).toBe(resolved.activity_line);
     expect(
       psql(`SELECT click_count FROM public.club_invite_links WHERE code = 'ZG9YGMZ';`).stdout.trim()
     ).toBe('0');
+  });
+
+  it('recomputes the display for measured zero club activity and measures the union independently', () => {
+    const during = json(`BEGIN;
+      UPDATE public.table_seats SET is_away = true WHERE user_id = '${u(1)}';
+      SELECT public.fn_club_share_figures('${KINGS}')::text;
+      ROLLBACK;`);
+    expect(during.club_active_display_line).toBe(
+      '145 KINGS CLUB Active Display Total (+145 Configured)'
+    );
+    expect(during.players_playing).toBe(2);
+    expect(figures(KINGS).players_playing).toBe(3);
   });
 
   it('unavailable activity is omitted, never a zero or another metric', () => {
@@ -396,7 +420,7 @@ describe('club invite figures name their scope', () => {
     const f = figures(KINGS);
     expect(f.players_playing).toBeNull();
     expect(f.activity_line).toBeNull();
-    expect(f.members_line).toBe('4 Members In KINGS CLUB');
+    expect(f.members_line).toBe('1,504 KINGS CLUB Member Display Total (+1,500 Configured)');
     const resolved = json(
       `SELECT (public.fn_club_invite_resolve('ZG9YGMZ', false)->'club')::text;`
     );
@@ -407,6 +431,7 @@ describe('club invite figures name their scope', () => {
       RETURNS TABLE(club_id uuid, active_count bigint, cash_count bigint, event_count bigint)
       LANGUAGE plpgsql STABLE AS $f$ BEGIN RAISE EXCEPTION 'club floor read failed'; END $f$;`);
     expect(c.status, c.stderr).toBe(0);
+    expect(figures(KINGS).club_active_display_line).toBeNull();
     const solo = figures(SOLO);
     expect(solo.activity_line).toBeNull();
     expect(solo.members_line).toBe('1 Member In Solo Room');
@@ -418,6 +443,10 @@ describe('club invite figures name their scope', () => {
       || '/' || has_function_privilege('authenticated', 'public.fn_club_share_figures(uuid)', 'EXECUTE')
       || '/' || has_function_privilege('service_role', 'public.fn_club_share_figures(uuid)', 'EXECUTE');`);
     expect(acl.stdout.trim()).toBe('false/false/true');
+    expect(
+      psql(`SELECT has_function_privilege('anon', 'public.fn_kings_club_display_totals()', 'EXECUTE')
+        || '/' || has_function_privilege('authenticated', 'public.fn_kings_club_display_totals()', 'EXECUTE');`).stdout.trim()
+    ).toBe('false/true');
     expect(
       psql(`SELECT to_regprocedure('public.fn_club_card_figures(uuid)') IS NULL;`).stdout.trim()
     ).toBe('t');
