@@ -208,6 +208,76 @@ export function omahaReraisedEquity(
   return got >= samples / 2 ? won / got : null;
 }
 
+/**
+ * The same sampler against SEVERAL opponents at once (2026-11-18, the priced
+ * call of a re-raise with other players already in for the price): hero's
+ * share of one pot against one holding per range, drawn without replacement
+ * from the unseen deck (each by rejection against its own range, in order),
+ * over a random run-out; a tie splits among the tied hands. Side pots are not
+ * modelled (every opponent contests the whole pot). Deterministic for given
+ * cards; no draw from the brain's random stream. Null when too few samples
+ * could be drawn.
+ */
+export function omahaReraisedEquityAgainst(
+  hole: readonly Card[],
+  dead: readonly Card[],
+  ranges: readonly ((h: readonly Card[]) => boolean)[],
+  samples: number = RERAISED_EQUITY_SAMPLES
+): number | null {
+  const size = hole.length;
+  const deck = unseenDeck([...hole, ...dead]);
+  if (ranges.length === 0 || deck.length < size * ranges.length + 5) return null;
+  const rnd = generator(seedOf([...hole]) ^ (0x9e3779b9 * ranges.length));
+  const draw = (n: number, from: Card[]): Card[] => {
+    for (let i = 0; i < n; i++) {
+      const j = i + Math.floor(rnd() * (from.length - i));
+      const t = from[i];
+      from[i] = from[j];
+      from[j] = t;
+    }
+    return from.splice(0, n);
+  };
+  let won = 0;
+  let got = 0;
+  const budget = samples * 200 * ranges.length;
+  let tries = 0;
+  while (got < samples && tries < budget) {
+    const d = deck.slice();
+    const opps: Card[][] = [];
+    for (const inRange of ranges) {
+      let found: Card[] | null = null;
+      // each opponent by rejection against his own range, from what is left
+      for (let k = 0; k < 200 && tries < budget && found === null; k++) {
+        tries++;
+        const probe = d.slice();
+        const h = draw(size, probe);
+        if (inRange(h)) {
+          found = h;
+          d.length = 0;
+          d.push(...probe);
+        }
+      }
+      if (found === null) break;
+      opps.push(found);
+    }
+    if (opps.length !== ranges.length) continue;
+    const run = draw(5, d);
+    const mine = scoreOmahaHi([...hole], run);
+    let best = mine;
+    let tied = 1;
+    for (const o of opps) {
+      const s = scoreOmahaHi(o, run);
+      if (s > best) {
+        best = s;
+        tied = 1;
+      } else if (s === best) tied++;
+    }
+    if (mine === best) won += 1 / tied;
+    got++;
+  }
+  return got >= samples / 2 ? won / got : null;
+}
+
 export interface OmahaReraisedInput {
   variant: string;
   street: string;
