@@ -43,6 +43,7 @@ import { useWalletStore } from '../stores/useWalletStore';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useBridgeRate } from '../hooks/useBridgeRate';
 import { CashoutRefusedError, type CashoutRequest } from '../services/CashoutService';
+import { CASHOUT_NOTE_LIMIT } from '../utils/cashoutNote';
 import { validateCashoutAmount } from '../utils/cashoutAmount';
 import { useCashoutScope, useCashoutScopeKey } from '../hooks/useCashoutScope';
 import {
@@ -308,6 +309,7 @@ function CashierContent() {
   const [action, setActionState] = useState<CashierAction>('send');
   const tableRouteOnly = !!tableId && (action === 'buyin' || action === 'cashout');
   const [amount, setAmountState] = useState('');
+  const [cashoutNote, setCashoutNoteState] = useState('');
   const preparationAmount = validateCashoutAmount(amount);
   const cashoutPreparations = usePreparedCashoutOperations(
     action === 'cashout' && !tableId && user?.id && clubId && preparationAmount.ok
@@ -321,6 +323,7 @@ function CashierContent() {
               targetId: user.id,
               kind: 'cashout_request',
               amount: preparationAmount.amount,
+              note: cashoutNote,
             },
           },
         ]
@@ -328,6 +331,10 @@ function CashierContent() {
     isCashoutCurrent,
     null
   );
+  const setCashoutNote = (value: string) => {
+    cashoutPreparations.invalidate();
+    setCashoutNoteState(value);
+  };
   const setAmount = (value: string) => {
     cashoutPreparations.invalidate();
     const previousAmount =
@@ -590,6 +597,7 @@ function CashierContent() {
   useEffect(() => {
     setAction('send');
     setAmount('');
+    setCashoutNote('');
     setIsProcessing(false);
     setCooldown(0);
     setMessage(null);
@@ -1647,6 +1655,7 @@ function CashierContent() {
   );
 
   const showCashoutResult = (value: number, receipt: CashoutRequest) => {
+    setCashoutNote('');
     setMessage({
       type: 'success',
       text:
@@ -3338,6 +3347,24 @@ function CashierContent() {
                     />
                     {amountFeedback}
                   </div>
+
+                  {action === 'cashout' && !tableId && (
+                    <div className={styles.formGroup}>
+                      <label className="sc-label sc-ink--blue" htmlFor="cashier-cashout-note">
+                        Note For Agent (Optional)
+                      </label>
+                      <textarea
+                        id="cashier-cashout-note"
+                        className={styles.input}
+                        value={cashoutNote}
+                        onChange={(event) => setCashoutNote(event.target.value)}
+                        maxLength={CASHOUT_NOTE_LIMIT}
+                        rows={3}
+                        disabled={isProcessing}
+                        placeholder="Any Message For Your Agent..."
+                      />
+                    </div>
+                  )}
 
                   {action === 'mint' && amount && (
                     <div className="sc-copy">

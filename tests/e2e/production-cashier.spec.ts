@@ -424,6 +424,37 @@ test.describe('Production Cashier Certification', () => {
     await attachCashierScreenshot(page, testInfo, 'trade-wallet-picker');
   });
 
+  test('shows the persistent request note field without submitting a cashout', async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 393, height: 852 });
+    const writes: string[] = [];
+    await page.route(
+      /\/rest\/v1\/rpc\/fn_cashout_(?:request|approve|release|escalate)(?:_v2)?$/,
+      async (route) => {
+        writes.push(route.request().url());
+        await route.abort('blockedbyclient');
+      }
+    );
+    const clubId = process.env.E2E_CLUB_ID || DEFAULT_E2E_CLUB_ID;
+    await page.goto(`clubs/${clubId}/cashier`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await expect(page.locator('[data-cashier-surface="trade"]')).toBeVisible({ timeout: 60_000 });
+    await page.getByRole('button', { name: 'Request Cash Out', exact: true }).click();
+    const note = page.getByLabel('Note For Agent (Optional)', { exact: true });
+    await expect(note).toBeVisible();
+    await expect(note).toHaveAttribute('maxlength', '2000');
+    await note.fill('Read-only field verification.\nNo cashout will be submitted.');
+    await expect(note).toHaveValue('Read-only field verification.\nNo cashout will be submitted.');
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    ).toBe(true);
+    await testInfo.attach('cashout-note-mobile.png', {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+    expect(writes).toEqual([]);
+  });
+
   test('keeps the Arena home free of bottom cards on mobile and desktop', async ({
     page,
   }, testInfo) => {

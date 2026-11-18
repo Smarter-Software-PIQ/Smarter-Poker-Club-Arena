@@ -34,6 +34,8 @@ import {
   isFixedLimitCapped,
 } from './BettingStructure.js';
 import type { GameState } from '../types.js';
+import { loadSeatedPlayers, loadSeatHoldIdentity } from '../services/supabase.js';
+import type { SeatArrival } from './SeatArrivalDisplay.js';
 import {
   projectLiveHandState,
   projectResyncHandState,
@@ -118,7 +120,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     }
     return {
       ...payload,
-      players,
+      players: this.withSeatArrivals(players),
       waiting_for_bb_user_ids: Array.from(this.waitingForBB),
       post_bb_deferred_user_ids: Array.from(this.postBBWhenClear),
       posting_bb_user_ids: Array.from(this.postingBBToEnter),
@@ -717,6 +719,142 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         ...this.chipContinuity.seatFields(p.user_id, p.stack),
       })),
     };
+    (payload as Record<string, any>).players = this.withSeatArrivals(payload.players);
     this.hub.publish(this.tableId, payload);
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // A CHAIR IS SHOWN THE MOMENT IT IS TAKEN (Dan 2026-11-17, SeatArrivalDisplay)
+  // ═════════════════════════════════════════════════════════════════════════════
+
+  private seatArrivalExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Append every tap and committed buy-in the hand boundary has not adopted
+   * yet. A chair or player already on the payload keeps its entry: the roster
+   * and the hand own their seats, these only fill chairs they leave empty.
+   */
+  private withSeatArrivals(players: Array<Record<string, any>>): Array<Record<string, any>> {
+    const arrivals = this.seatArrivals.live(Date.now());
+    if (arrivals.length === 0) return players;
+    const out = [...players];
+    const userIds = new Set(out.map((p) => p.user_id));
+    const seats = new Set(out.map((p) => p.seat));
+    for (const a of arrivals) {
+      if (userIds.has(a.user_id) || seats.has(a.seat_number)) continue;
+      out.push(this.seatArrivalWire(a));
+      userIds.add(a.user_id);
+      seats.add(a.seat_number);
+    }
+    return out;
+  }
+
+  private seatArrivalWire(a: SeatArrival): Record<string, any> {
+    return {
+      seat: a.seat_number,
+      user_id: a.user_id,
+      ...this.seatIdentity(a),
+      stack: a.stack ?? 0,
+      bet: 0,
+      totalInvested: 0,
+      cards: [],
+      is_folded: false,
+      is_all_in: false,
+      // Not dealt in. The arrival label says why.
+      is_sitting_out: true,
+      is_disconnected: false,
+      position: '',
+      is_waiting_for_button: false,
+      is_waiting_for_bb: false,
+      hand_name: '',
+      seat_arrival: a.kind,
+    };
+  }
+
+  /** Publish the change, and close the earliest open buy-in window on time. */
+  private publishSeatArrivals(): void {
+    this.broadcastCurrentState().catch((err) =>
+      reportError(err, 'ServerTableEngine.' + this.tableId + '.seat_arrival_broadcast_failed')
+    );
+    if (this.seatArrivalExpiryTimer) clearTimeout(this.seatArrivalExpiryTimer);
+    this.seatArrivalExpiryTimer = null;
+    const now = Date.now();
+    const next = this.seatArrivals.nextExpiry(now);
+    if (next === null) return;
+    const timer = setTimeout(
+      () => {
+        this.seatArrivalExpiryTimer = null;
+        if (this.running) this.publishSeatArrivals();
+      },
+      Math.max(0, next - now) + 25
+    );
+    (timer as { unref?: () => void }).unref?.();
+    this.seatArrivalExpiryTimer = timer;
+  }
+
+  /**
+   * POST /seat_arrival. `hold`: the + tap. `release`: the buy-in sheet closed
+   * unpaid. `seated`: the buy-in committed; every committed seat row this
+   * engine has not adopted yet is read from the database and shown, so the
+   * chair is never left drawn as open while its occupant waits for a hand.
+   */
+  public async noteSeatArrival(
+    userId: string,
+    request: { state: 'hold' | 'release' | 'seated'; seatNumber?: number }
+  ): Promise<{ ok: true; expires_at_ms?: number } | { ok: false; reason: string }> {
+    if (!this.tableInfo || !this.running) return { ok: false, reason: 'table_not_running' };
+    if (this.isTournamentTable()) return { ok: false, reason: 'tournament_table' };
+    if (request.state === 'release') {
+      if (this.seatArrivals.release(userId)) this.publishSeatArrivals();
+      return { ok: true };
+    }
+    // Both remaining events judge against the committed rows, not the roster
+    // this engine last adopted, which can be a whole hand old.
+    const committed = await loadSeatedPlayers(this.tableId);
+    const adopted = new Set(this.seatedPlayers.map((p) => `${p.user_id}:${p.occupancy_id}`));
+    let changed = false;
+    for (const row of committed) {
+      if (adopted.has(`${row.user_id}:${row.occupancy_id}`)) continue;
+      this.seatArrivals.confirm({
+        user_id: row.user_id,
+        seat_number: row.seat_number,
+        stack: row.stack,
+        username: row.username,
+        avatar_url: row.avatar_url,
+        equipped_frame: row.equipped_frame,
+        equipped_aura: row.equipped_aura,
+      });
+      changed = true;
+    }
+    if (request.state === 'seated') {
+      if (changed) this.publishSeatArrivals();
+      return committed.some((p) => p.user_id === userId)
+        ? { ok: true }
+        : { ok: false, reason: 'not_seated' };
+    }
+    const identity = await loadSeatHoldIdentity(userId);
+    if (!identity) {
+      if (changed) this.publishSeatArrivals();
+      return { ok: false, reason: 'profile_not_found' };
+    }
+    const verdict = this.seatArrivals.hold(
+      userId,
+      Number(request.seatNumber),
+      identity,
+      {
+        seats: new Set([
+          ...this.seatedPlayers.map((p) => p.seat_number),
+          ...committed.map((p) => p.seat_number),
+        ]),
+        users: new Set([
+          ...this.seatedPlayers.map((p) => p.user_id),
+          ...committed.map((p) => p.user_id),
+        ]),
+      },
+      Number(this.tableInfo.max_players) || 0,
+      Date.now()
+    );
+    if (verdict.ok || changed) this.publishSeatArrivals();
+    return verdict.ok ? { ok: true, expires_at_ms: verdict.expires_at_ms } : verdict;
   }
 }

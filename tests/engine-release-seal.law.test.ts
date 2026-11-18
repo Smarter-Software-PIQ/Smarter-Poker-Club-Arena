@@ -2446,7 +2446,7 @@ describe('every host mutation path obeys the durable release authority', () => {
     const result = spawnSync('python3', ['-B', 'tests/operations/engine-control-activation.py'], {
       cwd: ROOT,
       encoding: 'utf8',
-      timeout: 20_000,
+      timeout: CHILD_HANG_GUARD_MS,
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stderr).toContain('Ran 1 test');
@@ -3203,7 +3203,7 @@ sys.exit(int(os.environ.get('FAKE_GIT_ARCHIVE_FAILURE', '0')))
       {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: 10_000,
+        timeout: CHILD_HANG_GUARD_MS,
       }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);

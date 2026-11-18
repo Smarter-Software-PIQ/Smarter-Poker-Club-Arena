@@ -32,6 +32,13 @@ import {
   type ShownRiverRead,
 } from './HorseLongShownMemory.js';
 import {
+  STREET_READ_ROW_LENGTH,
+  streetReadFromRow,
+  streetReadRow,
+  validStreetRead,
+  type StreetReadCounters,
+} from './HorseOmahaStreetRead.js';
+import {
   normalizeHorseObservationWindow,
   type HorseObservationWindow,
 } from './HorseObservationWindow.js';
@@ -57,7 +64,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v14'
     | 'horse-decision-reads-v15'
     | 'horse-decision-reads-v16'
-    | 'horse-decision-reads-v17';
+    | 'horse-decision-reads-v17'
+    | 'horse-decision-reads-v18';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -136,7 +144,16 @@ const SHOWN_RIVER_VERSION = 'horse-decision-reads-v16';
  * `DECIDE_FAST` did. Written only when the view carries such a row (never with the option off), so every snapshot
  * without one keeps its exact v1-v16 bytes. A v17 body always carries the v16 lists; they may be empty. */
 const PROFILE_COMPLETENESS_VERSION = 'horse-decision-reads-v17';
-const profileCompleted = (version: unknown) => version === PROFILE_COMPLETENESS_VERSION;
+/** 2026-11-17: v17 plus the postflop read by street and flop texture of the pooled exact rows the decision carried
+ * (`streetRead`: per Omaha row with a durable street read, [hit, opp] for each of its 17 cells,
+ * HorseOmahaStreetRead.streetReadRow), so a `DECIDE_DEEP` second look and an exact replay carry the same record
+ * `DECIDE_FAST` did. No decision reads it yet. Written only when the view carries such a row (never for a Hold'em
+ * decision, never before the column holds a record), so every snapshot without one keeps its exact v1-v17 bytes. A
+ * v18 body always carries the v17 lists; they may be empty, and it carries at least one street row. */
+const STREET_READ_VERSION = 'horse-decision-reads-v18';
+const streetReadCarried = (version: unknown) => version === STREET_READ_VERSION;
+const profileCompleted = (version: unknown) =>
+  version === PROFILE_COMPLETENESS_VERSION || streetReadCarried(version);
 const shownRivered = (version: unknown) =>
   version === SHOWN_RIVER_VERSION || profileCompleted(version);
 const longParticipated = (version: unknown) =>
@@ -262,7 +279,9 @@ type Body = {
     | typeof PRE_REPAIR_VERSION
     | typeof LONG_PARTICIPATION_VERSION
     | typeof SHOWN_RIVER_VERSION
-    | typeof PROFILE_COMPLETENESS_VERSION;
+    | typeof PROFILE_COMPLETENESS_VERSION
+    | typeof STREET_READ_VERSION;
+  streetRead?: Rows<number[]>;
   incompleteProfiles?: Rows<number[]>;
   pooledProvenance?: Rows<number[]>;
   exploitLong?: Rows<number[]>;
@@ -387,6 +406,7 @@ function validateBody(
       ...(longParticipated(value.version) ? ['exploitLong'] : []),
       ...(shownRivered(value.version) ? ['shownRiver'] : []),
       ...(profileCompleted(value.version) ? ['incompleteProfiles'] : []),
+      ...(streetReadCarried(value.version) ? ['streetRead'] : []),
       ...(flopStabbed(value.version) ? ['scopedFlopStab'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
@@ -560,17 +580,32 @@ function validateBody(
       return fail();
   }
   if (profileCompleted(value.version)) {
-    // [1]: every row names an exploit row this same frame carries, and a v17 body carries at least one.
+    // [1]: every row names an exploit row this same frame carries, and a v17 body carries at least one (a v18 body
+    // may carry none: it exists for its street rows).
     const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
     if (
       !Array.isArray(value.incompleteProfiles) ||
-      value.incompleteProfiles.length === 0 ||
+      (value.version === PROFILE_COMPLETENESS_VERSION && value.incompleteProfiles.length === 0) ||
       !validRows(
         value.incompleteProfiles,
         b.exploit,
         (v) => numbers(v, 1) && (v as number[])[0] === 1
       ) ||
       (value.incompleteProfiles as Rows<number[]>).some(([id]) => !carried.has(id))
+    )
+      return fail();
+  }
+  if (streetReadCarried(value.version)) {
+    // [hit, opp] per cell: every row is a valid street read (hit never above opp), names an exploit row this same
+    // frame carries, and a v18 body carries at least one (or it would have been v17 or older).
+    const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
+    const streetValid = (v: unknown) =>
+      numbers(v, STREET_READ_ROW_LENGTH) && streetReadFromRow(v as number[]) !== null;
+    if (
+      !Array.isArray(value.streetRead) ||
+      value.streetRead.length === 0 ||
+      !validRows(value.streetRead, b.exploit, streetValid) ||
+      (value.streetRead as Rows<number[]>).some(([id]) => !carried.has(id))
     )
       return fail();
   }
@@ -689,7 +724,15 @@ export function encodeHorseDecisionReads(
     if (flag !== true) return fail();
     return [id, [1]];
   });
-  const hasIncomplete = incompleteRows.length > 0;
+  const streetRows: Rows<number[]> = bounded(
+    view.pooledStreetRead ?? new Map<string, StreetReadCounters>(),
+    b.exploit.size
+  ).map(([id, row]: [string, StreetReadCounters]): [string, number[]] => {
+    if (!validStreetRead(row)) return fail();
+    return [id, streetReadRow(row)];
+  });
+  const hasStreetRead = streetRows.length > 0;
+  const hasIncomplete = incompleteRows.length > 0 || hasStreetRead;
   const hasShownRiver = shownRiverRows.length > 0 || hasIncomplete;
   const hasLong = longRows.length > 0 || hasShownRiver;
   const flopStabRows: Rows<number[]> = bounded(view.flopStab ?? new Map(), b.scoped.size).map(
@@ -789,6 +832,7 @@ export function encodeHorseDecisionReads(
       .filter(([, row]) => row.lrOpps !== undefined)
       .map(([id, row]) => [id, LIMP_RERAISE_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
+    ...(hasStreetRead ? { streetRead: streetRows } : {}),
     ...(hasIncomplete ? { incompleteProfiles: incompleteRows } : {}),
     ...(hasPreRepair ? { pooledProvenance: provenanceRows } : {}),
     ...(hasLong ? { exploitLong: longRows } : {}),
@@ -802,39 +846,41 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasIncomplete
-      ? PROFILE_COMPLETENESS_VERSION
-      : hasShownRiver
-        ? SHOWN_RIVER_VERSION
-        : hasLong
-          ? LONG_PARTICIPATION_VERSION
-          : hasPreRepair
-            ? PRE_REPAIR_VERSION
-            : hasFlopStab
-              ? FLOP_STAB_VERSION
-              : hasLimpReraise
-                ? LIMP_RERAISE_VERSION
-                : hasProbes
-                  ? PROBE_VERSION
-                  : hasFastCalldown
-                    ? FAST_CALLDOWN_VERSION
-                    : hasMultiwayRiver
-                      ? MULTIWAY_RIVER_VERSION
-                      : hasRiverRaise
-                        ? RIVER_RAISE_VERSION
-                        : hasRiverPosition
-                          ? RIVER_POSITION_VERSION
-                          : hasRiverCalls
-                            ? RIVER_CALL_VERSION
-                            : hasWinner
-                              ? WINNER_VERSION
-                              : hasExploit
-                                ? EXPLOIT_VERSION
-                                : hasWindows
-                                  ? WINDOW_VERSION
-                                  : planContext === undefined
-                                    ? VERSION
-                                    : ALLOCATED_VERSION,
+    version: hasStreetRead
+      ? STREET_READ_VERSION
+      : hasIncomplete
+        ? PROFILE_COMPLETENESS_VERSION
+        : hasShownRiver
+          ? SHOWN_RIVER_VERSION
+          : hasLong
+            ? LONG_PARTICIPATION_VERSION
+            : hasPreRepair
+              ? PRE_REPAIR_VERSION
+              : hasFlopStab
+                ? FLOP_STAB_VERSION
+                : hasLimpReraise
+                  ? LIMP_RERAISE_VERSION
+                  : hasProbes
+                    ? PROBE_VERSION
+                    : hasFastCalldown
+                      ? FAST_CALLDOWN_VERSION
+                      : hasMultiwayRiver
+                        ? MULTIWAY_RIVER_VERSION
+                        : hasRiverRaise
+                          ? RIVER_RAISE_VERSION
+                          : hasRiverPosition
+                            ? RIVER_POSITION_VERSION
+                            : hasRiverCalls
+                              ? RIVER_CALL_VERSION
+                              : hasWinner
+                                ? WINNER_VERSION
+                                : hasExploit
+                                  ? EXPLOIT_VERSION
+                                  : hasWindows
+                                    ? WINDOW_VERSION
+                                    : planContext === undefined
+                                      ? VERSION
+                                      : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -1034,9 +1080,14 @@ export function decodeHorseDecisionReads(
     view.pooledShownRiver = new Map(
       body.shownRiver!.map(([id, v]) => [id, shownRiverReadFromRow(v) ?? fail()])
     );
-  if (profileCompleted(body.version))
+  // A v18 body may carry an empty incomplete-profile list: it decodes like a frame without one.
+  if (profileCompleted(body.version) && body.incompleteProfiles!.length > 0)
     view.pooledProfileIncomplete = new Map(
       body.incompleteProfiles!.map(([id]): [string, true] => [id, true])
+    );
+  if (streetReadCarried(body.version))
+    view.pooledStreetRead = new Map(
+      body.streetRead!.map(([id, v]) => [id, streetReadFromRow(v) ?? fail()])
     );
   if (winnered(body.version))
     view.winnerReads = { rows: new Map(body.winnerReads), seen: new Set() };

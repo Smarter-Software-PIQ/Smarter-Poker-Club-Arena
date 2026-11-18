@@ -21,13 +21,17 @@ const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 describe('welcome-back chips land in the Club Arena', () => {
   it('welcome_chips is a push-nudge moment with its own copy', () => {
     expect(NUDGE_MOMENTS).toContain('welcome_chips');
-    expect(read('src/components/notifications/FirstRunPushPrompt.tsx')).toMatch(/welcome_chips: \{\s*title: 'Never Miss Free Chips Again'/);
+    expect(read('src/components/notifications/FirstRunPushPrompt.tsx')).toMatch(
+      /welcome_chips: \{\s*title: 'Never Miss Free Chips Again'/
+    );
   });
 
   it('HomePage opens the join modal from /?join=<code>&ref=<referral> and fires welcome_chips from /?welcome=chips', () => {
     const src = read('src/pages/HomePage.tsx');
     expect(src).toMatch(/searchParams\.get\('join'\)/);
-    expect(src).toMatch(/setJoinIntent\(\{ code: joinCode\.trim\(\), watchTableId: null, ref: searchParams\.get\('ref'\)/);
+    expect(src).toMatch(
+      /setJoinIntent\(\{\s*code: joinCode\.trim\(\),\s*watchTableId: null,\s*ref: searchParams\.get\('ref'\)/
+    );
     expect(src).toMatch(/setShowJoinModal\(true\)/);
     expect(src).toMatch(/initialRef=\{joinIntent\?\.ref \|\| undefined\}/);
     expect(src).toMatch(/welcome === 'chips'/);

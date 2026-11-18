@@ -13,6 +13,7 @@ import {
   RULE_FROM,
   WITNESS_FILE,
 } from '../scripts/ci/check-owner-window-notice-after-merge.mjs';
+import { OWNER_NOTICE_WAIVER_INSTRUCTION } from '../scripts/ci/owner-notice-waiver.mjs';
 
 const at = (iso: string) => Date.parse(iso);
 const window = (extra: Record<string, unknown> = {}) => ({
@@ -74,6 +75,31 @@ describe('a booking cannot give notice before it lands', () => {
     expect(
       bookingViolations(doc(window({ playerNoticeAt: undefined })), () => RULE_FROM - 1, Date.now())
     ).toEqual([]);
+  });
+
+  it('an engine window on the exact owner notice waiver (2026-11-17) has no notice to judge', () => {
+    const waived = window({
+      playerNoticeAt: undefined,
+      ownerOrder: `Synthetic order. ${OWNER_NOTICE_WAIVER_INSTRUCTION}`,
+      ownerNoticeWaiver: OWNER_NOTICE_WAIVER_INSTRUCTION,
+    });
+    delete (waived as Record<string, unknown>).playerNoticeAt;
+    expect(bookingViolations(doc(waived), () => null, at('2026-11-09T20:00:00Z'))).toEqual([]);
+    // The same record as a database window, or with a different sentence, is refused.
+    expect(
+      bookingViolations(
+        { windows: [], databaseWindows: [waived] },
+        () => null,
+        at('2026-11-09T20:00:00Z')
+      )
+    ).toEqual([expect.stringMatching(/^w: ownerNoticeWaiver is accepted only/)]);
+    expect(
+      bookingViolations(
+        doc({ ...waived, ownerNoticeWaiver: 'skip the notice' }),
+        () => null,
+        at('2026-11-09T20:00:00Z')
+      )
+    ).toEqual([expect.stringMatching(/^w: ownerNoticeWaiver is accepted only/)]);
   });
 
   it('runs on every pull request with full history, against the PR base', () => {

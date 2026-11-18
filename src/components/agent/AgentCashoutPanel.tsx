@@ -122,6 +122,8 @@ function AgentCashoutContent({
    */
   const inFlightRef = useRef<Set<string>>(new Set());
   const queuedCashoutReload = useRef(false);
+  const blockedDecisions = useRef(new Set<string>());
+  const [, redrawBlockedDecisions] = useState(0);
 
   /**
    * The skeleton belongs to the FIRST load only. `setLoading(true)` on every
@@ -151,6 +153,7 @@ function AgentCashoutContent({
       if (!current()) return;
       rowsCurrent.current = current;
       rowsScope.current = isCurrent;
+      blockedDecisions.current.clear();
       setCashouts(pending);
       // A load that succeeded clears the previous failure. Without this the
       // error banner sat above a perfectly fresh list forever.
@@ -232,6 +235,46 @@ function AgentCashoutContent({
         .on('postgres_changes', changeFilter, () => {
           loadCashouts();
         })
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'club_notice_board',
+            ...(resolved ? { filter: `club_id=eq.${resolved}` } : {}),
+          },
+          (payload: { new?: { cashout_id?: string } }) => {
+            // Escalation leaves the financial request and its timestamps intact.
+            // Retire idle private actions immediately, then read server capabilities.
+            const changedId = payload.new?.cashout_id;
+            if (changedId && !inFlightRef.current.has(changedId)) {
+              blockedDecisions.current.add(changedId);
+              redrawBlockedDecisions((value) => value + 1);
+            }
+            if (inFlightRef.current.size === 0) rowsCurrent.current = null;
+            void loadCashouts();
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'club_notice_access_events',
+            filter: `user_id=eq.${user?.id}`,
+          },
+          (payload: { new: { club_id?: string; can_access?: boolean } }) => {
+            if (resolved && payload.new.club_id !== resolved) return;
+            if (payload.new.can_access === false) {
+              ++loadGeneration.current;
+              rowsCurrent.current = null;
+              setCashouts([]);
+              setError('Club Access Changed. Refresh To Verify Available Requests.');
+              masterBus.removeRegisteredChannel(channelKey, channel);
+              acquiredChannel = null;
+            } else void loadCashouts();
+          }
+        )
         .subscribe((status: string, err?: Error) => {
           if (status === 'CHANNEL_ERROR') {
             if (err) reportError(err?.message || err, 'AgentCashoutPanel._Realtime_channel_error');
@@ -248,9 +291,14 @@ function AgentCashoutContent({
       if (!cancelled) void setupRealtime();
     });
     void setupRealtime();
+    const refresh = () => void loadCashouts();
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
       unsubBalance();
       unsubMutation();
       masterBus.removeChannelFactory?.(channelKey);
@@ -263,33 +311,35 @@ function AgentCashoutContent({
   }, [loadCashouts, user?.id, clubId, isMounted]);
 
   const decisions = usePreparedCashoutOperations(
-    cashouts.flatMap((row) => [
-      {
-        key: `${row.id}:approve`,
-        intent: {
-          userId: user?.id ?? '',
-          receiptViewCurrent: isCurrent,
-          playerId: row.playerId,
-          clubId: row.clubId,
-          targetId: row.id,
-          kind: 'cashout_approve' as const,
-          amount: row.amount,
+    cashouts
+      .filter((row) => row.canDecide === true)
+      .flatMap((row) => [
+        {
+          key: `${row.id}:approve`,
+          intent: {
+            userId: user?.id ?? '',
+            receiptViewCurrent: isCurrent,
+            playerId: row.playerId,
+            clubId: row.clubId,
+            targetId: row.id,
+            kind: 'cashout_approve' as const,
+            amount: row.amount,
+          },
         },
-      },
-      {
-        key: `${row.id}:reject`,
-        intent: {
-          userId: user?.id ?? '',
-          receiptViewCurrent: isCurrent,
-          playerId: row.playerId,
-          clubId: row.clubId,
-          targetId: row.id,
-          kind: 'cashout_decline' as const,
-          amount: row.amount,
-          note: 'Request Declined',
+        {
+          key: `${row.id}:reject`,
+          intent: {
+            userId: user?.id ?? '',
+            receiptViewCurrent: isCurrent,
+            playerId: row.playerId,
+            clubId: row.clubId,
+            targetId: row.id,
+            kind: 'cashout_decline' as const,
+            amount: row.amount,
+            note: 'Request Declined',
+          },
         },
-      },
-    ]),
+      ]),
     rowsCurrent.current,
     cashouts
   );
@@ -304,7 +354,14 @@ function AgentCashoutContent({
     action: 'approve' | 'reject',
     reason?: string
   ) => {
-    if (!user?.id || !isCurrent() || !rowsCurrent.current?.() || cashout.status !== 'pending')
+    if (
+      !user?.id ||
+      !isCurrent() ||
+      !rowsCurrent.current?.() ||
+      cashout.status !== 'pending' ||
+      cashout.canDecide !== true ||
+      blockedDecisions.current.has(cashout.id)
+    )
       return;
     if (inFlightRef.current.has(cashout.id)) return;
     inFlightRef.current.add(cashout.id);
@@ -358,6 +415,62 @@ function AgentCashoutContent({
       }
     }
   };
+  const handleEscalate = async (cashout: CashoutRequest) => {
+    if (
+      !user?.id ||
+      !isCurrent() ||
+      !rowsCurrent.current?.() ||
+      !cashout.canEscalate ||
+      blockedDecisions.current.has(cashout.id) ||
+      cashout.isEscalated ||
+      inFlightRef.current.has(cashout.id)
+    )
+      return;
+    const current = rowsCurrent.current;
+    inFlightRef.current.add(cashout.id);
+    decisions.invalidate();
+    setProcessing((prev) => new Set(prev).add(cashout.id));
+    setError(null);
+    try {
+      const noticeId = await cashoutService.escalateCashout(cashout, user.id, current);
+      if (!current()) return;
+      setCashouts((rows) =>
+        rows.map((row) =>
+          row.id === cashout.id
+            ? {
+                ...row,
+                isEscalated: true,
+                canEscalate: false,
+                canDecide: false,
+                noticeId,
+                approvalDestination: 'club_bank',
+              }
+            : row
+        )
+      );
+      onCashoutProcessed?.();
+    } catch (err) {
+      if (current())
+        setError(
+          safeErrorMessage(
+            err,
+            'Could Not Confirm Notice Board Delivery. Refresh Or Retry The Same Request.'
+          )
+        );
+    } finally {
+      inFlightRef.current.delete(cashout.id);
+      if (isCurrent()) {
+        setProcessing((prev) => {
+          const next = new Set(prev);
+          next.delete(cashout.id);
+          return next;
+        });
+        queuedCashoutReload.current = false;
+        void loadCashouts();
+      }
+    }
+  };
+
   const handleApprove = (cashout: CashoutRequest) => processCashout(cashout, 'approve');
   const handleReject = (cashout: CashoutRequest, reason?: string) =>
     processCashout(cashout, 'reject', reason);
@@ -498,36 +611,56 @@ function AgentCashoutContent({
                 </span>
               </div>
 
-              {cashout.playerNote && <div className="acp-note">"{cashout.playerNote}"</div>}
+              {cashout.playerNote && (
+                <div className="acp-note">
+                  <strong>Note For Agent</strong>
+                  <br />
+                  {cashout.playerNote}
+                </div>
+              )}
 
-              <div className="acp-actions">
-                <button
-                  type="button"
-                  className="acp-word acp-word-white"
-                  onClick={() => handleApprove(cashout)}
-                  disabled={
-                    processing.has(cashout.id) ||
-                    !decisions.get(`${cashout.id}:approve`, 'cashout_approve')
-                  }
-                >
-                  {processing.has(cashout.id) ? 'Approving...' : 'Approve Cashout'}
-                </button>
-                <button
-                  type="button"
-                  className="acp-word acp-word-red"
-                  onClick={() => handleReject(cashout, 'Request Declined')}
-                  disabled={
-                    processing.has(cashout.id) ||
-                    !decisions.get(`${cashout.id}:reject`, 'cashout_decline')
-                  }
-                >
-                  {processing.has(cashout.id) ? 'Working...' : 'Reject'}
-                </button>
-              </div>
-
+              {cashout.canDecide && !blockedDecisions.current.has(cashout.id) && (
+                <div className="acp-actions">
+                  <button
+                    type="button"
+                    className="acp-word acp-word-white"
+                    onClick={() => handleApprove(cashout)}
+                    disabled={
+                      processing.has(cashout.id) ||
+                      !decisions.get(`${cashout.id}:approve`, 'cashout_approve')
+                    }
+                  >
+                    {processing.has(cashout.id) ? 'Approving...' : 'Approve Cashout'}
+                  </button>
+                  <button
+                    type="button"
+                    className="acp-word acp-word-red"
+                    onClick={() => handleReject(cashout, 'Request Declined')}
+                    disabled={
+                      processing.has(cashout.id) ||
+                      !decisions.get(`${cashout.id}:reject`, 'cashout_decline')
+                    }
+                  >
+                    {processing.has(cashout.id) ? 'Working...' : 'Reject'}
+                  </button>
+                </div>
+              )}
+              {cashout.canEscalate &&
+                !cashout.isEscalated &&
+                !blockedDecisions.current.has(cashout.id) && (
+                  <button
+                    type="button"
+                    className="acp-word acp-word-blue"
+                    disabled={processing.has(cashout.id)}
+                    onClick={() => handleEscalate(cashout)}
+                  >
+                    {processing.has(cashout.id) ? 'Sending...' : 'Send To Notice Board'}
+                  </button>
+                )}
               <div className="acp-escrow sc-copy">
-                Approval Transfers The Verified Hold Into Your Agent Wallet. Rejection Returns The
-                Verified Hold To The Player.
+                {cashout.isEscalated
+                  ? 'Sent To Notice Board. Only The Owner, CO-Owner Or Admin Can Decide This Request. Approval Transfers The Held Chips To The Club Bank.'
+                  : 'Approval Transfers The Verified Hold Into Your Agent Wallet. Rejection Returns The Verified Hold To The Player.'}
               </div>
             </div>
           ))}

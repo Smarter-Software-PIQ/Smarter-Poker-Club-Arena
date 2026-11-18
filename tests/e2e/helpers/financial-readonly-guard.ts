@@ -87,6 +87,9 @@ export const FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS = Object.freeze([
   '/rest/v1/rpc/fn_batch_club_realtime_active_counts',
   // Same fallback's union census: SQL STABLE, SELECT-only (live pg_proc, 2026-11-13).
   '/rest/v1/rpc/fn_batch_union_realtime_active_counts',
+  // Same fallback: union floor players and Horses among them. SQL STABLE,
+  // SELECT-only, no DML (20261117 migration, live pg_proc 2026-11-17).
+  '/rest/v1/rpc/fn_batch_union_floor_players',
   '/rest/v1/rpc/fn_batch_club_realtime_member_counts',
   // HomePage reads separately labeled display additions on the same fallback.
   // SQL STABLE, SELECT-only; no nested functions or DML (live pg_proc, 2026-11-06).

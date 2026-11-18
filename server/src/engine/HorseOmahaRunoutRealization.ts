@@ -65,7 +65,11 @@ export const OMAHA_RUNOUT_CHECKDOWN: Readonly<Record<'ip' | 'oop', number>> = {
   ip: 0.6,
   oop: 0.45,
 };
-/** His bluff share at which a river bluff-catch is right whatever the hand: the checkdown share rises to 1 from MIN to MAX. */
+/**
+ * His bluff share at which a river bluff-catch is right whatever the hand: the checkdown share rises to 1 from MIN to MAX.
+ * Only that check-down term rises with the bluff share; the factor as a whole is not monotone in it (a higher share
+ * moves weight from value-region wins to wins on rivers realized at the check-down share).
+ */
 export const OMAHA_RUNOUT_BLUFF_CATCH_MIN = 0.35;
 export const OMAHA_RUNOUT_BLUFF_CATCH_MAX = 0.6;
 /** Bounds of the factor. */

@@ -60,10 +60,14 @@ describe('a horse belongs to one assigned club', () => {
     expect(sql).toContain('HORSE_HAS_NO_ASSIGNED_CLUB');
     // Union routing: a union host is admitted only when it contains the
     // assigned club, and the wallet club must be the assigned club.
-    expect(sql).toContain('JOIN public.union_clubs uc ON uc.union_id = u.union_id AND uc.club_id = v_home');
+    expect(sql).toContain(
+      'JOIN public.union_clubs uc ON uc.union_id = u.union_id AND uc.club_id = v_home'
+    );
     expect(sql).toContain('A Horse Is Funded Only From Its Assigned Club');
     // No trigger DDL on a hot table.
-    expect(sql).not.toMatch(/CREATE TRIGGER|ALTER TABLE public\.(club_members|table_seats|tournament_players)/);
+    expect(sql).not.toMatch(
+      /CREATE TRIGGER|ALTER TABLE public\.(club_members|table_seats|tournament_players)/
+    );
   });
 
   it('moves no chip before the week has paid and the board is quiet', () => {
@@ -90,22 +94,33 @@ describe('a horse belongs to one assigned club', () => {
     expect(sql).toContain('horse_club_split_must_install_inactive');
   });
 
-  it('keeps Kings Club real in the data and prints one total on the card', () => {
+  it('keeps the Kings Club adjustments in explicitly labelled display totals', () => {
     expect(sql).toMatch(/UPDATE public\.club_display_member_boost\s+SET boost = 0/);
     expect(sql).toContain(`('${KINGS}', 1500, 233, 'Bonus'`);
-    const card = readFileSync(join(__dirname, '..', 'src', 'components', 'club', 'ClubCardPanel.tsx'), 'utf8');
-    expect(card).toContain('displayAddition');
-    // Dan 2026-11-02 19:23 CT: the card prints one total (real + addition),
-    // never a separate "+N BONUS" line under MEMBERS or ACTIVE.
-    expect(card).toContain('KINGS CLUB SHOWS ONE TOTAL');
-    expect(card).toContain('totalMembers + addMembers');
-    expect(card).toContain('activePlayers + addActive');
-    expect(card).not.toContain('Not Counted As Real');
+    const card = readFileSync(
+      join(__dirname, '..', 'src', 'components', 'club', 'ClubCardPanel.tsx'),
+      'utf8'
+    );
+    // The old bonus never enters the measured data. A card may show the
+    // separately calculated display totals only with their disclosures.
+    expect(card).not.toContain('displayAddition');
+    expect(card).not.toContain('totalMembers + addMembers');
+    expect(card).not.toContain('activePlayers + addActive');
+    expect(card).toContain('members: shownMembers');
+    expect(card).toContain('active: shownActive');
+    expect(card).toContain('const shownMembers = totalMembers');
+    expect(card).toContain('const shownActive = activePlayers');
+    expect(card).toContain('member_addition.toLocaleString()} CONFIGURED');
+    expect(card).toContain('active_addition.toLocaleString()} CONFIGURED');
   });
 
   it('is not redefined later without the enforcement', () => {
     for (const [f, body] of later) {
-      for (const fn of ['fn_ca_reject_automated_user_club_row', 'fn_stamp_seat_club', 'fn_guard_membership_lifecycle_write']) {
+      for (const fn of [
+        'fn_ca_reject_automated_user_club_row',
+        'fn_stamp_seat_club',
+        'fn_guard_membership_lifecycle_write',
+      ]) {
         if (body.includes(`FUNCTION public.${fn}(`)) {
           expect(body, `${f} redefines ${fn}`).toContain('HORSES BELONG TO ONE ASSIGNED CLUB');
         }

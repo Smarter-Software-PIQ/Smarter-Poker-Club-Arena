@@ -39,6 +39,7 @@ import { handleRabbitHunt } from './handlers/rabbithunt.js';
 import { handleHeartbeat } from './handlers/heartbeat.js';
 import { handleClientEvent } from './handlers/clientEvent.js';
 import { handleAway } from './handlers/away.js';
+import { handleSeatArrival } from './handlers/seatArrival.js';
 import { handlePreaction } from './handlers/preaction.js';
 import { handleAddchips } from './handlers/addchips.js';
 import { handleLeave } from './handlers/leave.js';
@@ -75,6 +76,7 @@ type AnyGameServer = Parameters<typeof handleAction>[2]['gameServer'] &
   Parameters<typeof handleRabbitHunt>[2]['gameServer'] &
   Parameters<typeof handleHeartbeat>[2]['gameServer'] &
   Parameters<typeof handleAway>[2]['gameServer'] &
+  Parameters<typeof handleSeatArrival>[2]['gameServer'] &
   Parameters<typeof handlePreaction>[2]['gameServer'] &
   Parameters<typeof handleAddchips>[2]['gameServer'] &
   Parameters<typeof handleLeave>[2]['gameServer'] &
@@ -576,6 +578,9 @@ export function createRouter(
     // Dan 2026-08-23: pagehide/app-freeze beacon. Marks the player AWAY (blind
     // cap armed) without removing them — see handlers/away.ts.
     if (method === 'POST' && url === '/away') return handleAway(req, res, { gameServer });
+    // Dan 2026-11-17: a chair is shown the moment it is taken - see handlers/seatArrival.ts.
+    if (method === 'POST' && url === '/seat_arrival')
+      return handleSeatArrival(req, res, { gameServer });
     if (method === 'POST' && url === '/preaction')
       return handlePreaction(req, res, {
         // A Lightning pool_session_id resolves to its seat proxy (Phase 6).

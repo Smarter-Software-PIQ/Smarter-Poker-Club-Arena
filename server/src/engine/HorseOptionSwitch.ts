@@ -301,6 +301,16 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'fixedLimitBetsAreNeverProbes',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
+  'omahaTurnRiverRaiseIsPriced',
+  'omahaDrawRaiseIsPriced',
+  'omahaOopTurnBarrelIsPriced',
+  'omahaPairedBoardBetIsPriced',
+  'omahaBluffShareFromBetRate',
+  'omahaFacingBetRangeIsContinuous',
+  'omahaPressureIsPriced',
+  'omahaBigBetCallsArePriced',
+  'omahaUnderpairMultiwayIsPriced',
+  'omahaPricedMix',
   'omahaTightOpponentSteal',
   'lightningParticipationHoldem',
   'lightningParticipationOmaha',
@@ -490,6 +500,15 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   omahaBluffCatcherRaiseFold: ploFailed(
     'bluff-raising field PLO4 -1.39 bb/100 (SE 0.58, z -2.38), Horse-only PLO4 -0.78 (z -2.34), PLO5 -0.88 (z -2.01)',
     '2026-11-15T11:40:49Z (eval3-20261115/RESULTS-omahaBluffCatcherRaiseFold.md)'
+  ),
+  // PLO Strategy's priced rules, 2026-11-17 (owner 11:49 "no blanket rules"): FAILED its declared evaluation
+  omahaPairedBoardBetIsPriced: ploFailed(
+    'human-like field PLO5 -2.18 bb/100 (SE 1.02, z -2.14); pooled field -1.56 (SE 0.73), Horse-only -0.47 (SE 0.68)',
+    '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
+  ),
+  omahaPricedMix: ploFailed(
+    'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
+    '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
   ),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,

@@ -73,6 +73,7 @@ function fixture() {
     },
     retryAccountBalance: vi.fn(),
     requestEngineSnapshot: vi.fn(),
+    sendSeatArrival: vi.fn().mockResolvedValue(true),
     pendingSeatStackRef: ref(0),
     heroRowStack: 528.7,
     setHeroRowStack: (stack: number | null) => {
@@ -145,6 +146,8 @@ describe('cash buy-in callback recovery', () => {
     await f.handler(400, false);
     expect(f.d.heroRowStack).toBe(null);
     expect(f.d.pendingSeatStackRef.current).toBe(400);
+    // Dan 2026-11-17: every viewer's felt is told the chair is committed now.
+    expect(f.d.sendSeatArrival).toHaveBeenCalledWith(f.d.tableId, 'seated');
     expect(f.d.setLightningAnchorFunding).toHaveBeenCalledWith({
       tableId: f.d.tableId,
       userId: f.d.userId,
@@ -274,6 +277,7 @@ describe('cash buy-in callback recovery', () => {
     expect(f.d.setSelectedSeat).not.toHaveBeenCalledWith(null);
     expect(f.state().heroSeat).toBe(0);
     expect(f.d.applyBalanceDelta).not.toHaveBeenCalled();
+    expect(f.d.sendSeatArrival).not.toHaveBeenCalled();
     expect(f.d.buyInIdempotencyKeyRef.current).toBeNull();
     expect(f.d.buyInProcessingRef.current).toBe(false);
     expect(f.d.toast.error).toHaveBeenCalled();

@@ -648,6 +648,7 @@ import GameServerAPI, {
   sendHeartbeat,
   resetEngineCircuitBreaker,
   sendAwayBeacon,
+  sendSeatArrival,
   setPreAction as serverSetPreAction,
   setSitOut,
   showHand as serverShowHand,
@@ -24170,6 +24171,9 @@ function LiveTablePage({
     setPendingSeat(seatNumber);
     setSelectedSeat(seatNumber);
     setShowBuyInModal(true);
+    // ...and on every other viewer's felt (Dan 2026-11-17): the engine shows
+    // this face in the chair for the sixty-second buy-in window.
+    void sendSeatArrival(tableId ?? '', 'hold', seatNumber);
     // Fire-and-forget: update presence (non-blocking — do NOT await)
     updateSeat(seatNumber).catch((e) => console.warn('[Seat] Presence update failed:', e));
   };
@@ -24201,6 +24205,19 @@ function LiveTablePage({
      silently, and replayed the moment the funding read lands (effect below
      the handler). */
   const deferredSeatTapRef = useRef<number | null>(null);
+
+  /* The buy-in sheet closed with no seat bought (cancel, the sixty seconds ran
+     out, a refusal): take this face back out of the chair on every other
+     viewer's felt. A committed buy-in sets heroSeatRef first, and the engine
+     releases only a hold, never a committed chair. */
+  const heldSeatRef = useRef<number | null>(null);
+  useEffect(() => {
+    const held = heldSeatRef.current;
+    heldSeatRef.current = pendingSeat;
+    if (held !== null && pendingSeat === null && heroSeatRef.current <= 0) {
+      void sendSeatArrival(tableId ?? '', 'release');
+    }
+  }, [pendingSeat, tableId]);
   const handleSeatClick = (seatNumber: number) => {
     /* LIGHTNING: the engine assigns every seat (Dan 2026-10-24: "YOU DON'T
        SELECT YOUR SEAT"). A pool-session room has no `tables` row to buy into. */
@@ -30775,19 +30792,25 @@ function LiveTablePage({
                      to post on the next deal is in neither of the other two,
                      so that window still read SITTING OUT. */
                   entryWait={
-                    displayPlayer?.waitingForButton
-                      ? tableState.isTournament
-                        ? null
-                        : 'waiting_for_button'
-                      : !displayPlayer?.id || tableState.isTournament
-                        ? null
-                        : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
-                            (tableState.postingBBUserIds ?? []).includes(displayPlayer.id) ||
-                            (displayPlayer.isHero && bbPostAgreed)
-                          ? 'posting_bb'
-                          : (tableState.waitingForBBUserIds ?? []).includes(displayPlayer.id)
-                            ? 'waiting_for_bb'
-                            : null
+                    /* Dan 2026-11-17: a chair is shown the moment it is
+                       taken (engine SeatArrivalDisplay). */
+                    displayPlayer?.seatArrival === 'buying_in'
+                      ? 'buying_in'
+                      : displayPlayer?.seatArrival === 'seated'
+                        ? 'joining'
+                        : displayPlayer?.waitingForButton
+                          ? tableState.isTournament
+                            ? null
+                            : 'waiting_for_button'
+                          : !displayPlayer?.id || tableState.isTournament
+                            ? null
+                            : (tableState.postBBDeferredUserIds ?? []).includes(displayPlayer.id) ||
+                                (tableState.postingBBUserIds ?? []).includes(displayPlayer.id) ||
+                                (displayPlayer.isHero && bbPostAgreed)
+                              ? 'posting_bb'
+                              : (tableState.waitingForBBUserIds ?? []).includes(displayPlayer.id)
+                                ? 'waiting_for_bb'
+                                : null
                   }
                   /* Dan 2026-08-18: only the hero can mark their own cards. */
                   showPickedCardIndexes={displayPlayer?.isHero ? shownCardIndexes : undefined}
@@ -33111,6 +33134,9 @@ function LiveTablePage({
             }
             buyInCommitted = true;
             const paid = attempt.payload;
+            // Every viewer's felt shows the committed chair now, not when the
+            // hand in the air ends (Dan 2026-11-17, engine SeatArrivalDisplay).
+            void sendSeatArrival(paid.p_table_id, 'seated');
             // Wallet broadcasts may already contain this debit. Re-read the
             // balance instead of subtracting it again during receipt recovery.
             retryAccountBalance();

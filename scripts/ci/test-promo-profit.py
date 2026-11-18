@@ -110,8 +110,42 @@ def main():
   w=next((ROOT/'supabase/migrations').glob('20261116190221_*.sql'));track(w)
   guarded_w=subprocess.run(['node','--input-type=module','-e',wrapper,w.name],input=w.read_text(),text=True,capture_output=True,check=True,cwd=ROOT).stdout
   db.run(guarded_w)
+  fee_clocks=ROOT/'tests/fixtures/promo-profit-fee-clocks/native.sql'
+  track(fee_clocks)
+  original_cases=f"\\set club '{C}'\n\\set member '{A}'\n\\set table '{T}'\n"+fee_clocks.read_text()
+  for historical_rows in (0,300):
+   db.run(f"\\set historical_rows {historical_rows}\n"+original_cases)
+  runfile(ROOT/'supabase/migrations/20261118002028_promo_cash_fees_seek_their_original_earned_clocks.sql')
+  for historical_rows in (0,300):
+   db.run(f"\\set historical_rows {historical_rows}\n"+original_cases)
+  check('original fee clock reader remains owner-only and matches the reviewed body',"""
+    SELECT md5(pg_get_functiondef(oid))='ce0857b0f9b897417f1970d99244bf59' AND prosecdef
+      AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
+    FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
+  """,'t')
   check('both actual cash refund owners consume exact bust and terminal loss basis',"SELECT count(*) FROM pg_proc WHERE proname IN('fn_ca_promo_return_principal','fn_ca_promo_return_spent_event_fee') AND prosrc LIKE '%JOIN public.ca_promo_original_entry_loss_basis fs%'",'2')
   check('terminal loss basis preserves exact lot identity without duplicate rows',"SELECT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION%' AND NOT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION ALL%'",'t')
+
+  exit_case=ROOT/'tests/fixtures/promo-profit-requested-cashout/native.sql'
+  track(exit_case)
+  def check_wallet_exit(fixed):
+   for wallet_club,after_balance in ((C,70),(base.OTHER_CLUB,20)):
+    params=dict(source_club=C,wallet_club=wallet_club,member=A,table=T,after_balance=after_balance,fixed=str(fixed).lower())
+    setup=''.join(f"\\set {key} '{value}'\n" for key,value in params.items())
+    db.run(setup+exit_case.read_text())
+  acl_query="SELECT coalesce(proacl::text,'') FROM pg_proc WHERE oid='public.fn_ca_promo_play_through_on_exit()'::regprocedure"
+  original_exit_acl=db.one(acl_query)
+  check_wallet_exit(False)
+  runfile(ROOT/'supabase/migrations/20261118005327_promo_external_wallet_exit_settles_earned_source_before_cash.sql')
+  check_wallet_exit(True)
+  check('wallet exit retains its original visibility and reviewed source', """
+   SELECT md5(pg_get_functiondef(oid))='8a850f705e213a7bb89bbf9ce64357c0' AND prosecdef AND
+     proowner='postgres'::regrole AND NOT has_function_privilege('anon',oid,'execute')
+     AND NOT has_function_privilege('authenticated',oid,'execute')
+   FROM pg_proc WHERE oid='public.fn_ca_promo_play_through_on_exit()'::regprocedure
+  """,'t')
+
+  check('wallet exit preserves the original role grants',acl_query,original_exit_acl)
 
   def gift(amount):
    key=str(uuid.uuid4())
@@ -121,6 +155,34 @@ def main():
    hand=str(uuid.uuid4())
    db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{hand}','{T}',1,clock_timestamp());INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{C}','{A}',{amount},'{hand}')")
   old=gift(50)
+  # Count actual history evaluations inside this connection's transaction. Each
+  # scenario rolls back so subsequent fee and custody checks use the same gift.
+  def settlement_reads(setup='', user=A):
+   return f"""BEGIN;
+    {setup}
+    SET LOCAL track_functions = 'all';
+    SELECT fn_ca_promo_profit_settle('{C}','{user}');
+    SELECT coalesce(pg_stat_get_xact_function_calls(
+      'public.fn_ca_promo_shared_fee_state(uuid,uuid)'::regprocedure),0);
+    ROLLBACK;"""
+
+  released = f"UPDATE ca_promo_profit_gates SET unlocked_at=clock_timestamp() WHERE grant_id='{old}';"
+  overridden = f"""INSERT INTO ca_promo_profit_overrides(grant_id,reviewed_by,reason)
+                   VALUES('{old}','{B}','Native fee boundary regression');"""
+  check('original settler rereads history after final release',settlement_reads(released),'1')
+  runfile(ROOT/'supabase/migrations/20261117234700_skip_promo_profit_fee_replay_for_final_gates.sql')
+  check('installed settler keeps its definition and private execute grant',"""
+    SELECT md5(pg_get_functiondef(p.oid)) = 'c07f4e3eebcb0de8f34079c07dd2aac8'
+       AND p.prosecdef AND p.proowner = 'postgres'::regrole
+       AND NOT has_function_privilege('service_role', p.oid, 'execute')
+       AND NOT has_function_privilege('authenticated', p.oid, 'execute')
+       AND NOT has_function_privilege('anon', p.oid, 'execute')
+    FROM pg_proc p WHERE p.oid='public.fn_ca_promo_profit_settle(uuid,uuid)'::regprocedure
+  """,'t')
+  check('final release skips fee history',settlement_reads(released),'0')
+  check('reviewed winnings override skips fee history',settlement_reads(overridden),'0')
+  check('member without a grant skips fee history',settlement_reads(user=B),'0')
+  check('open winnings gate still evaluates the original fee history',settlement_reads(),'1')
   check('nonagent authoritative balance fields are both absent values',f"SELECT (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_wallet') IS NULL AND (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable') IS NULL",'t')
   check('original grant has one shared phase and original thresholds',f"SELECT count(*)||':'||max(principal_target)::integer||':'||max(profit_target)::integer FROM fn_ca_promo_shared_fee_state('{C}','{A}') WHERE grant_id='{old}'",'1:200:100')
   fee(40)
@@ -340,6 +402,9 @@ def main():
   h=str(uuid.uuid4());db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{h}','{T}',1,clock_timestamp());INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{C}','{u}',40,'{h}')")
   db.run(f"INSERT INTO tournament_refund_tranches(entitlement_id,tournament_id,user_id,source_wallet_club_id,refund_fee) VALUES('{en}','{t}','{u}','{C}',8)")
   check('earned two-times stays final and later canonical reversal is deduplicated',f"SELECT (SELECT unlocked_at IS NOT NULL FROM ca_promo_profit_gates WHERE grant_id='{g}') AND max(profit_earned)=40 FROM fn_ca_promo_shared_fee_state('{C}','{u}') WHERE grant_id='{g}'",'t')
+  lock_test=ROOT/'scripts/ci/test-promo-profit-cash-fee-lock.py';track(lock_test)
+  import runpy
+  runpy.run_path(str(lock_test))['verify'](db,C,T,ROOT/'supabase/migrations/20261118001328_cash_fee_settlement_never_waits_on_a_cashout_grant.sql',runfile,check)
   for source,digest in input_hashes.items():
    if hashlib.sha256(Path(source).read_bytes()).hexdigest()!=digest:raise RuntimeError('source changed during qualification: '+source)
   report={'status':'passed','checks':checks,'production_mutations':False,'source_sha256':input_hashes,'qualification_limits':['Typed original funded gifts, H cases, W earning positions and cash fee openings; these checks qualify allocation/custody/authorization, not original earning producers, financial member departure or eventual jackpot payer. Notification callback uses an explicit invocation sink; actual notice delivery is separately qualified.']}

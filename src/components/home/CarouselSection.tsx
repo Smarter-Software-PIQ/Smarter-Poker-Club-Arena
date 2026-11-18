@@ -64,7 +64,15 @@ export interface UserClub {
   [key: string]: unknown;
 }
 
+export interface KingsClubDisplayTotals {
+  member_total: number | null;
+  active_total: number | null;
+  member_addition: number;
+  active_addition: number;
+}
+
 export interface ClubStats {
+  kingsDisplayTotals?: KingsClubDisplayTotals;
   totalMembers: number | null;
   clubLevel: number | null;
   /** Distinct players holding a live seat anywhere on the club's floor.
@@ -75,10 +83,10 @@ export interface ClubStats {
   activeCash?: number | null;
   /** Of those, distinct players in tournaments, Spins and SNGs. */
   activeEvents?: number | null;
-  /** Owner-set display addition, labelled separately; never part of the real counts. */
-  displayAddition?: { members: number; active: number; label: string } | null;
   /** For a union member club: the union whose floor the cash/events split counts. */
   splitFloorLabel?: string | null;
+  floorPlaying?: number | null;
+  floorHorses?: number | null;
 }
 
 export interface CarouselSectionProps {
@@ -302,6 +310,7 @@ export default function CarouselSection({
                 }
                 activeCash={stats?.activeCash ?? null}
                 activeEvents={stats?.activeEvents ?? null}
+                kingsDisplayTotals={stats?.kingsDisplayTotals}
                 clubId={club.club_id}
                 cardImageUrl={
                   Number(club.club_id) === SHARK_CLUB_ID ? undefined : club.card_image_url
@@ -312,8 +321,9 @@ export default function CarouselSection({
                     : club.logo_url
                 }
                 entityType={club.entity_type || 'club'}
-                displayAddition={stats?.displayAddition ?? null}
                 splitFloorLabel={stats?.splitFloorLabel ?? null}
+                floorPlaying={stats?.floorPlaying ?? null}
+                floorHorses={stats?.floorHorses ?? null}
               />
             )}
           </PageErrorBoundary>

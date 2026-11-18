@@ -3,6 +3,7 @@ import { supabase } from './supabase.js';
 import {
   copyLongCounters,
   copyShownRiver,
+  copyStreetCounters,
   validOpponentProfile,
   type DurableOpponentProfile,
 } from '../engine/HorseOpponentMemory.js';
@@ -114,6 +115,8 @@ export async function readHorsePooledPublicBootstrap(
           ...copyLongCounters(row),
           // 2026-11-15 the durable shown river record (shown_river), kept when well formed.
           ...copyShownRiver(row),
+          // 2026-11-17 the postflop read by street and flop texture (street_counters), kept when well formed.
+          ...copyStreetCounters(row),
         });
         kept++;
       }
