@@ -100,6 +100,21 @@ export type LightningCallOutcome<T> =
   | { ok: true; value: T }
   | { ok: false; reason: string; transport?: boolean; frozen?: boolean; retryable?: boolean };
 
+/** A table's oldest open post-commit envelope: the key of a stall episode. */
+export interface LightningOldestPendingPostCommit {
+  handId: string;
+  handNumber: number;
+  /** ISO timestamp of its commit, when known. */
+  committedAt: string | null;
+}
+
+/** What the post-commit envelope answered for one hand. */
+export interface LightningPostCommitOutcome {
+  ok: boolean;
+  reason?: string;
+  oldest?: LightningOldestPendingPostCommit;
+}
+
 export interface LightningHandBackend {
   beginDealing(
     instanceId: string,
@@ -144,10 +159,18 @@ export interface LightningHandBackend {
     }>
   >;
   /**
-   * fn_ca_process_hand_post_commit_obligations: `ok !== true` is a failure
-   * (predecessor_pending is the common one with several hands per front table).
+   * fn_ca_process_hand_post_commit_obligations. `ok !== true` did not apply.
+   * predecessor_pending, table_busy and obligation_lock_busy are QUEUED
+   * answers (nothing written, retry); any other reason is a refusal. Since
+   * 20261118073646 a queued answer names the table's oldest open envelope.
    */
-  postCommit(handHistoryId: string): Promise<{ ok: boolean; reason?: string }>;
+  postCommit(handHistoryId: string): Promise<LightningPostCommitOutcome>;
+  /**
+   * The table's oldest open post-commit envelope, read once when a stalled
+   * drain files its alert (the stall episode's key). Optional: null or absent
+   * means unknown, and the drain keys the episode on its own hand.
+   */
+  oldestPendingPostCommit?(hostTableId: string): Promise<LightningOldestPendingPostCommit | null>;
   /** fn_time_bank_allowance_v2: extra seconds beyond the base, per player. */
   timeBankAllowance(
     userIds: string[]
@@ -444,7 +467,39 @@ export function createSupabaseLightningHandBackend(): LightningHandBackend {
 
     async postCommit(handHistoryId) {
       const out = await processHandPostCommitObligations(handHistoryId);
-      return out.ok === true ? { ok: true } : { ok: false, reason: out.reason ?? 'refused' };
+      if (out.ok === true) return { ok: true };
+      const oldest =
+        isUuid(out.oldest_pending_hand_id) && Number.isSafeInteger(out.oldest_pending_hand_number)
+          ? {
+              handId: out.oldest_pending_hand_id,
+              handNumber: out.oldest_pending_hand_number as number,
+              committedAt:
+                typeof out.oldest_pending_committed_at === 'string'
+                  ? out.oldest_pending_committed_at
+                  : null,
+            }
+          : null;
+      return { ok: false, reason: out.reason ?? 'refused', ...(oldest ? { oldest } : {}) };
+    },
+
+    async oldestPendingPostCommit(hostTableId) {
+      // The partial index idx_hand_atomic_commits_post_commit_pending.
+      const { data, error } = await supabase
+        .from('hand_atomic_commits')
+        .select('hand_id,hand_number,committed_at')
+        .eq('table_id', hostTableId)
+        .not('post_commit_payload', 'is', null)
+        .is('post_commit_completed_at', null)
+        .order('hand_number', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error || !data || !isUuid(data.hand_id) || !Number.isSafeInteger(data.hand_number))
+        return null;
+      return {
+        handId: data.hand_id,
+        handNumber: data.hand_number,
+        committedAt: typeof data.committed_at === 'string' ? data.committed_at : null,
+      };
     },
 
     async timeBankAllowance(userIds) {

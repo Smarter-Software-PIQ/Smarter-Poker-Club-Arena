@@ -104,11 +104,35 @@ export type HandProjectionDrainSummary = {
 export type HandPostCommitResult = {
   ok?: boolean;
   reason?: string;
+  retryable?: boolean;
   already_completed?: boolean;
   hand_id?: string;
   hand_number?: number;
   pending_addons?: number;
+  table_id?: string;
+  /** The oldest open envelope at the table (20261118073646 names it). */
+  oldest_pending_hand_id?: string;
+  oldest_pending_hand_number?: number;
+  oldest_pending_committed_at?: string;
 };
+
+export { POST_COMMIT_QUEUED_REASONS, isQueuedPostCommitReason } from './postCommitReasons.js';
+
+/**
+ * ONE CHAIN HELPER PER TABLE PER PROCESS. On a Lightning host table many
+ * hands are in their post-commit step at once. Every one of them that met
+ * predecessor_pending used to walk the same up-to-16 earlier envelopes,
+ * serially, so N concurrent hosts re-ran one chain N times against the same
+ * per-table lock (38 million RPC calls in pg_stat_statements, incident
+ * 075013fd). Now the first caller walks the chain; every other caller for
+ * the same table awaits that walk and then asks only for its own hand.
+ */
+const chainHelpers = new Map<string, Promise<boolean>>();
+
+/** Tables with a chain walk in flight in this process (tests and /health). */
+export function postCommitChainHelpersInFlight(): number {
+  return chainHelpers.size;
+}
 
 /**
  * Consume the immutable work envelope attached to an accepted hand.
@@ -165,6 +189,9 @@ export async function processHandPostCommitObligations(
     return (data ?? {}) as HandPostCommitResult;
   };
   const initial = await apply(handId);
+  // table_busy / obligation_lock_busy: another session is running this
+  // table's head envelope, or a row it needs is held. Walking the chain from
+  // here would only queue on the same lock; the caller backs off and retries.
   if (initial.ok === true || initial.reason !== 'predecessor_pending') return initial;
 
   // A recovered table can have an older accepted hand whose dealer vanished.
@@ -173,31 +200,64 @@ export async function processHandPostCommitObligations(
   // Help ONLY this table's earlier immutable envelopes, oldest first, through
   // the same row-locked, receipt-protected function. Never mark work complete
   // locally and never run dashboard projections on the dealing path.
-  const { data: target, error: targetError } = await supabase
-    .from('hand_atomic_commits')
-    .select('table_id,hand_number')
-    .eq('hand_id', handId)
-    .maybeSingle();
-  if (targetError)
-    throw new Error(`post-commit predecessor lookup failed: ${describeError(targetError)}`);
-  if (!target) return initial;
-  const { data: earlier, error: earlierError } = await supabase
-    .from('hand_atomic_commits')
-    .select('hand_id')
-    .eq('table_id', target.table_id)
-    .lt('hand_number', target.hand_number)
-    .not('post_commit_payload', 'is', null)
-    .is('post_commit_completed_at', null)
-    .order('hand_number', { ascending: true })
-    .limit(16);
-  if (earlierError)
-    throw new Error(`post-commit predecessor scan failed: ${describeError(earlierError)}`);
-  for (const predecessor of earlier ?? []) {
-    const result = await apply(predecessor.hand_id);
-    // The oldest unresolved dependency still owns the barrier on any doubt.
-    // Return the requested hand's refusal, not another hand's success receipt.
-    if (result.ok !== true) return initial;
+  let tableId = typeof initial.table_id === 'string' ? initial.table_id : null;
+  let handNumber =
+    typeof initial.hand_number === 'number' && Number.isSafeInteger(initial.hand_number)
+      ? initial.hand_number
+      : null;
+  if (tableId === null || handNumber === null) {
+    // An envelope older than 20261118073646 does not name its table.
+    const { data: target, error: targetError } = await supabase
+      .from('hand_atomic_commits')
+      .select('table_id,hand_number')
+      .eq('hand_id', handId)
+      .maybeSingle();
+    if (targetError)
+      throw new Error(`post-commit predecessor lookup failed: ${describeError(targetError)}`);
+    if (!target) return initial;
+    tableId = target.table_id;
+    handNumber = target.hand_number;
   }
+
+  // Single flight: a walk already in flight for this table is joined, never
+  // repeated. A joiner asks for its own hand once more only if the walk
+  // advanced the table; otherwise the oldest envelope still owns the barrier
+  // and its own refusal stands. Another hand's success is never this hand's.
+  const inFlight = chainHelpers.get(tableId!);
+  if (inFlight) return (await inFlight) ? apply(handId) : initial;
+
+  let walkError: unknown = null;
+  const walk: Promise<boolean> = (async () => {
+    const { data: earlier, error: earlierError } = await supabase
+      .from('hand_atomic_commits')
+      .select('hand_id')
+      .eq('table_id', tableId)
+      .lt('hand_number', handNumber)
+      .not('post_commit_payload', 'is', null)
+      .is('post_commit_completed_at', null)
+      .order('hand_number', { ascending: true })
+      .limit(16);
+    if (earlierError)
+      throw new Error(`post-commit predecessor scan failed: ${describeError(earlierError)}`);
+    for (const predecessor of earlier ?? []) {
+      const result = await apply(predecessor.hand_id);
+      // The oldest unresolved dependency still owns the barrier on any doubt
+      // (a busy answer included): stop at it.
+      if (result.ok !== true) return false;
+    }
+    return true;
+  })().catch((error) => {
+    walkError = error;
+    return false;
+  });
+  const registered = walk.finally(() => {
+    if (chainHelpers.get(tableId!) === registered) chainHelpers.delete(tableId!);
+  });
+  chainHelpers.set(tableId!, registered);
+  const helped = await registered;
+  if (walkError) throw walkError;
+  // Return the requested hand's refusal, not another hand's success receipt.
+  if (!helped) return initial;
   // Includes the concurrent-worker case (the read found no earlier work).
   // Only the requested hand's authoritative receipt can unblock its engine.
   return apply(handId);
