@@ -32,8 +32,9 @@
 --    deferred to commit, the tally is commutative, and the debit still runs
 --    under app.ledger_autoskip_union_wallets so it journals no leg of its own.
 --
--- Function body only. No table, data, owner, privilege or setting changes:
--- CREATE OR REPLACE keeps owner and ACL, and the guard below proves it.
+-- Function body only. No table, data, owner or setting changes. Production
+-- already grants EXECUTE to service_role alone; the REVOKE and GRANT below
+-- restate exactly that, and the proof refuses any other outcome.
 --
 -- @live-proof: md5(pg_get_functiondef('public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure))='b855340a8401580fad402978f609c1e6' AND (SELECT pg_get_userbyid(p.proowner)='postgres' AND p.prosecdef AND p.proconfig::text='{"search_path=public, pg_temp"}' AND p.proacl::text='{postgres=X/postgres,service_role=X/postgres}' FROM pg_proc p WHERE p.oid='public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure)
 
@@ -48,7 +49,7 @@ BEGIN
   RAISE EXCEPTION 'Free Buy cutoff funding owner changed; requalify the union wallet ordering';
  END IF;
  PERFORM set_config('ca.free_buy_cutoff_owner_before',
-   (SELECT p.proowner::text || '|' || coalesce(p.proacl::text, '') || '|' || p.prosecdef::text || '|' || coalesce(p.proconfig::text, '')
+   (SELECT p.proowner::text || '|' || p.prosecdef::text || '|' || coalesce(p.proconfig::text, '')
       FROM pg_proc p WHERE p.oid = 'public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure), true);
 END $guard$;
 
@@ -136,6 +137,9 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION public.fn_ca_fund_free_buy_at_cutoff_locked(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_fund_free_buy_at_cutoff_locked(uuid) TO service_role;
+
 DO $proof$
 BEGIN
  IF md5(pg_get_functiondef('public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure))
@@ -143,9 +147,14 @@ BEGIN
   RAISE EXCEPTION 'Free Buy cutoff funding postimage is not the qualified one';
  END IF;
  IF current_setting('ca.free_buy_cutoff_owner_before', true) IS DISTINCT FROM
-   (SELECT p.proowner::text || '|' || coalesce(p.proacl::text, '') || '|' || p.prosecdef::text || '|' || coalesce(p.proconfig::text, '')
+   (SELECT p.proowner::text || '|' || p.prosecdef::text || '|' || coalesce(p.proconfig::text, '')
       FROM pg_proc p WHERE p.oid = 'public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)'::regprocedure) THEN
-  RAISE EXCEPTION 'Free Buy cutoff funding owner, privileges or settings changed';
+  RAISE EXCEPTION 'Free Buy cutoff funding owner or settings changed';
+ END IF;
+ IF has_function_privilege('anon', 'public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)', 'EXECUTE')
+    OR has_function_privilege('authenticated', 'public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)', 'EXECUTE')
+    OR NOT has_function_privilege('service_role', 'public.fn_ca_fund_free_buy_at_cutoff_locked(uuid)', 'EXECUTE') THEN
+  RAISE EXCEPTION 'Free Buy cutoff funding must stay callable by the service role only';
  END IF;
 END $proof$;
 
