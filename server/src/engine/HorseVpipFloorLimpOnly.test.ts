@@ -29,6 +29,7 @@ import {
   vpipFloorLimpEv,
   vpipFloorLimpOnlyApplies,
   vpipFloorLimpOnlySelectionFor,
+  vpipFloorLimpOnlyTenHandTable,
   vpipFloorLimpOnlySelects,
   vpipFloorLimpOnlyShortfall,
   vpipFloorLimpOnlyStep,
@@ -324,20 +325,50 @@ describe('the rule, as functions', () => {
         false
       )
     ).toBe(false);
-    // a variant the table does not list, or no variant at all: not governed
-    for (const gameVariant of ['plo8', 'flo8', 'flh', 'short_deck', 'pineapple', undefined])
-      expect(
+    // a variant key the table does not list, an alias, or no variant at all: governed, with 'every'
+    for (const gameVariant of ['plo8', 'pineapple_holdem', 'some_new_variant', '', undefined]) {
+      expect([
+        gameVariant,
         vpipFloorLimpOnlyApplies(
           { vpipFloor: 50, vpipWindowHands: 30, gameVariant },
           { vpipFloorLimpOnly: true },
           false
-        )
-      ).toBe(false);
-    // an Action / Madness table (the sitting judged at ten hands, no warning) or an unknown window: not governed
-    for (const vpipWindowHands of [10, undefined, 0])
-      expect(
-        vpipFloorLimpOnlyApplies({ ...t, vpipWindowHands }, { vpipFloorLimpOnly: true }, false)
-      ).toBe(false);
+        ),
+      ]).toEqual([gameVariant, true]);
+      expect([gameVariant, vpipFloorLimpOnlySelectionFor(gameVariant)]).toEqual([
+        gameVariant,
+        'every',
+      ]);
+    }
+    // the one table left on the old floor on purpose: KNOWN to be judged at ten hands or fewer,
+    // which needs the Horse's own judged row (the policy window comes with it)
+    const row = { hands: 10, vpip: 40 };
+    for (const vpipWindowHands of [10, 5, 1]) {
+      const g = { ...t, vpipWindowHands, ownVpip: row };
+      expect(vpipFloorLimpOnlyApplies(g, { vpipFloorLimpOnly: true }, false)).toBe(false);
+      expect(vpipFloorLimpOnlyTenHandTable(g, { vpipFloorLimpOnly: true }, false)).toBe(true);
+      // never when the option is off, or outside its scope
+      expect(vpipFloorLimpOnlyTenHandTable(g, {}, false)).toBe(false);
+      expect(vpipFloorLimpOnlyTenHandTable(g, { vpipFloorLimpOnly: true }, true)).toBe(false);
+    }
+    // a failed status read (no row): the window is the engine's fallback (maintain_hands, or ten) and
+    // proves nothing, so a Classic table stays governed
+    for (const vpipWindowHands of [10, 5, 30, undefined])
+      for (const ownVpip of [undefined, null]) {
+        const g = { ...t, vpipWindowHands, ownVpip };
+        expect(vpipFloorLimpOnlyApplies(g, { vpipFloorLimpOnly: true }, false)).toBe(true);
+        expect(vpipFloorLimpOnlyTenHandTable(g, { vpipFloorLimpOnly: true }, false)).toBe(false);
+      }
+    // a window that cannot be read at all, row or no row: governed (fails safe toward the ruling)
+    for (const vpipWindowHands of [undefined, 0, -1, 2.5, Number.NaN, '10' as unknown as number])
+      expect([
+        String(vpipWindowHands),
+        vpipFloorLimpOnlyApplies(
+          { ...t, vpipWindowHands, ownVpip: row },
+          { vpipFloorLimpOnly: true },
+          false
+        ),
+      ]).toEqual([String(vpipWindowHands), true]);
     expect(
       vpipFloorLimpOnlyApplies(
         { vpipFloor: 50, vpipWindowHands: 30, gameVariant: 'PLO5' },
@@ -823,8 +854,26 @@ describe('the declared table: which variants the option governs (what ships)', (
         ),
       ]).toEqual([v, true]);
     }
-    for (const v of [undefined, null, '', 'toString', 'constructor', '__proto__'])
-      expect([v, vpipFloorLimpOnlySelectionFor(v)]).toEqual([v, undefined]);
+    // a key the table does not list (an alias, a later variant, an object-prototype name, none): 'every'
+    for (const v of [
+      undefined,
+      null,
+      '',
+      'pineapple_holdem',
+      'toString',
+      'constructor',
+      '__proto__',
+    ]) {
+      expect([v, vpipFloorLimpOnlySelectionFor(v)]).toEqual([v, 'every']);
+      expect([
+        v,
+        vpipFloorLimpOnlyApplies(
+          { vpipFloor: 40, vpipWindowHands: 30, gameVariant: v as string | undefined },
+          { vpipFloorLimpOnly: true },
+          false
+        ),
+      ]).toEqual([v, true]);
+    }
   });
 
   it.each([
@@ -884,7 +933,7 @@ describe('the declared table: which variants the option governs (what ships)', (
       }
   }, 120_000);
 
-  it('a table judged the Action / Madness way (ten hands, no warning) is not governed: on decides as off, byte for byte', () => {
+  it('a table known to be judged the Action / Madness way (ten hands, no warning) keeps the old floor on purpose: on decides as off, byte for byte, and says so with a receipt', () => {
     let floorActsToday = 0;
     for (const [variant, floor, hole] of [
       ['plo5', 50, PLO5_WEAK[0]],
@@ -907,11 +956,68 @@ describe('the declared table: which variants the option governs (what ships)', (
         const on = play(S(spot), table, hole, ON);
         expect([variant, spot, on.bytes, on.next]).toEqual([variant, spot, off.bytes, off.next]);
         expect(fired(on, 'vpip_floor_limp_only_seen')).toBe(0);
+        expect(fired(on, 'vpip_floor_limp_only_not_governed_ten_hand_window')).toBe(SEEDS.length);
+        expect(fired(off, 'vpip_floor_limp_only_not_governed_ten_hand_window')).toBe(0);
         if (off.actions.join() !== play(S(spot), unfloored(variant), hole, P).actions.join())
           floorActsToday++;
       }
     expect(floorActsToday).toBeGreaterThan(0);
   });
+
+  it('a Classic table whose status read failed (no judged row; the engine falls back to a window of ten) stays governed: the unfloored decision, never the old floor', () => {
+    let todayDiffers = 0;
+    for (const [variant, floor, hole] of [
+      ['plo5', 40, PLO5_WEAK[0]],
+      ['plo5', 50, PLO5_WEAK[2]],
+      ['nlh', 20, '7c2d'],
+    ] as const)
+      for (const window of [10, 30])
+        for (const spot of [
+          'utgFirstIn',
+          'btnFirstIn',
+          'btnFacingOpenTwoCalls',
+          'bbFacingReRaise',
+        ] as const) {
+          const table: Table = { variant, floor, window };
+          const none = play(S(spot), unfloored(variant), hole, ON);
+          const on = play(S(spot), table, hole, ON);
+          expect([variant, window, spot, on.sameAsTable]).toEqual([
+            variant,
+            window,
+            spot,
+            none.sameAsTable,
+          ]);
+          expect(fired(on, 'vpip_floor_limp_only_seen')).toBe(SEEDS.length);
+          expect(fired(on, 'vpip_floor_limp_only_not_governed_ten_hand_window')).toBe(0);
+          expect(fired(on, 'vpip_floor_call_down')).toBe(0);
+          if (play(S(spot), table, hole, P).actions.join() !== none.actions.join()) todayDiffers++;
+        }
+    // not vacuous: today a Horse with no row plays a floor prior in some of these spots
+    expect(todayDiffers).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('a window that cannot be read at all (the field missing or not a number) is governed: under the line the limp, facing a raise the fold', () => {
+    for (const bad of [undefined, 0, Number.NaN]) {
+      const mutate = (gs: Record<string, unknown>) => {
+        if (bad === undefined) delete gs.vpipWindowHands;
+        else gs.vpipWindowHands = bad;
+      };
+      for (const hole of PLO5_WEAK.slice(0, 2)) {
+        // no readable window: the brain judges the shortfall over its default of ten, so 40% is under the line
+        const limp = play(S('btnFirstIn'), floored('plo5', 50, 40), hole, ON, mutate);
+        expect([String(bad), hole, limp.actions, limp.amounts]).toEqual([
+          String(bad),
+          hole,
+          all('call'),
+          SEEDS.map(() => 2),
+        ]);
+        const raised = play(S('btnFacingOpenTwoCalls'), floored('plo5', 50, 40), hole, ON, mutate);
+        expect([String(bad), hole, raised.actions]).toEqual([String(bad), hole, all('fold')]);
+        expect(fired(raised, 'vpip_floor_call_down')).toBe(0);
+        expect(fired(raised, 'vpip_floor_limp_only_not_governed_ten_hand_window')).toBe(0);
+      }
+    }
+  }, 120_000);
 
   it('PLO5, PLO6 and PLO4 at or over their line: nothing changes, in any spot', () => {
     for (const [variant, floor, vpip] of [
