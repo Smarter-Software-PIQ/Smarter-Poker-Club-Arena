@@ -270,17 +270,17 @@ test('an engine window on the exact owner notice waiver (2026-11-17) books witho
     [[{ ...waived, ownerNoticeWaiver: 'skip it' }], []],
     [[{ ...waived, playerNoticeAt: '2026-11-17T18:10:00Z' }], []],
     [[{ ...waived, ownerOrder: 'no quote' }], []],
-    [[{ ...waived, notAfter: '2026-11-18T09:30:01Z' }], []],
     [[], [waived]],
   ]) {
     const refused = bookingRecordViolations(doc(), doc(windows, databaseWindows), now);
     assert.equal(refused.length, 1);
     assert.match(refused[0], /ownerNoticeWaiver is accepted only/);
   }
-  // The waiver is spent on its one window: any other id is refused even before the expiry (N1).
-  const second = bookingRecordViolations(doc(), doc([{ ...waived, id: 'waived-second' }]), now);
-  assert.equal(second.length, 1);
-  assert.match(second[0], /spent on window 2026-11-17-owner-no-notice-engine-2330z/);
+  // Standing order (2026-11-17 20:23 Chicago): any engine window may carry it, with no expiry.
+  assert.deepEqual(
+    bookingRecordViolations(doc(), doc([{ ...waived, id: 'later-release', notAfter: '2026-12-01T08:00:00Z' }]), now),
+    []
+  );
   // Without the field a missing notice is refused exactly as before.
   const { ownerNoticeWaiver, ...plain } = waived;
   assert.match(bookingRecordViolations(doc(), doc([plain]), now)[0], /playerNoticeAt is required/);
