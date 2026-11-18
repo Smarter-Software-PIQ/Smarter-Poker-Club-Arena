@@ -50,15 +50,17 @@ docker exec "$NAME" pg_isready -U postgres -h 127.0.0.1 >/dev/null
 # A refused connection is not "not ready yet" forever: the last answer is kept
 # and printed if the roles never appear, so the real error reaches the log.
 ready=''
+answer=''
 for _ in $(seq 1 60); do
-  if answer=$(psql_db -Atc "select 1 from pg_roles where rolname='service_role'" 2>&1) && [ "$answer" = 1 ]; then
+  if answer=$(psql_db -Atc "select 1 from pg_roles where rolname='service_role'" 2>"$WORKDIR/ready.err") \
+     && [ "$answer" = 1 ]; then
     ready=1
     break
   fi
   sleep 2
 done
 if [ -z "$ready" ]; then
-  log "the copy never answered as supabase_admin with its roles in place; last answer: $answer"
+  log "the copy never answered as supabase_admin with its roles in place; last answer: ${answer:-} $(cat "$WORKDIR/ready.err" 2>/dev/null)"
   exit 1
 fi
 

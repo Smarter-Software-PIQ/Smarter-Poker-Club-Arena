@@ -109,8 +109,11 @@ jobs:
           github-token: ${{ github.token }}
       - name: Restore production's schema into a throwaway database
         run: |
-          set -o pipefail
-          bash -x scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db 2>&1 | tail -120
+          set +e
+          BASH_XTRACEFD=9 bash -x scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db 9>"$RUNNER_TEMP/trace"
+          rc=$?
+          grep -v 'docker exec\|^+* sleep\|^+* for _' "$RUNNER_TEMP/trace" | tail -60
+          exit $rc
       - name: Install the queue in the installer's order (that capture's own changed files)
         env:
           REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
