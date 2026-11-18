@@ -101,6 +101,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha flop facing-bet expected-value verdict (PLO Strategy lane 2026-11-17, omahaFlopFacingBetEv): in PLO4/PLO5 cash on the flop, the spot, the sampled two-card runout counts (a seed taken from the cards, never the brain's random stream), the realization factor read from the runouts and the EV verdict against the bettor's range by pot share, line and measured read",
     'src/engine/HorseOmahaFlopFacingBetEvRule.ts':
       'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
+    'src/engine/HorseOmahaSmallBet.ts':
+      'the default-off Omaha small-bet pricing (PLO Strategy lane 2026-11-18, omahaSmallBetIsPriced): reached only from HorseLogic omahaOwnBetRules when the option is on; with it unset or false no decision reads it (HorseOmahaSmallBet.test.ts)',
+    'src/engine/HorseOmahaSmallBetConstants.ts':
+      'the measured response by pot share of the default-off Omaha small-bet pricing (omahaSmallBetIsPriced); read only by HorseOmahaSmallBet.ts',
     'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':
       'the default-off Omaha turn and river raise rule (owner 2026-11-15 12:52 / 12:53, hand 59534208, omahaTurnRiverRaiseNeedsNuts): in PLO4/PLO5 cash facing a bet or a raise on the turn or the river, a raise stands only with a nut-class hand (on the turn also an in-position combo draw the 12:30 rule permits); every other raise becomes the exact-hand facing-bet EV call or fold, the outermost conversion on that path',
     'src/engine/HorseOmahaStreetPlan.ts':

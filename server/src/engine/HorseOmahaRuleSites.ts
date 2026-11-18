@@ -295,6 +295,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaSmallBetIsPriced: priced(
+    'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
+  ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
   // categorical, replaced
   omahaTurnRiverRaiseNeedsNuts: categorical('omahaTurnRiverRaiseIsPriced'),

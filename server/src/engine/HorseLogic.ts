@@ -104,6 +104,7 @@ import {
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
+import { omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   OMAHA_TOURNAMENT_SCOPE_OFF,
   omahaCashOnlyExcludes,
@@ -3216,6 +3217,14 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_flop_facing_bet_ev. */
   omahaFlopFacingBetEv?: boolean;
+  /** PLO Strategy lane 2026-11-18 (HorseOmahaSmallBet.ts): PLO4/PLO5 cash, heads-up
+   * turn or river with nothing to call. The owner's check or bet is priced on the
+   * card-impact model beside bets of 10/20/25% of the pot, the opponent's response
+   * at every size shaped by the measured response of his kind by pot share; the
+   * best small bet replaces it when it is worth more by 2% of the pot. Default OFF
+   * until its declared evaluation passes; league cards plo4/plo5
+   * _omaha_small_bet_is_priced. */
+  omahaSmallBetIsPriced?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -9051,12 +9060,61 @@ function omahaLimpedPotMinBetFloor(
     : decision;
 }
 
+/**
+ * omahaSmallBetIsPriced (PLO Strategy lane 2026-11-18, HorseOmahaSmallBet.ts, default OFF): the owner's check or bet on a
+ * PLO4/PLO5 cash heads-up turn or river is priced beside the small bets on the card-impact model with his measured response by
+ * pot share; the best small bet replaces it when it is worth more by the margin. An owner-ruled check (the out-of-position and
+ * paired-board checks) is never turned into a bet: those return before this rule, and a small bet those rules would check is
+ * dropped. Unset or false it returns the decision it was given.
+ */
+function omahaSmallBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaSmallBetIsPriced !== true) return decision;
+  if (decision.action !== 'check' && decision.action !== 'bet') return decision;
+  try {
+    const scope = omahaCardImpactScope(player, gs);
+    let read: OmahaReadConditional | null = null;
+    if (scope && opts.mind !== false) {
+      try {
+        read = HorseMind.omahaReadConditionalOf(scope.opponent.user_id);
+      } catch {
+        read = null;
+      }
+    }
+    const verdict = omahaSmallBetVerdict(decision, player, gs, read);
+    if (verdict.changed === null) {
+      if (telemetryOn(opts) && scope)
+        noteFire(
+          verdict.kept === 'priced' ? 'omaha_small_bet_kept' : 'omaha_small_bet_unpriced_kept'
+        );
+      return decision;
+    }
+    if (omahaWagerIsChecked(verdict.decision, player, gs, opts)) {
+      if (telemetryOn(opts)) noteFire('omaha_small_bet_owner_check_kept');
+      return decision;
+    }
+    if (telemetryOn(opts))
+      noteFire(
+        verdict.changed === 'small_bet' ? 'omaha_small_bet_priced_bet' : 'omaha_small_bet_resized'
+      );
+    return verdict.decision;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
 function omahaOwnBetRules(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  const priceSmall = (d: HorseDecision): HorseDecision => omahaSmallBetRule(d, player, gs, opts);
   const ruled = omahaOopCheckRules(
     plo6MultiwayWeakBetRule(decision, player, gs, opts),
     player,
@@ -9065,10 +9123,10 @@ function omahaOwnBetRules(
   );
   if (ruled !== decision) return ruled;
   if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true)
-    return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
+    return omahaLimpedPotMinBetFloor(priceSmall(ruled), player, gs, opts);
   const planned = omahaStreetPlanRules(ruled, player, gs, opts);
   let priced = omahaCardImpactRule(planned, player, gs, opts);
-  if (priced === ruled) return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
+  if (priced === ruled) return omahaLimpedPotMinBetFloor(priceSmall(ruled), player, gs, opts);
   try {
     if (priced !== planned && omahaWagerIsChecked(priced, player, gs, opts)) {
       if (telemetryOn(opts))
@@ -9086,13 +9144,13 @@ function omahaOwnBetRules(
       omahaNutClassNow(player, gs)
     ) {
       if (telemetryOn(opts)) noteFire('omaha_nut_class_wager_kept');
-      return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
+      return omahaLimpedPotMinBetFloor(priceSmall(ruled), player, gs, opts);
     }
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
-    return omahaLimpedPotMinBetFloor(ruled, player, gs, opts);
+    return omahaLimpedPotMinBetFloor(priceSmall(ruled), player, gs, opts);
   }
-  return omahaLimpedPotMinBetFloor(priced, player, gs, opts);
+  return omahaLimpedPotMinBetFloor(priceSmall(priced), player, gs, opts);
 }
 
 /**
