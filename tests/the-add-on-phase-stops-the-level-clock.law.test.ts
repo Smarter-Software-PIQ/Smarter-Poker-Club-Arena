@@ -155,5 +155,10 @@ describe('the add-on phase stops the level clock a player reads', () => {
     );
     const hud = src('src/components/tournament/TournamentHUD.tsx');
     expect(hud).toContain("if (addOn.phase === 'drain') return { kind: 'break', endsAtMs: null };");
+    // A viewer who missed the frame that opens the minute re-reads while the
+    // drain lasts, so the dock cannot sit on Last Hand until the safety read.
+    expect(hud).toContain(
+      'return { key: `addon-drain:${slot}`, atMs: slot * ADD_ON_DRAIN_REREAD_MS };'
+    );
   });
 });

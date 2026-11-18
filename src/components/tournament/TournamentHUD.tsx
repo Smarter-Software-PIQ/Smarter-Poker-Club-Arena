@@ -183,6 +183,8 @@ const DEADLINE_CATCH_UP_MS = [5_000, 15_000, 45_000, 120_000];
 /** A hung original cannot consume the interval between the first two catch-ups. */
 const ROW_READ_TIMEOUT_MS = DEADLINE_CATCH_UP_MS[1] - DEADLINE_CATCH_UP_MS[0];
 const TICK_MS = 1_000;
+/** While an add-on drain holds the clock, one catch-up read per slot. */
+const ADD_ON_DRAIN_REREAD_MS = 10_000;
 
 const isTerminal = (status: unknown) => TERMINAL.includes(String(status ?? '').toUpperCase());
 
@@ -294,6 +296,14 @@ function rowDeadline(row: Tournament, nowMs: number): { key: string; atMs: numbe
     return startsAt === null ? null : { key: `start:${startsAt}`, atMs: startsAt };
   }
   const pause = hudPause(row, nowMs);
+  // The add-on drain ends when the engine opens the paid minute. That arrives
+  // as an event; a viewer who missed it re-reads on this cadence, and only
+  // while the drain lasts (Dan 2026-11-18). A synchronized break's last hand
+  // (on_break) keeps its own event-driven end.
+  if (pause.kind === 'break' && pause.endsAtMs === null && row.on_break !== true) {
+    const slot = Math.floor(nowMs / ADD_ON_DRAIN_REREAD_MS);
+    return { key: `addon-drain:${slot}`, atMs: slot * ADD_ON_DRAIN_REREAD_MS };
+  }
   if (pause.kind === 'break') {
     return pause.endsAtMs === null
       ? null
