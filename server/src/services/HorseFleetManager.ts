@@ -1363,12 +1363,17 @@ export class HorseFleetManager {
         big_blind_ante_enabled?: boolean | null;
         nit_game?: boolean | null;
         maintain_percent_min?: number | null;
+        /* The cluster's ruleset profile. Madness is identified by this and
+           never again by its floor value (HorseMadnessSelection, 2026-11-17).
+           PostgREST returns an embedded relation as an array, exactly like
+           `arena` above, so this is read at [0]. */
+        cluster?: unknown;
       }>(
         (cursor, want) => {
           let q = supabase
             .from('tables')
             .select(
-              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'
+              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, last_human_seen_at, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min, cluster:cash_games!tables_cluster_id_fkey(rules_profile:ruleset_snapshot->>rules_profile)'
             )
             .is('tournament_id', null)
             .in('status', ['waiting', 'running'])

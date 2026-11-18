@@ -492,6 +492,11 @@
   cursor: pointer;
 }
 
+.member-row__promo-check {
+  position: relative;
+  z-index: 2;
+}
+
 .member-select {
   position: relative;
   z-index: 3;

@@ -1,64 +1,39 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useAuthUser } from './useAuthUser';
-import { useMasterBusSubscriptions } from './useMasterBusSubscription';
-import {
-  readMemberPromoPlayThrough,
-  type PromoPlayThroughSummary,
-} from '../services/PromoPlayThroughService';
-import { reportError } from '../utils/errorReporter';
+import { readMemberPromoPlayThrough } from '../services/PromoPlayThroughService';
+import { useRequestedPromoRead } from './useRequestedPromoRead';
 
-/** One bounded read for the visible roster, sharing its financial authority. */
-export function useMemberPromoPlayThrough(
-  clubId: string | null,
-  userIds: readonly string[],
-  revision?: string | number
-) {
+export function useMemberPromoPlayThrough(clubId: string | null, userIds: readonly string[]) {
   const { user } = useAuthUser();
   const ids = JSON.stringify([...new Set(userIds)].sort());
-  const scope = JSON.stringify([clubId, user?.id, ids]);
-  const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{
-    scope: string;
-    members: Record<string, PromoPlayThroughSummary> | null;
-  } | null>(null);
-  useMasterBusSubscriptions(
-    [
-      'BALANCE_UPDATED',
-      'WALLET_REFRESHED',
-      'HAND_COMPLETED',
-      'REALTIME_CONNECTED',
-      'NOTIFICATION_RECEIVED',
-    ],
-    (payload) => {
-      if (
-        payload &&
-        typeof payload === 'object' &&
-        'notification' in payload &&
-        (payload.notification as { type?: string })?.type !== 'promo_play_through'
-      )
-        return;
-      setAttempt((n) => n + 1);
-    },
-    { debounce: 250 }
+  const allowedIds = useMemo<readonly string[]>(() => JSON.parse(ids), [ids]);
+  const read = useCallback(
+    (requestedIds: readonly string[], signal: AbortSignal) =>
+      readMemberPromoPlayThrough(clubId!, requestedIds, signal),
+    [clubId]
   );
-  useEffect(() => {
-    if (!clubId || !user?.id) return;
-    const controller = new AbortController();
-    void readMemberPromoPlayThrough(clubId, JSON.parse(ids) as string[], controller.signal).then(
-      (members) => {
-        if (!controller.signal.aborted) setResult({ scope, members });
-      },
-      (error) => {
-        if (!controller.signal.aborted) {
-          reportError(error, 'useMemberPromoPlayThrough.read');
-          setResult({ scope, members: null });
-        }
-      }
-    );
-    return () => controller.abort();
-  }, [clubId, user?.id, ids, scope, attempt, revision]);
+  const { result, request } = useRequestedPromoRead(
+    JSON.stringify([clubId, user?.id, ids]),
+    read,
+    'useMemberPromoPlayThrough.read'
+  );
+
+  const checkMember = useCallback(
+    (id: string) => {
+      if (clubId && user?.id && allowedIds.includes(id)) return request([id]);
+    },
+    [clubId, user?.id, allowedIds, request]
+  );
+  const reload = useCallback(() => {
+    if (clubId && user?.id && allowedIds.length) return request(allowedIds);
+  }, [clubId, user?.id, allowedIds, request]);
   return {
-    members: result?.scope === scope ? result.members : undefined,
-    reload: () => setAttempt((n) => n + 1),
+    members: result?.value ?? undefined,
+    requested: result !== null,
+    requestedIds: result?.input ?? [],
+    loading: result?.loading ?? false,
+    error: result?.error ?? false,
+    checkMember,
+    reload,
   };
 }
