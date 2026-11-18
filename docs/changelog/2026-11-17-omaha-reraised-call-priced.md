@@ -14,7 +14,7 @@ as before (`omahaOopReraisedClassCell`: suited aces kept, commitment, coordinati
 the realization margins). Then:
 
 - the class cell KEEPS the call: the call stands, with the same verdict and the same receipt as before
-  (`omaha_oop_reraised_call_kept`). The priced numbers are computed and travel on the verdict; they cannot fold the call.
+  (`omaha_oop_reraised_call_kept`). It is not priced at all: the priced test cannot decide it, so its sampler is not run.
 - the class cell FOLDS the call: the fold stands only when the priced test confirms it,
   EV(call) = realization x equity x (pot after the call) x (1 - rake) - call < 0 (`omaha_reraised_call_priced_fold`, with
   `omaha_oop_reraised_call_folded`). Otherwise the fold is overturned and the call stands
@@ -61,6 +61,12 @@ priced test live inside the other two. To return to the class rule with the opti
 
 ## Known limits (handed to the follow-up lane, behaviour not changed here)
 
+- Position and others in are NOT the definitions the constants were fitted under (re-review of 10150eebe3e, B1). The fit's
+  position is "after the re-raiser" only, its 0.35 was measured on players who had called the current raise, and an opener
+  still to act carried no charge there (-0.09 in position, 0.01 out of position). The engine also takes position away for
+  a caller behind hero and charges an opener still to act behind hero 0.35. Both lower the realization, so fewer class
+  folds are overturned than the fit would support (a conservative deviation: under-rescue, never worse than main, because
+  the pricing can only overturn a fold). 23 of 236 recorded fires have the opener-behind layout; none is overturned.
 - Where realization x (1 - rake) is at or below the price, no hand can pass the priced test: the confirmed fold is then
   set by position, players in, depth and price, not by the cards (43 of the 158 confirmed folds have a required equity of
   1 or more). These were folds on main too.

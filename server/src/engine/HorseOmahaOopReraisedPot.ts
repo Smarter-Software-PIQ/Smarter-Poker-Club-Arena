@@ -279,9 +279,9 @@ export interface OmahaOopReraisedVerdict {
   /** exactly one ace or exactly one king facing a 4-bet or more */
   dominatedKeyCard: boolean;
   /**
-   * The priced call's numbers (PLO4/PLO5). With reasons priced_call /
-   * priced_fold they decided; with any other reason the class cell kept the
-   * call and they are reported only (they cannot fold a kept call).
+   * The priced call's numbers (PLO4/PLO5): present exactly with reasons
+   * priced_call / priced_fold, where they decided. A call the class cell keeps
+   * is not priced (the pricing could not decide it) and carries none.
    */
   pricing?: OmahaReraisedCallPricedNumbers;
   /** reasons priced_call / priced_fold only: why the class cell folded */
@@ -300,16 +300,16 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
   const legacy = omahaOopReraisedClassCell(i);
   if (legacy === null || i.variant.toLowerCase() === 'plo6') return legacy;
   // PLO4/PLO5: THE PRICING MAY ONLY OVERTURN A FOLD (see the comment on
-  // omahaReraisedCallPriced). It is computed for every call the cell examines
-  // and travels on the verdict, but it decides only where the class cell folds:
-  //   class keeps                -> the call stands, verdict as before (+ pricing)
+  // omahaReraisedCallPriced), so it is computed only where it can decide:
+  //   class keeps                -> the class verdict, exactly as on main (not priced:
+  //                                 no sampler run, no pricing on the verdict)
   //   class folds, EV(call) >= 0 -> the call stands, reason priced_call
   //   class folds, EV(call) <  0 -> fold, reason priced_fold
+  if (!legacy.fold) return legacy;
   const call = Math.min(i.toCall, i.stack);
   const p = i.priced
     ? omahaReraisedCallPriced(i.hole, i.dead, i.preflopRaises, call, i.pot, i.stack, i.priced)
     : null;
-  if (!legacy.fold) return p === null ? legacy : { ...legacy, pricing: p };
   // A class fold the pricing cannot confirm is not a fold: the call stands.
   if (p === null) return null;
   return {
@@ -423,8 +423,7 @@ export function omahaOopReraisedClassCell(
  * THE PRICING IS ONLY ALLOWED TO OVERTURN FOLDS. A call becomes a fold only
  * when the class cell (omahaOopReraisedClassCell, the rule as it stood on main)
  * folds it AND the call loses chips against folding now; a call the class cell
- * keeps stands whatever the pricing says (it is still priced and the numbers
- * travel on the verdict). Why (independent review of 97de6c23913,
+ * keeps stands and is not priced at all (the verdict is main's). Why (independent review of 97de6c23913,
  * REVIEW-97de6c23913.md, blocking item 1): priced in both directions, the
  * same formula folded 39 of 627 journaled decisions the class cell called; 34
  * were recorded calls that netted +457.6 bb, 20 held a pair of aces, and the

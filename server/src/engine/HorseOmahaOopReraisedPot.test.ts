@@ -40,6 +40,7 @@ import {
   omahaOopCoordinated,
   omahaOopReraisedCallCell,
   omahaOopReraisedClassCell,
+  omahaReraisedCallPriced,
   omahaReraiseByPositionCell,
   omahaReraisedFlopContinueCell,
   type OmahaOopReraisedInput,
@@ -169,6 +170,17 @@ const pricing = (inPosition: boolean, raiserBehind: number) => ({
   heroAlreadyRaised: false,
   heroInvested: 0,
 });
+/** The priced numbers alone, for a call the class cell keeps (the cell itself does not price a keep). */
+const pricedAlone = (i: OmahaOopReraisedInput) =>
+  omahaReraisedCallPriced(
+    i.hole,
+    i.dead,
+    i.preflopRaises,
+    Math.min(i.toCall, i.stack),
+    i.pot,
+    i.stack,
+    i.priced!
+  )!;
 /** 100bb, blinds 1/2: a pot-sized 3-bet of a 7 open (17 to call into 34). */
 const threeBet = (hole: Card[], outOfPosition: boolean): OmahaOopReraisedInput => ({
   variant: variantOf(hole.length),
@@ -316,13 +328,14 @@ describe('PLO4/PLO5: the pricing only overturns class folds (census, pinned coun
             for (const h of hands) {
               const cls = omahaOopReraisedClassCell(input(h))!;
               const v = omahaOopReraisedCallCell(input(h))!;
-              expect(v.pricing).toBeDefined();
               if (!cls.fold) {
-                // kept by the class cell: never folded, verdict unchanged, pricing reported only
-                expect(v).toEqual({ ...cls, pricing: v.pricing });
+                // kept by the class cell: never folded, main's verdict exactly, not priced
+                expect(v).toEqual(cls);
+                expect('pricing' in v).toBe(false);
                 row[3]++;
-                if (v.pricing!.evCall < 0) row[4]++;
+                if (pricedAlone(input(h)).evCall < 0) row[4]++;
               } else {
+                expect(v.pricing).toBeDefined();
                 expect(v.classReason).toBe(cls.reason);
                 expect([v.fold, v.reason]).toEqual(
                   v.pricing!.evCall < 0 ? [true, 'priced_fold'] : [false, 'priced_call']
@@ -689,14 +702,18 @@ describe('the preflop cell: scope and the kept hands', () => {
     // the top 37% where 0.491 is needed, EV -1.95. The pricing cannot fold a
     // call the class cell keeps.
     expect(v.equity).toBeCloseTo(0.475, 3);
-    expect(v.pricing!.equity).toBeCloseTo(0.435, 3);
-    expect(v.pricing!.required).toBeCloseTo(0.4913, 3);
-    expect(v.pricing!.evCall).toBeCloseTo(-1.9487, 2);
+    const alone = pricedAlone(threeBet(ds, true));
+    expect(alone.equity).toBeCloseTo(0.435, 3);
+    expect(alone.required).toBeCloseTo(0.4913, 3);
+    expect(alone.evCall).toBeCloseTo(-1.9487, 2);
+    // and the cell does not price a call it keeps: the verdict is main's, no pricing on it
+    expect(v).toEqual(omahaOopReraisedClassCell(threeBet(ds, true)));
+    expect(v.pricing).toBeUndefined();
   });
   it('ace-king-queen-jack double suited (every card coordinated) calls; ace-king with danglers folds', () => {
     const all = omahaOopReraisedCallCell(threeBet(cards('AsKsQhJh'), true))!;
     expect([all.fold, all.reason, all.coordination]).toEqual([false, 'strong_range', 'rundown']);
-    expect(all.pricing!.evCall).toBeCloseTo(2.6792, 2);
+    expect(all.pricing).toBeUndefined();
     const danglerIn = threeBet(cards('AsKs7h2h'), true);
     const danglerClass = omahaOopReraisedClassCell(danglerIn)!;
     expect([danglerClass.fold, danglerClass.reason]).toEqual([true, 'uncoordinated']);
@@ -747,9 +764,10 @@ describe('the preflop cell: scope and the kept hands', () => {
     expect([suited.fold, suited.reason, suited.equity]).toEqual([false, 'aces_suited', null]);
     const bare = omahaOopReraisedCallCell(threeBet(cards('AsAd7h2c'), true))!;
     expect([bare.fold, bare.reason, bare.coordination]).toEqual([false, 'strong_range', null]);
-    // both are priced for the record (+26.49 and +4.58 here); the price does not decide them
-    expect(suited.pricing!.evCall).toBeCloseTo(26.4901, 2);
-    expect(bare.pricing!.evCall).toBeCloseTo(4.5822, 2);
+    // kept by the class cell, so neither is priced by the cell (priced alone: +26.49 and +4.58)
+    expect([suited.pricing, bare.pricing]).toEqual([undefined, undefined]);
+    expect(pricedAlone(fourBet(cards('AsAh7s6h'), true)).evCall).toBeCloseTo(26.4901, 2);
+    expect(pricedAlone(threeBet(cards('AsAd7h2c'), true)).evCall).toBeCloseTo(4.5822, 2);
   });
   it('a call the class cell keeps is never folded, whatever the pricing says (review of 97de6c23913, item 1)', () => {
     // The harshest inputs the pricing accepts: out of position, two other
@@ -774,11 +792,13 @@ describe('the preflop cell: scope and the kept hands', () => {
       const cls = omahaOopReraisedClassCell(input)!;
       const v = omahaOopReraisedCallCell(harsh(input))!;
       expect([cls.fold, cls.reason]).toEqual([false, reason]);
-      expect(v).toEqual({ ...cls, pricing: v.pricing });
+      expect(v).toEqual(cls);
       expect(v.fold).toBe(false);
-      expect(v.pricing!.required).toBeCloseTo(required, 3);
-      expect(v.pricing!.evCall).toBeCloseTo(ev, 2);
-      expect(v.pricing!.evCall).toBeLessThan(0);
+      expect(v.pricing).toBeUndefined();
+      const alone = pricedAlone(harsh(input));
+      expect(alone.required).toBeCloseTo(required, 3);
+      expect(alone.evCall).toBeCloseTo(ev, 2);
+      expect(alone.evCall).toBeLessThan(0);
     }
   });
   it('without the pricing inputs: a class keep is kept as on main; a class fold cannot be confirmed, so the cell does not answer', () => {
@@ -808,8 +828,8 @@ describe('the preflop cell: scope and the kept hands', () => {
     expect([allIn4.fold, allIn4.reason]).toEqual([false, 'commitment']);
     expect(allIn4.equity).toBeCloseTo(0.465, 3);
     expect(allIn4.equity!).toBeGreaterThan(allIn4.price);
-    // an all-in call realizes everything
-    expect(allIn4.pricing!.realization).toBe(1);
+    // an all-in call realizes everything (priced alone; the cell does not price this keep)
+    expect(pricedAlone({ ...fourBet(split, true), stack: 51 }).realization).toBe(1);
   });
   it('facing a 4-bet a hand with exactly one ace or king is charged the key-card margin', () => {
     const one = omahaOopReraisedClassCell(fourBet(cards('KsQsJhTh'), true))!;

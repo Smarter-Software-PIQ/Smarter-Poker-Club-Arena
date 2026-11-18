@@ -173,11 +173,13 @@ describe('position held after the call, and the other players in', () => {
     const p = pricingOf(t, 1);
     expect([p.inPosition, p.othersIn]).toEqual([true, 1]);
   });
-  it('THE OPENER STILL TO ACT BEHIND HERO: counted as another player in, not as position lost (the definition the costs were fitted under)', () => {
-    // Review of 97de6c23913, note N4 (23 of 236 recorded fires). The opener has
-    // not paid the price: by the measurement's definition (in position = after
-    // the re-raiser and after every player ALREADY IN FOR THE PRICE) hero is in
-    // position, and the opener is charged as another player in (0.35). Pinned
+  it('THE OPENER STILL TO ACT BEHIND HERO: counted as another player in, not as position lost (charged more than the fit measured: a known conservative deviation)', () => {
+    // Review of 10150eebe3e, B1 (23 of 236 recorded fires). The opener has not
+    // paid the price: hero is priced in position and the opener is charged as
+    // another player in (0.35). The fit did NOT measure that: its 0.35 is for
+    // players who called the current raise, and an opener still to act carried
+    // no charge there (-0.09 / 0.01). The engine therefore under-rescues in
+    // this layout (never worse than main: the pricing only overturns). Pinned
     // so that a change of this definition is a deliberate, evaluated change.
     const p = pricingOf(openerBehindHero(), 1);
     expect([p.inPosition, p.othersIn, p.heroAlreadyRaised, p.heroInvested]).toEqual([

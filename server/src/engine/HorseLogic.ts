@@ -7486,16 +7486,25 @@ function postflopOrder(seat: number, dealerSeat: number | undefined): number {
  * the engine's own call deduction for rake. Undefined on any failure (the cell
  * then keeps what the class cell keeps and leaves the rest standing).
  *
- * POSITION, as the measurement defined it (HorseOmahaPreflopReraiseDefenceRule
- * at 33a4f1f2b45, the fit the depth costs come from): hero is in position when
- * he acts after the re-raiser and after every player ALREADY IN FOR THE PRICE.
- * A raiser of this hand who is still to act behind hero (the opener facing the
- * re-raise) has not paid the price: he does not move hero out of position, he
- * is charged as another player in the pot (othersIn, 0.35). That differs on
- * purpose from the scope test of omahaOopReraisedPotStrongRange below, which
- * asks who has voluntary money in. Charging him the out-of-position depth cost
- * as well would apply a constant outside the definition it was fitted under
- * (review of 97de6c23913, note N4: 23 of 236 recorded fires have this layout).
+ * POSITION AND OTHERS IN: A KNOWN CONSERVATIVE DEVIATION FROM THE FIT. Hero is
+ * in position here when he acts after the re-raiser and after every player
+ * already in for the price; a raiser of this hand still to act behind hero
+ * (the opener facing the re-raise) does not move hero out of position and is
+ * charged as another player in the pot (othersIn, 0.35). This is the code of
+ * the source lane's rule file (HorseOmahaPreflopReraiseDefenceRule at
+ * 33a4f1f2b45), NOT the definition the constants were fitted under (review of
+ * 10150eebe3e, B1; the fit's scripts step1/fit1.py and step1.py): the fit's
+ * position is "after the re-raiser" and nothing else; its 0.35 was measured on
+ * players who had CALLED the current raise; an opener still to act was one of
+ * its "still to act" players, whose measured terms are -0.09 (SE 0.13) in
+ * position and 0.01 (SE 0.15) out of position, that is, no charge. So that
+ * opener is charged 0.35 the fit did not measure for him, and a caller behind
+ * hero costs position the fit did not take. Both lower the realization: fewer
+ * class folds are overturned than the fit would support, and because the
+ * pricing can only overturn a fold, no decision is worse than main for it (23
+ * of 236 recorded fires have the opener-behind layout; none is overturned).
+ * Left as is on purpose; the definition is handed to the follow-up lane, to be
+ * changed only with a rerun of the counterfactual.
  */
 export function omahaReraisedCallPricingOf(
   player: SeatPlayer,
