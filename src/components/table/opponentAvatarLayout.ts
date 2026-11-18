@@ -1,3 +1,4 @@
+import { NINE_SEAT_PHONE_RAIL_BUST } from './mobileAvatarSize';
 import { privateCardLane } from './heroPrivateReservations';
 import {
   crownActionReservation,
@@ -34,7 +35,10 @@ export function fixedRailBustLimit(
   pivotX: number,
   viewport: Box,
   board: Box,
-  air: number
+  air: number,
+  /** The largest factor returned. 1 (the default) answers "how far must it
+   * shrink"; Infinity also answers "how far may it grow back". */
+  cap = 1
 ) {
   let left = viewport.left + air,
     right = viewport.left + viewport.width - air;
@@ -43,9 +47,11 @@ export function fixedRailBustLimit(
     if (pivotX > board.left + board.width) left = Math.max(left, board.left + board.width + air);
   }
   return Math.min(
-    1,
-    paint.left < pivotX ? (pivotX - left) / (pivotX - paint.left) : 1,
-    paint.left + paint.width > pivotX ? (right - pivotX) / (paint.left + paint.width - pivotX) : 1
+    cap,
+    paint.left < pivotX ? (pivotX - left) / (pivotX - paint.left) : cap,
+    paint.left + paint.width > pivotX
+      ? (right - pivotX) / (paint.left + paint.width - pivotX)
+      : cap
   );
 }
 
@@ -1586,28 +1592,49 @@ export function createOpponentAvatarLayout(
     }
     // Set the baseline before cards, captions or wagers are allocated. The
     // later paint fitter only enlarges, so it cannot repair a wide native bust.
+    // Dan 2026-11-18: one wide portrait used to shrink the WHOLE ring, and for
+    // the rest of the session: the shared `--sp-nine-rail-bust` started from
+    // its own last value and could only ever be multiplied down. Now the ring
+    // always takes the approved base, and a portrait whose own art is too
+    // wide for the rail beside the board takes the largest size that clears,
+    // on its own chair only. Each chair's value is a function of its own
+    // portrait and the table geometry, so it is the same on every pass,
+    // nobody else's size moves when a player comes or goes, and it returns to
+    // the base when that player leaves the chair.
+    // tests/mobile-avatars-never-ratchet-smaller.law.test.ts
     if (fixedPhoneRail()) {
       const board = scaler.querySelector('.community-area')?.getBoundingClientRect();
       if (board && board.width) {
         const viewport = page.getBoundingClientRect(),
           ratio = tableRenderScale(scaler);
-        const current = parseFloat(scaler.style.getPropertyValue('--sp-nine-rail-bust')) || 1.7;
-        let limit = 1;
         for (const image of all) {
+          const wrapper = image.closest<HTMLElement>('.seat-wrapper');
           const own = resolved.get(source(image));
-          if (!own || !image.closest('.seat__avatar--bust')) continue;
+          if (!wrapper || !own || !image.closest('.seat__avatar--bust')) continue;
+          const current =
+            parseFloat(wrapper.style.getPropertyValue('--sp-seat-rail-bust')) ||
+            NINE_SEAT_PHONE_RAIL_BUST;
           const rect = restingAvatarBox(image, ratio);
           const paint = subject(image, own, true, rect);
-          limit = Math.min(
-            limit,
-            fixedRailBustLimit(paint, rect.left + rect.width / 2, viewport, board, 2 * ratio)
+          const limit = fixedRailBustLimit(
+            paint,
+            rect.left + rect.width / 2,
+            viewport,
+            board,
+            2 * ratio,
+            Infinity
           );
+          if (!Number.isFinite(limit) || limit <= 0) continue;
+          const next = Math.min(NINE_SEAT_PHONE_RAIL_BUST, Math.floor(current * limit * 1000) / 1000);
+          if (next >= NINE_SEAT_PHONE_RAIL_BUST - 0.0005)
+            wrapper.style.removeProperty('--sp-seat-rail-bust');
+          else if (Math.abs(next - current) >= 0.001)
+            wrapper.style.setProperty('--sp-seat-rail-bust', String(next));
         }
-        if (limit > 0 && limit < 0.9999)
-          scaler.style.setProperty(
-            '--sp-nine-rail-bust',
-            String(Math.floor(current * limit * 1000) / 1000)
-          );
+        // A chair left empty keeps no portrait's size.
+        for (const wrapper of scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))
+          if (!wrapper.querySelector('.seat:not(.seat--empty) .seat__avatar--bust'))
+            wrapper.style.removeProperty('--sp-seat-rail-bust');
       }
     }
     if (state.lowerLaneKey && !state.locked) {

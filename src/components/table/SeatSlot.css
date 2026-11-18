@@ -5324,11 +5324,13 @@
 }
 
 /* The fixed nine-seat rail leaves the middle chairs beside the outer board
-   cards. Begin from the shared safe bust size on every phone height; the
-   fitter can grow the entire ring together when the decoded art clears. */
+   cards. Every chair takes the approved rail size (NINE_SEAT_PHONE_RAIL_BUST,
+   src/components/table/mobileAvatarSize.ts); only a portrait whose own art is
+   too wide for the rail beside the board takes a smaller one, on its own
+   chair, while it is seated (opponentAvatarLayout.ts, Dan 2026-11-18). */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='9'] .seat-wrapper {
-    --sp-bust-scale: var(--sp-nine-rail-bust, 1.7);
+    --sp-bust-scale: var(--sp-seat-rail-bust, 1.7);
   }
   /* The rail fitter reads this transform to choose the next size. Interpolating
      it feeds the previous frame back into the fit on a cold table mount. */
