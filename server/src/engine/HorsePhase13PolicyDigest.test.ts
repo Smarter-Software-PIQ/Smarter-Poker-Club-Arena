@@ -114,7 +114,8 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 68 since 2026-11-16: HorseMind reads the heads-up tight-folder read (HorseHuTightBigBlindSteal),
     // which brings the heads-up open bands (HorseNlhOpenSize) into the closure.
     // 69 since 2026-11-17: HorseMind carries the postflop read by street and flop texture (HorseOmahaStreetRead).
-    expect(closure).toHaveLength(69);
+    // 70 since 2026-11-18: HorseMind reads the per-decision mode of omahaReadIsByStreetAndTexture (HorseOmahaReadByStreetMode).
+    expect(closure).toHaveLength(70);
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseOpponentStyle.ts');
     expect(closure).toContain('src/engine/HorseTournamentContextProvenance.ts');

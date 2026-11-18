@@ -444,6 +444,8 @@ describe('an opponent is read by street and by flop texture', () => {
       'engine/HorseMind.ts',
       // omahaReadIsByStreetAndTexture's pure read (2026-11-18)
       'engine/HorseOmahaReadByStreet.ts',
+      // its per-decision mode (types only), the one part HorseMind imports
+      'engine/HorseOmahaReadByStreetMode.ts',
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
     ]);

@@ -103,6 +103,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
     'src/engine/HorseOmahaReadByStreet.ts':
       "the default-off Omaha read by street and flop texture (PLO Strategy lane 2026-11-18, omahaReadIsByStreetAndTexture): the per-decision mode, the street cells the priced comparisons read, the value-leader label as a continuous per-street quantity and the bettor's street bet rate, each blended with the pooled figure by the cell's own opportunities",
+    'src/engine/HorseOmahaReadByStreetMode.ts':
+      'the per-decision mode of the default-off Omaha read by street (omahaReadIsByStreetAndTexture): the street, the flop texture and the two read functions the installer puts in place for one decision; the only part HorseMind imports',
     'src/engine/HorseOmahaReadByStreetRule.ts':
       'the installer of the default-off Omaha read by street (omahaReadIsByStreetAndTexture): for one PLO4/PLO5 cash postflop decision the per-street read mode and the priced street cells, both put back when the decision returns; receipt omaha_read_by_street_carried',
     'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':

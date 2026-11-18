@@ -36,12 +36,7 @@ import {
   type StreetLabel,
   type StreetReadCounters,
 } from './HorseOmahaStreetRead.js';
-import {
-  omahaReadByStreetNow,
-  omahaReadConditionalByStreet,
-  omahaStreetBetRate,
-  type OmahaReadByStreetMeans,
-} from './HorseOmahaReadByStreet.js';
+import { omahaReadByStreetNow, type OmahaReadByStreetMeans } from './HorseOmahaReadByStreetMode.js';
 import {
   respectWinner,
   isProvenWinner,
@@ -2875,13 +2870,7 @@ export class HorseMind {
         rc?.measured === true && mean > 0 && rc.betCheckedTo.n > 0
           ? // omahaReadIsByStreetAndTexture (default off): his rate on the decision's street, shrunk toward
             // the pooled rate by the street cell's own opportunities; the pooled rate with no street cell.
-            omahaStreetBetRate(
-              omahaReadByStreetNow().on
-                ? (this.omahaStreetReadOf(userId, omahaReadByStreetNow().texture)?.counters ?? null)
-                : null,
-              omahaReadByStreetNow(),
-              rc.betCheckedTo.mean
-            ) / mean
+            this.omahaReadByStreetBetRate(userId, rc.betCheckedTo.mean) / mean
           : null,
       postflopManiac:
         rc?.measured === true && exploit !== null && exploit.presumed !== true
@@ -2964,12 +2953,21 @@ export class HorseMind {
     // omahaReadIsByStreetAndTexture (default off): the value-leader label read on the decision's own
     // street and flop texture, blended continuously with the pooled label (HorseOmahaReadByStreet).
     const byStreet = omahaReadByStreetNow();
-    if (!byStreet.on) return pooledRead;
-    return omahaReadConditionalByStreet(
+    if (!byStreet.on || !byStreet.readConditional) return pooledRead;
+    return byStreet.readConditional(
       pooledRead,
       this.omahaStreetReadOf(userId, byStreet.texture)?.counters ?? null,
-      byStreet,
       this.omahaReadByStreetMeans()
+    );
+  }
+
+  /** His bet rate on the decision's street (omahaReadIsByStreetAndTexture on), or `pooledRate` itself. */
+  private static omahaReadByStreetBetRate(userId: string, pooledRate: number): number {
+    const byStreet = omahaReadByStreetNow();
+    if (!byStreet.on || !byStreet.betRate) return pooledRate;
+    return byStreet.betRate(
+      this.omahaStreetReadOf(userId, byStreet.texture)?.counters ?? null,
+      pooledRate
     );
   }
 

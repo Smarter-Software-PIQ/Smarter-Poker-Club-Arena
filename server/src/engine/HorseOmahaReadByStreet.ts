@@ -51,22 +51,21 @@ import {
   type OmahaPricedStreetRates,
 } from './HorseOmahaPricedRules.js';
 import { betaCdf } from './HorseOpponentExploit.js';
+import {
+  OMAHA_READ_BY_STREET_OFF,
+  type OmahaReadByStreetMeans,
+  type OmahaReadByStreetMode,
+} from './HorseOmahaReadByStreetMode.js';
 
 // ───────────────────────────── the mode of one decision ─────────────────────────────
 
-export interface OmahaReadByStreetMode {
-  readonly on: boolean;
-  /** the decision's street; null off the postflop streets */
-  readonly street: PostflopStreet | null;
-  /** the flop's texture class; null when the board has no single known flop */
-  readonly texture: FlopTexture | null;
-}
-export const OMAHA_READ_BY_STREET_OFF: OmahaReadByStreetMode = Object.freeze({
-  on: false,
-  street: null,
-  texture: null,
-});
-let current: OmahaReadByStreetMode = OMAHA_READ_BY_STREET_OFF;
+export {
+  OMAHA_READ_BY_STREET_OFF,
+  omahaReadByStreetNow,
+  withOmahaReadByStreet,
+  type OmahaReadByStreetMeans,
+  type OmahaReadByStreetMode,
+} from './HorseOmahaReadByStreetMode.js';
 
 const STREETS: ReadonlySet<string> = new Set(['flop', 'turn', 'river']);
 
@@ -104,25 +103,24 @@ export function omahaReadByStreetModeOf(
     (Array.isArray(gs.communityCards3) && gs.communityCards3.length > 0);
   if (Number(gs.boardCount ?? 1) !== 1 || extraBoard || gs.bombPot === true)
     return OMAHA_READ_BY_STREET_OFF;
-  return Object.freeze({
+  const street = stage as PostflopStreet;
+  const texture = flopTextureOf(
+    Array.isArray(gs.communityCards) ? (gs.communityCards as never) : null
+  );
+  const mode: OmahaReadByStreetMode = Object.freeze({
     on: true,
-    street: stage as PostflopStreet,
-    texture: flopTextureOf(Array.isArray(gs.communityCards) ? (gs.communityCards as never) : null),
+    street,
+    texture,
+    readConditional: (
+      pooled: OmahaReadConditional | null,
+      row: StreetReadCounters | null,
+      means: OmahaReadByStreetMeans | null
+    ) => omahaReadConditionalByStreet(pooled, row, mode, means),
+    betRate: (row: StreetReadCounters | null, pooledRate: number) =>
+      omahaStreetBetRate(row, mode, pooledRate),
   });
+  return mode;
 }
-export function withOmahaReadByStreet<T>(mode: OmahaReadByStreetMode, fn: () => T): T {
-  const previous = current;
-  current = mode;
-  try {
-    return fn();
-  } finally {
-    current = previous;
-  }
-}
-export function omahaReadByStreetNow(): OmahaReadByStreetMode {
-  return current;
-}
-
 // ───────────────────────────── which cell ─────────────────────────────
 
 const known = (c: StreetReadCell | null | undefined): c is StreetReadCell =>
@@ -159,13 +157,6 @@ export function omahaStreetRatesOf(
 }
 
 // ───────────────────────────── the value-leader quantity ─────────────────────────────
-
-/** The envelope means the label compares against (HorseOpponentExploit.exploitEnvelopeFor). */
-export interface OmahaReadByStreetMeans {
-  bet: number;
-  foldToBet: number;
-  riverCall: number;
-}
 
 const finite01 = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;

@@ -91,7 +91,7 @@ describe('the mode of one decision', () => {
     ...over,
   });
   it('is on only for PLO4/PLO5 cash postflop, one board, no bomb pot, with the option', () => {
-    expect(omahaReadByStreetModeOf(true, gs({}))).toEqual({
+    expect(omahaReadByStreetModeOf(true, gs({}))).toMatchObject({
       on: true,
       street: 'flop',
       texture: 'rainbow',
