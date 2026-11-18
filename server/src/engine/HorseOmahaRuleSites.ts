@@ -386,6 +386,12 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
   ),
+  omahaRiverBluffCatchIsPriced: priced(
+    'a heads-up first river bet priced as a bluff-catch on the bettor measured range composition, reweighted by the Horse blockers and his measured tendency, close calls mixed on a public-state draw (default OFF)'
+  ),
+  omahaFacingBetEvShownField: priced(
+    'a turn or river call with another player in the hand priced on the joint field (players behind continue on a measured rate, their calls in the pot), the measured turn realization and a close-call mix on a public-state draw (default OFF)'
+  ),
   omahaSmallBetIsPriced: priced(
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
   ),

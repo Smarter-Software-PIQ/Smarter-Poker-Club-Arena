@@ -1,0 +1,3 @@
+# 2026-11-18: omahaRiverBluffCatchIsPriced (default OFF; evaluation FAILED)
+
+WooWoo audit RIVER-FACING. Inside the Omaha facing-bet EV verdict, a heads-up first river bet (not a raise) can be priced as a bluff-catch on the bettor's measured range: the strength percentile of 269 measured heads-up river bettors' holdings read at the bet's pot share (Gaussian kernel), reweighted by the Horse's blockers and the bettor's measured tendency, no realization, 2-SE close-call mix on a public-state draw. New file `server/src/engine/HorseOmahaRiverBluffCatch.ts`; authority `docs/horse-option-authority.d/omahaRiverBluffCatchIsPriced.md`. Default OFF; option off is identical key for key. Its declared evaluation failed (the serving folds were right on average); it stays OFF.

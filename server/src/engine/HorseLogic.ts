@@ -114,6 +114,10 @@ import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardI
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
+import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
+import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
+import { omahaRiverBluffCatchMixUnit } from './HorseOmahaRiverBluffCatch.js';
+import { omahaPricedPublicSpotKey } from './HorseOmahaPricedRules.js';
 import { omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   omahaBetVsCheckEv,
@@ -3660,6 +3664,26 @@ export interface HorseDecideOpts {
    *  holdings (HorseOmahaRunoutRealization.ts) instead of the flat 0.85 / 0.92.
    *  Default OFF until its declared evaluation passes. */
   omahaTurnCallRealizationByRunout?: boolean;
+  /** WooWoo audit F-04/F-11 redesign C3 (2026-11-18): opt-in (`=== true`),
+   *  inside omahaFacingBetEv only, PLO4/PLO5 cash (no tournament), a TURN or
+   *  RIVER wager with another player in the hand. The field is priced jointly
+   *  on the same runout in the flop form (players still to act continue on a
+   *  measured rate and their calls go into the pot), the turn realization is
+   *  the measured realfit cell (no 0.85 cap for a player behind), and a call
+   *  within 2 SE of the margin is mixed on a public-state draw
+   *  (HorseOmahaFacingBetEvShownField.ts). Default OFF until its declared
+   *  evaluation passes. */
+  omahaFacingBetEvShownField?: boolean;
+  /** WooWoo audit RIVER-FACING (2026-11-18): opt-in (`=== true`), inside
+   *  omahaFacingBetEv only, PLO4/PLO5 cash (no tournament), a heads-up FIRST
+   *  river bet (not a raise). The call is priced as a bluff-catch on the
+   *  bettor's measured range composition (strength percentile of river
+   *  bettors' holdings, read at the bet's pot share), reweighted by the
+   *  Horse's blockers and the bettor's measured tendency; no realization;
+   *  a call within 2 SE of the margin is mixed on a public-state draw
+   *  (HorseOmahaRiverBluffCatch.ts). Default OFF until its declared
+   *  evaluation passes. */
+  omahaRiverBluffCatchIsPriced?: boolean;
   /** Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair with no
    * redraw raised a pot bet on the turn into the nut straight; "NEVER A
    * RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand,
@@ -10995,6 +11019,8 @@ let omahaFacingBetEvCountMemo: {
   plo6RiverNuts: boolean;
   plo6RiverUnpaired: boolean;
   runoutRealization: boolean;
+  shownField: boolean;
+  riverBluffCatch: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -11027,6 +11053,8 @@ function omahaFacingBetEvCount(
   const plo6RiverNuts = opts.v58Plo6RiverNuts !== false;
   const plo6RiverUnpaired = opts.v59Plo6RiverUnpaired !== false;
   const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
+  const shownField = opts.omahaFacingBetEvShownField === true && !isTournamentMode(gs);
+  const riverBluffCatch = opts.omahaRiverBluffCatchIsPriced === true && !isTournamentMode(gs);
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -11035,7 +11063,9 @@ function omahaFacingBetEvCount(
     memo.mind === mind &&
     memo.plo6RiverNuts === plo6RiverNuts &&
     memo.plo6RiverUnpaired === plo6RiverUnpaired &&
-    memo.runoutRealization === runoutRealization
+    memo.runoutRealization === runoutRealization &&
+    memo.shownField === shownField &&
+    memo.riverBluffCatch === riverBluffCatch
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -11096,6 +11126,22 @@ function omahaFacingBetEvCount(
                 },
               }
             : {}),
+          ...(shownField
+            ? {
+                shownField: {
+                  inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+                  continueRate: omahaFlopEvBehindContinue(s.potFrac),
+                  mixUnit: omahaShownFieldMixUnit(omahaPricedPublicSpotKey(player, gs)),
+                },
+              }
+            : {}),
+          ...(riverBluffCatch
+            ? {
+                riverBluffCatch: {
+                  mixUnit: omahaRiverBluffCatchMixUnit(omahaPricedPublicSpotKey(player, gs)),
+                },
+              }
+            : {}),
         }
       );
     const verdict = verdictOf(spot, read);
@@ -11115,6 +11161,8 @@ function omahaFacingBetEvCount(
     plo6RiverNuts,
     plo6RiverUnpaired,
     runoutRealization,
+    shownField,
+    riverBluffCatch,
     answer,
   };
   return answer;

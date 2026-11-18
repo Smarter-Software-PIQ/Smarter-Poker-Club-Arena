@@ -2855,6 +2855,30 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnCallRealizationByRunout: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-18 WooWoo F-04/F-11 C3 (HorseOmahaFacingBetEvShownField, default
+  // OFF): inside the facing-bet EV rule, a turn or river call with another
+  // player in the hand is priced on the joint field, the measured turn
+  // realization and the close-call mix. a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_ev_shown_field`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetEvShownField: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-18 WooWoo RIVER-FACING (HorseOmahaRiverBluffCatch, default OFF):
+  // inside the facing-bet EV rule, a heads-up first river bet is priced as a
+  // bluff-catch on the bettor's measured range with the Horse's blockers.
+  // a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bluff_catch_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaRiverBluffCatchIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);
