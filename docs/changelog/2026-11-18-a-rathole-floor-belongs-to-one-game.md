@@ -4,6 +4,10 @@
 
 Dan, 2026-11-18 01:12 CT: "WOOWOO CAN NOT TAKE HIS BALANCE FROM A PLO5 MADNESS GAME, INTO A PLO5 LIGHTNING GAME. THEY ARE NOT THE SAME GAME (EVEN THOUGH THEY ARE THE SAME GAME AND STAKES). DO NOT ALLOW THE GAMES TO CONVERT LIKE THAT AGAIN, HE SHOULD OF ONLY BEEN ABLE TO BUY IN FOR 400 MAX AT THIS 'NEW GAME'."
 
+Global ruling, 01:54 CT: "HE SHOULD OF NEVER BEEN ALLOWED TO TAKE HIS STACK FROM A CLASSIC GAME TO A LIGHTNING GAME. THEY ARE DIFFERENT AND MAKE SURE THAT THIS IS A GLOBAL RULE THAT DON'T GET BROKE AGAIN FOR ANY STAKES. CLASSIC AND LIGHTNING ARE TREATED AS SPERATE GAMES EVEN IF THEY ARE THE SAME GAME AND STAKES." The source game is named "PLO5 1/2 Madness" but its `cash_games.template_name` is `classic`. The key is the cash game, so every template is a separate game at every variant and stakes level.
+
+Also 01:54 CT: "ADMIN'S SHOULD NEVER REMOVE A PLAYER FROM A GAME". The removal below was the wrong remedy; the fix is the door, not a kick. (01:51 CT: "LET HIM PLAY AND FINISH TONIGHT".)
+
 Follow-up, 01:15 CT: boot him off the table after the logic is fixed, with a message that he can buy back in for a maximum of 400.
 
 ## What happened (read from production rows)
@@ -29,6 +33,14 @@ Verified on production after apply: WooWoo's floor at the Lightning table read `
 - 07:22 UTC: removed through the engine's own `POST /admin/kick-occupancy` (occupancy `e06f4d34-8f38-47f0-9b4d-a2c5dff6c06b`, seat 4). The engine finished the Lightning hand in progress and cashed him out at 07:23:14 UTC: 2,856.13 returned to his wallet. `fn_unaccounted_seat_exits()` shows nothing for this exit.
 - The kick's cash-out wrote a 2,856.13 floor scoped to the Lightning game only (the new key working). That one row (`80f5450b-6e60-4fcf-b605-307263c5380e`) was deleted so his buy-in back into Lightning is the table's 100-400, per the ruling. His Madness floor was left in place.
 - Notification `f616a799-5816-4072-a09e-4231f0fae741` sent to his inbox: removed because the Madness stack carried into Lightning, the two are separate games, 2,856.13 returned to his wallet, he can buy back into Lightning for a maximum of 400.
+
+## What the removal actually did (read after the fact)
+
+The kick's own cash-out wrote a 2,856.13 floor for the Lightning game (correct under the new key: it is the same game). WooWoo re-sat at 07:23:33 UTC, 19 seconds after the cash-out and before that row was deleted, so the door required 2,856.13 and he re-entered with it. The notification promising a 400 maximum reached him after he had already re-sat. Per the 01:51 and 01:54 rulings he was left to play.
+
+## Global sweep (2026-11-18 07:55 UTC)
+
+Every public function joining on variant + stakes across games was read: `fn_cash_apply_ruleset` and `fn_cash_game_join` (route a join to a game's canonical Lightning game; the player buys in fresh there, no stack carries), `fn_poker_diamond_plain_cash_table` (a table matching its own game), `fn_lightning_match_plan` and `fn_sp_digest_player_totals` (seating order and reports). None moves a stack or a floor between games. Engine and horse code reach the floor only through `fn_cash_rejoin_floor` / `rejoinTableKey`; the client reads `fn_cash_effective_buyin`.
 
 ## Pins
 

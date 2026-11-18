@@ -9,6 +9,15 @@
  * LIKE THAT AGAIN, HE SHOULD OF ONLY BEEN ABLE TO BUY IN FOR 400 MAX AT THIS
  * 'NEW GAME'."
  *
+ * Dan, 01:54 CT, making it global: "HE SHOULD OF NEVER BEEN ALLOWED TO TAKE
+ * HIS STACK FROM A CLASSIC GAME TO A LIGHTNING GAME. THEY ARE DIFFERENT AND
+ * MAKE SURE THAT THIS IS A GLOBAL RULE THAT DON'T GET BROKE AGAIN FOR ANY
+ * STAKES. CLASSIC AND LIGHTNING ARE TREATED AS SPERATE GAMES EVEN IF THEY ARE
+ * THE SAME GAME AND STAKES." (The source game is named "PLO5 1/2 Madness" but
+ * its cash_games.template_name is 'classic'.) The key below is the cash game
+ * itself, so every template pair - Classic, Action, Madness, Lightning - is
+ * separate at every variant and every stakes level.
+ *
  * cash_rejoin_constraints was keyed club + variant + sb + bb, so the floor a
  * player earned leaving PLO5 1/2 Madness (3,762.18) was demanded at the door
  * of PLO5 1/2 Lightning Games (max 400), and every buy-in path raised the
