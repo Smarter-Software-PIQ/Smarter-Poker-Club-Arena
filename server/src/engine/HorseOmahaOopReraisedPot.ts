@@ -142,6 +142,7 @@ import { reRaiseLineWidth } from './HorseOpponentExploit.js';
 import {
   RERAISED_POT_VARIANTS,
   omahaReraisedEquity,
+  omahaReraisedEquityAgainst,
   omahaReraisedPremium,
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
@@ -440,13 +441,13 @@ export function omahaOopReraisedClassCell(
  * REVIEW-97de6c23913.md, blocking item 1): priced in both directions, the
  * same formula folded 39 of 627 journaled decisions the class cell called; 34
  * were recorded calls that netted +457.6 bb, 20 held a pair of aces, and the
- * audit judged none a wrong call. Those folds came from the two realization
- * terms below, which are too uncertain to create a fold: the out-of-position
- * depth cost 0.70 has a standard error of 0.54 (1.3 SE from zero; in position
- * 0.15, SE 0.31), and the 0.35 per other player (SE 0.11) is one pooled figure
- * laid over heads-up equity. They are good enough to say a class fold was not
- * shown to lose, not to fold a call
- * the class cell kept. The folding direction needs its own default-OFF option
+ * audit judged none a wrong call. Those folds came from the realization terms
+ * below, which are too uncertain to create a fold: the out-of-position depth
+ * cost 0.70 is not pinned by any measurement to better than a standard error
+ * of 0.15 to 0.30 (see the constants), and the 0.35 per other player it then
+ * carried was one figure laid over heads-up equity that a second measurement
+ * did not reproduce. They are good enough to say a class fold was not shown
+ * to lose, not to fold a call the class cell kept. The folding direction needs its own default-OFF option
  * and a declared evaluation with multiway equity.
  *
  * The priced test:
@@ -461,14 +462,19 @@ export function omahaOopReraisedClassCell(
  *    known of him), mapped rate -> width by RERAISE_RANGE_WIDTH_MAX/SCALE, and
  *    narrowed once per raise beyond the 3-bet by the engine's line rule
  *    (reRaiseLineWidth).
+ *    With other players already in for the price the equity is against the
+ *    re-raiser AND each of them (omahaReraisedEquityAgainst; a caller's range
+ *    is the band the mind reads from his line this hand), so the pot share is
+ *    a multiway share and no separate charge is laid on it.
  *  - R (realization): the share of that equity a call gets back, from the
- *    position as the fit measured it (omahaReraisedPositionOf.ipVsRaiser:
- *    hero acts after the re-raiser, nothing else), the stack-to-pot ratio
- *    after the call, and the other players in the pot (in for the price, or a
- *    raiser of this hand still to act: the second is charged more than the
- *    fit measured, see omahaReraisedCallPricingOf). A player still to act who
- *    has not raised is not counted (measured below). A call that is all in
- *    realizes 1.
+ *    position as the measurements define it (omahaReraisedPositionOf
+ *    .ipVsRaiser: hero acts after the re-raiser, nothing else) and the
+ *    stack-to-pot ratio after the call. Other players carry no realization
+ *    charge (measured below): not a player in for the price, not a raiser
+ *    still to act, not a caller still to act. Only where a player in for the
+ *    price has no readable band does the equity stay heads-up, and then the
+ *    old 0.35 is kept as the dilution of that heads-up equity
+ *    (RERAISE_CALL_HEADS_UP_DILUTION). A call that is all in realizes 1.
  *  - rake: the engine's own call deduction (exact when the table's rake is
  *    known), the same figure the reference price uses.
  * What hero already put in is in the pot; whether hero raised earlier is not a
@@ -482,14 +488,34 @@ export function omahaOopReraisedClassCell(
  *  - width = 0.55 x (1 - exp(-rate / 0.09)): fitted to recorded 3-bet holdings
  *    (rate 0.046 -> 0.21 Horses n 282; 0.117 -> 0.40 PLO4 people n 576;
  *    0.224 -> 0.55 PLO5 people n 414; 0.396 -> 0.49 one PLO5 player n 1,286);
- *  - R = 1 - COST x spr / (spr + HALF) - 0.35 x others (at most two, faded by
- *    min(1, spr)): least squares on 2,023 recorded calls of a person's 3-bet or
- *    4-bet (30 days to 2026-11-17, all-in adjusted, after rake): depth cost in
- *    position 0.16 (SE 0.31) -> 0.15, out of position 0.73 (SE 0.54) -> 0.70;
- *    halves 2 / 5 set, not fitted; each other player in 0.35 (SE 0.11); players
- *    still to act who have not raised: -0.09 (SE 0.13) in position, 0.01 (SE
- *    0.15) out of position, so no charge. That lane's hand-shape term (weight
- *    0.47, SE 5.2: not measurable) is left out.
+ *  - R = 1 - COST x spr / (spr + HALF) - OTHER_IN_COST x others (at most two,
+ *    faded by min(1, spr)): least squares on 2,023 recorded calls of a
+ *    person's 3-bet or 4-bet (30 days to 2026-11-17, all-in adjusted, after
+ *    rake; the fit's denominator is equity x (pot after the call - rake), so
+ *    the (1 - rake) factor of the price is the fit's own and is not a second
+ *    count): depth cost in position 0.16 (SE 0.31) -> 0.15, out of position
+ *    0.73 (SE 0.54) -> 0.70; halves 2 / 5 set, not fitted. That lane's
+ *    hand-shape term (weight 0.47, SE 5.2: not measurable) is left out.
+ *
+ * SECOND MEASUREMENT (lane w13-realization, REALIZATION.md, 2026-11-18: 12,473
+ * recorded calls of a 3-bet or 4-bet, 9,916 by Horses; it reproduces the first
+ * lane's cells within 0.012; equity there is against everyone in for the
+ * price):
+ *  - depth cost in position 0.14 (SE 0.09): 0.15 kept;
+ *  - depth cost out of position 0.49 (SE 0.15) on all data, 0.73 (SE 0.30) for
+ *    a Horse caller against a human re-raiser (the population these decisions
+ *    are made in): 0.70 kept, neither confirmed nor refuted; the halves are
+ *    not identified by the data. Warning cell: out of position at a
+ *    stack-to-pot ratio of 5 or more a Horse realized 0.46 against a human
+ *    re-raiser (n 314, 0.04 to 0.93);
+ *  - each other player in for the price: -0.03 (SE 0.06) on all data, -0.02
+ *    (SE 0.10) for a Horse caller against a human re-raiser. The 0.35 this
+ *    constant held (first lane, SE 0.11) was not reproduced by a refit of the
+ *    first lane's own window (-0.03, SE 0.10); a fit on heads-up equity gives a
+ *    number like it, which is equity dilution, not realization. So 0, with the
+ *    equity taken against everyone in for the price;
+ *  - a raiser still to act behind: -0.09 (SE 0.09); a caller still to act
+ *    behind: +0.08 (SE 0.08): no charge, as in the first fit (-0.09 / 0.01).
  */
 export const RERAISE_RANGE_WIDTH_MAX = 0.55;
 export const RERAISE_RANGE_WIDTH_SCALE = 0.09;
@@ -498,7 +524,21 @@ export const RERAISE_CALL_DEPTH_COST: Readonly<Record<'ip' | 'oop', number>> = {
   oop: 0.7,
 };
 export const RERAISE_CALL_DEPTH_HALF: Readonly<Record<'ip' | 'oop', number>> = { ip: 2, oop: 5 };
-export const RERAISE_CALL_OTHER_IN_COST = 0.35;
+/**
+ * Realization charge per other player in for the price, on equity that is
+ * already against everyone in for the price. Measured -0.03 (SE 0.06; 12,473
+ * calls): 0. Kept as a constant and a term so it is one number to change.
+ */
+export const RERAISE_CALL_OTHER_IN_COST = 0;
+/**
+ * Dilution charge per other player when the equity is HEADS-UP against the
+ * re-raiser although other players are in (tournaments and Lightning, which
+ * keep the pricing they had, and a cash spot where a player in for the price
+ * has no readable band): the 0.35 the first lane fitted on heads-up equity
+ * (SE 0.11). Not a realization measurement; it stands in for the pot share
+ * the other players take.
+ */
+export const RERAISE_CALL_HEADS_UP_DILUTION = 0.35;
 export const RERAISE_CALL_REALIZATION_MIN = 0.3;
 /** The re-raise rate when neither the player nor the game's envelope gives one (the full-ring PLO5 envelope's mean). */
 export const RERAISE_RATE_FALLBACK = 0.046;
@@ -520,8 +560,23 @@ export interface OmahaReraisedCallPricing {
   inPosition: boolean;
   /** the seat-order facts behind inPosition (receipts; absent: not derived) */
   position?: OmahaReraisedPosition;
-  /** other players in the pot besides the re-raiser: already in for the price, or a raiser of this hand still to act */
+  /**
+   * other players in the pot besides the re-raiser. PLO4/PLO5 cash: the players
+   * who have called the current price (the measurements' count). Tournaments,
+   * Lightning: those, and a raiser of this hand still to act (as before).
+   */
   othersIn: number;
+  /**
+   * the percentile band of each player in for the price (HorseMind.bandFor of
+   * his line), present only when every one of them has one: the equity is then
+   * against the re-raiser and all of them, and nothing is charged for them
+   */
+  othersInBands?: readonly (readonly [number, number])[];
+  /**
+   * how many of `othersIn` are charged RERAISE_CALL_HEADS_UP_DILUTION because
+   * the equity stays heads-up (absent: none)
+   */
+  headsUpDiluted?: number;
   /** what the re-raiser has behind */
   raiserBehind: number;
   /** the share of the pot the call's award loses to rake (the engine's call deduction) */
@@ -544,6 +599,10 @@ export interface OmahaReraisedCallPricedNumbers {
   rateSource: OmahaReraisedCallPricing['rateSource'];
   inPosition: boolean;
   othersIn: number;
+  /** how many opponents the equity is against (1: the re-raiser alone) */
+  equityOpponents: number;
+  /** other players charged the heads-up dilution (0 when the equity is against all of them) */
+  headsUpDiluted: number;
   heroAlreadyRaised: boolean;
 }
 
@@ -566,7 +625,9 @@ export function omahaReraiserRangeWidth(rate: number, preflopRaises: number): nu
 export function omahaReraisedCallRealization(
   inPosition: boolean,
   sprAfter: number,
-  othersIn: number
+  othersIn: number,
+  /** of them, how many are priced on heads-up equity (RERAISE_CALL_HEADS_UP_DILUTION) */
+  headsUpDiluted: number = 0
 ): number {
   const spr = Number.isFinite(sprAfter) ? Math.max(0, sprAfter) : 0;
   if (spr <= 1e-9) return 1;
@@ -575,7 +636,9 @@ export function omahaReraisedCallRealization(
   const r =
     1 -
     RERAISE_CALL_DEPTH_COST[side] * depth -
-    Math.min(1, spr) * RERAISE_CALL_OTHER_IN_COST * Math.min(2, Math.max(0, othersIn));
+    Math.min(1, spr) *
+      (RERAISE_CALL_OTHER_IN_COST * Math.min(2, Math.max(0, othersIn)) +
+        RERAISE_CALL_HEADS_UP_DILUTION * Math.min(2, Math.max(0, headsUpDiluted)));
   return clamp01(r, RERAISE_CALL_REALIZATION_MIN, 1);
 }
 
@@ -592,7 +655,12 @@ export function omahaReraisedCallEv(
   const price = call / potAfter;
   const behind = Math.max(0, Math.min(stack - call, Math.max(0, p.raiserBehind)));
   const sprAfter = behind / potAfter;
-  const realization = omahaReraisedCallRealization(p.inPosition, sprAfter, p.othersIn);
+  const realization = omahaReraisedCallRealization(
+    p.inPosition,
+    sprAfter,
+    p.othersIn,
+    p.headsUpDiluted ?? 0
+  );
   const award =
     potAfter * (1 - clamp01(Number.isFinite(p.rakeFraction) ? p.rakeFraction : 0, 0, 0.5));
   const evCall = realization * equity * award - call;
@@ -608,6 +676,8 @@ export function omahaReraisedCallEv(
     rateSource: p.rateSource,
     inPosition: p.inPosition,
     othersIn: p.othersIn,
+    equityOpponents: 1 + (p.othersInBands?.length ?? 0),
+    headsUpDiluted: p.headsUpDiluted ?? 0,
     heroAlreadyRaised: p.heroAlreadyRaised,
   };
 }
@@ -625,13 +695,41 @@ export function omahaReraisedCallPriced(
   if (!(call > 0.005) || !(pot > 0) || !(stack > 0)) return null;
   const width = omahaReraiserRangeWidth(p.rate, preflopRaises);
   const lo = 1 - width;
-  const equity = omahaReraisedEquity(
-    hole,
-    [],
-    dead,
-    lo <= 1e-9 ? () => true : (h) => omahaPreflopPercentile([...h], false) >= lo,
-    RERAISE_CALL_EQUITY_SAMPLES
-  );
+  const inRange =
+    lo <= 1e-9 ? () => true : (h: readonly Card[]) => omahaPreflopPercentile([...h], false) >= lo;
+  const bands = p.othersInBands ?? [];
+  // Other players already in for the price: the equity is the share of the pot
+  // against the re-raiser and each of them (no separate charge follows).
+  if (bands.length > 0) {
+    const multiway = omahaReraisedEquityAgainst(
+      hole,
+      dead,
+      [
+        inRange,
+        ...bands.map(([blo, bhi]) => (h: readonly Card[]) => {
+          const s = omahaPreflopPercentile([...h], false);
+          return s >= blo && s <= bhi;
+        }),
+      ],
+      RERAISE_CALL_EQUITY_SAMPLES
+    );
+    if (multiway !== null) return omahaReraisedCallEv(multiway, width, call, pot, stack, p);
+    // The multiway sampler could not draw enough holdings inside its budget
+    // (review of 01653e47d09, R1): price the call as before the multiway
+    // equity existed, heads-up against the re-raiser with each other player in
+    // for the price charged the 0.35 dilution, so a class fold is still decided
+    // by a number and receipted (omaha_reraised_call_priced_heads_up_diluted),
+    // never left an unpriced call.
+    const headsUp = omahaReraisedEquity(hole, [], dead, inRange, RERAISE_CALL_EQUITY_SAMPLES);
+    if (headsUp === null) return null;
+    const { othersInBands: _unused, ...fallback } = p;
+    void _unused;
+    return omahaReraisedCallEv(headsUp, width, call, pot, stack, {
+      ...fallback,
+      headsUpDiluted: p.othersIn,
+    });
+  }
+  const equity = omahaReraisedEquity(hole, [], dead, inRange, RERAISE_CALL_EQUITY_SAMPLES);
   if (equity === null) return null;
   return omahaReraisedCallEv(equity, width, call, pot, stack, p);
 }
