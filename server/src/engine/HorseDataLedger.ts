@@ -1090,6 +1090,56 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnRiverRaiseIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). On the turn and the river facing a wager the final answer is a priced comparison of the fold, the call and a raise to each legal size on the exact hand (HorseOmahaPricedRules.omahaPricedRaise: the exact count of the opponent holdings with the Horse own cards removed; his bluffs fold to the raise first, the strongest part of his value region continues, sized by the price the raise lays him, his measured fold to a bet beside the population and, where the street read has it, his measured fold to a raise). A raise is made when it is worth more than the best other action by the margin, with any hand; a raise that is not becomes the priced call or fold. With it on, omahaTurnRiverRaiseNeedsNuts and omahaRiverNutRaiseOnly do not decide in this scope. A nut-class hand keeps the raise or call it was given.',
+    'V94'
+  ),
+  flag(
+    'omahaDrawRaiseIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). A flop or turn raise facing a wager with a draw the 12:30 bar names is priced beside the call on the seeded sample shares of HorseOmahaBigDrawAggression and each opponent measured fold rate (HorseOmahaPricedRules.omahaPricedSampledRaise), realized less out of position; it stands when worth more than the call by the margin, else it is the call. The big-draw wager is priced out of position and without the combo-draw class too. With it on, omahaNoDrawRaiseOutOfPosition does not decide in this scope.',
+    'V94'
+  ),
+  flag(
+    'omahaOopTurnBarrelIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The turn bet out of position after the flop bet was called is priced beside the check against every opponent (HorseOmahaPricedRules.omahaPricedBet, the card-impact response model with the priced read) and stands when worth at least the check; the turn bet then faced is the facing-bet EV verdict own. With it on, omahaOopTurnCheckAfterFlopCall does not decide in this scope.',
+    'V94'
+  ),
+  flag(
+    'omahaPairedBoardBetIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). A bet on a paired turn or river below a full house is priced beside the check against every opponent whatever his label, and the river nut-blocker bluff is admitted on a paired board when a bet is priced above the check. With it on, omahaPairedRiverNoThinLeadVsValueLeader, omahaOverpairNoOopBarrelVsValueLeader, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader, the card-impact press veto, the paired-board river check and the blocker bluff paired-board bar do not decide in this scope.',
+    'V94'
+  ),
+  flag(
+    'omahaBluffShareFromBetRate',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the facing-bet expected value the bettor bluff share is the population prior moved continuously by his posterior-mean bet rate beside the population (HorseOmahaPricedMode.omahaPricedBluffFactor), with no sample threshold; the value-leader cap of 0.65 and the maniac floor of 1.3 do not act.',
+    'V94'
+  ),
+  flag(
+    'omahaFacingBetRangeIsContinuous',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The facing-bet range model reads the bet share of the pot as a continuous input (HorseOmahaPricedMode): the value-share and bluff-prior size tables are interpolated between the centres of their rows, the line overrides of #11135 and #11183 (paired-river lead into the turn aggressor, river bet into two or more players on a paired board, earlier-raised multi-street barrel, a wager capped by the stack) are weighted moves, and the two turn realization caps and the small-bet margin cap are continuous in the size. No size line switches a cell on.',
+    'V94'
+  ),
+  flag(
+    'omahaPressureIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The pressure raise and the wide call-down that omahaPressureNeedsPostflopAggression withholds by the bettor label are withheld or made by their price against him: the raise when it is priced above the call (flop and turn on sampled shares and his measured fold rate, turn and river on the exact count), the call-down when the call is priced above the fold.',
+    'V94'
+  ),
+  flag(
+    'omahaBigBetCallsArePriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). A turn or river call or raise that the V81, V84, bluff-catcher and V86 cells judge by the bet share of the pot, the stack in big blinds and the hand class is judged by the exact count instead (a capped-wager or all-in-or-fold table is priced on its chips): the call stands when its expected value exceeds the margin and is folded when it does not; a raise is priced beside the call and the fold. With it on those cells do not decide in this scope.',
+    'V94'
+  ),
+  flag(
+    'omahaUnderpairMultiwayIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The flop call with an underpair or bottom pair facing a bet and a call that omahaUnderpairNoMultiwayFlopContinue folds by hand class is priced on the sampled share against the bettor and against the caller, realized less out of position: the fold stands only when the call is priced below it.',
+    'V94'
+  ),
+  flag(
+    'omahaPricedMix',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Frequency mixing inside a priced rule that is on: when the two best actions of the comparison are closer than its own uncertainty (the standard error of the sampled share, plus the spread of the opponent read by its opportunity count) the lower one is taken with probability 0.5 x (1 - gap / uncertainty). The draw is the decision derived stream (read, never advanced) hashed with public state only: the street, the board, the pot, the wager, the seat and the public action count; the Horse hole cards are not read.',
+    'V94'
+  ),
+  flag(
     'horsePlayStyles',
     "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop entry bars by 0.75, the value re-raise bars by 0.90, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
     'V94'
@@ -4965,6 +5015,206 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_strong_hand_slowplay_check',
     'HorseLogic wager_rules (HorseOmahaStrongHandSlowplayMix, omahaStrongHandSlowplayMix)',
     'PLO4/PLO5 cash flop, nothing to call, a set on a very dry flop, one or two opponents, the final answer a bet: the mixed draw fell under the frequency of the spot and the bet became a check',
+    'V94'
+  ),
+  // PLO Strategy 2026-11-17 (the priced rules, default-off options production does not set: silence is
+  // their ordinary state).
+  receipt(
+    'omaha_priced_raise_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
+    'PLO4/PLO5 cash turn or river facing a wager: the raise another owner chose is priced above the call and the fold by the margin (or the hand is nut class) and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_called',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
+    'the same decision: the raise is not priced above the call, the call is worth more than the fold: the raise became the exact legal call',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_folded',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
+    'the same decision: neither the raise nor the call is priced above the fold: the raise became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_made_value',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
+    'PLO4/PLO5 cash turn or river facing a wager, the answer given a call or a fold (or a raise of another size): a raise the continuing holdings mostly lose to is priced above every other action by the margin and is made',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_made_bluff',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
+    'the same, a raise that earns by the folds it is priced to get (the continuing holdings mostly beat the hand): made',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_raise_unpriced_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
+    'a raise in the option scope whose hand could not be counted: the decision given is kept (no categorical rule decides)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
+    'PLO4/PLO5 cash flop or turn, a raise with a draw the bar names: priced above the call by the margin and kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_called',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
+    'the same decision: not priced above the call: the raise became the call',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_unpriced_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
+    'the same decision, no sample could be drawn: the decision given is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_site_admitted',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop raise sites; omahaDrawRaiseIsPriced)',
+    'PLO4/PLO5 cash flop or turn, one of the three draw-raise sites of the brain, a draw the bar names: the pot raise is priced above the call, so the site makes its raise',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_site_withheld',
+    'HorseOmahaPricedWiring (HorseLogic decidePostflop raise sites; omahaDrawRaiseIsPriced)',
+    'the same site: the pot raise is not priced above the call, so the site falls through to its own call or fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_oop_turn_barrel_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaOopTurnBarrelIsPriced)',
+    'PLO4/PLO5 cash turn, out of position, the flop bet was called, not nut class: the bet is priced at least the check and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_oop_turn_barrel_checked',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaOopTurnBarrelIsPriced)',
+    'the same decision: the check is priced above the bet: the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_oop_turn_barrel_unpriced_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaOopTurnBarrelIsPriced)',
+    'the same decision, outside the card-impact model: the decision given is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_paired_board_bet_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
+    'PLO4/PLO5 cash paired turn or river below a full house (or the river of a board paired on the turn after the Horse turn bet was called): the bet is priced at least the check and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_paired_board_bet_checked',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
+    'the same decision: the check is priced above the bet: the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_paired_board_bet_unpriced_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
+    'the same decision, outside the card-impact model: the decision given is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_paired_board_blocker_bluff_admitted',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
+    'the river nut-blocker bluff on a paired board: a bet is priced above the check against the opponent range and measured fold rate, so the bluff branch is reachable',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_pressure_raise_admitted',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
+    'the pressure raise against this bettor is priced above the call: the play is not withheld',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_pressure_raise_withheld',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
+    'the pressure raise against this bettor is not priced above the call: withheld',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_pressure_call_down_admitted',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
+    'the wide call-down against this bettor: the call is priced above the fold: not withheld',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_pressure_call_down_withheld',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
+    'the wide call-down against this bettor: the call is not priced above the fold: withheld',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_call_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
+    'PLO4/PLO5 cash turn or river call in the big-bet cells scope: the exact count prices the call above the margin and it stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_call_folded',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
+    'the same decision: the exact count prices the call below the margin: the call became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_call_unpriced_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
+    'the same decision, the hand could not be counted: the decision given is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_raise_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
+    'a turn or river raise in the big-bet cells scope: priced above the call and the fold (or nut class) and kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_raise_called',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
+    'the same decision: the raise is not priced above the call, the call above the fold: the raise became the call',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_big_bet_raise_folded',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
+    'the same decision: neither is priced above the fold: the raise became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_underpair_multiway_called',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaUnderpairMultiwayIsPriced)',
+    'PLO4/PLO5 cash flop, an underpair or bottom pair facing a bet and a call: the call is priced above the fold on the sampled shares and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_underpair_multiway_folded',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaUnderpairMultiwayIsPriced)',
+    'the same decision: the call is priced below the fold: the fold stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_mix_lower_action_taken',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPricedMix)',
+    'inside a priced rule, the two best actions were closer than the comparison uncertainty and the public-state draw fell under the mixing probability: the lower-valued action was taken',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_inputs_changed_to_call',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaFacingBetRangeIsContinuous and omahaBluffShareFromBetRate)',
+    'the facing-bet expected-value verdict under the continuous range inputs and the bet-rate bluff share is a call where the stepped tables and the label cap give a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_facing_inputs_changed_to_fold',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaFacingBetRangeIsContinuous and omahaBluffShareFromBetRate)',
+    'the same verdict is a fold where the stepped tables and the label cap give a call',
     'V94'
   ),
   receipt(

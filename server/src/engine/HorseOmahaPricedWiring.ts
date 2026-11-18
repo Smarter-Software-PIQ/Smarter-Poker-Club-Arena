@@ -1,0 +1,871 @@
+/**
+ * OMAHA PRICED RULES: THE RULE SITES (2026-11-17, PLO Strategy lane).
+ *
+ * Each function here is called from the one place in HorseLogic.ts where a
+ * categorical PLO4/PLO5 cash rule acts, behind its own default-OFF option
+ * (read `=== true`). It returns the decision the priced comparison
+ * (HorseOmahaPricedRules) reaches, or null when the decision is outside the
+ * option's scope (another game, a tournament, Lightning, hi-lo, more than one
+ * board, a bomb pot), in which case the caller's rule acts exactly as before.
+ * Inside the scope the categorical rule does not decide: the comparison's
+ * answer stands, and where no comparison can be computed the decision given
+ * is kept and the receipt says so.
+ *
+ * The opponent memory is read here and only here for these rules
+ * (omahaPricedReadOfUser): the pooled read today, the per-street read through
+ * omahaPricedStreetRatesOf when it is delivered.
+ *
+ * Receipts are counted where the rule answers (BrainTelemetry.noteFire,
+ * literal keys; HorseDataLedger.ts registers each).
+ */
+import type { HorseDecision, SeatPlayer } from '../types.js';
+import type { HorseDecideOpts, HorseGameStateV2 } from './HorseLogic.js';
+import { noteFire, telemetryOn } from './BrainTelemetry.js';
+import { saveFastRandom } from './HorseEval.js';
+import { HorseMind } from './HorseMind.js';
+import { exploitEnvelopeFor } from './HorseOpponentExploit.js';
+import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_BIG_DRAW_OOP_REALISATION,
+  omahaBigDrawEquities,
+  omahaDrawRaiseBarOf,
+  omahaHeroInPosition,
+} from './HorseOmahaBigDrawAggression.js';
+import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
+import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
+import { omahaSlowplayUnit } from './HorseOmahaStrongHandSlowplayMix.js';
+import {
+  omahaDecisionRaises,
+  omahaRaiseNeedsNutsCall,
+  omahaRaiseNeedsNutsScope,
+} from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
+import {
+  withOmahaPricedMode,
+  OMAHA_PRICED_MODE_OFF,
+  omahaPricedModeNow,
+} from './HorseOmahaPricedMode.js';
+import {
+  OMAHA_PRICED_MIX_SALT,
+  OMAHA_PRICED_NO_READ,
+  OMAHA_PRICED_VARIANTS,
+  omahaPricedBet,
+  omahaPricedFacingBetRead,
+  omahaPricedMixProbability,
+  omahaPricedPublicSpotKey,
+  omahaPricedRaise,
+  omahaPricedRead,
+  omahaPricedReadSpread,
+  omahaPricedSampledRaise,
+  type OmahaPricedRaiseVerdict,
+  type OmahaPricedRead,
+  type OmahaPricedStreetRates,
+} from './HorseOmahaPricedRules.js';
+
+/** What the caller in HorseLogic supplies of its own private helpers. */
+export interface OmahaPricedDeps {
+  /** the marginal rake on the pot, as a fraction (HorseLogic.rakeDrag; 0 in a tournament) */
+  rake: number;
+  /** the engine's realization factor for a turn call or raise with chips behind */
+  realization: number;
+}
+
+const num = (v: unknown): number =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0;
+
+/** PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning: the scope of every option here. */
+export function omahaPricedInScope(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  try {
+    if (!OMAHA_PRICED_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase())) return false;
+    if (omahaIsTournamentMode(gs)) return false;
+    if (gs.variantRules?.splitLow8OrBetter) return false;
+    if (gs.bettingStructure === 'fixed_limit') return false;
+    if (
+      (gs.boardCount ?? 1) !== 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0 ||
+      gs.bombPot === true
+    )
+      return false;
+    const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+    if (speed === 'lightning') return false;
+    return (
+      Array.isArray(player.cards) &&
+      player.cards.length === Number(String(gs.gameVariant).toLowerCase().at(-1))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * THE SEAM FOR THE PER-STREET READ. The cells of the street-and-texture read
+ * (HorseOmahaStreetRead, HorseMind.omahaStreetReadOf) for one opponent on the
+ * street and board of the decision. No source is registered until that read
+ * is delivered to decisions: the pooled read then answers alone. Registering
+ * the source is the whole wiring; every priced comparison takes it through
+ * omahaPricedReadOfUser.
+ */
+export type OmahaPricedStreetRatesSource = (
+  userId: string,
+  gs: HorseGameStateV2
+) => OmahaPricedStreetRates | null;
+let streetRatesSource: OmahaPricedStreetRatesSource | null = null;
+export function omahaPricedSetStreetRatesSource(source: OmahaPricedStreetRatesSource | null): void {
+  streetRatesSource = source;
+}
+export function omahaPricedStreetRatesOf(
+  userId: string,
+  gs: HorseGameStateV2
+): OmahaPricedStreetRates | null {
+  if (streetRatesSource === null) return null;
+  try {
+    return streetRatesSource(userId, gs);
+  } catch {
+    return null;
+  }
+}
+
+/** The priced read of one opponent from the decision's public memory (the priors with the mind off). */
+export function omahaPricedReadOfUser(
+  userId: string | null | undefined,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): OmahaPricedRead {
+  if (opts.mind === false || !userId) return OMAHA_PRICED_NO_READ;
+  try {
+    const pooled = HorseMind.omahaReadConditionalOf(userId);
+    const scope = HorseMind.currentScope();
+    const env = scope ? exploitEnvelopeFor(scope, String(gs.gameVariant ?? '')) : undefined;
+    return omahaPricedRead(
+      pooled,
+      env ? { bet: env.betCheckedTo.mean, foldToBet: env.foldToBet.mean } : null,
+      omahaPricedStreetRatesOf(userId, gs)
+    );
+  } catch {
+    return OMAHA_PRICED_NO_READ;
+  }
+}
+const readOfSeat =
+  (gs: HorseGameStateV2, opts: HorseDecideOpts) =>
+  (seat: number): OmahaPricedRead =>
+    omahaPricedReadOfUser((gs.players ?? []).find((p) => p.seat === seat)?.user_id, gs, opts);
+
+/**
+ * omahaBluffShareFromBetRate: the facing-bet read of the bettor with his bet
+ * rate beside the population taken from the priced read (posterior mean, no
+ * sample threshold). Returns `base` unchanged when the mode is off.
+ */
+export function omahaPricedFacingRead(
+  base: OmahaFacingBetEvRead | null,
+  bettorId: string | null | undefined,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): OmahaFacingBetEvRead | null {
+  if (!omahaPricedModeNow().bluffShareFromBetRate || opts.mind === false) return base;
+  return omahaPricedFacingBetRead(base, omahaPricedReadOfUser(bettorId, gs, opts));
+}
+
+/**
+ * Receipts of the two facing-bet input options: with telemetry on and a mode
+ * active, the verdict is taken again in the stepped mode (`stepped`, run with
+ * the mode off) and a difference is counted. No decision reads the result.
+ */
+export function omahaPricedNoteFacingInputs(
+  opts: HorseDecideOpts,
+  call: boolean,
+  stepped: () => boolean | null
+): void {
+  const mode = omahaPricedModeNow();
+  if ((!mode.rangeContinuous && !mode.bluffShareFromBetRate) || !telemetryOn(opts)) return;
+  try {
+    const before = withOmahaPricedMode(OMAHA_PRICED_MODE_OFF, stepped);
+    if (before === null || before === call) return;
+    noteFire(
+      call
+        ? 'omaha_priced_facing_inputs_changed_to_call'
+        : 'omaha_priced_facing_inputs_changed_to_fold'
+    );
+  } catch {
+    // a receipt never changes a decision
+  }
+}
+
+/** A spot the count excludes only for its table mode (capped wagers, all-in-or-fold) is priced on its chips. */
+const pricedState = (gs: HorseGameStateV2): HorseGameStateV2 =>
+  gs.allInOrFold === true || gs.wagersCapped === true
+    ? { ...gs, allInOrFold: false, wagersCapped: false }
+    : gs;
+
+const toCallOf = (player: SeatPlayer, gs: HorseGameStateV2): number =>
+  Number.isFinite(gs.toCall)
+    ? Math.max(0, gs.toCall as number)
+    : Math.max(0, (gs.currentBet || 0) - num(player.bet));
+
+const folded = (decision: HorseDecision): HorseDecision => {
+  const f: HorseDecision = { ...decision, action: 'fold' };
+  delete f.amount;
+  delete f.continuationGuard;
+  return f;
+};
+const checked = (decision: HorseDecision): HorseDecision => {
+  const c: HorseDecision = { ...decision, action: 'check' };
+  delete c.amount;
+  return c;
+};
+
+/**
+ * omahaPricedMix: with the option on, the lower-valued of two close actions
+ * is taken with the probability the gap and the comparison's own uncertainty
+ * give. The draw is the decision's derived stream (read, never advanced)
+ * hashed with PUBLIC state only.
+ */
+function mixTakesLower(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  gap: number,
+  uncertainty: number
+): boolean {
+  if (opts.omahaPricedMix !== true) return false;
+  const p = omahaPricedMixProbability(Math.abs(gap), uncertainty);
+  if (!(p > 0)) return false;
+  const unit = omahaSlowplayUnit(
+    saveFastRandom(),
+    omahaPricedPublicSpotKey(player, gs),
+    OMAHA_PRICED_MIX_SALT
+  );
+  if (!(unit < p)) return false;
+  if (telemetryOn(opts)) noteFire('omaha_priced_mix_lower_action_taken');
+  return true;
+}
+
+function raiseVerdictOf(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  deps: OmahaPricedDeps
+): { verdict: OmahaPricedRaiseVerdict; read: OmahaPricedRead } | null {
+  const state = pricedState(gs);
+  const peek = omahaPricedRaise(player, state, { rake: deps.rake, realization: deps.realization });
+  if (!peek) return null;
+  const bettor = (gs.players ?? []).find((p) => p.seat === peek.spot.bettorSeat);
+  const read = omahaPricedReadOfUser(bettor?.user_id, gs, opts);
+  let bettorRead: OmahaFacingBetEvRead | null = null;
+  if (opts.mind !== false && bettor) {
+    try {
+      bettorRead = HorseMind.omahaFacingBetEvReadOf(
+        bettor.user_id,
+        peek.spot.street,
+        peek.spot.potFrac,
+        peek.spot.isRaise
+      );
+    } catch {
+      bettorRead = null;
+    }
+    bettorRead = omahaPricedFacingRead(bettorRead, bettor.user_id, gs, opts);
+  }
+  const proposedTo =
+    decision.action === 'raise' && typeof decision.amount === 'number'
+      ? decision.amount
+      : decision.action === 'all_in'
+        ? num(player.bet) + num(player.stack)
+        : undefined;
+  const verdict = omahaPricedRaise(player, state, {
+    bettorRead,
+    read,
+    rake: deps.rake,
+    realization: deps.realization,
+    proposedTo,
+  });
+  return verdict ? { verdict, read } : null;
+}
+
+/**
+ * omahaTurnRiverRaiseIsPriced (replaces omahaTurnRiverRaiseNeedsNuts and
+ * omahaRiverNutRaiseOnly in PLO4/PLO5 cash). The outermost answer on the turn
+ * and river facing a wager: fold, call and a raise to each legal size are
+ * priced on the exact hand. A raise is made when it is worth more than the
+ * best other action by the margin, with any hand; a raise another owner
+ * proposed that is not becomes the priced call or fold; a call or fold
+ * another owner chose stays unless a raise is priced above it. A nut-class
+ * hand keeps the raise or the call it was given (its raise is never worth
+ * less than its call; the slow-play mix owns its call).
+ */
+export function omahaPricedTurnRiverRaiseRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  deps: OmahaPricedDeps
+): HorseDecision | null {
+  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  const tele = telemetryOn(opts);
+  try {
+    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    if (!scope) return null;
+    const raises = omahaDecisionRaises(decision, player, scope);
+    if (
+      !raises &&
+      decision.action !== 'call' &&
+      decision.action !== 'fold' &&
+      decision.action !== 'all_in'
+    )
+      return decision;
+    if (omahaNutClassNow(player, gs)) {
+      if (tele && raises) noteFire('omaha_priced_raise_kept');
+      return decision;
+    }
+    const priced = raiseVerdictOf(decision, player, gs, opts, deps);
+    if (!priced) {
+      if (tele && raises) noteFire('omaha_priced_raise_unpriced_kept');
+      return decision;
+    }
+    const { verdict, read } = priced;
+    const best = verdict.best;
+    const passiveEv = Math.max(verdict.callStands ? verdict.evCall : 0, 0);
+    let wantsRaise = verdict.action === 'raise' || verdict.action === 'all_in';
+    if (best !== null && best.ev > 0) {
+      // Exact counts carry no sampling error: the uncertainty is the read's. What rides on his
+      // answer is the gap between the pot won when he folds and the result when he continues.
+      const called =
+        best.continues > 0
+          ? (best.ev - (1 - best.continues) * verdict.spot.winnable) / best.continues
+          : 0;
+      const stake = Math.abs(verdict.spot.winnable - called);
+      const gap = best.ev - (passiveEv + verdict.margin);
+      if (mixTakesLower(player, gs, opts, gap, omahaPricedReadSpread(read, stake)))
+        wantsRaise = !wantsRaise;
+    }
+    if (wantsRaise && best !== null) {
+      if (
+        raises &&
+        verdict.rows.some(
+          (r) => proposedMatches(decision, player, r.to) && r.ev > passiveEv + verdict.margin
+        )
+      ) {
+        if (tele) noteFire('omaha_priced_raise_kept');
+        return decision;
+      }
+      if (tele)
+        noteFire(best.value ? 'omaha_priced_raise_made_value' : 'omaha_priced_raise_made_bluff');
+      const raised: HorseDecision = best.allIn
+        ? { ...decision, action: 'all_in' }
+        : { ...decision, action: 'raise', amount: best.to };
+      if (best.allIn) delete raised.amount;
+      delete raised.continuationGuard;
+      return raised;
+    }
+    if (!raises) return decision;
+    if (verdict.callStands) {
+      if (tele) noteFire('omaha_priced_raise_called');
+      return omahaRaiseNeedsNutsCall(decision, scope);
+    }
+    if (tele) noteFire('omaha_priced_raise_folded');
+    return folded(decision);
+  } catch {
+    if (tele) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+function proposedMatches(decision: HorseDecision, player: SeatPlayer, to: number): boolean {
+  if (decision.action === 'all_in')
+    return Math.abs(num(player.bet) + num(player.stack) - to) < 0.006;
+  return typeof decision.amount === 'number' && Math.abs(decision.amount - to) < 0.006;
+}
+
+/** True where omahaTurnRiverRaiseIsPriced owns the raise decision (the inner river nut-raise rule stands aside). */
+export function omahaPricedOwnsTurnRiverRaise(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  return (
+    opts.omahaTurnRiverRaiseIsPriced === true &&
+    omahaPricedInScope(player, gs) &&
+    omahaRaiseNeedsNutsScope(player, gs) !== null
+  );
+}
+
+/** Receipt validation: a priced raise that became a call, with a hand that is not nut class, for the exact chips. */
+export function omahaPricedAdmitsRaiseToCall(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  amount: number | null | undefined
+): boolean {
+  try {
+    if (!omahaPricedInScope(player, gs)) return false;
+    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    if (!scope || scope.allIn || omahaNutClassNow(player, gs)) return false;
+    return typeof amount === 'number' && Math.abs(amount - scope.paid) < 1e-9;
+  } catch {
+    return false;
+  }
+}
+
+interface SampledSpot {
+  street: 'flop' | 'turn';
+  toCall: number;
+  inPosition: boolean;
+  live: SeatPlayer[];
+}
+function sampledSpot(player: SeatPlayer, gs: HorseGameStateV2): SampledSpot | null {
+  const street = String(gs.stage ?? '');
+  if (street !== 'flop' && street !== 'turn') return null;
+  if ((gs.communityCards ?? []).length !== (street === 'flop' ? 3 : 4)) return null;
+  const toCall = toCallOf(player, gs);
+  if (!(toCall > 0.005) || !(num(player.stack) > toCall + 0.005)) return null;
+  const live = (gs.players ?? []).filter(
+    (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+  );
+  if (live.length === 0 || live.length > 2 || live.some((p) => p.is_all_in)) return null;
+  return {
+    street,
+    toCall,
+    live,
+    inPosition: omahaHeroInPosition(
+      player.seat,
+      gs.dealerSeat,
+      live.map((p) => p.seat)
+    ),
+  };
+}
+function sampledVerdict(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  spot: SampledSpot,
+  to: number
+) {
+  return omahaPricedSampledRaise({
+    street: spot.street,
+    hole: player.cards ?? [],
+    board: gs.communityCards ?? [],
+    dead: player.knownDeadCards ?? [],
+    pot: num(gs.pot),
+    toCall: spot.toCall,
+    stack: num(player.stack),
+    heroBet: num(player.bet),
+    currentBet: num(gs.currentBet),
+    to,
+    inPosition: spot.inPosition,
+    opponents: spot.live.map((p) => ({
+      stack: num(p.stack),
+      bet: num(p.bet),
+      read: omahaPricedReadOfUser(p.user_id, gs, opts),
+    })),
+  });
+}
+const potRaiseTo = (player: SeatPlayer, gs: HorseGameStateV2, toCall: number): number => {
+  const cap = num(gs.currentBet) + num(gs.pot) + toCall;
+  const max = Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : cap;
+  return Math.min(max, num(player.bet) + num(player.stack));
+};
+
+/** True where omahaDrawRaiseIsPriced owns the draw raise (the bar at the brain's raise sites stands aside). */
+export function omahaPricedOwnsDrawRaise(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  return opts.omahaDrawRaiseIsPriced === true && omahaPricedInScope(player, gs);
+}
+
+/**
+ * omahaDrawRaiseIsPriced at the brain's own draw-raise sites: whether the
+ * raise about to be made there with a draw the bar names is BARRED (the site
+ * then falls through to its own call or fold, as with the bar). It is barred
+ * unless the pot raise is priced above the call. Null out of scope: the bar
+ * acts. A hand the bar does not name, and a spot that cannot be priced, are
+ * not barred here (omahaPricedDrawRaiseRule sees the raise again).
+ */
+export function omahaPricedDrawRaiseBarred(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean | null {
+  if (!omahaPricedOwnsDrawRaise(player, gs, opts)) return null;
+  try {
+    if (omahaDrawRaiseBarOf(player, gs) === null) return false;
+    const spot = sampledSpot(player, gs);
+    if (!spot) return false;
+    const verdict = sampledVerdict(player, gs, opts, spot, potRaiseTo(player, gs, spot.toCall));
+    if (!verdict) return false;
+    if (telemetryOn(opts))
+      noteFire(
+        verdict.raise
+          ? 'omaha_priced_draw_raise_site_admitted'
+          : 'omaha_priced_draw_raise_site_withheld'
+      );
+    return !verdict.raise;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * omahaDrawRaiseIsPriced (replaces omahaNoDrawRaiseOutOfPosition in PLO4/PLO5
+ * cash). A raise facing a wager on the flop or turn with a draw the bar names
+ * (any draw out of position, anything short of a combo draw in position) is
+ * priced beside the call on the sampled shares: it stands when it is worth
+ * more than the call by the margin, else it becomes the call.
+ */
+export function omahaPricedDrawRaiseRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision | null {
+  if (!omahaPricedOwnsDrawRaise(player, gs, opts)) return null;
+  if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
+  const tele = telemetryOn(opts);
+  try {
+    const spot = sampledSpot(player, gs);
+    if (!spot) return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
+    if (omahaDrawRaiseBarOf(player, gs) === null) return decision;
+    const to =
+      decision.action === 'raise' && typeof decision.amount === 'number'
+        ? decision.amount
+        : num(player.bet) + num(player.stack);
+    const verdict = sampledVerdict(player, gs, opts, spot, to);
+    if (!verdict) {
+      if (tele) noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return decision;
+    }
+    let raise = verdict.raise;
+    const gap = verdict.evRaise - (verdict.evCall + verdict.margin);
+    const read = omahaPricedReadOfUser(spot.live[0]?.user_id, gs, opts);
+    if (
+      verdict.evRaise > 0 &&
+      mixTakesLower(
+        player,
+        gs,
+        opts,
+        gap,
+        verdict.standardError + omahaPricedReadSpread(read, num(gs.pot))
+      )
+    )
+      raise = !raise;
+    if (raise) {
+      if (tele) noteFire('omaha_priced_draw_raise_kept');
+      return decision;
+    }
+    if (tele) noteFire('omaha_priced_draw_raise_called');
+    return { ...decision, action: 'call', amount: spot.toCall };
+  } catch {
+    if (tele) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * The bet-or-check comparison at a site where a categorical rule turned a bet
+ * into a check. The bet stands when it is worth at least the check, else it
+ * becomes the check. A decision that is not a bet is returned as given.
+ */
+function ownBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  receipts: { kept: () => void; checked: () => void; unpriced: () => void }
+): HorseDecision {
+  if (decision.action !== 'bet' && decision.action !== 'all_in') return decision;
+  const tele = telemetryOn(opts);
+  try {
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('check')) return decision;
+    const amount =
+      decision.action === 'all_in'
+        ? num(player.stack)
+        : typeof decision.amount === 'number'
+          ? decision.amount
+          : NaN;
+    const readOf = readOfSeat(gs, opts);
+    const verdict = Number.isFinite(amount) ? omahaPricedBet(player, gs, readOf, amount) : null;
+    if (!verdict || verdict.proposed === null) {
+      if (tele) receipts.unpriced();
+      return decision;
+    }
+    let bet = verdict.proposed.ev >= verdict.evCheck;
+    const opp = (gs.players ?? []).find(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    );
+    // The card-impact sample: a share from about 800 weighted hands, in chips of the pot after the bet.
+    const sampling = (0.5 / Math.sqrt(800)) * (num(gs.pot) + amount);
+    const spread = omahaPricedReadSpread(readOf(opp?.seat ?? -1), num(gs.pot));
+    if (mixTakesLower(player, gs, opts, verdict.proposed.ev - verdict.evCheck, sampling + spread))
+      bet = !bet;
+    if (bet) {
+      if (tele) receipts.kept();
+      return decision;
+    }
+    if (tele) receipts.checked();
+    return checked(decision);
+  } catch {
+    if (tele) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaOopTurnBarrelIsPriced (replaces the check half of
+ * omahaOopTurnCheckAfterFlopCall in PLO4/PLO5 cash): the turn bet out of
+ * position after the flop bet was called is priced beside the check. The
+ * caller has established the rule's spot.
+ */
+export function omahaPricedOopTurnBarrelRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision | null {
+  if (opts.omahaOopTurnBarrelIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  return ownBetRule(decision, player, gs, opts, {
+    kept: () => noteFire('omaha_priced_oop_turn_barrel_kept'),
+    checked: () => noteFire('omaha_priced_oop_turn_barrel_checked'),
+    unpriced: () => noteFire('omaha_priced_oop_turn_barrel_unpriced_kept'),
+  });
+}
+
+/**
+ * omahaPairedBoardBetIsPriced (replaces omahaPairedRiverNoThinLeadVsValueLeader,
+ * omahaOverpairNoOopBarrelVsValueLeader, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader,
+ * the card-impact press veto, the paired-board river check and the river
+ * nut-blocker bluff's paired-board bar in PLO4/PLO5 cash): a bet in one of
+ * those spots is priced beside the check against every opponent, whatever
+ * his label. The caller has established the spot.
+ */
+export function omahaPricedPairedBoardBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision | null {
+  if (!omahaPricedOwnsPairedBoardBet(player, gs, opts)) return null;
+  return ownBetRule(decision, player, gs, opts, {
+    kept: () => noteFire('omaha_priced_paired_board_bet_kept'),
+    checked: () => noteFire('omaha_priced_paired_board_bet_checked'),
+    unpriced: () => noteFire('omaha_priced_paired_board_bet_unpriced_kept'),
+  });
+}
+export function omahaPricedOwnsPairedBoardBet(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  return opts.omahaPairedBoardBetIsPriced === true && omahaPricedInScope(player, gs);
+}
+
+/**
+ * The river nut-blocker bluff on a paired board (omahaPairedBoardBetIsPriced):
+ * admitted when some bet is priced above the check against the opponent's
+ * range and measured fold rate. False with the option off or out of scope
+ * (the bar stands).
+ */
+export function omahaPricedBlockerBluffAdmits(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  if (!omahaPricedOwnsPairedBoardBet(player, gs, opts)) return false;
+  try {
+    const verdict = omahaPricedBet(player, gs, readOfSeat(gs, opts));
+    const ok = verdict !== null && verdict.best !== null && verdict.best.ev > verdict.evCheck;
+    if (ok && telemetryOn(opts)) noteFire('omaha_priced_paired_board_blocker_bluff_admitted');
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * omahaPressureIsPriced (replaces the label test of
+ * omahaPressureNeedsPostflopAggression in PLO4/PLO5 cash). Whether the
+ * pressure play against this bettor is WITHHELD: the raise is withheld unless
+ * the raise is priced above the call (flop and turn, sampled shares and his
+ * measured fold rate; river, the exact count), the call-down unless the call
+ * is priced above the fold. Null out of scope: the label test acts.
+ */
+export function omahaPricedPressureWithheld(
+  kind: 'raise' | 'call_down',
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  deps: OmahaPricedDeps
+): boolean | null {
+  if (opts.omahaPressureIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  const tele = telemetryOn(opts);
+  try {
+    const stage = String(gs.stage ?? '');
+    let admitted = false;
+    if (stage === 'turn' || stage === 'river') {
+      const priced = raiseVerdictOf({ action: 'call', thinkTime: 0 }, player, gs, opts, deps);
+      if (priced)
+        admitted =
+          kind === 'raise'
+            ? priced.verdict.action === 'raise' || priced.verdict.action === 'all_in'
+            : priced.verdict.callStands;
+      else if (stage === 'river') admitted = false;
+    }
+    if (!admitted && (stage === 'flop' || stage === 'turn')) {
+      const spot = sampledSpot(player, gs);
+      if (spot) {
+        const verdict = sampledVerdict(player, gs, opts, spot, potRaiseTo(player, gs, spot.toCall));
+        if (verdict) admitted = kind === 'raise' ? verdict.raise : verdict.evCall > 0;
+      } else if (kind === 'call_down' && stage === 'flop') {
+        const eq = omahaBigDrawEquities(
+          player.cards ?? [],
+          gs.communityCards ?? [],
+          player.knownDeadCards ?? []
+        );
+        const toCall = Math.min(toCallOf(player, gs), num(player.stack));
+        admitted = eq !== null && eq.bet * (num(gs.pot) + toCall) - toCall > 0;
+      }
+    }
+    if (tele) {
+      if (kind === 'raise')
+        noteFire(
+          admitted ? 'omaha_priced_pressure_raise_admitted' : 'omaha_priced_pressure_raise_withheld'
+        );
+      else
+        noteFire(
+          admitted
+            ? 'omaha_priced_pressure_call_down_admitted'
+            : 'omaha_priced_pressure_call_down_withheld'
+        );
+    }
+    return !admitted;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * omahaBigBetCallsArePriced (replaces the V81, V84, bluff-catcher and V86
+ * cells in PLO4/PLO5 cash). Called where one of those cells would change a
+ * turn or river call or raise by the size of the bet, the stack in big blinds
+ * and the hand class: the exact count judges it instead. The call stands when
+ * EV(call) exceeds the margin and is folded when it does not; a river raise
+ * is priced beside the call and the fold. Where the hand cannot be counted
+ * the decision is kept.
+ */
+export function omahaPricedBigBetCallRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  deps: OmahaPricedDeps
+): HorseDecision | null {
+  if (!omahaPricedOwnsBigBetCalls(player, gs, opts)) return null;
+  const tele = telemetryOn(opts);
+  try {
+    const toCall = toCallOf(player, gs);
+    const stack = num(player.stack);
+    if (toCall <= 0.005) return decision;
+    const isCall =
+      decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
+    const isRaise =
+      decision.action === 'raise' || (decision.action === 'all_in' && stack > toCall + 0.005);
+    if (!isCall && !isRaise) return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const priced = raiseVerdictOf(decision, player, gs, opts, deps);
+    if (!priced) {
+      if (tele) noteFire('omaha_priced_big_bet_call_unpriced_kept');
+      return decision;
+    }
+    const { verdict } = priced;
+    if (isCall) {
+      if (verdict.callStands) {
+        if (tele) noteFire('omaha_priced_big_bet_call_kept');
+        return decision;
+      }
+      if (tele) noteFire('omaha_priced_big_bet_call_folded');
+      return folded(decision);
+    }
+    // A raise: it stands when it is priced above the call and the fold, or with a nut-class hand.
+    const passiveEv = Math.max(verdict.callStands ? verdict.evCall : 0, 0);
+    if (
+      omahaNutClassNow(player, gs) ||
+      verdict.rows.some(
+        (r) => proposedMatches(decision, player, r.to) && r.ev > passiveEv + verdict.margin
+      )
+    ) {
+      if (tele) noteFire('omaha_priced_big_bet_raise_kept');
+      return decision;
+    }
+    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    if (verdict.callStands && scope) {
+      if (tele) noteFire('omaha_priced_big_bet_raise_called');
+      return omahaRaiseNeedsNutsCall(decision, scope);
+    }
+    if (verdict.callStands) return decision;
+    if (tele) noteFire('omaha_priced_big_bet_raise_folded');
+    return folded(decision);
+  } catch {
+    if (tele) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaUnderpairMultiwayIsPriced (replaces the categorical fold of
+ * omahaUnderpairNoMultiwayFlopContinue in PLO4/PLO5 cash). The flop call
+ * facing a bet and a call is priced on the sampled share against the bettor
+ * and against the caller (both must be beaten; the product of the two shares
+ * is used, a stated simplification that ignores shared outs), realized less
+ * out of position. True: the fold stands. False: the call is priced in.
+ * Null out of scope or when no number can be computed (the rule acts).
+ */
+export function omahaPricedUnderpairFolds(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean | null {
+  if (opts.omahaUnderpairMultiwayIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  try {
+    if (String(gs.stage ?? '') !== 'flop') return null;
+    const eq = omahaBigDrawEquities(
+      player.cards ?? [],
+      gs.communityCards ?? [],
+      player.knownDeadCards ?? []
+    );
+    if (eq === null) return null;
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    );
+    const toCall = Math.min(toCallOf(player, gs), num(player.stack));
+    const inPosition = omahaHeroInPosition(
+      player.seat,
+      gs.dealerSeat,
+      live.map((p) => p.seat)
+    );
+    const share = eq.bet ** Math.max(1, live.length);
+    const real = inPosition ? 1 : OMAHA_BIG_DRAW_OOP_REALISATION;
+    const ev = real * share * (num(gs.pot) + toCall) - toCall;
+    const folds = !(ev > 0);
+    if (telemetryOn(opts))
+      noteFire(
+        folds ? 'omaha_priced_underpair_multiway_folded' : 'omaha_priced_underpair_multiway_called'
+      );
+    return folds;
+  } catch {
+    return null;
+  }
+}
+
+/** True where omahaBigBetCallsArePriced owns the big-bet cells: a PLO4/PLO5 cash turn or river decision. */
+export function omahaPricedOwnsBigBetCalls(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  if (opts.omahaBigBetCallsArePriced !== true || !omahaPricedInScope(player, gs)) return false;
+  const stage = String(gs.stage ?? '');
+  return stage === 'turn' || stage === 'river';
+}
+
+/** Test seam: run `fn` with the facing-bet range model in its stepped (off) mode. */
+export function omahaPricedWithoutMode<T>(fn: () => T): T {
+  return withOmahaPricedMode(OMAHA_PRICED_MODE_OFF, fn);
+}

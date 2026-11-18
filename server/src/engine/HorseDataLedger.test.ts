@@ -88,6 +88,9 @@ const BRAIN_FILES = [
   'engine/HorsePhase14Acceptance.ts',
   // STYLE READ shadow (2026-11-13): the shadow list is read where every consumer asks for its arm.
   'engine/HorseStyleShadow.ts',
+  // The Omaha priced rules (2026-11-17, default off): the rule sites read their own options and
+  // fire their own receipts where they answer.
+  'engine/HorseOmahaPricedWiring.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit
