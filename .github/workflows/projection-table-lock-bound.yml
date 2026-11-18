@@ -1,20 +1,22 @@
 name: Projection table lock bound
 
-# Migration 20261118155509 (incident 075013fd follow-ups to #11269): the
-# projection worker's fn_project_hand_side_effects tries the per-table mutex for
-# at most 250 ms and the seated players' locks within 1 s instead of queueing
-# to the statement timeout, and one fn_ca_drain_orphaned_post_commit_envelopes
-# call walks each table's backlog in hand order. Runs
-# scripts/ci/test-projection-table-lock-bound-postgres.py against a throwaway
-# PostgreSQL 17 cluster, never production: 20 callers behind a 10 s lock time
-# out before and answer table_busy within ~0.3 s after (contract 2, and
-# predecessor_pending under contract 1), then every hand projects exactly once
-# in order; a 50-hand backlog drains in one call. No timer (CLAUDE.md 10.85):
-# pull_request only, scoped to the paths it proves.
+# Migration 20261118155509 (incident 075013fd follow-up to #11269):
+# fn_project_hand_side_effects tries the per-table mutex for at most 250 ms and
+# every other key ('player-stats:', 'hand-projection:' and the after-function's
+# 'player-stats-user:' keys, in uuid order) within one 1 s deadline instead of
+# queueing. Runs scripts/ci/test-projection-table-lock-bound-postgres.py against
+# a throwaway PostgreSQL 17 cluster, never production: 20 callers behind a 10 s
+# mutex time out before and answer table_busy within ~0.3 s after; a held
+# player-stats-user key waits past 1 s and a reverse-order holder deadlocks
+# before, and after answers obligation_lock_busy within ~1 s with no deadlock;
+# two hands with overlapping players, concurrent in both orders: 0 deadlocks,
+# no wait past 1 s, each projected exactly once. The drain is not changed.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
 on:
   pull_request:
     paths:
       - supabase/migrations/20260909085724_a_hand_that_finished_stops_paging_and_an_orphan_envelope_gets_drained.sql
+      - supabase/migrations/20261019194410_replay_holds_no_lock_past_its_receipt_player_stats_key_order.sql
       - supabase/migrations/20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql
       - supabase/migrations/20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql
       - supabase/migrations/20261118071728_a_hands_bbj_drop_and_insurance_wait_in_their_own_rows_not_on.sql

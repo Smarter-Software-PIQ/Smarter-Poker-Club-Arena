@@ -1,115 +1,140 @@
-# The projection worker never queues on the table lock, and one drain call clears a table (incident 075013fd)
+# The projection worker never queues on the table lock or a player key (incident 075013fd)
 
-**Migration:** `20261118155509`. **Follow-ups to:** #11269 (`20261118073646`),
-which named both of these as still open.
+**Migration:** `20261118155509`. **Follow-up to:** #11269 (`20261118073646`),
+which named this as still open.
 
 ## What was still wrong after #11269
 
-1. **`fn_project_hand_side_effects` waited on the table lock with no bound.**
-   - This is the projection worker's RPC (`handProjection.ts`, `projectChain`).
-     It banks the hand's deferred rake and BBJ/insurance obligations, then
-     takes `pg_advisory_xact_lock('hand-post-commit:<table>')`. After that it
-     takes every seated player's `player-stats:<uuid>` lock and runs the
-     envelope. Its outbox delete fires the obligation trigger.
-   - Production `lock_timeout` is 0, so each waiter held a connection until
-     service_role's 8 s statement timeout. That is the same pile-up the
-     incident was. #11269 bounded only the envelope's own wait.
-   - Measured on PostgreSQL 16 against the production text: one session holds
-     the lock for 10 s, and 19 of 20 projection callers time out. The 20th had
-     a deferred rake to bank, so it ends its pass before the lock.
-2. **`fn_ca_drain_orphaned_post_commit_envelopes` advanced one hand per table
-   per call.**
-   - Its `NOT EXISTS earlier pending` filter picked only each table's
-     head-of-line hand.
-   - Measured: a 50-hand backlog on one table plus 3 on another, and one call
-     applied 2 hands.
+`fn_project_hand_side_effects` is the projection worker's RPC
+(`handProjection.ts`, `projectChain`). It banks the hand's deferred rake and
+BBJ/insurance obligations (both bankers try-lock), then took three kinds of
+key with a blocking `pg_advisory_xact_lock`:
+
+- `hand-post-commit:<table>`, the per-table mutex the envelope also takes;
+- `player-stats:<uuid>` for every seated player, in uuid order;
+- `hand-projection:<table>`.
+
+The after-function it calls
+(`fn_project_hand_side_effects_after_post_commit_20260908`) then took
+`player-stats-user:<uuid>` for every seated player of a cash chip hand, also
+blocking, after it had already claimed the outbox row and written the club
+member projections. The cash commission batch, the cash source retry and the
+Midway weekly promo take the same keys.
+
+How long a waiter waited, from the production role settings (read
+2026-11-18):
+
+- The worker calls through PostgREST, which connects as `authenticator`
+  (`lock_timeout` 8s) and switches to `service_role` (`statement_timeout`
+  8s). So a waiting projection held its connection for up to 8 s.
+- The global `lock_timeout` is 0, so a direct SQL caller waited until its own
+  statement timeout.
+
+Either way one busy table, or one busy player, held a projection connection
+and queued every later hand of that table behind it. Measured on PostgreSQL 16
+against the production text: with the mutex held for 10 s, 19 of 20 projection
+callers time out. A held `player-stats-user` key keeps the projection waiting
+until the holder lets go. A writer that holds one player's key and then asks
+for another's, in the other order, deadlocks with the projection (40P01).
 
 ## What changed
 
-- **Projection function: table mutex.** It tries the mutex for at most
-  250 ms. A busy table answers `table_busy` (`retryable: true`,
-  `projection_applied: false`).
-- **Projection function: player locks.** They are still taken in uuid order.
-  All of them share one 1 s deadline, which starts once the mutex is held. A
-  held one answers `obligation_lock_busy` (`detail: player_stats_lock_busy`).
-- **Nothing is written before either answer.** The function itself writes
-  nothing; every write belongs to a callee that runs after the locks. So the
-  outbox row stays, and the worker's existing deferral comes back for the hand.
+Only `fn_project_hand_side_effects`.
+
+- **Table mutex.** It is tried for at most 250 ms. A busy table answers
+  `table_busy` (`retryable: true`, `projection_applied: false`).
+- **One 1 s deadline for every other key, from the moment the mutex is held.**
+  Every key is tried, never waited on, and the uuid walks stay in uuid order:
+  - `player-stats:` (`obligation_lock_busy`, detail `player_stats_lock_busy`);
+  - `hand-projection:` (`table_busy`, detail `hand_projection_lock_busy`). Only
+    a mutex holder takes it, so it is free; it is tried anyway so the function
+    makes no blocking lock call at all;
+  - every `player-stats-user:` key the after-function will take, taken
+    before it runs (`obligation_lock_busy`, detail
+    `player_stats_user_lock_busy`). The after-function's own blocking calls
+    then re-enter keys this transaction already holds and never queue. The
+    set is the after-function's (the hand's seated uuids, a cash hand at a
+    non-Diamond club) or wider, never narrower; the law pins that against the
+    production after-function text.
+- **Nothing is written before any refusal.** The bankers' passes return early,
+  and the `player-stats-user:` keys are tried only once the envelope answers
+  already-completed or legacy (a pass that completes it returns
+  `predecessor_pending` first). The outbox row stays, and the worker's
+  existing deferral comes back for the hand.
 - **Order and exactly-once are unchanged.** The outbox delete and the
   projection still happen only under the mutex, after the after-function's
   own predecessor check.
-- **Same versioned contract as #11269.** The same `request.headers` read
-  decides the answer:
-  - The engine that ships with #11269 sends `x-ca-post-commit-contract: 2` on
-    this RPC and defers both reasons (`isQueuedPostCommitReason`).
-  - Every other caller gets `predecessor_pending`, with the real reason in
-    `queued_reason`. That covers today's engine, a rolled-back build and any
-    SQL caller. `predecessor_pending` is the one answer the pre-#11269 worker
-    defers without a failure receipt (`handProjection.ts` at `e315035b8^`).
-  - No server change is needed: #11269 already sends the header and defers
-    every queued reason.
-- **Drain.** One call walks each table's pending envelopes in hand order, the
-  oldest backlog first, up to `p_limit` envelope calls in all.
-  - A table stops at its first hand that does not complete: a queued answer,
-    a refusal or an error. Its later hands are skipped for that call.
-  - Each hand is the envelope itself, in its own subtransaction. So every lock
-    wait is the envelope's bounded one (250 ms mutex, 1 s rows).
-  - The answer keeps `seen`/`applied`/`failed` and adds `deferred`,
-    `skipped`, `tables` and `stopped` (hand, number and reason per stopped
-    table).
+- **Same versioned contract as #11269.** The engine that ships with #11269
+  sends `x-ca-post-commit-contract: 2` on this RPC and defers both reasons
+  (`isQueuedPostCommitReason`). Every other caller gets `predecessor_pending`
+  with the real reason in `queued_reason`. No server change is needed.
 
-## Who calls the drain (CLAUDE.md 10.12)
+## What did not change, on purpose
 
-Nobody, on any schedule:
-
-- Its job `ca-post-commit-orphan-drain-10m` was retired by `20260922155223`.
-- Production `cron.job` has no row naming it (read 2026-11-18).
-- No function in `public` or `smarter_private` calls it, and no engine,
-  client or script code does.
-- `tests/a-retired-compensation-job-is-never-scheduled-again.law.test.ts`
-  refuses any schedule that calls it.
-
-It remains an operator's hand tool for an incident, granted to service_role
-and postgres only. This change adds no schedule and no caller, and the new law
-pins that.
+- **The drain.** An earlier draft of this PR rewrote
+  `fn_ca_drain_orphaned_post_commit_envelopes` to walk each table's whole
+  backlog in one call. Review refused it: one function call is one
+  transaction, so a drain over many hands holds every hand's locks until its
+  single commit. The existing drain is kept as it is (it has no schedule and
+  no caller; it is an operator's hand tool). If a multi-hand drain is ever
+  needed, it has to be a `PROCEDURE` that commits after each hand.
+- **The f06 tournament lane.** `smarter_private.f06_wait_table_lane`, called
+  before the mutex, keeps its own per-tournament wait (`lock_timeout` 4s on
+  that function, shared locks on the tournament's terminal-settlement keys).
+  It is a separate lane under the owner's 2026-11-17 ruling and is out of
+  scope here; the law names it as the one wait this function still makes.
 
 ## Proof
 
 `scripts/ci/test-projection-table-lock-bound-postgres.py` (workflow
-`projection-table-lock-bound.yml`) passes 48 checks locally on PostgreSQL 16.
+`projection-table-lock-bound.yml`) passes 52 checks locally on native
+PostgreSQL 16.
 
 **(a) Mutex held 10 s, 20 concurrent projection callers.**
-- Contract 2: zero statement timeouts, every caller answers `table_busy`, at
-  most 0.30 s server-side (the check allows 0.5 s), all 20 within 0.83 s wall.
-- Contract 1: the same, answering `predecessor_pending` with `queued_reason`
-  `table_busy`.
-- While busy, nothing is projected or completed and the outbox stays intact.
-- After release, a worker-shaped drain projects every hand exactly once, in
-  hand order. Every envelope completes once, the deferred rake is banked once,
-  and the outbox ends empty.
-- A held `player-stats:` lock answers within ~1 s and writes nothing.
 
-**(b) Drain.**
-- One call applies the whole 53-hand backlog in hand order; a second call
-  finds nothing.
-- `p_limit` bounds a call, and the next call resumes in order.
-- A held member row on hand 30 stops that table there with
-  `obligation_lock_busy`. Its 20 later hands are skipped, the other table
-  still drains, the call takes under 3 s, and the next call finishes the table.
+- Before: 19 statement timeouts.
+- After, contract 2: zero statement timeouts, every caller answers
+  `table_busy` within 0.27 s server-side, all 20 within 0.40 s wall.
+- After, contract 1: the same, answering `predecessor_pending` with
+  `queued_reason` `table_busy`.
+- After release, a worker-shaped drain projects every hand exactly once, in
+  hand order, every envelope completes once and the rake is banked once.
+
+**(c) `player-stats-user:` keys.**
+
+- Before: a held key keeps the projection waiting past 1 s; a reverse-order
+  holder deadlocks with it (40P01).
+- After: a held key answers `obligation_lock_busy` (contract 1:
+  `predecessor_pending`) within about 1.0 s and nothing is written; the hand
+  then projects exactly once.
+- After: the reverse-order holder is no deadlock. The projection gives up
+  after 1.013 s and the holder then gets its key.
+- After: a tournament hand takes no `player-stats-user:` key.
+- After: two hands at two tables with overlapping players, listed in opposite
+  orders in each hand, run concurrently in both start orders, 10 rounds each,
+  with the after-function holding its keys 0.3 s and 1.5 s: 80 calls, 0
+  deadlocks, 0 errors, the slowest wait 1.029 s, 20 bounded refusals, and
+  every hand projected exactly once.
 
 **Law:** `tests/the-projection-worker-never-queues-on-the-table-lock.law.test.ts`.
+Besides the postimage and lock order, it refuses any later migration that
+names `fn_project_hand_side_effects` or its after-function and carries a
+queueing lock. It reads the whole file, string literals and dollar bodies
+included, so a substitution migration (a `pg_temp` helper, `replace()`,
+dynamic SQL, a split `'pg_' || 'advisory_xact_lock'`) is caught as well as a
+literal `CREATE OR REPLACE`. Self-tests pin each of those shapes.
 
 ## Install notes
 
 - **Prerequisite.** #11269's envelope must be live. The migration asserts its
   postimage `39d75365...` and refuses otherwise.
-- **Pinned preimages** (read on production 2026-11-18): projection
-  `39d043cd...`, drain `6abdcb72...`.
-- **Postimages:** projection `1e8eee8f...`, drain `7ae97730...`.
-- **Stale pins:** no function carries either preimage md5.
-- **Money RPC registry:** `fn_ca_money_rpc_writes_balances` is false for both
-  functions today, and neither gains a balance write.
-- **Hand-path shared writes:** no shared-row write or blocking lock is added;
-  the only change is blocking to try.
+- **Pinned preimage** (read on production 2026-11-18): `39d043cd...`.
+  **Postimage:** `94588bd7...`.
+- **Stale pins:** no function in `public` or `smarter_private` carries the
+  preimage md5 (read 2026-11-18). Nothing declared.
+- **Money RPC registry:** the function writes nothing itself and gains no
+  balance write, so no registry row.
+- **Hand-path shared writes:** the function is not in the hand doors' call
+  closure, and gains no write and no blocking lock.
 - **Install window.** No table DDL, so it installs through the normal applier,
   outside the :50-:03 UTC window.

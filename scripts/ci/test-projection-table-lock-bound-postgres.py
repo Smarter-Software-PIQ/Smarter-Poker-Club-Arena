@@ -1,10 +1,10 @@
 """Isolated PostgreSQL proof for migration 20261118155509 (incident 075013fd
-follow-ups left open by #11269).
+follow-up left open by #11269): THE PROJECTION WORKER NEVER QUEUES ON THE
+TABLE LOCK OR A PLAYER KEY.
 
-(a) THE PROJECTION WORKER NEVER QUEUES ON THE TABLE LOCK. One session holds
-    the per-table mutex 'hand-post-commit:<table>' for 10 s while 20 callers
-    of fn_project_hand_side_effects (one per hand of that table) arrive at
-    once.
+(a) One session holds the per-table mutex 'hand-post-commit:<table>' for 10 s
+    while 20 callers of fn_project_hand_side_effects (one per hand of that
+    table) arrive at once.
       BEFORE  (the production preimage, md5 39d043cd...): every caller waits on
               the mutex until its statement timeout.
       AFTER   every caller answers table_busy (contract 2) within ~0.3 s,
@@ -18,14 +18,22 @@ follow-ups left open by #11269).
               every hand exactly once, in hand order, with every envelope
               completed once, every deferred cash rake banked once, and the
               outbox empty.
-(b) ONE DRAIN CALL CLEARS A TABLE. A 50-hand pending-envelope backlog on one
-    table (plus a 3-hand backlog on a second).
-      BEFORE  fn_ca_drain_orphaned_post_commit_envelopes (preimage md5
-              6abdcb72...) applies one hand per table per call.
-      AFTER   one call applies all 53 in hand order; a held member row stops
-              that table at its hand (obligation_lock_busy) and skips its
-              later hands while the other table still drains; the next call
-              finishes it; every hand applied exactly once.
+(c) THE 'player-stats-user:<uuid>' KEYS. The after-function takes them with a
+    blocking lock after it has written (production shape, kept in the
+    stand-in); the cash commission batch, the cash source retry and the Midway
+    promo take the same keys.
+      BEFORE  a held key keeps the projection waiting past 1 s, and a holder
+              that then asks for a key the projection holds (the other order)
+              is a deadlock (40P01).
+      AFTER   a held key answers obligation_lock_busy within ~1 s with nothing
+              written; the reverse-order holder is no deadlock (the projection
+              never sits in a lock queue, gives up within 1 s, and the holder
+              then gets its key); two hands at two tables with overlapping
+              players, listed in opposite orders, run concurrently in both
+              start orders: 0 deadlocks, no call waits past 1 s, and each hand
+              projects exactly once.
+The drain (fn_ca_drain_orphaned_post_commit_envelopes) is not changed by the
+migration: the proof asserts its md5 is the production preimage after install.
 
 The envelope is the production text: the #11266 postimage rebuilt from
 scripts/ci/fixtures/cash-rake-pending/live-definitions.json, then #11269's
@@ -66,15 +74,14 @@ PROJ_SIG = 'public.fn_project_hand_side_effects(uuid)'
 DRAIN_SIG = 'public.fn_ca_drain_orphaned_post_commit_envelopes(interval,integer)'
 ENV_PRE, ENV_POST = '7a796358fa28fda910e0f28ded72ff79', '39d75365156c46476bfe01854d3c86b9'
 PROJ_PRE, DRAIN_PRE = '39d043cda727119e0a6d883a3fb25d50', '6abdcb7286ea8823034f7c0eb1c7ed40'
-LIVE_PROOF = re.search(r"fn_project_hand_side_effects\(uuid\)'::regprocedure\)\) = '([0-9a-f]{32})'.*"
-                       r"fn_ca_drain_orphaned_post_commit_envelopes\(interval,integer\)'::regprocedure\)\) = '([0-9a-f]{32})'",
-                       CANDIDATE.read_text())
-PROJ_POST, DRAIN_POST = LIVE_PROOF.group(1), LIVE_PROOF.group(2)
+LIVE_PROOF = re.search(r"@live-proof: \(SELECT md5\(pg_get_functiondef\('public\.fn_project_hand_side_effects\(uuid\)'"
+                       r"::regprocedure\)\) = '([0-9a-f]{32})'\)$", CANDIDATE.read_text(), re.M)
+PROJ_POST = LIVE_PROOF.group(1)
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/projection-table-lock-bound')
 parser.add_argument('--callers', type=int, default=20)
-parser.add_argument('--backlog', type=int, default=50)
+parser.add_argument('--rounds', type=int, default=10)
 parser.add_argument('--hold-seconds', type=float, default=10)
 args = parser.parse_args()
 out = args.output.resolve()
@@ -227,7 +234,8 @@ END $$;
 -- receipts the stand-ins leave.
 CREATE TABLE public.hand_projection_outbox(hand_id uuid PRIMARY KEY, table_id uuid NOT NULL,
   hand_number bigint NOT NULL);
-CREATE TABLE public.hand_history(id uuid PRIMARY KEY, table_id uuid, hand_number bigint, players jsonb);
+CREATE TABLE public.hand_history(id uuid PRIMARY KEY, table_id uuid, hand_number bigint, players jsonb,
+  tournament_id uuid);
 CREATE TABLE public.projection_receipts(id bigserial PRIMARY KEY, hand_id uuid, table_id uuid, hand_number bigint);
 CREATE TABLE public.bank_receipts(id bigserial PRIMARY KEY, hand_id uuid, kind text);
 
@@ -252,11 +260,15 @@ END $$;
 
 -- Stand-in for fn_project_hand_side_effects_after_post_commit_20260908 with
 -- production's lock shape (claim the outbox row FOR UPDATE, the per-table
--- projection lock, refuse to leapfrog an earlier outbox row), one receipt per
--- projected hand, and the outbox delete that fires the obligation trigger.
+-- projection lock, refuse to leapfrog an earlier outbox row, write the club
+-- member projection, THEN each seated player's 'player-stats-user:' key with
+-- a blocking lock in uuid order for a cash hand at a non-Diamond club), one
+-- receipt per projected hand, and the outbox delete that fires the obligation
+-- trigger. ca_test.after_sleep widens the window the projection holds its
+-- keys, so concurrent hands really overlap.
 CREATE FUNCTION public.fn_project_hand_side_effects_after_post_commit_20260908(p_hand_id uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp' AS $$
-DECLARE v record;
+DECLARE v record; h record; v_uid uuid; v_diamond boolean; v_club uuid;
 BEGIN
   SELECT o.* INTO v FROM public.hand_projection_outbox o WHERE o.hand_id = p_hand_id FOR UPDATE OF o;
   IF NOT FOUND THEN
@@ -267,10 +279,26 @@ BEGIN
               WHERE e.table_id = v.table_id AND e.hand_number < v.hand_number) THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'predecessor_pending');
   END IF;
+  SELECT * INTO h FROM public.hand_history WHERE id = p_hand_id;
+  SELECT t.club_id, c.asset = 'diamonds' INTO v_club, v_diamond
+    FROM public.tables t JOIN public.clubs c ON c.id = t.club_id WHERE t.id = h.table_id;
   INSERT INTO public.projection_receipts(hand_id, table_id, hand_number) VALUES (p_hand_id, v.table_id, v.hand_number);
+  IF NOT COALESCE(v_diamond, false) AND h.tournament_id IS NULL AND v_club IS NOT NULL
+     AND jsonb_typeof(h.players) = 'array' AND jsonb_array_length(h.players) > 0 THEN
+    FOR v_uid IN
+      SELECT DISTINCT (pl->>'userId')::uuid FROM jsonb_array_elements(h.players) pl
+       WHERE (pl->>'userId') ~* '^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$'
+       ORDER BY 1
+    LOOP
+      PERFORM pg_advisory_xact_lock(hashtextextended('player-stats-user:'||v_uid::text,0));
+    END LOOP;
+    INSERT INTO public.stats_user_receipts(hand_id) VALUES (p_hand_id);
+  END IF;
+  PERFORM pg_sleep(COALESCE(NULLIF(current_setting('ca_test.after_sleep', true), ''), '0')::numeric);
   DELETE FROM public.hand_projection_outbox WHERE hand_id = p_hand_id;
   RETURN jsonb_build_object('ok', true, 'hand_id', p_hand_id);
 END $$;
+CREATE TABLE public.stats_user_receipts(id bigserial PRIMARY KEY, hand_id uuid);
 
 INSERT INTO public.clubs(id, union_id) VALUES ('{CLUB}', '{UNION}');
 INSERT INTO public.union_wallets(union_id, insurance_wallet) VALUES ('{UNION}', 100);
@@ -337,10 +365,11 @@ CREATE TRIGGER a0_finish_hand_post_commit_obligations BEFORE DELETE ON public.ha
 """
 
 
-def seed(count, table=T, outbox=True, age_seconds=3600, rake_hands=()):
+def seed(count, table=T, outbox=True, age_seconds=3600, rake_hands=(), players=None):
     """`count` committed hands at `table`, each with one promo obligation for
     its own player, a hand_history row seating that player, and (outbox) a
-    pending projection row. Hands in rake_hands carry a deferred cash rake."""
+    pending projection row. Hands in rake_hands carry a deferred cash rake.
+    players (a list of user ids) overrides who is seated at every hand."""
     offset = 0 if table == T else 500
     rows = []
     for n in range(1, count + 1):
@@ -359,7 +388,7 @@ INSERT INTO public.hand_atomic_commits(table_id, hand_number, hand_id, committed
 SELECT '{table}', {1000 + n}, '{h}', now() - interval '{age_seconds + count - n} seconds', p.v,
   encode(extensions.digest(convert_to(p.v::text, 'UTF8'), 'sha256'), 'hex') FROM p;
 INSERT INTO public.hand_history(id, table_id, hand_number, players)
-VALUES ('{h}', '{table}', {1000 + n}, jsonb_build_array(jsonb_build_object('userId', '{u}')));""")
+VALUES ('{h}', '{table}', {1000 + n}, '{seated(players or [u])}'::jsonb);""")
         if outbox:
             rows.append(f"INSERT INTO public.hand_projection_outbox VALUES ('{h}', '{table}', {1000 + n});")
         if n in rake_hands:
@@ -367,10 +396,55 @@ VALUES ('{h}', '{table}', {1000 + n}, jsonb_build_array(jsonb_build_object('user
     run(''.join(rows))
 
 
+def seated(users):
+    return json.dumps([{'userId': x} for x in users])
+
+
+def seed_overlap():
+    """Hand 1 at T seats players 1 and 2; hand 1 at T2 seats players 2 and 1
+    (the opposite order in the hand's JSON)."""
+    seed(1, players=[user(1), user(2)])
+    seed(1, table=T2, players=[user(2), user(1)])
+
+
+def complete_envelopes():
+    """Complete every pending envelope first, so the projection reaches its
+    player-stats-user keys on this pass."""
+    out = run("SELECT bool_and(COALESCE((public.fn_ca_process_hand_post_commit_obligations(hand_id)->>'ok')::boolean, false)) "
+              "FROM (SELECT hand_id FROM public.hand_atomic_commits ORDER BY table_id, hand_number) x")
+    assert out == 't', out
+
+
+def reverse_order_holder():
+    """A writer that holds the higher player's 'player-stats-user:' key and then
+    asks for the lower one (the other order), while the projection of a hand
+    seating both runs."""
+    reset()
+    seed(1, players=[user(1), user(2)])
+    complete_envelopes()
+    lo, hi = sorted([user(1), user(2)])
+    holder = subprocess.Popen(list(map(str, psql())), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, env=env)
+    holder.stdin.write(f"SET statement_timeout = '8s'; BEGIN;\n"
+                       f"SELECT pg_advisory_xact_lock(hashtextextended('player-stats-user:{hi}', 0));\n"
+                       "SELECT pg_sleep(0.6);\n"
+                       f"SELECT pg_advisory_xact_lock(hashtextextended('player-stats-user:{lo}', 0));\n"
+                       "SELECT 'holder-ok'; COMMIT;\n")
+    holder.stdin.close()
+    time.sleep(0.2)
+    answer, secs, err = project(hand_id(1))
+    holder.wait(timeout=60)
+    hout, herr = holder.stdout.read(), holder.stderr.read()
+    return {'deadlocks': int('deadlock detected' in err) + int('deadlock detected' in herr),
+            'holder_ok': 'holder-ok' in hout, 'answer': answer,
+            'projection_s': None if secs is None else round(secs, 3),
+            'projection_error': err[-300:], 'holder_error': herr[-300:]}
+
+
 def reset():
     run('DELETE FROM public.hand_projection_outbox; '
         'TRUNCATE public.hand_atomic_commits, public.hand_history, public.promo_receipts, '
-        'public.projection_receipts, public.bank_receipts, public.cash_rake_pending, '
+        'public.projection_receipts, public.bank_receipts, public.cash_rake_pending, public.stats_user_receipts, '
         'public.hand_bank_obligation_pending; '
         'UPDATE public.club_members SET wagered = 0; UPDATE public.player_stats SET total_losses = 0;')
 
@@ -384,12 +458,13 @@ def speak():
     return ''
 
 
-def project(h, timeout=STATEMENT_TIMEOUT):
+def project(h, timeout=STATEMENT_TIMEOUT, after_sleep=None):
     """One projection RPC as the worker sends it: one transaction, the
     service_role statement timeout, production's lock_timeout 0. Returns
     (answer, server-side seconds, stderr)."""
     code, stdout, stderr, _ = attempt(
-        f"SET statement_timeout = '{timeout}'; SET lock_timeout = 0;{speak()}\n"
+        f"SET statement_timeout = '{timeout}'; SET lock_timeout = 0;{speak()}"
+        + (f" SET ca_test.after_sleep = '{after_sleep}';" if after_sleep else '') + "\n"
         f"SELECT jsonb_build_object('a', public.fn_project_hand_side_effects('{h}'), "
         f"'s', extract(epoch FROM clock_timestamp() - statement_timestamp()))::text;\n")
     if code != 0 or not stdout:
@@ -447,10 +522,6 @@ def worker_drain(tables=(T,), max_passes=200):
     raise AssertionError('worker drain did not finish')
 
 
-def drain_call(older='1 minute', limit=200):
-    return json.loads(run(f"SELECT public.fn_ca_drain_orphaned_post_commit_envelopes('{older}', {limit})::text"))
-
-
 def exactly_once_in_order(count, table=T):
     receipts = run(f"SELECT count(*), count(DISTINCT hand_id) FROM public.projection_receipts WHERE table_id = '{table}'")
     order = run(f"SELECT bool_and(prev IS NULL OR prev < hand_number) FROM (SELECT hand_number, "
@@ -498,23 +569,33 @@ try:
           timeouts == N - 1, {'timeouts': timeouts, 'answers': {k: a[0] for k, a in answers.items() if a[0]}})
     results['before_a'] = {'statement_timeouts': timeouts, 'callers': N}
 
-    # ---- BEFORE (b) ---------------------------------------------------------
+    # ---- BEFORE (c) ---------------------------------------------------------
+    # A held 'player-stats-user:' key: the preimage's after-function queues on it.
     reset()
-    seed(args.backlog, outbox=False)
-    seed(3, table=T2, outbox=False)
-    first = drain_call()
-    check('BEFORE (b): one drain call applies only each table\'s head-of-line hand',
-          first.get('applied') == 2, first)
-    results['before_b'] = first
+    seed(1)
+    complete_envelopes()
+    holder = hold(f'player-stats-user:{user(1)}', 3)
+    answer, secs, err = project(hand_id(1))
+    holder.wait(timeout=60)
+    check('BEFORE (c): a held player-stats-user key keeps the projection waiting past 1 s',
+          answer is not None and answer.get('ok') is True and secs > 2, {'answer': answer, 's': secs, 'err': err})
+    # The other order: the holder of Y then asks for X while the projection holds X and waits for Y.
+    before_c = reverse_order_holder()
+    check('BEFORE (c): a reverse-order holder deadlocks with the projection (40P01)',
+          before_c['deadlocks'] >= 1, before_c)
+    results['before_c'] = before_c
 
     # ---- the candidate -------------------------------------------------------
     run(CANDIDATE.read_text())
     check('the migration reproduces the projection postimage', fmd5(PROJ_SIG) == PROJ_POST, fmd5(PROJ_SIG))
-    check('the migration reproduces the drain postimage', fmd5(DRAIN_SIG) == DRAIN_POST, fmd5(DRAIN_SIG))
-    for sig in (PROJ_SIG, DRAIN_SIG):
-        meta = run(f"SELECT array_to_string(proconfig, ','), prosecdef, proacl::text FROM pg_proc WHERE oid = '{sig}'::regprocedure")
-        check(f'{sig}: settings, security and grants unchanged',
-              meta == 'search_path=public, pg_temp|t|{postgres=X/postgres,service_role=X/postgres}', meta)
+    check('the drain is not changed (still the production preimage)', fmd5(DRAIN_SIG) == DRAIN_PRE, fmd5(DRAIN_SIG))
+    meta = run(f"SELECT array_to_string(proconfig, ','), prosecdef, proacl::text FROM pg_proc WHERE oid = '{PROJ_SIG}'::regprocedure")
+    check(f'{PROJ_SIG}: settings, security and grants unchanged',
+          meta == 'search_path=public, pg_temp|t|{postgres=X/postgres,service_role=X/postgres}', meta)
+    blocking = run("SELECT src ~ 'pg_advisory_(xact_)?lock\\s*\\(' OR src ~* 'for\\s+(no\\s+key\\s+)?update' "
+                   "OR src ~* 'lock\\s+table' FROM (SELECT regexp_replace(regexp_replace(prosrc, '/\\*.*?\\*/', ' ', 'g'), "
+                   f"'--[^\\n]*', ' ', 'g') AS src FROM pg_proc WHERE oid = '{PROJ_SIG}'::regprocedure) x")
+    check('the installed projection function makes no blocking lock call (comments aside)', blocking == 'f', blocking)
     check('the envelope is untouched', fmd5(ENV_SIG) == ENV_POST, fmd5(ENV_SIG))
     try:
         run(CANDIDATE.read_text())
@@ -602,65 +683,98 @@ try:
     check('AFTER (a): a transaction already holding the mutex re-enters',
           reentry.splitlines()[-1] == 'post_commit_completed_in_this_transaction', reentry)
 
-    # ---- AFTER (b) ----------------------------------------------------------
-    reset()
-    seed(args.backlog, outbox=False)
-    seed(3, table=T2, outbox=False)
-    one = drain_call()
-    B = args.backlog
-    check(f'AFTER (b): one drain call applies the whole {B}-hand backlog and the other table',
-          one.get('applied') == B + 3 and one.get('failed') == 0 and one.get('deferred') == 0
-          and one.get('tables') == 2 and one.get('stopped') == [], one)
-    order = run("SELECT bool_and(prev IS NULL OR prev <= post_commit_completed_at) FROM (SELECT post_commit_completed_at, "
-                "lag(post_commit_completed_at) OVER (PARTITION BY table_id ORDER BY hand_number) prev "
-                "FROM public.hand_atomic_commits) x")
-    promo_order = run("SELECT bool_and(prev IS NULL OR prev < w) FROM (SELECT wagered w, lag(wagered) OVER (ORDER BY id) prev "
-                      f"FROM public.promo_receipts WHERE hand_user < '{user(500)}') x")
-    check('AFTER (b): in hand order within the table', order == 't' and promo_order == 't', [order, promo_order])
-    check('AFTER (b): every hand applied exactly once',
-          run('SELECT count(*), count(DISTINCT hand_user) FROM public.promo_receipts') == f'{B + 3}|{B + 3}'
-          and run('SELECT count(*) FROM public.hand_atomic_commits WHERE post_commit_completed_at IS NULL') == '0')
-    again = drain_call()
-    check('AFTER (b): a second call finds nothing and applies nothing twice',
-          again.get('seen') == 0 and run('SELECT count(*) FROM public.promo_receipts') == str(B + 3), again)
-    results['after_b'] = one
+    # ---- AFTER (c) ----------------------------------------------------------
+    for contract in (2, 1):
+        CONTRACT['v'] = contract
+        label = f'AFTER (c) contract {contract}'
+        want = 'obligation_lock_busy' if contract >= 2 else 'predecessor_pending'
+        reset()
+        seed(1)
+        complete_envelopes()
+        holder = hold(f'player-stats-user:{user(1)}', 4)
+        answer, secs, err = project(hand_id(1))
+        holder.wait(timeout=60)
+        check(f'{label}: a held player-stats-user key answers {want} within ~1 s',
+              answer is not None and answer.get('reason') == want
+              and answer.get('queued_reason') == 'obligation_lock_busy'
+              and answer.get('detail') == 'player_stats_user_lock_busy' and secs < 1.2,
+              {'answer': answer, 's': secs, 'err': err})
+        check(f'{label}: and nothing was written',
+              run('SELECT count(*) FROM public.projection_receipts') == '0'
+              and run('SELECT count(*) FROM public.stats_user_receipts') == '0'
+              and run('SELECT count(*) FROM public.hand_projection_outbox') == '1')
+        worker_drain()
+        check(f'{label}: then the hand projects exactly once', exactly_once_in_order(1)[0]
+              and run('SELECT count(*) FROM public.stats_user_receipts') == '1')
 
-    # p_limit bounds the calls; the next call resumes at the stopped hand.
-    reset()
-    seed(args.backlog, outbox=False)
-    lim = drain_call(limit=20)
-    rest = drain_call()
-    check('AFTER (b): p_limit bounds one call, the next resumes in order',
-          lim.get('applied') == 20 and rest.get('applied') == B - 20
-          and run('SELECT count(*), count(DISTINCT hand_user) FROM public.promo_receipts') == f'{B}|{B}', [lim, rest])
+    CONTRACT['v'] = 2
+    after_c = reverse_order_holder()
+    check('AFTER (c): a reverse-order holder is no deadlock: the projection gives up within ~1 s, the holder gets its key',
+          after_c['deadlocks'] == 0 and after_c['holder_ok'] and after_c['answer'] is not None
+          and after_c['answer'].get('reason') == 'obligation_lock_busy' and after_c['projection_s'] < 1.2, after_c)
+    results['after_c_reverse_holder'] = after_c
 
-    # A held member row on hand 30 stops table T there; T2 still drains.
+    # A tournament hand or a Diamond club's hand takes no player-stats-user key (the after-function takes none).
     reset()
-    seed(args.backlog, outbox=False)
-    seed(3, table=T2, outbox=False)
-    holder = subprocess.Popen(list(map(str, psql())), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, text=True, env=env)
-    holder.stdin.write(f"BEGIN; SELECT 1 FROM public.club_members WHERE user_id = '{user(30)}' FOR UPDATE;\n"
-                       "SELECT pg_sleep(6);\nCOMMIT;\n")
-    holder.stdin.close()
-    time.sleep(0.5)
-    started = time.monotonic()
-    stopped = drain_call()
-    took = time.monotonic() - started
+    seed(1)
+    run(f"UPDATE public.hand_history SET tournament_id = gen_random_uuid() WHERE id = '{hand_id(1)}'")
+    complete_envelopes()
+    holder = hold(f'player-stats-user:{user(1)}', 3)
+    answer, secs, err = project(hand_id(1))
     holder.wait(timeout=60)
-    check('AFTER (b): a held row stops the table at that hand (obligation_lock_busy) and skips its later hands',
-          stopped.get('applied') == 29 + 3 and stopped.get('deferred') == 1
-          and stopped.get('skipped') == B - 30
-          and [(s['hand_number'], s['reason']) for s in stopped.get('stopped', [])] == [(1030, 'obligation_lock_busy')],
-          stopped)
-    check('AFTER (b): the bounded wait kept the call short', took < 3, took)
-    check('AFTER (b): nothing after the stopped hand was applied',
-          run(f"SELECT count(*) FROM public.hand_atomic_commits WHERE table_id = '{T}' AND hand_number >= 1030 "
-              "AND post_commit_completed_at IS NOT NULL") == '0')
-    finish = drain_call()
-    check('AFTER (b): the next call finishes the table, every hand exactly once',
-          finish.get('applied') == B - 29
-          and run('SELECT count(*), count(DISTINCT hand_user) FROM public.promo_receipts') == f'{B + 3}|{B + 3}', finish)
+    check('AFTER (c): a tournament hand is not held up by a player-stats-user key',
+          answer is not None and answer.get('ok') is True and secs < 0.5, {'answer': answer, 's': secs})
+
+    # Two hands at two tables with overlapping players, listed in opposite
+    # orders, concurrently, in both start orders; short and long holds.
+    stats = {'calls': 0, 'deadlocks': 0, 'errors': [], 'slowest_wait_s': 0.0, 'busy': 0, 'ok': 0}
+    for sleep in (0.3, 1.5):
+        for first in (0, 1):
+            for _ in range(args.rounds):
+                reset()
+                seed_overlap()
+                complete_envelopes()
+                pair = [(hand_id(1), T), (hand_id(1, T2), T2)]
+                if first:
+                    pair.reverse()
+                answers = {}
+
+                def go(h, delay):
+                    time.sleep(delay)
+                    answers[h] = project(h, after_sleep=sleep)
+
+                threads = [threading.Thread(target=go, args=(h, 0.05 * i)) for i, (h, _) in enumerate(pair)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+                for h, (answer, secs, err) in answers.items():
+                    stats['calls'] += 1
+                    if 'deadlock' in err:
+                        stats['deadlocks'] += 1
+                    if answer is None:
+                        stats['errors'].append(err[-300:])
+                        continue
+                    if answer.get('ok') is True:
+                        stats['ok'] += 1
+                        # its own hold is the stand-in's sleep; the rest is waiting
+                        waited = secs - sleep
+                    else:
+                        stats['busy'] += 1
+                        waited = secs
+                    stats['slowest_wait_s'] = max(stats['slowest_wait_s'], round(waited, 3))
+                worker_drain(tables=(T, T2))
+                once = run('SELECT count(*), count(DISTINCT hand_id) FROM public.projection_receipts') == '2|2'
+                if not once:
+                    stats['errors'].append('not exactly once')
+    deadlock_log = LOG.read_text().count('deadlock detected') if LOG.exists() else -1
+    check('AFTER (c): overlapping players, concurrent, both orders: 0 deadlocks and no errors',
+          stats['deadlocks'] == 0 and not stats['errors'], stats)
+    check('AFTER (c): neither hand ever waits past 1 s', stats['slowest_wait_s'] < 1.15, stats)
+    check('AFTER (c): every hand projected exactly once', not stats['errors'], stats)
+    check('AFTER (c): the long hold really made the second hand give up (the bound was exercised)', stats['busy'] > 0, stats)
+    results['after_c_overlap'] = stats
+    results['server_log_deadlocks_total'] = deadlock_log
 finally:
     (out / 'PROJECTION-LOCK.json').write_text(json.dumps(results, indent=2, default=str))
     try:
@@ -670,7 +784,8 @@ finally:
     shutil.rmtree(cluster, ignore_errors=True)
 
 print(json.dumps({'passed': len(results['checks']),
-                  'before_a': results.get('before_a'), 'before_b': results.get('before_b'),
+                  'before_a': results.get('before_a'), 'before_c': results.get('before_c'),
                   'after_a_contract_2': results.get('after_a_contract_2'),
                   'after_a_contract_1': results.get('after_a_contract_1'),
-                  'after_b': {k: v for k, v in (results.get('after_b') or {}).items() if k != 'stopped'}}))
+                  'after_c_reverse_holder': results.get('after_c_reverse_holder'),
+                  'after_c_overlap': results.get('after_c_overlap')}, default=str))
