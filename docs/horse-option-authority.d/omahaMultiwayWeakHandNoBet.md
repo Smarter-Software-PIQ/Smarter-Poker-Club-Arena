@@ -10,7 +10,7 @@ The PLO6 lane's plo6NoMultiwayBetWithWeakMadeHand (not on main at 963b71f394b; r
 
 Precedence: an owner-ruled check (`omahaOopCheckRules`, after the older owner-ruled checks), kept outermost by `omahaOwnerRuledFinal`; one receipt per decision.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayWeakHandNoBet docs/horse-option-authority.d/omahaMultiwayWeakHandNoBet.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261117181040 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayWeakHandNoBet docs/horse-option-authority.d/omahaMultiwayWeakHandNoBet.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261118001216 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on
 

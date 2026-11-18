@@ -186,6 +186,7 @@ import {
   seatArrivalGeneration,
 } from '../cluster/seatBoundarySignals.js';
 import { ChipContinuityTracker } from './ChipContinuity.js';
+import { SeatArrivalDisplay } from './SeatArrivalDisplay.js';
 import {
   claimMovedPresence,
   claimTournamentMovePresence,
@@ -704,6 +705,8 @@ export abstract class ServerTableEngineBase {
   });
   protected tableInfo: TableInfo | null = null;
   protected seatedPlayers: SeatedPlayer[] = [];
+  /** Taps and committed buy-ins shown before the hand boundary adopts them (SeatArrivalDisplay). */
+  protected readonly seatArrivals = new SeatArrivalDisplay();
   /** Tracks busted users who explicitly rejected a rebuy in the current hand (Dan 2026-08-24). */
   protected rejectedRebuys = new Set<string>();
   /**
@@ -6401,6 +6404,8 @@ export abstract class ServerTableEngineBase {
     if (!this.lifecycleCanMutate()) return [];
     const previous = new Map(this.seatedPlayers.map((p) => [p.user_id, p.occupancy_id]));
     this.seatedPlayers = nextRoster;
+    // The roster now speaks for every committed arrival (SeatArrivalDisplay).
+    this.seatArrivals.adoptRoster(nextRoster);
     /* PRESENCE DOES NOT OUTLIVE THE SEAT (2026-10-04). The roster is the one
        authority on who sits here, and the presence FSM is the engine's mirror
        of those seats. Two paths filled the mirror with players the roster no
@@ -8093,6 +8098,15 @@ export abstract class ServerTableEngineBase {
    */
   horsesSeated(): number {
     return this.seatedPlayers.filter((p) => p.is_horse === true && p.stack > 0).length;
+  }
+
+  /**
+   * The variant this table's horse decisions are counted under in the policy
+   * ledger (the same activeHandVariant() the turn path puts in gameState), for
+   * `poker_tables_with_horses_by_variant`. Identification only.
+   */
+  horseLedgerVariant(): string {
+    return this.activeHandVariant();
   }
 
   /**

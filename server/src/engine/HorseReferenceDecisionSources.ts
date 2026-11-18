@@ -91,6 +91,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha strong-hand value decisions (owner 2026-11-15 12:16, omahaStrongHandValue; the earlier playbook's PLO4/PLO5 cash entries): on the river with a full house or better or a nut-class hand, a check priced against every value bet against each opponent left, and a call facing one bettor priced against every value raise on the exact count of the holdings that continue; the last rule of the wager_rules node",
     'src/engine/HorseOmahaFacingBetEv.ts':
       "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
+    'src/engine/HorseOmahaFlopFacingBetEv.ts':
+      "the default-off Omaha flop facing-bet expected-value verdict (PLO Strategy lane 2026-11-17, omahaFlopFacingBetEv): in PLO4/PLO5 cash on the flop, the spot, the sampled two-card runout counts (a seed taken from the cards, never the brain's random stream), the realization factor read from the runouts and the EV verdict against the bettor's range by pot share, line and measured read",
+    'src/engine/HorseOmahaFlopFacingBetEvRule.ts':
+      'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
     'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':
       'the default-off Omaha turn and river raise rule (owner 2026-11-15 12:52 / 12:53, hand 59534208, omahaTurnRiverRaiseNeedsNuts): in PLO4/PLO5 cash facing a bet or a raise on the turn or the river, a raise stands only with a nut-class hand (on the turn also an in-position combo draw the 12:30 rule permits); every other raise becomes the exact-hand facing-bet EV call or fold, the outermost conversion on that path',
     'src/engine/HorseOmahaStreetPlan.ts':
@@ -119,6 +123,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha one-pair rules (Dan 2026-11-14, hands 59407629, 59430325, 59431232, 59417700, 59426444) on the final answer of the wager rules: no one-pair river value wager, no beaten river call of a 0.66-pot wager, no one-pair flop or turn stack-off',
     'src/engine/HorseTightPlayerExploit.ts':
       "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
+    'src/engine/HorseOmahaStreetRead.ts':
+      "the postflop read by street and flop texture (2026-11-17): the cells of the opponent's durable street record, its validation and wire row, and the per-street label HorseMind.omahaStreetReadOf answers; carried into Omaha decisions and read by none yet",
     'src/engine/HorseLongShownMemory.ts':
       "the default-off durable shown river record (styleLongShownMemory, 2026-11-15): which river size bucket the style read takes from the opponent's record instead of the 72-hour window",
     'src/engine/HorseHeadsUpPostflopBalance.ts':

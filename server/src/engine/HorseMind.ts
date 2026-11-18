@@ -30,6 +30,13 @@ import {
 } from './HorseOpponentMemory.js';
 import { mergeLongShownBuckets, type ShownRiverRead } from './HorseLongShownMemory.js';
 import {
+  copyStreetRead,
+  streetLabel,
+  type FlopTexture,
+  type StreetLabel,
+  type StreetReadCounters,
+} from './HorseOmahaStreetRead.js';
+import {
   respectWinner,
   isProvenWinner,
   WINNER_BLUFF_MOD,
@@ -857,6 +864,25 @@ export interface HorseMindSandbox {
    *  reads only for a decision whose options carry the option, so with it off nothing is carried. Travels with the
    *  decision's own state and its read frame (v17). Absent when the read carried none. */
   pooledProfileIncomplete?: Map<string, true>;
+  /** THE POSTFLOP READ BY STREET AND FLOP TEXTURE (2026-11-17, HorseOmahaStreetRead): for each pooled EXACT row in
+   *  `exploit` (opponentMemoryKey) of an Omaha game that carries a well-formed street read
+   *  (horse_exact_profiles.street_counters), a detached copy of it. Set by the observer reads for Omaha rows only,
+   *  so a Hold'em decision carries nothing. Travels with the decision's own state and its read frame (v18), never
+   *  in a process-wide map. Answered by HorseMind.omahaStreetReadOf; NO DECISION READS IT YET. Absent when the read
+   *  carried none. */
+  pooledStreetRead?: Map<string, StreetReadCounters>;
+}
+
+/** What HorseMind.omahaStreetReadOf answers for one opponent: his carried counters and, per street, the label a
+ *  decision would compare against the Horse mean. A street whose cell is still thin answers null (unknown), and
+ *  the caller keeps today's pooled read for it. */
+export interface OmahaStreetRead {
+  /** his cells as the decision carried them (a detached copy), for a consumer that applies its own prior */
+  counters: StreetReadCounters;
+  /** the flop label: from the given flop texture's cell, or the flop street cell when no texture is given */
+  flop: StreetLabel | null;
+  turn: StreetLabel | null;
+  river: StreetLabel | null;
 }
 
 /** What one pre-repair keyed pooled row carries into a decision; see HorseMindSandbox.pooledProvenance. */
@@ -1338,6 +1364,8 @@ export class HorseMind {
   private static pooledShownRiver: Map<string, ShownRiverRead> | null = null;
   /** The sandbox's incomplete pooled rows (HorseMindSandbox.pooledProfileIncomplete) while one is installed. */
   private static pooledProfileIncomplete: Map<string, true> | null = null;
+  /** The sandbox's street reads (HorseMindSandbox.pooledStreetRead) while one is installed; null outside it. */
+  private static pooledStreetRead: Map<string, StreetReadCounters> | null = null;
   private static decisionVariant: string | null = null;
   /** The betting structure of the decision in flight, as the game state
    *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
@@ -2859,6 +2887,43 @@ export class HorseMind {
     };
   }
 
+  /**
+   * THE POSTFLOP READ BY STREET AND FLOP TEXTURE (2026-11-17, HorseOmahaStreetRead): what the decision in flight
+   * carries about one opponent's postflop play kept apart by street and by flop texture, from the durable record
+   * of his exact row (horse_exact_profiles.street_counters, carried by the pooled public row into this decision's
+   * own state, HorseMindSandbox.pooledStreetRead). `counters` are his cells as carried; `flop`, `turn` and `river`
+   * are the label of that street against the Horse mean of this game and table size (the same envelope
+   * omahaFacingBetEvReadOf compares the pooled rate with), each null while its bet cell holds fewer than
+   * STREET_READ_MIN_OPPORTUNITIES decayed opportunities. `flopTexture` selects the flop's texture cell; without
+   * it the flop label reads the flop street cell.
+   *
+   * Null outside an Omaha decision and when the decision carried no record for him: unknown stays unknown. Public
+   * actions and board cards only. Pure: no fires, no writes, no random draws. NOTHING CALLS IT YET: this is the
+   * read made available to decisions; no decision is changed by it.
+   */
+  static omahaStreetReadOf(
+    userId: string,
+    flopTexture: FlopTexture | null = null
+  ): OmahaStreetRead | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant) return null;
+    const size = scope.split(':')[1] as MemorySize;
+    const row = this.pooledStreetRead?.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    if (!row) return null;
+    const env = exploitEnvelopeFor(scope, this.decisionVariant);
+    const means = env ? { bet: env.betCheckedTo.mean, foldToBet: env.foldToBet.mean } : null;
+    return {
+      counters: copyStreetRead(row),
+      flop: means ? streetLabel(row, 'flop', flopTexture, means) : null,
+      turn: means ? streetLabel(row, 'turn', null, means) : null,
+      river: means ? streetLabel(row, 'river', null, means) : null,
+    };
+  }
+
   static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
     const scope = this.decisionScope;
     if (!scope || !scope.startsWith('omaha:')) return null;
@@ -3723,6 +3788,10 @@ export class HorseMind {
             // And the same durable shown river read (exact rows only; donors never carry one).
             const rowShown = row ? this.pooledShownRiver?.get(key) : undefined;
             if (rowShown) (view.pooledShownRiver ??= new Map()).set(key, structuredClone(rowShown));
+            // And the same street read (exact rows only; donors never carry one). No decision reads it yet.
+            const rowStreet = row ? this.pooledStreetRead?.get(key) : undefined;
+            if (rowStreet)
+              (view.pooledStreetRead ??= new Map()).set(key, copyStreetRead(rowStreet));
             // And the same completeness cap (exact row).
             if (row && this.pooledProfileIncomplete?.has(key))
               (view.pooledProfileIncomplete ??= new Map()).set(key, true);
@@ -3810,12 +3879,14 @@ export class HorseMind {
       pooledProvenance: this.pooledProvenance,
       pooledShownRiver: this.pooledShownRiver,
       pooledProfileIncomplete: this.pooledProfileIncomplete,
+      pooledStreetRead: this.pooledStreetRead,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
     this.pooledProvenance = sandbox.pooledProvenance ?? null;
     this.pooledShownRiver = sandbox.pooledShownRiver ?? null;
     this.pooledProfileIncomplete = sandbox.pooledProfileIncomplete ?? null;
+    this.pooledStreetRead = sandbox.pooledStreetRead ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3855,6 +3926,7 @@ export class HorseMind {
       this.pooledProvenance = live.pooledProvenance;
       this.pooledShownRiver = live.pooledShownRiver;
       this.pooledProfileIncomplete = live.pooledProfileIncomplete;
+      this.pooledStreetRead = live.pooledStreetRead;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

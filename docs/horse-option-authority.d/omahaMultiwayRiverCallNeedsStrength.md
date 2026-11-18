@@ -8,7 +8,7 @@ PLO4/PLO5 cash, one board, high only, the river, facing a bet with at least one 
 
 Precedence: inside the owner-ruled chain (`omahaOwnerRuledFinal`, after the owner-ruled turn and flop verdicts), so no later rule raises over its fold; `omahaTurnRiverRaiseNeedsNuts` runs outside it and decides a raise on its own terms.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayRiverCallNeedsStrength docs/horse-option-authority.d/omahaMultiwayRiverCallNeedsStrength.md sha256 <digest>`). Registered in the live switch OFF-ONLY (follow-up list migration 20261117181040 names it; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY, failed its declared evaluation): it cannot be switched on. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayRiverCallNeedsStrength docs/horse-option-authority.d/omahaMultiwayRiverCallNeedsStrength.md sha256 <digest>`). Registered in the live switch OFF-ONLY (follow-up list migration 20261118001216 names it; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY, failed its declared evaluation): it cannot be switched on. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on
 

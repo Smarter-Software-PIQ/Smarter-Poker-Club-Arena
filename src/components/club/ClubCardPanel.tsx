@@ -63,20 +63,19 @@ interface ClubCardPanelProps {
   logoUrl?: string | null;
   entityType?: 'club' | 'union';
   /**
-   * A display addition the owner set for this club (Kings Club +1,500
-   * members / +233 active). Dan 2026-11-02 19:23 CT: "CARD SHOULD SHOW TRUE
-   * MEMBER COUNT +1500 AS A TOTAL NUMBER OF 1592 AND TRUE ACTIVE COUNT OF 2 +
-   * 233". The card prints ONE TOTAL per figure (real + addition) and no
-   * separate "+N BONUS" line under it. The real counts stay real in every
-   * other reader; only this card's printed figure carries the addition.
-   */
-  displayAddition?: { members: number; active: number; label: string } | null;
-  /**
    * Dan 2026-11-12: a union member club plays on its union's floor, so its
    * cash/events split counts that floor and this names it ("MIDWAY UNION").
    * Null for a standalone club or a union's own card.
    */
   splitFloorLabel?: string | null;
+  /**
+   * Dan 2026-11-17: distinct players on that union floor, printed with the
+   * union's name ("296 PLAYERS ACROSS MIDWAY UNION") so the card carries the
+   * same union figure as the club's invite and never under the club's ACTIVE.
+   */
+  floorPlaying?: number | null;
+  /** How many of floorPlaying are Horses; any at all adds "· INCLUDES HORSES". */
+  floorHorses?: number | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -93,8 +92,9 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   cardImageUrl,
   logoUrl,
   entityType = 'club',
-  displayAddition = null,
   splitFloorLabel = null,
+  floorPlaying = null,
+  floorHorses = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -142,14 +142,15 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
      about a club; showing yesterday's briefly costs nobody anything. The
      same trick on money would be the bug clubPageHardening.test.ts exists
      to prevent, and no money passes through here. */
-  /* KINGS CLUB SHOWS ONE TOTAL (Dan 2026-11-02 19:23 CT): real count plus the
-     owner's display addition, printed as a single number. */
-  const addMembers = Math.max(0, displayAddition?.members ?? 0);
-  const addActive = Math.max(0, displayAddition?.active ?? 0);
-  const shownMembers = totalMembers == null ? null : totalMembers + addMembers;
-  const shownActive = activePlayers == null ? null : activePlayers + addActive;
+  /* MEASURED FIGURES ONLY (Dan 2026-11-17): "Do not present configured
+     additions as measured members or live players." MEMBERS and ACTIVE print
+     what was counted; no configured display addition is added to either. */
+  const shownMembers = totalMembers;
+  const shownActive = activePlayers;
 
-  const scope = clubId != null && clubId !== '' ? `club:${clubId}` : '';
+  /* "club-measured:" (2026-11-17): figures cached under "club:" before the
+     display additions were retired could still hold them; they are not read. */
+  const scope = clubId != null && clubId !== '' ? `club-measured:${clubId}` : '';
   const cached = useMemo(() => readFigures(scope), [scope]);
 
   useEffect(() => {
@@ -257,9 +258,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           <span className="club-card-stat-label sc-label sc-ink--blue">LEVEL</span>
           <span className="club-card-stat-value sc-ink--silver">{levelText}</span>
         </div>
-        <div
-          className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}
-        >
+        <div className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}>
           <span className="club-card-stat-label sc-label sc-ink--blue">ACTIVE</span>
           <span
             className={`club-card-stat-value ${(shownActive ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
@@ -271,13 +270,19 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
               on the floor no longer reads as a wrong number. */}
           {splitFloorLabel ? (
             <span className="club-card-stat-split-floor sc-label sc-ink--blue">
-              {splitFloorLabel}
+              {floorPlaying != null
+                ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACROSS ${splitFloorLabel}${
+                    (floorHorses ?? 0) > 0 ? ' · INCLUDES HORSES' : ''
+                  }`
+                : splitFloorLabel}
             </span>
           ) : null}
           <span
             className="club-card-stat-split sc-label sc-ink--muted"
             aria-label={
-              splitFloorLabel ? `Active Players By Game In ${splitFloorLabel}` : 'Active Players By Game'
+              splitFloorLabel
+                ? `Active Players By Game In ${splitFloorLabel}`
+                : 'Active Players By Game'
             }
           >
             <span className="club-card-stat-split-part">{cashText} CASH</span>

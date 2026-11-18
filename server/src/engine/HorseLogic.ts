@@ -113,6 +113,7 @@ import {
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import {
   omahaBetVsCheckEv,
   omahaBetVsCheckOpponents,
@@ -3230,6 +3231,18 @@ export interface HorseDecideOpts {
    * today. Default OFF (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_paired_board_fold_respects_price. */
   omahaPairedBoardFoldRespectsPrice?: boolean;
+  /** PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the
+   * hand, the equity, the opponent's range and the price, never on the size
+   * of the bet alone): opt-in (`=== true`), PLO4/PLO5 cash, the FLOP facing a
+   * bet or a raise. A fold or a call becomes the priced verdict of
+   * HorseOmahaFlopFacingBetEv.ts (sampled two-card runouts with a seed taken
+   * from the cards, the bettor's range by the bet's pot share and his read,
+   * realization from the hand's own runouts), so the stack-share paired-board
+   * fold and the 20 big blind big-bet mark no longer decide that spot.
+   * Independent of omahaFacingBetEv (turn and river). Default OFF until its
+   * declared evaluation passes; league cards plo4/plo5
+   * _omaha_flop_facing_bet_ev. */
+  omahaFlopFacingBetEv?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -9783,6 +9796,19 @@ function omahaFacingBetEvRule(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaFlopFacingBetEv (default off): the flop has its own verdict and rule
+  // (HorseOmahaFlopFacingBetEvRule.ts); the turn and river rule below never
+  // answers the flop.
+  if (opts.omahaFlopFacingBetEv === true && gs.stage === 'flop')
+    return omahaFlopFacingBetEvRule(decision, player, gs, {
+      mind: opts.mind !== false,
+      telemetry: telemetryOn(opts),
+      rake: isTournamentMode(gs)
+        ? 0
+        : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+      inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+      bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
+    });
   if (opts.omahaFacingBetEv !== true) return decision;
   try {
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;

@@ -1,4 +1,42 @@
 {
+  "noticeCashoutClientAudit20261117": {
+    "reason": "Reviewed cashout fixture changes for 2000-character notes, authoritative queue capabilities, Notice Board escalation, club-bank receipts and concurrent second-request invalidation. Existing private receipt and financial safeguards remain asserted. Current source identities only; no historical certificate restamp.",
+    "verification": "Service and escrow 209 tests passed; intent, role, modal and cashier group 193 passed; final service, scope and own-event group 192 passed, including UPDATE revocation and strict escalation envelope refusals. Application compiler and Vite passed; final provenance required integration of concurrent main and a subsequent exact build.",
+    "changes": [
+      {
+        "path": "tests/cashout-escrow-flow.test.ts",
+        "previousSHA256": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+        "currentSHA256": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf"
+      },
+      {
+        "path": "tests/components/agent-cashout-scope.test.tsx",
+        "previousSHA256": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
+        "currentSHA256": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a"
+      },
+      {
+        "path": "tests/components/cashier-cashout-generations.test.tsx",
+        "previousSHA256": "76b23adae9c6c1d392b3a67e6ac3b217c4a76b2a9c23f5af7eb4d4a672d28cc2",
+        "currentSHA256": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc"
+      },
+      {
+        "path": "tests/components/cashout-own-event-acknowledgment.test.tsx",
+        "previousSHA256": "33a8d5ca4991d9412e3d14945ef5baad45a9f12bde77cdf66c3cd7c70a44a123",
+        "currentSHA256": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a"
+      },
+      {
+        "path": "tests/config/roleScopedCashier.test.ts",
+        "previousSHA256": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
+        "currentSHA256": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074"
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "previousSHA256": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
+        "currentSHA256": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "deterministicBootstrapClubIds20261107": {
     "reason": "Reviewed fixture-only repair after required accounting shard 6 collided on random club ID 62538: the four union-weekly bootstrap clubs now supply deterministic distinct five-digit IDs 99101, 99102, 99104, 99203. UUIDs, captured financial schema/defaults, source authority bodies, money values and assertions are unchanged. Refresh only these current composed input identities.",
     "verification": "Unchanged scripts/dev/test-union-weekly-basis.py passed on a fresh private PostgreSQL 17.11 cluster: exit 0 and 94 PASS labels; cluster shutdown verified. No additional composed native suite was rerun.",
@@ -299,10 +337,10 @@
     "tests/unit/CreditRequestAuthority.test.ts": "0dce14c178ef4f5bd8f8a2aa794cfc8f76fec4fe3207e0882add16e162abb821",
     "tests/unit/CreditRequestLegacyCaller.test.ts": "ef6f8458a54ce3b5e646d831c176f279456e8f59598616e20dbb3a9dbc7f2e7b",
     "tests/unit/CreditRequestService.test.ts": "47bc48d13b54901999a6a58b36a93edb79e4f2d057427a4a6d622ff009d7c0c3",
-    "tests/components/agent-cashout-scope.test.tsx": "1741188412170b7dc2d283c217dfe7895dc888b2880c6b9c9f41f313dd3cb13a",
-    "tests/unit/CashoutService.test.ts": "528149522222b33c55598df5b1ece548928b27f364241c5912ff3b1b05c01449",
-    "tests/config/roleScopedCashier.test.ts": "37d64780e8c8aaa7e65c2529f2649952b566c328bfae731532b19d390a22ffbd",
-    "tests/cashout-escrow-flow.test.ts": "08c3b2ed491fad0fb4673779f5ff863452e2a9bd6cf617955a3d4d36f2c534c6",
+    "tests/components/agent-cashout-scope.test.tsx": "484ae14aa62097510dc63f5c65f837ce764c7bb20adc053e55d3db533d11755a",
+    "tests/unit/CashoutService.test.ts": "c251a15742bdd4eedc0a0c34d02697710c960a8a7b5f5c97ea70e51bbb7f6232",
+    "tests/config/roleScopedCashier.test.ts": "4c1261902ba3556b08f1857474fc0030cd4612cdb50c86120a5dbdb0b6aaf074",
+    "tests/cashout-escrow-flow.test.ts": "82cf6befded61d5d6d1d4cc5163373983d14900e8c3679a1378c0f2924318eaf",
     "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": "edef6d6318f142277069de1fead9cbfe8ea732cc5d774987d8f4894bdc06807f",
     "tests/fixtures/cashier-document-authority/captured-preimages.sql": "1219fa1b0c4ab26bf155f3c58d3f4c7f5fd108940c1780c5047f61d88727412a",
     "tests/unit/leaveClubReleasesEscrow.test.ts": "4faed6fab4a8eac765219b794e555edf9186064bc19b7ba02c8bc9f0572c1fca",
@@ -311,7 +349,7 @@
     "tests/fixtures/cashier-document-authority/captured-manual-writers.json": "70645c393822b197621f4f8ff7313deb99578c33b21c76850fe9422ef5d4c484",
     "tests/helpers/cashoutV2Receipt.ts": "db760aae934fbae5c3b14c5e1bd5ca2011bf9a1dd7d0f294d90684e9ff18d20a",
     "tests/components/agent-dashboard-durable-transfers.test.tsx": "10a6ac5cd00135fe4d6466c17a8508d6d5901fadf6ff5ce8591f66d94391221b",
-    "tests/unit/CashoutRequestModal.test.tsx": "1b7d7953511424b486ddf4106102051ab63a0c4db191e527a3470ca6b975d486",
+    "tests/unit/CashoutRequestModal.test.tsx": "a1d8612dafd857ec2b2db5caca7c1bcf75ce2972d773571c085877574febc991",
     "tests/fixtures/cashier-document-authority/README.md": "fe65d50c5ed2aa2507e0ed8cc1149c4c9dbcc12d55cca1822352c4aa05ec8580",
     "tests/fixtures/cashier-document-authority/captured-cashier-catalog.json": "4037cbccb52b206a4f1a1b158b055cb7cc8819cd14241d0becb74127819328c2",
     "tests/unit/CashoutOperation.test.ts": "ae28da4c627e0ecf78a3d8308f0ce0316d8f34be31efa2d486f86abd989957ea",
@@ -342,8 +380,8 @@
     "tests/components/WeeklyAccountingWorkspace.test.tsx": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23",
     "tests/helpers/accountingObservation.ts": "9dba06d97c2f9cce2356fa8c6800ff9a07e4618ea2028370a278b4820b6199f6",
     "tests/components/FinancialAlertsExport.test.tsx": "8863dfb7e552fdf23d4e8e00eefce37b16f3cfbf1eb1858f9db9274b1f987d80",
-    "tests/components/cashier-cashout-generations.test.tsx": "cbd357251d4c3ce5fddff8ec1b5716866b2f3323c7e17e8b6bffd345a68401c8",
-    "tests/components/cashout-own-event-acknowledgment.test.tsx": "75c66b74dee7cf90e92e48796aa46ee21253cc8ac949d77346c8d2089bee4723",
+    "tests/components/cashier-cashout-generations.test.tsx": "59a5713cda117104b0a95c621acb9535fceac1edeb347392c8c301a8b168b9dc",
+    "tests/components/cashout-own-event-acknowledgment.test.tsx": "1755de4f15bd49984533911a5f87d028c6c6285e1488ffb208fed20b217ed98a",
     "tests/unit/FinancialAlertServiceRead.test.ts": "2e9f47a08edbc96afb48d026dbec4fdf55b12a07bcb1f8cbc924af3b13ff4934",
     "tests/unit/discardedErrorReadRatchet.test.ts": "79deae1f4f7751b8544ba0fa28e0e72e851a6759f90d423a367620fc3beae912",
     "tests/fixtures/correction-writer-authority/README.md": "9ac3f0c9954e25e93d357df32611e4cc08dd40d6b7a81df68537481a27c1a4b2",
@@ -8659,5 +8697,59 @@
     },
     "review": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files that an accounting_postgres harness names (a path spelled out in full, or a quoted relative name joined to a directory the same harness spells out; never a whole directory; routing law tests and test files are not followed as reads), followed through the scripts/ci|dev/test-* harnesses one of them starts; unit-suite admission is unchanged. ci-admission-inputs.json changes only in 34 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification. The earlybird-fee-custody, legacy-fee-finality and sep8-spin-custody bindings pinned here change only by that same restamp of ci-admission-inputs.json and their own audit entry.",
     "reason": "2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect."
+  },
+  "promoCashoutFollowupSourceReview20261117": {
+    "reason": "Owner-approved Promo Play Through follow-up. Reviewed all four complete candidate test diffs at b049 before restamping only their current source identities. These bindings acknowledge the connected promo popup and authoritative cashout admission changes; they do not certify native accounting behavior, historical qualification, installation or production delivery. Financial SQL, retained fixture data, historical outcomes and certificates remain unchanged.",
+    "changes": [
+      {
+        "path": "tests/components/cashier-cashout-generations.test.tsx",
+        "kind": "sha256",
+        "previous": "cbd357251d4c3ce5fddff8ec1b5716866b2f3323c7e17e8b6bffd345a68401c8",
+        "current": "76b23adae9c6c1d392b3a67e6ac3b217c4a76b2a9c23f5af7eb4d4a672d28cc2",
+        "why": "Adds the CashoutRefusedError export to the service mock required by the shared authoritative refusal handler; existing stale account/view, retained operation and durable receipt assertions are unchanged."
+      },
+      {
+        "path": "tests/components/cashout-own-event-acknowledgment.test.tsx",
+        "kind": "sha256",
+        "previous": "75c66b74dee7cf90e92e48796aa46ee21253cc8ac949d77346c8d2089bee4723",
+        "current": "33a8d5ca4991d9412e3d14945ef5baad45a9f12bde77cdf66c3cd7c70a44a123",
+        "why": "Adds the optional shared warning Toast mock required by the promo refusal popup; existing own-event and money acknowledgment assertions are unchanged."
+      },
+      {
+        "path": "tests/unit/CashoutRequestModal.test.tsx",
+        "kind": "sha256",
+        "previous": "1b7d7953511424b486ddf4106102051ab63a0c4db191e527a3470ca6b975d486",
+        "current": "4ddeaa1c7d3d67e33a1ccc8d68c9f853f79581a040ce494a057c74136e11f880",
+        "why": "Tests authoritative RPC admission despite stale or unavailable displayed balances; adds shared promo refusal popup figures and definitive-refusal eligible retry with a new operation id. Existing unknown-outcome, duplicate-submit, account/view and durable receipt coverage is retained."
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "kind": "sha256",
+        "previous": "528149522222b33c55598df5b1ece548928b27f364241c5912ff3b1b05c01449",
+        "current": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
+        "why": "Adds exact promo rollback hints, fresh authoritative withdrawal figures, unavailable detail read fallback, lookalike/unknown hint refusal preservation and stale view protection; no financial fixture data or RPC/receipt safety assertion is weakened."
+      },
+      {
+        "path": "tests/cashout-escrow-flow.test.ts",
+        "kind": "sha256",
+        "previous": "08c3b2ed491fad0fb4673779f5ff863452e2a9bd6cf617955a3d4d36f2c534c6",
+        "current": "dc262da2bc77cfe9e57b9121de6a70dca8bafe34749adf108f57b9aa85bd4759",
+        "why": "Reviewed the complete finalized diff: replaces obsolete cached balance refusal expectation with validation-before-recovery/submission ordering, no cached display balance admission gate, retained runCashoutOperation identity and exact fn_cashout_request_v2 authority. Reflects owner requirement for current server balance and promo restrictions. All 47 focused escrow contract tests passed; no financial fixture data or historical outcome changed."
+      },
+      {
+        "path": "tests/unit/CashoutRequestModal.test.tsx",
+        "kind": "sha256",
+        "previous": "4ddeaa1c7d3d67e33a1ccc8d68c9f853f79581a040ce494a057c74136e11f880",
+        "current": "a1d8612dafd857ec2b2db5caca7c1bcf75ce2972d773571c085877574febc991",
+        "why": "Reviewed complete closed-modal regression diff: instruments optional Toast context reads and asserts a closed CashoutRequestModal mounts no dialog, reads no popup context and loads no pending cashout queue. Covers the connected useScopeKey closed guard source fix while retaining every existing cashout assertion. Current source identity only; related test execution is owned and recorded by the root/cashout lane."
+      },
+      {
+        "path": "tests/unit/CashoutService.test.ts",
+        "kind": "sha256",
+        "previous": "f7196d035b4168ebef70f8e0aa64d307ae89c68d34dccec290079de4a3a6a487",
+        "current": "49134bb2c94006a31cf657aedd881983a70b3ee9f0a64b82fd78576922a52401",
+        "why": "Reviewed complete 18-line regression diff for the scoped lazy promo-summary dependency fix: retires the original view between observing the definitive guard response and resuming the lazy detail reader, asserting no stale summary read, no bus emission, one original RPC and retained unknown outcome. Existing exact hint and money receipt assertions are unchanged. Cashout lane reports 188 focused tests passed; current source identity only."
+      }
+    ]
   }
 }

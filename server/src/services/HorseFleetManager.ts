@@ -8,6 +8,7 @@ import {
   lightningGamesWithPlayingHumans,
   compareLightningStarters,
   lightningStarterGameSeats,
+  lightningStarterSeatTarget,
   playingHumansAtCashTable,
   withinHumanDepartureDwellFor,
 } from './HorseUnionCashPlan.js';
@@ -3439,6 +3440,21 @@ export class HorseFleetManager {
           const boost = shapeBoosts.get(table.id);
           if (boost !== undefined && boost > 0) {
             seatTarget = Math.min(table.max_players, Math.max(seatTarget, currentCount + boost));
+          }
+          /* A SEEDED LIGHTNING GAME FILLS TO TWO RINGS (Dan 2026-11-17, "Fill
+             each to 10-12"). Its starter table's target covers the players the
+             game still lacks, up to the table's chairs; the vibe target alone
+             stopped a seeded game at one ring of six, which cannot fast fold.
+             Only ever raised. Each arrival is still paced 70-90 s at the
+             database seat door (fn_ca_horse_roster_seat_guard ->
+             fn_lightning_horse_admit_paced), and every admission rule applies.
+             See LIGHTNING_SEEDED_POOL_PLAYERS (HorseUnionCashPlan.ts). */
+          const lightningGameTotal = lightningStarters.get(String(table.id));
+          if (lightningGameTotal !== undefined) {
+            seatTarget = Math.max(
+              seatTarget,
+              lightningStarterSeatTarget(currentCount, table.max_players, lightningGameTotal)
+            );
           }
           /* AN OPENING FEEDER IS SEEDED TO TWO, NOW (2026-09-05). The
              controller promotes a feeder to live at two seated (18.3) and

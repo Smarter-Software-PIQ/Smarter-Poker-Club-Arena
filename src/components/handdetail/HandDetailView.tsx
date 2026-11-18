@@ -38,6 +38,7 @@ import { formatAllInEquity } from '../../lib/allInEquityDisplay';
 import { useMemo } from 'react';
 import RecordedPotAwards from './RecordedPotAwards';
 import CardImage, { CardBack } from '../table/CardImage';
+import { sortCardsByRank } from '../../lib/tableCardDisplay';
 import { cardKey } from '../../utils/handEvaluator';
 import type { ReplayModel, ReplayRow, ReplayShowdownRow } from '../../utils/handReplay';
 import type { HeroHandFacts } from '../../services/HandHistoryService';
@@ -246,7 +247,7 @@ function ActionRow({
             a face-up fold is never read as a reveal. */}
         {row.showsMuck && row.privateCards && row.privateCards.length > 0 ? (
           <>
-            {row.privateCards.map((c, i) => (
+            {sortCardsByRank(row.privateCards).map((c, i) => (
               <CardImage key={`p-${row.key}-${i}`} card={c} size="xs" className="hdv-private" />
             ))}
             <span className="hdv__private-tag">{privateOwnerTag}</span>
@@ -257,7 +258,7 @@ function ActionRow({
             <CardBack key={`m-${row.key}-${i}`} size="xs" />
           ))
         )}
-        {row.shownCards?.map((c, i) => (
+        {sortCardsByRank(row.shownCards ?? []).map((c, i) => (
           <CardImage key={`s-${row.key}-${i}`} card={c} size="xs" />
         ))}
         {/* PHASE 4 2026-09-01: the card you threw, on your own discard row.
@@ -320,7 +321,7 @@ function ShowdownRow({
           <span className="hdv__pos">{row.position}</span>
           <span className="hdv__cards">
             {row.hole
-              ? row.hole.map((c, i) => (
+              ? sortCardsByRank(row.hole).map((c, i) => (
                   <CardImage
                     key={`h-${row.key}-${i}`}
                     card={c}

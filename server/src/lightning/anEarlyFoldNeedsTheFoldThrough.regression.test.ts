@@ -43,6 +43,8 @@ vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn(), describeE
 const kit = await import('../testing/lightningHostTestKit.js');
 const { lightningHorseFastFoldReactionMs } = await import('./LightningHorse.js');
 const { HorseLogic } = await import('../engine/HorseLogic.js');
+const { Deck } = await import('../engine/PokerEngine.js');
+const { hasRiverNuts } = await import('../engine/HorseRiverNuts.js');
 
 const BB = 2;
 const DECISIONS = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
@@ -68,6 +70,7 @@ interface Ask {
   heroCards: number;
   potsNameAFolder: boolean;
   board: number;
+  riverNuts: boolean;
 }
 
 /**
@@ -86,6 +89,10 @@ async function hand(opts: {
   vi.useFakeTimers({
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   });
+  // Host delay RNG does not seed the cryptographic deck. Keep the canonical
+  // legal 52-card deck so the real final river-nuts rule cannot turn this
+  // scripted non-nut check into a bet and change the scenario being tested.
+  vi.spyOn(Deck.prototype, 'shuffle').mockImplementation(() => {});
   const formed = kit.formedHand(6, opts.base);
   const others = formed.players.filter((p) => p !== formed.bb && p !== formed.sb);
   const horseId = opts.horseSeat === 2 ? formed.bb : others[opts.horseSeat - 3]!;
@@ -142,6 +149,7 @@ async function hand(opts: {
         )
       ),
       board: gs.communityCards.length,
+      riverNuts: hasRiverNuts(player, gs, true),
     });
     const action: Act =
       kind === 'early' ? 'fold' : kind === 'fold_through' ? opts.foldThrough : opts.turn(gs.toCall);
@@ -316,6 +324,10 @@ describe('an early fold needs the fold-through (beyond L-017; option on)', () =>
       option: true,
     });
     const river = asked.filter((a) => a.stage === 'river');
+    expect(
+      river.map((a) => a.riverNuts),
+      JSON.stringify(river)
+    ).toEqual([false, false]);
     expect(
       river.map((a) => a.kind),
       JSON.stringify(river)
