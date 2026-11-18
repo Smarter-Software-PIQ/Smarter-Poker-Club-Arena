@@ -35,6 +35,12 @@ omaha_priced_facing_inputs_changed_to_call, \_changed_to_fold (shared with omaha
 
 HorseOmahaPricedRules.test.ts, HorseOmahaPricedRulesRecorded.test.ts (real decisions from production, per family), HorseOmahaNoBlanketRule.law.test.ts (no registered categorical rule decides with the priced options on; the open parts are pinned), HorseOmahaPricedReceiptGate.test.ts (the worker receipt admits a priced raise that became a call only under the decision's own option), OmahaPricedRangeCalibration.test.ts (the calibration arithmetic and the measured prior). Server tsc 0.
 
+## Follow-up of 2026-11-18 (priced2: opponent kind, review notes N1-N4)
+
+Every opponent figure a priced comparison reads now comes from his own KIND's prior (`omahaPricedKindPrior`, HorseOmahaPricedMode.ts; kind from `gs.humanUserIds`, else the seat's `is_horse`): a Horse is never priced on a person's bluff table, bet rate, fold rate or reference rate, nor a person on a Horse's. Each posterior is re-centred on that prior, so a player with no opportunity reads exactly it (no step at the first opportunity). The Horse figures are measured on the same 5,379-hand production window as the person figures (archive plo-handoff-review-01a1cbbd/priced2-013U37/calib). Where the comparison cannot price a spot at all, the categorical rule acts there as with the option off, beside the `_unpriced_kept` receipt (it no longer falls open). Cause and measurements: archive priced-01BNteGZ/ALLON-DIAGNOSIS-20261118.md. Evaluation protocol of this source: archive priced2-013U37/PASS-BAR.md. The v2 verdict below was measured on the #11212 source and is NOT carried over to this source.
+
+Also: the bet-rate factor is his rate over his KIND's reference rate (`omahaPricedBluffReferenceRatio`, the one owner) raised to his kind's MEASURED elasticity (Horse -0.10, person 0.38, from -0.2 +/- 1.0 over 113 Horse bettors and +0.72 +/- 0.95 over 10 persons, each shrunk toward 0 with a unit prior); the stated exponent 1.5 applies only to a seat whose kind the decision does not know.
+
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
