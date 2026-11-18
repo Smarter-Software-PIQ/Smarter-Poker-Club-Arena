@@ -123,6 +123,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha one-pair rules (Dan 2026-11-14, hands 59407629, 59430325, 59431232, 59417700, 59426444) on the final answer of the wager rules: no one-pair river value wager, no beaten river call of a 0.66-pot wager, no one-pair flop or turn stack-off',
     'src/engine/HorseTightPlayerExploit.ts':
       "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
+    'src/engine/HorseOmahaReraiseResponse.ts':
+      "how a re-raiser answers a raise of his own re-raise (2026-11-18): the two nodes of the opponent's durable record, its validation and wire row, and the posterior the default-off option omahaReraisedCallVsRaisePriced prices a raise with",
     'src/engine/HorseOmahaStreetRead.ts':
       "the postflop read by street and flop texture (2026-11-17): the cells of the opponent's durable street record, its validation and wire row, and the per-street label HorseMind.omahaStreetReadOf answers; carried into Omaha decisions and read by none yet",
     'src/engine/HorseLongShownMemory.ts':

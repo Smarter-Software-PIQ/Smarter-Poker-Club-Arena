@@ -474,6 +474,89 @@ try:
  assert run('street-repeat-unchanged',street_of(raiser))==learned_text
  assert run('street-read',"SET ROLE service_role; SELECT street_counters::text FROM fn_horse_exact_profiles_read(ARRAY['"+raiser+"'],'plo4','cash','full','table','none');")==learned_text
  board_cards=None; board_cards2=None
+ # 2026-11-18 how a re-raiser answers a raise of his own re-raise (20261118023000): the same learner, forward only,
+ # no back-fill; public actions only. Engine twin: HorseOmahaReraiseResponse.
+ rrmig=(ROOT/'supabase/migrations/20261118023000_exact_profile_keeps_reraiser_answers.sql').read_text()
+ rr_proof=next(line.removeprefix('-- @live-proof: ') for line in rrmig.splitlines() if line.startswith('-- @live-proof: '))
+ RR_NODES=['threeBetFacesFourBet','fourBetFacesFiveBet']; RR_FIELDS=['opp','fold','call','raise']
+ def rr_row(rec):
+  # exactly the two nodes, each exactly its four fields
+  assert sorted(rec)==sorted(RR_NODES) and all(sorted(rec[n])==sorted(RR_FIELDS) for n in RR_NODES),rec
+  return [rec[n][f] for n in RR_NODES for f in RR_FIELDS]
+ def rr_record(digits): return {n:{f:int(digits[4*i+j]) for j,f in enumerate(RR_FIELDS)} for i,n in enumerate(RR_NODES)}
+ rr_of=lambda uid,mode='cash': "SELECT coalesce(reraise_response::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND mode='"+mode+"';"
+ rr_defs={}
+ for db in ['long_first','postgres']:
+  psql[-1]=db
+  assert run('rr-proof-before-'+db,'SELECT '+rr_proof)=='f'
+  rr_before=run('rr-before-'+db,"SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||counters::text||coalesce(street_counters::text,'-'),'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;")
+  run('rr-install-'+db,rrmig)
+  assert run('rr-proof-'+db,'SELECT '+rr_proof)=='t'
+  assert run('rr-no-backfill-'+db,"SELECT count(*) FROM horse_exact_profiles WHERE reraise_response IS NOT NULL;")=='0'
+  assert run('rr-rows-untouched-'+db,"SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||counters::text||coalesce(street_counters::text,'-'),'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;")==rr_before
+  assert run('rr-private-'+db,"SELECT bool_or(has_function_privilege(r,f,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r, unnest(ARRAY['fn_horse_reraise_response_increments(jsonb)','fn_horse_reraise_response_add(jsonb,jsonb)']) f;")=='f'
+  rr_defs[db]=run('rr-definition-'+db,trigger_def)
+  run('rr-repeat-'+db,rrmig)
+  assert run('rr-repeat-definition-'+db,trigger_def)==rr_defs[db]
+ assert rr_defs['long_first']==rr_defs['postgres']
+ assert 'showdown' not in rr_defs['postgres'].split('reraise_response_inc:=')[1].split(';')[0] and 'h.actions' in rr_defs['postgres'].split('reraise_response_inc:=')[1].split(';')[0]
+ rr_vectors=json.loads((ROOT/'scripts/ci/fixtures/horse-reraise-response-vectors.json').read_text())
+ def rr_sql(got): return {uid:rr_row(rec) for uid,rec in got.items()}
+ for i,v in enumerate(rr_vectors['named']):
+  got=json.loads(run('rr-vector-'+str(i),"SELECT fn_horse_reraise_response_increments("+jsonb_literal(v['actions'])+")::text;"))
+  assert rr_sql(got)==v['expected'],(v['name'],got,v['expected'])
+ rr_cases=rr_vectors['random']
+ rr_values=",".join("("+str(k)+","+jsonb_literal(decode_log(v['log']))+")" for k,v in enumerate(rr_cases))
+ rr_out=run('rr-random',"SELECT string_agg(fn_horse_reraise_response_increments(a)::text,E'\\n' ORDER BY k) FROM (VALUES "+rr_values+") v(k,a);").split('\n')
+ assert len(rr_out)==len(rr_cases)>=200
+ rr_live=0
+ for k,v in enumerate(rr_cases):
+  got=rr_sql(json.loads(rr_out[k])); rr_live+=bool(got)
+  assert got==v['expected'],(k,got,v['expected'])
+ assert rr_live>=30,rr_live
+ # The add rule against the engine's, through a chain of 120 hands, to 1e-12.
+ rr_chain='NULL::jsonb'; rr_checkpoints={c['after']:c['row'] for c in rr_vectors['chain']['checkpoints']}
+ for k,digits in enumerate(rr_vectors['chain']['steps'],1):
+  rr_chain="fn_horse_reraise_response_add("+rr_chain+","+jsonb_literal(rr_record(digits))+")"
+  if k in rr_checkpoints:
+   raw=run('rr-add-'+str(k),"SELECT coalesce("+rr_chain+"::text,'null');"); got=json.loads(raw); rr_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
+   want=rr_checkpoints[k]
+   assert (got is None)==(want is None),(k,got,want)
+   if got is not None: assert all(abs(x-y)<1e-12 for x,y in zip(rr_row(got),want)) and len(want)==8,(k,got,want)
+ assert len(rr_checkpoints)>=12
+ assert run('rr-add-null-delta',"SELECT fn_horse_reraise_response_add(NULL,NULL) IS NULL AND fn_horse_reraise_response_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb;")=='t'
+ # A damaged stored record never raises inside the accepted hand: a field that is not a number counts as 0.
+ rr_damaged=json.loads(run('rr-add-damaged',"SELECT fn_horse_reraise_response_add('{\"threeBetFacesFourBet\":{\"opp\":\"x\",\"fold\":[1]},\"fourBetFacesFiveBet\":7}'::jsonb,"+jsonb_literal(rr_record('10100000'))+")::text;"))
+ assert rr_row(rr_damaged)==[1,0,1,0,0,0,0,0],rr_damaged
+ assert run('rr-increments-not-array',"SELECT fn_horse_reraise_response_increments('{}'::jsonb)::text||fn_horse_reraise_response_increments(NULL)::text||fn_horse_reraise_response_increments('[7,\"x\",null,{\"userId\":5}]'::jsonb)::text;")=='{}{}{}'
+ # Learning through the protected accepted receipt.
+ rr3='00000000-0000-4000-8000-00000000000b'; rr4='00000000-0000-4000-8000-00000000000c'
+ pf=lambda uid,action: {'userId':uid,'stage':'preflop','action':action,'origin':'player'}
+ rr_plan=[[pf(rr4,'raise'),pf(rr3,'raise'),pf(rr4,'raise'),pf(rr3,'call')],
+          [pf(rr4,'raise'),pf(rr3,'raise'),pf(rr4,'raise'),pf(rr3,'fold')],
+          [pf(rr4,'raise'),pf(rr3,'raise'),pf(rr4,'raise'),pf(rr3,'raise'),pf(rr4,'call')],
+          [pf(rr4,'raise'),pf(rr3,'call')]]
+ for k,hand in enumerate(rr_plan):
+  actions=hand; showdown_rows=None
+  prior={u:run('rr-prior-'+str(k)+u[-1],rr_of(u)) for u in (rr3,rr4)}
+  accept(400+k,domain)
+  for u in (rr3,rr4):
+   want=run('rr-want-'+str(k)+u[-1],"SELECT coalesce(fn_horse_reraise_response_add("+("NULL" if prior[u] in ('null','') else "'"+prior[u]+"'")+"::jsonb,fn_horse_reraise_response_increments("+jsonb_literal(hand)+")->'"+u+"')::text,'null');")
+   assert run('rr-learned-'+str(k)+u[-1],rr_of(u))==want,(k,u,want)
+ rr_learned=json.loads(run('rr-learned-state',rr_of(rr3))); sd=0.5**(1/30)
+ # Three 4-bets faced after his 3-bet (call, fold, raise); the fourth hand gave no opportunity and aged nothing.
+ t3=rr_learned['threeBetFacesFourBet']
+ assert abs(t3['opp']-(sd*sd+sd+1))<1e-12 and abs(t3['call']-sd*sd)<1e-12 and abs(t3['fold']-sd)<1e-12 and t3['raise']==1,rr_learned
+ assert rr_learned['fourBetFacesFiveBet']=={'opp':0,'fold':0,'call':0,'raise':0},rr_learned
+ rr4_state=json.loads(run('rr-fourbettor-state',rr_of(rr4)))
+ assert rr4_state['fourBetFacesFiveBet']=={'opp':1,'fold':0,'call':1,'raise':0} and rr4_state['threeBetFacesFourBet']['opp']==0,rr4_state
+ # Tournament evidence stays in the tournament row; the 27-key counters and the street record are written as before.
+ actions=rr_plan[0]; rr_text=run('rr-text',rr_of(rr3))
+ accept(410,domain,tournament='00000000-0000-4000-8000-0000000000f3')
+ assert run('rr-tournament-row',"SELECT reraise_response->'threeBetFacesFourBet'->>'opp' FROM horse_exact_profiles WHERE user_id='"+rr3+"' AND mode='tournament';")=='1'
+ assert run('rr-cash-untouched-by-tournament',rr_of(rr3))==rr_text
+ assert run('rr-counters-shape',"SELECT (SELECT count(*) FROM jsonb_object_keys(counters))::text FROM horse_exact_profiles WHERE user_id='"+rr3+"' AND mode='cash';")=='27'
+ assert run('rr-read',"SET ROLE service_role; SELECT reraise_response::text FROM fn_horse_exact_profiles_read(ARRAY['"+rr3+"'],'plo4','cash','full','table','none');")==rr_text
  (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; no production installation'},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
