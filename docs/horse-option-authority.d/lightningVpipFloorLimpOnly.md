@@ -21,6 +21,16 @@ With the option on, a floored Lightning cash decision (not All-In-Or-Fold, not a
 
 The line. Lightning games are in the ten-hand mode (window 10, no grace), which judges the whole sitting once ten hands are dealt. So the judged sample is the hands dealt this sitting, never fewer than the window: with N = max(hands, window), the Horse is under its line while entered hands < ceil(floor x N) + `VPIP_LIMP_BUFFER_HANDS` (3). At 200 hands dealt that is 83 entered (41.5%); in the first ten hands it is 7. Fewer than three hands on the count: no action.
 
+## Only a game that has a floor (owner 2026-11-18 11:03 America/Chicago, verbatim)
+
+"NO, ONLY IF THE GAME HAS A VPIP, DON'T MAKE THEM VPIP REQUIRED IF THE GAME DOESN'T HAVE ONE!"
+
+The host builds the field only when the host table runs the rule: `nit_game` true and `maintain_percent_min` above zero, read exactly as the table engine reads its floor (`ServerTableEngineBase.vpipFloor`). A pool whose game has no floor carries no field and its decisions are unchanged with the option on (pinned by test, and a zero floor is refused in the decision too).
+
+## The ten-hand window
+
+`vpipFloorLimpOnly` deliberately leaves a TABLE judged at ten hands on the old floor (`vpipFloorLimpOnlyTenHandTable`): at an Action or Madness table the floors ran up to 70 and limping tops out near 51%. A Lightning pool is also in the ten-hand mode, and this option does govern it, for three reasons: the pool floor is 40, inside what limping reaches; a pool has no "old floor" to stay on (the snapshot never carried one, so the alternative is no floor at all, which the owner ruled out); and the ten-hand mode judges the whole sitting, which is the sample the line above uses. What is not known is how many of a Horse's preflop turns in a pool are still unraised (at the Classic table it was 42.6%); the declared evaluation measures it (bar B3).
+
 ## How it interacts with vpipFloorLimpOnly
 
 They never meet. `vpipFloorLimpOnly` governs floored cash TABLES and excludes Lightning in its own scope (`vpipFloorLimpOnlyInScope`, and it needs `vpipFloor > 0`, which a pool never carries). `lightningVpipFloorLimpOnly` governs floored Lightning POOLS and reads only `lightningVpipFloor`, which a table never carries. Either can be on or off without the other; with both on a pool decision is the one with this option alone (pinned by test). `omahaVpipFloorByLimp`, `lightningCheapEntryOmaha` and `lightningCheapEntryHoldem` are untouched: the cheap-entry options price a small-blind completion without reading the Horse's own VPIP and remain off-only under the preflop hold.
