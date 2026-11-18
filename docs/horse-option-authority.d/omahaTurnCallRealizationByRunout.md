@@ -27,6 +27,8 @@ Read-only production read, PLO4/PLO5 cash hands with a person seated, 2026-11-16
 
 The samples are small and the result is the whole hand, not the call alone. They locate the question; they are not the evaluation.
 
+Measured since (2026-11-18, read-only, plo-handoff-review-01a1cbbd/realfit-013U37/REALIZATION-FIT-20261118.md; production calls, exact equity against the hands really left): Horse turn callers realize 0.87 overall (IP 0.92, OOP 0.82), two pair or better out of position 0.77 (0.63-0.91), PLO4 below PLO5 (0.75 vs 0.91). The flat 0.92 / 0.85 this option replaces are consistent with those figures. This option's check-down shares (0.6 / 0.45) and bluff-catch range (0.35-0.6) are stated, not fitted: a further reason it stays off until a fitted version passes an evaluation.
+
 ## Receipts
 
 The verdict carries `runoutRealization` when the factor was read from the runout (HorseOmahaFacingBetEv.ts, OmahaFacingBetEvVerdict). No new receipt name.
