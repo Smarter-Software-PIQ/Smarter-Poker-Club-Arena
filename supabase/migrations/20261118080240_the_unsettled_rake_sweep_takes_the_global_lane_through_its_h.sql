@@ -30,6 +30,8 @@
 -- and no direct use of the global key may remain. Then it asks the doctrine
 -- itself and refuses to commit unless it answers ok.
 
+-- @live-proof: EXISTS(SELECT 1 FROM pg_proc WHERE oid='public.fn_sweep_unsettled_tournament_rake(integer,integer)'::regprocedure AND position('fn_ca_lock_settlement_lane_global()' IN prosrc)>0 AND position('ca:tournament-terminal-settlement:v1' IN prosrc)=0)
+
 BEGIN;
 
 DO $rewrite$
