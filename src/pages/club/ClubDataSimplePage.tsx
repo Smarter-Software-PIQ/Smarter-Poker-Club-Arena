@@ -1,4 +1,9 @@
-import { usePlayerPreference } from '../../hooks/usePlayerPreference';
+import { clubDataRequestedRangeError, clubDataOldestDay } from '../../lib/clubDataRange';
+import ClubDataSourceDetails, {
+  type ClubDataSourceRow,
+} from '../../components/club/ClubDataSourceDetails';
+import ClubDataReportGuide from '../../components/club/ClubDataReportGuide';
+import { useClubDataFilters, clubDataContextQuery } from '../../hooks/useClubDataFilters';
 /**
  * CLUB DATA (the owner's everyday screen)
  * ============================================================================
@@ -294,20 +299,14 @@ export default function ClubDataSimplePage() {
     } else next.delete('dataEnd');
     setSearchParams(next);
   };
+  const reportRangeError = clubDataRequestedRangeError(searchParams, clubDataDayOn('pacific'));
   const [editingDates, setEditingDates] = useState(false);
   const [breakdown, setBreakdown] = useState<'total_winnings' | 'mtt_winnings' | 'fee' | null>(
     null
   );
-  const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataSimplePage:game', 'ALL');
-  const [stakes, setStakes] = usePlayerPreference<StakesFilter>(
-    'club/ClubDataSimplePage:stakes',
-    'ALL'
-  );
-  const [searchInput, setSearchInput] = usePlayerPreference(
-    'club/ClubDataSimplePage:searchInput',
-    ''
-  );
-  const [search, setSearch] = useState('');
+  const { game, setGame, stakes, setStakes, searchInput, setSearchInput } =
+    useClubDataFilters('club/ClubDataSimplePage');
+  const [search, setSearch] = useState(() => searchInput.trim());
   const [playerResults, setPlayerResults] = useState<{
     key: string;
     items: RosterMember[];
@@ -315,6 +314,7 @@ export default function ClubDataSimplePage() {
   } | null>(null);
   const [playerSearchAccess, setPlayerSearchAccess] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [sourceRow, setSourceRow] = useState<{ key: string; row: ClubDataSourceRow } | null>(null);
   const [snapshotScope, setSnapshotScope] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -338,13 +338,15 @@ export default function ClubDataSimplePage() {
     game,
     stakes,
     search,
+    reportRangeError,
   ]);
   const identityKey = JSON.stringify([userId, clubParam, clubUuid]);
   const playerSearchReady =
     !isHydrating && !!userId && playerSearchAccess === identityKey && !denied;
   const activeScopeRef = useRef(scopeKey);
   activeScopeRef.current = scopeKey;
-  const visibleSnapshot = !isHydrating && userId && snapshotScope === scopeKey ? snapshot : null;
+  const visibleSnapshot =
+    !isHydrating && userId && !reportRangeError && snapshotScope === scopeKey ? snapshot : null;
 
   // Retire private figures and pending completions before another account or
   // club can paint. A request number alone does not cover an account switch
@@ -421,7 +423,11 @@ export default function ClubDataSimplePage() {
   }, [clubUuid, preset, endDate, game, stakes, search]);
 
   const load = useCallback(async () => {
-    if (!clubUuid || isHydrating || !userId) return;
+    if (reportRangeError) {
+      setLoading(false);
+      return;
+    }
+    if (!clubUuid || isHydrating || !userId || reportRangeError) return;
     const mine = ++requestRef.current;
     const requestScope = scopeKey;
     const isCurrent = () => mine === requestRef.current && activeScopeRef.current === requestScope;
@@ -493,6 +499,7 @@ export default function ClubDataSimplePage() {
     search,
     scopeKey,
     identityKey,
+    reportRangeError,
   ]);
 
   // Server roster permissions remain authoritative. Bind results to the exact
@@ -624,6 +631,15 @@ export default function ClubDataSimplePage() {
 
   return (
     <div className={styles.page}>
+      {sourceRow?.key === scopeKey && clubUuid && (
+        <ClubDataSourceDetails
+          row={sourceRow.row}
+          clubId={clubUuid}
+          start={startDate}
+          end={endDate}
+          onClose={() => setSourceRow(null)}
+        />
+      )}
       <Header
         onBack={() => navigate(-1)}
         clubName={clubName}
@@ -632,7 +648,7 @@ export default function ClubDataSimplePage() {
           visibleSnapshot?.scope === 'club'
             ? () =>
                 navigate(
-                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ dataStart: startDate, dataEnd: endDate, view: 'advanced' })}`
+                  `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced' })}`
                 )
             : undefined
         }
@@ -649,6 +665,7 @@ export default function ClubDataSimplePage() {
           className={styles.arrow}
           onClick={() => shift(-1)}
           aria-label="Previous Period"
+          disabled={addDays(startDate, -rangeDays) < clubDataOldestDay(today)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M16 3 L5 12 L16 21 Z" />
@@ -679,6 +696,13 @@ export default function ClubDataSimplePage() {
           </svg>
         </button>
       </div>
+
+      {reportRangeError && (
+        <p role="alert" className={styles.liveLine}>
+          {reportRangeError}
+        </p>
+      )}
+      <ClubDataReportGuide start={startDate} end={endDate} basis={answerBasis} union={unionBasis} />
 
       {editingDates && (
         <ClubDataRangeCalendar
@@ -800,10 +824,22 @@ export default function ClubDataSimplePage() {
           coverage={visibleSnapshot.accounting_coverage}
           range={visibleSnapshot.range}
           reconciliation={summary?.reconciliation}
+          generatedAt={visibleSnapshot?.generated_at}
+          onPlayers={() => setBreakdown('total_winnings')}
+          onGames={() =>
+            navigate(
+              `/clubs/${clubKey}/data/advanced?${new URLSearchParams({ ...Object.fromEntries(clubDataContextQuery(searchParams, { start: startDate, end: endDate, game, stakes, search: searchInput })), view: 'advanced', dataTab: 'games' })}#club-data-panel-games`
+            )
+          }
         />
       )}
       {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
-        <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={startDate} />
+        <ClubDataByClub
+          clubs={visibleSnapshot.clubs}
+          end={endDate}
+          start={startDate}
+          filters={{ game, stakes, search: searchInput }}
+        />
       )}
       {breakdown && visibleSnapshot && clubUuid && userId && (
         <ClubDataTotalsBreakdown
@@ -859,7 +895,7 @@ export default function ClubDataSimplePage() {
           <p>
             {clubDataDayRule(answerBasis)}. The Window Starts At {startClock} On The Start Date And
             Stops At {boundaryClock} After The Last Selected Day. Both Selected Dates Are Included.
-            Up To 93 Days.
+            Within The Past 90 Days.
           </p>
           {visibleSnapshot && unionBasis && <p>{UNION_BASIS_DEFINITIONS}</p>}
           {unionBasis && (
@@ -942,7 +978,7 @@ export default function ClubDataSimplePage() {
                       className={`${styles.row} ${styles.playerResult}`}
                       onClick={() =>
                         navigate(
-                          `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}`
+                          `/clubs/${player.management_club_id || clubUuid}/members/${player.user_id}?${clubDataContextQuery(new URLSearchParams({ ...Object.fromEntries(searchParams), dataClub: clubKey }), { start: startDate, end: endDate, game, stakes, search: searchInput })}`
                         )
                       }
                     >
@@ -1008,7 +1044,13 @@ export default function ClubDataSimplePage() {
             <li key={`${row.kind}-${row.id}`} className={styles.row}>
               <div className={styles.rowMain}>
                 <div className={styles.rowTitle}>
-                  <span className={styles.rowName}>{row.name}</span>
+                  <button
+                    type="button"
+                    className={styles.sourceName}
+                    onClick={() => setSourceRow({ key: scopeKey, row })}
+                  >
+                    {row.name}
+                  </button>
                   {row.live && <span className={styles.badgeLive}>Live</span>}
                 </div>
                 <div className={styles.rowMeta}>

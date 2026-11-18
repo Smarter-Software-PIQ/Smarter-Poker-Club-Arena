@@ -95,6 +95,7 @@ import {
 } from './maintenance-window-migrations.mjs';
 import { splitConcurrentPreamble } from './migration-concurrent-preamble.mjs';
 import { supersededBy } from './check-migrations-are-live.mjs';
+import { readMigrationCorpus } from './read-migration-corpus.mjs';
 
 const DIR = 'supabase/migrations';
 const APPLIER = fileURLToPath(new URL('./apply-recorded-migration.mjs', import.meta.url));
@@ -133,16 +134,19 @@ if (args.includes('--owner-window')) {
 // never queued: the applier refuses it anyway, and queuing it would only wait
 // for the break, fail red and hold every later file. Same parser as the applier.
 const dirFiles = readdirSync(DIR);
-const declared = dirFiles
+// Census the identical sorted working-tree files with bounded independent
+// reads. Final queued-file validation and install-time source reads stay fresh.
+const census = await readMigrationCorpus(DIR, dirFiles
   .filter((f) => /^\d{14}_[a-z0-9_]+\.sql$/.test(f))
-  .sort()
-  .filter((f) => {
-    const sql = readFileSync(join(DIR, f), 'utf8');
+  .sort());
+const declared = census
+  .filter(({ name: f, sql }) => {
     if (!declaresMaintenanceWindow(sql)) return false;
     const by = supersededBy(sql, dirFiles);
     if (by) say(`skipped \`${f}\`: SUPERSEDED BY ${by}, never installed`);
     return !by;
   })
+  .map(({ name }) => name)
   .filter((f) => !ownerWindow || ownerWindow.migrations.includes(f));
 if (declared.length === 0) finish(0, 'NOTHING QUEUED (no migration declares the window)');
 

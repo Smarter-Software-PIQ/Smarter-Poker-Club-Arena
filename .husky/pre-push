@@ -1096,18 +1096,24 @@ UNCHANGED_NATIVE_CONTRACTS=$(printf '%s\n' "$UNCHANGED_NATIVE_CONTRACTS" | tr '\
 if printf '%s\n' $FILES | grep -qE '^\.github/workflows/'; then
   CONTRACT_BASENAMES="$CONTRACT_BASENAMES .github/workflows"
 fi
+# A fixed-string OR search is the same union as one search per basename.
+# Read the test tree twice in total, not twice for every changed filename.
+CONTRACT_PATTERNS=()
 for base in $CONTRACT_BASENAMES; do
-  for t in $(grep -rl --include='*.test.ts' --include='*.test.tsx' -F "$base" tests/ 2>/dev/null); do
+  CONTRACT_PATTERNS+=(-e "$base")
+done
+if [ "${#CONTRACT_PATTERNS[@]}" -gt 0 ]; then
+  for t in $(grep -rl --include='*.test.ts' --include='*.test.tsx' -F "${CONTRACT_PATTERNS[@]}" tests/ 2>/dev/null); do
     case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
   done
-  for t in $(grep -rl --include='*.test.mjs' -F "$base" tests/ 2>/dev/null); do
+  for t in $(grep -rl --include='*.test.mjs' -F "${CONTRACT_PATTERNS[@]}" tests/ 2>/dev/null); do
     case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     if grep -q 'node:test' "$t"; then
       case " $NODE_TESTS " in *" $t "*) ;; *) NODE_TESTS="$NODE_TESTS $t" ;; esac
     fi
   done
-done
+fi
 # CENSUSES OF THE TEST TREE (2026-11-14). Two contracts read every file under
 # tests/ rather than naming one: the law registry (a new *.law.test.* needs its
 # docs/laws.d entry) and the source-window rule (no test may bound a source pin

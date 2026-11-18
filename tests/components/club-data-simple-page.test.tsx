@@ -450,7 +450,7 @@ describe('ClubDataSimplePage', () => {
     expect(headerTitle(null)).toBe('Club Data');
     fireEvent.click(screen.getByRole('button', { name: 'Report' }));
     expect(navigateMock).toHaveBeenCalledWith(
-      `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&view=advanced`
+      `/clubs/${CLUB_ID}/data/advanced?dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=&view=advanced`
     );
   });
 
@@ -515,7 +515,9 @@ describe('earned fees and direct player lookup', () => {
     await screen.findByText('Shark Tank');
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'WooWoo' } });
     fireEvent.click(await screen.findByRole('button', { name: /WooWoo.*View Player Data/i }));
-    expect(navigateMock).toHaveBeenCalledWith(`/clubs/${CLUB_ID}/members/woo-id`);
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/clubs/${CLUB_ID}/members/woo-id?dataClub=${CLUB_ID}&dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=WooWoo`
+    );
     expect(screen.queryByText('Private')).not.toBeInTheDocument();
     expect(screen.queryByText('Private Legal Name')).not.toBeInTheDocument();
   });
@@ -541,7 +543,9 @@ describe('earned fees and direct player lookup', () => {
       search: 'KingFish',
       signal: expect.any(AbortSignal),
     });
-    expect(navigateMock).toHaveBeenCalledWith('/clubs/management-club/members/kingfish-id');
+    expect(navigateMock).toHaveBeenCalledWith(
+      `/clubs/management-club/members/kingfish-id?dataClub=${CLUB_ID}&dataStart=${today}&dataEnd=${today}&dataGame=ALL&dataStakes=ALL&dataSearch=KingFish`
+    );
   });
 
   it('discards player results after account hydration begins', async () => {
@@ -567,6 +571,7 @@ describe('earned fees and direct player lookup', () => {
 });
 
 it('finds a player independently when the game search fails', async () => {
+  routeState.search = new URLSearchParams('dataSearch=');
   rpcMock.mockResolvedValueOnce({ data: live, error: null });
   rpcMock.mockResolvedValue({
     data: null,
@@ -586,9 +591,11 @@ it('finds a player independently when the game search fails', async () => {
   await screen.findByText('Shark Tank');
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'WooWoo' } });
   expect(await screen.findByRole('button', { name: /WooWoo.*View Player Data/i })).toBeVisible();
-  expect(
-    screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
-  ).toBeVisible();
+  await waitFor(() =>
+    expect(
+      screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
+    ).toBeVisible()
+  );
 });
 
 describe('Selectable Chicago Dates And Player Totals', () => {
@@ -663,8 +670,8 @@ it.each([
   routeState.search = new URLSearchParams({ dataStart: start, dataEnd: end });
   rpcMock.mockResolvedValue({ data: live, error: null });
   render(<ClubDataSimplePage />);
-  await screen.findByText('Shark Tank');
-  expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({ p_start: today, p_end: today });
+  expect(screen.getByRole('alert')).toBeVisible();
+  expect(rpcMock).not.toHaveBeenCalled();
 });
 
 it('retains a shifted preset after remount and resumes today when shifted back', async () => {

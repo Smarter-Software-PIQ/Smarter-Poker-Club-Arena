@@ -12,6 +12,10 @@ interface Props {
   coverage?: ClubDataCoverage | null;
   range: { start: string; end: string };
   reconciliation?: unknown;
+  generatedAt?: string;
+  onGames?: () => void;
+  onPlayers?: () => void;
+  onHistory?: () => void;
 }
 
 const money = (value: number | null | undefined) =>
@@ -20,7 +24,16 @@ const money = (value: number | null | undefined) =>
     : 'Unavailable';
 
 /** Printed on the existing Data surface; no request, independent clock or poll. */
-export default function ClubDataReconciliation({ basis, coverage, range, reconciliation }: Props) {
+export default function ClubDataReconciliation({
+  basis,
+  coverage,
+  range,
+  reconciliation,
+  generatedAt,
+  onGames,
+  onPlayers,
+  onHistory,
+}: Props) {
   if (basis !== 'union_invoice_accounting') return null;
   const status = financialWindowStatus(basis, coverage, range);
   const values = parseClubDataReconciliation(reconciliation);
@@ -60,6 +73,43 @@ export default function ClubDataReconciliation({ basis, coverage, range, reconci
           {values?.missing_days.length ? ` Missing Dates: ${values.missing_days.join(', ')}.` : ''}
         </p>
       )}
+      <details className={styles.details}>
+        <summary>Closing And Source Evidence</summary>
+        <p className={styles.note}>
+          Selected Dates: {range.start} Through {range.end}. Posted Coverage:{' '}
+          {status.posted ? 'Verified' : 'Pending'}. Billing Certificate:{' '}
+          {status.final ? 'Finalized' : 'Pending'}.
+        </p>
+        {generatedAt && Number.isFinite(Date.parse(generatedAt)) && (
+          <p className={styles.note}>
+            Source Snapshot:{' '}
+            {new Date(generatedAt).toLocaleString('en-US', { timeZone: 'America/Chicago' })} Chicago
+            Time.
+          </p>
+        )}
+        <p className={styles.note}>
+          Open Tournament Entries Can Be Replaced By Settled Results At Closing. Coverage And Issued
+          Invoices Establish Finalization. This Snapshot Does Not Contain A Revision-By-Revision
+          History Or The Reason For A Particular Past Change.
+        </p>
+        {onHistory && (
+          <button type="button" className={styles.action} onClick={onHistory}>
+            View Issued Invoices
+          </button>
+        )}
+      </details>
+      <div className={styles.status} aria-label="Reconciliation Drilldowns">
+        {onGames && (
+          <button type="button" className={styles.action} onClick={onGames}>
+            View Contributing Games
+          </button>
+        )}
+        {onPlayers && (
+          <button type="button" className={styles.action} onClick={onPlayers}>
+            View Player Totals
+          </button>
+        )}
+      </div>
       <details className={styles.details}>
         <summary>How These Totals Reconcile</summary>
         <p className={styles.note}>

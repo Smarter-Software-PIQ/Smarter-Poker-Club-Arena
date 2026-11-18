@@ -3,6 +3,7 @@ import {
   clubDataRangeDays,
   clubDataRangeError,
   readClubDataRange,
+  clubDataRequestedRangeError,
 } from '../../src/lib/clubDataRange';
 describe('Club Data custom calendar range', () => {
   it('reads inclusive single days and weeks while preserving older exclusive links', () => {
@@ -31,6 +32,26 @@ describe('Club Data custom calendar range', () => {
       )
     ).toBeNull();
   });
+  it('rejects even a one-day bookmark outside the past 90 dates', () => {
+    expect(clubDataRangeError('2026-08-20', '2026-11-17', '2026-11-17')).toBeNull();
+    expect(clubDataRangeError('2026-08-19', '2026-08-19', '2026-11-17')).toBe(
+      'Choose Dates Within The Past 90 Days.'
+    );
+  });
+  it.each(['2026-09-31', ''])(
+    'refuses malformed exclusive legacy boundary %j without falling back to today',
+    (until) => {
+      const params = new URLSearchParams({
+        dataStart: '2026-09-30',
+        dataEnd: '2026-09-30',
+        dataUntil: until,
+      });
+      expect(readClubDataRange(params, '2026-11-17')).toBeNull();
+      expect(clubDataRequestedRangeError(params, '2026-11-17')).toBe(
+        'Choose A Start And End Date.'
+      );
+    }
+  );
   it('counts inclusive calendar days across both Chicago DST transitions', () => {
     expect(clubDataRangeDays('2026-03-07', '2026-03-09')).toBe(3);
     expect(clubDataRangeDays('2026-10-31', '2026-11-02')).toBe(3);
@@ -40,7 +61,7 @@ describe('Club Data custom calendar range', () => {
     expect(clubDataRangeError('2026-02-30', '2026-03-01', '2026-11-06')).not.toBeNull();
     expect(clubDataRangeError('2026-11-06', '2026-11-05', '2026-11-06')).not.toBeNull();
     expect(clubDataRangeError('2026-11-06', '2026-11-07', '2026-11-06')).not.toBeNull();
-    expect(clubDataRangeError('2026-08-06', '2026-11-06', '2026-11-06')).toBeNull();
-    expect(clubDataRangeError('2026-08-05', '2026-11-06', '2026-11-06')).not.toBeNull();
+    expect(clubDataRangeError('2026-08-09', '2026-11-06', '2026-11-06')).toBeNull();
+    expect(clubDataRangeError('2026-08-08', '2026-11-06', '2026-11-06')).not.toBeNull();
   });
 });

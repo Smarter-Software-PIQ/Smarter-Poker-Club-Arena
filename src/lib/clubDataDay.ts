@@ -349,3 +349,13 @@ export function nextChicagoDay(now = new Date()): number {
   }
   return hi;
 }
+
+/** Inclusive calendar labels are distinct from the exclusive instant at the right boundary. */
+export function clubDataCalendarLabel(
+  first: string,
+  last: string,
+  basis: ClubDataDayBasis
+): string {
+  const dates = first === last ? dayName(first) : `${dayName(first)} Through ${dayName(last)}`;
+  return `${dates} ${basis === 'calendar' ? 'Chicago Calendar Dates' : 'Pacific Calendar Dates'}`;
+}

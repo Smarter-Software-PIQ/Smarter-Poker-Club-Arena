@@ -813,6 +813,10 @@ describe('ClubDataPage', () => {
     // Chicago midnight days), and the file name carries the picked pair.
     const [head, row] = downloadMock.mock.calls[0][1].split('\n');
     expect(head.endsWith(',window_start,window_end')).toBe(true);
+    expect(head).toContain(
+      'report_club_id,report_start_date_inclusive,report_end_date_inclusive,game_filter,stakes_filter,search_filter,report_time_zone'
+    );
+    expect(row).toContain('America/Chicago');
     const [windowStart, windowEnd] = row.split(',').slice(-2);
     expect(Date.parse(windowEnd) - Date.parse(windowStart)).toBeGreaterThanOrEqual(
       24 * 3_600_000 - 3_600_000
@@ -1232,6 +1236,78 @@ describe('ClubDataPage', () => {
     resolveNextSnapshot({ data: snapshot, error: null });
     resolveNextInvoices({ data: [], error: null });
     await screen.findByText('Shark Table One');
+  });
+
+  it('retires a pending game response when a date link is rejected and reloads after returning', async () => {
+    const defaultRpc = rpcMock.getMockImplementation()!;
+    const pending: Array<(value: unknown) => void> = [];
+    rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) =>
+      fn === 'ca_club_data_snapshot_v2'
+        ? new Promise((finish) => pending.push(finish))
+        : defaultRpc(fn, args)
+    );
+    const view = render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    await waitFor(() => expect(pending).toHaveLength(1));
+    routeState.search = new URLSearchParams(
+      'view=advanced&dataStart=2020-01-01&dataEnd=2020-01-01'
+    );
+    view.rerender(<ClubDataPage />);
+    expect(screen.getByText('Choose Dates Within The Past 90 Days.')).toBeInTheDocument();
+    await act(async () => pending[0]({ data: snapshot, error: null }));
+    expect(screen.queryByText('Shark Table One')).not.toBeInTheDocument();
+    expect(pending).toHaveLength(1);
+    routeState.search = new URLSearchParams('view=advanced');
+    view.rerender(<ClubDataPage />);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => pending[1]({ data: snapshot, error: null }));
+    await screen.findByText('Shark Table One');
+  });
+
+  it('retires a hidden pending player response before an invalid date link can show it', async () => {
+    const defaultRpc = rpcMock.getMockImplementation()!;
+    const pending: Array<{
+      fn: string;
+      args: Record<string, unknown>;
+      finish: (value: unknown) => void;
+    }> = [];
+    rpcMock.mockImplementation((fn: string, args: Record<string, unknown> = {}) =>
+      fn === 'ca_club_player_breakdown' || fn === 'ca_club_player_page'
+        ? new Promise((finish) => pending.push({ fn, args, finish }))
+        : defaultRpc(fn, args)
+    );
+    const view = render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    await screen.findByText('Shark Table One');
+    fireEvent.click(screen.getByRole('tab', { name: 'Players' }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    fireEvent.click(screen.getByRole('tab', { name: 'Games' }));
+    routeState.search = new URLSearchParams(
+      'view=advanced&dataTab=games&dataStart=2020-01-01&dataEnd=2020-01-01'
+    );
+    view.rerender(<ClubDataPage />);
+    routeState.search.set('dataTab', 'players');
+    view.rerender(<ClubDataPage />);
+    await act(async () => {
+      for (const read of pending)
+        read.finish({
+          data: read.fn === 'ca_club_player_breakdown' ? playerBreakdown : playerPageFor(read.args),
+          error: null,
+        });
+    });
+    expect(screen.queryByText('Table Regular')).not.toBeInTheDocument();
+    expect(pending).toHaveLength(2);
+    routeState.search = new URLSearchParams('view=advanced&dataTab=players');
+    view.rerender(<ClubDataPage />);
+    await waitFor(() => expect(pending).toHaveLength(4));
+    await act(async () => {
+      for (const read of pending.slice(2))
+        read.finish({
+          data: read.fn === 'ca_club_player_breakdown' ? playerBreakdown : playerPageFor(read.args),
+          error: null,
+        });
+    });
+    await screen.findByText('Table Regular');
   });
 
   it('supports arrow-key tab navigation with a roving tab stop', async () => {
@@ -2983,10 +3059,9 @@ it('rejects a future Pacific date before its first read', async () => {
     return { data: null, error: null };
   });
   render(<ClubDataPage />);
-  await screen.findByText('Shark Table One');
+  expect(screen.getByText('Choose Dates On Or Before Today.')).toHaveAttribute('role', 'alert');
   const calls = rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2');
-  expect(calls).toHaveLength(1);
-  expect(calls[0][1]).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+  expect(calls).toHaveLength(0);
 });
 
 it('clears Advanced totals and cached rows when Pacific source coverage becomes incomplete', async () => {
