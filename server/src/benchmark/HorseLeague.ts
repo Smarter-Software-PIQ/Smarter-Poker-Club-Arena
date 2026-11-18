@@ -2571,15 +2571,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
   // raise are read from the decision's own street and flop texture, blended
   // with the pooled read by the cell's opportunities; the league learns the
-  // street read in the card's sandbox (HorseLeagueStreetRead). a switches it
-  // on, b is today's brain.
+  // street read in the card's sandbox (HorseLeagueStreetRead).
+  // The option changes no decision by itself: it only re-routes reads that
+  // OTHER options consume (the *VsValueLeader rules' label, omahaFacingBetEv's
+  // bettor read, the priced families' street cells). On a bare base every
+  // consumer is off and the card is inert (2026-11-18 evaluation of the {} /
+  // {} card: 1,000 sessions, 0 divergent pairs). So both arms carry the live
+  // production set (the 2026-11-16 list plus omahaTurnRiverRaiseIsPriced, on
+  // since 2026-11-18 11:54Z; the base the option's replay and its first league
+  // used) and arm A adds the option. Guarded by
+  // ADefaultOffFlagHasALeagueCard.law.test.ts (a read-only option's card
+  // carries a consumer in both arms).
   ...(['plo4', 'plo5'] as const).map((variant) => ({
     name: `${variant}_omaha_read_is_by_street_and_texture`,
     variant,
     pairs: 6000,
     productionStyles: true,
-    a: { omahaReadIsByStreetAndTexture: true },
-    b: {},
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261116,
+      omahaTurnRiverRaiseIsPriced: true,
+      omahaReadIsByStreetAndTexture: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116, omahaTurnRiverRaiseIsPriced: true },
   })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is
