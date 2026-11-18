@@ -489,7 +489,11 @@ import {
   omahaRaiseNeedsNutsPriceFolds,
   omahaRaiseNeedsNutsScope,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
-import { omahaPricedModeOf, withOmahaPricedMode } from './HorseOmahaPricedMode.js';
+import {
+  omahaOpponentKindOf,
+  omahaPricedModeOf,
+  withOmahaPricedMode,
+} from './HorseOmahaPricedMode.js';
 import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
 import {
   omahaPricedBigBetCallRule,
@@ -3655,8 +3659,8 @@ export interface HorseDecideOpts {
   /** Lane PAIRED-RIVER 2026-11-18 (hand 59993188: the nut flush folded on a
    *  river that paired the board at a price of 26.0%). Inside omahaFacingBetEv
    *  only: PLO4/PLO5 cash, the river, heads-up, the first bet of the street, a
-   *  paired board, and a straight or flush that only a full house or quads
-   *  beats. The verdict is priced on the bettor's line-conditioned range (his
+   *  paired board, a person's bet, and a straight or flush that only a full
+   *  house or quads beats. The verdict is priced on the bettor's line-conditioned range (his
    *  preflop action, what he did on the flop and the turn, the Horse's blockers
    *  and the measured river betting frequency of each hand class:
    *  HorseOmahaPairedRiverPriced.ts) instead of on every five-card holding, and
@@ -11101,7 +11105,16 @@ function omahaFacingBetEvCount(
     let verdict = verdictOf(spot, read);
     // omahaPairedBoardRiverIsPriced (default off): a nut-class straight or flush on a paired river,
     // heads-up against the first bet, is priced on his line-conditioned range.
-    if (verdict && pairedRiverPriced && !isTournamentMode(gs)) {
+    // A person's bet only: the river frequencies are measured on people.
+    if (
+      verdict &&
+      pairedRiverPriced &&
+      !isTournamentMode(gs) &&
+      omahaOpponentKindOf(
+        gs,
+        (gs.players ?? []).find((p) => p.seat === spot.bettorSeat)?.user_id
+      ) === 'person'
+    ) {
       const priced = omahaPairedRiverPricedOver(
         spot,
         verdict,

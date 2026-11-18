@@ -4,14 +4,14 @@ Built 2026-11-18 by lane PAIRED-RIVER on the lead's decision of 2026-11-18 (hand
 
 ## What it does
 
-Inside `omahaFacingBetEv` only (PLO4/PLO5 cash, one board, high only), on the river, heads-up, facing the first bet of the street (not a raise), on a paired board, when the Horse holds a straight or a flush that no straight, flush or straight flush of the unseen cards beats (only a full house or quads does): the facing-bet verdict is priced on the bettor's line-conditioned range instead of on every five-card holding (`server/src/engine/HorseOmahaPairedRiverPriced.ts`).
+Inside `omahaFacingBetEv` only (PLO4/PLO5 cash, one board, high only), on the river, heads-up, facing the first bet of the street (not a raise) made by a person, on a paired board, when the Horse holds a straight or a flush that no straight, flush or straight flush of the unseen cards beats (only a full house or quads does): the facing-bet verdict is priced on the bettor's line-conditioned range instead of on every five-card holding (`server/src/engine/HorseOmahaPairedRiverPriced.ts`).
 
 - Before the flop: a bettor who re-raised holds the top share of hands by the engine's preflop percentile, at the width the engine's preflop re-raise defence already uses for a person (3-bet 0.40 PLO4 / 0.50 PLO5, 4-bet 0.28 / 0.38). An open or a call does not narrow him.
 - Flop and turn: on a street he bet, holdings inside the engine's value share for that size on that board keep full weight and the rest a fitted weight; on a street he called, the same with the caller share. A street he checked carries no weight.
 - The Horse's cards, the board and dead cards are removed from the deck he is dealt from, so its blockers to full houses and to lower flushes and straights are exact.
 - River: each hand class (full house or better; flush or straight; trips or two pair; less) is bet with a measured relative frequency that depends on the bet's share of the pot.
 - EV(call) = P(win) x the pot after rake + P(tie) x the split - P(lose) x the call, at the actual price, against the facing-bet rule's one margin (2% of the final pot). It is the facing-bet verdict in that spot, in both directions; the paired-board fold of 2026-10-25 does not decide where it says call (the facing-bet rule already runs after that fold).
-- Not priced here: the lead of 40% of the pot or more into the Horse that bet the turn by a player who only called earlier streets (hand 59730132), which keeps the reviewed facing-bet verdict; multiway pots; raises; six cards; tournaments; bomb pots; any hand below a straight.
+- Not priced here: the lead of 40% of the pot or more into the Horse that bet the turn by a player who only called earlier streets (hand 59730132), which keeps the reviewed facing-bet verdict; a bet made by a Horse or by a player of unknown kind (the river frequencies are measured on people only); multiway pots; raises; six cards; tournaments; bomb pots; any hand below a straight.
 
 Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaPairedBoardRiverIsPriced docs/horse-option-authority.d/omahaPairedBoardRiverIsPriced.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
@@ -50,12 +50,21 @@ Declaration `repairs/PAIRED-RIVER/EVAL-DECLARATION.md` (sha256 8c66f7e1934ebc564
 - Named hands: 59993188 call (46% against 26.0%); 59521326 call; 59730132 out of scope, unchanged.
 - Sufficiency: at least 10 added calls were required; there were 8.
 
-Verdict under the declared rule: INSUFFICIENT, and the removed-call bar failed on its one decision. The option stays OFF.
+Verdict of this run under the declared rule: INSUFFICIENT, and the removed-call bar failed on its one decision.
+
+Journal engine replay (Amendments 1 and 2 of the declaration, declared before it ran): `HorseLogic.decide` on the journaled request of every paired-river decision facing a wager in the exports of 2026-11-16 16:28Z to 2026-11-18 19:30Z (241 decisions), the option off against on. It is not the worker-runtime replay (opponent reads and request flags are not restored); the off arm reproduced the journaled action in 231 of 241.
+
+- Changed decisions: 8, all fold to call, all nut-class straights or flushes in the spot. Changed with less than a straight: 0 (163 such decisions replayed). Changed outside the spot: 0.
+- The replay showed that the option as first built also priced bets made by Horses (4 of the 8). The fit is on people only, so the option was narrowed to a person's bet before delivery.
+- Added calls against a person: 4 (10 required). Won 1 of 4 at a mean price of 29.0%; mean +194 bb, 95% interval -47 to +664.
+- Hand 59993188: journaled fold (the policy graph records the wager rules turning the reference call into a fold); off fold; on call.
+
+Overall verdict: INSUFFICIENT. The option stays OFF.
 
 ## What must pass before it is switched on
 
-1. The engine replay of the river folds of the journal (the decisions of 2026-11-18 exist only on the engine host; the lead exports them after the release is sealed), under the same bars, on today's engine with the option off against on.
-2. At least 10 added calls with the interval above zero, on rows the fit has not seen.
+1. At least 10 added calls against people with the interval above zero, on hands the fit has not seen (the fit covers 2026-10-19 to 2026-11-18 17:25Z). At the observed rate of 8 in 30 days that is five to six weeks of journal exports.
+2. A worker-runtime replay (reads and request flags restored) of those hands, off against on, with the same bars.
 3. League cards `plo4_omaha_paired_board_river_is_priced` and `plo5_omaha_paired_board_river_is_priced` (HorseLeague.ts; both arms carry the live set of 2026-11-18, arm A adds the option): no card below -2 SE. No league has run on them.
 
 ## Receipts
@@ -64,7 +73,7 @@ No new receipt name. The facing-bet receipts (`omaha_facing_bet_ev_call`, `_fold
 
 ## Tests
 
-`server/src/engine/HorseOmahaPairedRiverPriced.test.ts` (15 tests): hand 59993188 folds before and calls after; the same hand at a price his range does not pay folds; a king-high flush in the same spot is untouched; hand 59521326 stays a call; hand 59730132 stays a fold; every recorded facing-bet decision outside the spot is byte-identical with the option on; unset and false are byte-identical; without `omahaFacingBetEv` the option does nothing.
+`server/src/engine/HorseOmahaPairedRiverPriced.test.ts` (16 tests): hand 59993188 folds before and calls after; the same hand against a Horse's bet is untouched; the same hand at a price his range does not pay folds; a king-high flush in the same spot is untouched; hand 59521326 stays a call; hand 59730132 stays a fold; every recorded facing-bet decision outside the spot is byte-identical with the option on; unset and false are byte-identical; without `omahaFacingBetEv` the option does nothing.
 
 ## Evidence rows
 

@@ -280,6 +280,22 @@ describe('hand 59993188: the nut flush on a paired river at a price of 26.0%', (
     expect(pricedOf({ ...HAND_59993188, hole: '6hKdKs4s8h' }).priced).toBeNull();
     expect(play(HAND_59993188, ON, lower).bytes).toEqual(play(HAND_59993188, BASE, lower).bytes);
   });
+  it("a Horse's bet is not priced here (the frequencies are measured on people): the decision is the one it was", () => {
+    const horseBets = (r: RecordedFacingBet) => {
+      r.pl = '1H 2H 3H 4H 5H 6H';
+      r.a = r.a
+        .split(';')
+        .map((row) => {
+          const f = row.split('|');
+          if (f[4] === 'p') f[4] = 'h';
+          return f.join('|');
+        })
+        .join(';');
+    };
+    expect(play(HAND_59993188, ON, horseBets).bytes).toEqual(
+      play(HAND_59993188, BASE, horseBets).bytes
+    );
+  });
   it('without omahaFacingBetEv the option does nothing', () => {
     expect(play(HAND_59993188, { omahaPairedBoardRiverIsPriced: true }).bytes).toEqual(
       play(HAND_59993188, {}).bytes

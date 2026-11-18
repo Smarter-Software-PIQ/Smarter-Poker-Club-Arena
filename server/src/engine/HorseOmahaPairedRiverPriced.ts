@@ -18,7 +18,8 @@
  *
  * This module is that priced verdict, for one spot only: PLO4 / PLO5 cash,
  * one board, the river, heads-up, the FIRST bet of the street (not a raise),
- * a paired board, and the Horse holds a straight or a flush that no straight,
+ * made by a person (HorseLogic asks only then: the river frequencies below are
+ * measured on people), a paired board, and the Horse holds a straight or a flush that no straight,
  * flush or straight flush of the unseen cards beats (only a full house or
  * quads does). Everything else is untouched.
  *
