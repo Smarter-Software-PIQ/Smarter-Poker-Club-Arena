@@ -340,6 +340,9 @@ def main():
   h=str(uuid.uuid4());db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{h}','{T}',1,clock_timestamp());INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{C}','{u}',40,'{h}')")
   db.run(f"INSERT INTO tournament_refund_tranches(entitlement_id,tournament_id,user_id,source_wallet_club_id,refund_fee) VALUES('{en}','{t}','{u}','{C}',8)")
   check('earned two-times stays final and later canonical reversal is deduplicated',f"SELECT (SELECT unlocked_at IS NOT NULL FROM ca_promo_profit_gates WHERE grant_id='{g}') AND max(profit_earned)=40 FROM fn_ca_promo_shared_fee_state('{C}','{u}') WHERE grant_id='{g}'",'t')
+  lock_test=ROOT/'scripts/ci/test-promo-profit-cash-fee-lock.py';track(lock_test)
+  import runpy
+  runpy.run_path(str(lock_test))['verify'](db,C,T,ROOT/'supabase/migrations/20261118001328_cash_fee_settlement_never_waits_on_a_cashout_grant.sql',runfile,check)
   for source,digest in input_hashes.items():
    if hashlib.sha256(Path(source).read_bytes()).hexdigest()!=digest:raise RuntimeError('source changed during qualification: '+source)
   report={'status':'passed','checks':checks,'production_mutations':False,'source_sha256':input_hashes,'qualification_limits':['Typed original funded gifts, H cases, W earning positions and cash fee openings; these checks qualify allocation/custody/authorization, not original earning producers, financial member departure or eventual jackpot payer. Notification callback uses an explicit invocation sink; actual notice delivery is separately qualified.']}
