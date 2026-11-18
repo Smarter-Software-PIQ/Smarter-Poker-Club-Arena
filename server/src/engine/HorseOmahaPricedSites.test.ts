@@ -30,6 +30,7 @@ import {
   type PricedSpot,
 } from './HorseOmahaPricedRules.test-support.js';
 import type { HorseDecision } from '../types.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 
 afterEach(() => {
   HorseMind.reset();
@@ -259,4 +260,48 @@ describe('omahaFlopBetIsPriced: scope', () => {
       `[flop lead in the built spot] ${omahaHeroHasPreflopLead(st.hero as never, st.gs as never)}`
     );
   });
+});
+
+describe('the worker receipt admits the priced flop check in its public spot only (commit 06a03315112)', () => {
+  // The audited replay found 14 in-position flop bet-to-checks of omahaFlopBetIsPriced refused
+  // (policy_graph): no earlier rule checks a bare big pair in position. The receipt admits the check
+  // where the option's public spot holds, and nowhere else.
+  it('a priced check of a bare big pair is admitted; the same receipt with another hand is refused', () => {
+    enableBrainTelemetry();
+    let checkedSeen = 0;
+    for (const hole of ['AdAhKdJd4h', 'KdKhAdJd4h', 'QdQhKdJd4h', 'AcAdKs4h2c'])
+      for (const board of ['8s6c9s', '9h7s3d', 'Th4c2d'])
+        for (const seed of [1, 7, 42]) {
+          HorseMind.reset();
+          const st = pricedSpot({ hole, board, bet: 0, inPosition: true });
+          drainFires();
+          seedFastRandom(seed);
+          const d = HorseLogic.decide(st.hero as never, st.gs as never, LIVE.style, LIVE.mods, {
+            telemetry: true,
+            observeMind: false,
+            decisionTimeMs: 1794938400000,
+            ...LIVE_OPTIONS,
+            omahaFlopBetIsPriced: true,
+          } as never);
+          if (!fires().includes('omaha_priced_site_flop_bet_checked')) continue;
+          checkedSeen++;
+          expect(d.action).toBe('check');
+          expect(
+            horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+              player: st.hero,
+              gameState: st.gs,
+            } as never),
+            `${hole} ${board} seed ${seed}`
+          ).toBeNull();
+          // the admission is the option's public spot: with a hand outside it the same receipt is refused
+          expect(
+            horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+              player: { ...(st.hero as object), cards: cards('7c5d2h3s4c') },
+              gameState: st.gs,
+            } as never),
+            `${hole} ${board} seed ${seed} with air`
+          ).not.toBeNull();
+        }
+    expect(checkedSeen, 'the corpus reaches a priced in-position flop check').toBeGreaterThan(0);
+  }, 300000);
 });
