@@ -2485,6 +2485,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaReadIsByStreetAndTexture: true },
+      b: {},
+    })),
+  // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
+  // heads-up turn or river with nothing to call, the owner's check or bet is
+  // priced beside bets of 10/20/25% of the pot with the opponent's measured
+  // response by pot share; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_small_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaSmallBetIsPriced: true },
     b: {},
   })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand

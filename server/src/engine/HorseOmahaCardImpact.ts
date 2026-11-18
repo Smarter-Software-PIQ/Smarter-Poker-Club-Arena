@@ -356,6 +356,55 @@ export interface OmahaCardImpactInput {
   amounts: number[];
   /** an opponent seat, mixed into the seed only */
   seedSalt?: number;
+  /**
+   * omahaSmallBetIsPriced (default absent): the share of his range that continues and that raises facing a bet of a
+   * given pot share, measured (HorseOmahaSmallBet.omahaSmallBetResponseAt). Absent: the pot-odds keep and the prior raise share.
+   */
+  responseAt?: OmahaCardImpactResponseCurve;
+}
+
+/**
+ * The share of his range that continues against a bet laid at pot odds `prior` (pot / (pot + bet)): the pot odds, scaled by his
+ * measured continue rate at the reference bet when he is measured. The one owner of that keep (omahaCardImpact's line weights
+ * and bet responses use it).
+ */
+export function omahaCardImpactKeep(
+  read: OmahaCardImpactRead,
+  prior: number,
+  river: boolean
+): number {
+  const rate = river ? (read.riverCallRate ?? read.continueRate) : read.continueRate;
+  if (!read.measured || rate === null) return prior;
+  return clamp((rate * prior) / (1 / (1 + OMAHA_CARD_IMPACT_PRIOR.referenceBet)), 0.05, 0.97);
+}
+
+/** Points (pot share, continue share, raise share) sorted by share; linear between points, flat beyond the ends. */
+export type OmahaCardImpactResponseCurve = readonly {
+  share: number;
+  cont: number;
+  raise: number;
+}[];
+
+/** The curve at a pot share: continue and raise shares, each clamped to [0, 1], raise <= continue. */
+export function omahaCardImpactResponseOf(
+  curve: OmahaCardImpactResponseCurve,
+  share: number
+): { cont: number; raise: number } {
+  const n = curve.length;
+  const at = (i: number) => ({
+    cont: clamp(curve[i].cont, 0, 1),
+    raise: clamp(Math.min(curve[i].raise, curve[i].cont), 0, 1),
+  });
+  if (share <= curve[0].share) return at(0);
+  if (share >= curve[n - 1].share) return at(n - 1);
+  for (let i = 1; i < n; i++)
+    if (share <= curve[i].share) {
+      const a = at(i - 1);
+      const b = at(i);
+      const t = (share - curve[i - 1].share) / (curve[i].share - curve[i - 1].share);
+      return { cont: a.cont + t * (b.cont - a.cont), raise: a.raise + t * (b.raise - a.raise) };
+    }
+  return at(n - 1);
 }
 
 const cache = new Map<string, OmahaCardImpact | null>();
@@ -478,6 +527,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     input.amounts.map(round2),
     input.seedSalt ?? 0,
     omahaStrategyConstant('cardImpactDistinctDrawOuts', { gameVariant: `plo${hole.length}` }),
+    ...(input.responseAt && input.responseAt.length > 0 ? [input.responseAt] : []),
   ]);
   const hit = cache.get(cacheKey);
   if (hit !== undefined)
@@ -707,11 +757,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     return mask;
   };
   const P = OMAHA_CARD_IMPACT_PRIOR;
-  const keepOf = (prior: number, river: boolean): number => {
-    const rate = river ? (read.riverCallRate ?? read.continueRate) : read.continueRate;
-    if (!read.measured || rate === null) return prior;
-    return clamp((rate * prior) / (1 / (1 + P.referenceBet)), 0.05, 0.97);
-  };
+  const keepOf = (prior: number, river: boolean): number => omahaCardImpactKeep(read, prior, river);
   for (const step of line) {
     const c = cOf(step.boardLen);
     if (step.kind === 'call') {
@@ -786,9 +832,13 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
   const options: OmahaCardImpactOption[] = [];
   const betOption = (amount: number): OmahaCardImpactOption => {
     const B = Math.min(amount, eff);
-    const q = keepOf(pot / (pot + B), river);
+    const measured =
+      input.responseAt && input.responseAt.length > 0
+        ? omahaCardImpactResponseOf(input.responseAt, B / pot)
+        : null;
+    const q = measured ? measured.cont : keepOf(pot / (pot + B), river);
     const allIn = B >= eff - 0.005;
-    const rho = allIn ? 0 : Math.min(P.raiseShare, q);
+    const rho = allIn ? 0 : Math.min(measured ? measured.raise : P.raiseShare, q);
     const T = allIn ? B : Math.min(pot + 3 * B, eff);
     let acc = 0;
     let fold = 0;

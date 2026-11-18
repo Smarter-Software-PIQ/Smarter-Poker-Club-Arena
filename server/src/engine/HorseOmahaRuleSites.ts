@@ -364,6 +364,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
   ),
+  omahaSmallBetIsPriced: priced(
+    'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
+  ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
   // wave two (2026-11-16, PR #11211; all default OFF)
   omahaMultiwayWeakHandNoBet: priced(

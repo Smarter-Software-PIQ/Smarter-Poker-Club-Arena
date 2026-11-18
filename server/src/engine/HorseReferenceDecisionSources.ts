@@ -115,6 +115,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the per-decision mode of the default-off Omaha read by street (omahaReadIsByStreetAndTexture): the street, the flop texture and the two read functions the installer puts in place for one decision; the only part HorseMind imports',
     'src/engine/HorseOmahaReadByStreetRule.ts':
       'the installer of the default-off Omaha read by street (omahaReadIsByStreetAndTexture): for one PLO4/PLO5 cash postflop decision the per-street read mode and the priced street cells, both put back when the decision returns; receipt omaha_read_by_street_carried',
+    'src/engine/HorseOmahaSmallBet.ts':
+      'the default-off Omaha small-bet pricing (PLO Strategy lane 2026-11-18, omahaSmallBetIsPriced): reached only from HorseLogic omahaOwnBetRules when the option is on; with it unset or false no decision reads it (HorseOmahaSmallBet.test.ts)',
+    'src/engine/HorseOmahaSmallBetConstants.ts':
+      'the measured response by pot share of the default-off Omaha small-bet pricing (omahaSmallBetIsPriced); read only by HorseOmahaSmallBet.ts',
     'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':
       'the default-off Omaha turn and river raise rule (owner 2026-11-15 12:52 / 12:53, hand 59534208, omahaTurnRiverRaiseNeedsNuts): in PLO4/PLO5 cash facing a bet or a raise on the turn or the river, a raise stands only with a nut-class hand (on the turn also an in-position combo draw the 12:30 rule permits); every other raise becomes the exact-hand facing-bet EV call or fold, the outermost conversion on that path',
     'src/engine/HorseOmahaStreetPlan.ts':
