@@ -9802,10 +9802,10 @@ function omahaSmallBetRule(
     }
     const verdict = omahaSmallBetVerdict(decision, player, gs, read);
     if (verdict.changed === null) {
-      if (telemetryOn(opts) && scope)
-        noteFire(
-          verdict.kept === 'priced' ? 'omaha_small_bet_kept' : 'omaha_small_bet_unpriced_kept'
-        );
+      if (telemetryOn(opts) && scope) {
+        if (verdict.kept === 'priced') noteFire('omaha_small_bet_kept');
+        else noteFire('omaha_small_bet_unpriced_kept');
+      }
       return decision;
     }
     if (omahaWagerIsChecked(verdict.decision, player, gs, opts)) {
@@ -9814,17 +9814,16 @@ function omahaSmallBetRule(
     }
     // The receipt describes the final action (blockbet review N2): proposed against the bet as the limped-pot
     // floor will leave it (that floor runs right after this rule), fired when HorseLogic.decide settles.
+    const placed = omahaLimpedPotMinBetFloor(verdict.decision, player, gs, opts);
     if (telemetryOn(opts)) {
-      const placed = omahaLimpedPotMinBetFloor(verdict.decision, player, gs, opts);
-      const smallBet = verdict.changed === 'small_bet';
-      omahaProposeReceipt(
-        (f) => omahaSameWager(f, placed),
-        () => noteFire(smallBet ? 'omaha_small_bet_priced_bet' : 'omaha_small_bet_resized'),
-        () =>
-          noteFire(
-            smallBet ? 'omaha_small_bet_priced_bet_vetoed' : 'omaha_small_bet_resized_vetoed'
-          )
-      );
+      const small = verdict.changed === 'small_bet';
+      const made = small
+        ? () => noteFire('omaha_small_bet_priced_bet')
+        : () => noteFire('omaha_small_bet_resized');
+      const vetoed = small
+        ? () => noteFire('omaha_small_bet_priced_bet_vetoed')
+        : () => noteFire('omaha_small_bet_resized_vetoed');
+      omahaProposeReceipt((f) => omahaSameWager(f, placed), made, vetoed);
     }
     return verdict.decision;
   } catch {

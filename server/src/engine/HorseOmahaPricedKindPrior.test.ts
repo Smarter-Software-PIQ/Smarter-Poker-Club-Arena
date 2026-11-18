@@ -56,7 +56,8 @@ const pooledOf = (bet: number, fold: number, n: number) =>
     foldToBet: stat(fold, n),
     riverCall: stat(0.3, n),
   }) as never;
-const BOTH = { rangeContinuous: true, bluffShareFromBetRate: true };
+// omahaPricedPriorsByOpponentKind on (the batch's gate of every kind prior; off: the #11212 tables)
+const BOTH = { rangeContinuous: true, bluffShareFromBetRate: true, priorsByKind: true };
 
 describe('who the opponent is', () => {
   it('the engine roster of persons decides, else the seat flag, else nobody says', () => {

@@ -432,7 +432,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
     calls: {
       isTournamentMode: [10, 'pure read of the game state; chooses a receipt name'],
       omahaIsWager: [1, 'pure predicate on a decision'],
-      omahaSameWager: [2, 'pure predicate on two decisions'],
+      omahaSameWager: [3, 'pure predicate on two decisions'],
       omahaPlanLineUncommitted: [1, 'pure predicate on a plan line'],
       wagerBindingPassedShortAllIn: [1, 'pure predicate; chooses a receipt name'],
       holdemDrawPresent: [1, 'pure predicate on cards'],
@@ -441,7 +441,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure predicate on cards (hasRiverNuts), in the condition of a gated else-if; chooses a receipt',
       ],
       omahaProposeReceipt: [
-        19,
+        20,
         'queues a receipt (made / vetoed) settled against the final decision; the queue is cleared per decide',
       ],
       changed: [3, 'a local closure that only calls noteFire'],
