@@ -35,12 +35,20 @@
 --
 -- THE FIX
 --
--- 1. public.fn_ca_horses_stuck_now(): a SEATED horse that has not acted for
---    horse_stuck_minutes (sp_digest_settings, default 10) while ITS OWN TABLE
---    dealt a hand in that window. A horse at a table that is not dealing is a
---    stalled TABLE (TableStoppedDealing owns that), not a stuck horse; a horse
---    in a tournament is not 'seated' in ca_horse_fleet_state. Measured on
---    production: 10 at 16:40 UTC, 28 ms.
+-- 1. public.fn_ca_horses_stuck_now(), read from the engine's own commit
+--    record (hand_history), never from ca_horse_fleet_state.last_action_at
+--    (a batched seat touch that can freeze or go stale: see the function).
+--    A horse is stuck when, for the whole horse_stuck_minutes window
+--    (sp_digest_settings, default 10), it held its live seat (seated before
+--    the window, no exit at that seat and no seat move into the table inside
+--    it), was not sitting out and not waiting for the big blind, its table
+--    committed at least three hands, and it was dealt into none of them or
+--    every voluntary action recorded for it was a timeout. A horse at a table
+--    that is not dealing is a stalled TABLE (TableStoppedDealing owns that).
+--    Measured on production 2026-11-18: the first draft (last_action_at older
+--    than 10 minutes at a dealing table) counted 10-12 horses, every one of
+--    them dealt into hands in the window, just seated, moved in, or waiting
+--    for the big blind; this definition counts 0, in 60 ms.
 -- 2. fn_ca_fleet_state_upsert fills horses_stuck from it when the engine sends
 --    null, AFTER the state rows of the same call are written. The measurement
 --    runs in its own subtransaction: a failure leaves horses_stuck NULL
@@ -74,17 +82,72 @@ LANGUAGE sql
 STABLE
 SET search_path TO 'public'
 AS $f$
-  -- A SEATED horse silent for horse_stuck_minutes while its own table dealt in
-  -- that window (20261118165140). Not dealing is a stalled table, not a stuck horse.
+  -- A STUCK HORSE IS ONE ITS TABLE DEALS AROUND, OR ONE THAT ONLY TIMES OUT
+  -- (20261118165140). Read from the engine's own commit record
+  -- (hand_history.players and .actions), never from
+  -- ca_horse_fleet_state.last_action_at: that stamp is a batched, best-effort
+  -- seat touch (HorseHandReview.touchHorseSeats -> fn_ca_fleet_seat_touch)
+  -- that the fleet upsert keeps forever once written. At table f02a6a5e it
+  -- froze at 16:08-16:09 on 2026-11-18 while the table committed 55 more
+  -- hands with the same five horses dealt into every one, and for 2478c921 it
+  -- was 14 hours older than the seat. A horse counts only when, for the WHOLE
+  -- window, it held its live seat: seated before the window (joined_at, which
+  -- a seat move copies from the source seat, so ALSO no exit recorded at that
+  -- table and seat inside the window and no seat move into the table inside
+  -- it), not sitting out, not waiting for the big blind (entry_hold
+  -- 'waiting': not dealt in by rule); and its table committed at least three
+  -- hands in the window; and either it is in NONE of them, or every voluntary
+  -- action the engine recorded for it was a timeout.
+  WITH w AS (
+    SELECT now() - make_interval(mins => public.fn_sp_setting('horse_stuck_minutes', 10)::integer) AS since
+  ),
+  seated AS (
+    SELECT f.horse_id, f.table_id
+      FROM public.ca_horse_fleet_state f
+      JOIN public.table_seats s
+        ON s.table_id = f.table_id AND s.user_id = f.horse_id AND s.left_at IS NULL
+     CROSS JOIN w
+     WHERE f.state = 'seated'
+       AND s.joined_at <= w.since
+       AND NOT COALESCE(s.is_sitting_out, false)
+       AND s.entry_hold IS DISTINCT FROM 'waiting'
+       AND NOT EXISTS (SELECT 1 FROM public.ca_seat_stack_exits e
+                        WHERE e.occurred_at > w.since
+                          AND e.table_id = s.table_id AND e.seat_number = s.seat_number)
+       AND NOT EXISTS (SELECT 1 FROM public.cash_seat_moves m
+                        WHERE m.player_id = f.horse_id AND m.to_table_id = f.table_id
+                          AND m.executed_at > w.since)
+  ),
+  hands AS (
+    SELECT h.table_id, h.players, h.actions
+      FROM public.hand_history h CROSS JOIN w
+     WHERE h.table_id IN (SELECT DISTINCT table_id FROM seated)
+       AND h.created_at > w.since
+  ),
+  dealing AS (
+    SELECT table_id FROM hands GROUP BY table_id HAVING count(*) >= 3
+  ),
+  dealt AS (
+    SELECT DISTINCT h.table_id, p ->> 'userId' AS uid
+      FROM hands h, jsonb_array_elements(h.players) p
+  ),
+  acted AS (
+    SELECT h.table_id, a ->> 'userId' AS uid,
+           count(*) FILTER (WHERE a ->> 'origin' = 'timeout') AS timeouts,
+           count(*) AS voluntary
+      FROM hands h,
+           jsonb_array_elements(CASE WHEN jsonb_typeof(h.actions) = 'array' THEN h.actions ELSE '[]'::jsonb END) a
+     WHERE COALESCE(a ->> 'origin', '') <> 'forced'
+       AND COALESCE(a ->> 'action', '') NOT IN ('return', 'sb', 'bb', 'ante', 'bomb_ante')
+     GROUP BY 1, 2
+  )
   SELECT count(*)::integer
-    FROM public.ca_horse_fleet_state f
-   WHERE f.state = 'seated'
-     AND f.table_id IS NOT NULL
-     AND COALESCE(f.last_action_at, '-infinity'::timestamptz)
-         < now() - make_interval(mins => public.fn_sp_setting('horse_stuck_minutes', 10)::integer)
-     AND EXISTS (SELECT 1 FROM public.hand_history h
-                  WHERE h.table_id = f.table_id
-                    AND h.started_at > now() - make_interval(mins => public.fn_sp_setting('horse_stuck_minutes', 10)::integer));
+    FROM seated s
+   WHERE s.table_id IN (SELECT table_id FROM dealing)
+     AND (NOT EXISTS (SELECT 1 FROM dealt d WHERE d.table_id = s.table_id AND d.uid = s.horse_id::text)
+          OR EXISTS (SELECT 1 FROM acted x
+                      WHERE x.table_id = s.table_id AND x.uid = s.horse_id::text
+                        AND x.voluntary > 0 AND x.timeouts = x.voluntary));
 $f$;
 
 REVOKE ALL ON FUNCTION public.fn_ca_horses_stuck_now() FROM PUBLIC, anon, authenticated;

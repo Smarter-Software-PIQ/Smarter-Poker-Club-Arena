@@ -57,17 +57,53 @@ describe('the horse fleet measures its stuck horses', () => {
     expect(MIG).toMatch(/already the postimage, nothing to do/);
   });
 
-  it('defines a stuck horse as seated, silent, at a table that is still dealing', () => {
-    const fn = between(MIG, 'CREATE OR REPLACE FUNCTION public.fn_ca_horses_stuck_now()', '$f$;');
-    expect(fn).toContain("f.state = 'seated'");
-    expect(fn).toContain("public.fn_sp_setting('horse_stuck_minutes', 10)");
-    expect(fn).toMatch(
-      /EXISTS \(SELECT 1 FROM public\.hand_history h\s+WHERE h\.table_id = f\.table_id/
-    );
-    expect(fn).not.toMatch(/SECURITY DEFINER/);
+  const STUCK = between(MIG, 'CREATE OR REPLACE FUNCTION public.fn_ca_horses_stuck_now()', '$f$;');
+
+  it('reads the engine commit record, never the seat-touch stamp', () => {
+    // Projection-blocked table (f02a6a5e, 2026-11-18): last_action_at froze at
+    // 16:08-16:09 while 55 more hands committed with the same horses in every
+    // one. The metric must measure the horse, not a stamp or a queue.
+    const sqlOnly = STUCK.replace(/--[^\n]*/g, '');
+    expect(sqlOnly).not.toContain('last_action_at');
+    expect(sqlOnly).not.toContain('hand_projection_outbox');
+    expect(STUCK).toContain('FROM public.hand_history h CROSS JOIN w');
+    expect(STUCK).toContain('h.created_at > w.since');
+    expect(STUCK).toContain('jsonb_array_elements(h.players) p');
+    expect(STUCK).toContain('SELECT table_id FROM hands GROUP BY table_id HAVING count(*) >= 3');
+    expect(STUCK).not.toMatch(/SECURITY DEFINER/);
     expect(MIG).toContain(
       'REVOKE ALL ON FUNCTION public.fn_ca_horses_stuck_now() FROM PUBLIC, anon, authenticated;'
     );
+  });
+
+  it('never counts a horse that has just sat down, including one a seat move carried in', () => {
+    // 30889b3b joined 17:00:19; bbbe8009 was moved into seat 6 after its
+    // previous occupant left at 17:07:27, carrying joined_at 15:28:20 from its
+    // source seat - so joined_at alone is not an arrival time.
+    expect(STUCK).toContain('s.joined_at <= w.since');
+    expect(STUCK).toMatch(
+      /NOT EXISTS \(SELECT 1 FROM public\.ca_seat_stack_exits e\s+WHERE e\.occurred_at > w\.since\s+AND e\.table_id = s\.table_id AND e\.seat_number = s\.seat_number\)/
+    );
+    expect(STUCK).toMatch(
+      /NOT EXISTS \(SELECT 1 FROM public\.cash_seat_moves m\s+WHERE m\.player_id = f\.horse_id AND m\.to_table_id = f\.table_id\s+AND m\.executed_at > w\.since\)/
+    );
+  });
+
+  it('never counts a horse waiting for the big blind or sitting out', () => {
+    // 6cf64a8a at 0f84a1ab: entry_hold 'waiting', not dealt in by rule.
+    expect(STUCK).toContain("s.entry_hold IS DISTINCT FROM 'waiting'");
+    expect(STUCK).toContain('NOT COALESCE(s.is_sitting_out, false)');
+    expect(STUCK).toContain('s.left_at IS NULL');
+  });
+
+  it('counts a horse the table deals around, or one that only times out', () => {
+    expect(STUCK).toMatch(
+      /NOT EXISTS \(SELECT 1 FROM dealt d WHERE d\.table_id = s\.table_id AND d\.uid = s\.horse_id::text\)/
+    );
+    expect(STUCK).toContain("count(*) FILTER (WHERE a ->> 'origin' = 'timeout') AS timeouts");
+    expect(STUCK).toContain('x.voluntary > 0 AND x.timeouts = x.voluntary');
+    expect(STUCK).toContain("COALESCE(a ->> 'origin', '') <> 'forced'");
+    expect(STUCK).toContain("public.fn_sp_setting('horse_stuck_minutes', 10)");
   });
 
   it('fills horses_stuck only when the engine sent none, isolated, unknown on failure', () => {
