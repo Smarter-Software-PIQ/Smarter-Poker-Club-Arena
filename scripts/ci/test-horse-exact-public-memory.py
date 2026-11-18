@@ -34,11 +34,13 @@ try:
  run('receipt-fixture',atomic+"ALTER TABLE hand_atomic_commits ENABLE ROW LEVEL SECURITY; REVOKE ALL ON hand_atomic_commits FROM PUBLIC,anon,authenticated,service_role; GRANT SELECT ON hand_atomic_commits TO service_role;")
  run('install',(ROOT/'supabase/migrations/20261106091733_horse_public_memory_exact_rule_domains.sql').read_text())
  actions=[{'userId':'actor','action':'raise','stage':'preflop'},{'userId':'villain','action':'fold','stage':'preflop'}]
- showdown_rows=None
+ showdown_rows=None; board_cards=None; board_cards2=None
  def accept(n,domain=None,receipt=True,tournament=None):
   row={'table_id':'00000000-0000-4000-8000-000000000001','hand_number':1000000+n,'game_variant':'plo4','horse_exploit_dealt_count':6,'players':[],'actions':actions}
   if domain is not None:row['public_memory_domain']=domain
   if showdown_rows is not None:row['showdown']=showdown_rows
+  if board_cards is not None:row['community_cards']=board_cards
+  if board_cards2 is not None:row['community_cards2']=board_cards2
   if tournament is not None:row['tournament_id']=tournament
   sql="SELECT fn_ca_insert_hand_with_awards('"+json.dumps(row)+"'::jsonb);"
   if receipt:sql="BEGIN; "+sql+"INSERT INTO hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) SELECT table_id,hand_number,id,repeat('a',64),'{}' FROM hand_history WHERE hand_number="+str(1000000+n)+"; COMMIT;"
@@ -332,7 +334,147 @@ try:
  assert run('river-repeat-definition',trigger_def)==forward_def
  assert run('river-repeat-unchanged',record_of())==learned
  assert json.loads(run('river-read',"SET ROLE service_role; SELECT shown_river::text FROM fn_horse_exact_profiles_read(ARRAY['"+bettor+"'],'plo4','cash','full','table','none');"))['since']==since
- (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; no production installation'},indent=2))
+ # 2026-11-17 the postflop read by street and flop texture (20261117175407): the same learner, forward only, no
+ # back-fill. The engine reducer (HorseOmahaStreetRead) and the SQL reducer are compared on the same hands: the
+ # fixture's `expected` is what the engine computes (HorseOmahaStreetReadVectors.test.ts pins that side).
+ streetmig=(ROOT/'supabase/migrations/20261117175407_the_exact_opponent_profile_keeps_a_postflop_read_by_street_a.sql').read_text()
+ street_proof=next(line.removeprefix('-- @live-proof: ') for line in streetmig.splitlines() if line.startswith('-- @live-proof: '))
+ street_snapshot="SELECT string_agg(user_id||':'||variant||':'||mode||':'||size||':'||public_memory_domain::text||':'||observed_hands||':'||counters::text||':'||coalesce(long_counters::text,'-')||':'||coalesce(last_accepted_hand_id::text,'-')||':'||coalesce(shown_river::text,'-'),'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text) FROM horse_exact_profiles;"
+ STREETS=['flop','turn','river']; TEXTURES=['paired','rainbow','twoTone','monotone']
+ STREET_STATS=[('bet',STREETS),('foldToBet',STREETS),('foldToRaise',STREETS),('cbet',TEXTURES),('flopBet',TEXTURES)]
+ CELLS=[(st,k) for st,keys in STREET_STATS for k in keys]
+ def street_row(rec):
+  # exactly the five statistics, each exactly its streets or textures, each cell exactly hit and opp
+  assert list(sorted(rec))==sorted(st for st,_ in STREET_STATS),rec
+  for st,keys in STREET_STATS:
+   assert sorted(rec[st])==sorted(keys),rec
+   for k in keys: assert sorted(rec[st][k])==['hit','opp'],rec
+  return [rec[st][k][f] for st,k in CELLS for f in ('hit','opp')]
+ def street_record(digits): return {st:{k:{'hit':int(digits[2*CELLS.index((st,k))]),'opp':int(digits[2*CELLS.index((st,k))+1])} for k in keys} for st,keys in STREET_STATS}
+ def text_array(x): return 'NULL::text[]' if x is None else 'ARRAY['+','.join("'"+str(c).replace("'","''")+"'" for c in x)+']::text[]'
+ def jsonb_literal(x): return "'"+json.dumps(x).replace("'","''")+"'::jsonb"
+ def decode_log(log):
+  out=[]
+  for token in log.split(' '):
+   if not token: continue
+   uid,stage,action,origin,full=token.split(',')
+   act={'stage':stage,'action':action}
+   if uid!='-':act['userId']=uid
+   if origin!='-':act['origin']=origin
+   if full!='-':act['isFullRaise']=full=='1'
+   out.append(act)
+  return out
+ # Install in each database: first without the public board columns (refused, rolled back), then with them.
+ for db in ['postgres','long_first']:
+  psql[-1]=db
+  assert run('street-proof-before-'+db,'SELECT '+street_proof)=='f'
+  before=run('street-before-'+db,street_snapshot)
+  try:
+   run('street-install-no-boards-'+db,streetmig); raise AssertionError('installed without hand_history.community_cards')
+  except RuntimeError as e: assert 'needs hand_history.community_cards' in str(e),str(e)
+  assert run('street-refusal-rolled-back-'+db,"SELECT count(*) FROM pg_attribute WHERE attrelid='horse_exact_profiles'::regclass AND attname='street_counters';")=='0'
+  run('street-board-fixture-'+db,"ALTER TABLE hand_history ADD COLUMN community_cards text[] DEFAULT '{}', ADD COLUMN community_cards2 text[];")
+  run('street-install-'+db,streetmig)
+  assert run('street-proof-'+db,'SELECT '+street_proof)=='t'
+  assert run('street-no-backfill-'+db,"SELECT count(*) FROM horse_exact_profiles WHERE street_counters IS NOT NULL;")=='0'
+  assert run('street-rows-untouched-'+db,street_snapshot)==before
+  assert run('street-private-'+db,"SELECT bool_or(has_function_privilege(r,f,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r, unnest(ARRAY['fn_horse_flop_texture(text[],text[])','fn_horse_street_read_increments(jsonb,text[],text[])','fn_horse_street_read_add(jsonb,jsonb)']) f;")=='f'
+  run('street-saved-presence-'+db,presence_fixture)
+ psql[-1]='long_first'; street_reverse_def=run('street-long-first-definition',trigger_def)
+ psql[-1]='postgres'; street_forward_def=run('street-lineage-first-definition',trigger_def)
+ assert street_reverse_def==street_forward_def
+ # Public information only: the reducer is handed the action log and the board, never hole cards or the showdown.
+ assert run('street-signature',"SELECT pg_get_function_identity_arguments('public.fn_horse_street_read_increments(jsonb,text[],text[])'::regprocedure);")=='p_actions jsonb, p_community_cards text[], p_community_cards2 text[]'
+ assert 'showdown' not in street_forward_def.split('street_read_inc:=')[1].split(';')[0] and 'hole_cards' not in street_forward_def
+ street_vectors=json.loads((ROOT/'scripts/ci/fixtures/horse-street-read-vectors.json').read_text())
+ def sql_increments(got): return {uid:''.join(str(x) for x in street_row(rec)) for uid,rec in got.items()}
+ for i,v in enumerate(street_vectors['named']):
+  got=json.loads(run('street-vector-'+str(i),"SELECT fn_horse_street_read_increments("+jsonb_literal(v['actions'])+","+text_array(v['community_cards'])+","+text_array(v['community_cards2'])+")::text;"))
+  assert sql_increments(got)==v['expected'],(v['name'],sql_increments(got),v['expected'])
+ assert street_vectors['named'][0]['expected']==street_vectors['named'][1]['expected'] and any('holeCards' in a for a in street_vectors['named'][1]['actions'])
+ # 240 seeded random public action logs: the SQL replay and the engine reducer agree exactly.
+ cases=street_vectors['random']
+ values=",".join("("+str(k)+","+jsonb_literal(decode_log(v['log']))+","+text_array(v['community_cards'])+","+text_array(v['community_cards2'])+")" for k,v in enumerate(cases))
+ out=run('street-random',"SELECT string_agg(fn_horse_street_read_increments(a,c,c2)::text,E'\\n' ORDER BY k) FROM (VALUES "+values+") v(k,a,c,c2);").split('\n')
+ assert len(out)==len(cases)>=200
+ textured=0
+ for k,v in enumerate(cases):
+  got=sql_increments(json.loads(out[k])); textured+=any('1' in d[18:] for d in got.values())
+  assert got==v['expected'],(k,got,v['expected'])
+ assert textured>=60,textured
+ # The add rule against the engine's, through a chain of 120 hands, to 1e-12.
+ sql_chain='NULL::jsonb'; checkpoints={c['after']:c['row'] for c in street_vectors['chain']['checkpoints']}
+ for k,digits in enumerate(street_vectors['chain']['steps'],1):
+  sql_chain="fn_horse_street_read_add("+sql_chain+","+jsonb_literal(street_record(digits))+")"
+  if k in checkpoints:
+   raw=run('street-add-'+str(k),"SELECT coalesce("+sql_chain+"::text,'null');"); got=json.loads(raw); sql_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
+   want=checkpoints[k]
+   assert (got is None)==(want is None),(k,got,want)
+   if got is not None: assert all(abs(x-y)<1e-12 for x,y in zip(street_row(got),want)) and len(want)==34,(k,got,want)
+ assert checkpoints[1] is None and checkpoints[120] is not None and max(checkpoints[120])>5
+ assert run('street-add-null-delta',"SELECT fn_horse_street_read_add(NULL,NULL) IS NULL AND fn_horse_street_read_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb;")=='t'
+ # A damaged stored record never raises inside the accepted hand: a cell that is not a number counts as 0.
+ damaged=json.loads(run('street-add-damaged',"SELECT fn_horse_street_read_add('{\"bet\":{\"flop\":{\"hit\":\"x\",\"opp\":[1]},\"turn\":7},\"cbet\":\"y\"}'::jsonb,"+jsonb_literal(street_record('11'+'0'*32))+")::text;"))
+ assert street_row(damaged)==[1,1]+[0]*32,damaged
+ assert json.loads(run('street-add-scalar-base',"SELECT fn_horse_street_read_add('7'::jsonb,"+jsonb_literal(street_record('01'+'0'*32))+")::text;"))['bet']['flop']=={'hit':0,'opp':1}
+ assert run('street-increments-not-array',"SELECT fn_horse_street_read_increments('{}'::jsonb,NULL,NULL)::text||fn_horse_street_read_increments(NULL,NULL,NULL)::text||fn_horse_street_read_increments('[1,null,\"x\",[],{}]'::jsonb,ARRAY[NULL,NULL,NULL]::text[],ARRAY[NULL]::text[])::text;")=='{}{}{}'
+ # Learning through the protected accepted receipt (postgres database, the forward install order).
+ raiser='00000000-0000-4000-8000-000000000008'; defender='00000000-0000-4000-8000-000000000009'
+ street_of=lambda uid,mode='cash': "SELECT coalesce(street_counters::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND mode='"+mode+"';"
+ def street_hand(flop_action,board,board2=None):
+  global actions,showdown_rows,board_cards,board_cards2
+  actions=[{'userId':raiser,'stage':'preflop','action':'raise','origin':'player'},{'userId':defender,'stage':'preflop','action':'call','origin':'player'},
+           {'userId':defender,'stage':'flop','action':'check','origin':'player'},{'userId':raiser,'stage':'flop','action':flop_action,'origin':'player'}]
+  if flop_action=='bet':actions.append({'userId':defender,'stage':'flop','action':'fold','origin':'player'})
+  showdown_rows=None; board_cards=board; board_cards2=board2
+ RAINBOW=['Kspades','8hearts','3clubs']; PAIRED_FLOP=['8spades','8hearts','Qclubs']
+ plan=[('bet',RAINBOW,None),('bet',RAINBOW,None),('check',RAINBOW,None),('bet',PAIRED_FLOP,None),('bet',RAINBOW,['Qspades','Qhearts','2clubs']),('bet',RAINBOW,None)]
+ for k,(flop_action,board,board2) in enumerate(plan):
+  street_hand(flop_action,board,board2)
+  prior={u:run('street-prior-'+str(k)+u[-1],street_of(u)) for u in (raiser,defender)}
+  accept(300+k,domain)
+  for u in (raiser,defender):
+   # The accepted hand wrote exactly add(prior record, this hand's increments for him).
+   want=run('street-want-'+str(k)+u[-1],"SELECT coalesce(fn_horse_street_read_add("+("NULL" if prior[u] in ('null','') else "'"+prior[u]+"'")+"::jsonb,fn_horse_street_read_increments("+jsonb_literal(actions)+","+text_array(board)+","+text_array(board2)+")->'"+u+"')::text,'null');")
+   assert run('street-learned-'+str(k)+u[-1],street_of(u))==want!='null',(k,u,want)
+ learned=json.loads(run('street-learned-state',street_of(raiser))); sd=0.5**(1/30)
+ street_row(learned)
+ # Six flops with no bet yet (five bet); the rainbow continuation bet saw four of them (three bet), the paired one
+ # one, and the double-board hand taught the street cell and no texture cell.
+ assert abs(learned['bet']['flop']['opp']-sum(sd**j for j in range(6)))<1e-12 and abs(learned['bet']['flop']['hit']-(sd**5+sd**4+sd**2+sd+1))<1e-12,learned
+ assert abs(learned['cbet']['rainbow']['opp']-(sd**3+sd**2+sd+1))<1e-12 and abs(learned['cbet']['rainbow']['hit']-(sd**3+sd**2+1))<1e-12,learned
+ assert learned['cbet']['paired']=={'hit':1,'opp':1} and learned['flopBet']['paired']=={'hit':1,'opp':1} and learned['cbet']['monotone']=={'hit':0,'opp':0},learned
+ assert learned['flopBet']['rainbow']==learned['cbet']['rainbow'] and learned['foldToBet']['flop']=={'hit':0,'opp':0},learned
+ folded=json.loads(run('street-defender-state',street_of(defender)))
+ assert abs(folded['foldToBet']['flop']['opp']-sum(sd**j for j in range(5)))<1e-12 and folded['foldToBet']['flop']['hit']==folded['foldToBet']['flop']['opp'] and folded['cbet']['rainbow']=={'hit':0,'opp':0},folded
+ learned_text=run('street-learned-text',street_of(raiser))
+ # A hand the reducer does not learn for him (a forced fold only) touches neither his counters nor his record.
+ street_counters_of="SELECT observed_hands||':'||coalesce(street_counters::text,'null') FROM horse_exact_profiles WHERE user_id='"+raiser+"' AND mode='cash';"
+ row_before=run('street-row-before-forced',street_counters_of)
+ actions=[{'userId':raiser,'stage':'flop','action':'fold','origin':'forced'}]; board_cards=RAINBOW; board_cards2=None
+ accept(330,domain)
+ assert run('street-forced-not-learned',street_counters_of)==row_before
+ # A hand with no postflop opportunity for him leaves the record exactly as it was (no ageing); a new player whose
+ # only hand ended preflop has a row and no record.
+ preflop_only='00000000-0000-4000-8000-00000000000a'
+ actions=[{'userId':raiser,'stage':'preflop','action':'raise','origin':'player'},{'userId':preflop_only,'stage':'preflop','action':'fold','origin':'player'}]; board_cards=[]
+ accept(331,domain)
+ assert run('street-preflop-unchanged',street_of(raiser))==learned_text
+ assert run('street-preflop-only-null',"SELECT count(*) FROM horse_exact_profiles WHERE user_id='"+preflop_only+"' AND street_counters IS NULL AND observed_hands=1;")=='1'
+ # Tournament evidence stays in the tournament row; the cash record is unchanged.
+ street_hand('bet',PAIRED_FLOP)
+ accept(332,domain,tournament='00000000-0000-4000-8000-0000000000f2')
+ assert run('street-tournament-row',"SELECT street_counters->'cbet'->'paired'->>'opp' FROM horse_exact_profiles WHERE user_id='"+raiser+"' AND mode='tournament';")=='1'
+ assert run('street-cash-untouched-by-tournament',street_of(raiser))==learned_text
+ # The 27-key counters, the long window and the shown river record are written exactly as before.
+ assert run('street-counters-shape',"SELECT (SELECT count(*) FROM jsonb_object_keys(counters))||':'||(long_counters IS NOT NULL)::text FROM horse_exact_profiles WHERE user_id='"+raiser+"' AND mode='cash';")=='27:true'
+ # Rerun idempotence and the read the engine uses.
+ run('repeat-street',streetmig)
+ assert run('street-repeat-definition',trigger_def)==street_forward_def
+ assert run('street-repeat-unchanged',street_of(raiser))==learned_text
+ assert run('street-read',"SET ROLE service_role; SELECT street_counters::text FROM fn_horse_exact_profiles_read(ARRAY['"+raiser+"'],'plo4','cash','full','table','none');")==learned_text
+ board_cards=None; board_cards2=None
+ (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; no production installation'},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
  if started:command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','-w','stop'])

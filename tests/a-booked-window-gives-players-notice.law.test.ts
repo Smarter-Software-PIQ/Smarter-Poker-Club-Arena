@@ -15,6 +15,15 @@
  *      publication;
  *   3. the banner sentence is shown from the notice instant until the window
  *      closes, names Chicago time and never promises a fixed minute.
+ *
+ * ONE RELEASE WITHOUT ADVANCE NOTICE (Dan 2026-11-17, 11:05 Chicago). The owner
+ * ordered the next qualified engine cutover "without an advance
+ * player-warning announcement or notice countdown". An engine window that
+ * carries that exact instruction as ownerNoticeWaiver (and in ownerOrder), no
+ * playerNoticeAt, and closes by OWNER_NOTICE_WAIVER_VALID_UNTIL is exempt from
+ * rule 1 and is not projected to the client, so no banner is shown for it.
+ * Database windows and every later release keep the rule; a record that names
+ * a waiver it may not use is refused (scripts/ci/owner-notice-waiver.mjs).
  */
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -24,6 +33,12 @@ import {
   renderOwnerMaintenanceNotices,
   TARGET,
 } from '../scripts/generate-owner-maintenance-notices.mjs';
+import {
+  OWNER_NOTICE_WAIVER_INSTRUCTION,
+  OWNER_NOTICE_WAIVER_VALID_UNTIL,
+  ownerNoticeWaived,
+  ownerNoticeWaiverProblem,
+} from '../scripts/ci/owner-notice-waiver.mjs';
 import {
   BOOKED_MAINTENANCE_NOTICES,
   bookedMaintenanceNotice,
@@ -42,9 +57,15 @@ const RULE_FROM = Date.parse('2026-11-07T21:00:00Z');
 const MIN_LEAD_MS = 20 * 60 * 1000;
 
 /** Why a booked window fails the notice rule, or null when it passes or is exempt. */
-function noticeViolation(w: Record<string, unknown>): string | null {
+function noticeViolation(
+  w: Record<string, unknown>,
+  collection: 'windows' | 'databaseWindows' = 'windows'
+): string | null {
   const notBefore = Date.parse(String(w.notBefore));
   if (notBefore < RULE_FROM || 'certifiedRecoveryProfile' in w) return null;
+  const waiverProblem = ownerNoticeWaiverProblem(w, collection);
+  if (waiverProblem) return waiverProblem;
+  if (ownerNoticeWaived(w, collection)) return null;
   if (typeof w.playerNoticeAt !== 'string') return 'playerNoticeAt (ISO, UTC) is required';
   const noticeAt = Date.parse(w.playerNoticeAt);
   if (!Number.isFinite(noticeAt)) return 'playerNoticeAt is not a timestamp';
@@ -55,9 +76,12 @@ function noticeViolation(w: Record<string, unknown>): string | null {
 
 describe('every new booking names when players are told', () => {
   it('every booked window passes', () => {
-    const failures = [...doc.windows, ...doc.databaseWindows]
-      .map((w) => [String(w.id), noticeViolation(w)] as const)
-      .filter(([, why]) => why !== null);
+    const failures = [
+      ...doc.windows.map((w) => [String(w.id), noticeViolation(w, 'windows')] as const),
+      ...doc.databaseWindows.map(
+        (w) => [String(w.id), noticeViolation(w, 'databaseWindows')] as const
+      ),
+    ].filter(([, why]) => why !== null);
     expect(failures).toEqual([]);
   });
 
@@ -75,6 +99,69 @@ describe('every new booking names when players are told', () => {
       noticeViolation({ id: 'c', notBefore: '2026-11-08T18:00:00Z', certifiedRecoveryProfile: 'p' })
     ).toBeNull();
     expect(noticeViolation({ id: 'o', notBefore: '2026-11-07T18:00:00Z' })).toBeNull();
+  });
+});
+
+describe('one release without advance notice (owner order 2026-11-17)', () => {
+  const waived = {
+    id: 'w',
+    ownerOrder: `Synthetic order. ${OWNER_NOTICE_WAIVER_INSTRUCTION} Nothing else changes.`,
+    ownerNoticeWaiver: OWNER_NOTICE_WAIVER_INSTRUCTION,
+    notBefore: '2026-11-17T20:06:00Z',
+    notAfter: '2026-11-17T23:00:00Z',
+  };
+  it('keeps the owner instruction word for word', () => {
+    expect(OWNER_NOTICE_WAIVER_INSTRUCTION).toBe(
+      'For this release, execute the earliest qualified engine cutover without an advance player-warning announcement or notice countdown. Preserve safe hand completion, settlement, certification, admission, recovery and live verification.'
+    );
+    expect(OWNER_NOTICE_WAIVER_VALID_UNTIL).toBe('2026-11-18T09:30:00Z');
+  });
+  it('exempts an engine window that carries the exact waiver and no notice instant', () => {
+    expect(ownerNoticeWaived(waived, 'windows')).toBe(true);
+    expect(noticeViolation(waived, 'windows')).toBeNull();
+  });
+  it('refuses every other use of the waiver', () => {
+    const refused = [
+      [{ ...waived, ownerNoticeWaiver: 'no notice please' }, 'windows'],
+      [{ ...waived, ownerNoticeWaiver: true }, 'windows'],
+      [{ ...waived, ownerOrder: 'Synthetic order that does not quote the owner.' }, 'windows'],
+      [{ ...waived, playerNoticeAt: '2026-11-17T19:40:00Z' }, 'windows'],
+      [{ ...waived, notAfter: '2026-11-18T09:30:01Z' }, 'windows'],
+      [{ ...waived, notAfter: 'later' }, 'windows'],
+      [waived, 'databaseWindows'],
+    ] as const;
+    for (const [w, collection] of refused) {
+      expect(ownerNoticeWaived(w, collection)).toBe(false);
+      expect(noticeViolation(w, collection)).toMatch(/^ownerNoticeWaiver is accepted only/);
+    }
+    // Without the field the ordinary rule still bites.
+    const { ownerNoticeWaiver: _dropped, ...plain } = waived;
+    expect(noticeViolation(plain, 'windows')).toBe('playerNoticeAt (ISO, UTC) is required');
+  });
+  it('ships no client notice for a waived engine window, and still ships the others', () => {
+    const out = projectOwnerMaintenanceNotices({
+      windows: [
+        waived,
+        {
+          id: 'e',
+          notBefore: '2026-11-17T21:00:00Z',
+          notAfter: '2026-11-17T23:30:00Z',
+          playerNoticeAt: '2026-11-17T20:30:00Z',
+        },
+      ],
+      databaseWindows: [{ ...waived, id: 'd' }],
+    });
+    expect(out.notices.map((n: { id: string }) => n.id)).toEqual(['d', 'e']);
+  });
+  it('every booked record that names a waiver may use it', () => {
+    const named = [
+      ...doc.windows.map((w) => [w, 'windows'] as const),
+      ...doc.databaseWindows.map((w) => [w, 'databaseWindows'] as const),
+    ].filter(([w]) => 'ownerNoticeWaiver' in w);
+    for (const [w, collection] of named) expect(ownerNoticeWaived(w, collection)).toBe(true);
+    for (const [w] of named) {
+      expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === w.id)).toBe(false);
+    }
   });
 });
 
@@ -589,4 +676,15 @@ it('gives the final one-file promo generation attempt its own later primary noti
   expect(row?.migrations).toEqual([
     '20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql',
   ]);
+});
+
+it('books the 2026-11-17-owner-no-notice-engine-2330z engine window on the owner notice waiver and ships no advance notice', () => {
+  const id = '2026-11-17-owner-no-notice-engine-2330z';
+  const own = doc.windows.find((w) => w.id === id);
+  expect(own).toBeDefined();
+  expect(ownerNoticeWaived(own, 'windows')).toBe(true);
+  expect(own?.playerNoticeAt).toBeUndefined();
+  expect(own?.ownerNoticeWaiver).toBe(OWNER_NOTICE_WAIVER_INSTRUCTION);
+  expect([own?.notBefore, own?.notAfter]).toEqual(['2026-11-17T23:30:00Z', '2026-11-18T05:20:00Z']);
+  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);
 });

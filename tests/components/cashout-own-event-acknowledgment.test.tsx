@@ -81,6 +81,9 @@ const row = {
   playerName: 'Original Player',
   amount: 250,
   status: 'pending' as const,
+  canDecide: true,
+  canEscalate: true,
+  isEscalated: false,
   createdAt: '2026-09-15T09:00:00+00:00',
 };
 let providerChange: () => void;
@@ -148,7 +151,7 @@ beforeEach(() => {
   });
   const channel = { on: vi.fn(), subscribe: vi.fn() };
   channel.on.mockImplementation((_event, _filter, callback) => {
-    providerChange = callback;
+    if (_filter.table === 'cashout_requests') providerChange = callback;
     return channel;
   });
   channel.subscribe.mockReturnValue(channel);

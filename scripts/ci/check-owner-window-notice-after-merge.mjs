@@ -41,6 +41,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ownerNoticeWaived, ownerNoticeWaiverProblem } from './owner-notice-waiver.mjs';
 
 export const FILE = 'server/release/owner-maintenance-windows.json';
 /** Windows main held before this instant are not judged by this rule. */
@@ -133,8 +134,17 @@ export function bookingViolations(doc, bookedAt, now, witnessDoc = null) {
   const ids = new Set(all.filter((w) => w && typeof w.id === 'string').map((w) => w.id));
   const { byId, problems } = readWitnesses(witnessDoc, ids);
   const out = [...problems];
+  const engine = new Set(doc.windows ?? []);
   for (const w of all) {
     if (!w || typeof w.id !== 'string' || 'certifiedRecoveryProfile' in w) continue;
+    // Owner 2026-11-17: one engine release carries the owner's exact notice waiver.
+    const collection = engine.has(w) ? 'windows' : 'databaseWindows';
+    const waiverProblem = ownerNoticeWaiverProblem(w, collection);
+    if (waiverProblem) {
+      out.push(`${w.id}: ${waiverProblem}`);
+      continue;
+    }
+    if (ownerNoticeWaived(w, collection)) continue;
     const onMain = bookedAt(w.id);
     if (onMain !== null && onMain < RULE_FROM) continue;
     const merged = onMain ?? now;

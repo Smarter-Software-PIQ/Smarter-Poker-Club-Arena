@@ -1,3 +1,4 @@
+import { nativeMigrationSelection } from '../scripts/ci/native-migration-selection.mjs';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  THE BREAK CLOCKS AGREE (law, to-do #2563 item 12)
@@ -535,16 +536,16 @@ describe('the break scorecard grades only what the break controls', () => {
 
   it('never shows a bare question mark where a measurement is missing', () => {
     // "Recovery ?s" reads as a broken template. Say what is missing.
-    const all = readdirSync(MIGRATIONS_DIR)
-      .filter((f) => f.endsWith('.sql'))
-      .sort()
-      .filter((f) =>
-        readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8').includes(
-          'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push'
-        )
-      );
+    const selection = nativeMigrationSelection(
+      'CREATE OR REPLACE FUNCTION public.fn_ca_break_scorecard_push',
+      MIGRATIONS_DIR,
+      { fixed: true, timeout: 25_000 }
+    );
+    expect(selection.error).toBeUndefined();
+    expect(selection.status).toBe(0);
+    const all = selection.stdout.trim().split('\n').sort();
     expect(all.length).toBeGreaterThan(0);
-    const push = readFileSync(resolve(MIGRATIONS_DIR, all[all.length - 1]), 'utf8');
+    const push = readFileSync(all[all.length - 1], 'utf8');
     expect(
       /COALESCE\([^)]*,\s*'\?'\s*\)/.test(push),
       "the push renders a missing measurement as '?', which reads as a bug rather than as " +

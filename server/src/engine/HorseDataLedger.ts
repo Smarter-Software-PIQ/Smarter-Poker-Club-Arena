@@ -1005,6 +1005,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PLO paired-board fold'
   ),
   flag(
+    'omahaFlopFacingBetEv',
+    "PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the hand, the equity, the opponent's range and the price, never on the size of the bet alone, and no blanket rule may block a correct decision): in PLO4/PLO5 cash, high only, one board, on the FLOP facing a bet or a raise, a fold or a call (the whole-stack call included) is replaced by one expected-value verdict (HorseOmahaFlopFacingBetEv.ts): the hand's showdown result on two-card runouts sampled with a seed taken from the cards (every unseen card the turn card once, three river cards each, eight opponent holdings per runout; never the brain's random stream), against the bettor's value region (the strongest share of holdings on the flop, set by the bet's share of the pot, a raise and a lead into the preflop aggressor) and his other holdings at a non-value share moved by his measured read, times a realization factor read from the hand's own runouts (equity on runouts where the hand can call the turn and the river is realized, bluff-catcher equity only on streets he checks), against the price and the one margin of omahaFacingBetEv. The flop had no such rule: the stack-share paired-board fold and the 20 big blind big-bet mark decided it; with the option on they no longer decide a spot the verdict covers. A raise is left alone; the bare-overpair continuation keeps its own verdict; tournaments, PLO6, hi-lo, bomb pots and capped wagers are outside it. Independent of omahaFacingBetEv. Constants stated, not measured. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_flop_facing_bet_ev",
+    'V94'
+  ),
+  flag(
     'omahaTurnBetNeedsRiverPlan',
     'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash heads-up, a turn bet that would leave less than half of the resulting pot behind becomes a check when on more than 35% of the river cards the Horse own river fold rules (HorseOmahaOopChecks.omahaRiverShoveFoldVerdict: the paired-board fold with its price exception when that option is on, then the big-bet tier V81 and V86) would fold to an all-in for what is left; exact enumeration; the reference decision equity fold is not asked. Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -4633,6 +4638,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide, settled at the final decision (HorsePloPairedBoardFold, omahaPairedBoardFoldRespectsPrice)',
     'the paired-board fold stood aside for the price and the final decision of HorseLogic.decide was a fold all the same (a later rule folded it: the owner-ruled turn fold with no out, or another fold rule); fired in place of the proposing receipt, which fires only when the final decision is not a fold',
     'PLO paired-board fold'
+  ),
+  receipt(
+    'omaha_flop_facing_bet_ev_call',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopFacingBetEv)',
+    'a PLO4/PLO5 cash flop fold-or-call decision facing a bet or a raise in which the flop expected-value verdict was a call (fired every time the verdict answers, changed or not)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_facing_bet_ev_fold',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopFacingBetEv)',
+    'the same decision in which the flop expected-value verdict was a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_facing_bet_ev_changed',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopFacingBetEv)',
+    'the flop expected-value verdict differed from the answer it was given (a fold became a call or a call became a fold); the rule it replaced is the legacy receipt fired in the same decision (plo_paired_board_fold and the others)',
+    'V94'
   ),
   receipt(
     'omaha_turn_bet_without_river_plan_checked',

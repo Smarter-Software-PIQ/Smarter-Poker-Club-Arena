@@ -1314,6 +1314,11 @@ def main():
                        'labels': {'engine_alert_episode_id': bad}}}
             assert sql("SELECT smarter_private.reliability_engine_episode_identity($n$%s$n$,$p$%s$p$::jsonb) IS NULL" % (engine_name,json.dumps(payload))) == 't'
         ok('unknown and malformed engine identities remain unresolved and neither browser role can execute the private identity helper')
+        import importlib.util
+        review_module=ROOT/'scripts/ci/qualify-alert-review-outcomes.py'
+        review_spec=importlib.util.spec_from_file_location('original_review_outcomes',review_module)
+        review=importlib.util.module_from_spec(review_spec);review_spec.loader.exec_module(review)
+        review.qualify(ROOT,sql,psql,record,incident,tick,now,ok)
         print(f'{len(passed)}/{len(passed)} behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)

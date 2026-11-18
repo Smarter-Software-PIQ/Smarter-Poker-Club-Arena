@@ -67,6 +67,10 @@ import {
   omahaPlo6FacingBetEvFoldStands,
 } from '../HorseOmahaFacingBetEv.js';
 import {
+  OMAHA_FLOP_FACING_BET_EV_VARIANTS,
+  omahaFlopFacingBetEvAdmitsCall,
+} from '../HorseOmahaFlopFacingBetEv.js';
+import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
 } from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
@@ -1489,6 +1493,24 @@ function policyGraphIsValidInScope(
           );
         return true;
       })();
+    // PLO Strategy lane 2026-11-17 (HorseOmahaFlopFacingBetEv, option
+    // omahaFlopFacingBetEv): on the PLO4/PLO5 cash flop a fold facing a bet
+    // becomes the call when the expected value of the call clears its margin;
+    // the fold may be the paired-board fold of a raise, so the node may have
+    // entered as a raise (the reverse, call to fold, is the fold admission
+    // above). The verdict reads the opponent memory, which the request does
+    // not carry, so the call is admitted only with the request, only in the
+    // flop spot the rule covers and only for the exact chips the call puts
+    // in. Its whole-stack form is an all-in, a wager action.
+    const omahaFlopFacingBetEvCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'bet', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
     // river a raise facing a wager with a hand that is not nut class becomes
@@ -1612,6 +1634,7 @@ function policyGraphIsValidInScope(
       !omahaRiverMediumBetCalled &&
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
+      !omahaFlopFacingBetEvCalled &&
       !omahaRaiseNeedsNutsCalled &&
       !omahaPricedRaiseCalled &&
       !omahaSlowplayCalled &&

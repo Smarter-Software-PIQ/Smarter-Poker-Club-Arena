@@ -32,7 +32,8 @@ DAILY_LAW = 'tests/daily-engine-maintenance.law.test.ts'
 NOTICE_LAW = 'tests/a-booked-window-gives-players-notice.law.test.ts'
 # Everything the booking edits plus everything the native floor suite reads.
 COPIED_DIRS = ('server/scripts', 'server/release', 'server/src/maintenance', '.github/workflows')
-COPIED_FILES = (RECOVERY, NOTICES, 'scripts/generate-owner-maintenance-notices.mjs', 'PUBLISHING.md',
+COPIED_FILES = (RECOVERY, NOTICES, 'scripts/generate-owner-maintenance-notices.mjs',
+                'scripts/ci/owner-notice-waiver.mjs', 'PUBLISHING.md',
                 'docs/ENGINE-RELEASE-RUNBOOK.md', SUITE, 'tests/operations/engine-drill-admission.py',
                 FLOOR_LAW, DAILY_LAW, NOTICE_LAW)
 SUITE_TIMEOUT = 900
@@ -44,6 +45,30 @@ A = dict(window_id='2026-11-20-owner-test-engine-0606z', predecessor='a1' * 20, 
 B = dict(window_id='2026-11-21-owner-test-engine-0712z', predecessor='a1' * 20, contains='d4' * 20,
          notice_at='2026-11-21T06:45:00Z', not_before='2026-11-21T07:12:00Z', not_after='2026-11-21T09:00:00Z',
          slug='synthetic-owner-window-b')
+
+
+# W is booked on the owner notice waiver of 2026-11-17: no playerNoticeAt, no client notice.
+W = dict(window_id='2026-11-18-owner-test-engine-0606z', predecessor='a1' * 20, contains='e5' * 20,
+         notice_at=None, not_before='2026-11-18T06:06:00Z', not_after='2026-11-18T08:30:00Z',
+         slug='synthetic-owner-window-w')
+
+
+def waiver_constants():
+    """The two values the command and scripts/ci/owner-notice-waiver.mjs must both hold."""
+    command = (ROOT / 'scripts/release/book-owner-engine-window.py').read_text()
+    tree = ast.parse(command)
+    values = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], 'id', '') in (
+                'OWNER_NOTICE_WAIVER', 'OWNER_NOTICE_WAIVER_VALID_UNTIL'):
+            values[node.targets[0].id] = ast.literal_eval(node.value)
+    return values['OWNER_NOTICE_WAIVER'], values['OWNER_NOTICE_WAIVER_VALID_UNTIL']
+
+
+def waived_order_text(predecessor):
+    return ('Synthetic test order: one single-use replacement of exact serving ' + predecessor + '. '
+            + waiver_constants()[0] + ' A full 1800-second soak, the full 285s reserve, '
+              'zero opportunities reported honestly; the consumed booking is not extended.')
 
 
 def sha(path):
@@ -77,14 +102,17 @@ class BookOwnerEngineWindow(unittest.TestCase):
     def book(self, spec, order=None, dry_run=False, **changes):
         spec = dict(spec, **changes)
         tag = spec['window_id']
-        files = {'order': order if order is not None else order_text(spec['predecessor']),
+        waived = spec['notice_at'] is None
+        default_order = waived_order_text(spec['predecessor']) if waived else order_text(spec['predecessor'])
+        files = {'order': order if order is not None else default_order,
                  'summary': f'**Synthetic booking:** single-use `{tag}` exists only inside a test.',
                  'changelog': f'# Synthetic booking {tag}\n\nWritten by a test into a disposable tree.\n'}
         for name, text in files.items():
             (self.inputs / f'{tag}-{name}.txt').write_text(text + '\n')
         command = [sys.executable, '-B', str(SCRIPT), '--repo', str(self.repo),
                    '--window-id', tag, '--predecessor', spec['predecessor'], '--contains', spec['contains'],
-                   '--notice-at', spec['notice_at'], '--not-before', spec['not_before'],
+                   *(['--no-advance-notice'] if waived else ['--notice-at', spec['notice_at']]),
+                   *spec.get('extra', []), '--not-before', spec['not_before'],
                    '--not-after', spec['not_after'], '--slug', spec['slug'],
                    '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
                    '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
@@ -92,6 +120,34 @@ class BookOwnerEngineWindow(unittest.TestCase):
         if dry_run:
             command.append('--dry-run')
         return subprocess.run(command, text=True, capture_output=True, timeout=SUITE_TIMEOUT)
+
+    def write_without_suite(self, spec):
+        """Plan and write a booking with the command's own code, without its closing floor-suite run."""
+        import argparse
+        import importlib.util
+        loader = importlib.util.spec_from_file_location('book_owner_engine_window', SCRIPT)
+        command = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(command)
+        tag = spec['window_id']
+        files = {'order': waived_order_text(spec['predecessor']) if spec['notice_at'] is None else order_text(spec['predecessor']),
+                 'summary': f'**Synthetic booking:** single-use `{tag}` exists only inside a test.',
+                 'changelog': f'# Synthetic booking {tag}\n\nWritten by a test into a disposable tree.\n'}
+        for name, text in files.items():
+            (self.inputs / f'{tag}-{name}.txt').write_text(text + '\n')
+        booking = command.Booking(argparse.Namespace(
+            window_id=tag, predecessor=spec['predecessor'], contains=spec['contains'],
+            notice_at=spec['notice_at'], no_advance_notice=spec['notice_at'] is None,
+            not_before=spec['not_before'], not_after=spec['not_after'], slug=spec['slug'],
+            owner_order_file=str(self.inputs / f'{tag}-order.txt'),
+            summary_file=str(self.inputs / f'{tag}-summary.txt'),
+            changelog_file=str(self.inputs / f'{tag}-changelog.txt'),
+            dry_run=False, laws=False, repo=str(self.repo)))
+        booking.plan()
+        booking.write()
+        return booking
+
+    def generated_test_name(self, spec):
+        return 'test_owner_window_' + spec['window_id'].replace('-', '_') + '_binds_fresh_authority_to_its_serving_predecessor'
 
     def snapshot(self):
         return {str(path.relative_to(self.repo)): (sha(path), path.stat().st_mode & 0o777)
@@ -241,6 +297,88 @@ class BookOwnerEngineWindow(unittest.TestCase):
                 f"        self.assertEqual(windows['windows'].pop()['id'], '{B['window_id']}')\n"
                 f"        self.assertEqual(windows['windows'].pop()['id'], '{A['window_id']}')\n"
                 f"        self.assertEqual(windows['windows'].pop()['id'], '{old_id}')\n"), chain[:300])
+
+    def test_books_one_window_on_the_owner_notice_waiver_then_an_ordinary_one(self):
+        instruction, valid_until = waiver_constants()
+        module = (ROOT / 'scripts/ci/owner-notice-waiver.mjs').read_text()
+        # One sentence, one expiry, in both places.
+        self.assertIn(valid_until, module)
+        literal = module.split('export const OWNER_NOTICE_WAIVER_INSTRUCTION =')[1].split(';')[0]
+        self.assertEqual(''.join(re.findall(r"'([^']*)'", literal)), instruction)
+        windows = json.loads(self.read(WINDOWS))
+        old_id = self.constant('NOV7_OWNER_ID', FLOOR_PY)
+        notices_before = sha(self.repo / NOTICES)
+        cases = len(re.findall(r'^    def test_', self.read(SUITE), re.M))
+
+        plan = self.book(W, dry_run=True)
+        self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
+        self.assertIn('notice            none (owner notice waiver 2026-11-17', plan.stdout)
+        self.assertNotIn(NOTICES, plan.stdout)
+
+        # Written through the command's own plan and write, in process. The floor suite this booking
+        # generates is not run here: test_books_one_window_then_the_next_and_the_floor_suite_passes_each_time
+        # runs it for the shared write path, the generated text is parsed by plan_floor_suite, and the
+        # one-command law runs this whole file under an 840 s hang guard that a further suite run exceeds
+        # on a loaded host. Every real waived booking runs the suite when the command writes it.
+        self.write_without_suite(W)
+        self.assertEqual(len(re.findall(r'^    def test_', self.read(SUITE), re.M)), cases + 1)
+        doc = json.loads(self.read(WINDOWS))
+        self.assertEqual(doc['windows'][:-1], windows['windows'])
+        self.assertEqual(doc['databaseWindows'], windows['databaseWindows'])
+        window = doc['windows'][-1]
+        self.assertEqual(window, {
+            'id': W['window_id'], 'ownerOrder': waived_order_text(W['predecessor']), 'contains': W['contains'],
+            'ownerNoticeWaiver': instruction, 'notBefore': W['not_before'], 'notAfter': W['not_after'],
+            'announcementPolicy': 'earliest-certified', 'supersedesPhase1Schedule': True, 'migrations': [],
+            'releaseWitness': {'path': FLOOR, 'sha256': sha(self.repo / FLOOR)}})
+        self.assertNotIn('playerNoticeAt', window)
+        self.assertEqual(self.constant('NOV7_ORDER_DIGEST', FLOOR_PY), hashlib.sha256(
+            json.dumps(window, sort_keys=True, separators=(',', ':')).encode()).hexdigest())
+        # No advance notice is shipped: the client projection is byte-identical.
+        self.assertEqual(sha(self.repo / NOTICES), notices_before)
+        suite = self.read(SUITE)
+        self.assertIn("        self.assertNotIn('playerNoticeAt', window)\n", suite)
+        self.assertNotIn("'twenty minutes'", suite.split(f"self.assertEqual(floor.NOV7_OWNER_ID, '{W['window_id']}')")[1].split('    def test_')[0])
+        notice_law = self.read(NOTICE_LAW)
+        self.assertEqual(notice_law.count(f"const id = '{W['window_id']}';"), 1)
+        self.assertIn("  expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === id)).toBe(false);\n});\n", notice_law)
+        self.assert_law_lists_the_suite()
+
+        # The next ordinary booking can demote the waived window's generated test. A dry run plans the
+        # whole rewrite (it refuses on any line the demotion does not know) without a third suite run,
+        # which the one-command law's hang guard cannot afford on a loaded host.
+        later = self.book(B, dry_run=True)
+        self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+        self.assertIn('DRY RUN: nothing written.', later.stdout)
+        self.assertIn(f'previous test     {self.generated_test_name(W)}', later.stdout)
+        self.assertNotIn('WARNING', later.stdout)
+
+    def test_the_owner_notice_waiver_is_refused_outside_its_exact_terms(self):
+        before = self.snapshot()
+        instruction, _ = waiver_constants()
+        refusals = (
+            (dict(extra=['--notice-at', '2026-11-18T05:40:00Z']), None, r'exactly one of --notice-at and --no-advance-notice'),
+            (dict(), waived_order_text(W['predecessor']).replace(instruction, 'No notice this time.'),
+             r'lacks required text.*For this release, execute the earliest qualified engine cutover'),
+            (dict(), waived_order_text(W['predecessor']).replace('not extended', 'kept'), r"lacks required text.*'not extended'"),
+            # The waiver ends at the 03:30 America/Chicago preparation of November 18 (09:30 UTC).
+            (dict(window_id='2026-11-20-owner-test-engine-0606z', not_before='2026-11-20T06:06:00Z',
+                  not_after='2026-11-20T08:30:00Z'), None, r'a window closing after 2026-11-18T09:30:00Z cannot use it'),
+            (dict(not_before='2026-11-18T06:05:29Z'), None, r'329 s past the hour'),
+        )
+        for changes, order, pattern in refusals:
+            with self.subTest(pattern=pattern):
+                self.assert_refused(self.book(W, order=order, **changes), pattern, before)
+        # Neither flag is also refused.
+        tag = W['window_id']
+        result = subprocess.run([sys.executable, '-B', str(SCRIPT), '--repo', str(self.repo), '--window-id', tag,
+                                 '--predecessor', W['predecessor'], '--contains', W['contains'],
+                                 '--not-before', W['not_before'], '--not-after', W['not_after'], '--slug', W['slug'],
+                                 '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
+                                 '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
+                                 '--changelog-file', str(self.inputs / f'{tag}-changelog.txt')],
+                                text=True, capture_output=True, timeout=SUITE_TIMEOUT)
+        self.assert_refused(result, r'exactly one of --notice-at and --no-advance-notice', before)
 
     def test_refuses_each_invalid_booking_before_writing_anything(self):
         before = self.snapshot()
@@ -402,7 +540,8 @@ class BookOwnerEngineWindow(unittest.TestCase):
 
     def test_an_overlapping_notice_is_booked_with_a_warning_and_a_narrower_case(self):
         # Overlap the current window's still-shipped promise: its notAfter is not before the new notice.
-        current = json.loads(self.read(WINDOWS))['windows'][-1]
+        # A window booked on the owner notice waiver ships no notice, so it cannot overlap one.
+        current = [w for w in json.loads(self.read(WINDOWS))['windows'] if 'ownerNoticeWaiver' not in w][-1]
         spec = dict(A, window_id='2026-11-14-owner-test-engine-0712z', notice_at='2026-11-14T06:45:00Z',
                     not_before='2026-11-14T07:12:00Z', not_after='2026-11-14T09:00:00Z')
         self.assertGreater(current['notAfter'], spec['notice_at'])

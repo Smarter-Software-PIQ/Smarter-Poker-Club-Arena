@@ -32,12 +32,13 @@ describe('a union member club card splits the union floor', () => {
         clubId={25450}
         splitFloorLabel="MIDWAY UNION"
         floorPlaying={306}
+        floorHorses={304}
       />
     );
     const floor = document.querySelector('.club-card-stat-split-floor');
     // Dan 2026-11-17: the union figure is named with its union, never as the
     // club's ACTIVE, which stays the club's own measured figure.
-    expect(floor?.textContent).toBe('306 PLAYING ACROSS MIDWAY UNION');
+    expect(floor?.textContent).toBe('306 PLAYERS ACROSS MIDWAY UNION · INCLUDES HORSES');
     const active = document.querySelector(
       '.club-card-stat--active .club-card-stat-value, .club-card-stat-value.sc-ink--green'
     );

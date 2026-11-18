@@ -292,6 +292,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'stands aside for the expected-value verdict on the turn and river'
   ),
   omahaBigBetIsPotShare: priced('reads a turn or river wager by its pot share, not 20 big blinds'),
+  omahaFlopFacingBetEv: priced(
+    "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
+  ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
   // categorical, replaced
   omahaTurnRiverRaiseNeedsNuts: categorical('omahaTurnRiverRaiseIsPriced'),
@@ -308,7 +311,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaUnderpairNoMultiwayFlopContinue: categorical('omahaUnderpairMultiwayIsPriced'),
   // categorical, not yet replaced
   ploPairedBoardFold: open(
-    'the flop: stack share and category (audit 1). The flop facing-bet EV (omahaFlopFacingBetEv, plo-flopev-01BNteGZ) replaces it; on the turn and river the expected-value verdict already does'
+    'the flop: stack share and category (audit 1). It still decides whenever omahaFlopFacingBetEv is off (that option is default OFF and has no rule site in this register yet); on the turn and river the expected-value verdict already does'
   ),
   omahaBareOverpairOopFlopCheck: open(
     'the flop bet-to-check half is by hand class and position; the flop street plan (plo-wave2b-01BNteGZ) prices the flop bet'

@@ -6,9 +6,12 @@ const state = vi.hoisted(() => ({
   prepare: vi.fn(),
   approve: vi.fn(),
   reject: vi.fn(),
+  escalate: vi.fn(),
   lock: vi.fn(),
   recover: vi.fn(),
   listeners: [] as Array<() => void>,
+  realtime: new Map<string, (payload: any) => void>(),
+  realtimeEvents: new Map<string, string>(),
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({
   useAuthUser: () => ({ user: { id: state.userId } }),
@@ -16,6 +19,7 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
 vi.mock('../../src/services/CashoutService', () => ({
   captureCashoutAccountGuard: () => () => true,
   cashoutService: {
+    escalateCashout: (...args: unknown[]) => state.escalate(...args),
     getAgentPendingCashouts: (...args: unknown[]) => state.read(...args),
     approveCashout: (...args: unknown[]) => state.approve(...args),
     rejectCashout: (...args: unknown[]) => state.reject(...args),
@@ -84,7 +88,7 @@ vi.mock('../../src/core/MasterBus', () => ({
     },
     removeRegisteredChannel: vi.fn(),
     getOrCreateChannel: () => {
-      const c = { on: () => c, subscribe: vi.fn() };
+      const c = { on: (_event: string, filter: { table: string; event: string }, callback: (payload: any) => void) => { state.realtime.set(filter.table, callback); state.realtimeEvents.set(filter.table, filter.event); return c; }, subscribe: vi.fn() };
       return c;
     },
   },
@@ -97,6 +101,9 @@ const row = (id = 'request-a', clubId = 'club-a') => ({
   clubId,
   amount: 12.34,
   status: 'pending' as const,
+  canDecide: true,
+  canEscalate: true,
+  isEscalated: false,
   playerName: id,
   createdAt: '2026-09-15T00:00:00Z',
 });
@@ -110,10 +117,12 @@ function deferred<T>() {
 beforeEach(() => {
   state.userId = 'cashier-a';
   state.listeners.length = 0;
+  state.realtime.clear();
   state.read.mockReset().mockResolvedValue([row()]);
   state.prepare.mockReset().mockImplementation(async (intent) => intent);
   state.approve.mockReset().mockResolvedValue(true);
   state.reject.mockReset().mockResolvedValue(true);
+  state.escalate.mockReset().mockResolvedValue('notice-a');
   state.lock.mockReset().mockResolvedValue({ locked: true });
   state.recover.mockReset().mockResolvedValue({ found: false });
 });
@@ -251,4 +260,65 @@ it.each(['approve', 'reject'] as const)('processes %s immediately despite an unr
   fireEvent.click(screen.getByRole('button', { name: action === 'approve' ? 'Approve Cashout' : 'Reject' }));
   await waitFor(() => expect(action === 'approve' ? state.approve : state.reject).toHaveBeenCalledOnce());
   expect(state.lock).not.toHaveBeenCalled();
+});
+
+it('shares the original request once and removes agent decisions after escalation', async () => {
+  render(<AgentCashoutPanel clubId="club-a" />);
+  await readyApprove();
+  const response = deferred<string>();
+  state.escalate.mockReturnValue(response.promise);
+  const button = screen.getByRole('button', { name: 'Send To Notice Board' });
+  act(() => { button.click(); button.click(); });
+  expect(state.escalate).toHaveBeenCalledTimes(1);
+  expect(state.escalate.mock.calls[0][0]).toMatchObject({ id: 'request-a', amount: 12.34 });
+  state.read.mockResolvedValue([{ ...row(), isEscalated: true, canDecide: false, canEscalate: false }]);
+  await act(async () => response.resolve('notice-a'));
+  await screen.findByText(/Sent To Notice Board/);
+  expect(screen.queryByRole('button', { name: 'Approve Cashout' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+  expect(state.approve).not.toHaveBeenCalled();
+});
+it('renders an escalated request read only for agents and retains the original player note', async () => {
+  state.read.mockResolvedValue([{ ...row(), isEscalated: true, canDecide: false, canEscalate: false,
+    playerNote: 'Please Call Me\nBefore Payment' }]);
+  render(<AgentCashoutPanel clubId="club-a" />);
+  await screen.findByText('Note For Agent');
+  expect(screen.getByText(/Please Call Me/).textContent).toContain('Before Payment');
+  expect(screen.queryByRole('button', { name: 'Approve Cashout' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Send To Notice Board' })).toBeNull();
+});
+
+it('revokes visible queue and decisions on an UPDATE to the private access event', async () => {
+  render(<AgentCashoutPanel clubId="club-a" />);
+  await readyApprove();
+  expect(state.realtimeEvents.get('club_notice_access_events')).toBe('*');
+  act(() => state.realtime.get('club_notice_access_events')?.({ eventType: 'UPDATE', new: { club_id: 'club-a', can_access: false } }));
+  expect(screen.queryByRole('button', { name: 'Approve Cashout' })).not.toBeInTheDocument();
+  expect(screen.queryByText('request-a')).not.toBeInTheDocument();
+  expect(state.approve).not.toHaveBeenCalled();
+});
+it('refreshes capabilities after another session sends the request to Notice Board', async () => {
+  render(<AgentCashoutPanel clubId="club-a" />);
+  await readyApprove();
+  state.read.mockResolvedValue([{ ...row(), isEscalated: true, canDecide: false, canEscalate: false }]);
+  act(() => state.realtime.get('club_notice_board')?.({ new: { club_id: 'club-a' } }));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve Cashout' })).not.toBeInTheDocument());
+  expect(screen.queryByRole('button', { name: 'Send To Notice Board' })).not.toBeInTheDocument();
+});
+
+it('retires another request immediately while preserving the accepted request receipt', async () => {
+  const acknowledgment = deferred<boolean>();
+  state.read.mockResolvedValue([row('request-a'), row('request-b')]);
+  state.approve.mockReturnValue(acknowledgment.promise);
+  render(<AgentCashoutPanel clubId="club-a" />);
+  const buttons = await screen.findAllByRole('button', { name: 'Approve Cashout' });
+  await waitFor(() => expect(buttons[0]).not.toBeDisabled());
+  fireEvent.click(buttons[0]);
+  await waitFor(() => expect(state.approve).toHaveBeenCalledTimes(1));
+  act(() => state.realtime.get('club_notice_board')?.({ new: { club_id: 'club-a', cashout_id: 'request-b' } }));
+  expect(screen.getAllByRole('button', { name: /Approve Cashout|Approving/ })).toHaveLength(1);
+  state.read.mockResolvedValue([{ ...row('request-b'), isEscalated: true, canDecide: false, canEscalate: false }]);
+  await act(async () => acknowledgment.resolve(true));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve Cashout' })).not.toBeInTheDocument());
+  expect(state.approve).toHaveBeenCalledTimes(1);
 });
