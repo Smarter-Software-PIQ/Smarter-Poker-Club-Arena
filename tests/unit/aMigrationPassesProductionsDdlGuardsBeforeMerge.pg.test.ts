@@ -166,6 +166,8 @@ function guards(db: string, production: boolean) {
 function build(db: string, { production, bank }: { production: boolean; bank: boolean }) {
   ok('postgres', `CREATE DATABASE ${db}`);
   ok(db, fromHarness('RAKE_SCHEMA'));
+  // The migration ledger the capture reads names from (installed-names.tsv).
+  ok(db, 'CREATE SCHEMA supabase_migrations; CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY, name text, statements text[]);');
   loadFunctions(db, 'cash-rake-pending');
   ok(db, fromHarness('RAKE_TRIGGERS'));
   guards(db, production);
@@ -286,7 +288,8 @@ describe("#11256's original 20261118034950 is refused before merge by the applie
     const cat = loadCatalog(
       readFileSync(join(cap, 'guards-catalog.tsv'), 'utf8'),
       readFileSync(join(cap, 'guards-public.tsv'), 'utf8'),
-      readFileSync(join(cap, 'guards-hex.tsv'), 'utf8')
+      readFileSync(join(cap, 'guards-hex.tsv'), 'utf8'),
+      readFileSync(join(cap, 'guards-hex-public.tsv'), 'utf8')
     );
     expect(cat.pinnersOf(TALLY_BEFORE)).toEqual([PINNER]);
     expect(staticPinFindings(RAKE_ORIGINAL, cat).stale).toEqual([

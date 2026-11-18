@@ -51,19 +51,43 @@ describe('the window queue is rehearsed in the installer order before merge', ()
     ]);
   });
 
-  it('a file older than the pending horizon is history, not a prerequisite (1,003 were replayed on 2026-11-18)', () => {
+  it('pending or history is decided from evidence, not from a version string alone', () => {
     const ORD2 = 'BEGIN;\nSELECT 1;\nCOMMIT;\n';
-    const plan = planRehearsal(
-      [
-        { name: '20260124120000_ancient.sql', sql: ORD2 },
-        { name: '20261117100000_recent.sql', sql: ORD2 },
-        { name: '20260301000000_changed_old.sql', sql: ORD2 },
-      ],
-      new Set(['20261118092009']),
-      new Set(['20260301000000_changed_old.sql'])
-    );
-    expect(pendingFloor(new Set(['20261118092009']))).toBe('20261116092009');
-    expect(plan.ordinary).toEqual(['20260301000000_changed_old.sql', '20261117100000_recent.sql']);
+    const now = Date.UTC(2026, 10, 18, 16, 0, 0);
+    const installed = new Set(['20261118092009']);
+    const files = [
+      { name: '20260124120000_ancient_never_recorded.sql', sql: ORD2 },
+      { name: '20260301000000_recorded_by_name.sql', sql: ORD2 },
+      { name: '20260402000000_merged_late_with_an_old_stamp.sql', sql: ORD2 },
+      { name: '20261117100000_recent.sql', sql: ORD2 },
+    ];
+    const plan = planRehearsal(files, installed, new Set(), {
+      now,
+      recordedNames: new Set(['recorded_by_name']),
+      recentlyAdded: new Set(['20260402000000_merged_late_with_an_old_stamp.sql']),
+      aliasedFiles: new Set(),
+    });
+    // 1,003 such ancient files were replayed over production's schema on 2026-11-18.
+    expect(plan.ordinary).toEqual([
+      '20260402000000_merged_late_with_an_old_stamp.sql',
+      '20261117100000_recent.sql',
+    ]);
+    // No git evidence: the time bound alone still keeps the recent file.
+    expect(planRehearsal(files, installed, new Set(), { now }).ordinary).toEqual([
+      '20261117100000_recent.sql',
+    ]);
+  });
+
+  it('one future-stamped installed version cannot turn pending files into history', () => {
+    const ORD2 = 'BEGIN;\nSELECT 1;\nCOMMIT;\n';
+    const now = Date.UTC(2026, 10, 18, 16, 0, 0);
+    const future = new Set(['20991231235959', '20261118092009']);
+    expect(pendingFloor(future, now)).toBe('20261116160000');
+    expect(pendingFloor(new Set(['20261118092009']), now)).toBe('20261116092009');
+    expect(
+      planRehearsal([{ name: '20261118100000_pending.sql', sql: ORD2 }], future, new Set(), { now })
+        .ordinary
+    ).toEqual(['20261118100000_pending.sql']);
   });
 
   it('a statically invalid window file is named, and charged to the pull request that changes it', () => {

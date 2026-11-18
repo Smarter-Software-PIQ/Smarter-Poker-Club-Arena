@@ -35,7 +35,7 @@ echo "supabase/migrations/$FILE" > "$WORK/changed.txt"
 grep -vx "$VERSION" "$INSTALLED" > "$WORK/installed.txt" || true
 
 PSQL="docker exec -i $CONTAINER psql -U postgres -d postgres"
-for q in catalog-catalog-path:guards-catalog.tsv catalog-public-path:guards-public.tsv pins:guards-hex.tsv; do
+for q in catalog-catalog-path:guards-catalog.tsv catalog-public-path:guards-public.tsv pins:guards-hex.tsv pins-public-path:guards-hex-public.tsv; do
   node "$ROOT/scripts/ci/migration-guards-capture.mjs" sql "${q%%:*}" \
     | $PSQL -X -q -A -t -F $'\t' -v ON_ERROR_STOP=1 > "$WORK/capture/${q##*:}"
 done

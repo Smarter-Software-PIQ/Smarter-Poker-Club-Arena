@@ -23,8 +23,8 @@
     }
   },
   "tables": {
-    "public.ca_money_rpc_registry": "CREATE TABLE public.ca_money_rpc_registry (proname text NOT NULL, status text NOT NULL DEFAULT 'approved'::text, notes text, added_at timestamp with time zone NOT NULL DEFAULT now(), PRIMARY KEY (proname), CHECK ((status = ANY (ARRAY['approved'::text, 'legacy'::text, 'retired'::text, 'system'::text, 'closed'::text]))))",
-    "smarter_private.function_body_lineage": "CREATE TABLE smarter_private.function_body_lineage (fn_key text NOT NULL, body_fp text NOT NULL, state text NOT NULL, first_seen_at timestamp with time zone NOT NULL DEFAULT clock_timestamp(), superseded_at timestamp with time zone, source text NOT NULL, PRIMARY KEY (fn_key, body_fp), CHECK ((state = ANY (ARRAY['live'::text, 'superseded'::text]))))"
+    "public.ca_money_rpc_registry": "CREATE TABLE IF NOT EXISTS public.ca_money_rpc_registry (proname text NOT NULL, status text NOT NULL DEFAULT 'approved'::text, notes text, added_at timestamp with time zone NOT NULL DEFAULT now(), PRIMARY KEY (proname), CHECK ((status = ANY (ARRAY['approved'::text, 'legacy'::text, 'retired'::text, 'system'::text, 'closed'::text]))))",
+    "smarter_private.function_body_lineage": "CREATE TABLE IF NOT EXISTS smarter_private.function_body_lineage (fn_key text NOT NULL, body_fp text NOT NULL, state text NOT NULL, first_seen_at timestamp with time zone NOT NULL DEFAULT clock_timestamp(), superseded_at timestamp with time zone, source text NOT NULL, PRIMARY KEY (fn_key, body_fp), CHECK ((state = ANY (ARRAY['live'::text, 'superseded'::text]))))"
   },
   "event_triggers": [
     {

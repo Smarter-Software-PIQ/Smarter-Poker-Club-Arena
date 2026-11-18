@@ -23,7 +23,7 @@
  *
  * It reads no network and holds no credential.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -35,49 +35,80 @@ import {
   validateWindowMigration,
   windowLocks,
 } from './maintenance-window-migrations.mjs';
-import { supersededBy } from './check-migrations-are-live.mjs';
+import { matchedByName, supersededBy } from './check-migrations-are-live.mjs';
+import { loadAliases } from './migration-aliases.mjs';
 
 export const MIGRATION_FILE = /^(\d{14})_[a-z0-9_]+\.sql$/;
+
+export const PENDING_HORIZON_HOURS = 48;
+
+const stamp = (ms) => new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14);
+const msOf = (v) =>
+  Date.UTC(
+    +v.slice(0, 4),
+    +v.slice(4, 6) - 1,
+    +v.slice(6, 8),
+    +v.slice(8, 10),
+    +v.slice(10, 12),
+    +v.slice(12, 14)
+  );
+
+/**
+ * The time bound of "pending": PENDING_HORIZON_HOURS before the newest version
+ * production holds, and never later than PENDING_HORIZON_HOURS before NOW, so
+ * one future-stamped installed version cannot turn every pending file into
+ * history. It is only an additional bound (see isPending): a file at or after
+ * it is pending; a file before it is pending too when the evidence says so.
+ */
+export function pendingFloor(installed, now = Date.now()) {
+  const newest = [...installed]
+    .filter((v) => /^\d{14}$/.test(v))
+    .sort()
+    .pop();
+  const cap = now - PENDING_HORIZON_HOURS * 3600e3;
+  if (!newest) return stamp(cap);
+  return stamp(Math.min(msOf(newest) - PENDING_HORIZON_HOURS * 3600e3, cap));
+}
+
+/**
+ * IS AN UNINSTALLED FILE PENDING, OR HISTORY? (2026-11-18, incident 075013fd)
+ * "Not in schema_migrations by version" alone named 1,003 prerequisites on
+ * 2026-11-18 and replayed months-old function bodies over production's schema:
+ * Supabase's transport stamps its own version, so ~1,000 files are recorded
+ * under another version or name. Decided from evidence, as
+ * check-migrations-are-live.mjs decides it:
+ *   - HISTORY when production recorded it by name (matchedByName: its slug,
+ *     its whole stem, or the 55-character truncation) or
+ *     applied-migration-aliases.json maps it to an installed version;
+ *   - otherwise PENDING when git says it was first added to main within the
+ *     recent window (a file merged late with an old stamp is pending, however
+ *     old the stamp), or its version is at or after pendingFloor;
+ *   - otherwise HISTORY: added long ago and never recorded by version, name
+ *     or alias (the pre-ledger estate).
+ * Evidence that could not be gathered is null and simply does not count; a
+ * file the pull request changes is always judged.
+ * @param {{recordedNames?: Set<string>|null, aliasedFiles?: Set<string>|null,
+ *          recentlyAdded?: Set<string>|null, now?: number}} evidence
+ */
+export function isPending(name, version, installed, evidence = {}) {
+  const names = evidence.recordedNames;
+  if (names && names.size) {
+    const prefixes = new Set([...names].map((n) => n.slice(0, 55)));
+    if (matchedByName(name, names, prefixes)) return false;
+  }
+  if (evidence.aliasedFiles?.has(name)) return false;
+  if (evidence.recentlyAdded?.has(name)) return true;
+  return version >= pendingFloor(installed, evidence.now);
+}
 
 /**
  * @param {{name: string, sql: string}[]} files  every migration file in the tree
  * @param {Set<string>} installed                 versions production holds
  * @param {Set<string>} [changed]                 file names the pull request adds or modifies
+ * @param {object} [evidence]                     see isPending
  */
-export const PENDING_HORIZON_HOURS = 48;
-
-/**
- * The oldest version still "pending" rather than history: PENDING_HORIZON_HOURS
- * before the newest version production holds. The tree carries ~1,000 old
- * files that production recorded under other versions or names (Supabase's
- * transport stamps its own; check-migrations-are-live.mjs matches them by name
- * and object), so "not in schema_migrations by version" alone named 1,003
- * "prerequisites" on 2026-11-18 and replayed months-old function bodies over
- * production's schema before the rehearsal judged anything. A file older than
- * this is not in any install queue.
- */
-export function pendingFloor(installed) {
-  const newest = [...installed]
-    .filter((v) => /^\d{14}$/.test(v))
-    .sort()
-    .pop();
-  if (!newest) return '00000000000000';
-  const t =
-    Date.UTC(
-      +newest.slice(0, 4),
-      +newest.slice(4, 6) - 1,
-      +newest.slice(6, 8),
-      +newest.slice(8, 10),
-      +newest.slice(10, 12),
-      +newest.slice(12, 14)
-    ) -
-    PENDING_HORIZON_HOURS * 3600e3;
-  return new Date(t).toISOString().replace(/[-:T]/g, '').slice(0, 14);
-}
-
-export function planRehearsal(files, installed, changed = new Set()) {
+export function planRehearsal(files, installed, changed = new Set(), evidence = {}) {
   const names = files.map((f) => f.name);
-  const floor = pendingFloor(installed);
   const ordinary = [];
   const windows = [];
   const superseded = [];
@@ -93,8 +124,8 @@ export function planRehearsal(files, installed, changed = new Set()) {
       continue;
     }
     if (!declaresMaintenanceWindow(sql)) {
-      // History, not a prerequisite (see pendingFloor); a changed file is always judged.
-      if (m[1] >= floor || changed.has(name)) ordinary.push(name);
+      // History is not a prerequisite (isPending); a changed file is always judged.
+      if (changed.has(name) || isPending(name, m[1], installed, evidence)) ordinary.push(name);
       continue;
     }
     try {
@@ -144,6 +175,46 @@ const lines = (path) =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+/**
+ * The evidence isPending reads, from what the jobs hand over:
+ *   RECORDED_NAMES  file of "<version>\t<name>" lines from schema_migrations
+ *                   (the capture's installed-names.tsv)
+ *   RECENTLY_ADDED  file of migration file names first added to main within
+ *                   the recent window (migrations-added-recently.sh)
+ * and applied-migration-aliases.json from the repository. A missing or empty
+ * source is null: no evidence, never a guess.
+ */
+export function evidenceFromEnv(env = process.env, repo) {
+  const read = (p) => (p && existsSync(p) ? readFileSync(p, 'utf8') : null);
+  const namesText = read(env.RECORDED_NAMES);
+  const recordedNames = namesText
+    ? new Set(
+        namesText
+          .split('\n')
+          .map((l) => (l.split('\t')[1] ?? '').trim())
+          .filter(Boolean)
+      )
+    : null;
+  const addedText = read(env.RECENTLY_ADDED);
+  const recentlyAdded = addedText
+    ? new Set(
+        addedText
+          .split('\n')
+          .map((l) => l.trim().replace(/^supabase\/migrations\//, ''))
+          .filter(Boolean)
+      )
+    : null;
+  const aliases = loadAliases(repo);
+  const aliasedFiles = aliases.error
+    ? null
+    : new Set([...aliases.byFile.keys()].map((f) => String(f).split('/').pop()));
+  return {
+    recordedNames: recordedNames && recordedNames.size ? recordedNames : null,
+    recentlyAdded: recentlyAdded && recentlyAdded.size ? recentlyAdded : null,
+    aliasedFiles,
+  };
+}
+
 // CLI:
 //   node scripts/ci/window-queue-rehearsal.mjs plan <migrations-dir> <installed-versions-file> [changed-names-file]
 //   node scripts/ci/window-queue-rehearsal.mjs sql <migrations-dir> <file>
@@ -152,7 +223,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (cmd === 'plan') {
     const installed = new Set(lines(a).filter((v) => /^\d{14}$/.test(v)));
     const changed = new Set(b ? lines(b).map((p) => p.replace(/^supabase\/migrations\//, '')) : []);
-    process.stdout.write(JSON.stringify(planRehearsal(readTree(dir), installed, changed)) + '\n');
+    process.stdout.write(
+      JSON.stringify(planRehearsal(readTree(dir), installed, changed, evidenceFromEnv())) + '\n'
+    );
   } else if (cmd === 'sql') {
     process.stdout.write(rehearsalSQL(a, readFileSync(join(dir, a), 'utf8')));
   } else {

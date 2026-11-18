@@ -67,6 +67,7 @@ import { migrationTransactionShape } from './migration-transaction-shape.mjs';
 import { declaresMaintenanceWindow } from './maintenance-window-migrations.mjs';
 import { supersededBy } from './check-migrations-are-live.mjs';
 import {
+  evidenceFromEnv,
   planRehearsal,
   readTree,
   rehearsalSQL,
@@ -342,7 +343,7 @@ const rows = (tsv) =>
  * @param {string} publicTsv   oid, md5 (search_path public)
  * @param {string} pinsTsv     pinner regprocedure, hex run
  */
-export function loadCatalog(catalogTsv, publicTsv, pinsTsv) {
+export function loadCatalog(catalogTsv, publicTsv, pinsTsv, pinsPublicTsv = '') {
   const pub = new Map(rows(publicTsv).map(([oid, md5]) => [oid, md5]));
   const byKey = new Map();
   const byName = new Map();
@@ -364,7 +365,15 @@ export function loadCatalog(catalogTsv, publicTsv, pinsTsv) {
     push(byMd5, catalogMd5);
     if (fn.publicMd5) push(byMd5, fn.publicMd5);
   }
-  const pins = rows(pinsTsv).map(([pinner, run]) => ({ pinner, run }));
+  const signatureOf = new Map(functions.map((f) => [f.oid, f.signature]));
+  // The public-path pins name their pinner by oid (see migration-guards-capture.mjs).
+  const pins = [
+    ...rows(pinsTsv).map(([pinner, run]) => ({ pinner, run })),
+    ...rows(pinsPublicTsv).map(([pinner, run]) => ({
+      pinner: signatureOf.get(String(pinner).replace(/^oid:/, '')) ?? pinner,
+      run,
+    })),
+  ];
   return {
     functions,
     byKey,
@@ -649,6 +658,24 @@ export function armSQL(eventTriggersTsv, copies) {
 }
 
 /** A table trigger fed by an event trigger that refuses at COMMIT. */
+/**
+ * The guards that REFUSE, read from production's sources on 2026-11-18. Every
+ * other armed event trigger only logs, rewrites or records (ca_log_ddl_event,
+ * ca_log_ddl_drop, fn_rls_on_new_public_table, fn_new_view_respects_the_caller,
+ * fn_strip_client_writes_from_new_views, fn_autorevoke_privileged_anon,
+ * fn_ca_queue_function_for_resolution, fn_ca_function_lineage_on_drop), and
+ * an error raised from one of those is not a guard's verdict on the file.
+ * fn_ca_function_calls_must_resolve is the commit-time trigger that
+ * fn_ca_queue_function_for_resolution feeds (42883).
+ */
+export const REFUSING_GUARDS = [
+  'fn_ca_money_rpc_registry_guard',
+  'fn_ca_function_lineage_on_create',
+  'fn_reject_retired_solver_option_rpc_ddl',
+  'xp_ban_guard_fn',
+  'fn_ca_release_freeze_refuses_mgmt_api_ddl',
+  'fn_ca_function_calls_must_resolve',
+];
 export const COMMIT_TIME_GUARDS = ['fn_ca_function_calls_must_resolve'];
 
 /**
@@ -669,9 +696,12 @@ export function pinRehearsalSQL(file, sql) {
 }
 
 /**
- * One exact outcome from psql's exit status and output. A refusal is a
- * guard's when it is the applier's stale-pin exception or psql's CONTEXT names
- * an armed guard function (or a commit-time guard it feeds).
+ * One exact outcome from psql's exit status and output. A refusal is a guard's
+ * only when it is the applier's stale-pin exception, or the error's own
+ * CONTEXT (its first line: the function that raised) is a RAISE in a refusing
+ * guard (REFUSING_GUARDS) that is armed on the copy or fed by an armed one.
+ * Anything else, including an error inside a logging trigger, is
+ * not-installable: the static half decides, and the summary says why.
  */
 export function classifyExact(status, output, guardFunctions = []) {
   if (status === 0) return { outcome: 'installed' };
@@ -687,15 +717,16 @@ export function classifyExact(status, output, guardFunctions = []) {
       guard: 'applier stale-pin guard (migration-stale-pins.mjs)',
       detail: m[1].trim(),
     };
-  const names = [
-    ...new Set([
-      ...guardFunctions.map((f) => f.replace(/^.*\./, '').replace(/\(.*$/, '')),
-      ...COMMIT_TIME_GUARDS,
-    ]),
-  ];
-  for (const n of names)
-    if (new RegExp(String.raw`PL/pgSQL function (?:[a-z_]+\.)?${n}\(`).test(output))
-      return { outcome: 'guard-refused', guard: n, detail: err };
+  const armed = new Set([
+    ...guardFunctions.map((f) => f.replace(/^.*\./, '').replace(/\(.*$/, '')),
+    ...COMMIT_TIME_GUARDS,
+  ]);
+  const raised =
+    /CONTEXT:\s+PL\/pgSQL function (?:[a-z_][a-z0-9_]*\.)?([a-z_][a-z0-9_]*)\([^)]*\) line \d+ at RAISE/.exec(
+      output
+    );
+  if (raised && armed.has(raised[1]) && REFUSING_GUARDS.includes(raised[1]))
+    return { outcome: 'guard-refused', guard: raised[1], detail: err };
   return { outcome: 'not-installable', detail: err };
 }
 
@@ -705,7 +736,7 @@ export function classifyExact(status, output, guardFunctions = []) {
  * superseded (production's event triggers fire on every one; the applier's
  * stale-pin guard only from PIN_CHECKED_FROM, as stalePinGuardSQL decides).
  */
-export function planGuardCheck(files, installed, changed) {
+export function planGuardCheck(files, installed, changed, evidence = {}) {
   const names = files.map((f) => f.name);
   const checked = [];
   const skipped = [];
@@ -722,7 +753,7 @@ export function planGuardCheck(files, installed, changed) {
       skipped.push({ name, why: `superseded by ${supersededBy(sql, names)}` });
     else checked.push(name);
   }
-  const prerequisites = planRehearsal(files, installed, changed).ordinary.filter(
+  const prerequisites = planRehearsal(files, installed, changed, evidence).ordinary.filter(
     (n) => !changed.has(n)
   );
   return { checked, skipped, prerequisites };
@@ -798,7 +829,7 @@ function rehearse() {
   const files = readTree(MIG_DIR);
   const installed = new Set(lines(INSTALLED).filter((v) => /^\d{14}$/.test(v)));
   const changed = new Set(lines(CHANGED));
-  const plan = planGuardCheck(files, installed, changed);
+  const plan = planGuardCheck(files, installed, changed, evidenceFromEnv(env));
   say("### Production's DDL guards pass before merge");
   say('');
   for (const s of plan.skipped) say(`- skipped \`${s.name}\`: ${s.why}`);
@@ -816,7 +847,8 @@ function rehearse() {
     prod = loadCatalog(
       read('guards-catalog.tsv'),
       read('guards-public.tsv'),
-      read('guards-hex.tsv')
+      read('guards-hex.tsv'),
+      read('guards-hex-public.tsv')
     );
     const floor = Number(env.MIN_CAPTURED_FUNCTIONS ?? 100);
     if (prod.functions.length < floor)

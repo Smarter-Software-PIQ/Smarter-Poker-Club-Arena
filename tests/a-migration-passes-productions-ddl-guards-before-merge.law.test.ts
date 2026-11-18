@@ -53,6 +53,7 @@ import {
   EVENT_TRIGGERS_SQL,
   GUARD_TABLES,
   PINS_SQL,
+  PINS_SQL_PUBLIC_PATH,
 } from '../scripts/ci/migration-guards-capture.mjs';
 
 const ROOT = resolve(__dirname, '..');
@@ -220,7 +221,16 @@ COMMIT;`;
       expect(q).not.toMatch(/\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|GRANT)\b/i);
     expect(CATALOG_SQL_CATALOG_PATH).toContain('SET search_path = pg_catalog');
     expect(CATALOG_SQL_PUBLIC_PATH).toContain('SET search_path = public');
-    expect(PINS_SQL).not.toContain('nspname');
+    // Only (pinner, current md5) pairs leave production: the public repository
+    // publishes this run's artifacts (security review 2026-11-18).
+    for (const q of [PINS_SQL, PINS_SQL_PUBLIC_PATH]) {
+      expect(q).toMatch(
+        /SELECT DISTINCT [^\n]+, cur\.m\n\s+FROM runs JOIN cur ON runs\.run = cur\.m/
+      );
+      expect(q).not.toMatch(/SELECT DISTINCT[^\n]*runs\.run/);
+      expect(q).toContain("n.nspname IN ('public', 'smarter_private')");
+    }
+    expect(PINS_SQL_PUBLIC_PATH).toContain('SET search_path = public');
     expect(GUARD_TABLES).toEqual([
       'public.ca_money_rpc_registry',
       'smarter_private.function_body_lineage',
@@ -256,6 +266,26 @@ COMMIT;`;
     );
     expect(arm.loadSql).toContain('COPY public.ca_money_rpc_registry FROM STDIN;\nfn_x\tapproved');
     expect(() => armSQL('x; DROP\tddl_command_end\tpublic.f()\tpublic\t', {})).toThrow(/malformed/);
+  });
+
+  it("a refusal is a guard's only when a refusing guard RAISEd it, never a logging trigger's error", () => {
+    const logger =
+      'ERROR:  permission denied for table ca_ddl_events\nCONTEXT:  SQL statement "INSERT INTO public.ca_ddl_events"\nPL/pgSQL function ca_log_ddl_event() line 8 at SQL statement\n';
+    expect(classifyExact(3, logger, ['public.ca_log_ddl_event()']).outcome).toBe('not-installable');
+    const rls =
+      'ERROR:  x\nCONTEXT:  PL/pgSQL function fn_rls_on_new_public_table() line 3 at RAISE\n';
+    expect(classifyExact(3, rls, ['public.fn_rls_on_new_public_table()']).outcome).toBe(
+      'not-installable'
+    );
+    const unarmed =
+      'ERROR:  y\nCONTEXT:  PL/pgSQL function fn_ca_money_rpc_registry_guard() line 27 at RAISE\n';
+    expect(classifyExact(3, unarmed, []).outcome).toBe('not-installable');
+    const commit =
+      'ERROR:  migration refused: f calls a function that does not exist\nCONTEXT:  PL/pgSQL function smarter_private.fn_ca_function_calls_must_resolve() line 40 at RAISE\n';
+    expect(classifyExact(3, commit, [])).toMatchObject({
+      outcome: 'guard-refused',
+      guard: 'fn_ca_function_calls_must_resolve',
+    });
   });
 
   it("a refusal is a guard's when psql's CONTEXT names an armed guard function", () => {
@@ -339,22 +369,39 @@ COMMIT;`;
       read('.github/workflows/window-migrations-install-before-merge.yml')
     ) as Record<string, any>;
     expect(Object.keys(wf.on)).toEqual(['pull_request_target']);
-    const { capture, guards: pins } = wf.jobs;
-    const step = capture.steps.find((s: any) => /DDL guards read/.test(s.name ?? ''));
+    const { capture, 'capture-guards': cg, rehearse, guards: pins } = wf.jobs;
+    // What the guards read is captured in its own job: its failure makes only
+    // `guards` UNKNOWN and never fails `rehearse`.
+    expect(rehearse.needs).toEqual(['scope', 'capture']);
+    expect(JSON.stringify(capture)).not.toContain('migration-guards-capture');
+    expect(cg.environment).toBe('ci-main');
+    const step = cg.steps.find((s: any) => /DDL guards read/.test(s.name ?? ''));
     expect(step.env).toEqual({ DATABASE_URL: '${{ secrets.DATABASE_URL }}' });
     expect(step.run).toContain('default_transaction_read_only=on');
     expect(step.run).toContain('node scripts/ci/migration-guards-capture.mjs');
-    expect(capture.steps[0].with['sparse-checkout']).toContain(
+    expect(cg.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
+    expect(cg.steps[0].with['sparse-checkout']).toContain(
       'scripts/ci/migration-guards-capture.mjs'
     );
+    expect(JSON.stringify(cg)).not.toContain('head.sha');
+    // Artifacts by exact name: window-rehearsal-* matches the evidence artifact.
+    for (const job of [rehearse, pins])
+      for (const st of job.steps.filter((x: any) =>
+        String(x.uses ?? '').startsWith('actions/download-artifact')
+      )) {
+        expect(st.with.pattern).toBeUndefined();
+        expect(st.with.name).toMatch(
+          /^(window-rehearsal-schema|window-rehearsal-changed|ddl-guards-capture)$/
+        );
+      }
     expect(JSON.stringify(capture)).not.toContain('head.sha');
     expect(pins.name).toBe("Production's DDL guards pass before merge");
     expect(pins.environment).toBeUndefined();
     expect(JSON.stringify(pins)).not.toContain('secrets.');
     expect(pins.permissions).toEqual({ contents: 'read' });
-    expect(pins.needs).toEqual(['scope', 'capture']);
+    expect(pins.needs).toEqual(['scope', 'capture', 'capture-guards']);
     // An unreadable capture is UNKNOWN, never a pass.
-    expect(JSON.stringify(pins)).toContain("needs.capture.result != 'success'");
+    expect(JSON.stringify(pins)).toContain("needs.capture-guards.result != 'success'");
     expect(JSON.stringify(pins)).toContain(
       'node scripts/ci/migration-guards-before-merge.mjs rehearse'
     );
@@ -386,8 +433,8 @@ COMMIT;`;
     expect(wf.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(JSON.stringify(wf)).not.toContain('secrets.');
     for (const job of Object.values<any>(wf.jobs)) expect(job.environment).toBeUndefined();
+    expect(wf.jobs.locate.steps[0].run).toContain('event=pull_request_target');
     expect(wf.jobs.guards.strategy.matrix.case).toEqual([
-      'rake-original',
       'rake-relanded',
       'bank-original',
       'bank-fixed',

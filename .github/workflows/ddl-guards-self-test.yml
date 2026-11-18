@@ -35,6 +35,7 @@ on:
       - 'scripts/ci/rehearsal-auth-schema.sql'
       - 'scripts/ci/rehearse-window-queue.sh'
       - 'scripts/ci/window-queue-rehearsal.mjs'
+      - 'scripts/ci/migrations-added-recently.sh'
       - 'scripts/ci/migration-stale-pins.mjs'
       - 'scripts/ci/fixtures/production-ddl-guards/**'
       - 'server/standby/standby-engine.sh'
@@ -50,6 +51,7 @@ on:
       - 'scripts/ci/rehearsal-auth-schema.sql'
       - 'scripts/ci/rehearse-window-queue.sh'
       - 'scripts/ci/window-queue-rehearsal.mjs'
+      - 'scripts/ci/migrations-added-recently.sh'
       - 'scripts/ci/migration-stale-pins.mjs'
       - 'scripts/ci/fixtures/production-ddl-guards/**'
       - 'server/standby/standby-engine.sh'
@@ -79,7 +81,8 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          for run in $(gh api "repos/$REPO/actions/workflows/window-migrations-install-before-merge.yml/runs?per_page=50" --jq '.workflow_runs[].id'); do
+          # Only main's trusted gate runs (pull_request_target into main).
+          for run in $(gh api "repos/$REPO/actions/workflows/window-migrations-install-before-merge.yml/runs?event=pull_request_target&per_page=50" --jq '.workflow_runs[] | select(.event == "pull_request_target" and (.pull_requests | length == 0 or .[0].base.ref == "main")) | .id'); do
             captured=$(gh api "repos/$REPO/actions/runs/$run/jobs" --jq '[.jobs[] | select(.name == "Capture production'"'"'s schema (read-only)" and .conclusion == "success")] | length')
             [ "$captured" = 1 ] || continue
             kept=$(gh api "repos/$REPO/actions/runs/$run/artifacts" --jq '[.artifacts[] | select(.name == "window-rehearsal-schema" and .expired == false)] | length')
@@ -102,11 +105,18 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          pattern: window-rehearsal-*
-          merge-multiple: true
+          name: window-rehearsal-schema
           path: ${{ runner.temp }}/in
           run-id: ${{ needs.locate.outputs.run_id }}
           github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: window-rehearsal-changed
+          path: ${{ runner.temp }}/in
+          run-id: ${{ needs.locate.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Which migrations reached main recently
+        run: bash scripts/ci/migrations-added-recently.sh 14 > "$RUNNER_TEMP/recently-added.txt"
       - name: Restore production's schema into a throwaway database
         run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db
       - name: Install the queue in the installer's order (that capture's own changed files)
@@ -114,6 +124,7 @@ jobs:
           REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
           MIG_DIR: ${{ github.workspace }}/supabase/migrations
           INSTALLED: ${{ runner.temp }}/in/installed.txt
+          RECENTLY_ADDED: ${{ runner.temp }}/recently-added.txt
           EVIDENCE: ${{ runner.temp }}/evidence
         run: |
           set -euo pipefail
@@ -128,15 +139,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # rake-original is proven at its merge moment by the native proof
+        # (aMigrationPassesProductionsDdlGuardsBeforeMerge.pg.test.ts, in Client
+        # Unit Tests): its pinned preimage is no longer a current body on
+        # production, and only current-body pins leave production.
         case:
-          [
-            rake-original,
-            rake-relanded,
-            bank-original,
-            bank-fixed,
-            money-unregistered,
-            money-registered,
-          ]
+          - rake-relanded
+          - bank-original
+          - bank-fixed
+          - money-unregistered
+          - money-registered
     steps:
       - uses: actions/checkout@v4
         with:
@@ -147,8 +159,11 @@ jobs:
           path: ${{ runner.temp }}/in
           run-id: ${{ needs.locate.outputs.run_id }}
           github-token: ${{ github.token }}
+      - name: Which migrations reached main recently
+        run: bash scripts/ci/migrations-added-recently.sh 14 > "$RUNNER_TEMP/recently-added.txt"
       - name: The check gives this case the outcome production's guards gave it
         env:
+          RECENTLY_ADDED: ${{ runner.temp }}/recently-added.txt
           SCHEMA_DUMP: ${{ runner.temp }}/in/schema.dump
           INSTALLED: ${{ runner.temp }}/in/installed.txt
           CASE: ${{ matrix.case }}
