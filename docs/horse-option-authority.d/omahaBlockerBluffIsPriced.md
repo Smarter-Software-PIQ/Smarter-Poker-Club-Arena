@@ -4,7 +4,7 @@ Owner order of 2026-11-17 11:49 America/Chicago. Build: sites-013U37 (plo-handof
 
 ## What it does
 
-PLO4/PLO5 cash river, heads-up, nothing to call: the V86 nut-blocker bluff (and the one-pair admission of `omahaRiverNutBlockerBluffReachable`) is admitted when some bet is priced above the check against his range and his measured fold to a bet, on any board. Its other conditions (heads-up, the blocker, chips behind, its frequency) are unchanged.
+PLO4/PLO5 cash river, heads-up, nothing to call: the V86 nut-blocker bluff (and the one-pair admission of `omahaRiverNutBlockerBluffReachable`) is sized first by the engine, and that EXACT placed amount is priced beside the check against his range and his measured fold to a bet (`omahaPricedSitesBlockerBluffAdmits(player, gs, opts, bet86Rb)`: `omahaPricedBet(..., amount).proposed.ev > evCheck`), on any board; the bluff is made only when that amount is priced above the check, and a bet it cannot price makes no bluff. Its other conditions (heads-up, the blocker, chips behind, the capped-line and station reads, its frequency draw) are unchanged and are registered as open site S6b (receipt `omaha_priced_site_blocker_bluff_gate_withheld`).
 
 Scope: PLO4 and PLO5 cash, one board, high only, no bomb pot, not Lightning, not fixed limit (`omahaPricedInScope`). It acts where the rule it replaces acts; out of scope, and with the option unset or false, every decision is exactly as before.
 
