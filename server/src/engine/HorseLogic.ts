@@ -3378,6 +3378,15 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_flop_facing_bet_ev. */
   omahaFlopFacingBetEv?: boolean;
+  /**
+   * WooWoo audit FLOP-DEFENCE 2026-11-18 (default OFF, read === true): heads-up facing the
+   * first flop bet with chips behind, the fold or call is the flop verdict with the call
+   * priced as a two-street tree (his measured turn/river bet rates, the Horse's priced turn
+   * and river answers) in place of equity x realization (HorseOmahaFlopDefenceTree.ts).
+   * Stands alone (omahaFlopFacingBetEv off: only that spot is answered); with
+   * omahaFlopFacingBetEv on it replaces that verdict's realization in the same spot.
+   */
+  omahaFlopDefenceIsPriced?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -10894,7 +10903,12 @@ function omahaFacingBetEvRule(
   // omahaFlopFacingBetEv (default off): the flop has its own verdict and rule
   // (HorseOmahaFlopFacingBetEvRule.ts); the turn and river rule below never
   // answers the flop.
-  if (opts.omahaFlopFacingBetEv === true && gs.stage === 'flop')
+  // omahaFlopDefenceIsPriced (default off) alone reaches the same rule and
+  // answers only its heads-up first-bet spot (flopDefenceOnly).
+  if (
+    (opts.omahaFlopFacingBetEv === true || opts.omahaFlopDefenceIsPriced === true) &&
+    gs.stage === 'flop'
+  )
     return omahaFlopFacingBetEvRule(decision, player, gs, {
       mind: opts.mind !== false,
       telemetry: telemetryOn(opts),
@@ -10903,6 +10917,8 @@ function omahaFacingBetEvRule(
         : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
       inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
       bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
+      ...(opts.omahaFlopDefenceIsPriced === true ? { flopDefenceTree: true } : {}),
+      ...(opts.omahaFlopFacingBetEv !== true ? { flopDefenceOnly: true } : {}),
     });
   if (opts.omahaFacingBetEv !== true) return decision;
   try {

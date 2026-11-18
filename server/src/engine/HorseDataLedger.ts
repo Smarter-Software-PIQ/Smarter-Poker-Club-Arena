@@ -1015,6 +1015,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PLO paired-board fold'
   ),
   flag(
+    'omahaFlopDefenceIsPriced',
+    'WooWoo audit FLOP-DEFENCE 2026-11-18 (owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; live 24 h to 2026-11-18 07:30Z: heads-up, Horses fold 57.1% (28/49) to a person\'s first flop bet of 0.60-0.85 pot against a 43.1% break-even). PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning, not fixed limit; default off (read === true). Heads-up facing the first flop bet with chips behind, a fold or a call becomes the flop expected-value verdict (HorseOmahaFlopFacingBetEv: the exact hand on sampled runouts against his value region and his other holdings at a non-value share moved by his read) with the call priced as a two-street tree on those runouts (HorseOmahaFlopDefenceTree.ts): he barrels the turn and bets the river at his measured rates (per-street read bet.turn / bet.river shrunk toward his kind\'s measured rates, omahaPricedKindPrior), his later betting ranges keep the measured non-value odds of his classified bets (turn 0.885, river 0.602 of the flop odds), sizes 0.73 pot (measured turn barrel), and the Horse answers each later bet by price (call when it pays, else fold), in place of equity x a realization factor. Stands alone: with omahaFlopFacingBetEv off only that spot is answered and every other flop decision is unchanged; with it on the tree replaces that verdict\'s realization in the same spot. Multiway, a raise faced, an all-in call and the bare-overpair continuation are not answered. A raise is not decided here (omahaDrawRaiseIsPriced / omahaPressureIsPriced own it); the pot raise is measured beside the call (receipt omaha_flop_defence_raise_priced_higher). No threshold on size, class, position or account. Authority docs/horse-option-authority.d/omahaFlopDefenceIsPriced.md; league cards plo4/plo5 _omaha_flop_defence_is_priced',
+    'V94'
+  ),
+  flag(
     'omahaFlopFacingBetEv',
     "PLO Strategy lane 2026-11-17 (owner 2026-11-16: a decision rests on the hand, the equity, the opponent's range and the price, never on the size of the bet alone, and no blanket rule may block a correct decision): in PLO4/PLO5 cash, high only, one board, on the FLOP facing a bet or a raise, a fold or a call (the whole-stack call included) is replaced by one expected-value verdict (HorseOmahaFlopFacingBetEv.ts): the hand's showdown result on two-card runouts sampled with a seed taken from the cards (a balanced set of runouts, every unseen card the turn card and the river card of the same number of them, three opponent holdings per runout; never the brain's random stream), against the bettor's value region (the strongest share of holdings on the flop, set by the bet's share of the pot, a raise, a lead into the preflop aggressor or a stab after he checked) and his other holdings at a non-value share moved by his measured read, with every other player counted together on the same runouts (a caller's hand to beat as well; a player still to act priced as folding or as continuing with his call in the pot, at the measured continue rate), times a realization factor read from the hand's own runouts (equity on runouts where the hand can call the turn and the river is realized, bluff-catcher equity only on streets he checks) and corrected by what flop calls of that hand class and position returned in production (shrunk by sample size; docs/horse-option-authority.d/omahaFlopFacingBetEv.CONSTANTS.md), against the price and the one margin of omahaFacingBetEv. The flop had no such rule: the stack-share paired-board fold and the 20 big blind big-bet mark decided it; with the option on they no longer decide a spot the verdict covers. A raise is left alone; the bare-overpair continuation keeps its own verdict; tournaments, PLO6, hi-lo, bomb pots and capped wagers are outside it. Independent of omahaFacingBetEv. The realization cells, the continue rate and the sampling error are measured; the value shares are stated. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_flop_facing_bet_ev",
     'V94'
@@ -4864,6 +4869,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_flop_facing_bet_ev_changed',
     'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopFacingBetEv)',
     'the flop expected-value verdict differed from the answer it was given (a fold became a call or a call became a fold); the rule it replaced is the legacy receipt fired in the same decision (plo_paired_board_fold and the others)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_defence_priced_call',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopDefenceIsPriced)',
+    'a PLO4/PLO5 cash heads-up flop fold-or-call decision facing the first flop bet with chips behind in which the two-street tree priced the call and the verdict was a call (fired every time the tree answers, changed or not)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_defence_priced_fold',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopDefenceIsPriced)',
+    'the same decision in which the verdict with the tree was a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_defence_priced_changed',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopDefenceIsPriced)',
+    'with omahaFlopFacingBetEv off: the verdict with the tree differed from the answer it was given (a fold became a call or a call became a fold)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_defence_raise_priced_higher',
+    'HorseLogic wager_rules (HorseOmahaFlopFacingBetEvRule, omahaFlopDefenceIsPriced)',
+    'measurement only, the decision is not changed: in the same decision a pot raise (he folds at his measured fold to a flop raise, his re-raise unpriced) was worth more than the better of the call and the fold by more than the verdict margin',
     'V94'
   ),
   receipt(

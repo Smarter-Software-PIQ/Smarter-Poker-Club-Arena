@@ -92,6 +92,11 @@ import {
 } from './HorseOmahaFacingBetEv.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import {
+  omahaFlopDefenceTreeEv,
+  type OmahaFlopDefenceTreeInputs,
+  type OmahaFlopDefenceTreeResult,
+} from './HorseOmahaFlopDefenceTree.js';
 
 /** PLO4 and PLO5 only. PLO6 is not opened by omahaStrategyInPlo6: the six-card flop is unmeasured. */
 export const OMAHA_FLOP_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -1161,6 +1166,19 @@ export interface OmahaFlopFacingBetEvVerdict {
   runouts: number;
   samples: number;
   seed: number;
+  /**
+   * omahaFlopDefenceIsPriced: the two-street tree that priced this call in
+   * place of equity x realization (HorseOmahaFlopDefenceTree.ts), or null when
+   * it did not (option off, or outside its heads-up first-bet spot).
+   */
+  tree?: OmahaFlopDefenceTreeResult | null;
+}
+
+/** omahaFlopDefenceIsPriced: what the rule hands the verdict (absent with the option off). */
+export interface OmahaFlopDefenceTreeContext {
+  inputs: OmahaFlopDefenceTreeInputs;
+  /** the Horse's chips behind after the call */
+  left: number;
 }
 
 export interface OmahaFlopFacingBetEvContext {
@@ -1172,6 +1190,8 @@ export interface OmahaFlopFacingBetEvContext {
   salt?: number;
   /** measurement only: realization cells in place of the fitted ones (the decision never passes them) */
   fit?: OmahaFlopRealizationFit;
+  /** omahaFlopDefenceIsPriced: price the heads-up first-bet call as a two-street tree */
+  tree?: OmahaFlopDefenceTreeContext | null;
 }
 
 function binomial(n: number, k: number): number {
@@ -1276,6 +1296,26 @@ export function omahaFlopFacingBetEvVerdict(
     omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) *
     (spot.winnable + spot.paid);
   const margin = spot.potFrac < 0.1 ? Math.min(baseMargin, 0.5 * spot.paid) : baseMargin;
+  // omahaFlopDefenceIsPriced: heads-up facing his first flop bet with chips
+  // behind, the call is the value of the two-street tree on these same
+  // runouts (his turn barrel, the Horse's priced turn and river answers).
+  let tree: OmahaFlopDefenceTreeResult | null = null;
+  if (
+    ctx.tree &&
+    !spot.final &&
+    !spot.isRaise &&
+    spot.callers === 0 &&
+    spot.allIns === 0 &&
+    spot.behind === 0
+  ) {
+    tree = omahaFlopDefenceTreeEv(
+      hand.rows,
+      hand.turnOf,
+      { paid: spot.paid, winnable: spot.winnable, left: ctx.tree.left, rake, bluffShare: q },
+      ctx.tree.inputs
+    );
+    if (tree) ev = tree.ev;
+  }
   return {
     call: ev > margin,
     ev,
@@ -1298,6 +1338,7 @@ export function omahaFlopFacingBetEvVerdict(
     runouts: hand.runouts,
     samples: hand.samples,
     seed: hand.seed,
+    ...(ctx.tree ? { tree } : {}),
   };
 }
 
