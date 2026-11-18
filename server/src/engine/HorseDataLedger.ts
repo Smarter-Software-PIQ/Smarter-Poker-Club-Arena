@@ -965,6 +965,29 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReraisedCallVsRaisePriced',
+    'WooWoo 48-hour audit, CALL-VS-RAISE (2026-11-18; owner 2026-11-17: when a fix turns a fold into a call, find out whether the spot should have been a raise and what in the math makes the difference; no blanket rules): PLO4/PLO5 cash tables, high only, one board, no bomb pot, not Lightning, preflop, facing two or more raises with the re-raiser not all in. A standing call, or a reference raise the re-raise range rules lowered, is priced as call against raise (HorseOmahaReraisedRaisePriced): EV(call) by the calling rule priced call; EV(raise) = P(fold) x pot + P(call) x (realization at the stack-to-pot ratio left x equity against his calling band x final pot after rake - chips added) + P(re-raise) x max(-chips added, EV of continuing), with the three rates from the re-raiser own answers to a raise of his re-raise (HorseOmahaReraiseResponse, horse_exact_profiles.reraise_response) against a measured population prior and both equities on one set of samples. It raises only when EV(raise) > 0 and beats the standing action by twice the sampling standard error; otherwise the standing verdict stands. It never lowers a decision. Nothing is keyed to a hand class, a position, a bet size or an account. Default OFF (opt-in, read === true). League cards plo4/plo5 _omaha_reraised_call_vs_raise_priced. Authority: docs/horse-option-authority.d/omahaReraisedCallVsRaisePriced.md.',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_raise_priced_raise',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaReraisedCallVsRaisePriced)',
+    'the priced call-or-raise facing a re-raise answered RAISE: EV(raise) above 0 and above the standing action by more than twice the sampling standard error (every number is on the decision, omahaReraisedRaise)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_raise_priced_call',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaReraisedCallVsRaisePriced)',
+    'the priced call-or-raise facing a re-raise was computed and the raise did not clear its bar: the standing call (or the fold a rule made of a reference raise) stands, unchanged',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_raise_priced_reference_raise_kept',
+    'HorseLogic re-raised-pot rules (HorseOmahaReraisedRaisePriced, omahaReraisedCallVsRaisePriced)',
+    'the raise answered was the reference brain own raise, which the re-raise range rules had lowered to a call or a fold: the pricing replaced that downgrade and the reference raise stands',
+    'V94'
+  ),
+  flag(
     'omahaReraiseRangeEarlyPosition',
     'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges under the gun must be capped): the rule of omahaReraiseRangeOutOfPosition for the early-position spots, the Horse under the gun or under the gun plus one at a table of six or more dealt in with a live player still to act: the 3-bet or 4-bet stands only with suited aces, any aces when the re-raise commits, or the declared premium structures; every other hand calls or folds by the calling rule. Switched separately. Default off (opt-in) until its declared evaluation passes.',
     'V94'

@@ -1,0 +1,1545 @@
+{
+  "note": "Anonymised spots of the 2026-11-15..17 PLO5 audit (journaled decisions facing a 3-bet or more, re-decided through the worker runtime with omahaReraisedCallVsRaisePriced on and each opponent's re-raise response record rebuilt from production hands with a human from 2026-10-15 that ended before the decision). No cards, no player or hand ids. `set` names why the spot is here; `expect` is the engine's verdict, recorded, not tuned. B2-01 is a spot the first candidate raised on a prior fold share: its rates are the prior with the fold share removed, and its samples are that run's, with the empty folding band joined to the calling band.",
+  "cases": [
+    {
+      "id": "H-01",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 63,
+        "pot": 126,
+        "stack": 878.4,
+        "heroBet": 29,
+        "raiseTo": 281,
+        "raiserBet": 92,
+        "raiserStack": 308,
+        "pricing": {
+          "rate": 0.3460832552,
+          "opportunities": 23.5782091305,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 308,
+          "rakeFraction": 0.0291005291,
+          "heroAlreadyRaised": true,
+          "heroInvested": 29
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0097001764,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1523, 77],
+        "sum": [0, 809.5, 28.5],
+        "sumSq": [0, 801.75, 27.75],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 6.66,
+      "se": 8.752
+    },
+    {
+      "id": "H-02",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 2,
+        "call": 21,
+        "pot": 42,
+        "stack": 342,
+        "heroBet": 8,
+        "raiseTo": 92,
+        "raiserBet": 29,
+        "raiserStack": 1717.6,
+        "pricing": {
+          "rate": 0.2282848578,
+          "opportunities": 17.4824314959,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 1717.6,
+          "rakeFraction": 0.0873015873,
+          "heroAlreadyRaised": true,
+          "heroInvested": 8
+        },
+        "rates": {
+          "fold": 0.0037305854,
+          "call": 0.8170085771,
+          "raise": 0.1792608375,
+          "opportunities": 43.6268479385,
+          "counts": {
+            "fold": 0.185137194,
+            "call": 35.9975604184,
+            "raise": 7.4441503261
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0291005291,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1413, 187],
+        "sum": [0, 858.5, 106],
+        "sumSq": [0, 854.25, 103],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 13.595,
+      "se": 4.921
+    },
+    {
+      "id": "H-03",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 96,
+        "pot": 192,
+        "stack": 552.45,
+        "heroBet": 41,
+        "raiseTo": 425,
+        "raiserBet": 137,
+        "raiserStack": 1434.6,
+        "pricing": {
+          "rate": 0.2475962463,
+          "opportunities": 18.6701128982,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 1434.6,
+          "rakeFraction": 0.0190972222,
+          "heroAlreadyRaised": true,
+          "heroInvested": 41
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0063657407,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1514, 86],
+        "sum": [0, 804, 39.5],
+        "sumSq": [0, 791.5, 38.75],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 17.483,
+      "se": 10.246
+    },
+    {
+      "id": "H-04",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 69,
+        "pot": 138,
+        "stack": 368,
+        "heroBet": 32,
+        "raiseTo": 308,
+        "raiserBet": 101,
+        "raiserStack": 1485,
+        "pricing": {
+          "rate": 0.2909248562,
+          "opportunities": 12.9449592236,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 1485,
+          "rakeFraction": 0.0265700483,
+          "heroAlreadyRaised": true,
+          "heroInvested": 32
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0088566828,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1473, 127],
+        "sum": [0, 822.5, 51.5],
+        "sumSq": [0, 814.75, 51.25],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 21.804,
+      "se": 8.974
+    },
+    {
+      "id": "H-05",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 147,
+        "pot": 294,
+        "stack": 854.1,
+        "heroBet": 58,
+        "raiseTo": 646,
+        "raiserBet": 205,
+        "raiserStack": 642,
+        "pricing": {
+          "rate": 0.3722382386,
+          "opportunities": 18.9661570888,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 642,
+          "rakeFraction": 0.0124716553,
+          "heroAlreadyRaised": true,
+          "heroInvested": 58
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0041572184,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1507, 93],
+        "sum": [0, 902, 46],
+        "sumSq": [0, 893.5, 45.5],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 104.682,
+      "se": 17.643
+    },
+    {
+      "id": "H-06",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 2,
+        "call": 30,
+        "pot": 60,
+        "stack": 655.4,
+        "heroBet": 12,
+        "raiseTo": 132,
+        "raiserBet": 42,
+        "raiserStack": 37.33,
+        "pricing": {
+          "rate": 0.0625941619,
+          "opportunities": 27.4772434575,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 37.33,
+          "rakeFraction": 0.0611111111,
+          "heroAlreadyRaised": true,
+          "heroInvested": 12
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.7305372615,
+          "raise": 0.2694627385,
+          "opportunities": 2.9320015723,
+          "counts": {
+            "fold": 0,
+            "call": 1.9771599684,
+            "raise": 0.9548416039
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.033402162,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1210, 390],
+        "sum": [0, 698.5, 161],
+        "sumSq": [0, 692.75, 160],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 5.21,
+      "se": 1.431
+    },
+    {
+      "id": "H-07",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 97,
+        "pot": 194,
+        "stack": 437.65,
+        "heroBet": 44,
+        "raiseTo": 432,
+        "raiserBet": 141,
+        "raiserStack": 2645.81,
+        "pricing": {
+          "rate": 0.4582977832,
+          "opportunities": 28.3313427249,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 2645.81,
+          "rakeFraction": 0.0189003436,
+          "heroAlreadyRaised": true,
+          "heroInvested": 44
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0063001145,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1513, 87],
+        "sum": [0, 845.5, 34],
+        "sumSq": [0, 836.75, 33.5],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 31.86,
+      "se": 13.795
+    },
+    {
+      "id": "H-08",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 123,
+        "pot": 246,
+        "stack": 684.44,
+        "heroBet": 50,
+        "raiseTo": 542,
+        "raiserBet": 173,
+        "raiserStack": 2600.59,
+        "pricing": {
+          "rate": 0.4045323481,
+          "opportunities": 22.9246192869,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 2600.59,
+          "rakeFraction": 0.0149051491,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.004968383,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1523, 77],
+        "sum": [0, 832.5, 22.5],
+        "sumSq": [0, 829.25, 22.25],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 17.587,
+      "se": 22.322
+    },
+    {
+      "id": "H-09",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 96,
+        "pot": 192,
+        "stack": 359,
+        "heroBet": 41,
+        "raiseTo": 400,
+        "raiserBet": 137,
+        "raiserStack": 2711.89,
+        "pricing": {
+          "rate": 0.3534210471,
+          "opportunities": 25.6246960042,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 2711.89,
+          "rakeFraction": 0.0190972222,
+          "heroAlreadyRaised": true,
+          "heroInvested": 41
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0067567568,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1508, 92],
+        "sum": [0, 829.5, 44],
+        "sumSq": [0, 817.75, 43.5],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 31.415,
+      "se": 10.928
+    },
+    {
+      "id": "H-10",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 81,
+        "pot": 162,
+        "stack": 625.4,
+        "heroBet": 37,
+        "raiseTo": 361,
+        "raiserBet": 118,
+        "raiserStack": 2585.89,
+        "pricing": {
+          "rate": 0.3293164588,
+          "opportunities": 26.4446858008,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 2585.89,
+          "rakeFraction": 0.0226337449,
+          "heroAlreadyRaised": true,
+          "heroInvested": 37
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0075445816,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1536, 64],
+        "sum": [0, 843.5, 15.5],
+        "sumSq": [0, 826.25, 14.25],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": -1.053,
+      "se": 20.77
+    },
+    {
+      "id": "H-11",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 117,
+        "pot": 234,
+        "stack": 969.25,
+        "heroBet": 50,
+        "raiseTo": 518,
+        "raiserBet": 167,
+        "raiserStack": 3507.98,
+        "pricing": {
+          "rate": 0.4585322307,
+          "opportunities": 28.3628402733,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 3507.98,
+          "rakeFraction": 0.0156695157,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0052231719,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1545, 55],
+        "sum": [0, 928.5, 22.5],
+        "sumSq": [0, 920.25, 22.25],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 62.559,
+      "se": 19.952
+    },
+    {
+      "id": "H-12",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 69,
+        "pot": 138,
+        "stack": 379.5,
+        "heroBet": 29,
+        "raiseTo": 305,
+        "raiserBet": 98,
+        "raiserStack": 5074.18,
+        "pricing": {
+          "rate": 0.4492599868,
+          "opportunities": 22.5677385889,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 5074.18,
+          "rakeFraction": 0.0265700483,
+          "heroAlreadyRaised": true,
+          "heroInvested": 29
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0088566828,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1479, 121],
+        "sum": [0, 816.5, 47.5],
+        "sumSq": [0, 810.25, 46.75],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 18.228,
+      "se": 9.149
+    },
+    {
+      "id": "H-13",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 64,
+        "pot": 128,
+        "stack": 517.7,
+        "heroBet": 26,
+        "raiseTo": 282,
+        "raiserBet": 90,
+        "raiserStack": 5283.45,
+        "pricing": {
+          "rate": 0.4159375237,
+          "opportunities": 34.3712141521,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 5283.45,
+          "rakeFraction": 0.0286458333,
+          "heroAlreadyRaised": true,
+          "heroInvested": 26
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0095486111,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1515, 85],
+        "sum": [0, 814.5, 39.5],
+        "sumSq": [0, 802.25, 39.25],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 10.681,
+      "se": 7.008
+    },
+    {
+      "id": "H-14",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 123,
+        "pot": 246,
+        "stack": 577,
+        "heroBet": 50,
+        "raiseTo": 542,
+        "raiserBet": 173,
+        "raiserStack": 4557.95,
+        "pricing": {
+          "rate": 0.3085772432,
+          "opportunities": 18.6348180357,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 4557.95,
+          "rakeFraction": 0.0149051491,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.004968383,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1487, 113],
+        "sum": [0, 819.5, 45.5],
+        "sumSq": [0, 814.25, 44.25],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 36.053,
+      "se": 16.477
+    },
+    {
+      "id": "H-15",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 50,
+        "pot": 167,
+        "stack": 929.85,
+        "heroBet": 50,
+        "raiseTo": 317,
+        "raiserBet": 100,
+        "raiserStack": 5779.7,
+        "pricing": {
+          "rate": 0.265765598,
+          "opportunities": 14.6842376873,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 5779.7,
+          "rakeFraction": 0.0253456221,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0084485407,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1523, 77],
+        "sum": [0, 896, 37],
+        "sumSq": [0, 890, 35.5],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 28.887,
+      "se": 11.364
+    },
+    {
+      "id": "H-16",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 120,
+        "pot": 240,
+        "stack": 794.8,
+        "heroBet": 49,
+        "raiseTo": 529,
+        "raiserBet": 169,
+        "raiserStack": 4795.15,
+        "pricing": {
+          "rate": 0.413047852,
+          "opportunities": 29.3915471385,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 4795.15,
+          "rakeFraction": 0.0152777778,
+          "heroAlreadyRaised": true,
+          "heroInvested": 49
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0050925926,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1536, 64],
+        "sum": [0, 867, 24.5],
+        "sumSq": [0, 863, 23.75],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 44.704,
+      "se": 18.714
+    },
+    {
+      "id": "H-17",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 123,
+        "pot": 246,
+        "stack": 400.95,
+        "heroBet": 50,
+        "raiseTo": 450.95,
+        "raiserBet": 173,
+        "raiserStack": 4522.95,
+        "pricing": {
+          "rate": 0.4335972524,
+          "opportunities": 17.0974956428,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 4522.95,
+          "rakeFraction": 0.0149051491,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0059465888,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1507, 93],
+        "sum": [0, 802, 35.5],
+        "sumSq": [0, 790, 34.75],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 20.837,
+      "se": 11.705
+    },
+    {
+      "id": "H-18",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 120,
+        "pot": 240,
+        "stack": 916.4,
+        "heroBet": 50,
+        "raiseTo": 530,
+        "raiserBet": 170,
+        "raiserStack": 5018.45,
+        "pricing": {
+          "rate": 0.4943420654,
+          "opportunities": 19.4573654765,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 5018.45,
+          "rakeFraction": 0.0152777778,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0050925926,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1479, 121],
+        "sum": [0, 859.5, 44],
+        "sumSq": [0, 851.25, 44],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 50.315,
+      "se": 20.599
+    },
+    {
+      "id": "H-19",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 123,
+        "pot": 246,
+        "stack": 977.9,
+        "heroBet": 50,
+        "raiseTo": 542,
+        "raiserBet": 173,
+        "raiserStack": 5560.85,
+        "pricing": {
+          "rate": 0.5402873356,
+          "opportunities": 24.4756850003,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 5560.85,
+          "rakeFraction": 0.0149051491,
+          "heroAlreadyRaised": true,
+          "heroInvested": 50
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.004968383,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1492, 108],
+        "sum": [0, 858, 41.5],
+        "sumSq": [0, 851, 40.75],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 36.274,
+      "se": 19.491
+    },
+    {
+      "id": "H-20",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 2,
+        "call": 21,
+        "pot": 42,
+        "stack": 412,
+        "heroBet": 8,
+        "raiseTo": 92,
+        "raiserBet": 29,
+        "raiserStack": 462.1,
+        "pricing": {
+          "rate": 0.4148113772,
+          "opportunities": 20.8521755554,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 462.1,
+          "rakeFraction": 0.0873015873,
+          "heroAlreadyRaised": true,
+          "heroInvested": 8
+        },
+        "rates": {
+          "fold": 0.0010206223,
+          "call": 0.8104507168,
+          "raise": 0.1885286609,
+          "opportunities": 43.7400200006,
+          "counts": {
+            "fold": 0.0507657748,
+            "call": 35.763834862,
+            "raise": 7.9254193638
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0291005291,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [8, 1390, 202],
+        "sum": [2, 799.5, 108.5],
+        "sumSq": [2, 794.75, 105.75],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": 5.505,
+      "se": 4.974
+    },
+    {
+      "id": "H-21",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 65,
+        "pot": 130,
+        "stack": 860.4,
+        "heroBet": 26,
+        "raiseTo": 286,
+        "raiserBet": 91,
+        "raiserStack": 385.9,
+        "pricing": {
+          "rate": 0.211109758,
+          "opportunities": 18.2155056817,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 385.9,
+          "rakeFraction": 0.0282051282,
+          "heroAlreadyRaised": true,
+          "heroInvested": 26
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.927656896,
+          "raise": 0.072343104,
+          "opportunities": 18.636174879,
+          "counts": {
+            "fold": 0,
+            "call": 17.3759175181,
+            "raise": 1.2602573609
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0094017094,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1532, 68],
+        "sum": [0, 869, 24.5],
+        "sumSq": [0, 864, 23.75],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 23.187,
+      "se": 10.759
+    },
+    {
+      "id": "H-22",
+      "set": "heads-up raise-better",
+      "spot": {
+        "preflopRaises": 2,
+        "call": 35,
+        "pot": 70,
+        "stack": 787.5,
+        "heroBet": 13,
+        "raiseTo": 153,
+        "raiserBet": 48,
+        "raiserStack": 368,
+        "pricing": {
+          "rate": 0.3542495552,
+          "opportunities": 21.0709730772,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 368,
+          "rakeFraction": 0.0523809524,
+          "heroAlreadyRaised": true,
+          "heroInvested": 13
+        },
+        "rates": {
+          "fold": 0.0009304537,
+          "call": 0.8246199861,
+          "raise": 0.1744495602,
+          "opportunities": 43.7437944484,
+          "counts": {
+            "fold": 0.0462842985,
+            "call": 36.4717270847,
+            "raise": 7.2257830652
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0174603175,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1424, 176],
+        "sum": [0, 868, 98.5],
+        "sumSq": [0, 862, 96.75],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 27.211,
+      "se": 7.296
+    },
+    {
+      "id": "V-01",
+      "set": "review sample, heads-up",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 41,
+        "pot": 82,
+        "stack": 1389.6,
+        "heroBet": 17,
+        "raiseTo": 181,
+        "raiserBet": 58,
+        "raiserStack": 622.1,
+        "pricing": {
+          "rate": 0.3281144509,
+          "opportunities": 25.361818068,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 622.1,
+          "rakeFraction": 0.0447154472,
+          "heroAlreadyRaised": true,
+          "heroInvested": 17
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0149051491,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1555, 45],
+        "sum": [0, 975, 23.5],
+        "sumSq": [0, 968, 22.75],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 24.295,
+      "se": 10.429
+    },
+    {
+      "id": "V-02",
+      "set": "review sample, heads-up",
+      "spot": {
+        "preflopRaises": 2,
+        "call": 27,
+        "pot": 54,
+        "stack": 390,
+        "heroBet": 10,
+        "raiseTo": 118,
+        "raiserBet": 37,
+        "raiserStack": 701.05,
+        "pricing": {
+          "rate": 0.3970475,
+          "opportunities": 17.391116626,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 701.05,
+          "rakeFraction": 0.0679012346,
+          "heroAlreadyRaised": true,
+          "heroInvested": 10
+        },
+        "rates": {
+          "fold": 0.0030993605,
+          "call": 0.8238058964,
+          "raise": 0.1730947431,
+          "opportunities": 43.6531627905,
+          "counts": {
+            "fold": 0.1538930517,
+            "call": 36.3565682794,
+            "raise": 7.1427014595
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0226337449,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1339, 261],
+        "sum": [0, 804, 139],
+        "sumSq": [0, 799, 138],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 14.848,
+      "se": 4.745
+    },
+    {
+      "id": "V-03",
+      "set": "review sample, heads-up",
+      "spot": {
+        "preflopRaises": 3,
+        "call": 69,
+        "pot": 138,
+        "stack": 300.1,
+        "heroBet": 32,
+        "raiseTo": 308,
+        "raiserBet": 101,
+        "raiserStack": 4829.35,
+        "pricing": {
+          "rate": 0.4126284707,
+          "opportunities": 20.4041553553,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 4829.35,
+          "rakeFraction": 0.0265700483,
+          "heroAlreadyRaised": true,
+          "heroInvested": 32
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0088566828,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1542, 58],
+        "sum": [0, 1005, 28.5],
+        "sumSq": [0, 1001.5, 26.25],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 62.448,
+      "se": 10.395
+    },
+    {
+      "id": "V-04",
+      "set": "review sample, heads-up",
+      "spot": {
+        "preflopRaises": 4,
+        "call": 234,
+        "pot": 468,
+        "stack": 847.35,
+        "heroBet": 114,
+        "raiseTo": 961.35,
+        "raiserBet": 348,
+        "raiserStack": 4460.15,
+        "pricing": {
+          "rate": 0.4136598258,
+          "opportunities": 19.6069258876,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 4460.15,
+          "rakeFraction": 0.0078347578,
+          "heroAlreadyRaised": true,
+          "heroInvested": 114
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.9246638275,
+          "raise": 0.0753361725,
+          "opportunities": 18.0484009259,
+          "counts": {
+            "fold": 0,
+            "call": 16.7586864455,
+            "raise": 1.2897144803
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0028516617,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1557, 43],
+        "sum": [0, 863, 18],
+        "sumSq": [0, 854.5, 15.5],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 79.592,
+      "se": 26.053
+    },
+    {
+      "id": "V-05",
+      "set": "review sample, heads-up",
+      "spot": {
+        "preflopRaises": 2,
+        "call": 27,
+        "pot": 54,
+        "stack": 426.5,
+        "heroBet": 10,
+        "raiseTo": 118,
+        "raiserBet": 37,
+        "raiserStack": 645.1,
+        "pricing": {
+          "rate": 0.368293516,
+          "opportunities": 18.4340647088,
+          "rateSource": "measured",
+          "inPosition": false,
+          "position": {
+            "ipVsRaiser": false,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": false
+          },
+          "othersIn": 0,
+          "raiserBehind": 645.1,
+          "rakeFraction": 0.0679012346,
+          "heroAlreadyRaised": true,
+          "heroInvested": 10
+        },
+        "rates": {
+          "fold": 0.0010206223,
+          "call": 0.8104507168,
+          "raise": 0.1885286609,
+          "opportunities": 43.7400200006,
+          "counts": {
+            "fold": 0.0507657748,
+            "call": 35.763834862,
+            "raise": 7.9254193638
+          },
+          "source": "measured"
+        },
+        "rakeCalled": 0.0226337449,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1378, 222],
+        "sum": [0, 852.5, 147.5],
+        "sumSq": [0, 848.25, 145.25],
+        "callEquityMultiway": null
+      },
+      "expect": "raise",
+      "edge": 32.315,
+      "se": 8.201
+    },
+    {
+      "id": "B2-01",
+      "set": "B2: a 5-bet faced, no record, all in below 0.5 equity",
+      "spot": {
+        "preflopRaises": 4,
+        "call": 404,
+        "pot": 606,
+        "stack": 823.9,
+        "heroBet": 32,
+        "raiseTo": 855.9,
+        "raiserBet": 436,
+        "raiserStack": 558.4,
+        "pricing": {
+          "rate": 0.0536962941,
+          "opportunities": 14.7460729322,
+          "rateSource": "measured",
+          "inPosition": true,
+          "position": {
+            "ipVsRaiser": true,
+            "inForBehind": 0,
+            "raisersPendingBehind": 0,
+            "callersPendingBehind": 0,
+            "inPosition": true
+          },
+          "othersIn": 0,
+          "raiserBehind": 558.4,
+          "rakeFraction": 0.0054455446,
+          "heroAlreadyRaised": false,
+          "heroInvested": 32
+        },
+        "rates": {
+          "fold": 0,
+          "call": 0.913,
+          "raise": 0.087,
+          "opportunities": 0,
+          "counts": {
+            "fold": 0,
+            "call": 0,
+            "raise": 0
+          },
+          "source": "population"
+        },
+        "rakeCalled": 0.0029732944,
+        "standing": "call"
+      },
+      "samples": {
+        "n": [0, 1509, 91],
+        "sum": [0, 710.5, 40],
+        "sumSq": [0, 701.25, 39.5],
+        "callEquityMultiway": null
+      },
+      "expect": "stand",
+      "edge": null,
+      "se": null
+    }
+  ]
+}

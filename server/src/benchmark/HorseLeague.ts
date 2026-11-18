@@ -3065,6 +3065,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
   ]),
+  // 2026-11-18 (WooWoo audit, CALL-VS-RAISE, default OFF): the priced
+  // call-or-raise facing a re-raise. Both sides run the re-raised-pot rules it
+  // sits on (it acts on their standing call and on the raises they lower); a
+  // adds the pricing, b is those rules alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_call_vs_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+      omahaReraisedCallVsRaisePriced: true,
+    },
+    b: {
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+    },
+  })),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher
