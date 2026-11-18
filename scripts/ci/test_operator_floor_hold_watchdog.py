@@ -118,6 +118,38 @@ CREATE FUNCTION fn_lock_daily_mission_user(uuid) RETURNS void LANGUAGE sql AS $$
         prefix = "SET request.jwt.claim.role='service_role';"
         run(psql, f"INSERT INTO tables VALUES('{t1}','{club}',NULL,NULL,'running',false,'cash'),('{t2}','{club}',NULL,NULL,'running',false,'cash'),('{t_out}','{outside}',NULL,NULL,'running',false,'cash');")
 
+        # The November 17 freeze involved a shared tournament admission followed
+        # by the idle watchdog's exclusive waiter. Exercise both real connections.
+        owner = json.loads((repo / 'scripts/ci/fixtures/phase7-preserve-resolved/installed-prerequisites.json').read_text())
+        run(psql, owner['watchdog'] + ';')
+        signature = "'public.fn_ca_operator_floor_hold_watchdog()'::regprocedure"
+        assert run(psql, f"SELECT md5(pg_get_functiondef({signature}))") == 'a75ce8a90eaf1bbf6f6b28187233628e'
+        original_access = run(psql, f"SELECT proowner,prosecdef,proconfig,proacl FROM pg_proc WHERE oid={signature}")
+        call = "SET lock_timeout='200ms'; SELECT fn_ca_operator_floor_hold_watchdog();"
+
+        def hold_admission():
+            child = subprocess.Popen([*map(str, psql), '-q'], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            child.stdin.write("BEGIN; SELECT 'admission held' FROM pg_advisory_xact_lock_shared(530093);\n")
+            child.stdin.flush()
+            assert child.stdout.readline().strip() == 'admission held'
+            return child
+
+        def release_admission(child):
+            child.communicate("ROLLBACK;\n", timeout=5)
+            assert child.returncode == 0
+
+        shared = hold_admission()
+        try:
+            run(psql, call, refuse='canceling statement due to lock timeout')
+            run(psql, (repo / 'supabase/migrations/20261118015237_an_idle_floor_watchdog_does_not_queue_tournament_admission.sql').read_text())
+            passive = json.loads(run(psql, call).splitlines()[-1])
+            assert passive['ok'] and passive['hold'] is None and passive['resolved'] == 0
+            assert passive['late_receipts_written'] == 0 and not passive['released']
+            assert run(psql, f"SELECT proowner,prosecdef,proconfig,proacl FROM pg_proc WHERE oid={signature}") == original_access
+        finally:
+            release_admission(shared)
+
         # 1. A park written by the untouched owner carries a lease.
         run(psql, prefix + f"SELECT fn_ca_launch_operator_command('{actor}','{park}','park','Qualified Launch Scope Park');")
         lease = json.loads(run(psql, "SELECT jsonb_build_object('held',held_since IS NOT NULL,'ttl',expires_at-held_since) FROM ca_operator_floor_hold;"))
@@ -175,6 +207,15 @@ CREATE FUNCTION fn_lock_daily_mission_user(uuid) RETURNS void LANGUAGE sql AS $$
         # 5. The engine finishes the late close; the next tick proves it resumed.
         run(psql, "DELETE FROM table_seats;")
         run(psql, prefix + f"SELECT fn_ca_operator_finish_cash_close('{t2}','{close}');")
+        # Only the overdue original receipts remain visible in this transaction.
+        # Its timeout rolls back the fixture's alert resolution.
+        shared = hold_admission()
+        try:
+            run(psql, "BEGIN; UPDATE financial_alerts SET resolved=true WHERE "
+                      "source='fn_ca_operator_floor_hold_watchdog' AND NOT resolved; " + call,
+                refuse='canceling statement due to lock timeout')
+        finally:
+            release_admission(shared)
         w = json.loads(run(psql, "SELECT fn_ca_operator_floor_hold_watchdog();"))
         assert w['late_receipts_written'] == 2 and w['resolved'] == 1, w
         assert run(psql, f"SELECT fn_ca_launch_cash_close_resumed('{t1}','{close}') AND fn_ca_launch_cash_close_resumed('{t2}','{close}');") == 't'
@@ -205,10 +246,36 @@ CREATE FUNCTION fn_lock_daily_mission_user(uuid) RETURNS void LANGUAGE sql AS $$
             assert run(psql, f"SELECT NOT has_function_privilege('authenticated','{sig}','EXECUTE') AND NOT has_function_privilege('anon','{sig}','EXECUTE');") == 't', sig
         assert run(psql, "SELECT has_function_privilege('service_role','fn_ca_operator_floor_hold_renew(uuid,uuid,text)','EXECUTE');") == 't'
 
+        # No lease is present, but a genuine unresolved watchdog alert is still work.
+        run(psql, f"""INSERT INTO financial_alerts(severity,source,message,context)
+                   VALUES ('critical','fn_ca_operator_floor_hold_watchdog','test unowned hold',
+                           jsonb_build_object('operation_id','{park2}'));""")
+        shared = hold_admission()
+        try:
+            run(psql, call, refuse='canceling statement due to lock timeout')
+        finally:
+            release_admission(shared)
+        resolved = json.loads(run(psql, "SELECT fn_ca_operator_floor_hold_watchdog();"))
+        assert resolved['resolved'] == 1, resolved
+
+        # An active park continues to exclude admissions exactly as before.
+        park3 = '30000000-0000-0000-0000-000000000012'
+        run(psql, prefix + f"SELECT fn_ca_engine_operator_command('{actor}','{park3}','floor','park','Admission Contention Fixture');")
+        shared = hold_admission()
+        try:
+            run(psql, call, refuse='canceling statement due to lock timeout')
+            assert run(psql, "SELECT operation_id FROM ca_operator_floor_hold") == park3
+        finally:
+            release_admission(shared)
+        run(psql, "UPDATE ca_operator_floor_hold SET expires_at=clock_timestamp()-interval '1 second';")
+        expired = json.loads(run(psql, "SELECT fn_ca_operator_floor_hold_watchdog();"))
+        assert expired['released'] and expired['hold']['operation_id'] == park3, expired
+
         result = {'qualification': 'passed', 'lease_stamped_by_untouched_owners': True, 'one_alert_per_hold': True,
                   'owner_renews_as_service_role_only': True, 'expiry_releases_like_owner_resume': True,
                   'late_close_receipted_next_tick': True, 'unscoped_park_expires': True,
-                  'candidate': args.candidate.name, 'production_installation': False}
+                  'candidate': args.candidate.name, 'idle_tournament_admission_unblocked': True, 'pending_work_remains_exclusive': True,
+                  'production_installation': False}
         if args.output:
             args.output.write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps(result))

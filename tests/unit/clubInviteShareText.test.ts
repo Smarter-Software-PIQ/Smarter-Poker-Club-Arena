@@ -6,6 +6,9 @@
  * and leaves a line out when the figure was not available.
  */
 import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ClubCardPanel } from '../../src/components/club/ClubCardPanel';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { inviteShareText, parseInviteFigures } from '../../src/services/ClubInviteService';
@@ -65,15 +68,41 @@ describe('copied club invitation', () => {
     );
   });
 
-  it('the card consumes the display totals and discloses each addition', () => {
-    const card = readFileSync(resolve(ROOT, 'src/components/club/ClubCardPanel.tsx'), 'utf8');
+  it('the Kings Club card uses the adjusted totals and shows only the three stats', () => {
     const home = readFileSync(resolve(ROOT, 'src/pages/HomePage.tsx'), 'utf8');
     expect(home).toContain("rpc('fn_kings_club_display_totals')");
-    expect(card).toContain('kingsDisplayTotals?.member_total');
-    expect(card).toContain('kingsDisplayTotals?.active_total');
-    expect(card).toContain('MEMBER DISPLAY TOTAL');
-    expect(card).toContain('ACTIVE DISPLAY TOTAL');
-    expect(card).toContain('member_addition.toLocaleString()} CONFIGURED');
-    expect(card).toContain('active_addition.toLocaleString()} CONFIGURED');
+    const props = {
+      totalMembers: 152,
+      clubLevel: 19,
+      activePlayers: 2,
+      activeCash: 144,
+      activeEvents: 432,
+      splitFloorLabel: 'MIDWAY UNION',
+      floorPlaying: 505,
+    };
+    const kings = renderToStaticMarkup(
+      createElement(ClubCardPanel, {
+        ...props,
+        clubName: 'KINGS CLUB',
+        clubId: 25450,
+        kingsDisplayTotals: {
+          member_total: 1652,
+          active_total: 147,
+          member_addition: 1500,
+          active_addition: 145,
+        },
+      })
+    );
+    for (const label of ['MEMBERS', 'LEVEL', 'ACTIVE']) expect(kings).toContain('>' + label + '<');
+    for (const value of ['1,652', '19', '147']) expect(kings).toContain('>' + value + '<');
+    expect(kings).not.toMatch(/CONFIGURED|MIDWAY UNION|INCLUDES HORSES|144 CASH|432 EVENTS/);
+
+    const other = renderToStaticMarkup(
+      createElement(ClubCardPanel, { ...props, clubName: 'OTHER CLUB', clubId: 12 })
+    );
+    expect(other).toContain('505 PLAYERS ACTIVE ACROSS THE MIDWAY UNION');
+    expect(other).not.toContain('INCLUDES HORSES');
+    expect(other).toContain('144 CASH');
+    expect(other).toContain('432 EVENTS');
   });
 });

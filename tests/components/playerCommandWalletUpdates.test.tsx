@@ -10,6 +10,7 @@ const f = vi.hoisted(() => ({
   summary: vi.fn(),
   export: vi.fn(),
   detail: vi.fn(),
+  promo: vi.fn(),
   csv: vi.fn(),
   report: vi.fn(),
   memberSignal: null as null | ((payload: unknown) => void),
@@ -18,9 +19,8 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => f.actor }));
 vi.mock('../../src/hooks/useProfilePresence', () => ({ useOnlineNow: () => false }));
-// These cases isolate wallet events; promo progress owns a separately scoped read.
-vi.mock('../../src/hooks/useMemberPromoPlayThrough', () => ({
-  useMemberPromoPlayThrough: () => ({ members: {}, reload: vi.fn() }),
+vi.mock('../../src/services/PromoPlayThroughService', () => ({
+  readMemberPromoPlayThrough: f.promo,
 }));
 vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
   useMasterBusSubscriptions: (events: string[], callback: (p: unknown) => void) => {
@@ -173,6 +173,35 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   liveRosterRefreshPolicy.minIntervalMs = 180_000;
+});
+
+it('reads progress only for the one authorized roster member who was explicitly selected', async () => {
+  const memberB = { ...row, user_id: 'member-b', alias: 'Bob', username: 'bob' };
+  const privateMember = { ...row, user_id: 'member-c', alias: 'Cam', can_view_financials: false };
+  f.page.mockResolvedValue({
+    items: [row, memberB, privateMember],
+    next_cursor: null,
+    has_more: false,
+    filtered_total: 3,
+  });
+  f.promo.mockResolvedValue({ 'member-b': null });
+  render(tree());
+  await ready();
+  const check = screen.getAllByRole('button', { name: 'Check Promo Progress' });
+  expect(check).toHaveLength(2);
+  expect(f.promo).not.toHaveBeenCalled();
+  expect(screen.queryByText(/Reading Promo|Promo Unavailable/)).toBeNull();
+  await act(async () => fireEvent.click(check[1]));
+  expect(f.promo).toHaveBeenCalledTimes(1);
+  expect(f.promo).toHaveBeenCalledWith(club, ['member-b'], expect.any(AbortSignal));
+  expect(screen.getByText('No Current Promo Restrictions.')).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Check Promo Progress' })).toHaveLength(1);
+  expect(screen.queryByText(/Reading Promo|Promo Unavailable/)).toBeNull();
+  await act(async () =>
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Promo Progress' }))
+  );
+  expect(f.promo).toHaveBeenCalledTimes(2);
+  expect(f.promo).toHaveBeenLastCalledWith(club, ['member-b'], expect.any(AbortSignal));
 });
 
 it('updates an authorized player wallet absolutely without starting another directory read', async () => {

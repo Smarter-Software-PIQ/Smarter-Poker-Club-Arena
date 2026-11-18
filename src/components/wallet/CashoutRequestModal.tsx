@@ -559,7 +559,7 @@ function CashoutRequestContent({
         >
           {/* The receipt checks print unstyled markup; this hook types it on
               the glass (display: contents, so it adds no box and no gap). */}
-          <PromoPlayThroughProgress clubId={clubId} />
+          <PromoPlayThroughProgress clubId={clubId} cashoutRequested />
           <div className="cro-receipts">
             <CashoutReceiptChecks checks={receiptChecks} />
           </div>

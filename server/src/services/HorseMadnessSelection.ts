@@ -35,6 +35,23 @@ export function orderMadnessCandidates<T extends { h: { id: string }; w: number 
     table.bomb_pot_enabled === true &&
     table.big_blind_ante_enabled === true &&
     table.nit_game === true &&
+    // 50 IS THE MADNESS PIN, NOT A THRESHOLD (2026-11-17).
+    //
+    // This is an identity test for the Madness ruleset, not "a high floor".
+    // fn_cash_game_floor_from_template pins vpip_floor to 50 for the
+    // madness_without_lightning profile, explicitly, before the GREATEST that
+    // raises a Classic floor from ca_classic_vpip_floors - so 50 is the value
+    // only that profile carries.
+    //
+    // It used to be ambiguous: Classic plo5/plo6 also sat at 50, so this read
+    // true for tables that were never Madness. Dan lowered the Classic PLO
+    // floor to 40 on 2026-11-17 (migration 20261118004324), which is what makes
+    // the check exact rather than coincidental.
+    //
+    // Do not turn this into a >= comparison and do not move the number. That
+    // migration and 20261024200548's @live-proof both assert the cluster still
+    // reads exactly 50, and widening this would start ordering horses by
+    // measured PLO performance at tables that are not Madness.
     Number(table.maintain_percent_min) === 50;
   return candidates
     .map((candidate) => ({
