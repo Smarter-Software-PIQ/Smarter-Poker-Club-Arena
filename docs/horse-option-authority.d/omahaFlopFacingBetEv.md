@@ -1,6 +1,6 @@
 # omahaFlopFacingBetEv: authority for the live switch
 
-Built 2026-11-17 by the PLO Strategy lane on the owner's ruling of 2026-11-16; reworked 2026-11-18 (the field counted together, realization measured by hand class and position, a larger and balanced sample; section "The rework of 2026-11-18"). @@HEADLINE@@ This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
+Built 2026-11-17 by the PLO Strategy lane on the owner's ruling of 2026-11-16; reworked 2026-11-18 (the field counted together, realization measured by hand class and position, a larger and balanced sample; section "The rework of 2026-11-18"). Declared evaluation of this build (2026-11-18, `PASS-BAR-v2.md`): WIN, human-like field +6.55 +/- 1.14 bb/100 (z 5.7), Horse-only +0.89 +/- 0.44 (z 2.0). This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
 
 ## What it does
 
@@ -54,7 +54,22 @@ The two PLO5 decisions over 80 ms: 132.2 ms on the generated state that takes 10
 
 ## Evaluation
 
-@@EVAL@@
+The paired league evaluation of this build (archive `plo-handoff-review-01a1cbbd/flopev2-013U37/PASS-BAR-v2.md`, written before the run; the protocol and verdict rule of `PASS-BAR.md`: arm A the 32 options switched on 2026-11-16 plus this option, arm B the same without it; six seats, 100 big blinds, cash, duplicate deals; seeds mix(9751000 + i) and mix(9761000 + i), not used by any earlier run; source commit 4379345b1fc, sha256 of the engine and league files equal at start and end, `RUN-SOURCE-v2.txt`). A minus B, bb/100, mean over sessions and its standard error:
+
+| cell              | table                                                                                  | sessions x pairs | A - B | SE   | z     |
+| ----------------- | -------------------------------------------------------------------------------------- | ---------------- | ----- | ---- | ----- |
+| F4                | PLO4, one Horse against five seats of the calibrated human-like development population | 600 x 500        | +4.23 | 1.59 | +2.66 |
+| F5                | PLO5, the same                                                                         | 600 x 500        | +8.86 | 1.64 | +5.39 |
+| M4                | PLO4, Horse-only, production styles in every seat                                      | 100 x 500        | -0.32 | 0.51 | -0.64 |
+| M5                | PLO5, the same                                                                         | 100 x 500        | +2.11 | 0.71 | +2.98 |
+| human-like pooled |                                                                                        |                  | +6.55 | 1.14 | +5.72 |
+| Horse-only pooled |                                                                                        |                  | +0.89 | 0.44 | +2.05 |
+
+Valid: every session index present once, 0 illegal actions, 0 brain exception fallbacks, 0 truncated streets, no inert cell (4,783 to 5,452 divergent pairs per cell; one F5 session of 500 pairs had none). Verdict under the bar: WIN (no figure below -2 SE; the human-like pooled figure above +2 SE). Archive `flopev2-013U37/eval2/`.
+
+Run 1 of the same protocol (`PASS-BAR.md`, seeds mix(9731000 + i) / mix(9741000 + i), source 6cdd33bfd56, the withdrawn realization cells) also met the bar (human-like +6.99 +/- 1.11, Horse-only +1.91 +/- 0.42; `flopev2-013U37/eval1/`). It is not this build's evidence: its cells came from a fit with a defective input, and the two runs differ in seeds and build; read as information only.
+
+What the evaluation does not show: the human-like field is a development population that misses its fidelity criterion at the flop facing-bet node and does not adapt; no rake in league settlement; stacks reset each hand; the 563-decision replay above (the audit's flat-realization verdicts) does not favour this build over the first cut.
 
 ### The first cut (PR #11210, head 672dbb20509), for the record
 
@@ -121,7 +136,7 @@ Of the spec's named lists (its section (e)): made hands multiway that must becom
 - Mechanism, scope, visibility (flag and receipts in `HorseDataLedger.ts`), tests: MET.
 - Option unset or false: every decision byte-identical to the base at the recorded nodes, with and without the production option list (`HorseOmahaFlopFacingBetEv.test.ts`; with the list every byte but `thinkTime`, which `horseActionTimeIsPublicOnly` draws from the timing stream).
 - Speed: MET against the 80 ms mark at p99 (table above; 2 of 800 PLO5 decisions over it, one of them a state that is over it without the option), measured under load on the development machine, not on the engine host.
-- Value: @@VALUE@@
+- Value: MET (declared evaluation of this build: WIN; table above).
 - Continuation, reach: PARTLY MEASURED, NOT MET. What flop calls returned on the later streets is now measured from production and is in the verdict (CONSTANTS file), on the later-street play of 2026-11-06 to 2026-11-17 and on the calls the brain of those days made, not on the calls this option adds. Not counted in production with the option on.
 
 ## Limits
