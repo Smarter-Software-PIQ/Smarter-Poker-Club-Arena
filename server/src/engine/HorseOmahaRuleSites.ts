@@ -312,6 +312,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
   ),
+  omahaReadIsByStreetAndTexture: priced(
+    "the opponent read every priced comparison and the value-leader label take, from the decision's street and flop texture, blended continuously with the pooled read (an input, not a rule site)"
+  ),
   // categorical, replaced
   omahaTurnRiverRaiseNeedsNuts: categorical('omahaTurnRiverRaiseIsPriced'),
   omahaRiverNutRaiseOnly: categorical('omahaTurnRiverRaiseIsPriced'),

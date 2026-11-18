@@ -129,6 +129,8 @@ const RECEIPT_ONLY_FILES = [
   // Omaha priced preflop re-raise defence (2026-11-17, default off): the rule fires its verdict and
   // change receipts where it answers (HorseLogic only hands it the preflop decision).
   'engine/HorseOmahaPreflopReraiseDefenceRule.ts',
+  // Omaha read by street (2026-11-18, default off): the per-decision installer counts its one receipt.
+  'engine/HorseOmahaReadByStreetRule.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

@@ -95,6 +95,7 @@ import {
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
+import { leagueLearnStreetRead } from './HorseLeagueStreetRead.js';
 import { pressureOpponentDecision } from './V53PressurePopulation.js';
 
 export {
@@ -1290,6 +1291,10 @@ export function playHand(
           true
         );
       });
+      // omahaReadIsByStreetAndTexture (2026-11-18): the street read the option uses, learned the way the
+      // accepted-hand learner keeps it, only for a hand a seat's configuration reads it in.
+      if (seats.some((_, i) => configOf(i).omahaReadIsByStreetAndTexture === true))
+        leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
     }
@@ -2466,6 +2471,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaFlopFacingBetEv: true },
+    b: {},
+  })),
+  // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
+  // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
+  // raise are read from the decision's own street and flop texture, blended
+  // with the pooled read by the cell's opportunities; the league learns the
+  // street read in the card's sandbox (HorseLeagueStreetRead). a switches it
+  // on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_read_is_by_street_and_texture`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReadIsByStreetAndTexture: true },
     b: {},
   })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
