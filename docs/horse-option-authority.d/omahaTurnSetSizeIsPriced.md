@@ -4,7 +4,7 @@ Owner order of 2026-11-17 11:49 America/Chicago. Build: sites-013U37 (plo-handof
 
 ## What it does
 
-PLO4/PLO5 cash turn, nothing to call, in the turn set pound spot (a set where a straight is possible and a flush is not): the wager size is the highest-valued of the public-state candidates (the card-impact sizes and the pound size itself) priced against every live opponent. The check is taken only when it is priced above every size.
+PLO4/PLO5 cash turn, nothing to call, in the turn set pound spot (a set where a straight is possible and a flush is not): the wager size is the highest-valued of the public-state candidates (the card-impact sizes and the pound size itself) priced against every live opponent. The decision to wager stays the engine's (the pound's spot is a value bet); only the size is priced.
 
 Scope: PLO4 and PLO5 cash, one board, high only, no bomb pot, not Lightning, not fixed limit (`omahaPricedInScope`). It acts where the rule it replaces acts; out of scope, and with the option unset or false, every decision is exactly as before.
 
@@ -29,7 +29,7 @@ The opponent read comes through one interface (`omahaPricedReadOfUser`, HorseOma
 
 ## Receipts
 
-omaha_priced_site_turn_set_size_kept, \_resized, \_checked, \_unpriced_kept (HorseDataLedger.ts).
+omaha_priced_site_turn_set_size_kept, \_resized, \_unpriced_kept (HorseDataLedger.ts).
 
 ## Tests
 

@@ -34,8 +34,8 @@
  *  - omahaTurnSetSizeIsPriced: the turn set pound (omahaTurnSetPound) chose
  *    the monster tier's size by hand class. In its spot the size is the
  *    highest-valued of the public-state candidates (the card-impact sizes and
- *    the pound size itself); the check is taken only when it out-prices
- *    every size.
+ *    the pound size itself). The decision to wager is the engine's (the
+ *    pound's spot is a value bet); only its size is priced here.
  *  - omahaFlopBetIsPriced: the flop bet of a bare big pair (an overpair, or
  *    queens or better with one higher card, no flush draw, few straight outs)
  *    with the betting lead, in either position, is priced beside the check
@@ -166,8 +166,8 @@ export function omahaPricedSitesOwnsTurnSetSize(
 /**
  * The turn set pound's wager (the caller is in its spot). The size is the
  * highest-valued of the public-state candidates (the card-impact sizes, the
- * proposed pound size among them); the check when it is worth more than
- * every size. Null with the option off or out of scope.
+ * proposed pound size among them). The wager itself is not turned into a
+ * check here. Null with the option off or out of scope.
  */
 export function omahaPricedSitesTurnSetSize(
   decision: HorseDecision,
@@ -186,10 +186,6 @@ export function omahaPricedSitesTurnSetSize(
     if (v === null || v.best === null) {
       if (tele) noteFire('omaha_priced_site_turn_set_size_unpriced_kept');
       return decision;
-    }
-    if (!(v.best.ev >= v.evCheck)) {
-      if (tele) noteFire('omaha_priced_site_turn_set_size_checked');
-      return checkedOf(decision);
     }
     const proposedAmount = amountOf(decision, player);
     if (v.proposed !== null && v.proposed.ev >= v.best.ev) {

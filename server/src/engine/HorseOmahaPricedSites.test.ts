@@ -97,7 +97,7 @@ describe('each site answers by the priced comparison', () => {
       );
     }
   });
-  it('turn set pound: the size is the highest-valued candidate, the check only above every size', () => {
+  it('turn set pound: the size is the highest-valued candidate (the wager stays)', () => {
     const st = pricedSpot(TURN_SET);
     const proposed = 180;
     const v = omahaPricedBet(
@@ -114,8 +114,8 @@ describe('each site answers by the priced comparison', () => {
       ON
     )!;
     const maxEv = Math.max(...v.rows.map((r) => r.ev));
-    if (v.evCheck > maxEv) expect(d.action).toBe('check');
-    else {
+    expect(d.action).not.toBe('check');
+    {
       const chosen = v.rows.find((r) =>
         d.action === 'all_in'
           ? r.action === 'all_in'

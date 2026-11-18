@@ -1141,7 +1141,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaTurnSetSizeIsPriced',
-    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the turn set pound spot (omahaTurnSetPound: a set on a turn where a straight is possible and a flush is not), the size is the highest-valued of the public-state candidates (the card-impact sizes and the pound size itself) priced against every live opponent; the check is taken only when it is priced above every size. Unpriceable spots keep the pound size.',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the turn set pound spot (omahaTurnSetPound: a set on a turn where a straight is possible and a flush is not), the size is the highest-valued of the public-state candidates (the card-impact sizes and the pound size itself) priced against every live opponent; the wager itself stays (only its size is priced). Unpriceable spots keep the pound size.',
     'V94'
   ),
   flag(
@@ -5247,12 +5247,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_turn_set_size_resized',
     'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaTurnSetSizeIsPriced)',
     'the same spot: another public-state size is priced higher and is bet',
-    'V94'
-  ),
-  receipt(
-    'omaha_priced_site_turn_set_size_checked',
-    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaTurnSetSizeIsPriced)',
-    'the same spot: the check is priced above every size: the wager became a check',
     'V94'
   ),
   receipt(
