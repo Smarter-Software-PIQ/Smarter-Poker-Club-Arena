@@ -35,6 +35,18 @@ omaha_priced_facing_inputs_changed_to_call, \_changed_to_fold (HorseDataLedger.t
 
 HorseOmahaPricedRules.test.ts, HorseOmahaPricedRulesRecorded.test.ts (real decisions from production, per family), HorseOmahaNoBlanketRule.law.test.ts (no registered categorical rule decides with the priced options on; the open parts are pinned), HorseOmahaPricedReceiptGate.test.ts (the worker receipt admits a priced raise that became a call only under the decision's own option), OmahaPricedRangeCalibration.test.ts (the calibration arithmetic and the measured prior). Server tsc 0.
 
+## Follow-up of 2026-11-18 (priced2: opponent kind, review notes N1-N4)
+
+**Batch integration 2026-11-18 (lead ruling on review R2 B1/B2 of priced2 54d47a6a706): everything in this section acts ONLY with the default-OFF option `omahaPricedPriorsByOpponentKind` on (no league yet; do not switch on without a WIN); the re-raise counted once (N1) acts only with the OFF-ONLY option `omahaRaiseEvCountsLossesOnce`. With both off this family is byte-identical to #11212 (HorseOmahaPricedKindOptions.test.ts and HorseOmahaPricedRulesRecorded.test.ts, on recorded decisions whose seats' kinds are known). Unpriceable spots, stated honestly: with omahaPricedPriorsByOpponentKind on, a spot the comparison cannot price hands back to the OLD CATEGORICAL RULE, which then decides, beside the family's `_unpriced_kept` receipt; with it off the decision given is kept, as in #11212.**
+
+Every opponent figure a priced comparison reads now comes from his own KIND's prior (`omahaPricedKindPrior`, HorseOmahaPricedMode.ts; kind from `gs.humanUserIds`, else the seat's `is_horse`): a Horse is never priced on a person's bluff table, bet rate, fold rate or reference rate, nor a person on a Horse's. Each posterior is re-centred on that prior, so a player with no opportunity reads exactly it (no step at the first opportunity). The Horse figures are measured on the same 5,379-hand production window as the person figures (archive plo-handoff-review-01a1cbbd/priced2-013U37/calib). Where the comparison cannot price a spot at all, the categorical rule acts there as with the option off, beside the `_unpriced_kept` receipt (it no longer falls open). Cause and measurements: archive priced-01BNteGZ/ALLON-DIAGNOSIS-20261118.md. Evaluation protocol of this source: archive priced2-013U37/PASS-BAR.md. The v2 verdict below was measured on the #11212 source and is NOT carried over to this source.
+
+Also: the measured bluff prior is the bettor's kind's: `OMAHA_PRICED_MEASURED_BLUFF` (persons, 995 bets) or `OMAHA_PRICED_MEASURED_BLUFF_HORSE` (Horses, 934 heads-up bets into Horses: turn 0.139 to 0.244, river 0.128 to 0.219).
+
+### All nine families on, 2026-11-18 source (priced2-013U37/PASS-BAR.md configuration 1)
+
+Incomplete when SSD1 dropped off the Mac (F5 77 of 80 sessions, M4 14 of 16, M5 12 of 16), aggregates as printed: field F4 -5.60 +/- 3.47, F5 -5.00 +/- 3.78, pooled -5.30 +/- 2.56; Horse-only M4 +0.09 +/- 1.84, M5 +1.53 +/- 1.28, pooled +0.81 +/- 1.12. Not a verdict (partial). Read: the Horse-only loss of v2/v3 (-7.8) is gone with the kind priors; the human-like field loss is not. The families stay never-on-together.
+
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.

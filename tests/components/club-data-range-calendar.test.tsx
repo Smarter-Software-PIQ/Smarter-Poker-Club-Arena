@@ -59,12 +59,12 @@ describe('One Inclusive Reporting Calendar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
     expect(apply).toHaveBeenCalledWith('2026-11-09', '2026-11-15');
   });
-  it('keeps the 93-day limit and dismisses without applying', () => {
+  it('keeps the past 90-day limit and dismisses without applying', () => {
     const apply = vi.fn();
     const close = vi.fn();
     render(<Calendar {...base} start="2026-08-01" onApply={apply} onClose={close} />);
     fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose Up To 93 Days.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Choose Dates Within The Past 90 Days.');
     expect(apply).not.toHaveBeenCalled();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(close).toHaveBeenCalledOnce();

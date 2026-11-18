@@ -1,7 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
-vi.mock('./client.js', () => ({ supabase: mocks }));
+// PostgrestClient.rpc() returns a builder; the envelope call chains
+// setHeader (the answer contract) before it is awaited.
+const sentHeaders = vi.hoisted(() => [] as Array<[string, string, string]>);
+vi.mock('./client.js', () => ({
+  supabase: {
+    from: (...args: unknown[]) => mocks.from(...args),
+    rpc: (fn: string, args: unknown) => {
+      let pending: unknown;
+      const builder = {
+        setHeader(name: string, value: string) {
+          sentHeaders.push([fn, name, value]);
+          return builder;
+        },
+        then(onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown) {
+          pending ??= Promise.resolve().then(() => mocks.rpc(fn, args));
+          return (pending as Promise<unknown>).then(onOk, onErr);
+        },
+      };
+      return builder;
+    },
+  },
+}));
 vi.mock('../errorReporter.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../errorReporter.js')>()),
   reportError: vi.fn(),

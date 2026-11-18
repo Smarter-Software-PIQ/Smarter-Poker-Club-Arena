@@ -184,7 +184,15 @@ describe('the collapsed chat button is untouched by the sheet', () => {
     // tests/e2e/raise-panel-covers-chat.spec.ts asserts the open raise panel
     // wins the overlap against THIS element. Moving the open sheet above the
     // action panel must not move this one.
-    expect(ruleBlock(CHAT_CSS, '.chat-collapsed')).toContain('z-index: 99');
+    expect(ruleBlock(CHAT_CSS, '.chat-collapsed')).toContain('z-index: 105');
+  });
+
+  it('stays above the full-screen HUD layer so its taps are never swallowed', () => {
+    const hud = readFileSync(resolve(__dirname, '../../src/components/table/TableHUD.css'), 'utf8');
+    const hudZ = Number(/\.table-hud \{[^}]*?z-index:\s*(\d+)/s.exec(hud)?.[1]);
+    const chatZ = Number(/z-index:\s*(\d+)/.exec(ruleBlock(CHAT_CSS, '.chat-collapsed'))?.[1]);
+    expect(hudZ).toBeGreaterThan(0);
+    expect(chatZ).toBeGreaterThan(hudZ);
   });
 });
 

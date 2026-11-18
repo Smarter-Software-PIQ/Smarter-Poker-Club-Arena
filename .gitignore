@@ -235,3 +235,6 @@ work/release-journal-pg-*/
 # Graphify local code graph (built per checkout, see CLAUDE.md section 14)
 graphify-out
 .cache/
+
+# npm cache written by npx runs inside a worktree (TMPDIR/npm_config_cache in the task dir); never commit it
+server/.npm-cache/

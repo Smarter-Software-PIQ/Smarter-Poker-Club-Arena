@@ -45,6 +45,7 @@ import {
   omahaStreetPlanFlopAdmitsCheck,
   omahaStreetPlanThreeWayAdmitsCheck,
 } from '../HorseOmahaStreetPlan.js';
+import { omahaPricedSitesFlopBetSpot } from '../HorseOmahaPricedSites.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import { huBalanceSpot } from '../HorseHeadsUpPostflopBalance.js';
 import {
@@ -64,6 +65,7 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import {
@@ -1397,6 +1399,20 @@ function policyGraphIsValidInScope(
       // same seeded test is re-run on the request (both board tests on: the
       // request does not carry V58/V59).
       !(variant === 'plo6' && plo6RiverLiveFoldTest(context.player, context.gameState));
+    // omahaFlopBetIsPriced (sites-013U37, default off): a bare big pair's flop
+    // bet with the betting lead becomes a check, in either position, when the
+    // check is priced above it. A check puts no chip in; when the request is
+    // known, only where the option's public spot, re-run on it, holds (the
+    // receipt context carries neither the options nor the opponent read).
+    const omahaPricedSiteFlopBetToCheck =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaPricedSitesFlopBetSpot(context.player, context.gameState)));
     // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
     // facing no wager becomes a check on the flop out of position with a bare
     // pair, on the turn after the flop bet was called, and on a paired river
@@ -1517,7 +1533,7 @@ function policyGraphIsValidInScope(
       OMAHA_FLOP_FACING_BET_EV_VARIANTS.has(variant) &&
       transition.after.action === 'call' &&
       previous !== null &&
-      ['fold', 'raise', 'bet', 'all_in'].includes(previous.action) &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaFlopFacingBetEvAdmitsCall(context.player, context.gameState, transition.after.amount);
@@ -1649,6 +1665,27 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
+    // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
+    // more preflop, a fold or a re-raise becomes a call when the expected
+    // value of the call is the largest. The verdict reads the opponent
+    // memory, which the request does not carry, so the call is admitted only
+    // with the request, only in the preflop spot the rule covers and only for
+    // the exact chips the call puts in. (Its fold is the fold admission
+    // above; the whole-stack call is an all-in, a wager action.)
+    const omahaPreflopReraiseDefenceCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPreflopReraiseDefenceAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
     // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
     // draw out of position, or in position with a bare flush draw, becomes a
     // call. Admitted only with the request, where the bar re-run on it agrees.
@@ -1696,6 +1733,7 @@ function policyGraphIsValidInScope(
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
+      !omahaPricedSiteFlopBetToCheck &&
       !omahaOopTurnToCall &&
       !omahaBareOverpairContToCall &&
       !omahaStreetPlanBetToCheck &&
@@ -1707,6 +1745,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&

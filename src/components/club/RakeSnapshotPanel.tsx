@@ -1,3 +1,4 @@
+import { CLUB_DATA_MAX_DAYS, clubDataOldestDay, clubDataRangeError } from '../../lib/clubDataRange';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 /**
  * RAKE SNAPSHOT — one strip that answers "how are we doing", then "who did it".
@@ -211,6 +212,7 @@ export interface RakeSnapshotPanelProps {
   headlineLabel?: string;
   /** Club Data uses Pacific report windows; other financial callers retain their basis. */
   reportBasis?: 'calendar' | 'pacific';
+  reportRange?: { start: string; end: string };
 }
 
 export default function RakeSnapshotPanel({
@@ -224,6 +226,7 @@ export default function RakeSnapshotPanel({
   refreshToken = 0,
   headlineLabel = 'Rake / Fee',
   reportBasis = 'calendar',
+  reportRange,
 }: RakeSnapshotPanelProps) {
   // Memoised: a fresh array identity on every render would re-run the effect
   // below on every render, and that effect can call setScope.
@@ -365,9 +368,24 @@ export default function RakeSnapshotPanel({
     }
   }, [scope]);
 
+  const reportRangeKey = reportRange ? `${reportRange.start}:${reportRange.end}` : '';
+  const [detachedRangeKey, setDetachedRangeKey] = useState<string | null>(null);
+  const savedRangeIsExpired =
+    !!reportRange &&
+    !!clubDataRangeError(
+      periodToRange(period, period === 'custom' ? custom : undefined, new Date(), reportBasis)
+        .start,
+      periodToRange(period, period === 'custom' ? custom : undefined, new Date(), reportBasis).end,
+      reportToday
+    );
+  const followsReport =
+    !!reportRange && (detachedRangeKey !== reportRangeKey || savedRangeIsExpired);
   const range = useMemo(
-    () => periodToRange(period, period === 'custom' ? custom : undefined, new Date(), reportBasis),
-    [period, custom, reportBasis, reportToday]
+    () =>
+      followsReport && reportRange
+        ? reportRange
+        : periodToRange(period, period === 'custom' ? custom : undefined, new Date(), reportBasis),
+    [followsReport, reportRange?.start, reportRange?.end, period, custom, reportBasis, reportToday]
   );
 
   const focusUserId = crumbs.length ? crumbs[crumbs.length - 1].userId : agentUserId;
@@ -1076,14 +1094,31 @@ export default function RakeSnapshotPanel({
         {exportStatus}
       </p>
 
+      {reportRange && (
+        <button
+          type="button"
+          className={styles.period}
+          aria-pressed={followsReport}
+          onClick={() => setDetachedRangeKey(null)}
+        >
+          Use Report Dates
+        </button>
+      )}
       <div className={styles.periods} role="group" aria-label="Reporting Period">
         {RAKE_PERIODS.map((p) => (
           <button
             key={p.key}
+            disabled={
+              !!reportRange &&
+              p.key !== 'custom' &&
+              periodToRange(p.key, undefined, new Date(), reportBasis).start <
+                clubDataOldestDay(reportToday)
+            }
             type="button"
-            aria-pressed={period === p.key}
-            className={`${styles.period} ${wordInk(period === p.key)}`}
+            aria-pressed={!followsReport && period === p.key}
+            className={`${styles.period} ${wordInk(!followsReport && period === p.key)}`}
             onClick={() => {
+              setDetachedRangeKey(reportRangeKey);
               if (p.key === 'custom' && period !== 'custom') setCustom(range);
               if (p.key === 'custom' && reportBasis === 'pacific') setEditingRange(true);
               setPeriod(p.key);
@@ -1149,8 +1184,9 @@ export default function RakeSnapshotPanel({
           end={range.end}
           today={reportToday}
           zoneLabel="Pacific Calendar Dates"
-          maxDays={731}
+          maxDays={reportRange ? CLUB_DATA_MAX_DAYS : 731}
           onApply={(start, end) => {
+            setDetachedRangeKey(reportRangeKey);
             setCustom({ start, end });
             setPeriod('custom');
             setEditingRange(false);

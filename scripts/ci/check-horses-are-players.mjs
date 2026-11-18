@@ -100,6 +100,13 @@ const REGISTER = {
       PRESUME_ROSTER +
       ' The explicit offline human-field profile passes the same roster to the real decision consumer; horse-only populations remain unchanged.',
   },
+  'server/src/benchmark/LeagueDecisionState.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why:
+      PRESUME_ROSTER +
+      ' The duplicate league builds each Horse decision with the state production hands HorseLogic.decide (ServerTableEngineTurns), so it passes the same roster of seats a person plays. It decides nothing about any horse: it only builds the league decision input (ALeagueDecisionStateIsProductions.law.test.ts).',
+  },
   'server/src/benchmark/OmahaAdversarialStress.test.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',

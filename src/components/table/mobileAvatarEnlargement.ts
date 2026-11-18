@@ -1,10 +1,5 @@
 import { privateCardLane } from './heroPrivateReservations';
-import {
-  nineSeatHeroArtRatio,
-  crownActionReservation,
-  restingAvatarBox,
-  tableRenderScale,
-} from './avatarCrownBounds';
+import { crownActionReservation, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
   dealerSeatReservations,
@@ -24,10 +19,12 @@ const fixed = (scale: number, px = 0): MobileAvatarProfile => ({ scale, px, py: 
  * amount tags, plates, badges, dealer button, pot, board, controls, neighbours)
  * stays a hard obstacle, so a seat gets the largest zoom those leave room for. */
 export const MOBILE_AVATAR_MAX_SCALE = 2.5;
-// Nine-chair tournaments use the same seated artwork fit and saved size as cash.
+// Tournaments use the same artwork fit as cash (Dan 2026-11-18: "FOR BOTH 6
+// MAX AND FULL RING GAMES"). Six-max tournaments had no profile at all, so
+// their portraits never grew on a phone.
 function mobileProfileKey(page: HTMLElement) {
   if (page.dataset.seats === '9') return 'cash|9|seated';
-  return `${page.classList.contains('table-page--tournament') ? 'tournament' : 'cash'}|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
+  return `cash|${page.dataset.seats}|${page.dataset.hero === 'false' ? 'spectator' : 'seated'}`;
 }
 
 const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
@@ -421,7 +418,6 @@ export function mobileFrameCardReservation(
   state?: MobilePaintState
 ): PaintBox {
   if (
-    (page.dataset.seats !== '9' && page.classList.contains('table-page--tournament')) ||
     !['6', '9'].includes(page.dataset.seats ?? '') ||
     page.dataset.killEnabled !== 'false' ||
     ![2, 3, 4, 5, 6].includes(Number(page.dataset.holeCardCount)) ||
@@ -549,16 +545,13 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
         height: tagH,
       },
     });
-    // Chips already on the felt are displays and stay hard. Where a future
-    // bet rests is the marker solver's choice, and that solver treats the
-    // enlarged portrait as a display to stay clear of (useProtectedCardLayout),
-    // so no guessed rest envelope is reserved here: one abutting the art
-    // walled every seated opponent at 1.05x (measured 2026-11-12).
-    // Chips on the felt are displays: hard for every portrait.
-    for (const chips of seat.querySelectorAll<HTMLElement>('.seat__bet-chips,.seat__wager-group')) {
-      const box = chips.getBoundingClientRect();
-      if (box.width && box.height) boxes.push({ box, owner: seat, layer: false });
-    }
+    // Chips are NOT a size input (Dan 2026-11-18). Where a bet rests is the
+    // marker solver's choice, and that solver keeps every wager clear of the
+    // enlarged portrait and in front of its own player
+    // (useProtectedCardLayout, a-bet-sits-in-front-of-its-own-player). Reading
+    // the chips that happened to be on the felt when the table first fitted
+    // made the size depend on the moment the table was opened, and the size is
+    // locked at that first fit, so a table opened mid-hand stayed small.
     // The position chip can rotate through every label while the art stays put.
     // Kill-enabled tables retain their original size from the stable game setting.
     // The seat's own badge is drawn over its portrait (z-index 6, above the
@@ -634,9 +627,11 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     boxes.push({ box, owner: null, layer: false });
   // These rows are immutable once displayed. At an asset/layout change they
   // remain constraints; later reveals do not invalidate the retained choice.
-  for (const card of scaler.querySelectorAll<HTMLElement>(
-    '.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card'
-  )) {
+  // Only the hero's own row is permanent. A hand shown at showdown is a
+  // moment, not geometry: the first fit waits until no hand is tabled
+  // (enlargeMobileAvatars), and a later reveal reserves the locked portrait
+  // (mobileAvatarCardReservation).
+  for (const card of scaler.querySelectorAll<HTMLElement>('.seat__cards--hero .seat__card')) {
     const box = card.getBoundingClientRect();
     // A shown hand draws above its owner's portrait (z-index 4 over 2): the
     // owner may grow behind it; it stays hard for every other seat.
@@ -669,45 +664,31 @@ export type MobilePaintState = {
    * paint and its reservations carry on as they are until the next refit. */
   stale?: boolean;
 };
-/** Dan 2026-11-13: every table of one game type (cash or tournament, six- or
- * nine-handed) shows the same portrait size on this device, seated or
- * watching, across sessions. The first table to settle a size records it here
- * as a displayed height in layout px; every later table of that type takes the
- * same height, or the largest it can if its own displays (chips, bets, the
- * dealer button) leave less room, and that smaller height then becomes the
- * type's size from then on. The recorded size only ever settles downward to
- * the one every table state can take, and a size a table has already shown
- * is never changed by this. Kept on the device, not per tab, so a new visit
- * does not start a different size. */
-// Future captions now reserve their above-crown lane before size qualification.
-// Earlier persisted choices were fitted against the retired below-plate lane.
-const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v3';
-const sharedSizes: Map<string, number> = (() => {
+/** Dan 2026-11-18: "I KEEP FIXING IT ... AND THEN IT KEEPS REGRESSING BACK TO
+ * THE SMALLER VERSIONS". The root cause was here. From 2026-11-13 every table
+ * recorded its fitted portrait height in localStorage and every later table of
+ * that game type was capped at it, and the record could only ever move DOWN.
+ * One crowded fit (chips on the felt, the dealer puck beside a chair, a
+ * six-card fan) therefore shrank that game type on that phone for good, and no
+ * deploy could undo it: a fix shipped, the stored cap stayed, and the next
+ * table opened at the old small size again. The browser suites cleared the key
+ * before every case, so CI never saw it.
+ *
+ * The size is now a pure function of the table being drawn: nothing is read
+ * from, or written to, device storage, and the keys every earlier version
+ * wrote are deleted on load so a phone that ratcheted down recovers at once.
+ * Pinned by tests/mobile-avatars-never-ratchet-smaller.law.test.ts. */
+const RETIRED_SIZE_STORES = /^sp-mobile-avatar-size(?:-v\d+)?$/;
+(() => {
   try {
-    return new Map(Object.entries(JSON.parse(localStorage.getItem(SHARED_SIZE_STORE) || '{}')));
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && RETIRED_SIZE_STORES.test(key)) localStorage.removeItem(key);
+    }
   } catch {
-    return new Map();
+    /* No storage (private mode, a worker): nothing was ever recorded. */
   }
 })();
-const recordSharedSize = (type: string, height: number) => {
-  const known = sharedSizes.get(type);
-  if (known !== undefined && known <= height) return;
-  sharedSizes.set(type, height);
-  try {
-    localStorage.setItem(SHARED_SIZE_STORE, JSON.stringify(Object.fromEntries(sharedSizes)));
-  } catch {
-    /* Private mode or a full store: the in-memory size still applies. */
-  }
-};
-/** Test seam: forget the recorded per-type sizes. */
-export const resetSharedMobileAvatarSizes = () => {
-  sharedSizes.clear();
-  try {
-    localStorage.removeItem(SHARED_SIZE_STORE);
-  } catch {
-    /* Nothing stored. */
-  }
-};
 export const createMobilePaintState = (): MobilePaintState => ({
   key: '',
   choices: new Map(),
@@ -720,6 +701,11 @@ export const createMobilePaintState = (): MobilePaintState => ({
  * so sub-pixel drift between passes cannot count as a new layout. The
  * viewport height is deliberately absent: an iOS toolbar or keyboard
  * changes it without moving a chair, and it used to refit the whole table. */
+/** Each nine-seat phone chair's own rail size, where its art set one. */
+const seatRailBusts = (scaler: HTMLElement) =>
+  Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper'))
+    .map((wrapper) => wrapper.style.getPropertyValue('--sp-seat-rail-bust'))
+    .join(',');
 export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
   const round = (value: number) => Math.round(value * 10) / 10;
   const roundProperty = (value: string) => {
@@ -734,7 +720,7 @@ export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
     round(scaler.getBoundingClientRect().top),
     Math.round(tableRenderScale(scaler) * 1000) / 1000,
     page.dataset.seats,
-    scaler.style.getPropertyValue('--sp-nine-rail-bust'),
+    seatRailBusts(scaler),
     page.dataset.killEnabled,
     page.dataset.holeCardCount,
     page.dataset.hero,
@@ -939,8 +925,7 @@ export function enlargeMobileAvatars(
   // a resize, a toolbar, a new hand or a new player reuses them exactly and
   // never searches again. Only a different ring (another capacity, or the
   // viewer sitting down or standing up) starts over.
-  const railBust =
-    page.dataset.seats === '9' ? scaler.style.getPropertyValue('--sp-nine-rail-bust') : '';
+  const railBust = page.dataset.seats === '9' ? seatRailBusts(scaler) : '';
   if (state && (state.locked?.ring !== profileKey || state.locked.railBust !== railBust))
     state.locked = { ring: profileKey, railBust };
   const lock = state?.locked;
@@ -951,7 +936,12 @@ export function enlargeMobileAvatars(
   // straight up from its plate (no sideways shift), centred over its frame
   // box. Candidates are checked against the permanent table, then against
   // every neighbour already at that size, so two grown neighbours never meet.
-  if (!lock?.uniform && paintPending) prepared.length = 0;
+  // The size is chosen once per ring and then locked, so it must be chosen
+  // from the table's permanent geometry, never from a moment of play. A hand
+  // tabled at showdown is the one display that cannot yet be told where the
+  // locked portrait will be; wait for the next deal before choosing.
+  const showdownPending = Boolean(scaler.querySelector('.seat__cards--revealed .seat__card'));
+  if (!lock?.uniform && (paintPending || showdownPending)) prepared.length = 0;
   if (prepared.length && lock?.uniform) {
     const size = lock.uniform;
     prepared.forEach((item) => {
@@ -1092,21 +1082,6 @@ export function enlargeMobileAvatars(
       );
       return second.every((c) => c.scale === scale) ? second.slice(0, real.length) : null;
     };
-    // The game type's displayed height, shared by every table of that type.
-    // Earlier nine-seat records were limited by transparent dealer-puck corners.
-    const ringVersion = page.dataset.seats === '9' ? '|table-rail' : '';
-    const sizeType = `${profileKey.split('|').slice(0, 2).join('|')}|${innerWidth}${ringVersion}`;
-    // Include the CSS bust gain and normalized slot, but remove the retained
-    // paint zoom. offsetHeight alone omits the new preallocated portrait gain.
-    const restingHeight = Math.max(
-      ...prepared.map((item) => {
-        const height = restingAvatarBox(item.e.image, ratio).height / ratio;
-        // Store the regular portrait height across observer and seated visits.
-        // The hero's larger slot is a presentation of that same calibration.
-        return height / nineSeatHeroArtRatio(page, item.e.image);
-      })
-    );
-    const shared = sharedSizes.get(sizeType);
     // The nine-chair phone rail already sets a common enlarged character size
     // after decoding every portrait. A second, discretionary zoom here made
     // the identical opponent change size with a vacant chair or a private fan.
@@ -1115,11 +1090,7 @@ export function enlargeMobileAvatars(
     const rungs = [
       2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
       1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02, 1,
-    ].filter(
-      (scale) =>
-        scale <= maxScale &&
-        (shared === undefined || !restingHeight || scale * restingHeight <= shared + 0.5)
-    );
+    ].filter((scale) => scale <= maxScale);
     let best: PaintChoice[] | null = rungs.length ? fitsAll(rungs[rungs.length - 1]) : null;
     if (best) {
       let lo = 0,
@@ -1133,29 +1104,43 @@ export function enlargeMobileAvatars(
         } else lo = mid + 1;
       }
     }
-    // Dan 2026-10-22: a bet and the dealer button each read as their own
-    // player's, nearer that player's portrait than any other. Growing every
-    // portrait together moves their visible centres, so a size that would
-    // put a displayed bet or the button nearer a neighbour is not taken; the
-    // next size down that keeps every one of them with its owner is.
-    const anchors: Array<[DOMRect, Element]> = [];
-    for (const chips of scaler.querySelectorAll('.seat__bet-chips')) {
-      const box = chips.getBoundingClientRect(),
-        owner = chips.closest('.seat-wrapper');
-      if (owner && box.width && box.height) anchors.push([box, owner]);
+    // Dan 2026-10-22: the dealer button reads as its own player's, nearer
+    // that player's portrait than any other. Growing every portrait together
+    // moves their visible centres, so a size that would put the button nearer
+    // a neighbour is not taken. Every chair's reserved button spot is checked,
+    // not the one the puck happens to occupy at the first fit: the size is
+    // locked at that fit, and it must not depend on whose button it was.
+    // (Wagers keep their owner through the marker solver, which places them
+    // after the portraits; they are not a size input.)
+    const anchors: Array<[PaintBox, Element]> = [];
+    {
+      const anchorWrappers = Array.from(scaler.querySelectorAll<HTMLElement>('.seat-wrapper'));
+      const scalerSize = {
+        w: scaler.offsetWidth,
+        h: scaler.offsetHeight,
+        railBets: false,
+        portraitTags: true,
+        portraitTaper: page.dataset.hero === 'false' ? 0 : undefined,
+      };
+      const spots = dealerSeatReservations({
+        canvas: scaler.getBoundingClientRect(),
+        scale: ratio,
+        anchors: anchorWrappers.map((e) => ({
+          x: parseFloat(e.style.left),
+          y: parseFloat(e.style.top),
+        })),
+        dealerSize: ((buttonRadiusWidthPct(scalerSize) * scalerSize.w) / 100) * 2 * ratio,
+        viewportWidth: innerWidth,
+        scalerSize,
+      });
+      const per = anchorWrappers.length ? spots.length / anchorWrappers.length : 0;
+      if (per >= 1 && Number.isInteger(per))
+        anchorWrappers.forEach((wrapper, i) => {
+          if (!wrapper.querySelector('.seat:not(.seat--empty)')) return;
+          anchors.push([unionPaint(spots.slice(i * per, (i + 1) * per)), wrapper]);
+        });
     }
-    const puck = page.querySelector<HTMLElement>('.dealer-button');
-    const puckOwner = puck
-      ? ring.find(
-          (wrapper) =>
-            Math.abs(parseFloat(wrapper.style.left) - parseFloat(puck.dataset.ownerX ?? '')) <
-              0.01 &&
-            Math.abs(parseFloat(wrapper.style.top) - parseFloat(puck.dataset.ownerY ?? '')) < 0.01
-        )
-      : undefined;
-    if (puck && puckOwner) anchors.push([puck.getBoundingClientRect(), puckOwner]);
-    const readable = (scale: number) => {
-      if (!anchors.length) return true;
+    const centresAt = (scale: number) => {
       const centres = new Map<Element, [number, number]>();
       for (const item of prepared) {
         const wrapper = item.e.seat.closest('.seat-wrapper');
@@ -1174,18 +1159,33 @@ export function enlargeMobileAvatars(
             2,
         ]);
       }
-      // A clear margin, so the reading never rests on a pixel.
-      const margin = 2 * ratio;
-      return anchors.every(([box, owner]) => {
-        const own = centres.get(owner);
-        if (!own) return true;
-        const x = box.left + box.width / 2,
-          y = box.top + box.height / 2;
-        const mine = Math.hypot(x - own[0], y - own[1]);
-        for (const [wrapper, c] of centres)
-          if (wrapper !== owner && Math.hypot(x - c[0], y - c[1]) < mine + margin) return false;
-        return true;
-      });
+      return centres;
+    };
+    // A clear margin, so the reading never rests on a pixel.
+    const margin = 2 * ratio;
+    const reads = (
+      [box, owner]: (typeof anchors)[number],
+      centres: Map<Element, [number, number]>
+    ) => {
+      const own = centres.get(owner);
+      if (!own) return true;
+      const x = box.left + box.width / 2,
+        y = box.top + box.height / 2;
+      const mine = Math.hypot(x - own[0], y - own[1]);
+      for (const [wrapper, c] of centres)
+        if (wrapper !== owner && Math.hypot(x - c[0], y - c[1]) < mine + margin) return false;
+      return true;
+    };
+    // Growth may not take a button spot away from its player. A spot that
+    // already reads as a neighbour's with every portrait at rest is the
+    // ring's geometry, not something a size can cause or cure, so it does not
+    // veto every size (it vetoed even 1x, and then no size was ever locked).
+    const resting = centresAt(1);
+    const held = anchors.filter((anchor) => reads(anchor, resting));
+    const readable = (scale: number) => {
+      if (!held.length) return true;
+      const centres = centresAt(scale);
+      return held.every((anchor) => reads(anchor, centres));
     };
     if (best && !readable(best[0].scale)) {
       const from = rungs.indexOf(best[0].scale);
@@ -1194,7 +1194,6 @@ export function enlargeMobileAvatars(
         if (readable(rungs[i])) best = fitsAll(rungs[i]);
     }
     if (lock && best) lock.uniform = best[0].scale;
-    if (best && restingHeight) recordSharedSize(sizeType, best[0].scale * restingHeight);
     prepared.forEach((item, i) => {
       const choice = best
         ? best[i]

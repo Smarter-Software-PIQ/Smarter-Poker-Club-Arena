@@ -91,6 +91,7 @@ const BRAIN_FILES = [
   // The Omaha priced rules (2026-11-17, default off): the rule sites read their own options and
   // fire their own receipts where they answer.
   'engine/HorseOmahaPricedWiring.ts',
+  'engine/HorseOmahaPricedSites.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 // Layer receipts (2026-11-05): layers that run outside the brain modules emit
@@ -126,6 +127,11 @@ const RECEIPT_ONLY_FILES = [
   // Omaha flop facing-bet EV (2026-11-17, default off): the rule fires its verdict and change
   // receipts where it answers (HorseLogic only hands it the flop decision).
   'engine/HorseOmahaFlopFacingBetEvRule.ts',
+  // Omaha priced preflop re-raise defence (2026-11-17, default off): the rule fires its verdict and
+  // change receipts where it answers (HorseLogic only hands it the preflop decision).
+  'engine/HorseOmahaPreflopReraiseDefenceRule.ts',
+  // Omaha read by street (2026-11-18, default off): the per-decision installer counts its one receipt.
+  'engine/HorseOmahaReadByStreetRule.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

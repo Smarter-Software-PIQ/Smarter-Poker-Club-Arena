@@ -1,0 +1,7 @@
+{
+  "_owner": "agent/claude/rathole-floor-per-game",
+  "_comment": "20261118071741 (applied to production 2026-11-18 07:17:41 UTC): the rathole floor and the VPIP bar are keyed on the cash game (cash_rejoin_constraints.game_scope, from fn_cash_game_scope_of_table), never on club + variant + stakes.",
+  "tables": [],
+  "functions": ["fn_cash_game_scope_of_table"],
+  "columns": { "cash_rejoin_constraints": ["game_scope"] }
+}

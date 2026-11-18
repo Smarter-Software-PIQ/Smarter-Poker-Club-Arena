@@ -1,0 +1,17 @@
+# The Table VPIP Floor Limps For A Big Blind, And Nothing Else (vpipFloorLimpOnly, Default Off)
+
+Owner ruling, 2026-11-17 14:34 Chicago (audit finding F-10): "Table VPIP must limp fold for a bb. smh nothing else if there vpip drops."
+
+What the floor did before: under its aim the table's VPIP floor widened every preflop bar, called any preflop price up to 6 big blinds and 15% of the stack, raises included, and in PLO4/PLO5 limp mode kept some calls of raises. In the journaled builds 28372c9a and 3529e866 the call-down fired 1,942 times, 981 of them calls of a raise.
+
+With the new option `vpipFloorLimpOnly` on, on every floored cash table (every variant; tournaments, All-In-Or-Fold, bomb pots and Lightning are untouched) every decision is the one the Horse makes without a floor, except one thing: a Horse whose own judged VPIP is under its line (the floor the table carries plus the approved three-hand buffer: 15 of 30 on a 40% table) limps a hand it would fold, in a pot nobody has raised, for at most the big blind (the small blind completes; the big blind checks free). Raised after the limp, the hand plays as it would without a floor: it folds unless its own decision continues. A limp that is folded to a raise still counts as a hand played. At or above the line, or with no judged sample yet, the floor does nothing. The floor never calls a raise and never raises.
+
+Which folds limp is set per variant from the measurement: every one on PLO5 and PLO6 (pricing them evicts about twice as many Horses) and on the variants not measured; the priced ones on PLO4 and hold'em (same evictions, fewer chips).
+
+What it costs, and the owner's answer: limping alone tops out near 51% VPIP because more than half of a Horse's first decisions already face a raise. That holds a 20% or 30% floor, and is close on a 40% floor: measured, a Horse at a 40% PLO5 table is warned and evicted about 0.3 times per 100 hands it plays (today: never), and far more often on a table still carrying 50%. Owner, 2026-11-17 18:38: "its fine, with a 30 hand grace period, horses should be close to 40% with limp folds in the range. and if they aren't the get booted and replaced with a new horse." The evicted Horse is cashed out, barred from that game for two hours, and the fleet seats another.
+
+In exchange the floor's spend falls from 70 to 19 big blinds per 100 hands at PLO5 40% (116 to 18 at PLO6, 53 to 14 at PLO4, 28 to 7 at hold'em) and every floor call of a raise disappears. The floor values, window, warning, grace, eviction and buffer are not changed by this option.
+
+One exception, on purpose: a table judged the Action or Madness way (the sitting judged at ten hands, eviction with no warning, floors up to 70%) keeps the floor it has today, calls of raises included, because that mode was not measured and limping cannot reach those floors; each such decision leaves the receipt `vpip_floor_limp_only_not_governed_ten_hand_window`. A Classic table cannot fall into that exception on a failed read: without the Horse's judged row the option governs and the floor does nothing. A variant spelled in a way the option's table does not list is governed too.
+
+Default off. Activation is an option-switch row citing `docs/horse-option-authority.d/vpipFloorLimpOnly.md`; rollback is the same row off. Off, every decision is byte-identical to before (tests in `server/src/engine/HorseVpipFloorLimpOnly.test.ts`).

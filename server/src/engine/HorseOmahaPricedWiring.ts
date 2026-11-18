@@ -42,8 +42,10 @@ import {
 import {
   withOmahaPricedMode,
   OMAHA_PRICED_MODE_OFF,
+  omahaOpponentKindOf,
   omahaPricedModeNow,
 } from './HorseOmahaPricedMode.js';
+import { omahaFacingBetEvSpot } from './HorseOmahaFacingBetEv.js';
 import {
   OMAHA_PRICED_MIX_SALT,
   OMAHA_PRICED_NO_READ,
@@ -113,6 +115,10 @@ let streetRatesSource: OmahaPricedStreetRatesSource | null = null;
 export function omahaPricedSetStreetRatesSource(source: OmahaPricedStreetRatesSource | null): void {
   streetRatesSource = source;
 }
+/** The source registered now (null: none), so a caller that registers one for a decision can put it back. */
+export function omahaPricedStreetRatesSourceNow(): OmahaPricedStreetRatesSource | null {
+  return streetRatesSource;
+}
 export function omahaPricedStreetRatesOf(
   userId: string,
   gs: HorseGameStateV2
@@ -136,15 +142,27 @@ export function omahaPricedReadOfUser(
     const pooled = HorseMind.omahaReadConditionalOf(userId);
     const scope = HorseMind.currentScope();
     const env = scope ? exploitEnvelopeFor(scope, String(gs.gameVariant ?? '')) : undefined;
+    const stage = String(gs.stage ?? '');
     return omahaPricedRead(
       pooled,
       env ? { bet: env.betCheckedTo.mean, foldToBet: env.foldToBet.mean } : null,
-      omahaPricedStreetRatesOf(userId, gs)
+      omahaPricedStreetRatesOf(userId, gs),
+      // his kind (a person or a Horse): every prior and reference rate is his kind's
+      // (omahaPricedPriorsByOpponentKind on; off: unknown kind, the #11212 read)
+      opts.omahaPricedPriorsByOpponentKind === true ? omahaOpponentKindOf(gs, userId) : null,
+      stage === 'flop' || stage === 'turn' || stage === 'river' ? stage : undefined
     );
   } catch {
     return OMAHA_PRICED_NO_READ;
   }
 }
+/**
+ * omahaPricedPriorsByOpponentKind: a spot a priced family cannot price falls CLOSED (the categorical rule
+ * acts as with the family off, beside its _unpriced_kept receipt). Off: the #11212 handling (the decision
+ * given is kept).
+ */
+const fallsClosed = (opts: HorseDecideOpts): boolean =>
+  opts.omahaPricedPriorsByOpponentKind === true;
 const readOfSeat =
   (gs: HorseGameStateV2, opts: HorseDecideOpts) =>
   (seat: number): OmahaPricedRead =>
@@ -247,7 +265,12 @@ function raiseVerdictOf(
   deps: OmahaPricedDeps
 ): { verdict: OmahaPricedRaiseVerdict; read: OmahaPricedRead } | null {
   const state = pricedState(gs);
-  const peek = omahaPricedRaise(player, state, { rake: deps.rake, realization: deps.realization });
+  const lossesOnce = opts.omahaRaiseEvCountsLossesOnce === true;
+  const peek = omahaPricedRaise(player, state, {
+    rake: deps.rake,
+    realization: deps.realization,
+    lossesOnce,
+  });
   if (!peek) return null;
   const bettor = (gs.players ?? []).find((p) => p.seat === peek.spot.bettorSeat);
   const read = omahaPricedReadOfUser(bettor?.user_id, gs, opts);
@@ -277,6 +300,7 @@ function raiseVerdictOf(
     rake: deps.rake,
     realization: deps.realization,
     proposedTo,
+    lossesOnce,
   });
   return verdict ? { verdict, read } : null;
 }
@@ -318,8 +342,10 @@ export function omahaPricedTurnRiverRaiseRule(
     }
     const priced = raiseVerdictOf(decision, player, gs, opts, deps);
     if (!priced) {
+      // Nothing could be priced: the categorical rule acts as with the option off (fall closed,
+      // REVIEW-9f803db63df-013U37.md N4); the receipt says so.
       if (tele && raises) noteFire('omaha_priced_raise_unpriced_kept');
-      return decision;
+      return fallsClosed(opts) ? null : decision;
     }
     const { verdict, read } = priced;
     const best = verdict.best;
@@ -383,8 +409,19 @@ export function omahaPricedOwnsTurnRiverRaise(
   return (
     opts.omahaTurnRiverRaiseIsPriced === true &&
     omahaPricedInScope(player, gs) &&
-    omahaRaiseNeedsNutsScope(player, gs) !== null
+    omahaRaiseNeedsNutsScope(player, gs) !== null &&
+    // omahaPricedPriorsByOpponentKind: only where the comparison can be computed (elsewhere the inner
+    // rule acts as with the option off); off: every spot in scope (#11212)
+    (!fallsClosed(opts) || omahaPricedRaisePriceable(player, gs))
   );
+}
+/** The turn/river facing-bet spot can be counted (the exact-count comparison has a spot to price). */
+function omahaPricedRaisePriceable(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  try {
+    return omahaFacingBetEvSpot(player, pricedState(gs)) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /** Receipt validation: a priced raise that became a call, with a hand that is not nut class, for the exact chips. */
@@ -487,10 +524,20 @@ export function omahaPricedDrawRaiseBarred(
   if (!omahaPricedOwnsDrawRaise(player, gs, opts)) return null;
   try {
     if (omahaDrawRaiseBarOf(player, gs) === null) return false;
+    // A spot the sample cannot price (three or more opponents, one all in): the bar acts as with
+    // the option off (fall closed, REVIEW-9f803db63df-013U37.md N4).
     const spot = sampledSpot(player, gs);
-    if (!spot) return false;
+    if (!spot) {
+      if (!fallsClosed(opts)) return false;
+      if (telemetryOn(opts)) noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return null;
+    }
     const verdict = sampledVerdict(player, gs, opts, spot, potRaiseTo(player, gs, spot.toCall));
-    if (!verdict) return false;
+    if (!verdict) {
+      if (!fallsClosed(opts)) return false;
+      if (telemetryOn(opts)) noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return null;
+    }
     if (telemetryOn(opts))
       noteFire(
         verdict.raise
@@ -520,10 +567,15 @@ export function omahaPricedDrawRaiseRule(
   if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
   const tele = telemetryOn(opts);
   try {
-    const spot = sampledSpot(player, gs);
-    if (!spot) return decision;
+    if (!fallsClosed(opts) && !sampledSpot(player, gs)) return decision; // #11212 order
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
     if (omahaDrawRaiseBarOf(player, gs) === null) return decision;
+    const spot = sampledSpot(player, gs);
+    if (!spot) {
+      // unpriceable: the bar acts as with the option off (fall closed)
+      if (tele) noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return null;
+    }
     const to =
       decision.action === 'raise' && typeof decision.amount === 'number'
         ? decision.amount
@@ -531,7 +583,7 @@ export function omahaPricedDrawRaiseRule(
     const verdict = sampledVerdict(player, gs, opts, spot, to);
     if (!verdict) {
       if (tele) noteFire('omaha_priced_draw_raise_unpriced_kept');
-      return decision;
+      return fallsClosed(opts) ? null : decision;
     }
     let raise = verdict.raise;
     const gap = verdict.evRaise - (verdict.evCall + verdict.margin);
@@ -570,7 +622,7 @@ function ownBetRule(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
   receipts: { kept: () => void; checked: () => void; unpriced: () => void }
-): HorseDecision {
+): HorseDecision | null {
   if (decision.action !== 'bet' && decision.action !== 'all_in') return decision;
   const tele = telemetryOn(opts);
   try {
@@ -584,8 +636,9 @@ function ownBetRule(
     const readOf = readOfSeat(gs, opts);
     const verdict = Number.isFinite(amount) ? omahaPricedBet(player, gs, readOf, amount) : null;
     if (!verdict || verdict.proposed === null) {
+      // unpriceable: the categorical rule acts as with the option off (fall closed); off: kept (#11212)
       if (tele) receipts.unpriced();
-      return decision;
+      return fallsClosed(opts) ? null : decision;
     }
     let bet = verdict.proposed.ev >= verdict.evCheck;
     const opp = (gs.players ?? []).find(
@@ -699,20 +752,27 @@ export function omahaPricedPressureWithheld(
   try {
     const stage = String(gs.stage ?? '');
     let admitted = false;
+    // whether any comparison produced a number: with none, the label test acts as with the option
+    // off (fall closed, REVIEW-9f803db63df-013U37.md N4)
+    let priceable = false;
     if (stage === 'turn' || stage === 'river') {
       const priced = raiseVerdictOf({ action: 'call', thinkTime: 0 }, player, gs, opts, deps);
-      if (priced)
+      if (priced) {
+        priceable = true;
         admitted =
           kind === 'raise'
             ? priced.verdict.action === 'raise' || priced.verdict.action === 'all_in'
             : priced.verdict.callStands;
-      else if (stage === 'river') admitted = false;
+      }
     }
     if (!admitted && (stage === 'flop' || stage === 'turn')) {
       const spot = sampledSpot(player, gs);
       if (spot) {
         const verdict = sampledVerdict(player, gs, opts, spot, potRaiseTo(player, gs, spot.toCall));
-        if (verdict) admitted = kind === 'raise' ? verdict.raise : verdict.evCall > 0;
+        if (verdict) {
+          priceable = true;
+          admitted = kind === 'raise' ? verdict.raise : verdict.evCall > 0;
+        }
       } else if (kind === 'call_down' && stage === 'flop') {
         const eq = omahaBigDrawEquities(
           player.cards ?? [],
@@ -720,8 +780,13 @@ export function omahaPricedPressureWithheld(
           player.knownDeadCards ?? []
         );
         const toCall = Math.min(toCallOf(player, gs), num(player.stack));
+        if (eq !== null) priceable = true;
         admitted = eq !== null && eq.bet * (num(gs.pot) + toCall) - toCall > 0;
       }
+    }
+    if (!priceable && fallsClosed(opts)) {
+      if (tele) noteFire('omaha_priced_pressure_unpriced_kept');
+      return null;
     }
     if (tele) {
       if (kind === 'raise')
@@ -771,8 +836,9 @@ export function omahaPricedBigBetCallRule(
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
     const priced = raiseVerdictOf(decision, player, gs, opts, deps);
     if (!priced) {
+      // unpriceable: the cells act as with the option off (fall closed; HorseLogic.omahaBigBetCallFold)
       if (tele) noteFire('omaha_priced_big_bet_call_unpriced_kept');
-      return decision;
+      return fallsClosed(opts) ? null : decision;
     }
     const { verdict } = priced;
     if (isCall) {

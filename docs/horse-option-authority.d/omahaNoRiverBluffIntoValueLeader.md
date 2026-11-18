@@ -10,7 +10,7 @@ The comparison: each live opponent holds the strongest V of all holdings (V = 1 
 
 Precedence: an owner-ruled check (`omahaOopCheckRules`, after the older owner-ruled checks, so the pricing rules' wagers are re-checked through `omahaWagerIsChecked`), kept outermost by `omahaOwnerRuledFinal` whatever pricing option is on; one receipt per decision.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaNoRiverBluffIntoValueLeader docs/horse-option-authority.d/omahaNoRiverBluffIntoValueLeader.md sha256 <digest>`). Registered in the live switch OFF-ONLY (follow-up list migration 20261118001216 names it; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY): screened on 2026-11-17 against the owner's order of 11:49 America/Chicago ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."), its check is asked only against an opponent the engine labels a measured value leader, so the label decides which bluffs are priced. It cannot be switched on until it is rewritten as a priced comparison for every opponent (his measured fold to a river bet and the Horse's blockers) and that form passes its own evaluation. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaNoRiverBluffIntoValueLeader docs/horse-option-authority.d/omahaNoRiverBluffIntoValueLeader.md sha256 <digest>`). Registered in the live switch OFF-ONLY (follow-up list migration 20261118013329 names it; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY): screened on 2026-11-17 against the owner's order of 11:49 America/Chicago ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."), its check is asked only against an opponent the engine labels a measured value leader, so the label decides which bluffs are priced. It cannot be switched on until it is rewritten as a priced comparison for every opponent (his measured fold to a river bet and the Horse's blockers) and that form passes its own evaluation. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on
 
@@ -37,3 +37,7 @@ HorseOmahaMultiwayDiscipline.test.ts (16 seeds per class: a bluff into a measure
 ## Limits
 
 Stated, not measured: the showdown-value line 0.5, the shown range 0.5, the 2% margin. Measured: the river fold prior 0.60 (full sweep, heads-up Horse river bets with one pair or less, 68 of 113 everyone folded; it pools sizes and reads). The threshold reading of a fold rate is an assumption. After the check no later betting is priced (out of position he may bet), so the check is valued at showdown.
+
+## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
+
+Review R1 N1 of wave2c e2a6457166f: the all-in fold-equity fix (an all-in opponent has no fold equity in `omahaBetVsCheckEv`, HorseOmahaMultiwayDiscipline.ts) also changes this off-only option's comparison, which uses the same function.
