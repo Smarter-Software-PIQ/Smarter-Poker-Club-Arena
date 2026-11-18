@@ -23,8 +23,9 @@
  *      (HAND_PATH_ROOTS: the settlement commit, the submission commit and the
  *      post-commit envelope), plus every trigger function on every table those
  *      functions INSERT/UPDATE/DELETE whose event matches the statement (an
- *      UPDATE OF trigger only when one of its columns is a target of the
- *      statement's SET list, never a column it merely compares in WHERE),
+ *      UPDATE OF trigger only when the statement's SET list assigns one of its
+ *      columns, as PostgreSQL fires it: a column named only in the WHERE
+ *      clause does not count - setTargets()),
  *      followed transitively up to MAX_CALL_DEPTH calls and MAX_TRIGGER_HOPS
  *      trigger hops. The deferred bankers (HAND_PATH_BANKERS) are excluded:
  *      they touch shared rows OFF the hot path with try-locks and NOWAIT, which
@@ -125,16 +126,24 @@ const arr = (xs) => `ARRAY[${xs.map(lit).join(',')}]::text[]`;
 const NSPS = `ARRAY['public','smarter_private']::text[]`;
 const WRITE_RE = `(insert\\s+into|delete\\s+from|update)\\s+(?:only\\s+)?(?:public\\.)?"?([a-z_][a-z0-9_]*)`;
 const FROM_RE = `(?:from|join)\\s+(?:only\\s+)?(?:public\\.)?"?([a-z_][a-z0-9_]*)`;
-// An UPDATE OF trigger fires only when one of its columns is a TARGET of the
-// statement's SET list (PostgreSQL CREATE TRIGGER: "mentioned as a target of
-// the UPDATE command"), never because the column appears in WHERE. A target
-// is an unqualified name followed by "=" (a qualified s.col = x is a
-// comparison: SET targets cannot be qualified) or a name inside SET (a, b) =.
-// Conservative: an unqualified "col = x" in a WHERE still counts.
-const SET_TARGET_RE = `(?:^|[^a-z0-9_."])"?([a-z_][a-z0-9_]*)"?\\s*=`;
-const SET_TUPLE_RE = `\\mset\\s*\\(([^()]*)\\)\\s*=`;
 // The same, with the alias that follows (FOR UPDATE OF <alias> locks only that relation).
 const FROM_ALIAS_RE = `(?:from|join)\\s+(?:only\\s+)?(?:public\\.)?"?([a-z_][a-z0-9_]*)"?(?:\\s+(?:as\\s+)?([a-z_][a-z0-9_]*))?`;
+
+/**
+ * The columns an UPDATE (or an upsert's DO UPDATE) assigns: the SET targets,
+ * as an SQL text[] expression over the statement text `stmt`. PostgreSQL fires
+ * an UPDATE OF trigger only when one of its columns is a target of the SET
+ * list ("A column-specific trigger ... will fire when any of its columns are
+ * listed as targets in the UPDATE command's SET list"); a column named only in
+ * the WHERE clause, a CASE, a RETURNING or a subquery never fires it. A target
+ * is an identifier (optionally subscripted or a field of a composite) right
+ * after SET or a comma and followed by "=" (not "=>", "=="). Conservative:
+ * a comma-led "x =" elsewhere in the statement only adds a column, and the
+ * multi-column form SET (a, b) = ... falls back to every word in the statement.
+ */
+const SET_TARGET_RE = `(?:\\mset\\M|,)\\s*"?([a-z_][a-z0-9_]*)"?(?:\\s*\\[[^]]*\\])?(?:\\.[a-z_][a-z0-9_]*)?\\s*=(?![=>])`;
+const setTargets = (stmt) => `CASE WHEN ${stmt} ~ '\\mset\\M\\s*\\(' THEN pg_catalog.regexp_split_to_array(${stmt}, '[^a-z0-9_]+')
+                     ELSE ARRAY(SELECT st[1] FROM pg_catalog.regexp_matches(${stmt}, '${SET_TARGET_RE}', 'g') st) END`;
 
 /** Comment-blanked, lower-cased source (lit) and the same with string literals emptied (src). */
 const normalized = (oids) => `
@@ -194,11 +203,7 @@ export function handPathBlock() {
        AND g.proname::text <> ALL (${arr(HAND_PATH_BANKERS)})
    ),
    writes AS MATERIALIZED (
-    SELECT f.oid, m[1] AS op, m[2] AS tbl, s.stmt,
-           ARRAY(SELECT (pg_catalog.regexp_matches(s.stmt, '${SET_TARGET_RE}', 'g'))[1]
-                 UNION ALL
-                 SELECT pg_catalog.regexp_split_to_table(r[1], '[^a-z0-9_]+')
-                   FROM pg_catalog.regexp_matches(s.stmt, '${SET_TUPLE_RE}', 'g') r) AS sets
+    SELECT f.oid, m[1] AS op, m[2] AS tbl, s.stmt
       FROM f
       CROSS JOIN LATERAL pg_catalog.regexp_split_to_table(f.src, ';') s(stmt)
       CROSS JOIN LATERAL pg_catalog.regexp_matches(s.stmt, '${WRITE_RE}', 'g') m
@@ -218,7 +223,7 @@ export function handPathBlock() {
              AND (pg_catalog.cardinality(t.tgattr::int2[]) = 0
                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute pa
                               WHERE pa.attrelid = r.oid AND pa.attnum = ANY (t.tgattr::int2[])
-                                AND pa.attname::text = ANY (w.sets)))))
+                                AND pa.attname::text = ANY (${setTargets('w.stmt')})))))
    ),
    e AS (SELECT * FROM calls UNION SELECT * FROM trigs)
    SELECT hp_edges
