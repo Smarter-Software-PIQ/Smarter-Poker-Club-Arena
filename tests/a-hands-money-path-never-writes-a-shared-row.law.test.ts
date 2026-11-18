@@ -35,6 +35,11 @@
  *      nothing here runs on a timer;
  *   6. CI runs the live check (main's code under pull_request_target) and the
  *      PostgreSQL proof (scripts/ci/test-hand-path-shared-writes.py).
+ *   7. (lane H2) an UPDATE OF trigger is followed only for a SET target: the
+ *      newest migration installing the reader carries the module block, and
+ *      judged against production's answer under that rule nothing is
+ *      unexpected and the six tournament-lifecycle entries it disproved
+ *      (fund overlay on lock, start readiness) stay off the allowlist.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -57,11 +62,38 @@ import {
 const ROOT = join(__dirname, '..');
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const MIGRATION = '20261118084747_a_hands_money_path_never_writes_a_shared_row.sql';
-const migration = read('supabase', 'migrations', MIGRATION);
+/** Every migration that installs the live reader, oldest first; the newest is what production runs. */
+const READER_MIGRATIONS = readdirSync(join(ROOT, 'supabase', 'migrations'))
+  .filter((f) => f.endsWith('.sql'))
+  .filter((f) =>
+    read('supabase', 'migrations', f).includes('CREATE OR REPLACE FUNCTION public.fn_ca_hand_path_shared_writes()')
+  )
+  .sort();
+const migration = read('supabase', 'migrations', READER_MIGRATIONS[READER_MIGRATIONS.length - 1]);
 const allowlist = JSON.parse(read('scripts', 'ci', 'hand-path-shared-writes.allowlist.json'));
 const production = JSON.parse(
   read('scripts', 'ci', 'fixtures', 'hand-path-shared-writes', 'production-2026-11-18.json')
 );
+/** Production's answer under the SET-target rule (20261118155729), after #11270/#11266. */
+const productionSetTargets = JSON.parse(
+  read('scripts', 'ci', 'fixtures', 'hand-path-shared-writes', 'production-2026-11-18-set-targets.json')
+);
+
+/** What the SET-target rule proved unreachable: a hand commit never transitions a tournament. */
+const DISPROVED_BY_SET_TARGETS = [
+  'fn_ca_fund_overlay_on_lock|row_lock|clubs',
+  'fn_ca_fund_overlay_on_lock|row_lock|union_wallets',
+  'fn_ca_fund_overlay_on_lock|write|clubs',
+  'fn_ca_fund_overlay_on_lock|write|union_wallets',
+  'fn_guard_tournament_start_readiness|row_lock|clubs',
+  'fn_guard_tournament_start_readiness|row_lock|union_wallets',
+];
+/** Also gone under the SET-target rule; their allowlist entries belong to lane H1. */
+const SEAT_PARENT_GONE = [
+  'fn_refresh_club_activity_counts|write|clubs',
+  'fn_sync_club_table_counts|write|clubs',
+  'guard_member_club_standalone_game|advisory_lock|club-game-ownership:',
+];
 
 /** What #11270 and #11266 take off the path, as the reader names it on production. */
 const REMOVED_BY_11270_11266 = [
@@ -82,8 +114,13 @@ const REMOVED_BY_11270_11266 = [
 ];
 
 describe("a hand's money path never writes a shared row", () => {
-  it('the live reader the migration installs is the module block, byte for byte', () => {
+  it('the live reader the newest migration installs is the module block, byte for byte', () => {
+    expect(READER_MIGRATIONS[0]).toBe(MIGRATION);
+    expect(READER_MIGRATIONS).toContain('20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql');
     expect(migration).toContain(handPathFunctionSQL() + ';');
+    // An UPDATE OF trigger is matched against the SET targets, never every word of the statement.
+    expect(handPathFunctionSQL()).toContain('pa.attname::text = ANY (w.sets)');
+    expect(handPathFunctionSQL()).not.toContain("pa.attname::text = ANY (pg_catalog.regexp_split_to_array(w.stmt");
     expect(migration).toMatch(/^BEGIN;$/m);
     expect(migration).toMatch(/^COMMIT;\s*$/m);
     expect(migration).toMatch(
@@ -170,12 +207,34 @@ describe("a hand's money path never writes a shared row", () => {
     }
   });
 
-  it("judged against production's answer of 2026-11-18, exactly the 14 that #11270/#11266 remove are violations", () => {
+  it("judged against production's answer of 2026-11-18, exactly the 14 that #11270/#11266 remove (and the 6 the SET-target rule disproved) are violations", () => {
     const verdict = judge(production, allowlist)!;
     expect(verdict.unknown).toBeUndefined();
-    expect(verdict.unexpected!.map(violationKey).sort()).toEqual([...REMOVED_BY_11270_11266].sort());
+    expect(verdict.unexpected!.map(violationKey).sort()).toEqual(
+      [...REMOVED_BY_11270_11266, ...DISPROVED_BY_SET_TARGETS].sort()
+    );
     expect(verdict.stale).toEqual([]);
     expect(production.violations.length).toBe(37);
+  });
+
+  it("judged against production's answer under the SET-target rule, nothing is unexpected and no tournament transition is on the path", () => {
+    const verdict = judge(productionSetTargets, allowlist)!;
+    expect(verdict.unknown).toBeUndefined();
+    expect(verdict.unexpected).toEqual([]);
+    expect(productionSetTargets.closure).toBe(746);
+    const found = new Set(productionSetTargets.violations.map(violationKey));
+    for (const k of [...DISPROVED_BY_SET_TARGETS, ...SEAT_PARENT_GONE]) expect(found.has(k), k).toBe(false);
+    const keys = new Set(allowlist.entries.map(violationKey));
+    for (const k of DISPROVED_BY_SET_TARGETS) expect(keys.has(k), k).toBe(false);
+    // Only entries the rule disproved may be stale (lane H1 owns the seat-parent ones).
+    for (const s of verdict.stale!) expect(SEAT_PARENT_GONE).toContain(violationKey(s));
+    // What stays is reasoned from production evidence, with its native proof named.
+    for (const e of allowlist.entries.filter((x: { function: string }) =>
+      ['fn_ca_burn', 'fn_spin_book_entry', 'fn_spin_reserve_pool'].includes(x.function)
+    )) {
+      expect(e.reason).toMatch(/STATIC ONLY/);
+      expect(e.reason).toContain('test-hand-path-shared-writes.py G3');
+    }
   });
 
   it('an answer without its doors, or a malformed one, is never green', () => {

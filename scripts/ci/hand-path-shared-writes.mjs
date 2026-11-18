@@ -23,7 +23,8 @@
  *      (HAND_PATH_ROOTS: the settlement commit, the submission commit and the
  *      post-commit envelope), plus every trigger function on every table those
  *      functions INSERT/UPDATE/DELETE whose event matches the statement (an
- *      UPDATE OF trigger only when the statement names one of its columns),
+ *      UPDATE OF trigger only when one of its columns is a target of the
+ *      statement's SET list, never a column it merely compares in WHERE),
  *      followed transitively up to MAX_CALL_DEPTH calls and MAX_TRIGGER_HOPS
  *      trigger hops. The deferred bankers (HAND_PATH_BANKERS) are excluded:
  *      they touch shared rows OFF the hot path with try-locks and NOWAIT, which
@@ -124,6 +125,14 @@ const arr = (xs) => `ARRAY[${xs.map(lit).join(',')}]::text[]`;
 const NSPS = `ARRAY['public','smarter_private']::text[]`;
 const WRITE_RE = `(insert\\s+into|delete\\s+from|update)\\s+(?:only\\s+)?(?:public\\.)?"?([a-z_][a-z0-9_]*)`;
 const FROM_RE = `(?:from|join)\\s+(?:only\\s+)?(?:public\\.)?"?([a-z_][a-z0-9_]*)`;
+// An UPDATE OF trigger fires only when one of its columns is a TARGET of the
+// statement's SET list (PostgreSQL CREATE TRIGGER: "mentioned as a target of
+// the UPDATE command"), never because the column appears in WHERE. A target
+// is an unqualified name followed by "=" (a qualified s.col = x is a
+// comparison: SET targets cannot be qualified) or a name inside SET (a, b) =.
+// Conservative: an unqualified "col = x" in a WHERE still counts.
+const SET_TARGET_RE = `(?:^|[^a-z0-9_."])"?([a-z_][a-z0-9_]*)"?\\s*=`;
+const SET_TUPLE_RE = `\\mset\\s*\\(([^()]*)\\)\\s*=`;
 // The same, with the alias that follows (FOR UPDATE OF <alias> locks only that relation).
 const FROM_ALIAS_RE = `(?:from|join)\\s+(?:only\\s+)?(?:public\\.)?"?([a-z_][a-z0-9_]*)"?(?:\\s+(?:as\\s+)?([a-z_][a-z0-9_]*))?`;
 
@@ -185,7 +194,11 @@ export function handPathBlock() {
        AND g.proname::text <> ALL (${arr(HAND_PATH_BANKERS)})
    ),
    writes AS MATERIALIZED (
-    SELECT f.oid, m[1] AS op, m[2] AS tbl, s.stmt
+    SELECT f.oid, m[1] AS op, m[2] AS tbl, s.stmt,
+           ARRAY(SELECT (pg_catalog.regexp_matches(s.stmt, '${SET_TARGET_RE}', 'g'))[1]
+                 UNION ALL
+                 SELECT pg_catalog.regexp_split_to_table(r[1], '[^a-z0-9_]+')
+                   FROM pg_catalog.regexp_matches(s.stmt, '${SET_TUPLE_RE}', 'g') r) AS sets
       FROM f
       CROSS JOIN LATERAL pg_catalog.regexp_split_to_table(f.src, ';') s(stmt)
       CROSS JOIN LATERAL pg_catalog.regexp_matches(s.stmt, '${WRITE_RE}', 'g') m
@@ -205,7 +218,7 @@ export function handPathBlock() {
              AND (pg_catalog.cardinality(t.tgattr::int2[]) = 0
                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute pa
                               WHERE pa.attrelid = r.oid AND pa.attnum = ANY (t.tgattr::int2[])
-                                AND pa.attname::text = ANY (pg_catalog.regexp_split_to_array(w.stmt, '[^a-z0-9_]+'))))))
+                                AND pa.attname::text = ANY (w.sets)))))
    ),
    e AS (SELECT * FROM calls UNION SELECT * FROM trigs)
    SELECT hp_edges
