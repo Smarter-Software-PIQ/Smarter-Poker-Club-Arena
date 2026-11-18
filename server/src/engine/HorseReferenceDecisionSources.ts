@@ -83,6 +83,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha priced sites (sites-013U37): the made-hand defence wager, the turn set pound size and the river nut-blocker bluff admission priced on the card-impact model, and the bare big pair flop bet priced on sampled bands of his holdings (omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced, omahaFlopBetIsPriced); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaPricedWiring.ts':
       'the default-off Omaha priced rules: the rule sites HorseLogic calls where a categorical PLO4/PLO5 cash rule acts (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaPricedMix); null outside the scope, so the caller rule acts as before',
+    'src/engine/HorseOmahaCheckedToBet.ts':
+      'the default-off Omaha checked-to bet (WooWoo audit repair programme 2026-11-18, omahaCheckedToBetIsPriced): in PLO4/PLO5 cash on the river or the heads-up turn, when every opponent has checked and the answer is a check, the check priced beside every bet size on the card-impact model against each checking range and measured continue rate, after the rake, with the standard error of the comparison as the margin; null outside the scope, so the check it was given stands',
     'src/engine/HorseOmahaRiverNutRaise.ts':
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaReraisedPot.ts':

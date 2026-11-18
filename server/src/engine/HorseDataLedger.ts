@@ -1245,6 +1245,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaCheckedToBetIsPriced',
+    "WooWoo audit repair programme 2026-11-18, lane CHECKED-TO-BET, on the owner ruling of 2026-11-17 (\"DONT' MAKE ANY BLANKET RULES, EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS\"). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). On the river (any number of opponents) or the turn (one opponent), when every opponent has checked this street, nobody is all in and the node's answer is a check, the check is priced beside every bet size the engine considers (HorseOmahaCheckedToBet.ts on the card-impact model): each opponent's checking range from his line, the share of it that continues from his measured continue rate (the priced read: a posterior mean shrunk to the population by its opportunities; the pot-odds share with no read), the Horse's exact equity against the hands that continue, the raise priced, the rake taken; with several opponents every one folds with the product of their fold rates. The bet of highest expected value replaces the check when it is worth more than the check by more than the standard error of the comparison (the read's, the sample's). No hand-class, position or size rule. The owner-ruled checks, the one-pair rules and the draw rules still judge the bet. The audit measured 35 of 43 heads-up river check-backs with air or a weak pair against a player who folded 140 of 177 times to a river bet, and 0 of 93 such bets multiway (archive woowoo-48h-audit-01BNteGYgf repairs/FLOP-DEFENCE/ATTRIBUTION.md section 3). Opt-in until its declared evaluation passes; league cards plo4/plo5 _omaha_checked_to_bet_is_priced.",
+    'V94'
+  ),
+  flag(
     'horsePlayStyles',
     "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop open and limp bars by 0.75, the value re-raise bars by 0.75, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and (2026-11-16) biases the EV engine's own in-position inputs: each opponent's fold-equity prior x1.25 on the bet candidates (the check priced as today), the indifference band x2 (0.24 BB) for a candidate more aggressive than the best, and before the flop keeps the call bars at today's width (cold call, call of a re-raise, call-off) while the raise bars (first-in open, isolation, value 3-bet) take a credit of 0.04 (the bound) and the value re-raise tightness x0.75 (the bound), so its added entries are re-raises, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
     'V94'
@@ -5703,6 +5708,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_flop_bet_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_checked_to_bet_priced_bet',
+    'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetIsPriced)',
+    'PLO4/PLO5 cash river or heads-up turn, every opponent has checked this street, the answer a check: the bet of highest expected value is worth more than the check by more than the standard error of the comparison and replaces it (a rule that outranks the pricing rules may still check it: omaha_owner_ruled_check_kept in the same decision)',
+    'V94'
+  ),
+  receipt(
+    'omaha_checked_to_bet_priced_check_kept',
+    'HorseLogic wager_rules (HorseOmahaCheckedToBet, omahaCheckedToBetIsPriced)',
+    'the same decision: no bet is worth more than the check by more than the standard error of the comparison, so the check stands',
     'V94'
   ),
   receipt(

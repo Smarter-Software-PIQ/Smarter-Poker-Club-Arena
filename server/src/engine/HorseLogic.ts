@@ -508,10 +508,12 @@ import {
   omahaPricedOwnsTurnRiverRaise,
   omahaPricedPairedBoardBetRule,
   omahaPricedPressureWithheld,
+  omahaPricedReadOfUser,
   omahaPricedTurnRiverRaiseRule,
   omahaPricedUnderpairFolds,
   type OmahaPricedDeps,
 } from './HorseOmahaPricedWiring.js';
+import { omahaCheckedToBetDecision } from './HorseOmahaCheckedToBet.js';
 import {
   omahaPricedSitesBlockerBluffAdmits,
   omahaPricedSitesFlopBet,
@@ -3995,6 +3997,20 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_strong_hand_value. */
   omahaStrongHandValue?: boolean;
+  /** WooWoo audit repair programme 2026-11-18 (lane CHECKED-TO-BET;
+   * HorseOmahaCheckedToBet.ts): PLO4/PLO5 cash, one board, high only, no bomb
+   * pot, not Lightning, on the river (any number of opponents) or the turn
+   * (one opponent), every opponent has checked this street and the node's
+   * answer is a check: the check is priced beside every bet size against
+   * each opponent's checking range and his measured rate of continuing
+   * against a bet (the priced read, shrunk to the population by its
+   * opportunities; every opponent folds with the product of their fold
+   * rates), after the rake; the bet of highest expected value replaces the
+   * check when it is worth more than the check by more than the comparison's
+   * own standard error. No hand-class, position or size rule. Default OFF
+   * (opt-in, read `=== true`); league cards plo4/plo5
+   * _omaha_checked_to_bet_is_priced. */
+  omahaCheckedToBetIsPriced?: boolean;
   /** Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR
    * JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN'T ALWAYS RAISE 100% OF THE
    * TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS";
@@ -9985,6 +10001,7 @@ function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
     opts.omahaStreetPlanFlop === true ||
     opts.omahaStreetPlanThreeWay === true ||
     opts.omahaStrongHandValue === true ||
+    opts.omahaCheckedToBetIsPriced === true ||
     opts.omahaBigDrawAggression === true
   );
 }
@@ -12247,6 +12264,61 @@ function omahaStrongHandValueRule(
     }
     return { decision: result.decision, priced: result.priced };
   } catch {
+    return same;
+  }
+}
+
+/**
+ * omahaCheckedToBetIsPriced (WooWoo audit repair programme 2026-11-18; default
+ * OFF, read `=== true`): HorseOmahaCheckedToBet.ts. In the wager_rules node
+ * after omahaStrongHandValueRule, where that rule did not answer: the node's
+ * final check on a PLO4/PLO5 cash river or heads-up turn that every opponent
+ * has checked is priced beside every bet size. The opponent reads are the
+ * priced read (HorseOmahaPricedWiring.omahaPricedReadOfUser: the pooled read
+ * today, the per-street read when it is delivered). Every later owner
+ * (the one-pair rules, the draw rules, omahaOwnerRuledFinal) still judges the
+ * bet. Draws no random number. Unset or false it returns the decision it was
+ * given.
+ *
+ * Receipts: omaha_checked_to_bet_priced_bet (the check became the bet),
+ * omaha_checked_to_bet_priced_check_kept (priced; the check stands).
+ */
+function omahaCheckedToBetIsPricedRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): { decision: HorseDecision; changed: boolean; bluff: boolean } {
+  const same = { decision, changed: false, bluff: false };
+  if (opts.omahaCheckedToBetIsPriced !== true) return same;
+  if (decision.action !== 'check') return same;
+  try {
+    const result = omahaCheckedToBetDecision(
+      decision,
+      player,
+      gs,
+      (seat) => {
+        const id = (gs.players ?? []).find((p) => p.seat === seat)?.user_id ?? null;
+        const read = omahaPricedReadOfUser(id, gs, opts);
+        let riverOpportunities: number | null = null;
+        if (id !== null && opts.mind !== false) {
+          try {
+            riverOpportunities = HorseMind.omahaReadConditionalOf(id)?.riverCall?.n ?? null;
+          } catch {
+            riverOpportunities = null;
+          }
+        }
+        return { read, riverOpportunities };
+      },
+      omahaPricedDeps(player, gs).rake
+    );
+    if (telemetryOn(opts)) {
+      if (result.changed === 'bet') noteFire('omaha_checked_to_bet_priced_bet');
+      else if (result.priced) noteFire('omaha_checked_to_bet_priced_check_kept');
+    }
+    return { decision: result.decision, changed: result.changed === 'bet', bluff: result.bluff };
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return same;
   }
 }
@@ -14835,13 +14907,20 @@ export class HorseLogic {
       // value bets and the value raises. Where it answered the spot, its
       // answer stands over the half-pot checked-to bet below.
       const strongHand = omahaStrongHandValueRule(finalWager, player, gs, opts);
+      // omahaCheckedToBetIsPriced (default off): where the strong-hand rule did
+      // not answer, the node's final check on a street every opponent checked
+      // is priced beside the bets. A bet that is not a value bet is a
+      // declared bluff for the one-pair rules below.
+      const checkedTo = strongHand.priced
+        ? { decision: strongHand.decision, changed: false, bluff: false }
+        : omahaCheckedToBetIsPricedRule(strongHand.decision, player, gs, opts);
       // Dan 2026-11-14 (HorseOmahaOnePair.ts): the one-pair rules judge the
       // node's final answer, after every owner that can bet, raise or call
       // (the checked-to pricing below included); a declared river bluff, or
       // the river bluff check-raise, keeps its wager.
       const onePair = (d: HorseDecision): HorseDecision => {
         const r = omahaOnePairDiscipline(d, player, gs, opts.omahaOnePairDiscipline === true, {
-          declaredBluff: riverBluffDeclared || checkRaised !== floored,
+          declaredBluff: riverBluffDeclared || checkRaised !== floored || checkedTo.bluff,
           bettorOverBluffs: (seat) => {
             const bettor = gs.players.find((p) => p.seat === seat);
             if (!bettor || opts.mind === false) return false;
@@ -14875,6 +14954,7 @@ export class HorseLogic {
           (finalWager.amount as number) < player.stack - 0.005);
       if (
         !strongHand.priced &&
+        !checkedTo.changed &&
         missedOrUndersizedValue &&
         (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
@@ -14938,7 +15018,7 @@ export class HorseLogic {
           omahaTurnRiverRaiseNeedsNutsRule(
             omahaOwnerRuledFinal(
               omahaStrongHandSlowplayMixRule(
-                omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+                omahaDrawRules(onePair(checkedTo.decision), player, gs, opts),
                 player,
                 gs,
                 opts

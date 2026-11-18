@@ -2639,6 +2639,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-18 OMAHA CHECKED-TO BET IS PRICED (HorseOmahaCheckedToBet, default
+  // OFF): on the river, or the turn heads-up, when every opponent has checked
+  // and the answer is a check, the check is priced beside every bet size
+  // against each opponent's checking range and measured continue rate; a
+  // switches it on, b is today's brain. The mirror's memory learning is on
+  // (the league default), so the reads it prices from exist.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_checked_to_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCheckedToBetIsPriced: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
   // barrel only against measured postflop value leaders, and the bare overpair

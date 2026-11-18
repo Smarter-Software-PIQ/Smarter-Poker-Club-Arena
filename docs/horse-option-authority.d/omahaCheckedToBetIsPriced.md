@@ -1,0 +1,42 @@
+# omahaCheckedToBetIsPriced: authority for the live switch
+
+Built 2026-11-18 by the WooWoo audit repair programme (lane CHECKED-TO-BET). Evidence NOT MET: the option stays OFF. This file does not authorize switching the option on: no order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
+
+## What it does
+
+PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning. On the river (any number of opponents) or the turn (one opponent), when every opponent has checked this street, nobody is all in and the node's answer is a check, the check is priced beside every bet size the engine considers (`server/src/engine/HorseOmahaCheckedToBet.ts`, one site in `HorseLogic.ts` wager_rules after `omahaStrongHandValue`):
+
+- Range: each opponent's checking range, 800 hands sampled with a seed from the cards and weighted by his line this hand (the card-impact model, `HorseOmahaCardImpact.ts`). The brain's random stream is not read.
+- Response: the share of that range that continues is his measured continue rate (river: his river call rate; turn: one minus his fold-to-bet rate), read through the one priced read (`HorseOmahaPricedWiring.omahaPricedReadOfUser`: a posterior mean that shrinks to the Horse population of the game and table size by the opportunity count; the per-street cells replace the pooled figure when that read is delivered through `omahaPricedStreetRatesOf`). With no read at all he continues at the pot odds, against which a bet with no equity is worth nothing. The top of the continuing share raises (the model's raise share) and the raise is priced.
+- EV(bet) = P(everyone folds) x pot + P(called) x [equity against the hands that call x (pot + calls) - bet], with the raise branch, after the rake. With several opponents everyone folds with the product of their fold rates and every set of callers is enumerated.
+- EV(check) = showdown share x pot after the rake on the river; on the heads-up turn the value of checking when he may still bet the river at his measured bet rate.
+- The bet of highest expected value replaces the check when it is worth more than the check by more than the standard error of the difference (the error of his rate from its opportunity count, the error of the sample, the rounding of the model's shares). No hand-class, position or size rule, and nothing keyed to an account.
+
+Precedence: it reads the node's final check where the strong-hand rule did not answer. Every later owner still judges the bet: the one-pair rules (a bet that is not a value bet is a declared bluff), the draw rules, and the outermost owner-ruled final (`omahaOwnerRuledFinal`: an owner-ruled check, the made-hand defence and the street plan stand over it; on the recorded heads-up turn spots those rules check the bet again). Outside the spot, and with the option unset or false, every decision is exactly as before.
+
+Not built: the flop (owned by the PLO Strategy lane's flop bet model), the turn with several opponents, a spot with a player still to act behind the Horse.
+
+Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261118015651_horse_option_switch_omaha_checked_to_bet_is_priced`, not installed by this lane), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaCheckedToBetIsPriced docs/horse-option-authority.d/omahaCheckedToBetIsPriced.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
+
+## The orders it rests on
+
+- Owner, 2026-11-17, verbatim as recorded by the audit programme: "DONT' MAKE ANY BLANKET RULES, EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS".
+- Owner, 2026-11-17 (the flop complaint, cited by file: audit archive `woowoo-48h-audit-01BNteGYgf/repairs/FLOP-DEFENCE/SPEC.md`): a plan for offence as well as defence.
+
+Neither is an order to switch this option on.
+
+## The measurement it answers
+
+Audit archive `woowoo-48h-audit-01BNteGYgf/repairs/FLOP-DEFENCE/ATTRIBUTION.md` section 3: one player folded to 140 of 177 heads-up river bets after checking; the Horses checked back air or a weak pair in 35 of 43 such spots and won 44 to 47% of those showdowns; with several opponents they bet a medium, weak or empty hand 0 of 93 times; after a checked-through flop he folded to 11 of 22 heads-up turn bets.
+
+## Receipts
+
+omaha_checked_to_bet_priced_bet (the check became the bet; when a rule that outranks the pricing rules checks it again, omaha_owner_ruled_check_kept fires in the same decision), omaha_checked_to_bet_priced_check_kept (priced; the check stands). A failure fires omaha_strategy_rule_failed and keeps the decision it was given. A default-off option production does not set is silent.
+
+## Tests
+
+`HorseOmahaCheckedToBet.test.ts` on fourteen journaled requests of the audit (`HorseOmahaCheckedToBet.fixture.json`: seats only, the deciding Horse's own cards): the spot and everything outside it; the same hand bets into a player who folds 79% and keeps the check against a calling station, the break-even rate and no read; no spot bets a hand that is not a value bet into a station; the margin grows as the opportunities shrink; the product of fold rates with several opponents; through `HorseLogic.decide` with the recorded option states, the option unset, false and a truthy non-boolean byte-identical, PLO6, tournaments, bomb pots and Lightning byte-identical.
+
+## Evaluation
+
+Declared before any candidate decision (audit archive `repairs/CHECKED-TO-BET/EVAL-DECLARATION.md`, sha256 73725cf430e52982c349894055d6f4a804d0d2db653ccdacfd60cbcf3b147c37): a counterfactual replay of every journaled decision of two engine builds. Its result is in `repairs/CHECKED-TO-BET/LANE-REPORT.md`. No league matchup has been run (cards `plo4_omaha_checked_to_bet_is_priced`, `plo5_omaha_checked_to_bet_is_priced`): a league result on the declared seeds, a human-like field and a Horse-only field included, must pass before any `on` row. The opponent fold rates were measured against a value-heavy Horse betting range and will fall as bluffs are added: the read is a decayed posterior, so the bets stop when he calls, and that adaptation has not been measured.
