@@ -11,6 +11,7 @@ import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 import {
   isDeterministicSettlementRefusal,
   isRolledBackStatementError,
+  isStatementTimeoutCancel,
 } from './settlementRefusal.js';
 import {
   parseLegacyFeeCustodyOrigin,
@@ -767,6 +768,9 @@ export async function requestTournamentTerminalReceipt(
         if (!databaseStatedRollback(error)) unprovenAttempts++;
         lastFailure = errorMessage(error);
         if (isDeterministicSettlementRefusal(error, tournamentId)) break;
+        // One 45-second timeout per admission, never five back to back. The
+        // attempt stays unproven: the resolver below still decides it.
+        if (isStatementTimeoutCancel(error)) break;
       }
     } catch (error) {
       if (error instanceof TerminalSettlementDisagreementError) throw error;

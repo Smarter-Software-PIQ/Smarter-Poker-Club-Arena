@@ -1040,6 +1040,55 @@ export function finishRefusalRetryDelayMs(
 }
 
 /**
+ * A STATEMENT TIMEOUT IS NOT A BUSY LANE (2026-11-17).
+ *
+ * `timeout` above is one label for two different answers. A lock timeout
+ * (55P03, eight seconds) is the finish lane being busy: the next pass pays it,
+ * which is why a transient refusal keeps the five-second pass. A statement
+ * timeout (57014) is the settlement itself running for its whole 45-second
+ * ceiling and being cancelled: the same request, asked again five seconds
+ * later, runs for 45 seconds again.
+ *
+ * Measured 2026-11-17, tournament 4cea3f54 (547 entries): every terminal
+ * attempt ran 45 s, timed out and rolled back, and the manager asked again on
+ * the flat five seconds for more than ninety minutes - 15 requests, about 100
+ * attempts. Each attempt held a shared wallet row lock for its whole run, so
+ * one event that could not settle stalled every cash table on the platform.
+ *
+ * So consecutive statement timeouts of the SAME finish double away from the
+ * base delay to this cap. Five minutes, not the fifteen of a rule refusal: a
+ * timeout is load, and load can clear without anyone correcting anything.
+ */
+export const FINISH_STATEMENT_TIMEOUT_BACKOFF_CAP_MS = 300_000;
+
+/** The refusal is PostgreSQL cancelling the settlement at its statement ceiling (57014). */
+export function finishRefusalIsStatementTimeout(message: string | null | undefined): boolean {
+  const m = (message ?? '').toLowerCase();
+  return m.includes('statement timeout') || m.includes('57014');
+}
+
+/**
+ * The refusal is the maintenance break saying "after the thaw": the terminal
+ * door's own PLATFORM_FROZEN, or its declined maintenance reservation. Both
+ * are answered at once, hold nothing, and clear by themselves within the
+ * break, so the finish keeps the base pass and is paid as soon as play thaws.
+ */
+export function finishRefusalIsMaintenanceDeferral(message: string | null | undefined): boolean {
+  const m = message ?? '';
+  return m.includes('PLATFORM_FROZEN') || m.includes('TERMINAL_MAINTENANCE_RESERVATION_BUSY');
+}
+
+/**
+ * The delay after `streak` consecutive statement timeouts of one finish: the
+ * base for the first, then doubling to FINISH_STATEMENT_TIMEOUT_BACKOFF_CAP_MS.
+ */
+export function finishStatementTimeoutRetryDelayMs(streak: number, baseMs: number): number {
+  if (!Number.isFinite(baseMs) || baseMs <= 0) return 0;
+  const steps = Math.max(0, Math.min(20, Math.floor(Number.isFinite(streak) ? streak : 0) - 1));
+  return Math.min(FINISH_STATEMENT_TIMEOUT_BACKOFF_CAP_MS, baseMs * 2 ** steps);
+}
+
+/**
  * Repeat critical alerts that were counted instead of raised, because the
  * same tournament had already reported the same refusal reason. The refusal
  * RATE belongs to poker_tournament_finish_refusals_total; this series exists

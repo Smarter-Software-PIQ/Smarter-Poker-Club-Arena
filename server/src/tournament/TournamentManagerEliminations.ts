@@ -3724,7 +3724,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     ]);
   }
 
-  private bustGuardPrefetchMap?: Map<string, ReturnType<TournamentManagerEliminations['readBustGuard']>>;
+  private bustGuardPrefetchMap?: Map<
+    string,
+    ReturnType<TournamentManagerEliminations['readBustGuard']>
+  >;
   protected get bustGuardPrefetch() {
     return (this.bustGuardPrefetchMap ??= new Map());
   }
@@ -7722,12 +7725,15 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     }
 
     this.tournamentFinished = true;
+    // A different winner is a different finish: its refusals start their own
+    // backoff. The same one keeps the delay its last refusal earned.
+    this.noteFinishAttempt(`finish:${winnerId}`);
     const releaseFinishGuard = (): void => {
       this.tournamentFinished = false;
-      // The classified refusal chooses the delay. A deadlock or a timeout keeps
-      // TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS; a rule refusal doubles
-      // away from it to a cap, because asking again in five seconds cannot
-      // change a rule. See noteFinishRefusal.
+      // The classified refusal chooses the delay. A deadlock or a lock timeout
+      // keeps TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS; a rule refusal,
+      // or a settlement cancelled at its statement ceiling, doubles away from
+      // it to a cap. See noteFinishRefusal.
       this.requestUrgentEliminationSweepAfter(this.finishRetryDelayMs());
     };
     console.log(
