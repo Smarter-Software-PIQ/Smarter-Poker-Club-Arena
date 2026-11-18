@@ -349,8 +349,9 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
   it('seam a: the judged flag is set for every non-null re-raise range verdict (source)', () => {
     const src = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('function omahaReraiseRangeRules('));
-    const at = body.indexOf('if (verdict === null) return decision;');
-    expect(at).toBeGreaterThan(0);
-    expect(body.slice(at, at + 200)).toContain('omahaReraisedCallCellJudged = true;');
+    // the statement right after the null-verdict return (comment lines aside) sets the flag
+    expect(body).toMatch(
+      /if \(verdict === null\) return decision;\s*(?:\/\/[^\n]*\n\s*)*omahaReraisedCallCellJudged = true;/
+    );
   });
 });
