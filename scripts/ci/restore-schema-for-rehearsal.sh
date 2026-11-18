@@ -23,7 +23,14 @@ LOG_DIR="$WORKDIR"
 STATE_DIR="$WORKDIR"
 log() { echo "[rehearsal-restore] $*" >&2; }
 
-docker run -d --name "$NAME" -e POSTGRES_PASSWORD=rehearsal-only "$IMAGE" >/dev/null
+# The image asks supabase_admin for a password even on its local socket, and
+# every psql_db and pg_restore below is a `docker exec` as supabase_admin.
+# `docker exec` inherits the container environment, so PGPASSWORD set here
+# reaches every one of them; without it each call stopped at
+# "Password for user supabase_admin:" and failed with fe_sendauth (every
+# migration-bearing pull request since this rehearsal was added, 2026-11-18).
+REHEARSAL_PASSWORD=rehearsal-only
+docker run -d --name "$NAME" -e POSTGRES_PASSWORD="$REHEARSAL_PASSWORD" -e PGPASSWORD="$REHEARSAL_PASSWORD" "$IMAGE" >/dev/null
 for _ in $(seq 1 90); do
   docker exec "$NAME" pg_isready -U postgres -h 127.0.0.1 >/dev/null 2>&1 && break
   sleep 2
