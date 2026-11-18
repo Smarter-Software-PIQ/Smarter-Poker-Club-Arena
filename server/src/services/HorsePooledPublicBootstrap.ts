@@ -3,6 +3,7 @@ import { supabase } from './supabase.js';
 import {
   copyLongCounters,
   copyShownRiver,
+  copyReraiseResponseRecord,
   copyStreetCounters,
   validOpponentProfile,
   type DurableOpponentProfile,
@@ -117,6 +118,8 @@ export async function readHorsePooledPublicBootstrap(
           ...copyShownRiver(row),
           // 2026-11-17 the postflop read by street and flop texture (street_counters), kept when well formed.
           ...copyStreetCounters(row),
+          // 2026-11-18 the answers to a raise of his own re-raise (reraise_response), kept when well formed.
+          ...copyReraiseResponseRecord(row),
         });
         kept++;
       }
