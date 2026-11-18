@@ -1,7 +1,7 @@
 -- The existing alert kept reporting the first two hands after the live queue grew to thousands.
 -- The accepted envelope's pending_addons object identifies cash, including Lightning.
 -- Older and other modes retain the established ten-minute threshold.
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure))='03e6c9ebf4d1f86b58e90f923cbe5fc8' AND EXISTS (SELECT 1 FROM cron.job WHERE jobname='post-commit-stranded-watchdog-5m' AND active AND schedule='* * * * *' AND command='select public.fn_post_commit_stranded_watchdog()'))
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_post_commit_stranded_watchdog()'::regprocedure))='03e6c9ebf4d1f86b58e90f923cbe5fc8' AND NOT has_function_privilege('authenticated','public.fn_post_commit_stranded_watchdog()','EXECUTE') AND NOT has_function_privilege('anon','public.fn_post_commit_stranded_watchdog()','EXECUTE') AND has_function_privilege('service_role','public.fn_post_commit_stranded_watchdog()','EXECUTE') AND EXISTS (SELECT 1 FROM cron.job WHERE jobname='post-commit-stranded-watchdog-5m' AND active AND schedule='* * * * *' AND command='select public.fn_post_commit_stranded_watchdog()'))
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5s';
@@ -73,6 +73,8 @@ BEGIN
   RETURN facts;
 END
 $watch$;
+REVOKE ALL ON FUNCTION public.fn_post_commit_stranded_watchdog() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_post_commit_stranded_watchdog() TO service_role;
 
 SELECT cron.alter_job(jobid, schedule => '* * * * *') FROM cron.job WHERE jobname='post-commit-stranded-watchdog-5m';
 COMMIT;

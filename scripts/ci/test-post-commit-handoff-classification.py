@@ -126,6 +126,9 @@ try:
           'UPDATE cron.job SET schedule=$2 WHERE jobid=$1';""")
     old_watchdog = section(trg_src, 'create or replace function public.fn_post_commit_stranded_watchdog()', 'end $f$;')
     sql(old_watchdog)
+    sql("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;")
+    sql("REVOKE ALL ON FUNCTION public.fn_post_commit_stranded_watchdog() FROM PUBLIC, anon, authenticated; "
+        "GRANT EXECUTE ON FUNCTION public.fn_post_commit_stranded_watchdog() TO service_role;")
     watchdog = "SELECT public.fn_post_commit_stranded_watchdog()"
     signature = "'public.fn_post_commit_stranded_watchdog()'::regprocedure"
     settings = sql(f"SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid={signature}")
@@ -157,6 +160,9 @@ try:
     fingerprint = sql(f"SELECT md5(pg_get_functiondef({signature}))")
     assert fingerprint == '03e6c9ebf4d1f86b58e90f923cbe5fc8', fingerprint
     assert fingerprint in current.splitlines()[3]
+    assert sql(f"SELECT has_function_privilege('authenticated',{signature},'EXECUTE') OR "
+               f"has_function_privilege('anon',{signature},'EXECUTE')") == 'f'
+    assert sql(f"SELECT has_function_privilege('service_role',{signature},'EXECUTE')") == 't'
     print('receipt watchdog postimage:', fingerprint)
     assert sql(f"SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid={signature}") == settings
     assert sql("SELECT count(*) FROM cron.job WHERE active AND schedule='* * * * *'") == '1'
