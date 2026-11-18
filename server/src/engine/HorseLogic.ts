@@ -508,6 +508,15 @@ import {
   type OmahaPricedDeps,
 } from './HorseOmahaPricedWiring.js';
 import {
+  omahaPricedSitesBlockerBluffAdmits,
+  omahaPricedSitesFlopBet,
+  omahaPricedSitesMadeHandBet,
+  omahaPricedSitesOwnsBlockerBluff,
+  omahaPricedSitesOwnsMadeHandBet,
+  omahaPricedSitesOwnsTurnSetSize,
+  omahaPricedSitesTurnSetSize,
+} from './HorseOmahaPricedSites.js';
+import {
   lightningFoldThroughFrame,
   lightningFoldThroughSeats,
 } from './HorseLightningFoldThrough.js';
@@ -3615,6 +3624,21 @@ export interface HorseDecideOpts {
    * lower one is taken with a probability that follows the gap, on a draw
    * from public state only. Acts only inside a priced rule that is on. */
   omahaPricedMix?: boolean;
+  /** HorseOmahaPricedSites (sites-013U37, default OFF): the bet half of the
+   * made-hand defence (fresh-card check, thin river value bet) is priced
+   * beside the check against every live opponent, whatever his label. */
+  omahaMadeHandBetIsPriced?: boolean;
+  /** HorseOmahaPricedSites: the turn set pound's size is the highest-valued
+   * public-state candidate (the check only when it out-prices every size). */
+  omahaTurnSetSizeIsPriced?: boolean;
+  /** HorseOmahaPricedSites: the river nut-blocker bluff is admitted by its
+   * price (some bet above the check) in place of the 0.28 equity line and
+   * the paired-board bar. */
+  omahaBlockerBluffIsPriced?: boolean;
+  /** HorseOmahaPricedSites: a bare big pair's flop bet with the betting
+   * lead is priced beside the check, heads-up, in either position (replaces
+   * the out-of-position check of omahaBareOverpairOopFlopCheck). */
+  omahaFlopBetIsPriced?: boolean;
   /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, first layer): PLO4/PLO5
    * cash, heads-up, one board, high only. Before a TURN bet facing no wager
    * the Horse prices the bet and the check as whole lines: the opponent's
@@ -9347,7 +9371,10 @@ function omahaWagerIsChecked(
       (opts.omahaMadeHandDefenseVsValueLeader === true &&
         omahaValueLeaderDefenseInScope(player, gs, opts))) &&
     omahaBeatenNoBet(wagered, player, gs, true).changed !== null &&
-    (defenseOn || omahaEveryLiveOpponentIs(player, gs, quiet, (r) => r.valueLeader))
+    // omahaMadeHandBetIsPriced (default off): the wager is checked only when the check is priced above it.
+    (omahaPricedSitesOwnsMadeHandBet(player, gs, opts)
+      ? omahaPricedSitesMadeHandBet(wagered, player, gs, quiet)?.action === 'check'
+      : defenseOn || omahaEveryLiveOpponentIs(player, gs, quiet, (r) => r.valueLeader))
   )
     return true;
   if (
@@ -9829,7 +9856,11 @@ function omahaOopCheckRulesCore(
       return c;
     };
     if (stage === 'flop') {
-      if (!flopOn || !omahaBareOverpairOopFlopSpot(player, gs)) return decision;
+      const flopSpot = flopOn && omahaBareOverpairOopFlopSpot(player, gs);
+      // omahaFlopBetIsPriced (default off): the bare big pair's flop bet is priced beside the check.
+      const pricedFlop = omahaPricedSitesFlopBet(decision, player, gs, opts, flopSpot);
+      if (pricedFlop !== null) return pricedFlop;
+      if (!flopSpot) return decision;
       if (tele) noteFire('omaha_bare_overpair_oop_flop_checked');
       return checked();
     }
@@ -10022,10 +10053,16 @@ function omahaMadeHandDefenseRules(
   if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
   if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
   const noBetRaw = omahaBeatenNoBet(flat.decision, player, gs, defenseOn || vsValueLeader);
+  // omahaMadeHandBetIsPriced (default off): in the rule's spot the wager is priced beside the
+  // check against every live opponent, whatever his label; the rule's own receipts do not fire.
+  const pricedNoBet =
+    noBetRaw.changed !== null ? omahaPricedSitesMadeHandBet(flat.decision, player, gs, opts) : null;
   const noBet =
-    vsValueLeader && noBetRaw.changed !== null && !leaders()
-      ? { decision: flat.decision, changed: null }
-      : noBetRaw;
+    pricedNoBet !== null
+      ? { decision: pricedNoBet, changed: null }
+      : vsValueLeader && noBetRaw.changed !== null && !leaders()
+        ? { decision: flat.decision, changed: null }
+        : noBetRaw;
   if (tele && noBet.changed === 'fresh_card_check') noteFire('omaha_beaten_fresh_card_check');
   if (tele && noBet.changed === 'river_check') noteFire('omaha_beaten_river_no_value_bet');
   const sized = omahaNutClassValueSize(
@@ -21292,10 +21329,15 @@ export class HorseLogic {
           !omahaCashOnlyExcludes(player, gs)
             ? 2
             : 1) &&
-        equity < 0.28 &&
-        hasVariantBlocker(player.cards, board, vi) &&
-        // omahaPairedBoardBetIsPriced: on a paired board the bluff is admitted by its price.
-        (!boardPaired15 || omahaPricedBlockerBluffAdmits(player, gs, opts)) &&
+        // omahaBlockerBluffIsPriced (default off): admitted by its price on any board in place of
+        // the equity line and the paired-board bar.
+        (omahaPricedSitesOwnsBlockerBluff(player, gs, opts)
+          ? hasVariantBlocker(player.cards, board, vi) &&
+            omahaPricedSitesBlockerBluffAdmits(player, gs, opts)
+          : equity < 0.28 &&
+            hasVariantBlocker(player.cards, board, vi) &&
+            // omahaPairedBoardBetIsPriced: on a paired board the bluff is admitted by its price.
+            (!boardPaired15 || omahaPricedBlockerBluffAdmits(player, gs, opts))) &&
         !ploPairedBoardRiverMustCheck({
           gameVariant: gs.gameVariant,
           hiLo: vi.isHiLo,
@@ -21997,7 +22039,8 @@ export class HorseLogic {
         // are the ones that beat it). Sets and top two on a brick keep
         // their sizing (made40.weak is false there).
         if (turnSetPound) {
-          if (tele15) noteFire('omaha_turn_set_pound');
+          if (tele15 && !omahaPricedSitesOwnsTurnSetSize(player, gs, opts))
+            noteFire('omaha_turn_set_pound');
         } else if (useV40 && made40 != null && made40.weak) {
           if (isRiver && calledBarrels40 >= 2 && fastRandom() < 0.8) {
             if (tele15) noteFire('v40_no_third_barrel');
@@ -22012,7 +22055,7 @@ export class HorseLogic {
         // as a monster by MC sizes down instead of bombing — the calling side
         // already knew this; the betting side did not.
         if (useV21 && dominated21) monsterFrac = Math.min(monsterFrac, 0.5);
-        return this.betSize(
+        const monsterBet = this.betSize(
           planHandKey,
           pot,
           monsterFrac * exploitValueSize,
@@ -22022,13 +22065,18 @@ export class HorseLogic {
           params,
           useSizing
         );
+        // omahaTurnSetSizeIsPriced (default off): the pound's size is priced among the public-state sizes.
+        return turnSetPound
+          ? (omahaPricedSitesTurnSetSize(monsterBet, player, gs, opts) ?? monsterBet)
+          : monsterBet;
       }
       // Strong value. V4: a vulnerable made hand sizes UP and never checks
       // back; a dangered hand slows down instead of firing into the new nuts.
       if (equity >= multiwayValueBar(0.62, oppCount) + mw + sprValShift86) {
         if (turnSetPound) {
-          if (tele15) noteFire('omaha_turn_set_pound');
-          return this.betSize(
+          const sitesSize = omahaPricedSitesOwnsTurnSetSize(player, gs, opts);
+          if (tele15 && !sitesSize) noteFire('omaha_turn_set_pound');
+          const poundBet = this.betSize(
             planHandKey,
             pot,
             poundFrac() * exploitValueSize,
@@ -22038,6 +22086,10 @@ export class HorseLogic {
             params,
             useSizing
           );
+          // omahaTurnSetSizeIsPriced (default off): the pound's size is priced among the public-state sizes.
+          return sitesSize
+            ? (omahaPricedSitesTurnSetSize(poundBet, player, gs, opts) ?? poundBet)
+            : poundBet;
         }
         if (dangered && fastRandom() < (stationValue ? 0.3 : 0.55)) {
           return { action: 'check', thinkTime: 0 };

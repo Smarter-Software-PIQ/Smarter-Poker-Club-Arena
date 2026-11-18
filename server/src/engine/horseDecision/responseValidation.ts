@@ -45,6 +45,7 @@ import {
   omahaStreetPlanFlopAdmitsCheck,
   omahaStreetPlanThreeWayAdmitsCheck,
 } from '../HorseOmahaStreetPlan.js';
+import { omahaPricedSitesFlopBetSpot } from '../HorseOmahaPricedSites.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import { huBalanceSpot } from '../HorseHeadsUpPostflopBalance.js';
 import {
@@ -1398,6 +1399,20 @@ function policyGraphIsValidInScope(
       // same seeded test is re-run on the request (both board tests on: the
       // request does not carry V58/V59).
       !(variant === 'plo6' && plo6RiverLiveFoldTest(context.player, context.gameState));
+    // omahaFlopBetIsPriced (sites-013U37, default off): a bare big pair's flop
+    // bet with the betting lead becomes a check, in either position, when the
+    // check is priced above it. A check puts no chip in; when the request is
+    // known, only where the option's public spot, re-run on it, holds (the
+    // receipt context carries neither the options nor the opponent read).
+    const omahaPricedSiteFlopBetToCheck =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaPricedSitesFlopBetSpot(context.player, context.gameState)));
     // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
     // facing no wager becomes a check on the flop out of position with a bare
     // pair, on the turn after the flop bet was called, and on a paired river
@@ -1718,6 +1733,7 @@ function policyGraphIsValidInScope(
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
+      !omahaPricedSiteFlopBetToCheck &&
       !omahaOopTurnToCall &&
       !omahaBareOverpairContToCall &&
       !omahaStreetPlanBetToCheck &&

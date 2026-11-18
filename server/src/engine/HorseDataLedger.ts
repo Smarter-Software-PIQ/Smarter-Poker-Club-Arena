@@ -1185,6 +1185,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMadeHandBetIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the spot where the made-hand defence (omahaBeatenMadeHandDefense, or omahaMadeHandDefenseVsValueLeader against measured value leaders) turns a turn bet into the fresh card out of position or a thin river value bet into a check, the wager is priced beside the check against every live opponent whatever his label (HorseOmahaPricedRules.omahaPricedBet, the card-impact model, the Horse cards removed from every range): it stands when it is priced at least at the check, else it is checked. Unpriceable spots keep the wager. With it on the defence bet half does not decide in this scope.',
+    'V94'
+  ),
+  flag(
+    'omahaTurnSetSizeIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the turn set pound spot (omahaTurnSetPound: a set on a turn where a straight is possible and a flush is not), the size is the highest-valued of the public-state candidates (the card-impact sizes and the pound size itself) priced against every live opponent; the wager itself stays (only its size is priced). Unpriceable spots keep the pound size.',
+    'V94'
+  ),
+  flag(
+    'omahaBlockerBluffIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The river nut-blocker bluff (V86, and the one-pair admission of omahaRiverNutBlockerBluffReachable) is admitted when some bet is priced above the check against his range and his measured fold to a bet (HorseOmahaPricedRules.omahaPricedBet), on any board, in place of the 0.28 equity line and the paired-board bar. Its other conditions (heads-up, blocker, chips behind, the bluff frequency) are unchanged. Unpriceable spots make no bluff.',
+    'V94'
+  ),
+  flag(
+    'omahaFlopBetIsPriced',
+    'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The flop bet of a bare big pair (an overpair, or queens or better with one higher card on the flop, no flush draw, fewer than eight straight outs) with the betting lead, in either position, is priced beside the check heads-up (HorseOmahaPricedSites.omahaPricedSitesFlopBetEv): he folds the weakest share of his holdings given by his fold to a bet (the priced read), raises with the strongest share (measured 0.15) and calls with the band between; the Horse equity against each band comes from the flop facing-bet sampler with its cards removal; the bet stands when it is priced at least at the check. It replaces the out-of-position check of omahaBareOverpairOopFlopCheck and prices the same hand in position (owner fixture txHiARhC, hand 59833576). Multiway and unpriceable spots keep the rule decision.',
+    'V94'
+  ),
+  flag(
     'omahaPricedMix',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Frequency mixing inside a priced rule that is on: when the two best actions of the comparison are closer than its own uncertainty (the standard error of the sampled share, plus the spread of the opponent read by its opportunity count) the lower one is taken with probability 0.5 x (1 - gap / uncertainty). The draw is the decision derived stream (read, never advanced) hashed with public state only: the street, the board, the pot, the wager, the seat and the public action count; the Horse hole cards are not read.',
     'V94'
@@ -5439,6 +5459,78 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_underpair_multiway_folded',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaUnderpairMultiwayIsPriced)',
     'the same decision: the call is priced below the fold: the fold stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_made_hand_bet_kept',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaMadeHandBetIsPriced)',
+    'in the made-hand defence spot the wager is priced at least at the check and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_made_hand_bet_checked',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaMadeHandBetIsPriced)',
+    'the same spot: the check is priced above the wager: the wager became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_made_hand_bet_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaMadeHandBetIsPriced)',
+    'the same spot: the wager could not be priced (outside the card-impact model): the wager is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_turn_set_size_kept',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaTurnSetSizeIsPriced)',
+    'turn set pound spot: the pound size is the highest-valued candidate and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_turn_set_size_resized',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaTurnSetSizeIsPriced)',
+    'the same spot: another public-state size is priced higher and is bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_turn_set_size_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaTurnSetSizeIsPriced)',
+    'the same spot: the sizes could not be priced: the pound size is kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_blocker_bluff_admitted',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
+    'river nut-blocker bluff spot: some bet is priced above the check: the bluff is admitted',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_blocker_bluff_refused',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
+    'the same spot: no bet is priced above the check: no bluff',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_blocker_bluff_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
+    'the same spot: the bet could not be priced: no bluff (the check stands)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_flop_bet_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
+    'a bare big pair flop bet with the lead is priced at least at the check and stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_flop_bet_checked',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
+    'the same spot: the check is priced above the bet: the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_site_flop_bet_unpriced_kept',
+    'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
+    'the same spot could not be priced (multiway, an opponent all in, no sample): the rule decision is kept',
     'V94'
   ),
   receipt(
