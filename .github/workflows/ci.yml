@@ -3195,12 +3195,6 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-cash-return-rule-postgres.py
 
-      - name: A rathole floor belongs to one cash game at every stakes
-        if: matrix.shard == 3
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 -B scripts/ci/test-rathole-floor-per-game-postgres.py
-
       - name: Original posthand escrow stays distinct from poker winnings
         id: posthand_escrow
         if: matrix.shard == 3

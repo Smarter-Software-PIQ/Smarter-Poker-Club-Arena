@@ -1,0 +1,40 @@
+name: Rathole floor per game (native PostgreSQL proof)
+
+# Dan 2026-11-18: "CLASSIC AND LIGHTNING ARE TREATED AS SPERATE GAMES EVEN IF
+# THEY ARE THE SAME GAME AND STAKES." Migration 20261118071741 keys the
+# rathole floor and the VPIP bar on the cash game. This applies that exact
+# migration to a throwaway native PostgreSQL 17 cluster (never production, as
+# the unprivileged runner user) and proves a floor or bar earned in one game
+# never reaches another game at the same variant and stakes.
+#
+# A dedicated workflow so this proof never rewrites ci.yml's pinned accounting
+# inputs. No timer (CLAUDE.md 10.85): pull_request only, scoped to what the
+# proof reads.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/**
+      - scripts/ci/test-rathole-floor-per-game-postgres.py
+      - .github/workflows/rathole-floor-per-game-native-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rathole-floor-per-game-native-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rathole-floor-per-game:
+    name: A rathole floor belongs to one cash game at every stakes (throwaway PostgreSQL 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The rathole floor is per game on native PostgreSQL
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-rathole-floor-per-game-postgres.py
