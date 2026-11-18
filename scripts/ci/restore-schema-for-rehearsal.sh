@@ -72,7 +72,11 @@ for role in "${EXPECTED_RESTORE_ROLES[@]}"; do
 done
 
 # The auth schema as production's objects use it (see rehearsal-auth-schema.sql).
-psql_db -q < "$ROOT/scripts/ci/rehearsal-auth-schema.sql" >/dev/null
+if ! auth_out=$(psql_db -q -v VERBOSITY=verbose < "$ROOT/scripts/ci/rehearsal-auth-schema.sql" 2>&1); then
+  log "the auth schema could not be brought to production's shape:"
+  grep -v 'already exists, skipping' <<<"$auth_out" >&2
+  exit 1
+fi
 docker cp "$DUMP" "$NAME:/tmp/schema.dump"
 docker exec "$NAME" pg_restore --list /tmp/schema.dump > "$WORKDIR/toc.list"
 awk '$4 == "SCHEMA" && $5 == "-" && $6 == "public" { print ";" $0; found++; next }
