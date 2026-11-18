@@ -45,7 +45,7 @@ const BANK_SWITCH = '20261118071736_a_cash_hand_never_waits_on_the_union_bbj_poo
 const CANDIDATE = '20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql';
 const ENVELOPE = 'fn_ca_process_hand_post_commit_obligations';
 const PRE = '7a796358fa28fda910e0f28ded72ff79';
-const POST = 'dcd62bfc0a5ebae397a0f4c993a988eb';
+const POST = '39d75365156c46476bfe01854d3c86b9';
 
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -70,13 +70,16 @@ for (const [sql, tag] of [
   [bankSwitch, 'env2'],
 ] as const) {
   expect(preimage.split(dollar(sql, `o${tag}`)).length).toBe(2);
-  preimage = preimage.replace(dollar(sql, `o${tag}`), dollar(sql, `n${tag}`));
+  const next = dollar(sql, `n${tag}`);
+  preimage = preimage.replace(dollar(sql, `o${tag}`), () => next);
 }
 let postimage = preimage;
 for (let i = 1; i <= 7; i++) {
   const old = dollar(candidate, `o${i}`);
   expect(postimage.split(old).length, `anchor ${i} occurs exactly once`).toBe(2);
-  postimage = postimage.replace(old, dollar(candidate, `n${i}`));
+  // A replacer function, not a string: '$' in the new text is literal SQL ($', $&).
+  const next = dollar(candidate, `n${i}`);
+  postimage = postimage.replace(old, () => next);
 }
 const body = code(postimage);
 const at = (re: RegExp | string) =>
@@ -120,13 +123,13 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
   it('never blocks on the table mutex, and bounds every other lock wait', () => {
     expect(body).not.toMatch(/pg_advisory_xact_lock\(\s*hashtextextended\('hand-post-commit:/);
     expect(body).toMatch(
-      /WHILE NOT pg_try_advisory_xact_lock\(v_mutex_key\) LOOP\s+IF clock_timestamp\(\) - v_mutex_started >= interval '250 milliseconds' THEN\s+RETURN jsonb_build_object\(\s+'ok', false,\s+'reason', 'table_busy'/
+      /WHILE NOT pg_try_advisory_xact_lock\(v_mutex_key\) LOOP\s+IF clock_timestamp\(\) - v_mutex_started >= interval '250 milliseconds' THEN\s+RETURN jsonb_build_object\(\s+'ok', false,\s+'reason', CASE WHEN v_contract >= 2 THEN 'table_busy' ELSE 'predecessor_pending' END,\s+'queued_reason', 'table_busy',/
     );
     // No function-level setting: callers' and callees' own lock_timeout stand.
     expect(postimage).not.toMatch(/^ SET lock_timeout/m);
     expect(postimage.match(/^ SET /gm)).toEqual([' SET ']);
     expect(body).toMatch(
-      /EXCEPTION WHEN lock_not_available THEN\s+RETURN jsonb_build_object\(\s+'ok', false,\s+'reason', 'obligation_lock_busy',\s+'retryable', true/
+      /EXCEPTION WHEN lock_not_available THEN\s+RETURN jsonb_build_object\(\s+'ok', false,\s+'reason', CASE WHEN v_contract >= 2 THEN 'obligation_lock_busy' ELSE 'predecessor_pending' END,\s+'queued_reason', 'obligation_lock_busy',\s+'retryable', true/
     );
     // The handler covers the row lock and everything after it, up to the receipt.
     const block = body.lastIndexOf('BEGIN', at(/WHERE c\.hand_id = p_hand_id\s+FOR UPDATE;/));
@@ -198,11 +201,43 @@ describe('a post-commit envelope never queues behind a slow predecessor', () => 
 
   it('the server treats exactly the envelope retryable answers as queued', () => {
     const retryable = [
-      ...new Set([...body.matchAll(/'reason', '([a-z_]+)',\s+'retryable', true/g)].map((m) => m[1])),
+      ...new Set([
+        ...[...body.matchAll(/'reason', '([a-z_]+)',\s+'retryable', true/g)].map((m) => m[1]),
+        ...[...body.matchAll(/'queued_reason', '([a-z_]+)'/g)].map((m) => m[1]),
+      ]),
     ].sort();
     expect(retryable).toEqual(['obligation_lock_busy', 'predecessor_pending', 'table_busy']);
     const reasons = read('server', 'src', 'services', 'supabase', 'postCommitReasons.ts');
     for (const r of retryable) expect(reasons).toContain(`'${r}'`);
+  });
+
+  it('the new answers are opt-in per request: an old caller only ever sees answers it handles', () => {
+    // Contract 2 is the PostgREST request header, read once, without a subtransaction.
+    expect(body).toMatch(/v_contract integer := 1;/);
+    expect(body).toMatch(
+      /IF pg_input_is_valid\(COALESCE\(current_setting\('request\.headers', true\), ''\), 'json'\)\s+AND \(current_setting\('request\.headers', true\)::json\s+->> 'x-ca-post-commit-contract'\) ~ '\^\[0-9\]\{1,3\}\$' THEN/
+    );
+    // Every new reason is behind the contract; without it, predecessor_pending.
+    for (const r of ['table_busy', 'obligation_lock_busy']) {
+      const uses = [...body.matchAll(new RegExp(`'${r}'`, 'g'))].map((m) => m.index!);
+      const guarded = [
+        ...body.matchAll(new RegExp(`CASE WHEN v_contract >= 2 THEN '${r}' ELSE 'predecessor_pending' END`, 'g')),
+      ].length;
+      const carried = [...body.matchAll(new RegExp(`'queued_reason', '${r}'`, 'g'))].length;
+      expect(guarded, `${r} is returned only under contract 2`).toBeGreaterThan(0);
+      expect(uses.length, `${r} appears only as a guarded reason or a queued_reason`).toBe(guarded + carried);
+    }
+    // The engine speaks it on every call that can receive the envelope's answer.
+    const reasons = read('server', 'src', 'services', 'supabase', 'postCommitReasons.ts');
+    expect(reasons).toContain("export const POST_COMMIT_CONTRACT_HEADER = 'x-ca-post-commit-contract';");
+    expect(reasons).toContain("export const POST_COMMIT_CONTRACT_VERSION = '2';");
+    const projection = read('server', 'src', 'services', 'supabase', 'handProjection.ts');
+    expect(projection).toMatch(/speakPostCommitContract\(\s+supabase\.rpc\('fn_ca_process_hand_post_commit_obligations'/);
+    expect(projection).toMatch(/speakPostCommitContract\(\s+supabase\.rpc\('fn_project_hand_side_effects'/);
+    expect(projection.match(/supabase\.rpc\('fn_(ca_process_hand_post_commit_obligations|project_hand_side_effects)'/g)).toHaveLength(2);
+    // The PostgreSQL proof runs both contracts.
+    const harness = read('scripts', 'ci', 'test-post-commit-envelope-convoy-postgres.py');
+    expect(harness).toContain("check('CONTRACT 1: every answer is one an existing caller already handles'");
   });
 
   it('one chain helper per table per process, and one stalled alert per table episode', () => {

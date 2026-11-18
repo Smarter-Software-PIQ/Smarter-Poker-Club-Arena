@@ -41,6 +41,7 @@ type ProjectionRow = {
 type ProjectionResult = {
   ok?: boolean;
   reason?: string;
+  queued_reason?: string;
   hand_id?: string;
 };
 
@@ -104,6 +105,8 @@ export type HandProjectionDrainSummary = {
 export type HandPostCommitResult = {
   ok?: boolean;
   reason?: string;
+  /** A contract-1 answer's real queued reason (readPostCommitAnswer folds it in). */
+  queued_reason?: string;
   retryable?: boolean;
   already_completed?: boolean;
   hand_id?: string;
@@ -116,7 +119,11 @@ export type HandPostCommitResult = {
   oldest_pending_committed_at?: string;
 };
 
-import { isQueuedPostCommitReason } from './postCommitReasons.js';
+import {
+  isQueuedPostCommitReason,
+  readPostCommitAnswer,
+  speakPostCommitContract,
+} from './postCommitReasons.js';
 export { POST_COMMIT_QUEUED_REASONS, isQueuedPostCommitReason } from './postCommitReasons.js';
 
 /**
@@ -168,9 +175,11 @@ export async function processHandPostCommitObligations(
   const remainingMs = () =>
     options.waitAtMostMs === undefined ? undefined : options.waitAtMostMs - (Date.now() - started);
   const apply = async (id: string): Promise<HandPostCommitResult> => {
-    const { data, error } = await supabase.rpc('fn_ca_process_hand_post_commit_obligations', {
-      p_hand_id: id,
-    });
+    // Contract 2 (20261118073646): this engine reads table_busy and
+    // obligation_lock_busy, so it asks for them.
+    const { data, error } = await speakPostCommitContract(
+      supabase.rpc('fn_ca_process_hand_post_commit_obligations', { p_hand_id: id })
+    );
     // A PostgrestError is a plain object, not an Error. Rethrowing it as-is
     // made every caller that serialised it with String(err) record
     // "[object Object]" - see describeError. Carry the detail in a real Error
@@ -207,7 +216,7 @@ export async function processHandPostCommitObligations(
       }
       throw new Error(`post-commit obligations RPC failed: ${describeError(error)}`);
     }
-    return (data ?? {}) as HandPostCommitResult;
+    return readPostCommitAnswer((data ?? {}) as HandPostCommitResult);
   };
   const initial = await apply(handId);
   // table_busy / obligation_lock_busy: another session is running this
@@ -553,9 +562,11 @@ async function projectChain(
     if (budget.aborted || Date.now() >= deadlineAt) return deferRest(i);
     let failureReceiptRecorded = false;
     try {
-      const { data: projected, error: projectError } = await supabase
-        .rpc('fn_project_hand_side_effects', { p_hand_id: row.hand_id })
-        .abortSignal(budget);
+      // The projection function calls the envelope inside this request, so it
+      // speaks the same answer contract (20261118073646).
+      const { data: projected, error: projectError } = await speakPostCommitContract(
+        supabase.rpc('fn_project_hand_side_effects', { p_hand_id: row.hand_id })
+      ).abortSignal(budget);
       /* THE PASS CANCELLED ITS OWN CALL. Not a failed hand: the durable row is
          still there, and if the transaction committed anyway the next pass
          reads `not_pending` and counts it already_completed. The shared client
@@ -571,7 +582,7 @@ async function projectChain(
         failureReceiptRecorded = true;
         throw new Error(`fn_project_hand_side_effects failed: ${describeError(projectError)}`);
       }
-      const result = (projected ?? {}) as ProjectionResult;
+      const result = readPostCommitAnswer((projected ?? {}) as ProjectionResult);
       if (result.ok === true) {
         summary.projected++;
         drainResultCounts.projected++;

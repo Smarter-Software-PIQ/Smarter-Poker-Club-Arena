@@ -12,7 +12,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
-vi.mock('./client.js', () => ({ supabase: mocks }));
+// PostgrestClient.rpc() returns a builder; the envelope call chains
+// setHeader (the answer contract) before it is awaited.
+const sentHeaders = vi.hoisted(() => [] as Array<[string, string, string]>);
+vi.mock('./client.js', () => ({
+  supabase: {
+    from: (...args: unknown[]) => mocks.from(...args),
+    rpc: (fn: string, args: unknown) => {
+      let pending: unknown;
+      const builder = {
+        setHeader(name: string, value: string) {
+          sentHeaders.push([fn, name, value]);
+          return builder;
+        },
+        then(onOk?: (v: unknown) => unknown, onErr?: (e: unknown) => unknown) {
+          pending ??= Promise.resolve().then(() => mocks.rpc(fn, args));
+          return (pending as Promise<unknown>).then(onOk, onErr);
+        },
+      };
+      return builder;
+    },
+  },
+}));
 vi.mock('../errorReporter.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../errorReporter.js')>()),
   reportError: vi.fn(),
@@ -169,6 +190,25 @@ describe('one chain helper per table per process', () => {
     expect(applied).toEqual([]);
     expect(db.rpcs).toBe(1);
     expect(postCommitChainHelpersInFlight()).toBe(0);
+  });
+
+  it('asks for answer contract 2 on every envelope call', async () => {
+    sentHeaders.length = 0;
+    fakeTable(1);
+    await processHandPostCommitObligations(hand(1));
+    expect(sentHeaders).toEqual([
+      ['fn_ca_process_hand_post_commit_obligations', 'x-ca-post-commit-contract', '2'],
+    ]);
+  });
+
+  it('reads a contract-1 answer by its queued_reason (no walk for a busy table)', async () => {
+    fakeTable(1);
+    mocks.rpc.mockImplementation(async () => ({
+      data: { ok: false, reason: 'predecessor_pending', queued_reason: 'table_busy', retryable: true },
+      error: null,
+    }));
+    expect(await processHandPostCommitObligations(hand(1))).toMatchObject({ ok: false, reason: 'table_busy' });
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
   it('table_busy is retryable and never starts a walk', async () => {

@@ -52,7 +52,7 @@ BANK_SWITCH = MIGRATIONS / '20261118071736_a_cash_hand_never_waits_on_the_union_
 CANDIDATE = MIGRATIONS / '20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql'
 SIG = 'public.fn_ca_process_hand_post_commit_obligations(uuid)'
 PRE = '7a796358fa28fda910e0f28ded72ff79'
-POST = 'dcd62bfc0a5ebae397a0f4c993a988eb'
+POST = '39d75365156c46476bfe01854d3c86b9'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/post-commit-envelope-convoy')
@@ -234,8 +234,22 @@ SELECT '{T}', {1000 + n}, '{hand_id(n)}', now() - interval '{count - n} seconds'
         f"INSERT INTO public.slow_promo VALUES ('{user(slow_hand)}', {SLOW_SECONDS});")
 
 
+# The answer contract a caller speaks (20261118073646). PostgREST exposes the
+# request's headers as the transaction setting request.headers; contract 2 is
+# the header x-ca-post-commit-contract: 2 (the new engine), contract 1 is no
+# header (today's engine, a rolled-back build, every SQL caller).
+CONTRACT = {'v': 2}
+LEGACY_REASONS = {'ok', 'predecessor_pending', 'not_found', 'legacy_no_obligations'}
+
+
+def speak():
+    if CONTRACT['v'] >= 2:
+        return ' SET "request.headers" TO \'{"x-ca-post-commit-contract": "2"}\';'
+    return ''
+
+
 def call(n, timeout=SUCCESSOR_TIMEOUT, pre=" SET lock_timeout = '7s';"):
-    return attempt(f"SET statement_timeout = '{timeout}';{pre}\n"
+    return attempt(f"SET statement_timeout = '{timeout}';{pre}{speak()}\n"
                    f"SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(n)}')::text;\n")
 
 
@@ -412,7 +426,7 @@ try:
     # worker, which must read it as deferred. The answer must be the typed
     # one and the caller's transaction must stay usable.
     projection = held_member_row(SUCCESSOR_TIMEOUT, sql=(
-        f"SET statement_timeout = '{SUCCESSOR_TIMEOUT}'; BEGIN; "
+        f"SET statement_timeout = '{SUCCESSOR_TIMEOUT}';{speak()} BEGIN; "
         f"SELECT pg_advisory_xact_lock(hashtextextended('hand-post-commit:{T}', 0)) IS NULL; "
         f"SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(2)}')->>'reason'; "
         "SELECT 'usable'; COMMIT;"))
@@ -432,6 +446,40 @@ try:
     reentry = run(f"BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('hand-post-commit:{T}', 0)); "
                   f"SELECT public.fn_ca_process_hand_post_commit_obligations('{hand_id(1)}')->>'ok'; COMMIT;")
     check('AFTER: a caller already holding the table mutex re-enters', reentry.splitlines()[-1] == 'true', reentry)
+
+    # ---- CONTRACT 1: today's engine, a rolled-back build, every SQL caller ----
+    # The same interleavings without the header. Every answer must be one an
+    # existing caller already handles (it defers or retries predecessor_pending),
+    # with the real reason carried only in keys it ignores; still no timeouts.
+    CONTRACT['v'] = 1
+    legacy_answers = {}
+    answers, timeouts = convoy(args.successors)
+    legacy_answers.update({f'convoy:{k}': a for k, a in answers.items()})
+    check('CONTRACT 1: zero statement timeouts', timeouts == 0, {k: a[2] for k, a in answers.items() if a[2]})
+    check("CONTRACT 1: the running hand's second caller gets predecessor_pending, queued_reason table_busy",
+          reason(answers['helper']) == 'predecessor_pending'
+          and json.loads(answers['helper'][1]).get('queued_reason') == 'table_busy', answers['helper'])
+    drain(args.successors + 1)
+    held = held_member_row(SUCCESSOR_TIMEOUT)
+    legacy_answers['held_member_row'] = held
+    check('CONTRACT 1: a held member row answers predecessor_pending, queued_reason obligation_lock_busy',
+          reason(held) == 'predecessor_pending'
+          and json.loads(held[1]).get('queued_reason') == 'obligation_lock_busy', held)
+    check('CONTRACT 1: and wrote nothing',
+          run(f"SELECT count(*) FROM public.promo_receipts WHERE user_id = '{user(2)}'") == '0')
+    check('CONTRACT 1: once free, the same hand applies exactly once',
+          reason(call(2, '8s')) == 'ok'
+          and run(f"SELECT count(*) FROM public.promo_receipts WHERE user_id = '{user(2)}'") == '1')
+    busy, stored_while_busy, ins_after, ins_again, ins_stored = insurance_bank_busy()
+    legacy_answers['insurance_bank_busy'] = busy
+    check('CONTRACT 1: a busy insurance bank answers predecessor_pending, queued_reason obligation_lock_busy',
+          reason(busy) == 'predecessor_pending'
+          and json.loads(busy[1]).get('queued_reason') == 'obligation_lock_busy'
+          and stored_while_busy == '0' and ins_stored == '1|-5.00', busy)
+    seen = sorted({reason(a) for a in legacy_answers.values()})
+    check('CONTRACT 1: every answer is one an existing caller already handles',
+          set(seen) <= LEGACY_REASONS, seen)
+    results['contract_1_reasons'] = seen
 finally:
     (out / 'CONVOY.json').write_text(json.dumps(results, indent=2, default=str))
     try:

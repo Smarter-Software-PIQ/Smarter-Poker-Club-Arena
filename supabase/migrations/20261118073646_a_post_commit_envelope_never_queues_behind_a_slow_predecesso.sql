@@ -61,6 +61,24 @@
 --      tournament lane (f06_wait_table_lane) keeps its own 4 s bound and its
 --      own F06_RETRY_CANONICAL_LANE answer.
 --
+-- BACKWARD COMPATIBLE BY CONTRACT. This migration is live before the engine
+-- build that knows the two new answers (the release selector admits an engine
+-- only once its migrations are installed), and stays live if a cutover rolls
+-- back to an older build. So the new answers are opt-in per request: a caller
+-- that sends the PostgREST header x-ca-post-commit-contract: 2 gets
+-- table_busy and obligation_lock_busy; every other caller (today's engine, a
+-- rolled-back build, every SQL caller: the outbox trigger, the projection
+-- function unless its own request opted in, submission resume, the orphan
+-- drain, cron) gets predecessor_pending in their place, the one queued answer
+-- every existing caller already defers or retries, with the real reason in
+-- queued_reason and the oldest open hand in extra keys it ignores. Why a
+-- header and not a parameter: the envelope is pinned and called as
+-- fn_ca_process_hand_post_commit_obligations(uuid) by #11270, #11266, their
+-- laws and four SQL callers; a new parameter or overload changes that
+-- signature or splits the body in two, and request.headers is per request, so
+-- old and new engine processes running side by side during a cutover each get
+-- the contract they speak.
+--
 -- Strict per-table order is unchanged: the hand is still processed only under
 -- the per-table mutex and only after the locked re-check finds no open
 -- predecessor. The completion receipt is unchanged.
@@ -76,7 +94,7 @@
 -- Law: tests/a-post-commit-envelope-never-queues-behind-a-slow-predecessor.law.test.ts
 -- Proof on real PostgreSQL: scripts/ci/test-post-commit-envelope-convoy-postgres.py
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = 'dcd62bfc0a5ebae397a0f4c993a988eb')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_process_hand_post_commit_obligations(uuid)'::regprocedure)) = '39d75365156c46476bfe01854d3c86b9')
 
 BEGIN;
 
@@ -135,7 +153,7 @@ END $h$;
 
 SELECT pg_temp.ca_convoy_subst(
   'public.fn_ca_process_hand_post_commit_obligations(uuid)',
-  '7a796358fa28fda910e0f28ded72ff79', 'dcd62bfc0a5ebae397a0f4c993a988eb',
+  '7a796358fa28fda910e0f28ded72ff79', '39d75365156c46476bfe01854d3c86b9',
   ARRAY[
 $o1$  v_result jsonb;
 BEGIN
@@ -199,9 +217,26 @@ $n1$  v_result jsonb;
   v_mutex_key bigint;
   v_mutex_started timestamptz;
   v_caller_lock_timeout text := current_setting('lock_timeout');
+  v_contract integer := 1;
 BEGIN
 $n1$,
-$n2$  /* A POST-COMMIT ENVELOPE NEVER QUEUES BEHIND A SLOW PREDECESSOR
+$n2$  /* THE ANSWER CONTRACT (20261118073646). Contract 1 is every caller that
+     exists today: it knows ok, not_found, legacy_no_obligations and
+     predecessor_pending, and defers or retries predecessor_pending. Contract
+     2 also knows table_busy and obligation_lock_busy. A caller opts in per
+     request with the PostgREST header x-ca-post-commit-contract: 2 (read
+     from request.headers, so a SQL caller, a cron job or an engine build
+     that predates it never opts in). A contract-1 caller gets
+     predecessor_pending in their place, with the real reason in
+     queued_reason. */
+  IF pg_input_is_valid(COALESCE(current_setting('request.headers', true), ''), 'json')
+     AND (current_setting('request.headers', true)::json
+            ->> 'x-ca-post-commit-contract') ~ '^[0-9]{1,3}$' THEN
+    v_contract := (current_setting('request.headers', true)::json
+                     ->> 'x-ca-post-commit-contract')::integer;
+  END IF;
+
+  /* A POST-COMMIT ENVELOPE NEVER QUEUES BEHIND A SLOW PREDECESSOR
      (20261118, incident 075013fd). Read the scope and the two answers that
      need no lock BEFORE any lock: a completed receipt is immutable once
      committed, and an open earlier envelope means this hand cannot run yet.
@@ -258,7 +293,8 @@ $n3$  /* The per-table mutex, waited for at most 250 ms. A table whose head
     IF clock_timestamp() - v_mutex_started >= interval '250 milliseconds' THEN
       RETURN jsonb_build_object(
         'ok', false,
-        'reason', 'table_busy',
+        'reason', CASE WHEN v_contract >= 2 THEN 'table_busy' ELSE 'predecessor_pending' END,
+        'queued_reason', 'table_busy',
         'retryable', true,
         'hand_id', p_hand_id,
         'table_id', v_table_id,
@@ -317,7 +353,8 @@ $n5$  RETURN v_result;
   EXCEPTION WHEN lock_not_available THEN
     RETURN jsonb_build_object(
       'ok', false,
-      'reason', 'obligation_lock_busy',
+      'reason', CASE WHEN v_contract >= 2 THEN 'obligation_lock_busy' ELSE 'predecessor_pending' END,
+      'queued_reason', 'obligation_lock_busy',
       'retryable', true,
       'hand_id', p_hand_id,
       'table_id', v_table_id,
