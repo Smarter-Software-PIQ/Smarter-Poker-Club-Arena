@@ -56,6 +56,10 @@ Declared before it ran: archive `readwire-013U37/PASS-BAR.md` (written 2026-11-1
 
 Pooled: human-like -0.23 bb/100, SE 0.18; Horse-only +0.22 bb/100, SE 0.11. Validity: illegal actions 0, brain exception fallbacks 0, truncated streets 0, every session present once, no inert cell. Verdict under the bar: EQUAL (no cell or pooled figure below -2 SE; the human-like pooled figure is not above +2 SE). The option is not off-only. The human-like field does not change its play by street, so the read rarely moves a label there (fewer than 1 in 2,000 pairs diverge); the replay against the measured winner's reconstructed read is the closer test of what the option is for.
 
+## League card (fixed 2026-11-18)
+
+League cards (HorseLeague.ts, declared): plo4_omaha_read_is_by_street_and_texture and plo5_omaha_read_is_by_street_and_texture: both arms carry the live production set (the 2026-11-16 live options, `OMAHA_LIVE_OPTIONS_20261116`, plus omahaTurnRiverRaiseIsPriced, on since 2026-11-18 11:54Z), arm A adds omahaReadIsByStreetAndTexture. This is the base the replay and the first (fb900cf162f) league above used. The card as merged in #11277 (86ab7637d9e) was arm A `{ omahaReadIsByStreetAndTexture: true }` against `{}`: the option only re-routes reads other options consume, all off in that base, so its evaluation on eb30ce7a6f9 (archive `evals-013U37/omahaReadIsByStreetAndTexture/`, 1,000 sessions) measured 0 divergent pairs in every cell and is INVALID (inert card), not a result about the option. `ADefaultOffFlagHasALeagueCard.law.test.ts` now refuses a card for this option (and the other read-only options) unless a consumer of its read is on in both arms. No league has run on the fixed card or on the B1-fixed source.
+
 ## Evidence rows
 
 Value row: NOT MET (league EQUAL, not WIN). Replay row: MET (above). Reach row: NOT MET in production (migration 20261117175407 not installed; no stored street record exists). Recommendation of the lane at this evidence: do not switch on until the stored street record exists in production and a measurement against live opponents is possible; it is byte-identical until then.

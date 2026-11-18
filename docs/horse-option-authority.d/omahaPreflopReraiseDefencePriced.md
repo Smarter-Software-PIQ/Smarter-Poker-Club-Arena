@@ -111,6 +111,10 @@ live switch list it changes fewer decisions than the replay and the two "live op
 eight fixture hands the cell owns five on both seeds and one on one seed). The figures still describe the rule where it
 answers alone. Neither the league nor the replay was repeated for the narrower scope.
 
+## League card (rebased 2026-11-18)
+
+League cards (HorseLeague.ts, declared): plo4_omaha_preflop_reraise_defence_priced and plo5_omaha_preflop_reraise_defence_priced: both arms carry production's live set (`OMAHA_LIVE_OPTIONS_20261118` = the 2026-11-16 live options plus omahaTurnRiverRaiseIsPriced, on since 2026-11-18 11:54Z), arm A adds omahaPreflopReraiseDefencePriced. Lead decision 2026-11-18 (PR #11286): the card as merged in #11277 (86ab7637d9e) was `{ omahaPreflopReraiseDefencePriced: true }` against `{}` (the "option vs none" rows above); the re-raise range rules, the strong-range rule and the re-raised-pot call cell it defers to are live, so the bare base measured it in a brain production does not serve. The "live options in both arms" rows above are the closer measurement (32-option base, without omahaTurnRiverRaiseIsPriced). No league has run on this card.
+
 ## Replay of the realization correction (2026-11-18, PLO Strategy successor 013U37bXeyipeVLdczYpsQG1)
 
 Three corrections to R, each from the same 2,023 recorded calls (fit script preflop-01BNteGZ/step1-fit3.py): players
