@@ -63,6 +63,7 @@
  * A migration that must add one (it never should) declares it, before BEGIN:
  *   -- @hand-path-shared-write-ok: <function> <write|row_lock|advisory_lock> <target> <why>
  */
+import { pathToFileURL } from 'node:url';
 
 /** Files from this version on carry the applier check. */
 export const HAND_PATH_CHECKED_FROM = '20261118084747';
@@ -492,7 +493,7 @@ export function handPathGuardSQL(file, source, atomicSQL) {
 }
 
 // CLI: print the live reader or a read-only probe.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv[2] === '--print-function') process.stdout.write(handPathFunctionSQL() + ';\n');
   else if (process.argv[2] === '--print-probe') process.stdout.write(handPathProbeSQL());
 }
