@@ -2601,6 +2601,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopFacingBetEv: true },
   })),
+  // 2026-11-18 OMAHA FLOP BET PRICES THE RAISE (HorseOmahaFlopBetRaiseBranch,
+  // default OFF; WooWoo audit FLOPBET-RAISE, finding FOURBET F1): every v38
+  // flop bet size priced with his raise as a third branch. The live options
+  // of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_prices_the_raise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetPricesTheRaise: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
   // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
   // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
   // raise are read from the decision's own street and flop texture, blended

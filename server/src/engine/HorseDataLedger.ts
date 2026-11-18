@@ -1230,6 +1230,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFlopBetPricesTheRaise',
+    'WooWoo audit FLOPBET-RAISE 2026-11-18 (finding FOURBET F1; owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 8 days PLO4/PLO5 to 2026-11-18 06:16Z: Horse 4-bettor flop bets heads-up vs persons were raised 15/93 = 16% [10, 25] with mean -120 bb when raised; the v38 EV engine priced each flop bet fold-or-call only): PLO4/PLO5 cash in the priced scope, flop, heads-up against a person, nothing to call: every v38 bet size gets the raise branch (his measured raising share 0.15, the Horse equity against the strongest 0.15 of his holdings on the board, the Horse priced call-off or fold, marginal rake); against a Horse or an unknown kind the two-branch price is kept (no measured raise share). Default off',
+    'V94'
+  ),
+  flag(
     'omahaFlopBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). The flop bet of a bare big pair (an overpair, or queens or better with one higher card on the flop, no flush draw, fewer than eight straight outs) with the betting lead, in either position, is priced beside the check heads-up (HorseOmahaPricedSites.omahaPricedSitesFlopBetEv): he folds the weakest share of his holdings given by his fold to a bet (the priced read), raises with the strongest share (measured 0.15) and calls with the band between; the Horse equity against each band comes from the flop facing-bet sampler with its cards removal; the bet stands when it is priced at least at the check. It replaces the out-of-position check of omahaBareOverpairOopFlopCheck and prices the same hand in position (owner fixture txHiARhC, hand 59833576). Multiway and unpriceable spots keep the rule decision.',
     'V94'
@@ -5690,6 +5695,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_site_blocker_bluff_unpriced_kept',
     'HorseOmahaPricedSites (HorseLogic made-hand defence, turn set pound size, river nut-blocker bluff; omahaBlockerBluffIsPriced)',
     'the same spot: the bet could not be priced: no bluff (the check stands)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_raise_branch_priced',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetRaiseBranch; omahaFlopBetPricesTheRaise)',
+    'a PLO4/PLO5 cash heads-up flop decision facing no bet against a person in which every bet size was priced with his raise as a third branch',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_raise_branch_kept',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetRaiseBranch; omahaFlopBetPricesTheRaise)',
+    'the same decision: the highest-EV action is the one the fold-or-call price gave (same action, same size)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_raise_branch_resized',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetRaiseBranch; omahaFlopBetPricesTheRaise)',
+    'the same decision: the highest-EV bet is another size than the fold-or-call price gave',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_raise_branch_checked',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetRaiseBranch; omahaFlopBetPricesTheRaise)',
+    'the same decision: the fold-or-call price gave a bet, the price with the raise branch gives the check',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_raise_branch_bet',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetRaiseBranch; omahaFlopBetPricesTheRaise)',
+    'the same decision: the fold-or-call price gave the check, the price with the raise branch gives a bet (the Horse is ahead of his raises)',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_raise_branch_unpriced_kept',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetRaiseBranch; omahaFlopBetPricesTheRaise)',
+    'the same spot could not be priced with the raise branch (opponent a Horse or of unknown kind: no measured raise share; opponent all in; no sample): the fold-or-call price is kept',
     'V94'
   ),
   receipt(

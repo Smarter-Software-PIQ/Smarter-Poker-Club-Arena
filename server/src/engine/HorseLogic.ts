@@ -524,6 +524,10 @@ import {
   omahaPricedSitesTurnSetSize,
 } from './HorseOmahaPricedSites.js';
 import {
+  omahaFlopBetRaiseBranchChange,
+  omahaFlopBetRaiseBranchOf,
+} from './HorseOmahaFlopBetRaiseBranch.js';
+import {
   lightningFoldThroughFrame,
   lightningFoldThroughSeats,
 } from './HorseLightningFoldThrough.js';
@@ -3818,6 +3822,12 @@ export interface HorseDecideOpts {
    * lead is priced beside the check, heads-up, in either position (replaces
    * the out-of-position check of omahaBareOverpairOopFlopCheck). */
   omahaFlopBetIsPriced?: boolean;
+  /** WooWoo audit FLOPBET-RAISE (finding FOURBET F1, HorseOmahaFlopBetRaiseBranch):
+   * PLO4/PLO5 cash, flop, heads-up against a person, nothing to call: every bet
+   * size of the v38 EV engine is priced with his raise as a third branch (his
+   * measured raising share, the Horse's equity against it, the Horse's priced
+   * call-off or fold). Default off: the two-branch price as before. */
+  omahaFlopBetPricesTheRaise?: boolean;
   /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, first layer): PLO4/PLO5
    * cash, heads-up, one board, high only. Before a TURN bet facing no wager
    * the Horse prices the bet and the check as whole lines: the opponent's
@@ -23358,6 +23368,24 @@ export class HorseLogic {
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
         const indifference38 = evIndifference();
+        // omahaFlopBetPricesTheRaise (default off): his raise is the third
+        // branch of every flop bet size (HorseOmahaFlopBetRaiseBranch).
+        const raiseBranch38 =
+          opts.omahaFlopBetPricesTheRaise === true && street === 'flop'
+            ? omahaFlopBetRaiseBranchOf(
+                player,
+                gs,
+                opts,
+                pot,
+                Math.min(stack, effOpp38 > 0 ? effOpp38 : stack),
+                ip,
+                useRake10 && !isTournamentMode(gs)
+                  ? rakeDrag(pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+                  : 0
+              )
+            : null;
+        if (raiseBranch38?.kind === 'unpriced' && tele15)
+          noteFire('omaha_flop_bet_raise_branch_unpriced_kept');
         const verdict38 = evaluateSpot({
           indifference: indifference38,
           // Price the same snapped, scaled and legalized wager betSize would send.
@@ -23422,8 +23450,13 @@ export class HorseLogic {
                 runout: runout86,
               }
             : {}),
+          ...(raiseBranch38?.kind === 'priced' ? { raiseBranch: raiseBranch38.value.branch } : {}),
           rand: fastRandom,
         });
+        if (raiseBranch38?.kind === 'priced' && tele15) {
+          noteFire('omaha_flop_bet_raise_branch_priced');
+          noteFire(`omaha_flop_bet_raise_branch_${omahaFlopBetRaiseBranchChange(verdict38)}`);
+        }
         if (verdict38.pick.kind === 'bet') {
           if (tele15) {
             noteFire('v38_ev_bet');

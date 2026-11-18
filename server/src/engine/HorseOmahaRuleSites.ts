@@ -361,6 +361,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'every public-state size and the check on the card-impact model'
   ),
   omahaBlockerBluffIsPriced: priced('the river bluff beside the check on the card-impact model'),
+  omahaFlopBetPricesTheRaise: priced(
+    'every v38 flop bet size, heads-up against a person facing no bet, is priced with his raise as a third branch (his measured raising share, the Horse equity against it, the Horse priced call-off or fold); default OFF'
+  ),
   omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
   omahaCheckedToBetIsPriced: priced(
     'the check priced beside every bet when every opponent has checked the river, the showdown share fitted (default OFF)'
