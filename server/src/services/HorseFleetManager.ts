@@ -1959,7 +1959,7 @@ export class HorseFleetManager {
          buy-in refusals in one hour were VPIP_BARRED - and, worse, COUNTED
          every barred horse as a buyer, so the controller opened feeders for
          players the door would refuse. One paged read for the whole floor,
-         keyed exactly as the SQL joins (club, variant, sb, bb).
+         keyed exactly as the SQL joins (the cash game, game_scope).
 
          FAILS OPEN, like the bankroll loader above and for the same reason:
          the database is the authoritative guard, so an unread row costs one
