@@ -126,6 +126,9 @@ const RECEIPT_ONLY_FILES = [
   // Omaha flop facing-bet EV (2026-11-17, default off): the rule fires its verdict and change
   // receipts where it answers (HorseLogic only hands it the flop decision).
   'engine/HorseOmahaFlopFacingBetEvRule.ts',
+  // Omaha priced preflop re-raise defence (2026-11-17, default off): the rule fires its verdict and
+  // change receipts where it answers (HorseLogic only hands it the preflop decision).
+  'engine/HorseOmahaPreflopReraiseDefenceRule.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

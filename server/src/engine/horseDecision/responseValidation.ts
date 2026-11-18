@@ -64,6 +64,7 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import { omahaPreflopReraiseDefenceAdmitsCall } from '../HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import {
@@ -1649,6 +1650,27 @@ function policyGraphIsValidInScope(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // PLO Strategy lane 2026-11-17 (HorseOmahaPreflopReraiseDefence, option
+    // omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or
+    // more preflop, a fold or a re-raise becomes a call when the expected
+    // value of the call is the largest. The verdict reads the opponent
+    // memory, which the request does not carry, so the call is admitted only
+    // with the request, only in the preflop spot the rule covers and only for
+    // the exact chips the call puts in. (Its fold is the fold admission
+    // above; the whole-stack call is an all-in, a wager action.)
+    const omahaPreflopReraiseDefenceCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_STRATEGY_PLO45.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaPreflopReraiseDefenceAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount
+      );
     // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
     // draw out of position, or in position with a bare flush draw, becomes a
     // call. Admitted only with the request, where the bar re-run on it agrees.
@@ -1707,6 +1729,7 @@ function policyGraphIsValidInScope(
       !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
+      !omahaPreflopReraiseDefenceCalled &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&

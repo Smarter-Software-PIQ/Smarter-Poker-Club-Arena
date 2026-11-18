@@ -2591,6 +2591,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaEliteContinuesVsMeasuredWideThreeBettor: true },
     b: {},
   })),
+  // 2026-11-17 OMAHA PREFLOP RE-RAISE DEFENCE, PRICED (HorseOmahaPreflopReraiseDefence,
+  // default OFF): facing a 3-bet or more preflop the fold, call or proposed
+  // re-raise is chosen by expected value (exact-hand equity against the
+  // re-raiser's measured width, measured realization, price and rake) in
+  // place of the re-raise range rules and the strong-range rule; a switches
+  // it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_reraise_defence_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaPreflopReraiseDefencePriced: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a

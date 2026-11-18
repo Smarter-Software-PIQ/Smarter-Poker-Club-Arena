@@ -358,7 +358,11 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaReraisedFoldVsTight: outside(PREFLOP),
   omahaEliteContinuesVsMeasuredWideThreeBettor: outside(PREFLOP),
   omahaOopReraisedPotStrongRange: outside(
-    PREFLOP + '; its out-of-position 4-bet call fold (audit 20) goes to that build'
+    PREFLOP +
+      '; its out-of-position 4-bet call fold (audit 20) stays with its re-raised-pot call cell (one owner per cell, inbox 2026-11-18 00:06Z)'
+  ),
+  omahaPreflopReraiseDefencePriced: outside(
+    'preflop: fold, call and the proposed re-raise by expected value against the measured range (off-only under the preflop hold)'
   ),
   omahaReraiseRangeOutOfPosition: outside(PREFLOP),
   omahaReraiseRangeEarlyPosition: outside(PREFLOP),

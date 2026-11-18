@@ -737,6 +737,7 @@ import {
   RERAISE_RATE_FALLBACK,
   type OmahaReraisedCallPricing,
 } from './HorseOmahaOopReraisedPot.js';
+import { omahaPreflopReraiseDefenceRule } from './HorseOmahaPreflopReraiseDefenceRule.js';
 import {
   premiumPreflopAnchors,
   shouldPriceTerminalFlop,
@@ -3398,6 +3399,20 @@ export interface HorseDecideOpts {
    * Default OFF (opt-in, read `=== true`) until its declared evaluation
    * passes; league cards plo4/plo5 _omaha_oop_reraised_pot_strong_range. */
   omahaOopReraisedPotStrongRange?: boolean;
+  /** PLO Strategy lane 2026-11-17 (owner 2026-11-17: the size of the bet must
+   * not make or break a decision and no blanket rule may decide one; the
+   * decision is the math, the hand, the opponent's range, equity and EV):
+   * opt-in (`=== true`), PLO4/PLO5 cash, preflop facing a 3-bet or more. The
+   * answer of the reference brain and of the re-raise rules (the re-raise
+   * range rules, the out-of-position strong-range rule, the cold 4-bet rule)
+   * becomes the priced decision of HorseOmahaPreflopReraiseDefence.ts: fold,
+   * call or the proposed re-raise, whichever is worth most, from the exact
+   * hand's equity against the re-raiser's measured width, a realization
+   * measured on recorded calls (position, stack-to-pot ratio after the call,
+   * other players in, hand shape), the price and the rake. Default OFF until
+   * its declared evaluation passes; league cards plo4/plo5
+   * _omaha_preflop_reraise_defence_priced. */
+  omahaPreflopReraiseDefencePriced?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
    * continues on the flop only with a pair plus a straight or flush draw, or
    * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
@@ -7606,6 +7621,37 @@ function postflopOrder(seat: number, dealerSeat: number | undefined): number {
   return d <= 0 ? d + 1024 : d;
 }
 
+/** Set where omahaOopReraisedPotStrongRange's call cell returns a verdict; read only by omahaReraisedCallCellJudges. */
+let omahaReraisedCallCellJudged = false;
+
+/**
+ * Whether the re-raised-pot call cell judges this decision with the options as
+ * they stand (omahaPreflopReraiseDefencePriced aside): a silent run of the
+ * same rules (no telemetry; they draw nothing from the brain's random stream,
+ * so the run that follows answers the same). The cell judges the call the
+ * rules reach, and the call a re-raise range rule hands it.
+ */
+function omahaReraisedCallCellJudges(
+  decision0: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  omahaReraisedCallCellJudged = false;
+  try {
+    omahaOopReraisedPotStrongRange(decision0, player, gs, {
+      ...opts,
+      omahaPreflopReraiseDefencePriced: false,
+      telemetry: false,
+    });
+    return omahaReraisedCallCellJudged;
+  } catch {
+    return false;
+  } finally {
+    omahaReraisedCallCellJudged = false;
+  }
+}
+
 /**
  * The inputs of the priced call of a re-raise (HorseOmahaOopReraisedPot,
  * omahaReraisedCallPriced): the re-raiser's measured re-raise rate (his
@@ -7726,6 +7772,24 @@ function omahaOopReraisedPotStrongRange(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaPreflopReraiseDefencePriced (default off, off-only): facing a 3-bet
+  // or more preflop in PLO4/PLO5 cash the priced decision answers first
+  // (HorseOmahaPreflopReraiseDefenceRule.ts); where it answers, the re-raise
+  // range rules and the strong-range rule below do not run for the decision.
+  // ONE OWNER PER CELL (inbox 2026-11-18 00:06Z): a call that the re-raised-pot
+  // call cell below judges (HorseOmahaOopReraisedPot, the live implementation,
+  // WooWoo audit lane) belongs to that cell, kept or folded; this option then
+  // does not answer and the decision is exactly the one with it off.
+  if (
+    opts.omahaPreflopReraiseDefencePriced === true &&
+    !omahaReraisedCallCellJudges(decision0, player, gs, opts)
+  ) {
+    const priced = omahaPreflopReraiseDefenceRule(decision0, player, gs, {
+      mind: opts.mind !== false,
+      telemetry: telemetryOn(opts),
+    });
+    if (priced !== null) return priced;
+  }
   // The flop rule (its own option) shares this outermost seat; the two never
   // meet on one decision (one is preflop, the other the flop).
   // The re-raise rule first (its own option): a raise it turns into a call is
@@ -7847,6 +7911,7 @@ function omahaOopReraisedPotStrongRange(
       allInOrFold: gs.allInOrFold === true,
     });
     if (verdict === null) return decision;
+    omahaReraisedCallCellJudged = true;
     const tele = telemetryOn(opts);
     if (
       tele &&
@@ -7953,6 +8018,7 @@ function omahaReraiseRangeRules(
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
           omahaPreflopStackPlan: false,
+          omahaPreflopReraiseDefencePriced: false,
           telemetry: false,
         }).action !== 'fold';
     } else {
