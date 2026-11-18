@@ -436,6 +436,51 @@ def main():
         allowed = db.run(f"SET test.uid = '{ALICE}'; SET ROLE authenticated; "
                          f"SELECT public.fn_ca_my_promo_play_through('{CLUB}')", check=False)
         check("a browser can read its own figure", allowed.returncode, 0)
+
+        # The installed public RPC names also receive calls from already-open older tabs.
+        # Count calls to the real historical evaluator in this transaction, including on refusal.
+        def reader(actor, call, header=None):
+            settings = "" if header is None else f"SET LOCAL request.headers = '{json.dumps(header)}';"
+            return db.json(f"""BEGIN;
+                SET LOCAL track_functions = 'all';
+                SET LOCAL test.uid = '{actor}';
+                {settings}
+                SET LOCAL ROLE authenticated;
+                CREATE TEMPORARY TABLE answer ON COMMIT DROP AS SELECT {call} AS body;
+                SELECT jsonb_build_object('body',body,'reads',
+                   COALESCE(pg_stat_get_xact_function_calls(
+                     'public.fn_ca_promo_play_through_summary(uuid,uuid)'::regprocedure), 0))
+                FROM answer;
+                COMMIT;""")
+
+        self_call = f"public.fn_ca_my_promo_play_through('{CLUB}')"
+        member_call = f"public.fn_ca_members_promo_play_through('{CLUB}',ARRAY['{lost}'::uuid])"
+        explicit = {"x-ca-promo-request": "explicit"}
+        old_self = reader(ALICE, self_call)
+        old_member = reader(ALICE, member_call)
+        check("the original passive self and staff readers both reached financial history",
+              [old_self["reads"], old_member["reads"]], [1, 1])
+        with open(os.path.join(ROOT, "supabase", "migrations", "20261118012200_promo_progress_readers_require_a_deliberate_request.sql")) as source:
+            db.run(source.read())
+        for name_, call, old in (("member wallet", self_call, old_self),
+                                 ("staff roster", member_call, old_member)):
+            for headers in (None, {}, {"x-ca-promo-request": "background"}):
+                response = reader(ALICE, call, headers)
+                check(f"{name_} passive request {headers} refuses without a history read",
+                      [response["body"]["success"], response["reads"]], [False, 0])
+            check(f"{name_} explicit request returns the original result and reads history once",
+                  reader(ALICE, call, explicit), old)
+        for actor, call, label in ((STRANGER, self_call, "non-member"),
+                                   ("", self_call, "no identity"),
+                                   ("", member_call, "no roster identity"),
+                                   (ALICE, f"public.fn_ca_members_promo_play_through('{CLUB}',ARRAY[]::uuid[])", "empty roster"),
+                                   (ALICE, f"public.fn_ca_members_promo_play_through('{CLUB}',array_fill('{lost}'::uuid,ARRAY[101]))", "oversized roster")):
+            response = reader(actor, call, explicit)
+            check(f"an explicit header preserves the {label} refusal without a history read",
+                  [response["body"]["success"], response["reads"]], [False, 0])
+        other_member = reader(BOB, member_call, explicit)
+        check("an ordinary member with an explicit header still cannot read another player",
+              [other_member["body"]["members"], other_member["reads"]], [{}, 0])
     finally:
         db.run(f"DROP DATABASE IF EXISTS {name}", db="postgres", check=False)
         if started:
