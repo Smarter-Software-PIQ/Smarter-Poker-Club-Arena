@@ -110,6 +110,19 @@ def main():
   w=next((ROOT/'supabase/migrations').glob('20261116190221_*.sql'));track(w)
   guarded_w=subprocess.run(['node','--input-type=module','-e',wrapper,w.name],input=w.read_text(),text=True,capture_output=True,check=True,cwd=ROOT).stdout
   db.run(guarded_w)
+  fee_clocks=ROOT/'tests/fixtures/promo-profit-fee-clocks/native.sql'
+  track(fee_clocks)
+  original_cases=f"\\set club '{C}'\n\\set member '{A}'\n\\set table '{T}'\n"+fee_clocks.read_text()
+  for historical_rows in (0,300):
+   db.run(f"\\set historical_rows {historical_rows}\n"+original_cases)
+  runfile(ROOT/'supabase/migrations/20261118002028_promo_cash_fees_seek_their_original_earned_clocks.sql')
+  for historical_rows in (0,300):
+   db.run(f"\\set historical_rows {historical_rows}\n"+original_cases)
+  check('original fee clock reader remains owner-only and matches the reviewed body',"""
+    SELECT md5(pg_get_functiondef(oid))='ce0857b0f9b897417f1970d99244bf59' AND prosecdef
+      AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
+    FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
+  """,'t')
   check('both actual cash refund owners consume exact bust and terminal loss basis',"SELECT count(*) FROM pg_proc WHERE proname IN('fn_ca_promo_return_principal','fn_ca_promo_return_spent_event_fee') AND prosrc LIKE '%JOIN public.ca_promo_original_entry_loss_basis fs%'",'2')
   check('terminal loss basis preserves exact lot identity without duplicate rows',"SELECT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION%' AND NOT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION ALL%'",'t')
 
