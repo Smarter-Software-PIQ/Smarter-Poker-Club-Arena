@@ -15,7 +15,7 @@
  *    aggressor after villain check-called earlier street(s).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, omahaReraisedCallPricingOf, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { evaluateJointLivePolicy, jointSelectedRow } from './multiway/JointLivePolicy.js';
@@ -32,6 +32,7 @@ import {
 } from './HorseOmahaFacingBetEv.js';
 import {
   omahaOopReraisedCallCell,
+  omahaOopReraisedClassCell,
   omahaReraiseByPositionCell,
 } from './HorseOmahaOopReraisedPot.js';
 import { omahaBareBigPairOnFlop } from './HorseOmahaOopChecks.js';
@@ -398,26 +399,6 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
 
   it('BUG-3 (#59728213): folds KKxx double-suited + single A OOP facing a pot 4-bet to SPR 1.60 instead of calling $147 to check-fold flop', () => {
     const hole = cards('Kh Js 9h Ks As');
-    // Even with a loose raiser band (lo < 0.86), OOP 4-bet call at SPR 1.60 with KK + single A folds.
-    const verdict = omahaOopReraisedCallCell({
-      variant: 'plo5',
-      hole,
-      dead: [],
-      outOfPosition: true,
-      preflopRaises: 3,
-      toCall: 147,
-      stack: 854.1,
-      pot: 294,
-      band: [0.42, 1],
-      hiLo: false,
-      multiBoard: false,
-      bombPot: false,
-      tournament: false,
-      allInOrFold: false,
-    })!;
-    expect(verdict.fold).toBe(true);
-    expect(verdict.sprAfter).toBeCloseTo(707.1 / 441, 4);
-
     const hero: SeatPlayer = {
       seat: 1,
       user_id: 'ac4873a3-0000-4000-8000-000000000001',
@@ -492,6 +473,68 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       ] as ActionRecord[],
     } as unknown as HorseGameStateV2;
 
+    const spot = {
+      variant: 'plo5',
+      hole,
+      dead: [],
+      outOfPosition: true,
+      preflopRaises: 3,
+      toCall: 147,
+      stack: 854.1,
+      pot: 294,
+      band: [0.42, 1] as [number, number],
+      hiLo: false,
+      multiBoard: false,
+      bombPot: false,
+      tournament: false,
+      allInOrFold: false,
+    };
+    // THE CLASS CELL (unchanged from main): even with a loose raiser band
+    // (lo < 0.86), the OOP 4-bet call at SPR 1.60 with KK + single A folds.
+    const classVerdict = omahaOopReraisedClassCell(spot)!;
+    expect([classVerdict.fold, classVerdict.reason]).toEqual([true, 'uncoordinated']);
+    expect(classVerdict.sprAfter).toBeCloseTo(707.1 / 441, 4);
+
+    const live = omahaReraisedCallPricingOf(hero, gs, { mind: false }, utg, 147, 854.1, 58)!;
+    const vLive = omahaOopReraisedCallCell({ ...spot, priced: live })!;
+    const vWide = omahaOopReraisedCallCell({
+      ...spot,
+      priced: { ...live, rate: 0.3, opportunities: 100, rateSource: 'measured' },
+    })!;
+    expect(live).toEqual({
+      rate: 0.0788, // the two-handed PLO5 population mean: nothing is known of the 4-bettor
+      opportunities: 0,
+      rateSource: 'population',
+      inPosition: false,
+      othersIn: 0,
+      raiserBehind: 900,
+      rakeFraction: 0,
+      heroAlreadyRaised: true,
+      heroInvested: 58,
+    });
+    // CHANGED 2026-11-17 (reported in the lane report): at the cell the class
+    // fold of this spot is now OVERTURNED by the priced test. Kings with a
+    // suited ace hold 0.616 against the top 21% of hands; a call of 147 into
+    // 441 at a ratio of 1.60 out of position realizes 0.830, so the call needs
+    // 0.402 and is worth +78.6 chips against folding. The class rule's reason
+    // for folding it (the flop cell folds bare overpairs, so the raw equity is
+    // not realized) is not a term of the measured realization. Against a
+    // 4-bettor measured at 0.30 the answer is the same (+78.1).
+    expect([vLive.fold, vLive.reason, vLive.classReason]).toEqual([
+      false,
+      'priced_call',
+      'uncoordinated',
+    ]);
+    expect(vLive.sprAfter).toBeCloseTo(707.1 / 441, 4);
+    expect(vLive.pricing!.width).toBeCloseTo(0.2119, 4);
+    expect(vLive.equity).toBeCloseTo(0.61625, 4);
+    expect(vLive.pricing!.realization).toBeCloseTo(0.83003, 4);
+    expect(vLive.required).toBeCloseTo(0.40159, 4);
+    expect(vLive.pricing!.evCall).toBeCloseTo(78.574, 2);
+    expect([vWide.fold, vWide.reason]).toEqual([false, 'priced_call']);
+    expect(vWide.pricing!.width).toBeCloseTo(0.40584, 4);
+    expect(vWide.equity).toBeCloseTo(0.615, 4);
+    expect(vWide.pricing!.evCall).toBeCloseTo(78.117, 2);
     seedFastRandom(59728213);
     const d = structuredClone(
       HorseLogic.decide(
@@ -505,7 +548,10 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
         }
       )
     );
-    expect(d.action).not.toBe('call');
+    // The decision itself folds on main and here alike: with the mind off the
+    // reference folds this spot before the cell is asked (no cell receipt
+    // fires, option on or off), so the pin is the concrete action.
+    expect(d.action).toBe('fold');
     expect(horseDecisionReceiptRefusal(d, 'plo5', { player: hero, gameState: gs })).toBeNull();
   });
 
@@ -929,8 +975,8 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
   });
 
   it('BUG-6 (#59732319) & BUG-7 (#59719347 / #59728834): folds IP cold-3B flat with uncoordinated cards and raises $2-$3 limped-pot flop bets to >= 2 BB', () => {
-    // BUG-6: IP cold-call of a 3-bet with uncoordinated Js Ah 6d Ts 4h folds
-    const coldVerdict = omahaOopReraisedCallCell({
+    // BUG-6: IP cold-call of a 3-bet with uncoordinated Js Ah 6d Ts 4h: the class cell folds it
+    const coldSpot = {
       variant: 'plo5',
       hole: cards('Js Ah 6d Ts 4h'),
       dead: [],
@@ -940,16 +986,52 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
       toCall: 36,
       stack: 390,
       pot: 60,
-      band: [0.4, 1],
+      band: [0.4, 1] as [number, number],
       hiLo: false,
       multiBoard: false,
       bombPot: false,
       tournament: false,
       allInOrFold: false,
-    });
-    expect(coldVerdict).not.toBeNull();
-    expect(coldVerdict!.fold).toBe(true);
-    expect(coldVerdict!.reason).toBe('uncoordinated');
+    };
+    // THE CLASS CELL (unchanged from main) folds it as uncoordinated.
+    const coldClass = omahaOopReraisedClassCell(coldSpot);
+    expect(coldClass).not.toBeNull();
+    expect([coldClass!.fold, coldClass!.reason]).toEqual([true, 'uncoordinated']);
+    const coldPricing = {
+      opportunities: 0,
+      inPosition: true,
+      othersIn: 0,
+      raiserBehind: 354,
+      rakeFraction: 0.05,
+      heroAlreadyRaised: false,
+      heroInvested: 0,
+    };
+    const coldUnknown = omahaOopReraisedCallCell({
+      ...coldSpot,
+      priced: { ...coldPricing, rate: 0.046, rateSource: 'population' },
+    })!;
+    const coldWide = omahaOopReraisedCallCell({
+      ...coldSpot,
+      priced: { ...coldPricing, rate: 0.3, opportunities: 100, rateSource: 'measured' },
+    })!;
+    // CHANGED 2026-11-17 (reported in the lane report): the class fold is
+    // overturned by the priced test, narrowly. In position, heads-up, a ratio
+    // of 3.69 after the call realizes 0.903; 36 into 96 after 5% rake needs
+    // 0.4373. Against an unknown 3-bettor (population rate 0.046, top 22% of
+    // hands) the hand holds 0.4538: +1.36 chips. Against one measured at 0.30
+    // (top 53%) it holds 0.475: +3.11. The margin over an unknown 3-bettor
+    // (0.0165) is inside the sampler's standard error (about 0.025).
+    for (const [v, width, equity, ev] of [
+      [coldUnknown, 0.22009, 0.45375, 1.3575],
+      [coldWide, 0.53038, 0.475, 3.107],
+    ] as const) {
+      expect([v.fold, v.reason, v.classReason]).toEqual([false, 'priced_call', 'uncoordinated']);
+      expect(v.pricing!.width).toBeCloseTo(width, 4);
+      expect(v.equity).toBeCloseTo(equity, 4);
+      expect(v.pricing!.realization).toBeCloseTo(0.90275, 4);
+      expect(v.required).toBeCloseTo(0.43726, 4);
+      expect(v.pricing!.evCall).toBeCloseTo(ev, 2);
+    }
 
     // Control: opener calling a 3-bet IP (coldCall = false, outOfPosition = false) remains null (unchanged)
     const openerIpVerdict = omahaOopReraisedCallCell({
