@@ -16,6 +16,11 @@ import {
   validStreetRead,
   type StreetReadCounters,
 } from './HorseOmahaStreetRead.js';
+import {
+  copyReraiseResponse,
+  validReraiseResponse,
+  type ReraiseResponseCounters,
+} from './HorseOmahaReraiseResponse.js';
 
 export const MEMORY_VARIANTS = [
   'nlh',
@@ -70,6 +75,27 @@ export interface DurableOpponentProfile {
    * reads it yet.
    */
   street_counters?: StreetReadCounters | null;
+  /**
+   * 2026-11-18 how this exact row's player answers when his own re-raise is raised again
+   * (horse_exact_profiles.reraise_response: after his 3-bet is 4-bet and after his 4-bet or more is raised again,
+   * each node its opportunities and his folds, calls and raises, aged by its own opportunities with the preflop
+   * counters' half-life of 30, written by the accepted-hand learner from the hand after its column was installed;
+   * HorseOmahaReraiseResponse). Public actions only. Null or absent: none on file (also before the column exists).
+   * Never part of the row's validity: a stored copy keeps it only when it is well formed (copyReraiseResponseRecord).
+   * Read only by the default-OFF option omahaReraisedCallVsRaisePriced.
+   */
+  reraise_response?: ReraiseResponseCounters | null;
+}
+
+/** A copy of a profile's re-raise response record for a stored copy of the profile: absent stays absent, null stays
+ *  null, and a malformed record is dropped (absent) rather than failing the row. */
+export function copyReraiseResponseRecord(p: {
+  reraise_response?: unknown;
+}): Pick<DurableOpponentProfile, 'reraise_response'> {
+  if (p.reraise_response === undefined) return {};
+  if (p.reraise_response === null) return { reraise_response: null };
+  if (!validReraiseResponse(p.reraise_response)) return {};
+  return { reraise_response: copyReraiseResponse(p.reraise_response) };
 }
 
 /** A copy of a profile's street read for a stored copy of the profile: absent stays absent, null stays null, and a

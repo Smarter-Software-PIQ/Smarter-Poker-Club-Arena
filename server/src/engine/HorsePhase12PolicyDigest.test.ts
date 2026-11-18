@@ -100,7 +100,8 @@ describe('P12.2 Phase 12 policy digest', () => {
     // which brings the heads-up open bands (HorseNlhOpenSize) into the closure.
     // 51 since 2026-11-17: HorseMind carries the postflop read by street and flop texture (HorseOmahaStreetRead).
     // 52 since 2026-11-18: HorseMind reads the per-decision mode of omahaReadIsByStreetAndTexture (HorseOmahaReadByStreetMode).
-    expect(closure).toHaveLength(52);
+    // 53 since 2026-11-18: HorseMind carries how a re-raiser answers being re-raised (HorseOmahaReraiseResponse).
+    expect(closure).toHaveLength(53);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');
