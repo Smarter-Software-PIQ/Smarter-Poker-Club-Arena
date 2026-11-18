@@ -1233,6 +1233,10 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaFlopBetPricesTheRaise',
     'WooWoo audit FLOPBET-RAISE 2026-11-18 (finding FOURBET F1; owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 8 days PLO4/PLO5 to 2026-11-18 06:16Z: Horse 4-bettor flop bets heads-up vs persons were raised 15/93 = 16% [10, 25] with mean -120 bb when raised; the v38 EV engine priced each flop bet fold-or-call only): PLO4/PLO5 cash in the priced scope, flop, heads-up against a person, nothing to call: every v38 bet size gets the raise branch (his measured raising share 0.15, the Horse equity against the strongest 0.15 of his holdings on the board, the Horse priced call-off or fold, marginal rake); against a Horse or an unknown kind the two-branch price is kept (no measured raise share). Default off',
     'V94'
+  ),  flag(
+    'omahaFlopBetUsesMeasuredFoldShare',
+    'WooWoo audit FOLD-SHARE 2026-11-18 (finding FOURBET F1 root cause; owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 2026-11-04..18 PLO4/PLO5 cash: persons folded 617/1,987 = 0.311 heads-up to a Horse first flop bet where the v38 base fold model credits 0.379 (0.439 at the population read) before the V53/V86/style multipliers; OMAHA_EV_FOLD_MODEL foldOverMdf was fitted on every seat pooled): PLO4/PLO5 cash in the priced scope, flop, heads-up against a person, nothing to call: his fold share to every v38 bet size is the fitted person model (size, pot type, SPR band, variant, position) shifted by his durable fold read shrunk toward the person population (OMAHA_FLOP_BET_PERSON_FOLD_FIT), replacing mdfFold x foldMul for him; Horses, unknown kinds, multiway and facing-bet spots unchanged; default OFF',
+    'V94'
   ),
   flag(
     'omahaFlopBetIsPriced',
@@ -5734,6 +5738,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_flop_bet_measured_fold_share_priced',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetMeasuredFoldShare; omahaFlopBetUsesMeasuredFoldShare)',
+    'a PLO4/PLO5 cash heads-up flop decision facing no bet against a person in which every bet size was priced with his measured fold share',
+    'V94'
+  ),
+  receipt(
+    'omaha_flop_bet_measured_fold_share_unpriced_kept',
+    'HorseLogic v38 EV engine (HorseOmahaFlopBetMeasuredFoldShare; omahaFlopBetUsesMeasuredFoldShare)',
+    'the same spot could not be priced with the measured fold share (opponent a Horse or of unknown kind, all in, no model row or no price): mdfFold x foldMul is kept',
+    'V94'
+  ),  receipt(
     'omaha_priced_site_flop_bet_kept',
     'HorseOmahaPricedSites (HorseLogic omahaOopCheckRules flop branch; omahaFlopBetIsPriced)',
     'a bare big pair flop bet with the lead is priced at least at the check and stands',

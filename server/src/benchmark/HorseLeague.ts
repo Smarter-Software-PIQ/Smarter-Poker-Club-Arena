@@ -2613,6 +2613,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetPricesTheRaise: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261116 },
   })),
+  // 2026-11-18 OMAHA FLOP BET USES THE MEASURED FOLD SHARE
+  // (HorseOmahaFlopBetMeasuredFoldShare, default OFF; WooWoo audit FOLD-SHARE):
+  // a person's fold share to every v38 flop bet size is the fitted person model.
+  // The live options of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_uses_measured_fold_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetUsesMeasuredFoldShare: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
   // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
   // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
   // raise are read from the decision's own street and flop texture, blended

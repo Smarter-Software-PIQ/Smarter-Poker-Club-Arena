@@ -194,6 +194,15 @@ export interface EvSpot {
    * every bet is priced fold or call, exactly as before.
    */
   raiseBranch?: (wager: number) => EvRaiseBranch | null;
+  /**
+   * omahaFlopBetUsesMeasuredFoldShare (default off;
+   * HorseOmahaFlopBetMeasuredFoldShare): the fold share of opponent `i` facing
+   * the bet `s` into the pot he sees (`potFacing`), facing no bet, taken from
+   * his measured fold to a Horse flop bet in place of mdfFold x foldMul. The
+   * card-removal delta still applies on top. Null for an opponent or wager it
+   * does not price (that opponent keeps mdfFold). Absent: exactly as before.
+   */
+  foldShareOf?: (opponent: number, potFacing: number, wager: number) => number | null;
 }
 
 /** One wager's raise branch (EvSpot.raiseBranch). */
@@ -433,7 +442,12 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      const baseMdf = mdfFold(P + c, s, m);
+      const measured =
+        spot.foldShareOf !== undefined && !facing ? spot.foldShareOf(i, P + c, s) : null;
+      const baseMdf =
+        measured !== null && Number.isFinite(measured)
+          ? clamp(measured, 0.02, 0.92)
+          : mdfFold(P + c, s, m);
       const singleFold = clamp(
         baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
         0.02,

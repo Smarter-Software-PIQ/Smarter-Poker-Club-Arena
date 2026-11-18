@@ -364,6 +364,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopBetPricesTheRaise: priced(
     'every v38 flop bet size, heads-up against a person facing no bet, is priced with his raise as a third branch (his measured raising share, the Horse equity against it, the Horse priced call-off or fold); default OFF'
   ),
+  omahaFlopBetUsesMeasuredFoldShare: priced(
+    'every v38 flop bet size, heads-up against a person facing no bet, is priced with his measured fold share (the fitted person model by size, pot type, SPR band, variant and position, shifted by his own shrunk fold read); default OFF'
+  ),
   omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
   omahaCheckedToBetIsPriced: priced(
     'the check priced beside every bet when every opponent has checked the river, the showdown share fitted (default OFF)'

@@ -527,6 +527,7 @@ import {
   omahaFlopBetRaiseBranchChange,
   omahaFlopBetRaiseBranchOf,
 } from './HorseOmahaFlopBetRaiseBranch.js';
+import { omahaFlopBetMeasuredFoldShareOf } from './HorseOmahaFlopBetMeasuredFoldShare.js';
 import {
   lightningFoldThroughFrame,
   lightningFoldThroughSeats,
@@ -3828,6 +3829,12 @@ export interface HorseDecideOpts {
    * measured raising share, the Horse's equity against it, the Horse's priced
    * call-off or fold). Default off: the two-branch price as before. */
   omahaFlopBetPricesTheRaise?: boolean;
+  /** WooWoo audit FOLD-SHARE (HorseOmahaFlopBetMeasuredFoldShare): PLO4/PLO5
+   * cash, flop, heads-up against a person, nothing to call: his fold share to
+   * every v38 bet size is the fitted person model (size, pot type, SPR band,
+   * variant, position) shifted by his own durable fold read shrunk toward the
+   * person population, in place of mdfFold x foldMul. Default off. */
+  omahaFlopBetUsesMeasuredFoldShare?: boolean;
   /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, first layer): PLO4/PLO5
    * cash, heads-up, one board, high only. Before a TURN bet facing no wager
    * the Horse prices the bet and the check as whole lines: the opponent's
@@ -23386,6 +23393,26 @@ export class HorseLogic {
             : null;
         if (raiseBranch38?.kind === 'unpriced' && tele15)
           noteFire('omaha_flop_bet_raise_branch_unpriced_kept');
+        // omahaFlopBetUsesMeasuredFoldShare (default off): a person's fold share
+        // to the flop bet is his measured one (HorseOmahaFlopBetMeasuredFoldShare).
+        const measuredFold38 =
+          opts.omahaFlopBetUsesMeasuredFoldShare === true && street === 'flop'
+            ? omahaFlopBetMeasuredFoldShareOf(
+                player,
+                gs,
+                opts,
+                opponents,
+                pot,
+                0,
+                Math.min(stack, effOpp38 > 0 ? effOpp38 : stack),
+                ip,
+                (userId) => (useMind ? HorseMind.foldToBetCountersOf(userId) : null)
+              )
+            : null;
+        if (measuredFold38?.kind === 'unpriced' && tele15)
+          noteFire('omaha_flop_bet_measured_fold_share_unpriced_kept');
+        if (measuredFold38?.kind === 'priced' && tele15)
+          noteFire('omaha_flop_bet_measured_fold_share_priced');
         const verdict38 = evaluateSpot({
           indifference: indifference38,
           // Price the same snapped, scaled and legalized wager betSize would send.
@@ -23451,6 +23478,7 @@ export class HorseLogic {
               }
             : {}),
           ...(raiseBranch38?.kind === 'priced' ? { raiseBranch: raiseBranch38.value.branch } : {}),
+          ...(measuredFold38?.kind === 'priced' ? { foldShareOf: measuredFold38.foldShareOf } : {}),
           rand: fastRandom,
         });
         if (raiseBranch38?.kind === 'priced' && tele15) {
