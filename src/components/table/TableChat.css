@@ -190,9 +190,8 @@
         8px
     )
   );
-  /* Phase 4 (2026-08-22): 99 for the same reason as .table-chat above — the
-     open raise panel (z-100) must cover this button, not sit under it. */
-  z-index: 99;
+  /* Phase 4 (2026-08-22): 105 to ensure chat button stays above HUD (z-index 100) */
+  z-index: 105;
   /* Dan 2026-11-01: the HUD tiles are hamburger-sized (--sp-tabbar-control),
      and the chat bubble stays one size with them (Dan 2026-08-28: the corner
      widgets are one size). Supersedes the October 20 Lobby-footprint match. */
