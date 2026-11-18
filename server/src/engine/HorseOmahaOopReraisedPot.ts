@@ -532,8 +532,8 @@ export const RERAISE_CALL_DEPTH_HALF: Readonly<Record<'ip' | 'oop', number>> = {
 export const RERAISE_CALL_OTHER_IN_COST = 0;
 /**
  * Dilution charge per other player when the equity is HEADS-UP against the
- * re-raiser although other players are in (tournaments and Lightning, which
- * keep the pricing they had, and a cash spot where a player in for the price
+ * re-raiser although other players are in (tournaments and fast-table cash,
+ * which keep the pricing they had, and a cash spot where a player in for the price
  * has no readable band): the 0.35 the first lane fitted on heads-up equity
  * (SE 0.11). Not a realization measurement; it stands in for the pot share
  * the other players take.
@@ -555,7 +555,7 @@ export interface OmahaReraisedCallPricing {
   /**
    * the realization's position term. PLO4/PLO5 cash: the fit's definition, hero
    * acts after the re-raiser (omahaReraisedPositionOf.ipVsRaiser). Tournaments,
-   * Lightning: after the re-raiser and every player already in for the price.
+   * fast-table cash: after the re-raiser and every player already in for the price.
    */
   inPosition: boolean;
   /** the seat-order facts behind inPosition (receipts; absent: not derived) */
@@ -563,7 +563,7 @@ export interface OmahaReraisedCallPricing {
   /**
    * other players in the pot besides the re-raiser. PLO4/PLO5 cash: the players
    * who have called the current price (the measurements' count). Tournaments,
-   * Lightning: those, and a raiser of this hand still to act (as before).
+   * fast-table cash: those, and a raiser of this hand still to act (as before).
    */
   othersIn: number;
   /**
