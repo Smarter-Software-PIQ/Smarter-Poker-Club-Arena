@@ -191,6 +191,10 @@ def main():
   check('reviewed winnings override skips fee history',settlement_reads(overridden),'0')
   check('member without a grant skips fee history',settlement_reads(user=B),'0')
   check('open winnings gate still evaluates the original fee history',settlement_reads(),'1')
+  principal_test=ROOT/'scripts/ci/test-promo-profit-payout-capacity.py';track(principal_test)
+  principal_spec=importlib.util.spec_from_file_location('empty_principal',principal_test)
+  principal=importlib.util.module_from_spec(principal_spec);principal_spec.loader.exec_module(principal)
+  principal.verify(db,C,A,T,old,ROOT/'supabase/migrations/20261118021557_tournament_credit_checks_capacity_before_fee_history.sql',runfile,check)
   check('nonagent authoritative balance fields are both absent values',f"SELECT (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_wallet') IS NULL AND (fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable') IS NULL",'t')
   check('original grant has one shared phase and original thresholds',f"SELECT count(*)||':'||max(principal_target)::integer||':'||max(profit_target)::integer FROM fn_ca_promo_shared_fee_state('{C}','{A}') WHERE grant_id='{old}'",'1:200:100')
   fee(40)
@@ -215,6 +219,16 @@ def main():
   overlap_grant=gift(5);case=str(uuid.uuid4())
   db.run(f"UPDATE club_members SET chip_balance=100 WHERE club_id='{C}' AND user_id='{A}';UPDATE club_members SET role='owner' WHERE club_id='{C}' AND user_id='{B}';INSERT INTO agents VALUES('{C}','{A}',50);INSERT INTO ca_promo_profit_custody VALUES('{overlap_grant}','{C}','{A}','player_wallet','{A}',20);INSERT INTO ca_promo_integrity_cases(id,hand_id,source_club_id,source_user_id,club_id,recipient_id,amount,evidence) VALUES('{case}',gen_random_uuid(),'{C}','{B}','{C}','{A}',20,jsonb_build_object('fixture','isolated accepted earning source'));INSERT INTO ca_promo_integrity_custody VALUES('{case}','{C}','{A}','player_wallet','{A}',20);INSERT INTO ca_promo_profit_integrity_overlap VALUES('{overlap_grant}','{case}','{C}','{A}','player_wallet','{A}',10)")
   check('cashable union counts same physical W and H amount once',f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'",'65')
+  check('payout bound covers exact retained W/H intersection',
+        f"SELECT NOT fn_ca_promo_restrictions_exceed_capacity('{C}','{A}','player_wallet','{A}',35) AND fn_ca_promo_restrictions_exceed_capacity('{C}','{A}','player_wallet','{A}',34)",'t')
+  check('even a large physical wallet cannot hide an invalid W/H intersection',f"""
+    BEGIN;
+    UPDATE ca_promo_profit_integrity_overlap SET amount=100 WHERE grant_id='{overlap_grant}' AND case_id='{case}';
+    DO $$BEGIN BEGIN PERFORM fn_ca_promo_restrictions_exceed_capacity('{C}','{A}','player_wallet','{A}',10000);
+      RAISE EXCEPTION 'invalid overlap escaped payout validation';
+     EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'winnings_review_intersection_not_conserved' THEN RAISE;END IF;END;END$$;
+    SELECT 'refused';ROLLBACK;""",'refused')
+
   db.run(f"SELECT fn_ca_promo_integrity_move('{C}','{A}','player_wallet','{A}','agent_wallet','{A}',15)")
   check('original per-case H movement preserves its exact W intersection',f"SELECT fn_ca_promo_profit_locked_at('{C}','{A}','agent_wallet','{A}')=5 AND fn_ca_promo_profit_overlap_at('{C}','{A}','agent_wallet','{A}')=5",'t')
   check('authoritative agent summary subtracts only the actual restricted union',f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'agent_cashable'",'35')
@@ -390,7 +404,7 @@ def main():
    return src,cr
   u,g,t,ch,hc=paid_source(20,80,80,80,100,10);src,cr=typed_earning(u,t,ch,20)
   check('joint original P/W/H payout cells conserve one physical amount',f"SELECT sum(principal_amount)=4 AND sum(profit_amount)=16 AND sum(integrity_amount)=16 AND sum(overlap_amount)=16 AND sum(amount)=20 FROM fn_ca_promo_profit_event_cells('{src}')",'t')
-  db.run(f"BEGIN;UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{u}';SET LOCAL session_replication_role=replica;INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('{cr}','prize_liability','{t}','player_wallet','{u}',20,'fixture_original_credit','{C}');SET LOCAL session_replication_role=origin;INSERT INTO ca_promo_profit_earning_credit_links VALUES('{cr}','{src}');SELECT fn_ca_promo_profit_project_earning('{cr}','{src}','player_wallet','{u}');COMMIT")
+  db.run(f"BEGIN;UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{u}';SET LOCAL session_replication_role=replica;INSERT INTO chip_ledger(id,from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('{cr}','prize_liability','{t}','player_wallet','{u}',20,'fixture_original_credit','{C}');SET LOCAL session_replication_role=origin;INSERT INTO ca_promo_profit_earning_credit_links VALUES('{cr}','{src}');SET LOCAL track_functions='all';SELECT fn_ca_promo_profit_project_earning('{cr}','{src}','player_wallet','{u}');DO $$BEGIN IF coalesce(pg_stat_get_xact_function_calls('public.fn_ca_promo_restrictions_exceed_capacity(uuid,uuid,text,uuid,numeric)'::regprocedure),0)<>1 THEN RAISE EXCEPTION 'original tournament payout did not use its capacity check';END IF;END$$;COMMIT")
   check('mixed existing capital returns P4 W16 H16 overlap16 without doubleholding',f"SELECT fn_ca_promo_locked_at('{C}','{u}','player_wallet','{u}')=4 AND fn_ca_promo_profit_locked_at('{C}','{u}','player_wallet','{u}')=16 AND fn_ca_promo_integrity_locked_at('{C}','{u}','player_wallet','{u}')=16 AND fn_ca_promo_profit_overlap_at('{C}','{u}','player_wallet','{u}')=16 AND fn_ca_promo_restricted_at('{C}','{u}','player_wallet','{u}')=20",'t')
   # A real awarded asset carries derived W into the original earned-ticket
   # redemption callbacks. There is no purchased promo ticket or new gift.
