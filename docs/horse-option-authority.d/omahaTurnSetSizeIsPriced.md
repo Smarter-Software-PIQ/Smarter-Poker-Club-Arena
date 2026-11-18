@@ -39,11 +39,21 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 
 - Mechanism, scope, visibility (receipts), tests: MET.
 - Replay on audited real decisions (PASS-BAR section 1): NOT MET (1 action change, judged wrong; sizes are not judged). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
-- League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
+- League: INCONCLUSIVE (near-inert, low reach). Archive `plo-handoff-review-01a1cbbd/evals-013U37/omahaTurnSetSizeIsPriced/RESULTS.md` (bar `PASS-BAR.md` there, written first), source eb30ce7a6f9, 2026-11-18. A minus B, bb/100:
+
+  | cell | table                                          | sessions x pairs | A - B, bb/100 | SE    | z     | divergent pairs | inert sessions |
+  | ---- | ---------------------------------------------- | ---------------- | ------------- | ----- | ----- | --------------- | -------------- |
+  | F4   | PLO4, one Horse vs five human-calibrated seats | 400 x 500        | +0.006        | 0.101 | +0.05 | 31              | 372            |
+  | F5   | PLO5, the same                                 | 400 x 500        | +0.256        | 0.143 | +1.79 | 62              | 354            |
+  | M4   | PLO4, Horse-only, production styles            | 100 x 500        | -0.004        | 0.145 | -0.03 | 521             | 26             |
+  | M5   | PLO5, the same                                 | 100 x 500        | +0.188        | 0.172 | +1.10 | 512             | 32             |
+
+  Pooled: human-like +0.131 bb/100, SE 0.088 (z +1.50); Horse-only +0.092, SE 0.112 (z +0.82). Valid: every session present, 0 illegal, 0 truncated, 0 fallbacks. Low reach (31 and 62 divergent pairs in the human-like cells); no figure beyond 2 SE either way.
+
 - Overall: NOT MET. Do not switch on.
 
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
-Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 action change, sizes unjudged), no league yet; do not switch on.**
+Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 action change, sizes unjudged), league INCONCLUSIVE (near-inert); do not switch on.** It stays off.
 
-League cards (HorseLeague.ts, declared, not run): plo4_omaha_turn_set_size_is_priced and plo5_omaha_turn_set_size_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaTurnSetSizeIsPriced.
+League cards (HorseLeague.ts, declared, not run): plo4_omaha_turn_set_size_is_priced and plo5_omaha_turn_set_size_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaTurnSetSizeIsPriced. Run once on eb30ce7a6f9: INCONCLUSIVE (Evidence rows).
