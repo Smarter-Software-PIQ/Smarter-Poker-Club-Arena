@@ -1,8 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { afterEach } from 'vitest';
-vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
-import { parsePromoPlayThrough } from '../../src/services/PromoPlayThroughService';
+const rpc = vi.hoisted(() => vi.fn());
+vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc } }));
+import {
+  parsePromoPlayThrough,
+  readMemberPromoPlayThrough,
+  readMyPromoPlayThrough,
+} from '../../src/services/PromoPlayThroughService';
 import { PromoPlayThroughFigure } from '../../src/components/wallet/PromoPlayThroughProgress';
 const progress = {
   success: true,
@@ -195,4 +200,25 @@ it('keeps all explanations behind the tappable question mark and retains only th
   expect(details.open).toBe(true);
   fireEvent.click(help);
   expect(details.open).toBe(false);
+});
+
+it('marks explicit self and roster progress queries on their individual requests', async () => {
+  const club = '4b23ea14-11aa-451a-845d-382c8eaf9c39';
+  const member = '49c4f935-e966-42bb-bb02-acecd93b5b06';
+  const queries = [progress, { success: true, members: { [member]: progress } }].map((data) => ({
+    setHeader: vi.fn().mockReturnThis(),
+    abortSignal: vi.fn().mockResolvedValue({ data, error: null }),
+  }));
+  for (const query of queries) rpc.mockReturnValueOnce(query);
+
+  expect((await readMyPromoPlayThrough(club)).fee_progress).toBe(124);
+  expect((await readMemberPromoPlayThrough(club, [member]))[member].fee_progress).toBe(124);
+  expect(rpc.mock.calls).toEqual([
+    ['fn_ca_my_promo_play_through', { p_club_id: club }],
+    ['fn_ca_members_promo_play_through', { p_club_id: club, p_user_ids: [member] }],
+  ]);
+  for (const query of queries) {
+    expect(query.setHeader).toHaveBeenCalledExactlyOnceWith('x-ca-promo-request', 'explicit');
+    expect(query.abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+  }
 });

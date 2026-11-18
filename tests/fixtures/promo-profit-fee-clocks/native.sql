@@ -7,6 +7,13 @@ UPDATE public.ca_promo_play_through_settings SET enforced_from=now()-interval '4
 INSERT INTO public.rake_attributions(hand_id,club_id,player_id,rake_amount,created_at)
 SELECT md5('historic-fee-'||n)::uuid,:'club',:'member',1,now()-interval '30 days'
 FROM generate_series(1,:historical_rows) n;
+-- Exercise both sources of original cash timestamps and both cost routes.
+-- These are other hands inside the requested window, with no fee for this player.
+\if :{?window_rows}
+INSERT INTO public.hand_atomic_commits(hand_id,table_id,hand_number,committed_at)
+SELECT md5('other-in-window-'||n)::uuid,:'table',40000+n,now()-interval '30 minutes'
+FROM generate_series(1,:window_rows) n;
+\endif
 CREATE TEMP TABLE fee_clock_case (
   n integer PRIMARY KEY, posted interval NOT NULL, retained interval,
   original interval, amount numeric NOT NULL

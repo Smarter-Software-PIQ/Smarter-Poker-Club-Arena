@@ -137,11 +137,19 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
   return result;
 }
 
-export async function readMyPromoPlayThrough(clubId: string): Promise<PromoPlayThroughSummary> {
+export async function readMyPromoPlayThrough(
+  clubId: string,
+  signal?: AbortSignal
+): Promise<PromoPlayThroughSummary> {
   const clubUUID = await resolveClubUUID(clubId);
   if (!isUUID(clubUUID)) throw new Error('That Club Could Not Be Resolved');
-  const { data, error } = await runWithRequestDeadline((signal) =>
-    supabase.rpc('fn_ca_my_promo_play_through', { p_club_id: clubUUID }).abortSignal(signal)
+  const { data, error } = await runWithRequestDeadline(
+    (requestSignal) =>
+      supabase
+        .rpc('fn_ca_my_promo_play_through', { p_club_id: clubUUID })
+        .setHeader('x-ca-promo-request', 'explicit')
+        .abortSignal(requestSignal),
+    { signal }
   );
   if (error) throw error;
   return parsePromoPlayThrough(data);
@@ -162,6 +170,7 @@ export async function readMemberPromoPlayThrough(
           p_club_id: clubId,
           p_user_ids: [...userIds],
         })
+        .setHeader('x-ca-promo-request', 'explicit')
         .abortSignal(requestSignal),
     { signal }
   );

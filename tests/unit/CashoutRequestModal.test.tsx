@@ -2,6 +2,8 @@ import { formatCashierAmountInput } from '../../src/utils/cashierAmount';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import { webcrypto } from 'node:crypto';
+import { StrictMode } from 'react';
+import { readMyPromoPlayThrough } from '../../src/services/PromoPlayThroughService';
 import {
   CASHOUT_IDS as ID,
   cashoutV2Receipt,
@@ -15,6 +17,9 @@ vi.mock('../../src/services/PromoPlayThroughService', () => ({ readMyPromoPlayTh
 const identity = vi.hoisted(() => ({
   userId: '',
   auth: new Set<(event: { payload: { userId: string; isAuthenticated: boolean } }) => void>(),
+}));
+vi.mock('../../src/hooks/useAuthUser', () => ({
+  useAuthUser: () => ({ user: identity.userId ? { id: identity.userId } : null }),
 }));
 vi.mock('../../src/core/IdentityDNA', () => ({
   getIdentityDNAStatus: () => ({
@@ -554,4 +559,25 @@ it('does not mount closed cashout content or read its popup context and pending 
   expect(popup.read).not.toHaveBeenCalled();
   expect(cashoutService.getPlayerCashouts).not.toHaveBeenCalled();
   expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('checks promo once on opening authenticated cashout and again only on a new opening', async () => {
+  const props = { onClose: vi.fn(), playerId: ID.player, clubId: ID.club, currentBalance: 500 };
+  const modal = (isOpen: boolean) => (
+    <StrictMode>
+      <CashoutRequestModal {...props} isOpen={isOpen} />
+    </StrictMode>
+  );
+  const view = render(modal(false));
+  expect(readMyPromoPlayThrough).not.toHaveBeenCalled();
+  view.rerender(modal(true));
+  await waitFor(() => expect(readMyPromoPlayThrough).toHaveBeenCalledTimes(1));
+  expect(readMyPromoPlayThrough).toHaveBeenCalledWith(ID.club, expect.any(AbortSignal));
+  view.rerender(modal(true));
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  expect(readMyPromoPlayThrough).toHaveBeenCalledTimes(1);
+  view.rerender(modal(false));
+  view.rerender(modal(true));
+  await waitFor(() => expect(readMyPromoPlayThrough).toHaveBeenCalledTimes(2));
+  expect(rpc).not.toHaveBeenCalled();
 });

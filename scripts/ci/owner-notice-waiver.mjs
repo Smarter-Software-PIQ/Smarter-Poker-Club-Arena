@@ -33,6 +33,11 @@ export const OWNER_NOTICE_WAIVER_INSTRUCTION =
   'player-warning announcement or notice countdown. Preserve safe hand completion, settlement, ' +
   'certification, admission, recovery and live verification.';
 
+/** Review note N1 (2026-11-17): the waiver is spent on the one window the owner's order produced.
+ * The booking gate refuses any OTHER record carrying ownerNoticeWaiver, even before the expiry:
+ * a new release without advance notice needs a new owner order and a code change. */
+export const OWNER_NOTICE_WAIVER_WINDOW_ID = '2026-11-17-owner-no-notice-engine-2330z';
+
 /** The next routine preparation (03:30 America/Chicago, November 18): no window closing after it may use the waiver. */
 export const OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-18T09:30:00Z';
 

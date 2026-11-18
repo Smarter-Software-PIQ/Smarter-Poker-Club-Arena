@@ -158,11 +158,27 @@ export function PromoPlayThroughInline({
   );
 }
 
-export function PromoPlayThroughProgress({ clubId }: { clubId: string | null | undefined }) {
+export function PromoPlayThroughProgress({
+  clubId,
+  cashoutRequested = false,
+}: {
+  clubId: string | null | undefined;
+  cashoutRequested?: boolean;
+}) {
   const { user } = useAuthUser();
-  const { summary, loading, error, reload } = usePromoPlayThrough(clubId, user?.id);
+  const { summary, requested, loading, error, reload } = usePromoPlayThrough(
+    clubId,
+    user?.id,
+    cashoutRequested
+  );
   if (!clubId || !user?.id) return null;
-  if (loading)
+  if (!requested && !cashoutRequested)
+    return (
+      <button className="promo-progress__retry" type="button" onClick={() => void reload()}>
+        Check Promo Progress
+      </button>
+    );
+  if (loading || !requested)
     return (
       <p className="sc-copy" role="status">
         Reading Promo Progress...
@@ -183,5 +199,17 @@ export function PromoPlayThroughProgress({ clubId }: { clubId: string | null | u
         </button>
       </p>
     );
-  return <PromoPlayThroughFigure summary={summary} />;
+  if (cashoutRequested) return <PromoPlayThroughFigure summary={summary} />;
+  return (
+    <div>
+      {hasPromoRestrictionDetails(summary) ? (
+        <PromoPlayThroughFigure summary={summary} />
+      ) : (
+        <p role="status">No Current Promo Restrictions.</p>
+      )}
+      <button className="promo-progress__retry" type="button" onClick={() => void reload()}>
+        Refresh Promo Progress
+      </button>
+    </div>
+  );
 }

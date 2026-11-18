@@ -3,14 +3,7 @@ import { render, cleanup } from '@testing-library/react';
 import { ClubCardPanel } from '@/components/club/ClubCardPanel';
 import { resetLobbyFigureCacheForTests } from '@/lib/lobbyFigureCache';
 
-/**
- * Dan 2026-11-17: "Keep the union count inclusive of legitimate Horse accounts,
- * but label it clearly ... Do not imply 296 humans. Use dynamic values."
- *
- * The union line on a member club's card says "INCLUDES HORSES" only when the
- * count it prints holds at least one Horse, and the club's ACTIVE stays its own.
- */
-describe('the union floor line names its Horses', () => {
+describe('the union floor activity line', () => {
   beforeEach(() => {
     resetLobbyFigureCacheForTests();
     cleanup();
@@ -18,25 +11,24 @@ describe('the union floor line names its Horses', () => {
 
   const floorText = () => document.querySelector('.club-card-stat-split-floor')?.textContent;
 
-  it('says so when Horses are in the count', () => {
+  it('prints the live Midway activity with the updated language', () => {
     render(
       <ClubCardPanel
-        clubName="KINGS CLUB"
+        clubName="HARBOR"
         totalMembers={153}
         clubLevel={19}
         activePlayers={1}
         activeCash={80}
         activeEvents={267}
-        clubId={25450}
+        clubId={25453}
         splitFloorLabel="MIDWAY UNION"
-        floorPlaying={296}
-        floorHorses={294}
+        floorPlaying={526}
       />
     );
-    expect(floorText()).toBe('296 PLAYERS ACROSS MIDWAY UNION · INCLUDES HORSES');
+    expect(floorText()).toBe('526 PLAYERS ACTIVE ACROSS THE MIDWAY UNION');
   });
 
-  it('says nothing about Horses when none are counted, and keeps singular wording', () => {
+  it('keeps singular wording for a different union', () => {
     render(
       <ClubCardPanel
         clubName="HARBOR"
@@ -48,25 +40,23 @@ describe('the union floor line names its Horses', () => {
         clubId={25453}
         splitFloorLabel="NORTH STAR UNION"
         floorPlaying={1}
-        floorHorses={0}
       />
     );
-    expect(floorText()).toBe('1 PLAYER ACROSS NORTH STAR UNION');
+    expect(floorText()).toBe('1 PLAYER ACTIVE ACROSS NORTH STAR UNION');
   });
 
   it('prints no union total when it was not read, never a zero', () => {
     render(
       <ClubCardPanel
-        clubName="KINGS CLUB"
+        clubName="HARBOR"
         totalMembers={153}
         clubLevel={19}
         activePlayers={1}
         activeCash={80}
         activeEvents={267}
-        clubId={25450}
+        clubId={25453}
         splitFloorLabel="MIDWAY UNION"
         floorPlaying={null}
-        floorHorses={null}
       />
     );
     expect(floorText()).toBe('MIDWAY UNION');

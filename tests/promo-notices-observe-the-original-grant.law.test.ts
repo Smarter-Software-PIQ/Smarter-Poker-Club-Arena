@@ -99,7 +99,6 @@ describe('promo notices observe original financial authority', () => {
     expect(sql).toContain(
       'ca_promo_integrity_release_notice AFTER INSERT ON public.ca_promo_integrity_releases'
     );
-    expect(read('src/hooks/usePromoPlayThrough.ts')).toContain("'NOTIFICATION_RECEIVED'");
     expect(read('src/stores/useHeaderDataStore.ts')).toContain(
       "masterBus.emit('NOTIFICATION_RECEIVED', { notification: row })"
     );

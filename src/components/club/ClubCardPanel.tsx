@@ -36,6 +36,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import { SHARK_CLUB_ID } from '../../lib/constants';
 import { figureOr, readFigures, rememberFigures } from '../../lib/lobbyFigureCache';
 import { SpadeConsole } from '../console/SpadeConsole';
 import type { KingsClubDisplayTotals } from '../home/CarouselSection';
@@ -72,12 +73,9 @@ interface ClubCardPanelProps {
   splitFloorLabel?: string | null;
   /**
    * Dan 2026-11-17: distinct players on that union floor, printed with the
-   * union's name ("296 PLAYERS ACROSS MIDWAY UNION") so the card carries the
-   * same union figure as the club's invite and never under the club's ACTIVE.
+   * union's name when the card carries the separate union activity line.
    */
   floorPlaying?: number | null;
-  /** How many of floorPlaying are Horses; any at all adds "· INCLUDES HORSES". */
-  floorHorses?: number | null;
 }
 
 export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
@@ -97,7 +95,6 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
   entityType = 'club',
   splitFloorLabel = null,
   floorPlaying = null,
-  floorHorses = null,
 }) => {
   const [cardFailed, setCardFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -166,6 +163,9 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
     });
   }, [scope, shownMembers, clubLevel, shownActive, activeCash, activeEvents]);
 
+  const showActivityDetails = Number(clubId) !== SHARK_CLUB_ID;
+  const activityFloorName =
+    splitFloorLabel === 'MIDWAY UNION' ? 'THE MIDWAY UNION' : splitFloorLabel;
   const memberDisplay = kingsDisplayTotals?.member_total;
   const activeDisplay = kingsDisplayTotals?.active_total;
   const membersText =
@@ -241,12 +241,7 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
       {/* Three figures, three engraved rows; ACTIVE carries its cash/events split. */}
       <div className="club-card-stats">
         <div className="club-card-stat">
-          <span className="club-card-stat-label sc-label sc-ink--blue">
-            {memberDisplay == null ? 'MEMBERS' : 'MEMBER DISPLAY TOTAL'}
-            {memberDisplay != null && kingsDisplayTotals && (
-              <small> (+{kingsDisplayTotals.member_addition.toLocaleString()} CONFIGURED)</small>
-            )}
-          </span>
+          <span className="club-card-stat-label sc-label sc-ink--blue">MEMBERS</span>
           <span className="club-card-stat-value sc-ink--silver">{membersText}</span>
         </div>
         {/* Dan 2026-08-20: level is now the 1-55 member ladder, so the bare
@@ -266,41 +261,38 @@ export const ClubCardPanel: React.FC<ClubCardPanelProps> = ({
           <span className="club-card-stat-value sc-ink--silver">{levelText}</span>
         </div>
         <div className={`club-card-stat ${(shownActive ?? 0) > 0 ? 'club-card-stat--active' : ''}`}>
-          <span className="club-card-stat-label sc-label sc-ink--blue">
-            {activeDisplay == null ? 'ACTIVE' : 'ACTIVE DISPLAY TOTAL'}
-            {activeDisplay != null && kingsDisplayTotals && (
-              <small> (+{kingsDisplayTotals.active_addition.toLocaleString()} CONFIGURED)</small>
-            )}
-          </span>
+          <span className="club-card-stat-label sc-label sc-ink--blue">ACTIVE</span>
           <span
             className={`club-card-stat-value ${(shownActive ?? 0) > 0 ? 'sc-ink--green' : 'sc-ink--silver'}`}
           >
             {activeText}
           </span>
-          {/* Dan 2026-09-09: the split prints under the total, in the same
-              small caps as the labels, so 291 ACTIVE beside 21 cash players
-              on the floor no longer reads as a wrong number. */}
-          {splitFloorLabel ? (
-            <span className="club-card-stat-split-floor sc-label sc-ink--blue">
-              {floorPlaying != null
-                ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACROSS ${splitFloorLabel}${
-                    (floorHorses ?? 0) > 0 ? ' · INCLUDES HORSES' : ''
-                  }`
-                : splitFloorLabel}
-            </span>
-          ) : null}
-          <span
-            className="club-card-stat-split sc-label sc-ink--muted"
-            aria-label={
-              splitFloorLabel
-                ? `Active Players By Game In ${splitFloorLabel}`
-                : 'Active Players By Game'
-            }
-          >
-            <span className="club-card-stat-split-part">{cashText} CASH</span>
-            <span className="club-card-stat-split-dot" aria-hidden="true" />
-            <span className="club-card-stat-split-part">{eventsText} EVENTS</span>
-          </span>
+          {showActivityDetails && (
+            <>
+              {/* Dan 2026-09-09: the split prints under the total, in the same
+                  small caps as the labels, so 291 ACTIVE beside 21 cash players
+                  on the floor no longer reads as a wrong number. */}
+              {splitFloorLabel ? (
+                <span className="club-card-stat-split-floor sc-label sc-ink--blue">
+                  {floorPlaying != null
+                    ? `${floorPlaying.toLocaleString()} ${floorPlaying === 1 ? 'PLAYER' : 'PLAYERS'} ACTIVE ACROSS ${activityFloorName}`
+                    : splitFloorLabel}
+                </span>
+              ) : null}
+              <span
+                className="club-card-stat-split sc-label sc-ink--muted"
+                aria-label={
+                  splitFloorLabel
+                    ? `Active Players By Game In ${splitFloorLabel}`
+                    : 'Active Players By Game'
+                }
+              >
+                <span className="club-card-stat-split-part">{cashText} CASH</span>
+                <span className="club-card-stat-split-dot" aria-hidden="true" />
+                <span className="club-card-stat-split-part">{eventsText} EVENTS</span>
+              </span>
+            </>
+          )}
         </div>
       </div>
 

@@ -123,6 +123,14 @@ def main():
       AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
     FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
   """,'t')
+  runfile(ROOT/'supabase/migrations/20261118024233_compare_member_and_clock_windows_before_reading_original_cas.sql')
+  for member_rows,window_rows in ((0,0),(300,0),(1308,2000),(16385,0)):
+   db.run(f"\\set historical_rows {member_rows}\n\\set window_rows {window_rows}\n"+original_cases)
+  check('member and clock routing preserves the private original reader',"""
+    SELECT md5(pg_get_functiondef(oid))='cadf29b87340d1d1d6884ac91f0a6b48' AND prosecdef
+      AND proowner='postgres'::regrole AND proacl::text='{postgres=X/postgres}'
+    FROM pg_proc WHERE oid='public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure
+  """,'t')
   check('both actual cash refund owners consume exact bust and terminal loss basis',"SELECT count(*) FROM pg_proc WHERE proname IN('fn_ca_promo_return_principal','fn_ca_promo_return_spent_event_fee') AND prosrc LIKE '%JOIN public.ca_promo_original_entry_loss_basis fs%'",'2')
   check('terminal loss basis preserves exact lot identity without duplicate rows',"SELECT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION%' AND NOT pg_get_viewdef('public.ca_promo_original_entry_loss_basis'::regclass) LIKE '%UNION ALL%'",'t')
 
@@ -245,6 +253,13 @@ def main():
   no_expiry=gift(10)
   db.run(f"INSERT INTO ca_promo_profit_custody VALUES('{no_expiry}','{C}','{A}','player_wallet','{A}',10);UPDATE ca_promo_play_through_grants SET expires_at=clock_timestamp() WHERE id='{no_expiry}'")
   check('existing player-owned W does not expire with original principal',f"SELECT fn_ca_promo_profit_locked_at('{C}','{A}','player_wallet','{A}')",'10')
+  visibility=ROOT/'tests/fixtures/promo-profit-source-visibility/native.py'
+  track(visibility)
+  runfile(ROOT/'supabase/migrations/20261118010644_promo_source_observation_preserves_original_transaction_visi.sql')
+  source_spec=importlib.util.spec_from_file_location('promo_source_visibility',visibility)
+  source_visibility=importlib.util.module_from_spec(source_spec)
+  source_spec.loader.exec_module(source_visibility)
+  source_visibility.qualify(db,check)
   # Actual accepted-source helpers execute on explicitly typed monetary frames;
   # the maintained full-hand proof separately invokes their engine DB owner.
   def cash_frame(before,after,other_before,other_after,investment,other_investment,insurance=None):

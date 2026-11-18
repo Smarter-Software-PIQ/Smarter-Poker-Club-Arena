@@ -6,7 +6,9 @@ const madness = {
   bomb_pot_enabled: true,
   big_blind_ante_enabled: true,
   nit_game: true,
-  maintain_percent_min: 50,
+  // Every PLO table keeps 40 since 2026-11-17; the ruleset is the identity.
+  maintain_percent_min: 40,
+  rules_profile: 'madness_without_lightning',
 };
 const weighted = [
   { h: { id: 'tiny' }, w: 4 },
@@ -17,7 +19,10 @@ const performance = new Map([
   ['tiny', { hands: 71, bb100: 219 }],
   ['proven', { hands: 10_000, bb100: 15 }],
 ]);
-async function order(table = madness, records = performance) {
+/* The overrides below deliberately pass undefined and null profiles, so the
+   helper takes the selector's own parameter shape rather than the fixture's. */
+type TableLike = Parameters<typeof orderMadnessCandidates>[1];
+async function order(table: TableLike = madness, records = performance) {
   return orderMadnessCandidates(weighted, table, records);
 }
 
@@ -40,11 +45,14 @@ describe('Madness prefers measured PLO strength after normal admission', () => {
     ]);
   });
   it('leaves ordinary Classic, other variants and unqualified rules on the existing draw', async () => {
+    // The identity is the cluster's ruleset plus the plo5 scope (2026-11-17).
+    // A floor value is deliberately NOT one of these cases any more: every PLO
+    // table reads 40 now, so 40 must not be what makes a table ordinary.
     for (const over of [
-      { bomb_pot_enabled: false },
-      { big_blind_ante_enabled: false },
-      { nit_game: false },
-      { maintain_percent_min: 40 },
+      { rules_profile: undefined },
+      { rules_profile: null },
+      { rules_profile: 'classic' },
+      { rules_profile: 'madness' },
       { game_variant: 'nlh' },
       { game_variant: 'plo6' },
     ]) {
@@ -55,6 +63,20 @@ describe('Madness prefers measured PLO strength after normal admission', () => {
       ]);
     }
   });
+  it('still prefers measured strength when the floor reads 40, not 50', async () => {
+    // The regression this guards: moving the floor to 40 must not silently turn
+    // the measured-PLO ordering off for the tables it was built for.
+    const atForty = { ...madness, maintain_percent_min: 40 };
+    expect((await order(atForty)).map((x) => x.h.id)).toEqual(['proven', 'tiny', 'unknown']);
+  });
+
+  it('never calls a Lightning or Action plo5 table Madness', async () => {
+    // These share the bomb pot, the big-blind ante, the nit game and now the
+    // 40 floor, so only the ruleset keeps them apart.
+    const lightning = { ...madness, rules_profile: null, maintain_percent_min: 40 };
+    expect((await order(lightning)).map((x) => x.h.id)).toEqual(['tiny', 'unknown', 'proven']);
+  });
+
   it('treats missing and invalid samples as unknown, never as proven wins', async () => {
     for (const bad of [
       { hands: 0, bb100: 1000 },

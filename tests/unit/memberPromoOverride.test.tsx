@@ -21,6 +21,8 @@ vi.mock('../../src/services/PromoPlayThroughService', () => ({
 }));
 vi.mock('../../src/hooks/useMemberPromoPlayThrough', () => ({
   useMemberPromoPlayThrough: (_club: string, users: string[]) => ({
+    requested: true,
+    loading: false,
     members: { [users[0]]: mock.summary },
     reload: mock.reload,
   }),
@@ -183,8 +185,12 @@ it('hides completed owner cards when review support exists but there is no pendi
     integrity_available: true,
     integrity_review_available: false,
   });
-  const view = render(<MemberPromoPlayThrough {...props} canOverride />);
-  expect(view.container.textContent).toBe('');
+  render(<MemberPromoPlayThrough {...props} canOverride />);
+  expect(screen.getByText('No Current Promo Restrictions.')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh Promo Progress' })).toBeTruthy();
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  expect(screen.queryByText('Source Review Controls')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unlock Promo With Reason' })).toBeNull();
 });
 
 it('keeps a real evidence-only review reachable without a promo percentage', () => {
