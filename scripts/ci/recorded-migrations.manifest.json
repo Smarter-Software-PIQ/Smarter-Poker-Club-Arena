@@ -2435,6 +2435,16 @@
       "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)) for version 20261118030451, byte for byte (5509 UTF-8 bytes, no appended newline); md5 of the file bytes = bcd98a965c2b203584d4d16abff5ca1e = md5(array_to_string(statements, chr(10))) read 2026-11-18 06:45Z.",
       "refusedBy": [],
       "liveVerdict": "Applied directly through the Supabase MCP at 03:04:51Z on 2026-11-18 under the MCP's own version while the repository carried the same change as 20261118025205 (PR #11249, never installed). Read against PRODUCTION 2026-11-18 06:36-06:45Z: fn_cash_game_floor_from_template prosrc md5 = 5b0b03754daf121c77d2a451bb9f8839 (the post-image this SQL verifies); the applier run 44252694913 for 20261118025205 answered ALREADY-APPLIED recorded as version=20261118030451 and changed nothing. The release selector keys candidate migrations by version, so this exact applied version is recorded and 20261118025205 is marked SUPERSEDED BY it. No SQL is replayed."
+    },
+    {
+      "version": "20261118071741",
+      "name": "rathole_floor_is_per_game_not_per_stakes",
+      "file": "supabase/migrations/20261118071741_rathole_floor_is_per_game_not_per_stakes.sql",
+      "md5": "7284b7ff2db96cb88335fdf641e520a6",
+      "recoveredOn": "2026-11-18",
+      "recoveredFrom": "public.fn_ca_migration_text(20261118071741), byte-identical body; 7554 UTF-8 bytes, md5 7284b7ff2db96cb88335fdf641e520a6. Independent schema_migrations.statements recovery agrees.",
+      "refusedBy": [],
+      "liveVerdict": "Applied directly by Claude (session 013U37bb2NB9FGhEKXJGzWHZ) through the Supabase MCP at 07:17:41 UTC 2026-11-18 during a live incident: WooWoo's PLO5 1/2 Madness rejoin floor (3,762.18) was being demanded at PLO5 1/2 Lightning Games (max 400) while he was seated. Read production 07:18-07:24 UTC: cash_rejoin_constraints.game_scope exists and 0 live rows are unscoped (230 backfilled from source_table_id); fn_cash_rejoin_floor(WooWoo, Lightning feeder) = NULL, entry need 100.00, max 400.00; fn_cash_rejoin_floor(WooWoo, Madness feeder) = 3762.18 unchanged. ACLs read after apply: fn_cash_game_scope_of_table service_role only; fn_cash_session_close and fn_cash_game_barred_seconds postgres/service_role only (as before); fn_cash_rejoin_floor postgres/service_role/authenticated (as before). check-definer-authorization passes against origin/main. The only guard this file fails is the transaction shape (it carries no BEGIN/COMMIT because the MCP wrapped it in its own single transaction); no finding remains true of production. No migration is replayed."
     }
   ]
 }
