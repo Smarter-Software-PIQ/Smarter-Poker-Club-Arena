@@ -43,7 +43,11 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { ownerNoticeWaived, ownerNoticeWaiverProblem } from './owner-notice-waiver.mjs';
+import {
+  OWNER_NOTICE_WAIVER_WINDOW_ID,
+  ownerNoticeWaived,
+  ownerNoticeWaiverProblem,
+} from './owner-notice-waiver.mjs';
 
 export const FILE = 'server/release/owner-maintenance-windows.json';
 /** How far in the past a judged timestamp may sit at validation time. */
@@ -104,6 +108,14 @@ export function bookingRecordViolations(baseDoc, headDoc, now) {
       continue;
     }
     const waived = ownerNoticeWaived(w, collection);
+    if (waived && w.id !== OWNER_NOTICE_WAIVER_WINDOW_ID) {
+      out.push(
+        `${name}: the owner notice waiver of 2026-11-17 is spent on window ` +
+          `${OWNER_NOTICE_WAIVER_WINDOW_ID}; a new release without advance notice needs a new ` +
+          'owner order and a code change (review note N1)'
+      );
+      continue;
+    }
     const times = {};
     let broken = false;
     for (const field of waived
