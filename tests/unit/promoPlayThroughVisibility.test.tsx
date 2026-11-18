@@ -17,6 +17,7 @@ vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: { id: 'player' } }) }));
 vi.mock('../../src/hooks/usePromoPlayThrough', () => ({
   usePromoPlayThrough: () => ({
+    requested: true,
     summary: state.summary,
     loading: false,
     error: false,
@@ -24,7 +25,11 @@ vi.mock('../../src/hooks/usePromoPlayThrough', () => ({
   }),
 }));
 vi.mock('../../src/hooks/useMemberPromoPlayThrough', () => ({
-  useMemberPromoPlayThrough: () => ({ members: { player: state.summary }, reload: vi.fn() }),
+  useMemberPromoPlayThrough: () => ({
+    requested: true,
+    members: { player: state.summary },
+    reload: vi.fn(),
+  }),
 }));
 import {
   PromoPlayThroughFigure,
@@ -96,7 +101,7 @@ it('hides completed progress and the empty promo card in wallet, cashout, member
         <PromoPlayThroughProgress clubId="club" />
       </div>
       <div data-testid="cashout">
-        <PromoPlayThroughProgress clubId="club" />
+        <PromoPlayThroughProgress clubId="club" cashoutRequested />
       </div>
       <MemberPromoPlayThrough clubId="club" userId="player" revision={1} />
       <PromoPlayThroughInline summary={state.summary} />
@@ -114,8 +119,11 @@ it('hides completed progress and the empty promo card in wallet, cashout, member
     open_grants: 0,
   };
   view.rerender(content());
-  expect(view.container.textContent).toBe('');
-  expect(screen.queryByLabelText('Promo Play Through')).toBeNull();
+  expect(screen.getByTestId('cashout').textContent).toBe('');
+  expect(screen.getAllByText('No Current Promo Restrictions.')).toHaveLength(2);
+  expect(screen.getAllByRole('button', { name: 'Refresh Promo Progress' })).toHaveLength(2);
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  expect(screen.queryByLabelText('Promo Play Through Details')).toBeNull();
   state.summary = { ...active, locked: 25 };
   view.rerender(content());
   expect(screen.getAllByRole('progressbar')).toHaveLength(4);
