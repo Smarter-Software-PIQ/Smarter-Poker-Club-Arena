@@ -189,11 +189,14 @@ describe('hand 59401453, turn: the set pound', () => {
 describe('hand 59414191, flop: a nut-class hand sized to the pot', () => {
   // Top set on a board with no straight or flush possible (HorseOmahaMadeHandDefense.test.ts).
   const flop = () => spot(SET_RAISES_TURN, 15, { hole: 'KcKh7c7hAs' });
+  // omahaNutClassValueSize ships OFF (#10989, after its Nov 15 evaluation failed): opt in, as the rule's own
+  // test does (HorseOmahaMadeHandDefense.test.ts), so the receipt is measured where the rule acts.
+  const SIZE_ON = { omahaNutClassValueSize: true };
 
   it('records the smaller wager the rule was given and the pot it left', () => {
     let sized = 0;
     for (const seed of SEEDS) {
-      const run = scoped(flop(), seed);
+      const run = scoped(flop(), seed, SIZE_ON);
       expectReceiptsOfTheDecision(run);
       for (const r of run.receipts.filter((x) => x.receipt === 'omaha_nut_class_pot_wager')) {
         sized++;
@@ -202,7 +205,7 @@ describe('hand 59414191, flop: a nut-class hand sized to the pot', () => {
         expect(r.after).toEqual({ action: 'bet', amount: 56 });
         expect(r.before).not.toEqual(r.after);
       }
-      expect({ action: run.action, amount: run.amount }).toEqual(unscoped(flop(), seed));
+      expect({ action: run.action, amount: run.amount }).toEqual(unscoped(flop(), seed, SIZE_ON));
     }
     expect(sized, 'not a vacuous pass: the rule sized at least one seed').toBeGreaterThan(0);
   });
