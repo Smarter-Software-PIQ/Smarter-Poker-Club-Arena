@@ -57,6 +57,7 @@ def verify_cashout_only_notices(db,check,inputs_path):
  early=db.run(sql,check=False)
  check('physical removal refuses before its qualified ordinary retirement',
        early.returncode!=0 and 'promo fee notice retirement has not been installed' in early.stderr,True)
+ db.run('CREATE SCHEMA IF NOT EXISTS supabase_migrations; CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations(version text PRIMARY KEY,name text,statements text[])')
  db.run(retire_sql)
  retirement_proof=next(line.removeprefix('-- @live-proof: ') for line in retire_sql.splitlines() if line.startswith('-- @live-proof: '))
  check('ordinary source retirement preserves its private trigger and exact owner',
@@ -104,6 +105,12 @@ def verify_cashout_only_notices(db,check,inputs_path):
  db.run(sql)
  proof=next(line.removeprefix('-- @live-proof: ') for line in sql.splitlines() if line.startswith('-- @live-proof: '))
  check('no original fee source dispatches an optional promo notice',db.one('SELECT '+proof),'t')
+ check('a missing observer without its exact successor receipt is never certified',db.one('SELECT '+retirement_proof),'f')
+ db.run("INSERT INTO supabase_migrations.schema_migrations VALUES('20261118004310','fee_sources_do_not_scan_promo_history_for_notices',ARRAY['incorrect bytes'])")
+ check('wrong successor bytes cannot certify the retired observer',db.one('SELECT '+retirement_proof),'f')
+ db.run("UPDATE supabase_migrations.schema_migrations SET statements=ARRAY[$receipt$"+sql+"$receipt$] WHERE version='20261118004310'")
+ check('exact recorded cold removal proves the superseded ordinary postimage',db.one('SELECT '+retirement_proof),'t')
+
 
  db.run('SELECT pg_stat_reset()')
  db.run(cash_fee(str(uuid.uuid4()),str(uuid.uuid4()),5))
