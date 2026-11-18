@@ -240,8 +240,9 @@ export interface OmahaOopReraisedInput {
   /** hero put no voluntary money (> bb) in before facing this 3-bet+ */
   coldCall?: boolean;
   /**
-   * The priced call (PLO4/PLO5; see omahaReraisedCallPriced). Absent: the cell
-   * cannot price the call and returns null (the decision stands).
+   * The priced call (PLO4/PLO5; see omahaReraisedCallPriced). Absent: a call
+   * the class cell keeps is kept as before; a call it folds cannot be
+   * confirmed, so the cell returns null (the decision stands).
    */
   priced?: OmahaReraisedCallPricing;
   /** preflop raises so far (open = 1) */
@@ -277,8 +278,14 @@ export interface OmahaOopReraisedVerdict {
   sprAfter: number;
   /** exactly one ace or exactly one king facing a 4-bet or more */
   dominatedKeyCard: boolean;
-  /** the priced call's numbers (reasons priced_call / priced_fold only) */
+  /**
+   * The priced call's numbers (PLO4/PLO5). With reasons priced_call /
+   * priced_fold they decided; with any other reason the class cell kept the
+   * call and they are reported only (they cannot fold a kept call).
+   */
   pricing?: OmahaReraisedCallPricedNumbers;
+  /** reasons priced_call / priced_fold only: why the class cell folded */
+  classReason?: 'uncoordinated' | 'short_of_price';
 }
 
 /**
@@ -288,6 +295,47 @@ export interface OmahaOopReraisedVerdict {
  * is a call and that the last raiser is not all in.
  */
 export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopReraisedVerdict | null {
+  // The class cell, exactly as before the pricing existed. PLO6 is answered by
+  // it alone (PLO6 lane); so is every call it keeps in PLO4/PLO5.
+  const legacy = omahaOopReraisedClassCell(i);
+  if (legacy === null || i.variant.toLowerCase() === 'plo6') return legacy;
+  // PLO4/PLO5: THE PRICING MAY ONLY OVERTURN A FOLD (see the comment on
+  // omahaReraisedCallPriced). It is computed for every call the cell examines
+  // and travels on the verdict, but it decides only where the class cell folds:
+  //   class keeps                -> the call stands, verdict as before (+ pricing)
+  //   class folds, EV(call) >= 0 -> the call stands, reason priced_call
+  //   class folds, EV(call) <  0 -> fold, reason priced_fold
+  const call = Math.min(i.toCall, i.stack);
+  const p = i.priced
+    ? omahaReraisedCallPriced(i.hole, i.dead, i.preflopRaises, call, i.pot, i.stack, i.priced)
+    : null;
+  if (!legacy.fold) return p === null ? legacy : { ...legacy, pricing: p };
+  // A class fold the pricing cannot confirm is not a fold: the call stands.
+  if (p === null) return null;
+  return {
+    coordination: legacy.coordination,
+    dominatedKeyCard: legacy.dominatedKeyCard,
+    price: p.price,
+    sprAfter: p.sprAfter,
+    fold: p.evCall < 0,
+    reason: p.evCall < 0 ? 'priced_fold' : 'priced_call',
+    equity: p.equity,
+    required: p.required,
+    pricing: p,
+    classReason: legacy.reason === 'uncoordinated' ? 'uncoordinated' : 'short_of_price',
+  };
+}
+
+/**
+ * The class cell (the whole rule until 2026-11-17, and still the whole rule in
+ * PLO6): suited aces kept unexamined, commitment, coordination, and equity
+ * against the raiser's band with the realization margins. In PLO4/PLO5 its
+ * keeps are final and its folds are put to the priced test by
+ * omahaOopReraisedCallCell. Unchanged from main 141da7bfd3a.
+ */
+export function omahaOopReraisedClassCell(
+  i: OmahaOopReraisedInput
+): OmahaOopReraisedVerdict | null {
   if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
   if (!holeCountServed(i.variant, i.hole.length)) return null;
@@ -302,32 +350,6 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
   const count = (rank: string) => i.hole.filter((c) => c.rank === rank).length;
   const dominatedKeyCard = i.preflopRaises >= 3 && (count('A') === 1 || count('K') === 1);
   const base = { coordination, price, sprAfter, dominatedKeyCard };
-  // PLO4/PLO5 (owner 2026-11-17 15:30 Chicago: no blanket rule; every decision
-  // from the hand, the ranges, equity and EV): the call is priced, never folded
-  // by a class, a flag or a size. The class rules below serve PLO6 only.
-  if (i.variant.toLowerCase() !== 'plo6') {
-    if (!i.priced) return null;
-    const p = omahaReraisedCallPriced(
-      i.hole,
-      i.dead,
-      i.preflopRaises,
-      call,
-      i.pot,
-      i.stack,
-      i.priced
-    );
-    if (p === null) return null;
-    return {
-      ...base,
-      price: p.price,
-      sprAfter: p.sprAfter,
-      fold: p.evCall < 0,
-      reason: p.evCall < 0 ? 'priced_fold' : 'priced_call',
-      equity: p.equity,
-      required: p.required,
-      pricing: p,
-    };
-  }
   if (elite.cls === 'aa_ds')
     return { ...base, fold: false, reason: 'aces_suited', equity: null, required: price };
   const fourBet = i.preflopRaises >= 3;
@@ -398,8 +420,24 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
  * "DONT' MAKE ANY BLANKET RULES, EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND
  * DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS").
  *
- * The cell turns a call into a fold only when the call loses chips against
- * folding now:
+ * THE PRICING IS ONLY ALLOWED TO OVERTURN FOLDS. A call becomes a fold only
+ * when the class cell (omahaOopReraisedClassCell, the rule as it stood on main)
+ * folds it AND the call loses chips against folding now; a call the class cell
+ * keeps stands whatever the pricing says (it is still priced and the numbers
+ * travel on the verdict). Why (independent review of 97de6c23913,
+ * REVIEW-97de6c23913.md, blocking item 1): priced in both directions, the
+ * same formula folded 39 of 627 journaled decisions the class cell called; 34
+ * were recorded calls that netted +457.6 bb, 20 held a pair of aces, and the
+ * audit judged none a wrong call. Those folds came from the two realization
+ * terms below, which are too uncertain to create a fold: the out-of-position
+ * depth cost 0.70 has a standard error of 0.54 (1.3 SE from zero; in position
+ * 0.15, SE 0.31), and the 0.35 per other player (SE 0.11) is one pooled figure
+ * laid over heads-up equity. They are good enough to say a class fold was not
+ * shown to lose, not to fold a call
+ * the class cell kept. The folding direction needs its own default-OFF option
+ * and a declared evaluation with multiway equity.
+ *
+ * The priced test:
  *
  *   EV(call) = R x equity x (pot after the call) x (1 - rake) - call  <  0 = EV(fold)
  *

@@ -7483,10 +7483,21 @@ function postflopOrder(seat: number, dealerSeat: number | undefined): number {
  * the position hero holds after the call (after the re-raiser and after every
  * player already in for the price; a player still to act who has not raised is
  * not counted), the other players in the pot, what the re-raiser has behind and
- * the engine's own call deduction for rake. Null on any failure (the cell then
- * leaves the call standing).
+ * the engine's own call deduction for rake. Undefined on any failure (the cell
+ * then keeps what the class cell keeps and leaves the rest standing).
+ *
+ * POSITION, as the measurement defined it (HorseOmahaPreflopReraiseDefenceRule
+ * at 33a4f1f2b45, the fit the depth costs come from): hero is in position when
+ * he acts after the re-raiser and after every player ALREADY IN FOR THE PRICE.
+ * A raiser of this hand who is still to act behind hero (the opener facing the
+ * re-raise) has not paid the price: he does not move hero out of position, he
+ * is charged as another player in the pot (othersIn, 0.35). That differs on
+ * purpose from the scope test of omahaOopReraisedPotStrongRange below, which
+ * asks who has voluntary money in. Charging him the out-of-position depth cost
+ * as well would apply a constant outside the definition it was fitted under
+ * (review of 97de6c23913, note N4: 23 of 236 recorded fires have this layout).
  */
-function omahaReraisedCallPricingOf(
+export function omahaReraisedCallPricingOf(
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
@@ -7564,7 +7575,9 @@ function omahaReraisedCallPricingOf(
  * omahaOopReraisedPotStrongRange (owner 2026-11-15 11:49 and 11:51; default
  * OFF, read `=== true`): a preflop call of a 3-bet or more, out of position
  * against the last raiser, stands only when HorseOmahaOopReraisedPot's cell
- * keeps it; otherwise it becomes a fold. Every other decision, a raise
+ * keeps it; otherwise it becomes a fold. In PLO4/PLO5 a fold of the class cell
+ * stands only when the priced call confirms it (EV(call) < 0); the pricing
+ * never folds a call the class cell keeps. Every other decision, a raise
  * included, is returned as is. Runs outermost on both decision paths. Draws
  * no number from the brain's random stream.
  */
@@ -7689,9 +7702,15 @@ function omahaOopReraisedPotStrongRange(
     });
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
-    if (tele && verdict.pricing) {
-      // The priced call (PLO4/PLO5): which side of EV(call) = 0, with the
-      // position held and whether hero raised earlier (inputs, not gates).
+    if (
+      tele &&
+      verdict.pricing &&
+      (verdict.reason === 'priced_call' || verdict.reason === 'priced_fold')
+    ) {
+      // The priced test decided (PLO4/PLO5): the class cell folded this call
+      // and EV(call) confirmed the fold (priced_fold) or overturned it
+      // (priced_call). A call the class cell kept fires neither: its receipt
+      // is omaha_oop_reraised_call_kept alone, as before the pricing existed.
       if (verdict.fold) noteFire('omaha_reraised_call_priced_fold');
       else noteFire('omaha_reraised_call_priced_call');
       if (verdict.pricing.heroAlreadyRaised) {
