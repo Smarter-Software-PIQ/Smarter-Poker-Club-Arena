@@ -3,7 +3,7 @@
  * THE OMAHA STRATEGY ACCESSOR (PLO6 lane 2026-11-16).
  *
  * What is pinned here:
- *  - the accessor's 17 keys each name the calibration entry their PLO6 value
+ *  - the accessor's 18 keys each name the calibration entry their PLO6 value
  *    comes from; what is registered is exactly the three keys that differ;
  *  - registered, PLO4, PLO5 and every other game still read the defaults, and
  *    PLO6 reads its three values; cleared, PLO6 reads the defaults too;
@@ -110,6 +110,7 @@ describe('the accessor keys and the calibration entries', () => {
     oopTurnTokenPrice: [0.15, 'OMAHA_OOP_TURN_TOKEN_PRICE', true],
     cardImpactMargin: [0.04, 'OMAHA_CARD_IMPACT_MARGIN', true],
     streetPlanMarginPotShare: [0.02, 'OMAHA_STREET_PLAN_MARGIN_POT_SHARE', true],
+    streetPlanFlopMarginPotShare: [null, null, true],
     bigDrawMargin: [0.02, 'OMAHA_BIG_DRAW_MARGIN', true],
     raiseNeedsNutsFoldPrice: [1 / 3, 'OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE', true],
     eliteContinueMaxPotOdds: [null, null, true],
@@ -120,8 +121,8 @@ describe('the accessor keys and the calibration entries', () => {
     bigDrawContinueStraightOuts: [13, 'omahaBigDrawContinues', false],
   };
 
-  it('all 17 keys are mapped, each to an entry of the calibration or to none', () => {
-    expect(KEYS).toHaveLength(17);
+  it('all 18 keys are mapped, each to an entry of the calibration or to none', () => {
+    expect(KEYS).toHaveLength(18);
     expect(Object.keys(PLO6_OMAHA_STRATEGY_ACCESSOR_VALUES).sort()).toEqual([...KEYS].sort());
     for (const key of KEYS) {
       const { source, value } = PLO6_OMAHA_STRATEGY_ACCESSOR_VALUES[key];

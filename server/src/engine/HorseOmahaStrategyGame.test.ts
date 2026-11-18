@@ -43,6 +43,7 @@ import {
   OMAHA_CARD_IMPACT_VARIANTS,
 } from './HorseOmahaCardImpact.js';
 import {
+  OMAHA_FLOP_PLAN_MARGIN_POT_SHARE,
   OMAHA_STREET_PLAN_MARGIN_POT_SHARE,
   OMAHA_STREET_PLAN_VARIANTS,
 } from './HorseOmahaStreetPlan.js';
@@ -162,6 +163,7 @@ describe('omahaStrategyConstant', () => {
     oopTurnTokenPrice: OMAHA_OOP_TURN_TOKEN_PRICE,
     cardImpactMargin: OMAHA_CARD_IMPACT_MARGIN,
     streetPlanMarginPotShare: OMAHA_STREET_PLAN_MARGIN_POT_SHARE,
+    streetPlanFlopMarginPotShare: OMAHA_FLOP_PLAN_MARGIN_POT_SHARE,
     bigDrawMargin: OMAHA_BIG_DRAW_MARGIN,
     raiseNeedsNutsFoldPrice: OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE,
     eliteContinueMaxPotOdds: OMAHA_ELITE_CONTINUE_MAX_POT_ODDS,

@@ -100,7 +100,9 @@ export const OMAHA_TIGHT_POSTFLOP: OmahaPlayStyleDials = Object.freeze({
 /** pressure, cutoff and button, before the flop. */
 export const OMAHA_PRESSURE_PREFLOP_IP: OmahaPlayStyleDials = Object.freeze({
   tightnessMul: 0.75,
-  valueRaiseTightnessMul: 0.9,
+  // 2026-11-16: at the bound, so the added cutoff and button entries are
+  // re-raises (the call bars stay at today's width, styleCallTightness).
+  valueRaiseTightnessMul: 0.75,
   bluffFreqMul: 1.2,
   aggressionMul: 1.1,
   cbetFreqMul: 1,
@@ -221,4 +223,77 @@ export function omahaPlayStyleIndifferenceAggressionBias(
   return style === 'pressure' && inPosition
     ? OMAHA_PRESSURE_IP_INDIFFERENCE_AGGRESSION_BIAS
     : undefined;
+}
+
+/**
+ * 2026-11-16 THE PRESSURE STYLE IS VISIBLE IN POSITION. Measured on the
+ * committed dials (census, same hands): most in-position flop and turn bets
+ * below the value bars are chosen by the EV engine (HorseLogic V38,
+ * evaluateSpot), not by the frequency dials above, so the dials barely moved
+ * what the pressure style did after the flop. These three are bounded biases
+ * on the INPUTS that engine already has, read only by the pressure style in
+ * position (every other case: none, the engine as today):
+ *
+ *   fold-equity prior   each opponent's fold multiplier (the MDF fold
+ *                       read, EvOpponentModel.foldMul) x OMAHA_PRESSURE_IP_FOLD_EQUITY_MUL,
+ *                       inside 0.75 to 1.25 like every style scale. It moves
+ *                       only the bet candidates' fold equity: the check is
+ *                       priced as today. The engine still clamps every fold
+ *                       share (mdfFold 0.4..1.8 on the read, 0.02..0.94 on the share).
+ *   tie-break band      the EV engine's indifference band for a candidate
+ *                       MORE aggressive than the best (a bet against a
+ *                       check) x OMAHA_PRESSURE_IP_TIE_BAND_MUL (at most x2:
+ *                       0.24 BB instead of 0.12 BB). The candidate must still
+ *                       sit inside the engine's mixing window, and the pick
+ *                       is still the engine's weighted mix.
+ *   raise-bar credit    before the flop, on the cutoff and button, the
+ *                       RAISE bars (first-in open and isolation, the value
+ *                       3-bet) are lowered by OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT
+ *                       (at most 0.04 on the hand-strength scale, the
+ *                       share-shift bound of the scope note), and the value
+ *                       re-raise tightness is at its 0.75 bound; the CALL bars
+ *                       (cold call, call of a re-raise, call-off) stay at
+ *                       today's width (PreflopCtx.styleCallTightness), so the
+ *                       added entries are re-raises, not flat calls.
+ *
+ * Realisation (realizationFactor) is NOT biased: it prices the check and the
+ * bet alike, so a style credit there would not favour the bet.
+ */
+export const OMAHA_PRESSURE_IP_FOLD_EQUITY_MUL = 1.25;
+export const OMAHA_PRESSURE_IP_TIE_BAND_MUL = 2;
+export const OMAHA_PLAY_STYLE_TIE_BAND_MUL_MAX = 2;
+export const OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT = 0.04;
+export const OMAHA_PLAY_STYLE_ENTRY_BAR_CREDIT_MAX = 0.04;
+
+/** The fold-equity prior multiplier of this decision, or undefined (none). */
+export function omahaPlayStyleFoldEquityMul(
+  style: HorsePlayStyle,
+  inPosition: boolean
+): number | undefined {
+  if (style !== 'pressure' || !inPosition) return undefined;
+  return Math.max(
+    OMAHA_PLAY_STYLE_MUL_MIN,
+    Math.min(OMAHA_PLAY_STYLE_MUL_MAX, OMAHA_PRESSURE_IP_FOLD_EQUITY_MUL)
+  );
+}
+
+/** The aggressive-candidate tie-break band multiplier of this decision, or undefined (none). */
+export function omahaPlayStyleTieBandMul(
+  style: HorsePlayStyle,
+  inPosition: boolean
+): number | undefined {
+  if (style !== 'pressure' || !inPosition) return undefined;
+  return Math.max(1, Math.min(OMAHA_PLAY_STYLE_TIE_BAND_MUL_MAX, OMAHA_PRESSURE_IP_TIE_BAND_MUL));
+}
+
+/** The preflop entry-bar credit of this decision (a bar decrease, >= 0), or undefined (none). */
+export function omahaPlayStyleEntryBarCredit(
+  style: HorsePlayStyle,
+  late: boolean
+): number | undefined {
+  if (style !== 'pressure' || !late) return undefined;
+  return Math.max(
+    0,
+    Math.min(OMAHA_PLAY_STYLE_ENTRY_BAR_CREDIT_MAX, OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT)
+  );
 }

@@ -2666,6 +2666,35 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTurnRiverRaiseNeedsNuts: true },
     b: {},
   })),
+  // 2026-11-16 OMAHA MULTIWAY AND BLUFF DISCIPLINE (HorseOmahaMultiwayDiscipline,
+  // three options, each default OFF, one card per game each): the multiway
+  // river call priced against every continuing range, no river bluff into a
+  // measured value leader who showed strength, and no multiway turn or river
+  // bet with one pair or less and no nut-class draw. Six-max (the spots are
+  // multiway), the live cash Hybrid persona (hybridBaseline) and the
+  // deal-seeded mood clock; a switches the option on, b is today's brain.
+  // The mirror's memory learning is on (the league default), so the value
+  // leader read and the measured fold rates can engage. The cards only
+  // measure; no evaluation has been run.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    [
+      {
+        slug: 'multiway_river_call_needs_strength',
+        a: { omahaMultiwayRiverCallNeedsStrength: true },
+      },
+      { slug: 'no_river_bluff_into_value_leader', a: { omahaNoRiverBluffIntoValueLeader: true } },
+      { slug: 'multiway_weak_hand_no_bet', a: { omahaMultiwayWeakHandNoBet: true } },
+    ].map(({ slug, a }) => ({
+      name: `${variant}_omaha_${slug}`,
+      variant,
+      seats: 6,
+      pairs: 6000,
+      hybridBaseline: true,
+      moodClock: 'deal_seed' as const,
+      a,
+      b: {},
+    }))
+  ),
   // 2026-11-17 THE OMAHA PRICED RULES (owner 11:49: "there should not be any
   // blanket rules ... they must all be done by math"; HorseOmahaPricedRules,
   // ten default-OFF options). Each option replaces one family of categorical
@@ -2707,6 +2736,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStreetPlan: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STREET PLAN, the flop, the turn three-way and the
+  // preflop stack-to-pot layers (HorseOmahaStreetPlan, owner 11:43, each
+  // default OFF, switched separately). a switches one on, b is today's brain;
+  // the live cash Hybrid persona on both arms (hybridBaseline). Declared, not
+  // run: the constants are unmeasured.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    (
+      [
+        ['omaha_street_plan_flop', { omahaStreetPlanFlop: true }],
+        ['omaha_street_plan_three_way', { omahaStreetPlanThreeWay: true }],
+        ['omaha_preflop_stack_plan', { omahaPreflopStackPlan: true }],
+      ] as const
+    ).map(([card, a]) => ({
+      name: `${variant}_${card}`,
+      variant,
+      pairs: 6000,
+      hybridBaseline: true,
+      a: { ...a },
+      b: {},
+    }))
+  ),
   // 2026-11-15 (default OFF, switched separately): a 3-bet or 4-bet out of
   // position (omahaReraiseRangeOutOfPosition) or from early position
   // (omahaReraiseRangeEarlyPosition) needs suited aces, committed aces or a
@@ -2793,6 +2843,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaStrongHandSlowplayMix: true },
+    b: {},
+  })),
+  // 2026-11-16 OMAHA BET SIZE BY PUBLIC STATE (horsePublicBetSize, default
+  // OFF): the size of an own postflop bet or raise comes from public
+  // information only; a switches it on, b is today's brain. The league's
+  // opponents do not read sizes, so this card asks only whether the public
+  // sizes cost chips, not whether they close the tell.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bet_size_by_public_state`,
+    variant,
+    pairs: 6000,
+    hybridBaseline: true,
+    a: { omahaBetSizeByPublicState: true },
     b: {},
   })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.

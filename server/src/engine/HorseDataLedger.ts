@@ -656,6 +656,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Owner order 2026-11-15 (timing tell): every Horse think time, every variant and format, comes from horsePublicActionTimeMs: street, board, pot, price, stacks, players, the action shown, the seat tempo persona and a random stream of its own; the private difficulty hint, the hold'em made-hand Hollywood trigger and the strategy random stream no longer reach it. Default OFF (opt-in): only an explicit true switches it on",
     'V94'
   ),
+  flag(
+    'omahaBetSizeByPublicState',
+    "PLO Strategy lane 2026-11-16 (owner 2026-11-15: \"HE GETS THEM TO FOLD WHEN HE WANTS A FOLD, AND GETS A CALL WHEN HE WANTS A CALL\"; bet size measured as a tell, sizing-20261116/MEASURE.md): in PLO4/PLO5 cash, pot limit, high only, one board, not Lightning, the size of the Horse's own postflop bet or raise comes from horsePublicBetSize on public information only (street, board class, pot, the seat's chips, legal bounds, opponents, position, the heads-up opponent's measured fold-to-bet read) and a random stream of its own, as the last step of the wager_rules node, so every hand the engine bets in one public spot draws from one size distribution. Bet or check, raise or call stay the engine's; a check, call, fold or all-in is never touched; a size that commits 60% or more of the chips becomes the largest legal wager for every betting hand (every chip is the all-in); with omahaNutClassValueSize on, a nut-class wager keeps that option's size. Every constant is a builder's choice, none measured. Default OFF (opt-in): only an explicit true switches it on",
+    'V94'
+  ),
   flag('v9Mood', 'hourly mood gear-shift per horse', 'V9'),
   flag('v10', 'V10 master: c-bet read, SPR, rake, thin value, limp iso', 'V10'),
   flag('v10Cbet', 'range-advantage c-bet read', 'V10'),
@@ -1040,6 +1045,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayRiverCallNeedsStrength',
+    '2026-11-16 (full sweep 2026-11-15 family R: 19 multiway river calls without the nuts, -1,987 bb): PLO4/PLO5 cash, one board, high only, the river, facing a bet with at least one other opponent live beside the bettor (a caller in front, an earlier all-in or a player still to act), a hand that is not nut class: a call or a raise becomes the multiway exact-hand verdict, the HorseOmahaFacingBetEv EV against the bettor (measured read, else the population prior) times the chance of beating every other continuing range (caller 0.35, behind 0.25, all-in 0.5 of all holdings, a caller or player behind moved by his measured river-call rate against 0.39; ranges independent): a call when EV clears the facing-bet margin (2% of the final pot), else a fold; never a raise; a fold stays a fold (HorseOmahaMultiwayDiscipline.ts). In the owner-ruled chain (omahaOwnerRuledFinal). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaNoRiverBluffIntoValueLeader',
+    '2026-11-16 (pricingfix 2026-11-15: in-position river bets into a measured value leader, states 65, 487, 591): PLO4/PLO5 cash, the river, nothing to call, a bet with a hand below the showdown-value line (wins or ties against under 0.5 of all holdings, exact count; stated, not measured), not nut class, no nut blocker (the v86 nut-blocker bluff keeps its spots), with a live opponent who is a measured postflop value leader (omahaReadConditionalOf) and bet, raised or called an earlier postflop street: the bet becomes a check unless the fold-equity EV comparison (his measured river-call rate, else the population prior 0.60; a shown range of 0.5 of holdings times the line factors, stated) says the bet beats the check by 2% of the pot. In and out of position, heads-up and multiway (HorseOmahaMultiwayDiscipline.ts). Owner-ruled check (omahaOopCheckRules, kept outermost by omahaOwnerRuledFinal). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaMultiwayWeakHandNoBet',
+    '2026-11-16 (full sweep 2026-11-15 families D2 and B1b): PLO4/PLO5 cash, the turn and the river, nothing to call, two or more live opponents, a bet with one pair or less (omahaOnePairOrLess), not nut class, on the turn no nut-class draw (four or more nut-class outs, omahaNutClassOuts) and no combo draw (omahaComboDrawForRaise): the bet becomes a check unless the EV comparison against every live opponent range (exact counts; measured fold rate, else the priors 0.60 river and 0.31 turn; ranges independent) says the bet beats the check by 2% of the pot (HorseOmahaMultiwayDiscipline.ts). Owner-ruled check (omahaOopCheckRules, kept outermost by omahaOwnerRuledFinal). The PLO4/PLO5 counterpart of plo6NoMultiwayBetWithWeakMadeHand; PLO6 untouched. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaVpipFloorByLimp',
     "Owner 2026-11-15 11:35 (hand 59518335, PLO5 cash, a 50% VPIP floor table; a limp and a fold is VPIP, the Horses are not to put in a lot of chips and raise just to meet the floor): the table's VPIP floor multiplies the style tightness and with it every preflop bar, so hands that fold on an unfloored table open-raised, 3-bet and shoved. With this on (PLO4/PLO5 cash, the floor unmet) the decision is also taken without the floor: a raise only the floor makes becomes the limp (or the small blind's completion) unopened, and facing a raise the unfloored call, a call at the call-down's cheap price, or the fold; having limped, the hand folds to a raise unless it clears the ordinary calling bar. A raise the unfloored brain makes is unchanged. The Horse aims three hands of the judged window above the stated floor (60% on a 50% table judged over thirty hands) instead of the standard-error target (70.6%), and under that aim the cheap call or limp is certain. Default off (opt-in) until its declared evaluation passes.",
     'V94'
@@ -1067,6 +1087,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaStreetPlan',
     'Owner 2026-11-15 11:43 (Horses must plan the next street and protect the stack): PLO4/PLO5 cash, heads-up, one board, high only. A turn bet facing no wager is priced against the check as a whole line: the opponent fold / call / raise shares (range by his line, measured tendencies, a population prior otherwise), every unseen river card exactly and the Horse own planned river action on each; the bet becomes a check when the check line is worth more by 2% of the pot. On the river, facing a bet after that turn bet was called, the plan is recomputed from the public history and the paired-board fold stands aside where the plan calls. No engine random number (HorseOmahaStreetPlan.ts). First layer: the flop and the preflop stack-to-pot check are not built. Default OFF (read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_street_plan',
+    'V94'
+  ),
+  flag(
+    'omahaStreetPlanFlop',
+    'Owner 2026-11-15 11:43 (Horses always think about future streets, plan ahead, protect and grow the stack; no blanket rules): PLO4/PLO5 cash, heads-up, one board, high only. A flop bet facing no wager is priced against the check, and against the smaller sizes of the engine menu, as two-street lines: the opponent fold / call / raise (his preflop line, measured tendencies, a population prior otherwise), the turn card by texture class (eight representative cards weighted by their exact share, each good / neutral / bad by the equity change), the planned turn action per class by the turn layer line model and eight sampled rivers under each. A line that commits the stack (stack-to-pot after the call at or under 1.5) with a hand that folds to the expected raise or continues on under 65% of turn cards is not made; otherwise the bet stands only when it beats the check line by 2% of the pot, and a smaller size replaces the engine size only when it beats it by the same margin. Only a bet becomes a check or a smaller bet. The owner flop checks stay final. No engine random number (HorseOmahaStreetPlan.ts). Default OFF (read === true); constants unmeasured, evaluation NOT RUN; league cards plo4/plo5 _omaha_street_plan_flop',
+    'V94'
+  ),
+  flag(
+    'omahaStreetPlanThreeWay',
+    'Owner 2026-11-15 11:43: the turn street plan for exactly two live opponents (PLO4/PLO5 cash, one board, high only). Each opponent has his own independent range and measured tendency; a turn bet facing no wager wins at once only when both fold, otherwise it must beat every caller at showdown on every river card (no river betting modelled three-way). The bet becomes a check when the check line is worth more by 2% of the pot. No engine random number (HorseOmahaStreetPlan.ts). Default OFF (read === true); constants unmeasured, evaluation NOT RUN; league cards plo4/plo5 _omaha_street_plan_three_way',
+    'V94'
+  ),
+  flag(
+    'omahaPreflopStackPlan',
+    'Owner 2026-11-15 11:43 (protect the stack; hand, player, price and pot dependent): PLO4/PLO5, preflop, a call of a raise heads-up against the raiser that creates a stack-to-pot ratio under 3 is priced as the stack it commits: (equity against the raiser band - charge) x final pot - chips put in, against 0 for the fold; the charge is the engine realisation margin by position scaled by the ratio (halved for a nut-making hand: coordinated or a suited ace) plus 0.06 for a hand that makes mostly one pair. A negative value folds the call; only a call becomes a fold, never a wider range. Runs before the day 3-bet / 4-bet options, which keep precedence (HorseOmahaStreetPlan.ts). Default OFF (read === true); constants unmeasured, evaluation NOT RUN; league cards plo4/plo5 _omaha_preflop_stack_plan',
     'V94'
   ),
   flag(
@@ -1141,7 +1176,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'horsePlayStyles',
-    "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop entry bars by 0.75, the value re-raise bars by 0.90, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
+    "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop open and limp bars by 0.75, the value re-raise bars by 0.75, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and (2026-11-16) biases the EV engine's own in-position inputs: each opponent's fold-equity prior x1.25 on the bet candidates (the check priced as today), the indifference band x2 (0.24 BB) for a candidate more aggressive than the best, and before the flop keeps the call bars at today's width (cold call, call of a re-raise, call-off) while the raise bars (first-in open, isolation, value 3-bet) take a credit of 0.04 (the bound) and the value re-raise tightness x0.75 (the bound), so its added entries are re-raises, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
     'V94'
   ),
   flag(
@@ -4742,6 +4777,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_multiway_river_call_folded',
+    'HorseLogic wager_rules, owner-ruled chain (HorseOmahaMultiwayDiscipline, omahaMultiwayRiverCallNeedsStrength)',
+    'PLO4/PLO5 cash river facing a bet with another opponent live beside the bettor, not nut class: the multiway exact-hand EV of the call did not clear the facing-bet margin, so the call was folded (a raise is not touched)',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_river_call_folded_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaMultiwayRiverCallNeedsStrength)',
+    'the multiway river verdict folded a call and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_river_bluff_into_value_leader_checked',
+    'HorseLogic wager_rules, owner-ruled check (HorseOmahaMultiwayDiscipline, omahaNoRiverBluffIntoValueLeader)',
+    'PLO4/PLO5 cash river bet facing no wager with a hand below the showdown-value line and no nut blocker, a measured postflop value leader live who showed strength this hand: the fold-equity EV did not favour the bet, so it was checked',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_river_bluff_into_value_leader_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaNoRiverBluffIntoValueLeader)',
+    'the river bluff into a measured value leader was checked and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_weak_hand_bet_checked',
+    'HorseLogic wager_rules, owner-ruled check (HorseOmahaMultiwayDiscipline, omahaMultiwayWeakHandNoBet)',
+    'PLO4/PLO5 cash turn or river bet facing no wager with two or more live opponents, one pair or less, no nut-class or combo draw: the EV against the opponent ranges did not favour the bet, so it was checked',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_weak_hand_bet_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaMultiwayDiscipline, omahaMultiwayWeakHandNoBet)',
+    'the multiway weak-hand bet was checked and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
     'omaha_bare_overpair_oop_flop_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck)',
     'PLO4/PLO5 cash flop bet out of position by the last preflop aggressor with a bare big pair (a pocket overpair, or pocket queens or better with at most one overcard on the flop; one pair made, no flush draw, under eight straight outs): turned into a check',
@@ -4940,6 +5011,66 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_street_plan_flop_checked',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'PLO4/PLO5 cash heads-up flop bet facing no wager whose two-street line (opponent responses, the turn by card class with the planned turn action, sampled rivers) did not beat the check line by 2% of the pot: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_commit_avoided',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the same flop bet turned into a check where the bet line commits the stack (stack-to-pot after the call at or under 1.5) with a hand that folds to the expected raise or continues on under 65% of turn cards, and no smaller size of the engine menu was worth making',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_resized',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the same flop bet made at a smaller size of the engine menu whose line beat the engine size by 2% of the pot (or the engine size commits without a plan)',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the flop plan turned a flop bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_commit_avoided_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the flop plan turned a committing flop bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_resized_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the flop plan made a flop bet smaller and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_three_way_checked',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanThreeWay)',
+    'PLO4/PLO5 cash turn bet facing no wager with exactly two live opponents whose three-way line (both must fold, or the Horse must beat every caller on every river card) was worth less than the check line by more than 2% of the pot: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_three_way_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanThreeWay)',
+    'the three-way turn plan turned a turn bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_stack_plan_folded',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaPreflopStackPlan; first inside omahaOopReraisedPotStrongRange)',
+    'PLO4/PLO5 preflop call of a raise heads-up against the raiser that creates a stack-to-pot ratio under 3 and whose committed-stack value (equity against his band less the playability charge) is negative: turned into a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_stack_plan_folded_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaPreflopStackPlan)',
+    'the preflop stack plan turned a call into a fold and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
     'omaha_big_draw_aggression_raise',
     'HorseLogic wager_rules (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
     'PLO4/PLO5 cash flop or turn call with a declared big draw whose pot-sized raise (or stack) was priced above the call: raised',
@@ -4970,6 +5101,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_big_draw_aggression_final_check_unpriced',
+    'HorseLogic wager_rules (HorseOmahaBigDrawAggression.omahaBigDrawVerdict finalCheckVetoes, omahaBigDrawAggression)',
+    'a check with a declared big draw after an owner-ruled, discipline or street-plan check in the same decision, where the one bet the rule could make would be replaced by that check in the final decision (omahaOwnerRuledFinal): the bet was not priced (no equity count) and the check stands, the decision the veto would have given',
+    'V94'
+  ),
+  receipt(
     'omaha_no_draw_raise_ft_semibluff',
     'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
     'PLO4/PLO5 cash flop or turn, the baseline flop/turn semi-bluff raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',
@@ -4994,21 +5131,51 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
-    'horse_play_style_tight_seen',
-    'HorseLogic decideInternal (HorsePlayStyle, HorseOmahaPlayStyle, horsePlayStyles)',
-    'a decision by a Horse whose playing style is tight at a table where the tight style applies (PLO4/PLO5 cash, deeper than 50 bb, no VPIP floor above its expected VPIP): the preflop bars and the bluff volume carried the tight scales',
+    'horse_play_style_tight',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a Horse whose playing style is tight, at a table where the tight style applies (PLO4/PLO5 cash, deeper than 50 bb, no VPIP floor above its expected VPIP): the preflop entry bars and the bluff volume carried the tight scales. Read per style with the Horse id joined to horsePlayStyleFor (server/scripts/horse-play-style-for.ts)',
     'V94'
   ),
   receipt(
-    'horse_play_style_pressure_seen',
-    'HorseLogic decideInternal (HorsePlayStyle, HorseOmahaPlayStyle, horsePlayStyles)',
-    'a decision by a Horse whose playing style is pressure at a table where the style applies (PLO4/PLO5 cash, deeper than 50 bb): in position the preflop bars, the bluff volume and the aggression carried the pressure scales, out of position nothing changed',
+    'horse_play_style_current',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    "per-style tracking (2026-11-16): a decision with horsePlayStyles on by a Horse whose playing style is current (today's play, nothing scaled); counted in every game, the control arm of the per-style reads",
     'V94'
   ),
   receipt(
-    'horse_play_style_table_fallback_seen',
-    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleFallback, horsePlayStyles)',
-    'a decision by a tight or pressure Horse that played the current style because of the table: a tournament, Lightning, 50 bb effective or less, a game with no mapping, or (tight only) a VPIP floor above the tight expected VPIP',
+    'horse_play_style_pressure',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    "per-style tracking (2026-11-16): a decision with horsePlayStyles on by a Horse whose playing style is pressure, at a table where the style applies (PLO4/PLO5 cash, deeper than 50 bb): in position the preflop entry bars (tightness scale and entry-bar credit), the bluff volume, the aggression, the c-bet frequency and the EV engine's fold-equity prior and aggressive tie-break band carried the pressure biases; out of position nothing changed",
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_floor_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a VPIP floor above the tight style expected VPIP (tight only); named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_tournament_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a tournament hand; named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_lightning_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a Lightning table; named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_short_stack_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: 50 bb effective or less; named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_unmapped_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    "per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a game with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); named *_seen (occurrence, its quiet days are normal)",
     'V94'
   ),
   receipt(
@@ -5239,6 +5406,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_facing_inputs_changed_to_fold',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaFacingBetRangeIsContinuous and omahaBluffShareFromBetRate)',
     'the same verdict is a fold where the stepped tables and the label cap give a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_applied',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    'PLO4/PLO5 cash postflop, the final answer an own bet or raise: its size was replaced by the public-state size (horsePublicBetSizeTo), legalized, the action kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_unchanged',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    'PLO4/PLO5 cash postflop, an own bet or raise whose size already equals the public-state size after legalizing (valid no-change)',
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_committed',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    "PLO4/PLO5 cash postflop, the public-state size would put 60% or more of the seat's chips in: the bet or raise became the largest legal wager, every chip, an all-in",
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_nut_class_kept',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    "PLO4/PLO5 cash postflop, omahaNutClassValueSize on and a nut-class hand: that owner option's wager size stands (valid no-change)",
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_illegal_kept',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    "PLO4/PLO5 cash postflop, the public-state size did not legalize to the same action: the engine's own decision stands (valid no-change)",
     'V94'
   ),
   receipt(

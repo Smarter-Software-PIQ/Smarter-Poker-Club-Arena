@@ -329,6 +329,29 @@ export interface PreflopCtx {
    * decision without the option, and the current style): `tightness`.
    */
   valueRaiseTightness?: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle.omahaPlayStyleEntryBarCredit, default
+   * off, 2026-11-16): the pressure style on the cutoff and button lowers the
+   * RAISE bars (first-in open and isolation, the value 3-bet) by this much
+   * (0..0.04). No call bar and no 4-bet bar reads it. Absent on every other
+   * decision: nothing is subtracted.
+   */
+  styleEntryBarCredit?: number;
+  /**
+   * horsePlayStyles (2026-11-16): the tightness the CALL bars read (cold call,
+   * call of a re-raise, call-off) when the style keeps them at today's width
+   * (the pressure style on the cutoff and button). Absent: `tightness`.
+   */
+  styleCallTightness?: number;
+  /**
+   * horsePlayStyles (wave two, 2026-11-16): the tightness and aggression the
+   * 4-BET node reads (the re-raise facing a re-raise: its value bar, the
+   * floor's unfloored bar and the jam bar) when the style keeps that node at
+   * today's width (the pressure style on the cutoff and button, whose 3-bet
+   * widening must not widen its 4-bets). Absent: as before.
+   */
+  styleFourBetTightness?: number;
+  styleFourBetAggression?: number;
   bluffFreq: number;
   aggression: number;
   slowplayFreq: number;
@@ -1712,18 +1735,54 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // achievable hand is not "tight", it is a dead branch.
   const BAR_CAP = 0.965;
   const capBar = (x: number) => Math.min(BAR_CAP, clamp01(x));
+  // horsePlayStyles (2026-11-16): the pressure style's entry-bar credit, only
+  // when the style supplied one. It lowers the RAISE bars (first-in open,
+  // isolation, the value 3-bet) and never a call bar; the call bars read
+  // `styleCallTightness` (today's tightness) when the style supplied it, so a
+  // pressure Horse's added entries are raises, not flat calls.
+  const entryCredit =
+    ctx.styleEntryBarCredit !== undefined && Number.isFinite(ctx.styleEntryBarCredit)
+      ? Math.max(0, Math.min(0.04, ctx.styleEntryBarCredit))
+      : undefined;
+  const callTightness =
+    ctx.styleCallTightness !== undefined && Number.isFinite(ctx.styleCallTightness)
+      ? ctx.styleCallTightness
+      : ctx.tightness;
   const t = (x: number) => capBar(x * ctx.tightness + ctx.riskAdd);
-  const tCall = (x: number) => capBar(x * ctx.tightness + riskScaled);
+  const tCall = (x: number) => capBar(x * callTightness + riskScaled);
   // V53: a bar priced by the action's own ICM cost instead of the flat
   // premium. Absent the read, exactly t() / tCall().
   const ploIcm = ctx.ploIcm;
   // horsePlayStyles: the value re-raise bars read their own tightness when
   // the playing style supplied one; absent, exactly ctx.tightness.
   const valueTightness = ctx.valueRaiseTightness ?? ctx.tightness;
-  const tv = (x: number) => capBar(x * valueTightness + ctx.riskAdd);
+  // The 4-bet node's own tightness and aggression when the style keeps it at today's width.
+  const fourBetTightness =
+    ctx.styleFourBetTightness !== undefined && Number.isFinite(ctx.styleFourBetTightness)
+      ? ctx.styleFourBetTightness
+      : valueTightness;
+  const fourBetAggression =
+    ctx.styleFourBetAggression !== undefined && Number.isFinite(ctx.styleFourBetAggression)
+      ? ctx.styleFourBetAggression
+      : ctx.aggression;
+  const tv = (x: number) =>
+    entryCredit !== undefined
+      ? capBar(x * valueTightness + ctx.riskAdd - entryCredit)
+      : capBar(x * valueTightness + ctx.riskAdd);
   const t53 = (x: number, family: keyof OmahaPressureShifts): number => {
+    const value = family === 'threeBet' || family === 'fourBet';
+    const call = family === 'call' || family === 'commitCall';
     const tightness =
-      family === 'threeBet' || family === 'fourBet' ? valueTightness : ctx.tightness;
+      family === 'fourBet'
+        ? fourBetTightness
+        : value
+          ? valueTightness
+          : call
+            ? callTightness
+            : ctx.tightness;
+    const raise = family === 'open' || family === 'threeBet';
+    if (entryCredit !== undefined && raise)
+      return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd) - entryCredit);
     return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd));
   };
   // No-limit hold'em only: the closed all-in exception and the 4-bet-node
@@ -1817,7 +1876,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     (noLimitHoldem || (unblocked86 && ctx.isOmaha)) &&
     (ctx.effectiveStackBB ?? Infinity) <= CLOSED_ALL_IN_MAX_EFFECTIVE_BB;
   const tCall53 = (x: number): number =>
-    ploIcm ? capBar(x * ctx.tightness + ploIcm.call) : tCall(x);
+    ploIcm ? capBar(x * callTightness + ploIcm.call) : tCall(x);
   // V35: the game's own width. Zero for hold'em and for every ablation.
   const base35 = ctx.variantShift ?? { open: 0, threeBet: 0, fourBet: 0, coldCall: 0, bbDefend: 0 };
   // V46: the class shift rides on top of the variant shift, in the same
@@ -3960,7 +4019,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     const deepT =
       ctx.deepDiscipline === true && stackBB > 120 ? Math.min(0.05, (stackBB - 120) / 2600) : 0;
     let fourBetThresh = phase6CapBar(
-      t53(0.93 - (ctx.aggression - 1) * 0.04, 'fourBet') -
+      t53(0.93 - (fourBetAggression - 1) * 0.04, 'fourBet') -
         0.04 * hunted3 -
         0.03 * sq +
         deepT +
@@ -4076,8 +4135,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ? ctx.vpipFloorMul
         : 1;
     const unflooredBar91 = (x: number): number =>
-      capBar((x * ctx.tightness) / floorMul91 + (ploIcm ? ploIcm.fourBet : ctx.riskAdd));
-    const fourBetBase91 = 0.93 - (ctx.aggression - 1) * 0.04;
+      capBar(
+        (x * (ctx.styleFourBetTightness ?? ctx.tightness)) / floorMul91 +
+          (ploIcm ? ploIcm.fourBet : ctx.riskAdd)
+      );
+    const fourBetBase91 = 0.93 - (fourBetAggression - 1) * 0.04;
     const floorDelta91 =
       floorMul91 < 1
         ? Math.max(0, unflooredBar91(fourBetBase91) - t53(fourBetBase91, 'fourBet'))
@@ -4338,8 +4400,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // balanced line. The ICM premium (riskAdd / the V53 family shift) and
       // the V21 deep scale still apply in full. Hold'em only: Omaha keeps its
       // own calibration on this node.
+      const tightness5 = ctx.styleFourBetTightness ?? ctx.tightness;
       const tight5 =
-        noLimitHoldem || (unblocked86 && ctx.isOmaha) ? Math.min(1, ctx.tightness) : ctx.tightness;
+        noLimitHoldem || (unblocked86 && ctx.isOmaha) ? Math.min(1, tightness5) : tightness5;
       const t5 = (x: number, family: keyof OmahaPressureShifts): number =>
         capBar(x * tight5 + (ploIcm ? ploIcm[family] : ctx.riskAdd));
       const jamBar5 = Math.min(0.98, 0.95 + deepT);

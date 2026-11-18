@@ -228,6 +228,7 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
         'omahaBareOverpairOopFlopCheck',
         'omahaBeatenMadeHandDefense',
         'omahaMadeHandDefenseVsValueLeader',
+        'omahaNoRiverBluffIntoValueLeader',
         'omahaOnePairDiscipline',
         'omahaReraisedPotFlopContinueNeedsEquityShape',
         'omahaRiverNutBlockerBluffReachable',

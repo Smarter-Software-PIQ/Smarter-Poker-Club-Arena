@@ -115,3 +115,36 @@ export function horsePlayStyleAtTable(
 ): HorsePlayStyle {
   return horsePlayStyleFallback(style, table) === null ? style : 'current';
 }
+
+/**
+ * PER-STYLE TRACKING (2026-11-16). The receipt one decision counts when
+ * horsePlayStyles is on (registered in HorseDataLedger), so the decisions of
+ * each style can be read per day in production (horse_brain_telemetry, and the
+ * per-decision upgrade evidence of horse_brain_flush_receipts):
+ *
+ *   horse_play_style_tight / _current / _pressure     the style in force
+ *   horse_play_style_fallback_current_<reason>_seen   a tight or pressure
+ *       Horse played the current style because of the table: floor (a VPIP
+ *       floor above the tight expected VPIP), tournament, lightning,
+ *       short_stack (50 bb or less), unmapped (a game with no mapping)
+ *
+ * A decision's result is read per style offline by joining the Horse id to
+ * horsePlayStyleFor (server/scripts/horse-play-style-for.ts).
+ */
+export const HORSE_PLAY_STYLE_FALLBACK_REASON: Readonly<Record<HorsePlayStyleFallback, string>> =
+  Object.freeze({
+    vpip_floor: 'floor',
+    tournament: 'tournament',
+    lightning: 'lightning',
+    short_stack: 'short_stack',
+    unmapped_game: 'unmapped',
+  });
+
+export function horsePlayStyleReceipt(
+  assigned: HorsePlayStyle,
+  fallback: HorsePlayStyleFallback | null
+): string {
+  if (fallback !== null)
+    return `horse_play_style_fallback_current_${HORSE_PLAY_STYLE_FALLBACK_REASON[fallback]}_seen`;
+  return `horse_play_style_${assigned}`;
+}

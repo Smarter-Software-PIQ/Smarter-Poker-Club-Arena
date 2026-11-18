@@ -22,10 +22,7 @@
  *   - ownerNoticeWaiver is the exact instruction above;
  *   - ownerOrder contains the exact instruction;
  *   - it carries no playerNoticeAt (a waived window never claims a notice);
- *   - it closes no later than OWNER_NOTICE_WAIVER_VALID_UNTIL, the routine
- *     03:30 America/Chicago preparation of November 18. Until then a lapsed
- *     booking of this same release can be rebooked on it; from the next daily
- *     break on, no window can use it.
+ *   - it has a real ISO notAfter (no expiry: standing order, see below).
  * Anything else that carries an ownerNoticeWaiver field is refused.
  */
 export const OWNER_NOTICE_WAIVER_INSTRUCTION =
@@ -33,15 +30,16 @@ export const OWNER_NOTICE_WAIVER_INSTRUCTION =
   'player-warning announcement or notice countdown. Preserve safe hand completion, settlement, ' +
   'certification, admission, recovery and live verification.';
 
-/** Review note N1 (2026-11-17): the waiver is spent on the one window the owner's order produced.
- * The booking gate refuses any OTHER record carrying ownerNoticeWaiver, even before the expiry:
- * a new release without advance notice needs a new owner order and a code change. */
-export const OWNER_NOTICE_WAIVER_WINDOW_ID = '2026-11-17-owner-no-notice-engine-2330z';
+/**
+ * STANDING ORDER (Dan, 2026-11-17 20:23 America/Chicago, verbatim): "REMOVE THE
+ * ANNOUNCEMENT, I NEVER ASKED FOR IT, AND DON'T WANT IT APART OF ANY FUTURE ENGINE
+ * CUT OVER REQUIREMENTS EVER AGAIN! GET THIS CUT OVER AT THE EARLIEST POSSIBLE TIME!"
+ * The one-release expiry (2026-11-18T09:30Z) and the single-window pin of #11238
+ * are retired: every engine window may carry the waiver, and the booking command
+ * books without an advance notice by default.
+ */
 
-/** The next routine preparation (03:30 America/Chicago, November 18): no window closing after it may use the waiver. */
-export const OWNER_NOTICE_WAIVER_VALID_UNTIL = '2026-11-18T09:30:00Z';
-
-/** True only for an engine window that carries the exact, unexpired owner waiver. */
+/** True only for an engine window that carries the exact owner waiver and a real closing instant. */
 export function ownerNoticeWaived(w, collection = 'windows') {
   if (collection !== 'windows' || !w || typeof w !== 'object') return false;
   const closes = typeof w.notAfter === 'string' ? Date.parse(w.notAfter) : NaN;
@@ -50,8 +48,7 @@ export function ownerNoticeWaived(w, collection = 'windows') {
     !('playerNoticeAt' in w) &&
     typeof w.ownerOrder === 'string' &&
     w.ownerOrder.includes(OWNER_NOTICE_WAIVER_INSTRUCTION) &&
-    Number.isFinite(closes) &&
-    closes <= Date.parse(OWNER_NOTICE_WAIVER_VALID_UNTIL)
+    Number.isFinite(closes)
   );
 }
 
@@ -61,7 +58,6 @@ export function ownerNoticeWaiverProblem(w, collection = 'windows') {
   if (ownerNoticeWaived(w, collection)) return null;
   return (
     'ownerNoticeWaiver is accepted only on an engine window that carries the exact owner ' +
-    'instruction in ownerNoticeWaiver and ownerOrder, no playerNoticeAt, and a notAfter no later ' +
-    `than ${OWNER_NOTICE_WAIVER_VALID_UNTIL}`
+    'instruction in ownerNoticeWaiver and ownerOrder, no playerNoticeAt, and an ISO notAfter'
   );
 }
