@@ -42,9 +42,9 @@
  *    at an empty table starts it as before, and a person's move is never held;
  *  - a table that already has players. Filling, must-move into a Main,
  *    promotion, consolidation and closing are the cluster tick's, unchanged;
- *  - a seeded Lightning game's second ring (Dan 2026-11-17, "Fill each to
- *    10-12"): it keeps its starter rank and is never held, it only walks
- *    after a game that has nothing.
+ *  - a Lightning game's next ring, seeded (Dan 2026-11-17, "Fill each to
+ *    10-12") or started by a person: it keeps its rank and is never held, it
+ *    only walks after a game that has nothing.
  *
  * A game that cannot be started is not owed for ever. When the walk reaches an
  * owed table that the cap admits and seats nobody for a reason of that table's
@@ -68,7 +68,7 @@ export interface VarietyFirstInput<T extends VarietyTable> {
   seatedAt: (tableId: string) => number;
   /** Games Horses start on their own: the plan's games and the seeded Lightning games. */
   startGames: ReadonlySet<string>;
-  /** Seeded Lightning games: their empty tables are the pool's next ring and are never held. */
+  /** Lightning games: their empty tables are the pool's next ring and are never held. */
   neverHeldGames: ReadonlySet<string>;
   /** May Horses start this empty table now? The caller's whole admission policy except the cap. */
   mayStart: (table: T) => boolean;

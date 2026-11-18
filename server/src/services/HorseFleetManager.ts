@@ -2708,7 +2708,9 @@ export class HorseFleetManager {
         tables,
         seatedAt: (tableId) => (seatsByTable.get(tableId) ?? []).length,
         startGames: HORSE_STARTED_CASH_GAMES,
-        neverHeldGames: LIGHTNING_HORSE_SEEDED,
+        /* Every Lightning game: its empty tables are the pool's next ring,
+           seeded or started by a person. */
+        neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...(cashPlanLightningGames ?? [])]),
         restingGames: this.varietyStarts.resting(varietyNowMs),
         preferredStarts: new Set(lightningStarters.keys()),
         mayStart: (t) =>

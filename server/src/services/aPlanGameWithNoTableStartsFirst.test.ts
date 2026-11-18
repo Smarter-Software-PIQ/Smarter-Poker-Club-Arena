@@ -365,6 +365,10 @@ describe('the three doors a start is taken through all ask the one rule', () => 
   it('the walk does not start a held table, and only a start is withheld', () => {
     expect(fleet).toContain('if (hourly.startsGame && variety.heldStarts.has(table.id)) {');
     expect(fleet).toContain("if (diag) diag.withheld = 'variety_first';");
+    /* Never a Lightning game's next ring, seeded or started by a person. */
+    expect(fleet).toContain(
+      'neverHeldGames: new Set([...LIGHTNING_HORSE_SEEDED, ...(cashPlanLightningGames ?? [])]),'
+    );
   });
 
   it('a seat call does not start a held table', () => {
