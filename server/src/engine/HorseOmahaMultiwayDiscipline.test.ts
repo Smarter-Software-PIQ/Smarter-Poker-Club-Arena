@@ -617,6 +617,121 @@ describe('Omaha Multiway Weak Hand No Bet', () => {
   });
 });
 
+/** WEAK_TURN with seat 1 already all in (review N2 of #11211): he can neither fold nor call a bet. */
+const ALL_IN_TURN = (): Node => {
+  const st = WEAK_TURN();
+  for (const p of st.gs.players ?? [])
+    if (p.seat === 1) {
+      p.is_all_in = true;
+      p.stack = 0;
+    }
+  return st;
+};
+
+describe('Omaha Bet Against Check: An All-In Opponent Has No Fold Equity', () => {
+  const both = new Map([
+    [1, folder],
+    [2, folder],
+  ]);
+  it('The All-In Player Is Marked, Folds Nothing, And His Read Cannot Move The Price', () => {
+    const st = ALL_IN_TURN();
+    const opps = omahaBetVsCheckOpponents(st.hero, st.gs, 'turn', both);
+    const one = opps.find((o) => o.seat === 1)!;
+    expect(one.allIn).toBe(true);
+    expect(one.fold).toBe(0);
+    expect(opps.find((o) => o.seat === 2)!.allIn).toBeUndefined();
+    const withRead = omahaBetVsCheckEv(st.hero, st.gs, 30, opps)!;
+    const noRead = omahaBetVsCheckEv(
+      st.hero,
+      st.gs,
+      30,
+      omahaBetVsCheckOpponents(st.hero, st.gs, 'turn', new Map([[2, folder]]))
+    )!;
+    expect(withRead).toEqual(noRead);
+    expect(withRead.rows.find((r) => r.seat === 1)!.folds).toBe(0);
+  });
+
+  it('The Bet Is Priced With The Pot Won Only Past The All-In Range And The Side Bet Contested By The Others', () => {
+    const st = ALL_IN_TURN();
+    for (const bet of [10, 30, 51]) {
+      const ev = omahaBetVsCheckEv(
+        st.hero,
+        st.gs,
+        bet,
+        omahaBetVsCheckOpponents(st.hero, st.gs, 'turn', both)
+      )!;
+      const a = ev.rows.find((r) => r.seat === 1)!;
+      const o = ev.rows.find((r) => r.seat === 2)!;
+      const W = a.holdsRange;
+      const F = o.folds;
+      const wof = o.folds + (1 - o.folds) * o.holdsCalled;
+      const pot = st.gs.pot;
+      const want = F * W * pot + (wof - F) * (W * pot + bet) - (1 - wof) * bet;
+      // the rows are rounded to 4 places, the EV to cents
+      expect(Math.abs(ev.evBet - want)).toBeLessThan(0.05 + pot * 0.002);
+      expect(Math.abs(ev.evCheck - pot * W * o.holdsRange)).toBeLessThan(0.05 + pot * 0.002);
+      expect(ev.allFold).toBe(o.folds);
+    }
+  });
+
+  it('Counting The All-In Player As One Who Folds Overstated The Bet: The Same Seat With Chips Prices It Higher', () => {
+    const allIn = ALL_IN_TURN();
+    const chips = WEAK_TURN();
+    const evAllIn = omahaBetVsCheckEv(
+      allIn.hero,
+      allIn.gs,
+      30,
+      omahaBetVsCheckOpponents(allIn.hero, allIn.gs, 'turn', both)
+    )!;
+    const evChips = omahaBetVsCheckEv(
+      chips.hero,
+      chips.gs,
+      30,
+      omahaBetVsCheckOpponents(chips.hero, chips.gs, 'turn', both)
+    )!;
+    expect(evChips.bet).toBe(true);
+    expect(evAllIn.evBet).toBeLessThan(evChips.evBet);
+    expect(evAllIn.evCheck).toBe(evChips.evCheck);
+  });
+
+  it('With No Opponent Left Who Has Chips There Is Nothing To Price', () => {
+    const st = ALL_IN_TURN();
+    const opps = omahaBetVsCheckOpponents(st.hero, st.gs, 'turn', both).map((o) => ({
+      ...o,
+      allIn: true,
+      fold: 0,
+    }));
+    expect(omahaBetVsCheckEv(st.hero, st.gs, 30, opps)).toBeNull();
+  });
+
+  it('With No All-In Player The Price Is The Formula Of Before (Byte-Identical)', () => {
+    const st = WEAK_TURN();
+    const ev = omahaBetVsCheckEv(
+      st.hero,
+      st.gs,
+      30,
+      omahaBetVsCheckOpponents(st.hero, st.gs, 'turn', both)
+    )!;
+    let F = 1;
+    let wof = 1;
+    for (const r of ev.rows) {
+      F *= r.folds;
+      wof *= r.folds + (1 - r.folds) * r.holdsCalled;
+    }
+    const pot = st.gs.pot;
+    const want = F * pot + (wof - F) * (pot + 30) - (1 - wof) * 30;
+    expect(Math.abs(ev.evBet - want)).toBeLessThan(0.05 + pot * 0.002);
+  });
+
+  it('Every Decision With An All-In Opponent And The Option On Is Legal And Admitted', () => {
+    for (const reads of [undefined, () => folder]) {
+      const on = play(ALL_IN_TURN, WEAK, reads);
+      SEEDS.forEach((_, i) => expect(on.refusals[i]).toBeNull());
+      expect(on.next).toEqual(play(ALL_IN_TURN, {}, reads).next);
+    }
+  });
+});
+
 describe('Omaha Multiway And Bluff Discipline: All Three Together', () => {
   it('Never Leaves An Illegal Or Unadmitted Decision And Never Creates A Raise In Their Spots', () => {
     const builds: (() => Node)[] = [

@@ -266,8 +266,21 @@ describe('the commit-under-the-pot pair (HU-AUDIT-002)', { timeout: 300_000 }, (
   });
 
   it('both cards reach the rule: the arms diverge and nothing is illegal', async () => {
-    for (const card of [mirror(), twin()]) {
-      const r = await runMatchup(card, 1500, 20261112);
+    // 2026-11-15 (league fidelity, LeagueDecisionState.ts): the mirror is dealt
+    // at its own nightly size. Its 1500 pairs of seed 20261112 reached the rule
+    // in exactly one pair while the league handed the brain its reduced legacy
+    // state (1 of 1500 diverged, one commit_under_pot fire). The league now
+    // hands the brain the live decision state, the hands play differently, and
+    // that sample holds no such spot (0 of 1500, no fire). The rule is as
+    // reachable as before at the card's 6000 pairs: seed 20261112 diverges in
+    // 3 pairs (3 fires; legacy state 10 pairs, 5 fires) and seed 777001 in 16
+    // (6 fires; legacy 7 pairs, 5 fires). The twin's sample is unchanged.
+    const samples: Array<[LeagueMatchup, number]> = [
+      [mirror(), mirror().pairs ?? 6000],
+      [twin(), 1500],
+    ];
+    for (const [card, pairs] of samples) {
+      const r = await runMatchup(card, pairs, 20261112);
       expect(r.illegalActions).toBe(0);
       expect(r.truncatedStreets).toBe(0);
       expect(r.inert).not.toBe(true);

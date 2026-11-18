@@ -432,7 +432,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
     calls: {
       isTournamentMode: [10, 'pure read of the game state; chooses a receipt name'],
       omahaIsWager: [1, 'pure predicate on a decision'],
-      omahaSameWager: [2, 'pure predicate on two decisions'],
+      omahaSameWager: [3, 'pure predicate on two decisions'],
       omahaPlanLineUncommitted: [1, 'pure predicate on a plan line'],
       wagerBindingPassedShortAllIn: [1, 'pure predicate; chooses a receipt name'],
       holdemDrawPresent: [1, 'pure predicate on cards'],
@@ -441,7 +441,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'pure predicate on cards (hasRiverNuts), in the condition of a gated else-if; chooses a receipt',
       ],
       omahaProposeReceipt: [
-        19,
+        20,
         'queues a receipt (made / vetoed) settled against the final decision; the queue is cleared per decide',
       ],
       changed: [3, 'a local closure that only calls noteFire'],
@@ -463,6 +463,10 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
       withHorseDeepDiveCapture: [2, 'detaches the deep-dive collector for a counterfactual'],
       withBrainTelemetrySuspended: [1, 'pauses the counters for the tight-read counterfactual'],
       inSecondLookCapture: [1, 'the live test itself'],
+      noteDecisionRuleReceipt: [
+        6,
+        'BrainTelemetry: copies the action a receipted rule was given and the one it left into the open decision scope; records nothing inside a second-look capture (refused by name), never read before the decision is made',
+      ],
     },
     methods: {
       'bands.some': [1, 'pure read of a local array; chooses a receipt name'],
@@ -539,7 +543,7 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'asks the read for its receipt; the measured width is the same either way',
       ],
       'noteLayer: telemetryOn(opts)': [1, 'a counting callback handed to the preflop layer'],
-      'telemetry: telemetryOn(opts),': [4, 'passes the gate to a module that counts with it'],
+      'telemetry: telemetryOn(opts),': [5, 'passes the gate to a module that counts with it'],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
       tele: [1, 'the gate passed as an argument to a module that counts with it'],
       'tele: boolean': [

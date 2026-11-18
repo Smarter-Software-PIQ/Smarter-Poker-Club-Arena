@@ -306,6 +306,7 @@ import {
   type StyleShadowEngagement,
 } from '../HorseStyleShadow.js';
 import {
+  decisionRuleReceiptsSoFar,
   noteSecondLookFires,
   withBrainTelemetrySuspended,
   withDecisionFireScope,
@@ -3339,6 +3340,7 @@ export class HorseDecisionWorkerRuntime {
     const computeMs = Math.max(0, this.deps.now() - startedAt);
     this.deps.noteDecision(request.gameState.gameVariant || 'nlh', computeMs);
     try {
+      const ruleReceipts = decisionRuleReceiptsSoFar();
       if (this.deps.journalEnabled?.() ?? true)
         this.deps.journalDecision?.(request, {
           snapshot: request.savedProfilePresence
@@ -3364,6 +3366,11 @@ export class HorseDecisionWorkerRuntime {
           runtimePins: 'incomplete',
           replayState,
           lifecycleVersion: 1,
+          // RULE RECEIPTS (2026-11-15): each receipted rule that changed this decision, with the action it was
+          // given and the action it left, in order (BrainTelemetry.noteDecisionRuleReceipt). This record's fence
+          // names the table and hand, so every such firing can be opened at the hand. Absent when no receipted
+          // rule changed the decision: every other record is byte for byte what it was.
+          ...(ruleReceipts ? { ruleReceipts } : {}),
         });
     } catch {
       this.deps.noteFeature('phase15_journal_capture_unavailable');

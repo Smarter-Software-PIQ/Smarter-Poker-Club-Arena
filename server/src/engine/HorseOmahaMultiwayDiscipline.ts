@@ -86,6 +86,20 @@
  *   EV(check)  = pot x prod_j s_j
  * The bet stands when EV(bet) > EV(check) + margin x pot.
  *
+ * ALL-IN OPPONENTS (2026-11-18, review N2 of #11211). A player already all in
+ * cannot fold and cannot call: the bet has no fold equity against him and
+ * its chips are contested only by the players who still have chips. With A
+ * the all-in players (s_a against each one's whole range, W = prod_a s_a) and
+ * j over the others only:
+ *   EV(bet B)  = F x W x pot + (prod_j (...) - F) x (W x pot + B)
+ *                - (1 - prod_j (...)) x B
+ * (everyone with chips folds: the bet comes back and the pot goes to the best
+ * hand against the all-in players; a caller beaten: the side bet is won and
+ * the pot only if the all-in players are beaten too; a caller ahead: both
+ * are lost). With no all-in player W = 1 and the formula above is unchanged.
+ * With nobody left who can answer a bet the comparison is null (the caller
+ * keeps the decision: nothing is priced).
+ *
  * CONSTANTS. Measured: OMAHA_DISCIPLINE_PRIOR_FOLD and
  * OMAHA_MW_RIVER_POP_CONTINUE (full sweep, see each). Stated, NOT measured:
  * OMAHA_SHOWDOWN_VALUE_LINE, OMAHA_SHOWN_STRENGTH_RANGE,
@@ -293,6 +307,8 @@ export interface OmahaBetVsCheckOpponent {
   range: number;
   /** his fold rate to a bet, read as a threshold over all holdings */
   fold: number;
+  /** already all in: he neither folds nor calls (no fold equity; the bet's chips are not his) */
+  allIn?: boolean;
 }
 
 export interface OmahaBetVsCheckEv {
@@ -317,13 +333,29 @@ export function omahaBetVsCheckEv(
     return null;
   const counts = countsOf(hero, gs);
   if (!counts) return null;
+  if (!opponents.some((o) => o.allIn !== true)) return null;
   const pot = gs.pot;
   let allFold = 1;
   let winOrFold = 1;
   let check = 1;
+  /** the Horse's share against every all-in player's whole range (W) */
+  let beatsAllIn = 1;
   const rows: OmahaBetVsCheckEv['rows'] = [];
   for (const o of opponents) {
     const range = clamp(fin(o.range) ? o.range : 1, 0.02, 1);
+    if (o.allIn === true) {
+      const holdsRange = holdsVs(counts, range);
+      beatsAllIn *= holdsRange;
+      check *= holdsRange;
+      rows.push({
+        seat: o.seat,
+        range: round4(range),
+        folds: 0,
+        holdsCalled: round4(holdsRange),
+        holdsRange: round4(holdsRange),
+      });
+      continue;
+    }
     const cont = clamp(1 - (fin(o.fold) ? o.fold : 0), 0, 1);
     const callShare = Math.min(range, cont);
     const folds = clamp(1 - callShare / range, 0, 1);
@@ -342,7 +374,7 @@ export function omahaBetVsCheckEv(
   }
   const pWin = Math.max(0, winOrFold - allFold);
   const pLose = Math.max(0, 1 - winOrFold);
-  const evBet = allFold * pot + pWin * (pot + bet) - pLose * bet;
+  const evBet = allFold * beatsAllIn * pot + pWin * (beatsAllIn * pot + bet) - pLose * bet;
   const evCheck = pot * check;
   const margin = OMAHA_DISCIPLINE_BET_MARGIN * pot;
   return {
@@ -362,11 +394,20 @@ export function omahaBetVsCheckOpponents(
   street: 'turn' | 'river',
   reads: ReadonlyMap<number, OmahaReadConditional | null>
 ): OmahaBetVsCheckOpponent[] {
-  return liveOpponents(hero, gs).map((p) => ({
-    seat: p.seat,
-    range: omahaShownRangeShare(omahaShownLine(p.seat, gs, street)),
-    fold: omahaDisciplineFoldRate(street, reads.get(p.seat) ?? null).fold,
-  }));
+  return liveOpponents(hero, gs).map((p) =>
+    p.is_all_in === true
+      ? {
+          seat: p.seat,
+          range: omahaShownRangeShare(omahaShownLine(p.seat, gs, street)),
+          fold: 0,
+          allIn: true,
+        }
+      : {
+          seat: p.seat,
+          range: omahaShownRangeShare(omahaShownLine(p.seat, gs, street)),
+          fold: omahaDisciplineFoldRate(street, reads.get(p.seat) ?? null).fold,
+        }
+  );
 }
 
 /** The chips a bet decision adds (a bet's amount is the street total; an all-in is the stack). */

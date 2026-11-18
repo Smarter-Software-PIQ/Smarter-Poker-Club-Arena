@@ -91,7 +91,12 @@ import {
 } from './HorseOmahaBigDrawAggression.js';
 import {
   OMAHA_PRICED_PERSON_BET_CHECKED_TO,
+  OMAHA_PRICED_READ_PRIOR_STRENGTH,
   omahaPricedBluffFactor,
+  omahaPricedKindBetRate,
+  omahaPricedKindPrior,
+  omahaPricedRecentred,
+  type OmahaOpponentKind,
 } from './HorseOmahaPricedMode.js';
 
 export const OMAHA_PRICED_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -124,8 +129,9 @@ export interface OmahaPricedPopulation {
   bet: number | null;
   foldToBet: number | null;
 }
-/** Pseudo-opportunities behind the figure a street cell shrinks toward (HorseOpponentExploit's prior strength). */
-export const OMAHA_PRICED_SHRINK = 6;
+/** Pseudo-opportunities behind the figure a street cell shrinks toward (HorseOpponentExploit's prior strength).
+ *  One figure with the posterior re-centring (HorseOmahaPricedMode.OMAHA_PRICED_READ_PRIOR_STRENGTH, 6). */
+export const OMAHA_PRICED_SHRINK = OMAHA_PRICED_READ_PRIOR_STRENGTH;
 
 /** (hit + prior x k) / (opp + k): continuous in the opportunity count, the prior at none. */
 export function omahaPricedShrunk(
@@ -153,6 +159,13 @@ export interface OmahaPricedRead {
   foldToRaise: OmahaPricedCell | null;
   /** decayed opportunities behind the fold-to-bet figure (0: none) */
   opportunities: number;
+  /** who he is (HorseOmahaPricedMode.omahaOpponentKindOf); null: unknown, the merged figures. With a kind the
+   *  fold-to-bet and bet figures are his posterior re-centred on HIS KIND's prior (omahaPricedKindPrior): never
+   *  null, exactly the kind's prior with no opportunity, and betRatio is his rate over his kind's reference
+   *  rate. riverCall is NOT re-centred: it is his posterior mean as read (null with no opportunity). */
+  kind?: OmahaOpponentKind | null;
+  /** betCheckedTo is the pooled all-street figure ('pooled') or this street's ('street') */
+  betScope?: 'pooled' | 'street';
 }
 export const OMAHA_PRICED_NO_READ: OmahaPricedRead = Object.freeze({
   source: 'prior',
@@ -175,7 +188,61 @@ export const OMAHA_PRICED_NO_READ: OmahaPricedRead = Object.freeze({
 export function omahaPricedRead(
   pooled: OmahaReadConditional | null,
   population: OmahaPricedPopulation | null,
-  street: OmahaPricedStreetRates | null = null
+  street: OmahaPricedStreetRates | null = null,
+  kind: OmahaOpponentKind | null = null,
+  streetName?: 'flop' | 'turn' | 'river'
+): OmahaPricedRead {
+  if (kind !== 'person' && kind !== 'horse')
+    return omahaPricedReadUnknownKind(pooled, population, street);
+  const K = omahaPricedKindPrior(kind);
+  const statOf = (s: { mean: number; n: number } | undefined) =>
+    s && fin(s.mean) && fin(s.n) && s.n > 0 ? { mean: clamp(s.mean, 0, 1), n: s.n } : null;
+  const popBet = population && fin(population.bet) && population.bet > 0 ? population.bet : null;
+  const popFold =
+    population && fin(population.foldToBet) ? clamp(population.foldToBet, 0, 1) : null;
+  const known = (c: OmahaPricedCell | null | undefined): c is OmahaPricedCell =>
+    !!c && fin(c.opp) && fin(c.hit) && c.opp > 0;
+  const betStat = pooled ? statOf(pooled.betCheckedTo) : null;
+  const foldStat = pooled ? statOf(pooled.foldToBet) : null;
+  const riverStat = pooled ? statOf(pooled.riverCall) : null;
+  let source: OmahaPricedRead['source'] = betStat || foldStat || riverStat ? 'pooled' : 'prior';
+  // fold to a bet: his posterior re-centred on his kind's prior (a Horse's: the envelope mean his
+  // posterior already shrinks toward), then a street cell shrunk toward it in his kind's proportion
+  const foldRef = kind === 'horse' && popFold !== null ? popFold : K.foldToBet.pooled;
+  let foldToBet = omahaPricedRecentred(foldStat, popFold, foldRef);
+  let opportunities = foldStat ? foldStat.n : 0;
+  if (street && known(street.foldToBet)) {
+    const scale = streetName ? K.foldToBet[streetName] / K.foldToBet.pooled : 1;
+    foldToBet = omahaPricedShrunk(street.foldToBet, clamp(foldToBet * scale, 0, 1));
+    opportunities = street.foldToBet.opp;
+    source = 'street';
+  }
+  const cell = street && known(street.bet) ? street.bet : null;
+  if (cell) source = 'street';
+  const bet = omahaPricedKindBetRate(betStat, popBet, kind, cell ? streetName : undefined, cell)!;
+  let foldToRaise: OmahaPricedCell | null = null;
+  if (street && known(street.foldToRaise)) {
+    foldToRaise = { hit: street.foldToRaise.hit, opp: street.foldToRaise.opp };
+    source = 'street';
+  }
+  return {
+    source,
+    foldToBet,
+    betCheckedTo: bet.rate,
+    betRatio: bet.reference > 0 ? bet.rate / bet.reference : null,
+    riverCall: riverStat ? riverStat.mean : null,
+    foldToRaise,
+    opportunities,
+    kind,
+    betScope: cell && streetName ? 'street' : 'pooled',
+  };
+}
+
+/** The merged (#11212) read, for an opponent whose kind the decision does not know. */
+function omahaPricedReadUnknownKind(
+  pooled: OmahaReadConditional | null,
+  population: OmahaPricedPopulation | null,
+  street: OmahaPricedStreetRates | null
 ): OmahaPricedRead {
   const stat = (s: { mean: number; n: number } | undefined): number | null =>
     s && fin(s.mean) && fin(s.n) && s.n > 0 ? clamp(s.mean, 0, 1) : null;
@@ -232,6 +299,7 @@ export function omahaPricedFacingBetRead(
     ...(base ?? OMAHA_EV_UNKNOWN_READ),
     betCheckedToRatio: read.betRatio,
     betCheckedTo: read.betCheckedTo,
+    kind: read.kind ?? null,
   };
 }
 
@@ -243,6 +311,32 @@ export function omahaPricedCardImpactRead(
   street?: string
 ): OmahaCardImpactRead {
   const P = OMAHA_CARD_IMPACT_PRIOR;
+  if (read.kind === 'person' || read.kind === 'horse') {
+    // His kind's prior, continuous at zero opportunities (REVIEW-9f803db63df-013U37.md N3): the fold rate,
+    // bet rate and bluff share all start at his kind's measured figure and move with his posterior; the
+    // bet rate is carried to this street in his kind's proportion when it is the pooled figure.
+    const K = omahaPricedKindPrior(read.kind);
+    const st = street === 'flop' || street === 'turn' || street === 'river' ? street : null;
+    const scale =
+      st !== null && read.betScope !== 'street' ? K.betCheckedTo[st] / K.betCheckedTo.pooled : 1;
+    return {
+      measured: read.foldToBet !== null,
+      continueRate: read.foldToBet === null ? null : 1 - read.foldToBet,
+      riverCallRate: read.riverCall,
+      betCheckedTo:
+        read.betCheckedTo !== null
+          ? clamp(read.betCheckedTo * scale, 0, 1)
+          : st !== null
+            ? K.betCheckedTo[st]
+            : P.betCheckedTo,
+      bluffShare: clamp(
+        (st !== null ? K.cardImpactBluff[st] : K.cardImpactBluff.turn) *
+          omahaPricedBluffFactor(read.betRatio, read.kind),
+        0.05,
+        0.6
+      ),
+    };
+  }
   return {
     measured: read.foldToBet !== null,
     continueRate: read.foldToBet === null ? null : 1 - read.foldToBet,
@@ -319,6 +413,8 @@ export interface OmahaPricedRaiseContext {
   realization?: number;
   /** a raise-to amount another owner proposed: priced beside the steps */
   proposedTo?: number;
+  /** omahaRaiseEvCountsLossesOnce (off-only): the re-raisers' losses counted once; absent/false: #11212 */
+  lossesOnce?: boolean;
 }
 
 /**
@@ -454,17 +550,44 @@ export function omahaPricedRaise(
       // Chips that see a later decision realize less than their share.
       const real =
         river || allIn ? 1 : clamp(fin(ctx.realization) ? ctx.realization : 0.85, 0.5, 1);
-      const w = top.win * real;
-      const t = top.tie * real;
-      const lose = Math.max(0, 1 - w - t);
-      const called = w * (win + his * (1 - rake)) + t * ((win + his - put) / 2) - lose * put;
       // A raise that is not all in can be raised again: the strongest part of his range does
       // (OMAHA_PRICED_RERAISE_SHARE), and the Horse gives up its raise to it unless its hand
       // holds against that part.
+      // That part is counted ONCE (REVIEW-9f803db63df-013U37.md N1): it is the top `again` of the
+      // continuing part, in the same units (holdings = value share x betting-range share / (1 - q)).
+      // Against it the Horse folds and gives up its raise where it is beaten and keeps its called
+      // result where it holds; the rest of the continuing part is priced on the continuing holdings
+      // WITHOUT that top. (Before, `called` was averaged over the whole continuing part, the top
+      // included, and the top's losses were then charged again.)
       const again = allIn ? 0 : Math.min(OMAHA_PRICED_RERAISE_SHARE, continues);
-      const againTop = again > 0 ? topOf(clamp(counts.valueShare * again, 0.001, 0.95)) : null;
-      const lost = againTop ? again * Math.max(0, 1 - againTop.win - againTop.tie) : 0;
-      const alone = (1 - continues) * win + (continues - lost) * called - lost * put;
+      let alone: number;
+      if (ctx.lossesOnce === true) {
+        const at =
+          again > 1e-6
+            ? topOf(clamp((counts.valueShare * again) / Math.max(1e-9, 1 - q), 0.001, 0.95))
+            : null;
+        alone = omahaPricedRaiseAloneEv({
+          win,
+          his,
+          put,
+          rake,
+          real,
+          continues,
+          continuing: top,
+          again,
+          reraisers: at,
+        });
+      } else {
+        // #11212 verbatim (omahaRaiseEvCountsLossesOnce off): the called result averaged over the whole
+        // continuing part, the re-raisers' losses then charged again.
+        const w = top.win * real;
+        const t = top.tie * real;
+        const lose = Math.max(0, 1 - w - t);
+        const called = w * (win + his * (1 - rake)) + t * ((win + his - put) / 2) - lose * put;
+        const againTop = again > 0 ? topOf(clamp(counts.valueShare * again, 0.001, 0.95)) : null;
+        const lost = againTop ? again * Math.max(0, 1 - againTop.win - againTop.tie) : 0;
+        alone = (1 - continues) * win + (continues - lost) * called - lost * put;
+      }
       // The field at this price. A player who already called the wager holds the calling
       // range the facing-bet verdict gives him and continues with the minimum-defence share
       // of it at the price the raise lays; a player still to act continues with the verdict's
@@ -501,6 +624,53 @@ export function omahaPricedRaise(
   } catch {
     return null;
   }
+}
+
+/**
+ * The value of a raise heads-up, before the field: he folds (1 - continues) of
+ * his betting range and the Horse wins the pot; of what continues, the top
+ * `again` raises again. That top is counted ONCE (REVIEW-9f803db63df-013U37.md
+ * N1): where it beats the Horse, the Horse folds to the re-raise and gives up
+ * its raise; where the Horse holds, it gets its called result against it. The
+ * rest of the continuing part is priced on the continuing holdings WITHOUT
+ * that top, its win and tie shares recovered from those of the whole
+ * continuing part and of the top by mass. Shares are realized at `real`.
+ * Exported for its test.
+ */
+export function omahaPricedRaiseAloneEv(i: {
+  win: number;
+  his: number;
+  put: number;
+  rake: number;
+  real: number;
+  continues: number;
+  continuing: { win: number; tie: number };
+  again: number;
+  reraisers: { win: number; tie: number } | null;
+}): number {
+  const calledAt = (sw: number, st: number): number => {
+    const w = sw * i.real;
+    const t = st * i.real;
+    return (
+      w * (i.win + i.his * (1 - i.rake)) +
+      t * ((i.win + i.his - i.put) / 2) -
+      Math.max(0, 1 - w - t) * i.put
+    );
+  };
+  const c = clamp(i.continues, 0, 1);
+  const again = i.reraisers ? clamp(i.again, 0, c) : 0;
+  if (!(again > 1e-6) || !i.reraisers)
+    return (1 - c) * i.win + c * calledAt(i.continuing.win, i.continuing.tie);
+  const at = i.reraisers;
+  const rest = c - again;
+  const restWin = rest > 1e-9 ? clamp((c * i.continuing.win - again * at.win) / rest, 0, 1) : 0;
+  const restTie =
+    rest > 1e-9 ? clamp((c * i.continuing.tie - again * at.tie) / rest, 0, 1 - restWin) : 0;
+  const beaten = clamp(1 - at.win - at.tie, 0, 1);
+  const holds = 1 - beaten;
+  const againEv =
+    (holds > 1e-9 ? holds * calledAt(at.win / holds, at.tie / holds) : 0) - beaten * i.put;
+  return (1 - c) * i.win + rest * calledAt(restWin, restTie) + again * againEv;
 }
 
 // ─────────────────── raise or call by sample: flop and turn ───────────────────

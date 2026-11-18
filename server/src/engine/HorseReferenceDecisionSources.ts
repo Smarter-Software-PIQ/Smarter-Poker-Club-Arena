@@ -65,6 +65,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off PLO6 multiway weak made-hand bet-to-check (PLO6 lane 2026-11-15, plo6NoMultiwayBetWithWeakMadeHand): a flop or turn bet facing nothing against two or more live opponents with a pair below the top card, two pair without the top card, the board pair with such a pair or a pocket pair above the top card of an unpaired board, no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs, not nut class, becomes a check; runs with the owner-ruled own-bet checks in the wager rules',
     'src/engine/HorsePlo6StrategyCalibration.ts':
       'the PLO6 calibration of the Omaha strategy constants (PLO6 lane 2026-11-16, omahaStrategyInPlo6, default off and off-only): HorseLogic.decide registers its six-card values with omahaStrategyConstant only for a decision whose gate is on, and takes them back otherwise',
+    'src/engine/HorseOmahaRunoutRealization.ts':
+      'the default-off turn call realization read from the per-river counts (PLO Strategy lane 2026-11-17, omahaTurnCallRealizationByRunout): reached only from the Omaha facing-bet EV verdict when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaRunoutRealization.test.ts), so no reference decision depends on it',
     'src/engine/HorsePlo6FastCount.ts':
       'the exact six-card count used by the Omaha facing-bet EV rule (PLO6 lane 2026-11-16): the barred-pair graph counted as an independence polynomial, equal to the walk it replaces on every tested hand; read only while a six-card hand is counted',
     'src/engine/HorsePlo6PricingPort.ts':
@@ -73,6 +75,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha priced rules (owner 2026-11-17 11:49, no blanket rules): the mode of one decision and the continuous size inputs of the facing-bet range (omahaFacingBetRangeIsContinuous, omahaBluffShareFromBetRate); off outside a PLO4/PLO5 cash decision whose option is on',
     'src/engine/HorseOmahaPricedRules.ts':
       'the default-off Omaha priced rules: the three priced comparisons (raise, call or fold on the exact count; raise or call on sampled shares; bet or check on the card-impact model), the one opponent-read interface and the mixing probability',
+    'src/engine/HorseOmahaPricedSites.ts':
+      'the default-off Omaha priced sites (sites-013U37): the made-hand defence wager, the turn set pound size and the river nut-blocker bluff admission priced on the card-impact model, and the bare big pair flop bet priced on sampled bands of his holdings (omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced, omahaFlopBetIsPriced); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaPricedWiring.ts':
       'the default-off Omaha priced rules: the rule sites HorseLogic calls where a categorical PLO4/PLO5 cash rule acts (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaPricedMix); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaRiverNutRaise.ts':
@@ -81,6 +85,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha re-raised-pot discipline (owner ruling 2026-11-14 23:49): facing a 4-bet or more preflop a hand without aces or a premium structure folds, and in such a pot one pair or two pair below top two does not stack off unless priced against a declared strong range; the outermost call-discipline fold',
     'src/engine/HorseOmahaOopReraisedPot.ts':
       'the default-off Omaha out-of-position re-raised-pot calling range (owner 2026-11-15 11:49 and 11:51): a preflop call of a 3-bet or more out of position against the last raiser stands only with suited aces, as a priced commitment, or with a coordinated hand whose equity clears the price plus the realization margin, a call of a 4-bet in position likewise (omahaOopReraisedPotStrongRange); and the flop rule that a caller in a re-raised pot continues only with two pair or better, a pair with a nut-leaning draw or a strong draw (omahaReraisedPotFlopContinueNeedsEquityShape); and the rule that a 3-bet or 4-bet out of position or from early position needs suited aces or a declared premium structure and otherwise calls or folds (omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition, switched separately)',
+    'src/engine/HorseOmahaPreflopReraiseDefence.ts':
+      "the default-off Omaha priced preflop re-raise defence (PLO Strategy lane 2026-11-17, omahaPreflopReraiseDefencePriced): in PLO4/PLO5 cash facing a 3-bet or more preflop, the expected value of the call and of a proposed re-raise against folding, from the exact hand's sampled equity against the re-raiser's measured width (a seed taken from the cards, never the brain's random stream), the measured realization, the price and the rake",
+    'src/engine/HorseOmahaPreflopReraiseDefenceRule.ts':
+      'the rule that applies the default-off Omaha priced preflop re-raise defence (omahaPreflopReraiseDefencePriced): the spot, the one read interface of the re-raiser (the pooled read, else the population means) and the conversion of the answer it is given into the verdict; receipts omaha_preflop_reraise_defence_fold / _call / _raise / _changed',
     'src/engine/HorseOmahaReadConditional.ts':
       'the default-off Omaha read-conditional defence (owner 2026-11-15 01:03): the measured tight re-raiser read that lets the re-raised-pot preflop fold apply (omahaReraisedFoldVsTight) and the measured postflop value-leader read that lets the turn no-raise and scare-card checks apply (omahaMadeHandDefenseVsValueLeader) and the bluff-catcher folds apply against the player faced (omahaBluffCatcherFoldVsValueLeader), and the measured wide re-raiser read that lets an elite-class hand call instead of folding to his 3-bet (omahaEliteContinuesVsMeasuredWideThreeBettor); a presumed read never counts',
     'src/engine/HorseOmahaRiverMediumBetCalls.ts':
@@ -101,6 +109,16 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha flop facing-bet expected-value verdict (PLO Strategy lane 2026-11-17, omahaFlopFacingBetEv): in PLO4/PLO5 cash on the flop, the spot, the sampled two-card runout counts (a seed taken from the cards, never the brain's random stream), the realization factor read from the runouts and the EV verdict against the bettor's range by pot share, line and measured read",
     'src/engine/HorseOmahaFlopFacingBetEvRule.ts':
       'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
+    'src/engine/HorseOmahaReadByStreet.ts':
+      "the default-off Omaha read by street and flop texture (PLO Strategy lane 2026-11-18, omahaReadIsByStreetAndTexture): the per-decision mode, the street cells the priced comparisons read, the value-leader label as a continuous per-street quantity and the bettor's street bet rate, each blended with the pooled figure by the cell's own opportunities",
+    'src/engine/HorseOmahaReadByStreetMode.ts':
+      'the per-decision mode of the default-off Omaha read by street (omahaReadIsByStreetAndTexture): the street, the flop texture and the two read functions the installer puts in place for one decision; the only part HorseMind imports',
+    'src/engine/HorseOmahaReadByStreetRule.ts':
+      'the installer of the default-off Omaha read by street (omahaReadIsByStreetAndTexture): for one PLO4/PLO5 cash postflop decision the per-street read mode and the priced street cells, both put back when the decision returns; receipt omaha_read_by_street_carried',
+    'src/engine/HorseOmahaSmallBet.ts':
+      'the default-off Omaha small-bet pricing (PLO Strategy lane 2026-11-18, omahaSmallBetIsPriced): reached only from HorseLogic omahaOwnBetRules when the option is on; with it unset or false no decision reads it (HorseOmahaSmallBet.test.ts)',
+    'src/engine/HorseOmahaSmallBetConstants.ts':
+      'the measured response by pot share of the default-off Omaha small-bet pricing (omahaSmallBetIsPriced); read only by HorseOmahaSmallBet.ts',
     'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':
       'the default-off Omaha turn and river raise rule (owner 2026-11-15 12:52 / 12:53, hand 59534208, omahaTurnRiverRaiseNeedsNuts): in PLO4/PLO5 cash facing a bet or a raise on the turn or the river, a raise stands only with a nut-class hand (on the turn also an in-position combo draw the 12:30 rule permits); every other raise becomes the exact-hand facing-bet EV call or fold, the outermost conversion on that path',
     'src/engine/HorseOmahaStreetPlan.ts':

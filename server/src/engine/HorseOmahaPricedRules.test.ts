@@ -176,8 +176,15 @@ describe('the size of a bet is a continuous input, never a trigger', () => {
     ).toBeLessThan(0.02);
   });
   it('the mode is off outside a PLO4/PLO5 cash decision and off by default', () => {
-    const on = { rangeContinuous: true, bluffShareFromBetRate: true };
+    const on = { rangeContinuous: true, bluffShareFromBetRate: true, priorsByKind: true };
     expect(omahaPricedModeOf(on, { gameVariant: 'plo5', gameMode: 'cash' })).toEqual(on);
+    // omahaPricedPriorsByOpponentKind unset: its field reads false (the #11212 prior)
+    expect(
+      omahaPricedModeOf(
+        { rangeContinuous: true, bluffShareFromBetRate: true },
+        { gameVariant: 'plo5', gameMode: 'cash' }
+      )
+    ).toEqual({ rangeContinuous: true, bluffShareFromBetRate: true, priorsByKind: false });
     expect(omahaPricedModeOf(on, { gameVariant: 'plo4', bigBlind: 2 })).toEqual(on);
     expect(omahaPricedModeOf(on, { gameVariant: 'plo6', gameMode: 'cash' })).toBe(
       OMAHA_PRICED_MODE_OFF

@@ -30,7 +30,14 @@ import {
   HorseLeagueComputeWorkerClient,
   type HorseLeagueCompute,
 } from './HorseLeagueComputeWorkerClient.js';
-import type { Card, SeatPlayer, HandStage, ActionRecord, HorseStyle } from '../types.js';
+import type {
+  AcceptedActionOrigin,
+  Card,
+  SeatPlayer,
+  HandStage,
+  ActionRecord,
+  HorseStyle,
+} from '../types.js';
 import { plo4StrengthSeatStyle } from './Plo4StrengthContract.js';
 import { HORSE_HYBRID_PROFILES } from '../engine/HorseHybridProfile.js';
 import {
@@ -95,7 +102,9 @@ import {
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
+import { leagueLearnStreetRead } from './HorseLeagueStreetRead.js';
 import { pressureOpponentDecision } from './V53PressurePopulation.js';
+import { leagueHorseDecisionInput } from './LeagueDecisionState.js';
 
 export {
   HUMAN_FIELD_COMPONENT_SCENARIOS,
@@ -741,6 +750,8 @@ for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit 
 interface Seat {
   player: SeatPlayer;
   contributed: number;
+  /** The part of `contributed` that is shared dead money (the big-blind ante). */
+  dead: number;
   opts: HorseDecideOpts;
   mods: HorseProfileMods;
   style: HorseStyle;
@@ -814,6 +825,7 @@ export function playHand(
     const human = humanField?.isHuman(s) === true;
     seats.push({
       contributed: 0,
+      dead: 0,
       // Without a sandbox, league hands are memory-free (mind:false) — they
       // must never write synthetic reads into the live opponent memory. With
       // one, the mind runs for real against the sandbox's isolated state.
@@ -862,6 +874,7 @@ export function playHand(
     const real = Math.min(gameContext.ante ?? 0, p.stack);
     p.stack -= real;
     seats[bbIdx].contributed += real;
+    seats[bbIdx].dead += real;
     pot += real;
     if (p.stack === 0) p.is_all_in = true;
   }
@@ -940,6 +953,34 @@ export function playHand(
         format: gameContext.format,
         ...(gameContext.tournament ? { tournament: structuredClone(gameContext.tournament) } : {}),
       } as HorseGameStateV2;
+      // 2026-11-15 (LeagueDecisionState.ts): every HorseLogic.decide gets the
+      // state production builds for this node - the legal menu, toCall, the
+      // wager bounds, the betting structure, the public seats with their real
+      // investment - so the league plays the brain production fields. `gs`
+      // above stays the input of the non-Horse pressure seats only. A
+      // fixed-limit variant has no league menu and keeps `gs`.
+      const brainInput = (): { player: SeatPlayer; gameState: HorseGameStateV2 } =>
+        leagueHorseDecisionInput({
+          seats,
+          heroIdx: i,
+          stage,
+          board: boardCards,
+          pot,
+          currentBet,
+          minRaise,
+          lastRaise,
+          gameVariant,
+          smallBlind: SB,
+          bigBlind: BB,
+          dealerSeat,
+          blindSeats: { smallBlind: sbIdx + 1, bigBlind: bbIdx + 1 },
+          history,
+          gameMode: gameContext.gameMode,
+          format: gameContext.format,
+          ante: gameContext.ante ?? 0,
+          bigBlindAnte: gameContext.bigBlindAnte === true,
+          ...(gameContext.tournament ? { tournament: gameContext.tournament } : {}),
+        }) ?? { player: p, gameState: gs };
 
       const toCall = Math.max(0, currentBet - p.bet);
       const d: { action: string; amount?: number } =
@@ -961,12 +1002,17 @@ export function playHand(
               dealerSeat,
               liveCount: live().length,
               history,
-              horseDecide: (style, mods, opts) =>
-                sandbox
+              horseDecide: (style, mods, opts) => {
+                const input = brainInput();
+                return sandbox
                   ? HorseMind.runInSandbox(sandbox, () =>
-                      HorseLogic.decide(p, gs, style, mods, opts)
+                      HorseLogic.decide(input.player, input.gameState, style, mods, opts)
                     )
-                  : HorseLogic.decide(p, gs, style, mods, { ...opts, mind: false }),
+                  : HorseLogic.decide(input.player, input.gameState, style, mods, {
+                      ...opts,
+                      mind: false,
+                    });
+              },
             })
           : humanField?.isHuman(i) === true && humanField.population === V53_PRESSURE_POPULATION_ID
             ? pressureFieldDecision(humanField, p, gs, currentBet, lastRaise, toCall)
@@ -982,11 +1028,26 @@ export function playHand(
                       (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
                   ),
                 })
-              : sandbox
-                ? HorseMind.runInSandbox(sandbox, () =>
-                    HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts)
-                  )
-                : HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts);
+              : (() => {
+                  const input = brainInput();
+                  return sandbox
+                    ? HorseMind.runInSandbox(sandbox, () =>
+                        HorseLogic.decide(
+                          input.player,
+                          input.gameState,
+                          seat.style,
+                          seat.mods,
+                          seat.opts
+                        )
+                      )
+                    : HorseLogic.decide(
+                        input.player,
+                        input.gameState,
+                        seat.style,
+                        seat.mods,
+                        seat.opts
+                      );
+                })();
 
       // Validate against the engine's own rules; downgrade an illegal action
       // to the safe fallback and count it (the conservation test asserts 0).
@@ -1016,6 +1077,17 @@ export function playHand(
           action = toCall > 0 ? 'fold' : 'check';
         }
       }
+      // 2026-11-15: production stamps who chose a fold on its record
+      // (HandController.performAction's accepted origin: a Horse's own answer
+      // is horse_policy, a fallback or a refused answer horse_fallback, a
+      // person player), and the opponent models read it.
+      const foldOrigin: AcceptedActionOrigin =
+        humanField?.isHuman(i) === true
+          ? 'player'
+          : (d as { policyFallback?: string }).policyFallback === 'brain_exception' ||
+              action !== d.action
+            ? 'horse_fallback'
+            : 'horse_policy';
 
       ts++;
       acted.add(i);
@@ -1047,6 +1119,7 @@ export function playHand(
           amount: 0,
           timestamp: ts,
           stage,
+          origin: foldOrigin,
         } as ActionRecord);
       } else if (action === 'check') {
         history.push({
@@ -1073,6 +1146,9 @@ export function playHand(
         const inc = post(i, p.stack);
         pot += inc;
         const isFullRaise = target >= currentBet + lastRaise - 1e-9 && target > currentBet;
+        // As HandController records it: only an all-in that raises carries
+        // isFullRaise; an all-in that only calls carries none.
+        const raises = target > currentBet;
         if (target > currentBet) {
           if (isFullRaise) {
             lastRaise = target - currentBet;
@@ -1095,7 +1171,7 @@ export function playHand(
           amount: target,
           timestamp: ts,
           stage,
-          isFullRaise,
+          ...(raises ? { isFullRaise } : {}),
         } as ActionRecord);
       } else {
         // bet / raise to `amount`
@@ -1108,6 +1184,9 @@ export function playHand(
         pot += inc;
         // V12.3: the real reopening test, not a hard-coded true.
         const reopens = target >= currentBet + lastRaise - 1e-9 && target > currentBet;
+        // As HandController records it: every wager that raises the level
+        // carries isFullRaise, all-in or not.
+        const raises = target > currentBet;
         if (target > currentBet) {
           if (reopens) {
             lastRaise = target - currentBet;
@@ -1124,7 +1203,7 @@ export function playHand(
           amount: target,
           timestamp: ts,
           stage,
-          ...(p.is_all_in ? { isFullRaise: reopens } : {}),
+          ...(raises ? { isFullRaise: reopens } : {}),
         } as ActionRecord);
       }
       actions++;
@@ -1290,6 +1369,10 @@ export function playHand(
           true
         );
       });
+      // omahaReadIsByStreetAndTexture (2026-11-18): the street read the option uses, learned the way the
+      // accepted-hand learner keeps it, only for a hand a seat's configuration reads it in.
+      if (seats.some((_, i) => configOf(i).omahaReadIsByStreetAndTexture === true))
+        leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
     }
@@ -2109,6 +2192,22 @@ export const OMAHA_PRICED_FAMILY_CARDS: ReadonlyArray<
   ['omahaBigBetCallsArePriced', 'big_bet_calls_are_priced'],
   ['omahaUnderpairMultiwayIsPriced', 'underpair_multiway_is_priced'],
 ];
+/** The priced sites of the 2026-11-18 option batch (option, card name). */
+export const OMAHA_PRICED_SITE_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaFlopBetIsPriced', 'flop_bet_is_priced'],
+  ['omahaMadeHandBetIsPriced', 'made_hand_bet_is_priced'],
+  ['omahaTurnSetSizeIsPriced', 'turn_set_size_is_priced'],
+  ['omahaBlockerBluffIsPriced', 'blocker_bluff_is_priced'],
+];
+/** The priced2 inputs of the 2026-11-18 option batch (option, card name); both arms carry every family on. */
+export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
+  readonly [keyof HorseDecideOpts & string, string]
+> = [
+  ['omahaPricedPriorsByOpponentKind', 'priced_priors_by_opponent_kind'],
+  ['omahaRaiseEvCountsLossesOnce', 'raise_ev_counts_losses_once'],
+];
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
 ) as HorseDecideOpts;
@@ -2468,6 +2567,32 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFlopFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
+  // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
+  // raise are read from the decision's own street and flop texture, blended
+  // with the pooled read by the cell's opportunities; the league learns the
+  // street read in the card's sandbox (HorseLeagueStreetRead). a switches it
+  // on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_read_is_by_street_and_texture`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReadIsByStreetAndTexture: true },
+    b: {},
+  })),
+  // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
+  // heads-up turn or river with nothing to call, the owner's check or bet is
+  // priced beside bets of 10/20/25% of the pot with the opponent's measured
+  // response by pot share; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_small_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaSmallBetIsPriced: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
   // barrel only against measured postflop value leaders, and the bare overpair
@@ -2591,6 +2716,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaEliteContinuesVsMeasuredWideThreeBettor: true },
     b: {},
   })),
+  // 2026-11-17 OMAHA PREFLOP RE-RAISE DEFENCE, PRICED (HorseOmahaPreflopReraiseDefence,
+  // default OFF): facing a 3-bet or more preflop the fold, call or proposed
+  // re-raise is chosen by expected value (exact-hand equity against the
+  // re-raiser's measured width, measured realization, price and rake) in
+  // place of the re-raise range rules and the strong-range rule; a switches
+  // it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_reraise_defence_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaPreflopReraiseDefencePriced: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
   // a preflop call of a 3-bet or more out of position against the last raiser
   // stands only with suited aces, as a priced commitment, or with a
@@ -2652,6 +2791,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { omahaFacingBetEv: true },
     b: {},
+  })),
+  // 2026-11-17 OMAHA TURN CALL REALIZATION BY RUNOUT
+  // (HorseOmahaRunoutRealization, default OFF): inside the facing-bet EV rule,
+  // a non-final turn call's realization factor is read from the hand's own
+  // per-river counts against the bettor's value region and his other holdings
+  // instead of the flat 0.85 / 0.92. Both arms run the facing-bet EV rule (it
+  // is ON live); a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_call_realization_by_runout`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaTurnCallRealizationByRunout: true },
+    b: { omahaFacingBetEv: true },
   })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
@@ -2722,6 +2875,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, omahaPricedMix: true },
       b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
     },
+    // 2026-11-18 option batch: the priced sites (HorseOmahaPricedSites, each default OFF; two off-only)
+    // act where the rule they replace is on, so both arms carry the live options and arm A adds one.
+    ...OMAHA_PRICED_SITE_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+    })),
+    // 2026-11-18 option batch: the priced2 inputs (omahaPricedPriorsByOpponentKind default OFF,
+    // omahaRaiseEvCountsLossesOnce off-only) change only what the priced families compute, so both arms
+    // carry every priced family on (OMAHA_PRICED_FAMILIES_ON) and arm A adds the one input.
+    ...OMAHA_PRICED_INPUT_CARDS.map(([option, name]) => ({
+      name: `${variant}_omaha_${name}`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON, [option]: true },
+      b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
+    })),
   ]),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with

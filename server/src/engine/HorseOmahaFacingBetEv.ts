@@ -59,13 +59,16 @@ import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStr
 import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 import { plo6CountHoldingsAmong } from './HorsePlo6FastCount.js';
 import {
-  OMAHA_PRICED_MEASURED_BLUFF,
+  omahaOpponentKindOf,
   omahaPricedBluffFactor,
-  omahaPricedBluffReferenceRatio,
+  omahaPricedKindPrior,
+  omahaPricedLegacyBluffReferenceRatio,
   omahaPricedFacingRange,
+  type OmahaOpponentKind,
   omahaPricedModeNow,
   omahaPricedRealizationCap,
 } from './HorseOmahaPricedMode.js';
+import { OMAHA_RUNOUT_ROW, omahaRunoutRealization } from './HorseOmahaRunoutRealization.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -168,6 +171,9 @@ export interface OmahaFacingBetEvRead {
   betCheckedToRatio: number | null;
   /** his bet-when-checked-to posterior mean itself, when the priced read supplies it (omahaBluffShareFromBetRate) */
   betCheckedTo?: number | null;
+  /** who he is (HorseOmahaPricedMode.omahaOpponentKindOf), when the priced read supplies it; with a kind,
+   *  betCheckedToRatio is his rate over his KIND's reference (omahaPricedBluffReferenceRatio) */
+  kind?: OmahaOpponentKind | null;
   /** isPostflopManiac on his measured read */
   postflopManiac: boolean;
   /** measured postflop value leader (bets <= mean when checked to, folds >= mean, calls rivers <= mean) */
@@ -194,12 +200,20 @@ export function omahaEvBluffShare(
   let q = prior;
   // omahaBluffShareFromBetRate (default off): his bet rate beside the population moves the prior
   // continuously; the value-leader and maniac labels do not act (HorseOmahaPricedMode).
-  // His rate is read against the rate the prior in force was measured at (omahaPricedBluffReferenceRatio):
-  // the measured prior of the continuous range already holds a person's bluffs at a person's rate.
+  // His rate is read against his KIND's reference rate (HorseOmahaPricedMode.omahaPricedBluffReferenceRatio,
+  // computed once by the priced read) with his kind's measured elasticity; the prior itself is his kind's
+  // (omahaFacingBetEvSpot). A read with no kind keeps the merged reference (omahaPricedLegacyBluffReferenceRatio).
   if (omahaPricedModeNow().bluffShareFromBetRate)
-    q *= omahaPricedBluffFactor(
-      omahaPricedBluffReferenceRatio(read?.betCheckedTo, read?.betCheckedToRatio, street)
-    );
+    q *=
+      read?.kind === 'person' || read?.kind === 'horse'
+        ? omahaPricedBluffFactor(read.betCheckedToRatio, read.kind)
+        : omahaPricedBluffFactor(
+            omahaPricedLegacyBluffReferenceRatio(
+              read?.betCheckedTo,
+              read?.betCheckedToRatio,
+              street
+            )
+          );
   else if (read?.measured) {
     let k = 1;
     if (read.betCheckedToRatio !== null && Number.isFinite(read.betCheckedToRatio))
@@ -748,6 +762,8 @@ export interface OmahaEvHandCounts {
   valueShare: number;
   /** against the strongest share of holdings, by share: used for the field */
   top: (share: number) => OmahaEvShares & { share: number };
+  /** turn only: OMAHA_RUNOUT_ROW numbers per river card (HorseOmahaRunoutRealization) */
+  runout?: Float64Array;
 }
 
 /**
@@ -948,6 +964,7 @@ function evHandCounts(
   let valN = 0;
   let othN = 0;
   const perRiver = choose(m - 1, n);
+  const runout = new Float64Array(m * OMAHA_RUNOUT_ROW);
   // The holdings with no value pair, over every card: one count. Without
   // the river card k it is that less the holdings that contain k, which are
   // k with a smaller holding of the cards no value pair joins to k.
@@ -1010,6 +1027,10 @@ function evHandCounts(
     valN += perRiver - noV;
     valWin += noBT - noBTV;
     valTie += noB - noBT - (noBV - noBTV);
+    runout[k * OMAHA_RUNOUT_ROW] = noBT - noBTV + 0.5 * (noB - noBT - (noBV - noBTV));
+    runout[k * OMAHA_RUNOUT_ROW + 1] = perRiver - noV;
+    runout[k * OMAHA_RUNOUT_ROW + 2] = noBTV + 0.5 * (noBV - noBTV);
+    runout[k * OMAHA_RUNOUT_ROW + 3] = noV;
   }
   // The field on the turn is read on the turn board as it stands (not per river card).
   const heroNow = scoreOmahaHiPartial(hole, board);
@@ -1031,6 +1052,7 @@ function evHandCounts(
     value: valN > 0 ? { win: valWin / valN, tie: valTie / valN } : { win: 0, tie: 0 },
     other: othN > 0 ? { win: othWin / othN, tie: othTie / othN } : { win: 0, tie: 0 },
     valueShare: v.above / total,
+    runout,
     top: (s: number) => {
       const kk = Math.round(s * 1000);
       let r = topMemo.get(kk);
@@ -1317,8 +1339,17 @@ export function omahaFacingBetEvSpot(
         others: callers + behind,
         behindShare: Math.max(0, leftBehind) / (winnable + paid),
         value: OMAHA_EV_VALUE_SHARE[street],
-        // the measured prior (OMAHA_PRICED_MEASURED_BLUFF), not the stepped table
-        bluff: OMAHA_PRICED_MEASURED_BLUFF[street],
+        // the measured prior of the bettor's KIND (a person's bluffs for a person, a Horse's for a
+        // Horse: HorseOmahaPricedMode.omahaPricedKindPrior), not the stepped table
+        // (omahaPricedPriorsByOpponentKind on; off: the #11212 person-measured table for every bettor)
+        bluff: omahaPricedKindPrior(
+          omahaPricedModeNow().priorsByKind === true
+            ? omahaOpponentKindOf(
+                gs,
+                (gs.players ?? []).find((p) => p.seat === faced.bettorSeat)?.user_id
+              )
+            : null
+        ).bluff[street],
         lineAggressor: OMAHA_EV_LINE_AGGRESSOR,
         lineCaller: OMAHA_EV_LINE_CALLER,
       });
@@ -1371,6 +1402,8 @@ export interface OmahaFacingBetEvVerdict {
   field: number;
   /** the realization factor applied (1 when final) */
   realization: number;
+  /** omahaTurnCallRealizationByRunout: the runout factor, when it was the one read */
+  runoutRealization?: number;
   /** pot odds of the call, for the record */
   price: number;
   /** work done */
@@ -1398,6 +1431,12 @@ export interface OmahaFacingBetEvContext {
   plo6RiverUnpaired?: boolean;
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
+  /**
+   * omahaTurnCallRealizationByRunout: present only with the option on. The
+   * non-final turn call's factor is then read from the hand's per-river
+   * counts (HorseOmahaRunoutRealization) instead of `realization`.
+   */
+  runoutRealization?: { inPosition: boolean };
 }
 
 /**
@@ -1469,6 +1508,11 @@ export function omahaFacingBetEvVerdict(
   let realization = spot.final
     ? 1
     : Math.max(0.5, Math.min(1, Number.isFinite(ctx.realization) ? ctx.realization! : 0.85));
+  let runoutRealization: number | undefined;
+  if (!spot.final && ctx.runoutRealization && hole.length !== 6) {
+    const r = omahaRunoutRealization(counted.runout, q, ctx.runoutRealization.inPosition === true);
+    if (r) realization = runoutRealization = r.realization;
+  }
   if (!spot.final && spot.behind > 0) realization = Math.min(realization, 0.85);
   // omahaFacingBetRangeIsContinuous (default off): the two size lines below are weights, not steps.
   const continuousSize = omahaPricedModeNow().rangeContinuous;
@@ -1568,6 +1612,7 @@ export function omahaFacingBetEvVerdict(
     vsOther: counted.other.win,
     field,
     realization,
+    ...(runoutRealization !== undefined ? { runoutRealization } : {}),
     price: spot.paid / (spot.winnable + spot.paid),
     pairsScored: counted.pairsScored,
     counts: counted.counts,
