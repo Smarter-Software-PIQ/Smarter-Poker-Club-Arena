@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { MessageCircle, X, ExternalLink, Settings, Check } from './DockIcons';
-import { DOCK_STORAGE_PREFIX, dockId, dockName, dockLayout, dockNotificationLayout, dockHasSurface, dockPreviewLayout, isDockResolutionCurrent, restoreDock, updateDock, updateDockPreviews } from './messengerDock.mjs';
+import { DOCK_STORAGE_PREFIX, dockId, dockName, dockLayout, dockNotificationLayout, dockHasSurface, dockFailureText, dockPreviewLayout, isDockResolutionCurrent, restoreDock, updateDock, updateDockPreviews } from './messengerDock.mjs';
 import MessengerChat from './MessengerChat';
 import { createDockContinuityOwner } from './dockContinuityOwner.mjs';
 
@@ -23,6 +23,9 @@ export default function MessengerDock({ services }) {
     const [inbox, setInbox] = useState(false);
     const [conversations, setConversations] = useState([]);
     const [error, setError] = useState('');
+    // A refresh nobody asked for reports here: shown inside the open inbox
+    // with Retry, never floated over the page (see dockFailureText).
+    const [inboxError, setInboxError] = useState('');
     const [loading, setLoading] = useState(false);
     const [viewport, setViewport] = useState({ width: 1024, height: 768 });
     const [popups, setPopups] = useState(true);
@@ -79,7 +82,7 @@ export default function MessengerDock({ services }) {
             setInbox(false);
         } catch (failure) {
             if (identity.current !== actor || generation.current !== epoch) return;
-            if (!incoming) setError(failure.message);
+            if (!incoming) setError(dockFailureText(failure));
         }
     }, []);
 
@@ -93,7 +96,7 @@ export default function MessengerDock({ services }) {
             const data = await inboxRequest({ workspace: 'dock' });
             if (identity.current !== actor || generation.current !== epoch || sequence !== inboxSequence.current) return;
             setConversations(data.conversations);
-            setError('');
+            setError(''); setInboxError('');
             for (const conversation of data.conversations) {
                 const previous = lastTimes.current.get(conversation.id) || startedAt.current;
                 const next = Date.parse(conversation.last_message_at);
@@ -102,7 +105,7 @@ export default function MessengerDock({ services }) {
                 if (chatsRef.current.some(chat => chat.id === conversation.id)) dispatch({ type: 'refresh', conversation: { ...conversation, dockWorkspace: chatsRef.current.find(chat => chat.id === conversation.id)?.conversation?.dockWorkspace } });
             }
         } catch (failure) {
-            if (identity.current === actor && generation.current === epoch && sequence === inboxSequence.current) setError(failure.message);
+            if (identity.current === actor && generation.current === epoch && sequence === inboxSequence.current) setInboxError(dockFailureText(failure));
         } finally {
             if (identity.current === actor && generation.current === epoch && sequence === inboxSequence.current) setLoading(false);
         }
@@ -117,7 +120,7 @@ export default function MessengerDock({ services }) {
             continuityOwner.current.clear();
             setActorId(identity.current);
             for (const chat of chatsRef.current) dispatch({ type: 'close', id: chat.id });
-            setConversations([]); setInbox(false); setError('');
+            setConversations([]); setInbox(false); setError(''); setInboxError('');
             previewAction({ type: 'clear' });
             seen.current.clear(); lastTimes.current.clear(); interactions.current.clear(); resolutions.current.clear();
             loadedActor.current = null; setHydrated(null);
@@ -267,8 +270,8 @@ export default function MessengerDock({ services }) {
                 {settings && <button type="button" className="dock-setting" onClick={togglePopups} aria-pressed={popups}><span>Pop-Up New Messages</span>{popups && <Check size={18} />}</button>}
                 <div className="dock-inbox-scroll">
                     {loading && !conversations.length && <p role="status">Loading Messages...</p>}
-                    {error && <div role="alert"><p>{error}</p><button type="button" onClick={() => refresh()}>Retry</button></div>}
-                    {!loading && !error && !conversations.length && <p>No Conversations Yet</p>}
+                    {(error || inboxError) && <div role="alert"><p>{error || inboxError}</p><button type="button" onClick={() => refresh()}>Retry</button></div>}
+                    {!loading && !error && !inboxError && !conversations.length && <p>No Conversations Yet</p>}
                     {conversations.map(conversation => <button type="button" className="dock-conversation" key={conversation.id} onClick={() => resolve(conversation.id)}>
                         <Portrait conversation={conversation} /><span><strong>{dockName(conversation)}</strong><small>{conversation.last_message_preview || 'Open Conversation'}</small></span>
                         {conversation.unreadCount > 0 && <b className="dock-count">{conversation.unreadCount}</b>}
