@@ -24,6 +24,9 @@ on:
       - supabase/migrations/20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql
       - supabase/migrations/20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql
       - scripts/ci/fixtures/cash-rake-pending/**
+      - supabase/migrations/20261118071728_a_hands_bbj_drop_and_insurance_wait_in_their_own_rows_not_on.sql
+      - supabase/migrations/20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql
+      - scripts/ci/fixtures/hand-bank-pending/**
       - supabase/migrations/20261019151125_tournament_table_writers_wait_for_their_shared_lane.sql
       - supabase/migrations/20261118015237_an_idle_floor_watchdog_does_not_queue_tournament_admission.sql
       - supabase/migrations/20261014231111_a_floor_park_is_a_lease_that_expires_and_pages_never_a_switc.sql
