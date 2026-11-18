@@ -147,6 +147,24 @@ describe('the priced2 options (omahaPricedPriorsByOpponentKind, omahaRaiseEvCoun
         ).toEqual((r.expect as Record<string, Act>)[tag]);
       }
   }, 300000);
+  it('unset and a truthy non-boolean read as off: every moved record is the #11212 answer', () => {
+    for (const value of [undefined, 1, 'true'] as const)
+      for (const [i, n, street, tag, main] of MOVED) {
+        const opts = configOf(tag, false) as Record<string, unknown>;
+        if (value === undefined) {
+          delete opts.omahaPricedPriorsByOpponentKind;
+          delete opts.omahaRaiseEvCountsLossesOnce;
+        } else {
+          opts.omahaPricedPriorsByOpponentKind = value;
+          opts.omahaRaiseEvCountsLossesOnce = value;
+        }
+        const { decision } = decideRecorded(RECORDS[i], opts as HorseDecideOpts, 1);
+        expect(
+          { a: decision.action, amt: decision.amount ?? null },
+          `${n} ${street} ${tag} ${String(value)}`
+        ).toEqual(main);
+      }
+  }, 300000);
   it('both on: every moved record is priced2 own answer', () => {
     for (const [i, n, street, tag, , priced2] of MOVED) {
       const { decision } = decideRecorded(RECORDS[i], configOf(tag, true), 1);

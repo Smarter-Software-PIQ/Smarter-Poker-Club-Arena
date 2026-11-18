@@ -56,7 +56,7 @@ const pooledOf = (bet: number, fold: number, n: number) =>
     foldToBet: stat(fold, n),
     riverCall: stat(0.3, n),
   }) as never;
-// omahaPricedPriorsByOpponentKind on (the batch's gate of every kind prior; off: the #11212 tables)
+// the kind tables act only with omahaPricedPriorsByOpponentKind on (priorsByKind; batch lead ruling R2 B1)
 const BOTH = { rangeContinuous: true, bluffShareFromBetRate: true, priorsByKind: true };
 
 describe('who the opponent is', () => {
@@ -192,6 +192,8 @@ describe('a whole facing-bet decision prices a Horse on the Horse prior and a pe
           ...allPriced(true),
           omahaPricedMix: false,
           omahaPairedBoardBetIsPriced: false,
+          omahaPricedPriorsByOpponentKind: true,
+          omahaRaiseEvCountsLossesOnce: true,
         },
         7
       );

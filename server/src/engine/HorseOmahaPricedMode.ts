@@ -51,6 +51,7 @@ export interface OmahaPricedMode {
 export const OMAHA_PRICED_MODE_OFF: OmahaPricedMode = Object.freeze({
   rangeContinuous: false,
   bluffShareFromBetRate: false,
+  priorsByKind: false,
 });
 let current: OmahaPricedMode = OMAHA_PRICED_MODE_OFF;
 
@@ -78,8 +79,7 @@ export function omahaPricedModeOf(
   return Object.freeze({
     rangeContinuous: wanted.rangeContinuous === true,
     bluffShareFromBetRate: wanted.bluffShareFromBetRate === true,
-    // present only when on: the off mode keeps the #11212 shape
-    ...(wanted.priorsByKind === true ? { priorsByKind: true } : {}),
+    priorsByKind: wanted.priorsByKind === true,
   });
 }
 export function withOmahaPricedMode<T>(mode: OmahaPricedMode, fn: () => T): T {

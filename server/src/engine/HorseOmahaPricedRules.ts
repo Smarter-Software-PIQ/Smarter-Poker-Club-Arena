@@ -91,6 +91,7 @@ import {
 } from './HorseOmahaBigDrawAggression.js';
 import {
   OMAHA_PRICED_PERSON_BET_CHECKED_TO,
+  OMAHA_PRICED_READ_PRIOR_STRENGTH,
   omahaPricedBluffFactor,
   omahaPricedKindBetRate,
   omahaPricedKindPrior,
@@ -128,8 +129,9 @@ export interface OmahaPricedPopulation {
   bet: number | null;
   foldToBet: number | null;
 }
-/** Pseudo-opportunities behind the figure a street cell shrinks toward (HorseOpponentExploit's prior strength). */
-export const OMAHA_PRICED_SHRINK = 6;
+/** Pseudo-opportunities behind the figure a street cell shrinks toward (HorseOpponentExploit's prior strength).
+ *  One figure with the posterior re-centring (HorseOmahaPricedMode.OMAHA_PRICED_READ_PRIOR_STRENGTH, 6). */
+export const OMAHA_PRICED_SHRINK = OMAHA_PRICED_READ_PRIOR_STRENGTH;
 
 /** (hit + prior x k) / (opp + k): continuous in the opportunity count, the prior at none. */
 export function omahaPricedShrunk(
@@ -157,9 +159,10 @@ export interface OmahaPricedRead {
   foldToRaise: OmahaPricedCell | null;
   /** decayed opportunities behind the fold-to-bet figure (0: none) */
   opportunities: number;
-  /** who he is (HorseOmahaPricedMode.omahaOpponentKindOf); null: unknown, the merged figures. With a kind every
-   *  figure is his posterior re-centred on HIS KIND's prior (omahaPricedKindPrior): never null, exactly the
-   *  kind's prior with no opportunity, and betRatio is his rate over his kind's reference rate. */
+  /** who he is (HorseOmahaPricedMode.omahaOpponentKindOf); null: unknown, the merged figures. With a kind the
+   *  fold-to-bet and bet figures are his posterior re-centred on HIS KIND's prior (omahaPricedKindPrior): never
+   *  null, exactly the kind's prior with no opportunity, and betRatio is his rate over his kind's reference
+   *  rate. riverCall is NOT re-centred: it is his posterior mean as read (null with no opportunity). */
   kind?: OmahaOpponentKind | null;
   /** betCheckedTo is the pooled all-street figure ('pooled') or this street's ('street') */
   betScope?: 'pooled' | 'street';

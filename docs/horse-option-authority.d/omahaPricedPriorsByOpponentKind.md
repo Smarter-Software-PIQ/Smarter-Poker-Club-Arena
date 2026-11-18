@@ -21,4 +21,4 @@ Measurements behind the kind priors: archive plo-handoff-review-01a1cbbd/priced2
 - League: none of this option alone. The configuration-0 FAIL of 2026-11-18 had both priced2 changes on (see omahaRaiseEvCountsLossesOnce.md).
 - Overall: NOT MET. Do not switch on.
 
-Non-blocking review notes carried: riverCall is not re-centred on the kind (HorseOmahaPricedRules.ts omahaPricedRead, a posterior read as is); OMAHA_PRICED_READ_PRIOR_STRENGTH (6) and the exploit prior strength are the same figure held twice.
+Non-blocking review notes carried: riverCall is not re-centred on the kind (HorseOmahaPricedRules.ts omahaPricedRead, a posterior read as is); the priced code holds the pseudo-opportunity count (6) once: OMAHA_PRICED_SHRINK is OMAHA_PRICED_READ_PRIOR_STRENGTH; it equals HorseOpponentExploit.EXPLOIT_PRIOR_STRENGTH, which HorseOmahaPricedMode does not import (it stays a leaf module).
