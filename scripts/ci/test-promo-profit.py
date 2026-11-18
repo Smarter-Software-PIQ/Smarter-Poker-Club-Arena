@@ -409,6 +409,29 @@ def main():
   h=str(uuid.uuid4());db.run(f"INSERT INTO ca_promo_cash_hand_clocks VALUES('{h}','{T}',1,clock_timestamp());INSERT INTO rake_attributions(club_id,player_id,rake_amount,hand_id) VALUES('{C}','{u}',40,'{h}')")
   db.run(f"INSERT INTO tournament_refund_tranches(entitlement_id,tournament_id,user_id,source_wallet_club_id,refund_fee) VALUES('{en}','{t}','{u}','{C}',8)")
   check('earned two-times stays final and later canonical reversal is deduplicated',f"SELECT (SELECT unlocked_at IS NOT NULL FROM ca_promo_profit_gates WHERE grant_id='{g}') AND max(profit_earned)=40 FROM fn_ca_promo_shared_fee_state('{C}','{u}') WHERE grant_id='{g}'",'t')
+  # Actual Free Buy funding owner over the installed fee state. The same
+  # cutoff row posts before and after its owner stops settling; each run
+  # rolls back, so both start from one identical member and open grant.
+  section(ticket,'CREATE FUNCTION public.fn_ca_promo_free_buy_funded()',"INSERT INTO public.ca_declared_money_triggers(table_name,trigger_name,note) VALUES('chip_ledger','ca_promo_free_buy_funded'")
+  db.run("ALTER TABLE chip_ledger ADD COLUMN IF NOT EXISTS tournament_id uuid,ADD COLUMN IF NOT EXISTS idempotency_key text;DO $$BEGIN IF to_regprocedure('public.fn_tournament_club_for_user(uuid,uuid,uuid)') IS NULL THEN CREATE FUNCTION public.fn_tournament_club_for_user(uuid,uuid,uuid) RETURNS uuid LANGUAGE sql AS 'SELECT $3';END IF;END$$")
+  fu,fk,fe,fl=map(lambda _:str(uuid.uuid4()),range(4))
+  db.run(f"INSERT INTO club_members(club_id,user_id,chip_balance,role) VALUES('{C}','{fu}',20,'member');SELECT fn_ca_promo_play_through_record_grant('{C}','{fu}',20,'club_promo','{fk}',NULL,'promo_wallet','{C}',NULL);INSERT INTO tournaments VALUES('{fe}','{C}','RUNNING');INSERT INTO tournament_players(tournament_id,user_id,club_id) VALUES('{fe}','{fu}','{C}');INSERT INTO smarter_private.free_buy_ticket_redemptions SELECT id,tournament_id,user_id,NULL FROM tournament_players WHERE tournament_id='{fe}'")
+  free_buy_cutoff=f"""BEGIN;SET LOCAL track_functions='all';
+   INSERT INTO chip_ledger(id,from_type,from_entity_id,from_label,to_type,to_entity_id,amount,category,club_id,tournament_id,idempotency_key,metadata)
+    VALUES('{fl}','union_wallet','fade0000-0000-0000-0000-000000000001','union_wallets.promo_wallet','prize_liability','{fe}',1,'promo_send','{C}','{fe}','tourney:{fe}:free_buy_cutoff_funding','{{"kind":"midway_free_buy_promo_head","stage":"cutoff"}}');
+   SELECT (COALESCE(pg_stat_get_xact_function_calls('public.fn_ca_promo_fee_events(uuid,uuid,timestamptz,timestamptz)'::regprocedure),0)>0)::text||'|'||md5(jsonb_build_object(
+    'grants',(SELECT jsonb_agg(jsonb_build_array(g.source_kind,g.source_ref,g.amount,g.remaining,g.multiplier,g.fee_target,g.source_ledger_id,g.funded_from_type,g.funded_from_id,g.closed_at IS NULL,g.close_reason,g.expires_at-g.granted_at,
+      g.cycle_started_at=(SELECT o.cycle_started_at FROM ca_promo_play_through_grants o WHERE o.source_ref='{fk}')) ORDER BY g.source_ref) FROM ca_promo_play_through_grants g WHERE g.user_id='{fu}'),
+    'custody',(SELECT jsonb_agg(jsonb_build_array(g.source_ref,c.kind,c.entity_id,c.amount) ORDER BY g.source_ref,c.kind,c.entity_id) FROM ca_promo_principal_custody c JOIN ca_promo_play_through_grants g ON g.id=c.grant_id WHERE g.user_id='{fu}'),
+    'lots',(SELECT jsonb_agg(jsonb_build_array(g.source_ref,l.tournament_id,l.charge_ledger_id,l.source_ref,l.original_amount,l.remaining) ORDER BY l.source_ref) FROM ca_promo_event_principal_lots l JOIN ca_promo_play_through_grants g ON g.id=l.grant_id WHERE g.user_id='{fu}'),
+    'slices',(SELECT jsonb_agg(to_jsonb(f)-'grant_id'||jsonb_build_object('grant',g.source_ref) ORDER BY g.source_ref) FROM ca_promo_free_buy_funding_slices f JOIN ca_promo_play_through_grants g ON g.id=f.grant_id WHERE g.user_id='{fu}'),
+    'winnings',(SELECT jsonb_agg(jsonb_build_array(g.source_ref,w.unlocked_at IS NULL,p.source_kind,p.activated_at=g.granted_at,p.closed_at IS NULL) ORDER BY g.source_ref) FROM ca_promo_play_through_grants g JOIN ca_promo_profit_gates w ON w.grant_id=g.id JOIN ca_promo_profit_fee_phases p ON p.grant_id=g.id WHERE g.user_id='{fu}')
+   )::text)||'|'||(SELECT count(*) FROM ca_promo_free_buy_funding_slices f JOIN ca_promo_play_through_grants g ON g.id=f.grant_id WHERE g.user_id='{fu}' AND f.amount=1);
+   ROLLBACK;"""
+  settled_post=db.one(free_buy_cutoff)
+  if not(settled_post.startswith('true|') and settled_post.endswith('|1')):raise AssertionError('settling Free Buy owner did not read fee history for an open-grant entrant: '+settled_post)
+  runfile(ROOT/'supabase/migrations/20261118031822_free_buy_grants_post_without_reading_fee_history.sql')
+  check('Free Buy funding grant for an open-grant member reads no fee history and writes identical grant, custody, lot and slice rows',free_buy_cutoff,'false|'+settled_post.split('|',1)[1])
   lock_test=ROOT/'scripts/ci/test-promo-profit-cash-fee-lock.py';track(lock_test)
   import runpy
   runpy.run_path(str(lock_test))['verify'](db,C,T,ROOT/'supabase/migrations/20261118001328_cash_fee_settlement_never_waits_on_a_cashout_grant.sql',runfile,check)
