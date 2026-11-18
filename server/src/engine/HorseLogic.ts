@@ -113,6 +113,7 @@ import {
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import { omahaPairedRiverPricedOver } from './HorseOmahaPairedRiverPriced.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import { omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
@@ -3651,6 +3652,18 @@ export interface HorseDecideOpts {
    *  holdings (HorseOmahaRunoutRealization.ts) instead of the flat 0.85 / 0.92.
    *  Default OFF until its declared evaluation passes. */
   omahaTurnCallRealizationByRunout?: boolean;
+  /** Lane PAIRED-RIVER 2026-11-18 (hand 59993188: the nut flush folded on a
+   *  river that paired the board at a price of 26.0%). Inside omahaFacingBetEv
+   *  only: PLO4/PLO5 cash, the river, heads-up, the first bet of the street, a
+   *  paired board, and a straight or flush that only a full house or quads
+   *  beats. The verdict is priced on the bettor's line-conditioned range (his
+   *  preflop action, what he did on the flop and the turn, the Horse's blockers
+   *  and the measured river betting frequency of each hand class:
+   *  HorseOmahaPairedRiverPriced.ts) instead of on every five-card holding, and
+   *  it is the facing-bet verdict: the 2026-10-25 paired-board fold does not
+   *  decide where it says call (owner 2026-11-17: no blanket rules). Default
+   *  OFF until its declared evaluation passes. */
+  omahaPairedBoardRiverIsPriced?: boolean;
   /** Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair with no
    * redraw raised a pot bet on the turn into the nut straight; "NEVER A
    * RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand,
@@ -10979,6 +10992,7 @@ let omahaFacingBetEvCountMemo: {
   plo6RiverNuts: boolean;
   plo6RiverUnpaired: boolean;
   runoutRealization: boolean;
+  pairedRiverPriced: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -11011,6 +11025,7 @@ function omahaFacingBetEvCount(
   const plo6RiverNuts = opts.v58Plo6RiverNuts !== false;
   const plo6RiverUnpaired = opts.v59Plo6RiverUnpaired !== false;
   const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
+  const pairedRiverPriced = opts.omahaPairedBoardRiverIsPriced === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -11019,7 +11034,8 @@ function omahaFacingBetEvCount(
     memo.mind === mind &&
     memo.plo6RiverNuts === plo6RiverNuts &&
     memo.plo6RiverUnpaired === plo6RiverUnpaired &&
-    memo.runoutRealization === runoutRealization
+    memo.runoutRealization === runoutRealization &&
+    memo.pairedRiverPriced === pairedRiverPriced
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -11082,7 +11098,23 @@ function omahaFacingBetEvCount(
             : {}),
         }
       );
-    const verdict = verdictOf(spot, read);
+    let verdict = verdictOf(spot, read);
+    // omahaPairedBoardRiverIsPriced (default off): a nut-class straight or flush on a paired river,
+    // heads-up against the first bet, is priced on his line-conditioned range.
+    if (verdict && pairedRiverPriced && !isTournamentMode(gs)) {
+      const priced = omahaPairedRiverPricedOver(
+        spot,
+        verdict,
+        player.cards ?? [],
+        gs.communityCards ?? [],
+        player.knownDeadCards ?? [],
+        gs.actionHistory,
+        gs.pot,
+        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        player.seat
+      );
+      if (priced) verdict = priced;
+    }
     if (verdict) {
       answer = { spot, verdict };
       // Receipt: the continuous inputs changed the verdict the stepped tables and the label cap give.
@@ -11099,6 +11131,7 @@ function omahaFacingBetEvCount(
     plo6RiverNuts,
     plo6RiverUnpaired,
     runoutRealization,
+    pairedRiverPriced,
     answer,
   };
   return answer;

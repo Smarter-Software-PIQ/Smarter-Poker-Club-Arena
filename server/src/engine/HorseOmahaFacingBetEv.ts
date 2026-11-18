@@ -1406,6 +1406,9 @@ export interface OmahaFacingBetEvVerdict {
   runoutRealization?: number;
   /** pot odds of the call, for the record */
   price: number;
+  /** omahaPairedBoardRiverIsPriced: present when call, ev, pWin and pTie were priced on the bettor's
+   *  line-conditioned range (HorseOmahaPairedRiverPriced); the other numbers are the uniform count's */
+  pairedRiverPriced?: { boatShare: number; preflopWidth: number; samples: number };
   /** work done */
   pairsScored: number;
   counts: number;
