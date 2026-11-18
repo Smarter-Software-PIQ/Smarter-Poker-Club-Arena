@@ -1273,7 +1273,7 @@ export default function MemberManagementPage() {
         )}
         {wallets && resolvedClubId && userId && (
           <MemberPromoPlayThrough
-            key={`${resolvedClubId}:${userId}`}
+            key={`promo:${resolvedClubId}:${userId}`}
             canOverride={myRoleLoaded && ['owner', 'co_owner', 'admin'].includes(myRole)}
             clubId={resolvedClubId}
             userId={userId}
@@ -1282,7 +1282,7 @@ export default function MemberManagementPage() {
         )}
         {wallets && resolvedClubId && userId && isAgentRole(identity!.role) && (
           <MemberCreditWalletRows
-            key={`${resolvedClubId}:${userId}`}
+            key={`credit:${resolvedClubId}:${userId}`}
             clubId={resolvedClubId}
             userId={userId}
             role={identity!.role}
