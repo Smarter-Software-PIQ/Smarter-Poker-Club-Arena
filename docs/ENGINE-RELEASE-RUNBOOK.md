@@ -161,11 +161,13 @@ Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-
 
 ### 1.4 Freezing main for an owner window says when it ends
 
-A freeze of `refs/heads/main` (the `RELEASE FREEZE` repository ruleset, id 27627940) is applied and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
+**Scope (owner, 2026-11-19; and 2026-09-11, no merge freeze ever): an engine window never blocks main.** `freeze` writes only `MAIN_RELEASE_FREEZE` with scope `release-controls`; it writes no ruleset. The check "Release inputs are steady for the engine window" (`.github/workflows/release-inputs-hold.yml`, `scripts/ci/release-freeze-scope.mjs`) turns red on a pull request that touches a GUARDED release input (release controls, release workflows, standby, maintenance) while the window is live, as information for its agent; it is not a required check and must not become one. Client, docs, tests, engine source and migrations keep merging through the window; migration installs use the existing pause (`scripts/release/resume-migration-installs.sh`). `thaw` lifts the variable and also disables a whole-main ruleset somebody made by hand, which is the only use left for the ruleset described below.
+
+No tool applies a freeze of `refs/heads/main` any more (the hand-made `RELEASE FREEZE` repository ruleset, id 27627940, stays disabled). The engine window is published and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
 
 ```bash
-node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the name and variable it will write
-node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Administration: write and Variables: write
+node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the variable it will write
+node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Variables: write; main stays open
 node scripts/ci/main-freeze.mjs thaw --apply                         # enforcement=disabled, same ruleset id
 ```
 
