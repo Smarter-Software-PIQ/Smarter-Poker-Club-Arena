@@ -63,6 +63,16 @@ hand commit therefore still waits for the tail of one registration (tens of
 milliseconds; production mean 62 ms per horse registration), never for the
 lane or for a queue of registrations. Rebuys and busts have the same shape.
 
+The converse is a registration that waits for a gap in those FOR SHARE holds:
+new sharers do not queue behind a waiting FOR UPDATE, so under continuous
+back-to-back hand commits a registration can wait for seconds (seen in CI with
+six unpaced commit workers, about 150 commits a second). Production commits
+about 0.15 hands a second per event, so the row is free nearly all the time.
+The root fix for both is the hand commit taking the tournament row FOR KEY
+SHARE and the entry cores FOR NO KEY UPDATE (status is already fenced by the
+event lane); it touches the hand path and every entry core and is left to its
+own change.
+
 ## Proof
 
 `scripts/ci/test-late-registration-never-pauses-the-tournament.py` (native

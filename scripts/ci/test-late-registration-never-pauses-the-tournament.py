@@ -823,10 +823,15 @@ def wave(label, n_reg=16, hold_workers=6):
     lock = threading.Lock()
 
     def hands():
+        # Paced: production commits about 0.15 hands a second per event
+        # (2026-11-19 01:00-01:15 UTC); six unpaced workers would hold the
+        # tournament row FOR SHARE without a gap, which no event does, and a
+        # FOR UPDATE waiter never gets a turn while new sharers keep arriving.
         while not stop.is_set():
             dt, rc, o = timed(w_commit(TBL[rng.randrange(NT)], amount=rng.randrange(1, 5)))
             with lock:
                 lat.append((dt, rc))
+            time.sleep(0.1)
 
     def regs(items):
         for h in items:
