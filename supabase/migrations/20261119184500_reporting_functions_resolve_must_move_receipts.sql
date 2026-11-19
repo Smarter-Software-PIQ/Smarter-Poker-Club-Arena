@@ -2755,7 +2755,7 @@ END $probe$;
 DO $probe$
 BEGIN
   IF to_regclass('public.ca_club_data_fact') IS NOT NULL THEN
-    PERFORM public.fn_ca_club_data_fact_seed('2099-01-01 00:00:00+00'::timestamptz, '2099-01-01 00:00:00+00'::timestamptz);
+    PERFORM public.fn_ca_club_data_fact_seed('2020-01-01 00:00:00+00'::timestamptz, '2020-01-01 00:00:01+00'::timestamptz);
   END IF;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
