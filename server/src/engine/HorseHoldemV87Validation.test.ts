@@ -1092,6 +1092,7 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
     it('drives real HorseDecisionWorkerRuntime -> ServerTableEngine -> ServerActionValidator -> HandController -> HorseExecutionWitness across normal commit, stale refusal, and F06 time-bank tank', async () => {
       vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-19T21:30:00.000Z'));
       const tableId = 'fa100000-0000-4000-8000-000000000901';
       const messages: HorseDecisionWorkerResponse[] = [];
       const runtime = new HorseDecisionWorkerRuntime((msg) => messages.push(msg), {
