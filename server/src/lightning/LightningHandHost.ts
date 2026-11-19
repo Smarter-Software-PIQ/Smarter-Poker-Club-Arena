@@ -1670,11 +1670,17 @@ export class LightningHandHost {
         boards,
         variant: hc?.getGameVariant?.() || String(this.rules?.game_variant || 'nlh'),
         pots: hc?.computeLivePots?.() ?? null,
-      }).then((equity) => {
-        if (token === this.runoutEquityToken && this.handNumber === hand && this.hc === hc) {
-          this.runoutEquity = equity;
-        }
-      });
+      })
+        .then((equity) => {
+          if (token === this.runoutEquityToken && this.handNumber === hand && this.hc === hc) {
+            this.runoutEquity = equity;
+          }
+        })
+        .catch((err: unknown) => {
+          // priceLightningRunout resolves null rather than rejecting; this catch
+          // is the guarantee, so a broken pricer can never reject unhandled.
+          reportError(err, 'LightningHandHost.runout_equity_failed');
+        });
     } catch (err) {
       reportError(err, 'LightningHandHost.runout_equity_failed');
     }
