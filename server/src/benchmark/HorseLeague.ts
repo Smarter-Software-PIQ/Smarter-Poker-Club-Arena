@@ -4380,6 +4380,42 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'VPIP window (as the live Madness tables do); until it is built, the recorded-hand cases in ' +
       'HorseOmahaVpipFloorByLimp.test.ts are the only evidence.',
   })),
+  // 2026-11-18 (Lightning parity lane): lightningVpipFloorLimpOnly and
+  // omahaReraisedPositionInLightning, default off. Refused, not dealt: this league
+  // deals no Lightning hand (no Lightning public memory domain in playHand).
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_lightning_vpip_floor_limp_only`,
+      variant,
+      a: { lightningVpipFloorLimpOnly: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option acts only on a Lightning cash decision whose ' +
+        'state carries lightningVpipFloor (HorseLogic.lightningVpipFloorLimpOnlyInputs), and ' +
+        'playHand builds neither a Lightning public memory domain nor that field, so the two arms ' +
+        'play identical poker. The option is DEFAULT OFF (read as === true). ' +
+        'Measured 2026-11-18 by running this refused matchup through runMatchup (seed 20261118, 300 pairs): ' +
+        '0 of 300 pairs diverged. ' +
+        'What would change this: a league pool that deals Lightning hands with a floor and a ' +
+        'per-sitting count of dealt and entered hands; until it is built, ' +
+        'HorseLightningVpipFloorLimpOnly.test.ts is the evidence.',
+    },
+    {
+      name: `${variant}_omaha_reraised_position_in_lightning`,
+      variant,
+      a: { omahaReraisedPositionInLightning: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option only lifts the Lightning branch of ' +
+        'omahaReraisedLaneUntouched (HorseLogic), and playHand deals no Lightning hand, so the two ' +
+        'arms play identical poker. The option is DEFAULT OFF (read as === true). ' +
+        'Measured 2026-11-18 by running this refused matchup through runMatchup (seed 20261118, 300 pairs): ' +
+        '0 of 300 pairs diverged. ' +
+        'What would change this: a league pool that deals Lightning hands (a Lightning public ' +
+        'memory domain on the decision state); until it is built, the recorded Lightning lines of ' +
+        'HorseOmahaReraisedPositionInLightning.test.ts are the evidence.',
+    },
+  ]),
   // 2026-11-17 (F-10, owner ruling 14:34 Chicago): vpipFloorLimpOnly, default off.
   // Refused, not dealt: this league seats no VPIP-floor table.
   ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({
