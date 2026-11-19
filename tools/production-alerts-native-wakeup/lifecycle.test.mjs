@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { createClient } from '@supabase/supabase-js';
 import { createPlugin } from './index.mjs';
+import { createIntake } from './core.mjs';
 const queued = {
   operationId: '00000000-0000-4000-8000-000000000001',
   ids: ['00000000-0000-4000-8000-000000000002'],
@@ -21,6 +22,7 @@ function harness({
 } = {}) {
   let service,
     statusMethod,
+    recoverMethod,
     closed = 0,
     effects = 0;
   const channels = [];
@@ -79,8 +81,9 @@ function harness({
     registerService(value) {
       service = value;
     },
-    registerGatewayMethod(_name, method) {
-      statusMethod = method;
+    registerGatewayMethod(name, method) {
+      if (name.endsWith('.recover')) recoverMethod = method;
+      else statusMethod = method;
     },
   });
   return {
@@ -95,6 +98,10 @@ function harness({
       });
       return value;
     },
+    recover: (params) =>
+      new Promise((resolve) => {
+        recoverMethod({ params, respond: (ok, value) => resolve({ ok, value }) });
+      }),
     snapshot: () => ({ state, closed, effects }),
   };
 }
@@ -350,4 +357,100 @@ test('journal on the startup disk is start_failed even when /Volumes/SmarterWork
   });
   await assert.rejects(h.service.start(), /external work volume is not mounted/);
   assert.equal(h.status().lifecycle, 'start_failed');
+});
+
+const terminated = {
+  operationId: '00000000-0000-4000-8000-000000000011',
+  ids: ['00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013'],
+  phase: 'queued',
+  messageId: '00000000-0000-4000-8000-000000000014',
+  wake: 'requested',
+};
+test('a requested wake whose reader turn terminated stays retained until explicit exact recovery', async () => {
+  const commands = [];
+  const h = harness({
+    state: structuredClone(terminated),
+    pending: async () => ({
+      data: { version: 1, active_acknowledged: false, pending: [terminated.ids[1]] },
+    }),
+    executeCommand: async (file, args) => {
+      if (file === '/usr/bin/security') return { stdout: 'a'.repeat(64) };
+      commands.push([file, args[0]]);
+      if (args[0] === 'queue')
+        return {
+          stdout:
+            'Queued message 00000000-0000-4000-8000-000000000099 for thread 01a09b86-5ba8-7290-8657-1041f13dd3ca.',
+        };
+      return { stdout: '' };
+    },
+  });
+  await h.service.start();
+  h.channels[0].callback('SUBSCRIBED');
+  await turn();
+  // Ordinary events never requeue or rewake an accepted, requested operation.
+  assert.deepEqual(h.snapshot().state, terminated);
+  assert.equal(commands.length, 0);
+  for (const bad of [
+    {},
+    { operationId: terminated.operationId, messageId: terminated.messageId },
+    {
+      operationId: terminated.operationId,
+      messageId: '00000000-0000-4000-8000-000000000015',
+      reason: 'reader turn ended with a fatal error',
+    },
+  ]) {
+    const refused = await h.recover(bad);
+    assert.equal(refused.ok, false);
+    assert.deepEqual(h.snapshot().state, terminated);
+  }
+  assert.equal(commands.length, 0);
+  const done = await h.recover({
+    operationId: terminated.operationId,
+    messageId: terminated.messageId,
+    reason: 'reader turn ended with a fatal error; deliveries unacknowledged',
+  });
+  assert.equal(done.ok, true);
+  assert.deepEqual(done.value.retired, {
+    operationId: terminated.operationId,
+    messageId: terminated.messageId,
+  });
+  assert.deepEqual(commands, [
+    [commands[0][0], 'queue'],
+    ['/usr/bin/open', '-g'],
+  ]);
+  assert.deepEqual(h.snapshot().state.ids, [terminated.ids[1]]);
+  assert.equal(h.snapshot().state.wake, 'requested');
+  // The retired operation cannot be recovered twice.
+  assert.equal(
+    (await h.recover({ ...terminated, reason: 'second attempt for the same op' })).ok,
+    false
+  );
+  await h.service.stop();
+});
+test('explicit recovery never retires an acknowledged operation', async () => {
+  let state = structuredClone(terminated);
+  let effects = 0;
+  const intake = createIntake({
+    load: async () => structuredClone(state),
+    save: async (value) => {
+      state = value;
+    },
+    pending: async () => ({ version: 1, active_acknowledged: true, pending: [] }),
+    queue: async () => {
+      effects++;
+    },
+    wake: async () => {
+      effects++;
+    },
+  });
+  await assert.rejects(
+    intake.recover({
+      operationId: terminated.operationId,
+      messageId: terminated.messageId,
+      reason: 'reader turn ended with a fatal error',
+    }),
+    /already acknowledged/
+  );
+  assert.deepEqual(state, terminated);
+  assert.equal(effects, 0);
 });
