@@ -110,6 +110,8 @@ jobs:
             tests/fixtures/promo-integrity-*.json
             scripts/ci/test-mtt-unlimited.py
             scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py
+            scripts/ci/test-a-rebuy-reads-promo-fee-state-outside-its-lane.py
+            scripts/ci/fixtures/rebuy-promo-fee-state/**
             tests/fixtures/spin-fee-guard/**
             .github/workflows/promo-play-through.yml
             scripts/ci/test-promo-obligation-earning-matrix.py
@@ -194,6 +196,12 @@ jobs:
         env:
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-a-spin-fee-source-agrees-with-its-zero-fee-entry.py --pg-bin /usr/lib/postgresql/17/bin
+      - name: A rebuy reads promo fee state outside its event lane
+        if: steps.relevant.outputs.run == 'true'
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-a-rebuy-reads-promo-fee-state-outside-its-lane.py
       - name: Every tournament obligation kind earns through the promo trigger exactly once (champion residual)
         if: steps.relevant.outputs.run == 'true'
         env:
