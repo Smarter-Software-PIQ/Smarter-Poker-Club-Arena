@@ -98,4 +98,22 @@ BEGIN
 END
 $$;
 
+-- @probe-for: public.fn_lightning_session_hands_page
+DO $probe$
+DECLARE
+  v_res jsonb;
+BEGIN
+  v_res := public.fn_lightning_session_hands_page(
+    '00000000-0000-0000-0000-000000000000'::uuid,
+    50,
+    999999999::bigint
+  );
+  IF v_res IS DISTINCT FROM '[]'::jsonb THEN
+    RAISE EXCEPTION 'fn_lightning_session_hands_page probe unexpected result: %', v_res;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
