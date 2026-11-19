@@ -4672,6 +4672,31 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'big blind, a new table every hand) and sets the domain.',
   },
   {
+    // PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 20:08:21Z): the live Omaha set (with the priced
+    // turn/river raise and the priced small bets on) in BOTH arms; the one-arm question is the Lightning scope.
+    name: 'plo5_omaha_priced_in_lightning',
+    variant: 'plo5',
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaSmallBetIsPriced: true,
+      omahaPricedInLightning: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
+    reason:
+      'No Lightning domain in the league table. omahaPricedInLightning is DEFAULT OFF (HorseOmahaPricedWiring: ' +
+      'opts.omahaPricedInLightning === true) and it changes one thing: omahaPricedInScope (and, for the two priced ' +
+      'raise owners, omahaRaiseNeedsNutsScope) no longer refuses a decision whose gs.publicMemoryDomain.speed is ' +
+      '"lightning". The league deals its own tables and no league context carries a public memory domain, so every ' +
+      'league decision is already inside the priced scope in both arms, both arms play identical poker ' +
+      '(omaha_priced_in_lightning_scope_seen never fires) and the card would report 0.00 +/- 0.00 every night. ' +
+      'Measured 2026-11-18 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261118, status inert). ' +
+      'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
+      'LIGHTNING_EVAL_CANDIDATE) on a live-base baseline (PASS-BAR in the PLO lane evidence, ' +
+      'plo-handoff-review-01a1cbbd/lightning-013U37). What would change this: a league context that deals the ' +
+      'Lightning contract (fast-fold pool, big-blind ante of one big blind, a new table every hand) and sets the domain.',
+  },
+  {
     // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the
     // Lightning-separate style read itself.
     name: 'nlh_style_lightning_separate',

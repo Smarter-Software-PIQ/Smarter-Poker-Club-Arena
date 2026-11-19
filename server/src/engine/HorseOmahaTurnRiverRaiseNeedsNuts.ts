@@ -65,10 +65,15 @@ export function omahaRaiseNeedsNutsInPosition(player: SeatPlayer, gs: HorseGameS
   return live.every((p) => after(p.seat) < after(player.seat));
 }
 
-/** The rule's public scope, or null outside it. Looks at no hole card beyond the count. */
+/**
+ * The rule's public scope, or null outside it. Looks at no hole card beyond the count. `lightning`: true only
+ * from the priced owners (HorseOmahaPricedWiring) when the decision's omahaPricedInLightning is on, so the same
+ * spot is read in a Lightning pool; this rule's own callers never pass it and stay out of Lightning.
+ */
 export function omahaRaiseNeedsNutsScope(
   player: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  lightning = false
 ): OmahaRaiseNeedsNutsScope | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
@@ -87,7 +92,7 @@ export function omahaRaiseNeedsNutsScope(
     )
       return null;
     const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
-    if (speed === 'lightning') return null;
+    if (speed === 'lightning' && lightning !== true) return null;
     const street = gs.stage === 'turn' ? 'turn' : gs.stage === 'river' ? 'river' : null;
     if (street === null) return null;
     if ((gs.communityCards ?? []).length !== (street === 'turn' ? 4 : 5)) return null;

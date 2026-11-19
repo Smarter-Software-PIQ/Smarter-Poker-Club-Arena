@@ -317,6 +317,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaTurnSetSizeIsPriced',
   'omahaBlockerBluffIsPriced',
   'omahaFlopBetIsPriced',
+  'omahaPricedInLightning',
   'omahaTightOpponentSteal',
   'lightningParticipationHoldem',
   'lightningParticipationOmaha',
