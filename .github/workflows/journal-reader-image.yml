@@ -33,7 +33,9 @@ concurrency:
 jobs:
   publish:
     name: Publish and prove the release's journal reader
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Engine Release ') && github.event.workflow_run.conclusion == 'success')
+    # Only this repository's own Auto-Deploy Hetzner Engine run (by path, on main, started by a release dispatch),
+    # or a manual backfill on main; a job-token dispatch and a job-token re-run are refused (aJobTokenCannotStartTrustedWork).
+    if: ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml' && github.event.workflow_run.event == 'repository_dispatch' && startsWith(github.event.workflow_run.display_title, 'Engine Release ') && github.event.workflow_run.conclusion == 'success')) && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 120
