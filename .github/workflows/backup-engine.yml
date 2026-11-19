@@ -180,6 +180,33 @@ jobs:
           set -euo pipefail
           sha="${INPUT_SHA:-$GITHUB_SHA}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "not an exact sha: $sha"; exit 1; }
+          # THE 04:00 BUILD IS CERTIFIED AGAINST THE FROZEN COPY (incident
+          # 076ff467, 2026-11-19). Inside tonight's release schema freeze the
+          # one shippable build is the newest server commit merged before the
+          # freeze began, and only a certificate made on a copy restored after
+          # the freeze began can pass the 03:30 contents judge. A push run is
+          # otherwise superseded or retargeted to main's newest commit, which
+          # the freeze makes unshippable, so the 04:00 cutover kept serving.
+          # The first push or schedule run of the night certifies that build
+          # once, refresh forced, never superseded (scripts/ci/backup-freeze-baseline.py).
+          # Any answer but `due` plans exactly as before.
+          if [ "$EVENT" = push ] || [ "$EVENT" = schedule ]; then
+            tool=$(mktemp); baseline_state=unknown; baseline=''
+            if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-freeze-baseline.py?ref=main" > "$tool" 2>/dev/null; then
+              verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" 2>/dev/null) || verdict=''
+              baseline_state=$(printf '%s\n' "$verdict" | sed -n 's/^state=//p')
+              baseline=$(printf '%s\n' "$verdict" | sed -n 's/^baseline=//p')
+            fi
+            rm -f "$tool"
+            echo "freeze baseline: ${baseline_state:-unknown}${baseline:+ ($baseline)}"
+            if [ "$baseline_state" = due ] && [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "FREEZE BASELINE: $baseline is tonight's shippable 04:00 build; certifying it on a copy restored now, not superseded, not retargeted."
+              { echo "### Backup Engine"; echo ""; echo "- FREEZE BASELINE \`$baseline\`: certified on tonight's frozen copy (refresh forced)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=$baseline" >> "$GITHUB_OUTPUT"
+              echo "refresh=force" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           # A queued push run whose commit a newer push has already replaced
           # is superseded: a newer push run of this workflow (any state) exists.
           # Runs are serialized FIFO, so a newer run can only be queued or
