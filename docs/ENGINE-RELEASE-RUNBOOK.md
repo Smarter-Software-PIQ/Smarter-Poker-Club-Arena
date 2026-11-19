@@ -1,3 +1,5 @@
+**2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-2030z.** Window 1510z was consumed at 17:33 UTC: receiver run 44577448928 sealed dfaa9717f826 and every table resumed. On the owner's 11:50 Chicago order to cut over again as soon as possible so that everything merged after that seal is activated and tested, this books one more no-notice activation of protected main dee22dec9ecd: admission 20:30 UTC November 19 through fixed 02:00 UTC November 20, serving dfaa9717f826. No player notice; the engine finishes and settles every hand before freezing.
+
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-1510z.** Window 1030z was consumed at 14:11 UTC: certified 7add8b42c83b swapped in but the long drain had used the proof and rollback reserve, so sealed f3e99378ccbb was restored. Per the owner's emergency order this books one more no-notice activation of protected main 7add8b42c83b: admission 15:10 UTC through fixed 21:00 UTC November 19, serving f3e99378ccbb. No player notice; the engine finishes and settles every hand before freezing.
 
 **2026-11-19 owner engine window 2026-11-19-owner-no-notice-engine-1030z.** The November 19 04:00 Chicago daily preparation kept serving f3e99378ccbb (no candidate's Backup copy matched production, and later candidates carried migrations held by the nightly schema freeze). Per the owner's standing orders this books one no-notice off-cycle activation of everything on protected main up to 5552ddaa3c13: admission 10:30 UTC through fixed 16:20 UTC November 19, serving f3e99378ccbb. No player notice; the engine finishes and settles every hand before freezing.
@@ -158,6 +160,26 @@ to production; the current engine keeps running by design.
 ### Every ordinary candidate migration must be installed before dispatch
 
 Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-ready --repo . --serving SERVING_SHA --sha TARGET_SHA` using the configured read-only `DATABASE_URL`, or supply `--production FRESH_SCHEMA_EVIDENCE_JSON` from a fresh installed listing. It checks all ordinary added or changed candidate files, including byte-bound recordings whose installed name differs from their filename. Missing versions, wrong installed names and malformed or ambiguous recording claims refuse. Retain the separate certified-copy equality and required-function checks. A changed recording manifest requires fresh release and physical Backup qualification; this command never installs or replays SQL.
+
+### 1.4 Freezing main for an owner window says when it ends
+
+A freeze of `refs/heads/main` (the `RELEASE FREEZE` repository ruleset, id 27627940) is applied and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
+
+```bash
+node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the name and variable it will write
+node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Administration: write and Variables: write
+node scripts/ci/main-freeze.mjs thaw --apply                         # enforcement=disabled, same ruleset id
+```
+
+Freezing renames the ruleset to `RELEASE FREEZE until <notAfter>Z (<window id>) <sha8 of contains>` and writes the repository variable `MAIN_RELEASE_FREEZE` (JSON: `state`, `windowId`, `notBefore`, `notAfter`, `release`, `rulesetId`). It refuses a window that is not booked or has already ended, so a freeze never claims an end the bookings do not support. Thawing disables the same ruleset (the id stays stable), resets its name to the bare prefix and marks the variable `lifted`. Neither touches the database freeze `smarter_private.ca_release_freeze`, the engine or any bypass list.
+
+Any session reads the state with one command, read-only:
+
+```bash
+node scripts/ci/main-freeze-status.mjs          # or --json
+```
+
+It prints `main: OPEN`, `main: FROZEN` (ruleset, window, until, release) or `main: UNKNOWN` (rulesets unreadable; never reported as open), any booked windows open now, and the next booked window. A ruleset applied by hand without a label is still bounded: the helper reports the latest-ending booked window covering now, marked `INFERRED`. `OVERDUE` means the booked `notAfter` has passed and the ruleset is still active; the custodian thaws it, nothing lifts it on a clock. Do not poll the ruleset to learn when merges resume: read the `until` line and come back then. Tests: `node --test tests/operations/main-freeze-status.test.mjs` (fixtures only, no network).
 
 ## 2. Adding to the engine
 
