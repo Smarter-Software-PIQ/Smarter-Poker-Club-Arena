@@ -303,11 +303,11 @@ describe.skipIf(!bin)('all 22 reporting functions resolve must-move receipts (PG
           'ca_player_stats_hand_evidence','ca_player_stats_hand_evidence_base',
           'ca_player_stats_overview_separated_by_club','ca_player_stats_overview_v2_by_club',
           'ca_player_stats_pulse_by_club','ca_player_stats_shared_overview_v1',
-          'ca_player_stats_shared_separated','fn_ca_club_data_ct_seed','fn_ca_club_data_fact_seed',
+          'ca_player_stats_shared_separated','fn_ca_club_data_fact_seed',
           'fn_ca_club_rake_daily_compute','fn_ca_reporting_rollups_from_facts','ca_club_members_cash_window'
         );
     `);
-    expect(fnCount).toBe('22');
+    expect(fnCount).toBe('21');
 
     // 2. Verify strict ACLs: zero anon grants; postgres-only and service-only stay locked
     expect(
@@ -323,7 +323,7 @@ describe.skipIf(!bin)('all 22 reporting functions resolve must-move receipts (PG
             'ca_player_stats_hand_evidence','ca_player_stats_hand_evidence_base',
             'ca_player_stats_overview_separated_by_club','ca_player_stats_overview_v2_by_club',
             'ca_player_stats_pulse_by_club','ca_player_stats_shared_overview_v1',
-            'ca_player_stats_shared_separated','fn_ca_club_data_ct_seed','fn_ca_club_data_fact_seed',
+            'ca_player_stats_shared_separated','fn_ca_club_data_fact_seed',
             'fn_ca_club_rake_daily_compute','fn_ca_reporting_rollups_from_facts','ca_club_members_cash_window'
           )
           AND has_function_privilege('anon', p.oid, 'EXECUTE');
@@ -334,7 +334,7 @@ describe.skipIf(!bin)('all 22 reporting functions resolve must-move receipts (PG
       ok(`
         SELECT has_function_privilege('authenticated', 'public.ca_club_members_cash_window(uuid,uuid[],date,date)', 'EXECUTE')
             || '|' || has_function_privilege('service_role', 'public.ca_club_members_cash_window(uuid,uuid[],date,date)', 'EXECUTE')
-            || '|' || has_function_privilege('authenticated', 'public.fn_ca_club_data_ct_seed(date)', 'EXECUTE')
+            || '|' || has_function_privilege('authenticated', 'public.fn_ca_club_data_fact_seed(timestamptz,timestamptz)', 'EXECUTE')
             || '|' || has_function_privilege('authenticated', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE')
             || '|' || has_function_privilege('service_role', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE')
             || '|' || has_function_privilege('authenticated', 'public.ca_player_stats_pulse_by_club(uuid,text,uuid)', 'EXECUTE');

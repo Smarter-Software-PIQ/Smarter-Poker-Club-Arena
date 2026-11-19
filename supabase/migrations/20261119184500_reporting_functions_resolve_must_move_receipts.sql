@@ -10,15 +10,17 @@
 --
 -- Stage 2 (`20261119180417_fn_member_record_fact_club_resolves_must_move_receipts.sql`)
 -- added `cash_seat_move_receipts_dest_player_at_idx(to_table_id, player_id, created_at DESC, move_id DESC)`
--- and updated `fn_member_record_fact_club`. This Stage 3 sweep updates all 22
--- remaining unpinned reporting functions that queried `cash_participant_funding_receipts`
--- by `table_id` + `operation_kind = 'buyin'` without checking `cash_seat_move_receipts`:
+-- and updated `fn_member_record_fact_club`. This Stage 3 sweep updates all 21
+-- remaining live/active unpinned reporting functions that queried
+-- `cash_participant_funding_receipts` by `table_id` + `operation_kind = 'buyin'`
+-- without checking `cash_seat_move_receipts`:
 --   - 17 `ca_player_*_by_club` / `ca_player_stats_*` Player Stats RPCs
---   - 4 Club Data / rollup functions (`fn_ca_club_data_ct_seed`,
---     `fn_ca_club_data_fact_seed`, `fn_ca_club_rake_daily_compute`,
---     `fn_ca_reporting_rollups_from_facts`)
+--   - 3 Club Data / rollup functions (`fn_ca_club_data_fact_seed`,
+--     `fn_ca_club_rake_daily_compute`, `fn_ca_reporting_rollups_from_facts`)
 --   - 1 Roster cash window (`ca_club_members_cash_window`), preserving Stage 2's
 --     purely additive partial-day slices.
+-- (`fn_ca_club_data_ct_seed` is a retired one-time Sept/Oct 2026 historical
+-- backfill with 0 live callers and dynamic TEMP tables, so it is left untouched.)
 --
 -- This migration also creates `cash_seat_move_receipts_player_dest_at_idx
 -- (player_id, to_table_id, created_at DESC, move_id DESC)` concurrently before
@@ -29,7 +31,7 @@
 -- no financial/money-path writes, no engine dependency.
 --
 -- @live-proof: EXISTS(SELECT 1 FROM pg_index WHERE indexrelid = 'public.cash_seat_move_receipts_player_dest_at_idx'::regclass AND indisvalid AND indisready)
--- @live-proof: (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname IN ('ca_player_class_hands_by_club', 'ca_player_ev_curve_by_club', 'ca_player_hand_grid_by_club', 'ca_player_hands_separated_by_club', 'ca_player_hands_v2_by_club', 'ca_player_nemesis_by_club', 'ca_player_rake_stats_by_club', 'ca_player_rake_stats_calendar_by_club', 'ca_player_stats_club_comparison', 'ca_player_stats_club_comparison_separated', 'ca_player_stats_hand_evidence', 'ca_player_stats_hand_evidence_base', 'ca_player_stats_overview_separated_by_club', 'ca_player_stats_overview_v2_by_club', 'ca_player_stats_pulse_by_club', 'ca_player_stats_shared_overview_v1', 'ca_player_stats_shared_separated', 'fn_ca_club_data_ct_seed', 'fn_ca_club_data_fact_seed', 'fn_ca_club_rake_daily_compute', 'fn_ca_reporting_rollups_from_facts', 'ca_club_members_cash_window') AND pg_get_functiondef(p.oid) ILIKE '%cash_seat_move_receipts%') = 22
+-- @live-proof: (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname IN ('ca_player_class_hands_by_club', 'ca_player_ev_curve_by_club', 'ca_player_hand_grid_by_club', 'ca_player_hands_separated_by_club', 'ca_player_hands_v2_by_club', 'ca_player_nemesis_by_club', 'ca_player_rake_stats_by_club', 'ca_player_rake_stats_calendar_by_club', 'ca_player_stats_club_comparison', 'ca_player_stats_club_comparison_separated', 'ca_player_stats_hand_evidence', 'ca_player_stats_hand_evidence_base', 'ca_player_stats_overview_separated_by_club', 'ca_player_stats_overview_v2_by_club', 'ca_player_stats_pulse_by_club', 'ca_player_stats_shared_overview_v1', 'ca_player_stats_shared_separated', 'fn_ca_club_data_fact_seed', 'fn_ca_club_rake_daily_compute', 'fn_ca_reporting_rollups_from_facts', 'ca_club_members_cash_window') AND pg_get_functiondef(p.oid) ILIKE '%cash_seat_move_receipts%') = 21
 -- @live-proof: NOT has_function_privilege('authenticated', 'public.ca_club_members_cash_window(uuid,uuid[],date,date)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.ca_player_stats_hand_evidence_base(uuid,uuid,text,text,text,numeric,timestamp with time zone,timestamp with time zone,text,boolean,boolean,boolean,boolean,text,boolean,text,timestamp with time zone,uuid,integer)', 'EXECUTE')
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS cash_seat_move_receipts_player_dest_at_idx
@@ -1812,292 +1814,6 @@ BEGIN
     'tournaments',(SELECT to_jsonb(tr) FROM tr),'generated_at',now()));
 END;$function$;
 
-CREATE OR REPLACE FUNCTION public.fn_ca_club_data_ct_seed(p_day date)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
- SET statement_timeout TO '600s'
- SET work_mem TO '128MB'
-AS $function$
-DECLARE
-  v_live timestamptz := public.fn_ca_club_data_ct_live_from();
-  v_live_day date := (public.fn_ca_club_data_ct_live_from() AT TIME ZONE 'UTC')::date;
-  v_lo timestamptz := p_day::timestamp AT TIME ZONE 'UTC';
-  v_b timestamptz := public.fn_ca_chicago_day_start(p_day);
-  v_from timestamptz; v_to timestamptz; v_part int;
-  v_rows bigint := 0; v_hand_rows bigint := 0;
-  v_bad bigint; v_bounded bigint;
-BEGIN
-  IF p_day IS NULL OR p_day < public.fn_ca_club_data_facts_from() THEN
-    RAISE EXCEPTION 'Chicago seed day % is before the Club Data facts begin', p_day;
-  END IF;
-  IF p_day > v_live_day THEN
-    RAISE EXCEPTION 'Chicago seed day % is after the cutover day %; the live writer owns it', p_day, v_live_day;
-  END IF;
-  IF now() < v_live + interval '1 minute' THEN
-    RAISE EXCEPTION 'Chicago seed waits until a minute after its cutover (%)', v_live;
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.ca_club_data_ct_seed_log l WHERE l.utc_day = p_day) THEN
-    RAISE EXCEPTION 'Chicago seed day % is already loaded', p_day;
-  END IF;
-  IF NOT pg_try_advisory_xact_lock(hashtext('ca-club-data-ct-seed')) THEN
-    RAISE EXCEPTION 'another Chicago seed day is loading';
-  END IF;
-
-  CREATE TEMP TABLE IF NOT EXISTS ca_ct_seed_early (
-    part int, club uuid, kind text, game uuid, usr uuid, fee numeric, bi numeric, co numeric, last_at timestamptz
-  ) ON COMMIT DROP;
-  CREATE TEMP TABLE IF NOT EXISTS ca_ct_seed_hands (part int, club uuid, game uuid, hands bigint) ON COMMIT DROP;
-  TRUNCATE ca_ct_seed_early, ca_ct_seed_hands;
-
-  -- Part 0: [UTC midnight, Chicago midnight) of p_day -> Chicago day p_day - 1.
-  -- Part 1, the cutover day only: [Chicago midnight, cutover) -> Chicago day
-  -- p_day. On every whole day before it, part 1 is the UTC fact minus part 0.
-  FOR v_part, v_from, v_to IN
-    SELECT 0, v_lo, LEAST(v_b, v_live)
-    UNION ALL
-    SELECT 1, v_b, v_live WHERE p_day = v_live_day AND v_live > v_b
-  LOOP
-  WITH fk AS MATERIALIZED (
-    SELECT f.game_id g, f.user_id u, CASE WHEN count(*) = 1 THEN min(f.club_id::text)::uuid END club
-      FROM public.ca_club_data_fact f
-     WHERE f.club_id = ANY (ARRAY(SELECT c.id FROM public.clubs c)) AND f.stat_date = p_day
-     GROUP BY 1, 2
-  ), rc AS MATERIALIZED (
-    SELECT r.id, r.table_id g, r.rake_amount ra, r.created_at at, t.union_id un, t.club_id tclub,
-           CASE WHEN jsonb_typeof(r.player_contributions) = 'object' THEN r.player_contributions ELSE '{}'::jsonb END pc
-      FROM public.rake_records r
-      JOIN public.tables t ON t.id = r.table_id AND t.tournament_id IS NULL
-     WHERE r.created_at >= v_from AND r.created_at < v_to
-       AND r.rake_amount > 0 AND r.tournament_id IS NULL AND NOT COALESCE(r.is_tournament, false)
-  ), rce AS MATERIALIZED (
-    SELECT rc.id, rc.g, rc.ra, rc.at, rc.un, rc.tclub, x.key::uuid u,
-           (CASE WHEN x.value ~ '^[0-9]+(\.[0-9]+)?$' THEN x.value::numeric ELSE 0 END) c
-      FROM rc CROSS JOIN LATERAL jsonb_each_text(rc.pc) x
-     WHERE x.key ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-       AND (CASE WHEN x.value ~ '^[0-9]+(\.[0-9]+)?$' THEN x.value::numeric ELSE 0 END) > 0
-  ), cash_share AS MATERIALIZED (
-    SELECT s.id, s.g, s.u, s.at, s.un, s.tclub, s.ra * s.c / sum(s.c) OVER (PARTITION BY s.id) fee, fk.club fclub
-      FROM rce s LEFT JOIN fk ON fk.g = s.g AND fk.u = s.u
-  ), cash_rake AS (
-    SELECT s.id hid, 'CASH'::text kind, s.g, s.u, s.at, s.fee, 0::numeric bi, 0::numeric co, s.fclub club
-      FROM cash_share s WHERE s.fclub IS NOT NULL
-    UNION ALL
-    SELECT s.id, 'CASH', s.g, s.u, s.at, s.fee, 0, 0,
-           COALESCE((SELECT ra.club_id FROM public.rake_attributions ra
-                      WHERE ra.rake_record_id = s.id AND ra.player_id = s.u AND ra.club_id IS NOT NULL LIMIT 1),
-                    (SELECT a.club_id FROM (
-          (SELECT x.funding_club_id AS club_id, x.seat_joined_at AS arrived_at, x.recorded_at AS seq_at, x.id AS seq_id
-             FROM public.cash_participant_funding_receipts x
-            WHERE x.operation_kind = 'buyin' AND x.table_id = s.g
-              AND x.account_entity_id = s.u AND x.seat_joined_at <= s.at
-            ORDER BY x.seat_joined_at DESC, x.recorded_at DESC, x.id DESC LIMIT 1)
-          UNION ALL
-          (SELECT m.club_id, m.created_at AS arrived_at, m.created_at AS seq_at, m.move_id AS seq_id
-             FROM public.cash_seat_move_receipts m
-            WHERE m.to_table_id = s.g AND m.player_id = s.u
-              AND m.created_at <= s.at
-            ORDER BY m.created_at DESC, m.move_id DESC LIMIT 1)
-        ) a ORDER BY a.arrived_at DESC, a.seq_at DESC, a.seq_id DESC LIMIT 1),
-                    (SELECT ts.club_id FROM public.table_seats ts
-                      WHERE ts.table_id = s.g AND ts.user_id = s.u AND ts.club_id IS NOT NULL
-                        AND ts.joined_at <= s.at ORDER BY ts.joined_at DESC LIMIT 1),
-                    public.fn_ca_cash_reporting_club(s.un, s.tclub, s.u))
-      FROM cash_share s WHERE s.fclub IS NULL
-  ), cash_unnamed AS (
-    SELECT rc.id, 'CASH'::text, rc.g, '00000000-0000-0000-0000-000000000000'::uuid, rc.at, rc.ra,
-           0::numeric, 0::numeric, rc.tclub
-      FROM rc WHERE NOT EXISTS (SELECT 1 FROM rce WHERE rce.id = rc.id)
-  ), tour_named AS (
-    SELECT NULL::uuid, 'TOURNAMENT'::text, r.tournament_id, (r.metadata->>'user_id')::uuid, r.created_at,
-           r.rake_amount, 0::numeric, 0::numeric,
-           COALESCE(fk.club, tp.club_id,
-                    public.fn_ca_cash_reporting_club(tr.union_id, tr.club_id, (r.metadata->>'user_id')::uuid))
-      FROM public.rake_records r
-      LEFT JOIN public.tournaments tr ON tr.id = r.tournament_id
-      LEFT JOIN public.tournament_players tp
-        ON tp.tournament_id = r.tournament_id AND tp.user_id = (r.metadata->>'user_id')::uuid
-      LEFT JOIN fk ON fk.g = r.tournament_id AND fk.u = (r.metadata->>'user_id')::uuid
-     WHERE r.created_at >= v_from AND r.created_at < v_to AND r.is_tournament
-       AND r.tournament_id IS NOT NULL AND r.rake_amount <> 0
-       AND (r.metadata->>'user_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-  ), tour_split AS (
-    SELECT NULL::uuid, 'TOURNAMENT'::text, r.tournament_id, tp.user_id, r.created_at, r.rake_amount / n.n,
-           0::numeric, 0::numeric,
-           COALESCE(fk.club, tp.club_id, public.fn_ca_cash_reporting_club(tr.union_id, tr.club_id, tp.user_id))
-      FROM public.rake_records r
-      LEFT JOIN public.tournaments tr ON tr.id = r.tournament_id
-      JOIN LATERAL (SELECT count(*)::numeric AS n FROM public.tournament_players x
-                     WHERE x.tournament_id = r.tournament_id) n ON n.n > 0
-      JOIN public.tournament_players tp ON tp.tournament_id = r.tournament_id
-      LEFT JOIN fk ON fk.g = r.tournament_id AND fk.u = tp.user_id
-     WHERE r.created_at >= v_from AND r.created_at < v_to AND r.is_tournament
-       AND r.tournament_id IS NOT NULL AND r.rake_amount <> 0
-       AND NOT ((r.metadata->>'user_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') IS TRUE
-  ), wal AS MATERIALIZED (
-    SELECT x.id, x.user_id, x.amount, x.type, x.created_at, x.table_id, x.related_entity_id
-      FROM public.wallet_transactions x
-     WHERE x.created_at >= v_from AND x.created_at < v_to
-       AND ((x.table_id IS NOT NULL AND x.category IN ('buyin', 'cashout', 'addon', 'rebuy', 'refund'))
-         OR (x.table_id IS NULL AND x.related_entity_id IS NOT NULL
-             AND x.category IN ('tournament_buyin', 'prize', 'bounty', 'addon', 'rebuy', 'refund', 'prize_reversal')))
-  ), wal_cash AS (
-    SELECT NULL::uuid, 'CASH'::text, x.table_id, x.user_id, x.created_at, 0::numeric,
-           CASE WHEN x.type = 'debit' THEN x.amount ELSE 0 END,
-           CASE WHEN x.type = 'credit' THEN x.amount ELSE 0 END,
-           COALESCE(fk.club,
-                    public.fn_ca_ledger_leg_club(x.user_id, x.amount, x.type, x.created_at, x.table_id),
-                    (SELECT a.club_id FROM (
-          (SELECT x.funding_club_id AS club_id, x.seat_joined_at AS arrived_at, x.recorded_at AS seq_at, x.id AS seq_id
-             FROM public.cash_participant_funding_receipts x
-            WHERE x.operation_kind = 'buyin' AND x.table_id = x.table_id
-              AND x.account_entity_id = x.user_id AND x.seat_joined_at <= x.created_at
-            ORDER BY x.seat_joined_at DESC, x.recorded_at DESC, x.id DESC LIMIT 1)
-          UNION ALL
-          (SELECT m.club_id, m.created_at AS arrived_at, m.created_at AS seq_at, m.move_id AS seq_id
-             FROM public.cash_seat_move_receipts m
-            WHERE m.to_table_id = x.table_id AND m.player_id = x.user_id
-              AND m.created_at <= x.created_at
-            ORDER BY m.created_at DESC, m.move_id DESC LIMIT 1)
-        ) a ORDER BY a.arrived_at DESC, a.seq_at DESC, a.seq_id DESC LIMIT 1),
-                    public.fn_ca_cash_reporting_club(t.union_id, t.club_id, x.user_id))
-      FROM wal x JOIN public.tables t ON t.id = x.table_id AND t.tournament_id IS NULL
-      LEFT JOIN fk ON fk.g = x.table_id AND fk.u = x.user_id
-     WHERE x.table_id IS NOT NULL
-  ), wal_tour AS (
-    SELECT NULL::uuid, 'TOURNAMENT'::text, x.related_entity_id, x.user_id, x.created_at, 0::numeric,
-           CASE WHEN x.type = 'debit' THEN x.amount ELSE 0 END,
-           CASE WHEN x.type = 'credit' THEN x.amount ELSE 0 END,
-           COALESCE(fk.club, tp.club_id,
-                    public.fn_ca_ledger_leg_club(x.user_id, x.amount, x.type, x.created_at, NULL),
-                    public.fn_ca_cash_reporting_club(tr.union_id, tr.club_id, x.user_id))
-      FROM wal x JOIN public.tournaments tr ON tr.id = x.related_entity_id
-      LEFT JOIN public.tournament_players tp ON tp.tournament_id = x.related_entity_id AND tp.user_id = x.user_id
-      LEFT JOIN fk ON fk.g = x.related_entity_id AND fk.u = x.user_id
-     WHERE x.table_id IS NULL
-  ), ev (hid, kind, g, u, at, fee, bi, co, club) AS (
-    SELECT * FROM cash_rake UNION ALL SELECT * FROM cash_unnamed UNION ALL SELECT * FROM tour_named
-    UNION ALL SELECT * FROM tour_split UNION ALL SELECT * FROM wal_cash UNION ALL SELECT * FROM wal_tour
-  ), evm AS MATERIALIZED (
-    SELECT * FROM ev WHERE club IS NOT NULL AND u IS NOT NULL
-  ), cut AS MATERIALIZED (
-    SELECT c.club, public.fn_ca_launch_accounting_cutoff('club', c.club) cutoff
-      FROM (SELECT DISTINCT club FROM evm) c
-  ), acc AS MATERIALIZED (
-    SELECT e.* FROM evm e JOIN cut ON cut.club = e.club
-     WHERE cut.cutoff IS NULL OR (e.at IS NOT NULL AND isfinite(e.at) AND e.at >= cut.cutoff)
-  ), put_early AS (
-    INSERT INTO ca_ct_seed_early (part, club, kind, game, usr, fee, bi, co, last_at)
-    SELECT v_part, club, min(kind), g, u, sum(fee), sum(bi), sum(co), max(at) FROM acc GROUP BY club, g, u
-    RETURNING 1
-  )
-  INSERT INTO ca_ct_seed_hands (part, club, game, hands)
-  SELECT v_part, club, g, count(DISTINCT hid) FROM acc WHERE hid IS NOT NULL AND kind = 'CASH' GROUP BY club, g;
-  END LOOP;
-
-  -- Every slice can only ever be a part of what the UTC fact already holds:
-  -- the fact is the record of what the live path counted for that key. A
-  -- slice key the fact does not hold, or a slice amount beyond the fact's own
-  -- (an event the live path did not count), is not moved; each amount is
-  -- bounded to the interval between zero and the fact's, so no day is ever
-  -- given money the UTC report never had and no remainder goes below zero.
-  DELETE FROM ca_ct_seed_early e
-   WHERE NOT EXISTS (SELECT 1 FROM public.ca_club_data_fact f
-                      WHERE f.club_id = e.club AND f.stat_date = p_day
-                        AND f.game_id = e.game AND f.user_id = e.usr);
-  GET DIAGNOSTICS v_bad = ROW_COUNT;
-  UPDATE ca_ct_seed_early e
-     SET kind = f.kind,
-         fee = CASE WHEN f.fee >= 0 THEN LEAST(GREATEST(e.fee, 0), f.fee) ELSE GREATEST(LEAST(e.fee, 0), f.fee) END,
-         bi  = CASE WHEN f.buyins >= 0 THEN LEAST(GREATEST(e.bi, 0), f.buyins) ELSE GREATEST(LEAST(e.bi, 0), f.buyins) END,
-         co  = CASE WHEN f.cashouts >= 0 THEN LEAST(GREATEST(e.co, 0), f.cashouts) ELSE GREATEST(LEAST(e.co, 0), f.cashouts) END
-    FROM public.ca_club_data_fact f
-   WHERE f.club_id = e.club AND f.stat_date = p_day AND f.game_id = e.game AND f.user_id = e.usr
-     AND (e.kind IS DISTINCT FROM f.kind
-          OR e.fee <> CASE WHEN f.fee >= 0 THEN LEAST(GREATEST(e.fee, 0), f.fee) ELSE GREATEST(LEAST(e.fee, 0), f.fee) END
-          OR e.bi  <> CASE WHEN f.buyins >= 0 THEN LEAST(GREATEST(e.bi, 0), f.buyins) ELSE GREATEST(LEAST(e.bi, 0), f.buyins) END
-          OR e.co  <> CASE WHEN f.cashouts >= 0 THEN LEAST(GREATEST(e.co, 0), f.cashouts) ELSE GREATEST(LEAST(e.co, 0), f.cashouts) END);
-  GET DIAGNOSTICS v_bounded = ROW_COUNT;
-  UPDATE ca_ct_seed_hands h SET hands = LEAST(h.hands, COALESCE(c.hands, 0))
-    FROM (SELECT x.club, x.game, max(d.hands) AS hands
-            FROM ca_ct_seed_hands x
-            LEFT JOIN public.club_table_daily d ON d.club_id = x.club AND d.stat_date = p_day AND d.table_id = x.game
-           GROUP BY 1, 2) c
-   WHERE c.club = h.club AND c.game = h.game AND h.hands > COALESCE(c.hands, 0);
-
-  CREATE TEMP TABLE IF NOT EXISTS ca_ct_seed_parts (
-    club uuid, d date, kind text, game uuid, usr uuid, fee numeric, bi numeric, co numeric, win numeric, last_at timestamptz
-  ) ON COMMIT DROP;
-  TRUNCATE ca_ct_seed_parts;
-  INSERT INTO ca_ct_seed_parts
-  WITH early AS (SELECT * FROM ca_ct_seed_early WHERE part = 0), parts AS (
-    SELECT e.club, p_day - 1 AS d, e.kind, e.game, e.usr, e.fee, e.bi, e.co, e.co - e.bi AS win, e.last_at
-      FROM early e
-    UNION ALL
-    SELECT e.club, p_day, e.kind, e.game, e.usr, e.fee, e.bi, e.co, e.co - e.bi, e.last_at
-      FROM ca_ct_seed_early e WHERE e.part = 1
-    UNION ALL
-    SELECT f.club_id, p_day, f.kind, f.game_id, f.user_id,
-           f.fee - COALESCE(e.fee, 0), f.buyins - COALESCE(e.bi, 0), f.cashouts - COALESCE(e.co, 0),
-           f.winnings - COALESCE(e.co - e.bi, 0), f.last_at
-      FROM public.ca_club_data_fact f
-      LEFT JOIN early e ON e.club = f.club_id AND e.game = f.game_id AND e.usr = f.user_id
-     WHERE f.stat_date = p_day AND p_day < v_live_day
-       AND (e.club IS NULL OR f.last_at >= v_b
-            OR f.fee <> e.fee OR f.buyins <> e.bi OR f.cashouts <> e.co)
-  )
-  SELECT club, d, kind, game, usr, fee, bi, co, win, last_at FROM parts;
-
-  WITH put AS (
-    INSERT INTO public.ca_club_data_fact_ct AS c
-      (club_id, stat_date, kind, game_id, user_id, fee, buyins, cashouts, winnings, last_at, src)
-    SELECT club, d, kind, game, usr, fee, bi, co, win, last_at, 1 FROM ca_ct_seed_parts
-    ON CONFLICT (club_id, stat_date, game_id, user_id, src) DO UPDATE
-       SET fee = c.fee + EXCLUDED.fee,
-           buyins = c.buyins + EXCLUDED.buyins,
-           cashouts = c.cashouts + EXCLUDED.cashouts,
-           winnings = c.winnings + EXCLUDED.winnings,
-           last_at = GREATEST(c.last_at, EXCLUDED.last_at)
-    RETURNING 1
-  )
-  SELECT count(*) INTO v_rows FROM put;
-
-  INSERT INTO public.ca_club_data_game_ct AS g
-    (club_id, stat_date, kind, game_id, fee, buyins, cashouts, winnings, last_at, src)
-  SELECT club, d, min(kind), game, sum(fee), sum(bi), sum(co), sum(win), max(last_at), 1
-    FROM ca_ct_seed_parts GROUP BY club, d, game
-  ON CONFLICT (club_id, stat_date, game_id, src) DO UPDATE
-     SET fee = g.fee + EXCLUDED.fee,
-         buyins = g.buyins + EXCLUDED.buyins,
-         cashouts = g.cashouts + EXCLUDED.cashouts,
-         winnings = g.winnings + EXCLUDED.winnings,
-         last_at = GREATEST(g.last_at, EXCLUDED.last_at);
-
-  WITH early AS (SELECT * FROM ca_ct_seed_hands WHERE part = 0), parts AS (
-    SELECT h.club, p_day - 1 AS d, h.game, h.hands FROM early h WHERE h.hands > 0
-    UNION ALL
-    SELECT h.club, p_day, h.game, h.hands FROM ca_ct_seed_hands h WHERE h.part = 1 AND h.hands > 0
-    UNION ALL
-    SELECT c.club_id, p_day, c.table_id, c.hands - COALESCE(h.hands, 0)
-      FROM public.club_table_daily c
-      LEFT JOIN early h ON h.club = c.club_id AND h.game = c.table_id
-     WHERE c.stat_date = p_day AND p_day < v_live_day AND c.hands - COALESCE(h.hands, 0) > 0
-  ), put AS (
-    INSERT INTO public.ca_club_data_hands_ct AS t (club_id, stat_date, table_id, hands, src)
-    SELECT club, d, game, hands, 1 FROM parts
-    ON CONFLICT (club_id, stat_date, table_id, src) DO UPDATE SET hands = t.hands + EXCLUDED.hands
-    RETURNING 1
-  )
-  SELECT count(*) INTO v_hand_rows FROM put;
-
-  INSERT INTO public.ca_club_data_ct_seed_log (utc_day, rows_put, hand_rows) VALUES (p_day, v_rows, v_hand_rows);
-  RETURN jsonb_build_object('utc_day', p_day, 'rows', v_rows, 'hand_rows', v_hand_rows,
-                            'unmatched_slice_keys', v_bad, 'bounded_slice_keys', v_bounded,
-                            'chicago_midnight', v_b, 'cutover', v_live);
-END;
-$function$;
-
 CREATE OR REPLACE FUNCTION public.fn_ca_club_data_fact_seed(p_from timestamp with time zone, p_to timestamp with time zone)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -2666,7 +2382,6 @@ REVOKE ALL ON FUNCTION public.ca_player_stats_shared_overview_v1(uuid,uuid,integ
 GRANT EXECUTE ON FUNCTION public.ca_player_stats_shared_overview_v1(uuid,uuid,integer,text,text) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.ca_player_stats_shared_separated(uuid,uuid,integer,text,text,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.ca_player_stats_shared_separated(uuid,uuid,integer,text,text,text) TO authenticated, service_role;
-REVOKE ALL ON FUNCTION public.fn_ca_club_data_ct_seed(date) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_ca_club_data_fact_seed(timestamp with time zone,timestamp with time zone) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_club_data_fact_seed(timestamp with time zone,timestamp with time zone) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_ca_club_rake_daily_compute(timestamp with time zone,timestamp with time zone,uuid[]) FROM PUBLIC, anon, authenticated;
@@ -2674,5 +2389,387 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_club_rake_daily_compute(timestamp with ti
 REVOKE ALL ON FUNCTION public.fn_ca_reporting_rollups_from_facts(date) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_reporting_rollups_from_facts(date) TO service_role;
 REVOKE ALL ON FUNCTION public.ca_club_members_cash_window(uuid,uuid[],date,date) FROM PUBLIC, anon, authenticated, service_role;
+
+-- @probe-for: public.ca_player_class_hands_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_class_hands_by_club(v_uid, 'AA', NULL, NULL, 1, 1, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_ev_curve_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_ev_curve_by_club(v_uid, 1, 100, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_hand_grid_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_hand_grid_by_club(v_uid, NULL, NULL, 1, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_hands_separated_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_hands_separated_by_club(v_uid, 'recent', 1, 'chips', v_club, 'cash');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_hands_v2_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_hands_v2_by_club(v_uid, 'recent', 1, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_nemesis_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_nemesis_by_club(v_uid, 1, 1, 1, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_rake_stats_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_rake_stats_by_club(v_uid, 1, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_rake_stats_calendar_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_rake_stats_calendar_by_club(v_uid, 1, 'chips', v_club, 'UTC');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_club_comparison
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_club_comparison(v_uid, 1, 'chips', 'UTC');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_club_comparison_separated
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_club_comparison_separated(v_uid, 1, 'chips', 'UTC', 'cash');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_hand_evidence
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_hand_evidence(v_uid, v_club, 'chips', NULL, NULL, NULL, now() - interval '1 day', now(), NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, NULL, 1);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_hand_evidence_base
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_hand_evidence_base(v_uid, v_club, 'chips', NULL, NULL, NULL, now() - interval '1 day', now(), NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, NULL, 1);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_overview_separated_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_overview_separated_by_club(v_uid, 1, 'UTC', 'chips', v_club, 'cash');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_overview_v2_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_overview_v2_by_club(v_uid, 1, 'UTC', 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_pulse_by_club
+DO $probe$
+DECLARE v_uid uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m.user_id, m.club_id INTO v_uid, v_club
+    FROM public.club_members m
+    JOIN public.clubs c ON c.id = m.club_id
+    WHERE m.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_uid IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+      PERFORM public.ca_player_stats_pulse_by_club(v_uid, 'chips', v_club);
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_shared_overview_v1
+DO $probe$
+DECLARE v_viewer uuid; v_target uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m1.user_id, m2.user_id, m1.club_id INTO v_viewer, v_target, v_club
+    FROM public.club_members m1
+    JOIN public.club_members m2 ON m2.club_id = m1.club_id AND m2.user_id <> m1.user_id
+    JOIN public.clubs c ON c.id = m1.club_id
+    WHERE m1.status IN ('active', 'approved')
+      AND m2.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_viewer IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_viewer::text, true);
+      PERFORM public.ca_player_stats_shared_overview_v1(v_target, v_club, 1, 'UTC', 'chips');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.ca_player_stats_shared_separated
+DO $probe$
+DECLARE v_viewer uuid; v_target uuid; v_club uuid;
+BEGIN
+  IF to_regclass('public.clubs') IS NOT NULL AND to_regclass('public.club_members') IS NOT NULL THEN
+    SELECT m1.user_id, m2.user_id, m1.club_id INTO v_viewer, v_target, v_club
+    FROM public.club_members m1
+    JOIN public.club_members m2 ON m2.club_id = m1.club_id AND m2.user_id <> m1.user_id
+    JOIN public.clubs c ON c.id = m1.club_id
+    WHERE m1.status IN ('active', 'approved')
+      AND m2.status IN ('active', 'approved')
+      AND coalesce(c.lifecycle_status, 'active') <> 'retired'
+      AND coalesce(c.asset, 'chips') = 'chips'
+    LIMIT 1;
+    IF v_viewer IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claim.sub', v_viewer::text, true);
+      PERFORM public.ca_player_stats_shared_separated(v_target, v_club, 1, 'UTC', 'chips', 'cash');
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.fn_ca_club_data_fact_seed
+DO $probe$
+BEGIN
+  IF to_regclass('public.ca_club_data_fact') IS NOT NULL THEN
+    PERFORM public.fn_ca_club_data_fact_seed('2099-01-01 00:00:00+00'::timestamptz, '2099-01-01 00:00:00+00'::timestamptz);
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+-- @probe-for: public.fn_ca_reporting_rollups_from_facts
+DO $probe$
+BEGIN
+  IF to_regclass('public.club_table_daily') IS NOT NULL THEN
+    PERFORM public.fn_ca_reporting_rollups_from_facts('2099-01-01'::date);
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;

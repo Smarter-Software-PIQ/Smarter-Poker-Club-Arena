@@ -55,8 +55,7 @@ const REPORTING_FUNCTIONS = [
   'ca_player_stats_pulse_by_club',
   'ca_player_stats_shared_overview_v1',
   'ca_player_stats_shared_separated',
-  // Group B: 4 Club Data / rollup functions
-  'fn_ca_club_data_ct_seed',
+  // Group B: 3 active Club Data / rollup functions (fn_ca_club_data_ct_seed is a retired one-time backfill)
   'fn_ca_club_data_fact_seed',
   'fn_ca_club_rake_daily_compute',
   'fn_ca_reporting_rollups_from_facts',
@@ -64,7 +63,7 @@ const REPORTING_FUNCTIONS = [
   'ca_club_members_cash_window',
 ] as const;
 
-const POSTGRES_ONLY = new Set(['ca_club_members_cash_window', 'fn_ca_club_data_ct_seed']);
+const POSTGRES_ONLY = new Set(['ca_club_members_cash_window']);
 const SERVICE_ONLY = new Set([
   'ca_player_stats_hand_evidence_base',
   'fn_ca_club_data_fact_seed',
