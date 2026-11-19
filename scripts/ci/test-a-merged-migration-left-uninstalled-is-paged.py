@@ -56,6 +56,8 @@ SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_mi
 PAUSE_FIX = next(MIGRATIONS.glob('*_the_install_watch_holds_its_page_while_installs_are_switched*.sql'))
 # 20261119064912: the hour starts when the dispatcher may send (incident dc479141).
 FREEZE_FIX = next(MIGRATIONS.glob('*_the_install_watch_hour_starts_when_the_dispatcher_may_send.sql'))
+# 20261119195420: the watch's clock follows the dispatcher's 00:45 hold (#11413).
+HOLD_0045 = next(MIGRATIONS.glob('*_the_install_watch_clock_follows_the_0045_schema_hold.sql'))
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -462,6 +464,12 @@ def main():
             proof = re.search(r'^-- @live-proof: (.+)$', FREEZE_FIX.read_text(), re.M).group(1)
             assert sql(f'SELECT {proof}') == 't', 'freeze-fix live proof must hold after install'
             ok('the freeze fix amends each anchor once, installs twice idempotently and its live proof holds')
+            for attempt in (1, 2):
+                r = psql(['-f', str(HOLD_0045)])
+                assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', HOLD_0045.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', '00:45 hold live proof must hold after install'
+            ok('the 00:45 hold installs twice idempotently and its live proof holds')
         workflows('active', 'active')
 
         def summary(version):
@@ -470,9 +478,9 @@ def main():
         # A file merged before the freeze and refused pages after its hour,
         # which falls inside the freeze: the page says do NOT hand-dispatch.
         R1 = 'supabase/migrations/20261112050000_refused_before_the_freeze.sql'
-        merge(40, '2026-11-12T05:00:00Z', [{'filename': R1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
-        watch('2026-11-12 05:05:00Z')
-        watch('2026-11-12 06:00:00Z')                                   # 00:00 Central
+        merge(40, '2026-11-12T06:00:00Z', [{'filename': R1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-12 06:05:00Z')
+        watch('2026-11-12 07:00:00Z')                                   # 01:00 Central
         assert alert_status('20261112050000') == 'firing'
         assert 'do NOT hand-dispatch' in summary('20261112050000'), summary('20261112050000')
         assert 'Dispatch Apply Merged Migration for it' not in summary('20261112050000')
@@ -480,9 +488,9 @@ def main():
 
         # A file merged inside the freeze is held to 04:15; its hour runs from there.
         F1 = 'supabase/migrations/20261112054800_merged_inside_the_freeze.sql'
-        merge(41, '2026-11-12T05:48:00Z', [{'filename': F1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
-        watch('2026-11-12 05:50:00Z')
-        watch('2026-11-12 06:48:00Z')                                   # merge + 60: the old false page
+        merge(41, '2026-11-12T06:48:00Z', [{'filename': F1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-12 06:50:00Z')
+        watch('2026-11-12 07:48:00Z')                                   # merge + 60: the old false page
         watch('2026-11-12 11:14:00Z')                                   # 05:14 Central
         assert alert_status('20261112054800') == '', 'a freeze-held file must not page before 04:15 + 60'
         watch('2026-11-12 11:15:00Z')                                   # 05:15 Central
