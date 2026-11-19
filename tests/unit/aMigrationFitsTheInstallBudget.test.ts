@@ -67,6 +67,41 @@ describe('a migration fits the install budget', () => {
     for (const sql of ok) expect(migrationCostRisks('x.sql', sql), sql).toEqual([]);
   });
 
+  it('refuses an install-time call of a function measured past the budget (2026-11-19, run 44503916790)', () => {
+    // The exact probe 20261119083000 merged with: 238-264 s per call on production.
+    const refused =
+      "BEGIN;\n-- @probe-for: public.fn_sp_daily_metrics_compute\nDO $probe$\nBEGIN\n  PERFORM public.fn_sp_daily_metrics_compute(DATE '2099-01-01');\n  RAISE EXCEPTION 'probe-unwind';\nEXCEPTION WHEN raise_exception THEN\n  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;\nEND $probe$;\nCOMMIT;\n";
+    expect(migrationCostRisks('x.sql', refused)).toHaveLength(1);
+    expect(migrationCostRisks('x.sql', refused)[0]).toContain('public.fn_sp_daily_metrics_compute');
+    // Top-level and unqualified calls, and the snapshot that wraps it, count too.
+    expect(migrationCostRisks('x.sql', 'BEGIN;\nSELECT fn_sp_daily_metrics_compute(current_date);\nCOMMIT;\n')).toHaveLength(1);
+    expect(migrationCostRisks('x.sql', 'BEGIN;\nSELECT public.fn_sp_daily_metrics_snapshot();\nCOMMIT;\n')).toHaveLength(1);
+    // The refused bytes themselves, when the history is present.
+    try {
+      const sql = execFileSync(
+        'git',
+        ['show', 'd3e6fe1fe:supabase/migrations/20261119083000_the_fleet_degraded_run_never_shadows_the_digest.sql'],
+        { cwd: ROOT, encoding: 'utf8' }
+      );
+      expect(migrationCostRisks('20261119083000_x.sql', sql)).toHaveLength(1);
+    } catch {
+      // A shallow checkout may not hold the commit; the synthetic case above still pins the rule.
+    }
+  });
+
+  it('a function body, a string literal or a comment naming the function is not an install-time call', () => {
+    const ok = [
+      // Redefining a function whose body calls it runs nothing at install.
+      "BEGIN;\nCREATE OR REPLACE FUNCTION public.fn_sp_daily_metrics_snapshot()\n RETURNS void LANGUAGE plpgsql AS $function$\nBEGIN\n  PERFORM public.fn_sp_daily_metrics_compute(current_date);\nEND $function$;\nCOMMIT;\n",
+      // The anchored-edit pattern names it in a regprocedure literal.
+      "BEGIN;\nSELECT pg_get_functiondef('public.fn_sp_daily_metrics_compute(date)'::regprocedure);\nCOMMIT;\n",
+      "BEGIN;\n-- PERFORM public.fn_sp_daily_metrics_compute(current_date) was the old probe\nSELECT 1;\nCOMMIT;\n",
+      // Another schema's same-named function is not this one.
+      'BEGIN;\nSELECT other.fn_sp_daily_metrics_compute(current_date);\nCOMMIT;\n',
+    ];
+    for (const sql of ok) expect(migrationCostRisks('x.sql', sql), sql).toEqual([]);
+  });
+
   it('judges only from the cut-over on, so merged history is not re-judged', () => {
     expect(isCostChecked(`${COST_CHECKED_FROM}_x.sql`)).toBe(true);
     expect(isCostChecked('20261107133350_the_weekly_close_is_evidence_not_cache.sql')).toBe(false);

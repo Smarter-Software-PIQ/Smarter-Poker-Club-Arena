@@ -17,9 +17,25 @@
 --
 -- The derived column is named is_degraded and read qualified (r.is_degraded),
 -- so no name in the statement can resolve to a variable. Pinned pre/postimage;
--- re-apply is a no-op. The probe below executes the new body before COMMIT
--- (tests/a-migration-proves-its-functions-before-commit.law.test.ts) on a day
--- with no rows, so every statement plans without reading a day of history.
+-- re-apply is a no-op.
+--
+-- THE PROBE THAT COULD NOT FIT (corrected in place 2026-11-19, incident
+-- dc479141). The first version proved the body by calling it for 2099-01-01,
+-- on the belief that an empty day reads no history. A dozen sections of the
+-- function are not bounded by the day (lifetime human totals, diamond
+-- circulation, admins, stuck tournaments, freshness maxima): production
+-- measures 238-264 s per call (cron sp-daily-metrics-snapshot, 06:15-09:45
+-- UTC), and the applier killed the install at its statement budget (run
+-- 44503916790, 10:20 UTC: "canceling statement due to statement timeout").
+-- The whole-function call is therefore exempt, and the probe below executes
+-- exactly the statement this file changes, inside PL/pgSQL with a variable
+-- named d in scope - the shape that refused - over the real heartbeat table.
+-- Measured on production 10:4x UTC: the old statement raises "column
+-- reference "d" is ambiguous", the new one runs in ~100 ms over a full day.
+-- scripts/ci/migration-cost-shape.mjs now refuses an install-time call of
+-- this function (OVER_BUDGET_FUNCTIONS), at merge and in the applier.
+--
+-- @probe-exempt: public.fn_sp_daily_metrics_compute one call takes 238-264 s on production (cron sp-daily-metrics-snapshot, 2026-11-19), far past the install budget; the changed statement is executed by the DO block below with the colliding variable d in scope
 --
 -- @live-proof: position('AS is_degraded' in pg_get_functiondef('public.fn_sp_daily_metrics_compute(date)'::regprocedure)) > 0 AND position('r WHERE d GROUP BY' in pg_get_functiondef('public.fn_sp_daily_metrics_compute(date)'::regprocedure)) = 0
 
@@ -81,13 +97,26 @@ $o2$FROM hb) r WHERE d GROUP BY grp$o2$],
 $n1$COALESCE(degraded, false) AS is_degraded, count(*) FILTER$n1$,
 $n2$FROM hb) r WHERE r.is_degraded GROUP BY grp$n2$]);
 
--- @probe-for: public.fn_sp_daily_metrics_compute
-DO $probe$
+-- The changed statement, executed as the function runs it: in PL/pgSQL, with
+-- the function's own jsonb variable d in scope, over the last day of the real
+-- heartbeat table (indexed by beat_at). Any planning error aborts the install.
+DO $changed_statement$
+DECLARE
+  d jsonb;
+  s timestamptz := now() - interval '1 day';
+  e timestamptz := now();
+  v_run bigint;
 BEGIN
-  PERFORM public.fn_sp_daily_metrics_compute(DATE '2099-01-01');
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
+  WITH hb AS (SELECT * FROM public.ca_horse_fleet_heartbeat WHERE beat_at >= s AND beat_at < e)
+  SELECT COALESCE(max(n), 0) INTO v_run
+    FROM (SELECT count(*) AS n
+            FROM (SELECT COALESCE(degraded, false) AS is_degraded,
+                         count(*) FILTER (WHERE NOT COALESCE(degraded, false)) OVER (ORDER BY beat_at, id) AS grp
+                    FROM hb) r
+           WHERE r.is_degraded GROUP BY grp) q;
+  IF v_run IS NULL OR v_run < 0 THEN
+    RAISE EXCEPTION 'max_degraded_run read back %', v_run;
+  END IF;
+END $changed_statement$;
 
 COMMIT;
