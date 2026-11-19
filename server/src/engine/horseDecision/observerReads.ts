@@ -16,6 +16,17 @@ import {
   validReraiseResponse,
   type ReraiseResponseCounters,
 } from '../HorseOmahaReraiseResponse.js';
+import {
+  copyFlopShown,
+  flopShownCarriedFor,
+  validFlopShown,
+  type FlopShownCounters,
+} from '../HorseOmahaFlopShown.js';
+import {
+  copyStreetPrice,
+  validStreetPrice,
+  type StreetPriceCounters,
+} from '../HorseOmahaStreetReadPrice.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
@@ -697,6 +708,31 @@ export class HorseObserverReads {
             opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
             copyReraiseResponse(row.reraise_response)
           );
+    // WHAT A FLOP BET SHOWED AND WHAT CALLING IT RETURNED (2026-11-19). Each pooled exact row of an Omaha game that
+    // carries a well-formed record (horse_exact_profiles.flop_shown) brings a detached copy of it into the decision's
+    // own state, beside its counters: the same row the pooled read already chose by availability. Donor rows never
+    // carry one and a Hold'em row carries nothing, so a Hold'em decision's state and read frame are exactly what
+    // they were. No decision reads it yet (HorseMind.omahaFlopShownOf has no caller): the action is the same with
+    // the record or without it.
+    const pooledFlopShown = new Map<string, FlopShownCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (flopShownCarriedFor(row.variant) && validFlopShown(row.flop_shown))
+          pooledFlopShown.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyFlopShown(row.flop_shown)
+          );
+    // THE PRICE BEHIND A FOLD-TO-RAISE CELL (2026-11-19). The same rows bring a detached copy of a well-formed
+    // price record (horse_exact_profiles.street_counters_price) under the same rule. No decision reads it yet
+    // (HorseMind.omahaFoldToRaisePriceOf has no caller).
+    const pooledStreetPrice = new Map<string, StreetPriceCounters>();
+    if (pooled)
+      for (const row of pooled.rows)
+        if (flopShownCarriedFor(row.variant) && validStreetPrice(row.street_counters_price))
+          pooledStreetPrice.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            copyStreetPrice(row.street_counters_price)
+          );
     // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
     // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
     // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
@@ -724,6 +760,8 @@ export class HorseObserverReads {
                   ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
                   ...(pooledStreetRead.size ? { pooledStreetRead } : {}),
                   ...(pooledReraiseResponse.size ? { pooledReraiseResponse } : {}),
+                  ...(pooledFlopShown.size ? { pooledFlopShown } : {}),
+                  ...(pooledStreetPrice.size ? { pooledStreetPrice } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),

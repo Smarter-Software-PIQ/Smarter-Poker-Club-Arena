@@ -7,8 +7,10 @@ import {
   computeDonorHandClockStaleness,
   copyLongCounters,
   copyShownRiver,
+  copyFlopShownRecord,
   copyReraiseResponseRecord,
   copyStreetCounters,
+  copyStreetPriceRecord,
   durableProfileCounters,
   opponentMemoryDonors,
   opponentMemoryKey,
@@ -146,6 +148,10 @@ export class PooledPublicProfiles {
           ...copyStreetCounters(p),
           // And how he answers a raise of his own re-raise (2026-11-18; a malformed one is dropped).
           ...copyReraiseResponseRecord(p),
+          // And what his flop bets showed and what calling them returned (2026-11-19; a malformed one is dropped).
+          ...copyFlopShownRecord(p),
+          // And the price behind his fold-to-raise cells (2026-11-19; a malformed one is dropped).
+          ...copyStreetPriceRecord(p),
         },
         at: snapshot.availableAtMs,
         // Saved notes are fresh at boot; staleness counts the hands the
@@ -276,6 +282,10 @@ export class PooledPublicProfiles {
           ...copyStreetCounters(p),
           // And how he answers a raise of his own re-raise (2026-11-18; a malformed one is dropped).
           ...copyReraiseResponseRecord(p),
+          // And what his flop bets showed and what calling them returned (2026-11-19; a malformed one is dropped).
+          ...copyFlopShownRecord(p),
+          // And the price behind his fold-to-raise cells (2026-11-19; a malformed one is dropped).
+          ...copyStreetPriceRecord(p),
         },
         at,
         clock: this.clocks.get(p.user_id)?.count ?? 0,

@@ -153,6 +153,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
     'src/engine/HorseOmahaReraiseResponse.ts':
       "how a re-raiser answers a raise of his own re-raise (2026-11-18): the two nodes of the opponent's durable record, its validation and wire row, and the posterior the default-off option omahaReraisedCallVsRaisePriced prices a raise with",
+    'src/engine/HorseOmahaFlopShown.ts':
+      "what a flop bet showed and what calling it returned (2026-11-19): the class of a shown hand on a flop, the cells of the opponent's durable flop-shown record, its validation and wire row, and the readers HorseMind.omahaFlopShownOf serves; carried into Omaha decisions and read by none",
+    'src/engine/HorseOmahaStreetReadPrice.ts':
+      'the price behind a fold-to-raise cell (2026-11-19): per street, the sum of the prices of the raises an opponent faced after betting or raising and how many had one, its validation and wire row, and the mean HorseMind.omahaFoldToRaisePriceOf answers; carried into Omaha decisions and read by none',
     'src/engine/HorseOmahaStreetRead.ts':
       "the postflop read by street and flop texture (2026-11-17): the cells of the opponent's durable street record, its validation and wire row, and the per-street label HorseMind.omahaStreetReadOf answers; carried into Omaha decisions and read by none yet",
     'src/engine/HorseLongShownMemory.ts':

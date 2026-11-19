@@ -38,6 +38,13 @@ import {
 } from './HorseOmahaStreetRead.js';
 import { omahaReadByStreetNow, type OmahaReadByStreetMeans } from './HorseOmahaReadByStreetMode.js';
 import { copyReraiseResponse, type ReraiseResponseCounters } from './HorseOmahaReraiseResponse.js';
+import { copyFlopShown, type FlopShownCounters } from './HorseOmahaFlopShown.js';
+import {
+  foldToRaisePrice,
+  copyStreetPrice,
+  type StreetPriceCounters,
+  type StreetPriceMean,
+} from './HorseOmahaStreetReadPrice.js';
 import {
   respectWinner,
   isProvenWinner,
@@ -880,6 +887,18 @@ export interface HorseMindSandbox {
    *  HorseMind.omahaReraiseResponseOf; read only by the default-OFF option omahaReraisedCallVsRaisePriced. Absent
    *  when the read carried none. */
   pooledReraiseResponse?: Map<string, ReraiseResponseCounters>;
+  /** WHAT A FLOP BET SHOWED AND WHAT CALLING IT RETURNED (2026-11-19, HorseOmahaFlopShown): for each pooled EXACT
+   *  row in `exploit` (opponentMemoryKey) of an Omaha game that carries a well-formed record
+   *  (horse_exact_profiles.flop_shown), a detached copy of it. Set by the observer reads for Omaha rows only, so a
+   *  Hold'em decision carries nothing. Travels with the decision's own state and its read frame (v20), never in a
+   *  process-wide map. Answered by HorseMind.omahaFlopShownOf; NO DECISION READS IT YET. Absent when the read
+   *  carried none. */
+  pooledFlopShown?: Map<string, FlopShownCounters>;
+  /** THE PRICE BEHIND A FOLD-TO-RAISE CELL (2026-11-19, HorseOmahaStreetReadPrice): for each pooled EXACT row in
+   *  `exploit` of an Omaha game that carries a well-formed record (horse_exact_profiles.street_counters_price), a
+   *  detached copy of it. Travels with the decision's own state and its read frame (v20). Answered by
+   *  HorseMind.omahaFoldToRaisePriceOf; NO DECISION READS IT YET. Absent when the read carried none. */
+  pooledStreetPrice?: Map<string, StreetPriceCounters>;
 }
 
 /** What HorseMind.omahaStreetReadOf answers for one opponent: his carried counters and, per street, the label a
@@ -1377,6 +1396,10 @@ export class HorseMind {
   private static pooledStreetRead: Map<string, StreetReadCounters> | null = null;
   /** The sandbox's re-raise response records (HorseMindSandbox.pooledReraiseResponse) while one is installed. */
   private static pooledReraiseResponse: Map<string, ReraiseResponseCounters> | null = null;
+  /** The sandbox's flop-shown records (HorseMindSandbox.pooledFlopShown) while one is installed; null outside it. */
+  private static pooledFlopShown: Map<string, FlopShownCounters> | null = null;
+  /** The sandbox's fold-to-raise price records (HorseMindSandbox.pooledStreetPrice) while one is installed. */
+  private static pooledStreetPrice: Map<string, StreetPriceCounters> | null = null;
   private static decisionVariant: string | null = null;
   /** The betting structure of the decision in flight, as the game state
    *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
@@ -2956,6 +2979,56 @@ export class HorseMind {
     return row ? copyReraiseResponse(row) : null;
   }
 
+  /**
+   * WHAT A FLOP BET SHOWED AND WHAT CALLING IT RETURNED (2026-11-19, HorseOmahaFlopShown): the record the decision
+   * in flight carries for one opponent (a detached copy of horse_exact_profiles.flop_shown as the pooled public row
+   * brought it into this decision's own state, HorseMindSandbox.pooledFlopShown): the class of the hands he showed
+   * after making the first bet of a flop, by line and flop texture (HorseOmahaFlopShown.flopShownBetRead and
+   * flopShownShare), and what calls of those bets returned, by the caller's kind, class and position
+   * (flopShownCallRead). Null outside an Omaha decision and when the decision carried no record for him: unknown
+   * stays unknown. Public information only. Pure: no fires, no writes, no random draws. NOTHING CALLS IT YET: this
+   * is the read made available to decisions; no decision is changed by it.
+   */
+  static omahaFlopShownOf(userId: string): FlopShownCounters | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant) return null;
+    const size = scope.split(':')[1] as MemorySize;
+    const row = this.pooledFlopShown?.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    return row ? copyFlopShown(row) : null;
+  }
+
+  /**
+   * THE PRICE BEHIND A FOLD-TO-RAISE CELL (2026-11-19, HorseOmahaStreetReadPrice): for one opponent, per street,
+   * the mean price of the raises he faced after betting or raising (`price` = sum / opp: what he had to add over
+   * the pot he was offered) and how many aged priced raises stand behind it, from the durable record of his exact
+   * row (horse_exact_profiles.street_counters_price, HorseMindSandbox.pooledStreetPrice). A street with no priced
+   * raise answers null. This is the number a consumer sets as the `price` of that street's fold-to-raise cell.
+   * Null outside an Omaha decision and when the decision carried no record for him. Public actions and the public
+   * pot size only. Pure. NOTHING CALLS IT YET: no decision is changed by it.
+   */
+  static omahaFoldToRaisePriceOf(
+    userId: string
+  ): Record<'flop' | 'turn' | 'river', StreetPriceMean | null> | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant) return null;
+    const size = scope.split(':')[1] as MemorySize;
+    const row = this.pooledStreetPrice?.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    if (!row) return null;
+    return {
+      flop: foldToRaisePrice(row, 'flop'),
+      turn: foldToRaisePrice(row, 'turn'),
+      river: foldToRaisePrice(row, 'river'),
+    };
+  }
+
   static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
     const scope = this.decisionScope;
     if (!scope || !scope.startsWith('omaha:')) return null;
@@ -3856,6 +3929,14 @@ export class HorseMind {
             const rowReraise = row ? this.pooledReraiseResponse?.get(key) : undefined;
             if (rowReraise)
               (view.pooledReraiseResponse ??= new Map()).set(key, copyReraiseResponse(rowReraise));
+            // And the same flop-shown record (exact rows only; donors never carry one). No decision reads it yet.
+            const rowFlopShown = row ? this.pooledFlopShown?.get(key) : undefined;
+            if (rowFlopShown)
+              (view.pooledFlopShown ??= new Map()).set(key, copyFlopShown(rowFlopShown));
+            // And the same fold-to-raise price record (exact rows only). No decision reads it yet.
+            const rowStreetPrice = row ? this.pooledStreetPrice?.get(key) : undefined;
+            if (rowStreetPrice)
+              (view.pooledStreetPrice ??= new Map()).set(key, copyStreetPrice(rowStreetPrice));
             // And the same completeness cap (exact row).
             if (row && this.pooledProfileIncomplete?.has(key))
               (view.pooledProfileIncomplete ??= new Map()).set(key, true);
@@ -3945,6 +4026,8 @@ export class HorseMind {
       pooledProfileIncomplete: this.pooledProfileIncomplete,
       pooledStreetRead: this.pooledStreetRead,
       pooledReraiseResponse: this.pooledReraiseResponse,
+      pooledFlopShown: this.pooledFlopShown,
+      pooledStreetPrice: this.pooledStreetPrice,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
@@ -3953,6 +4036,8 @@ export class HorseMind {
     this.pooledProfileIncomplete = sandbox.pooledProfileIncomplete ?? null;
     this.pooledStreetRead = sandbox.pooledStreetRead ?? null;
     this.pooledReraiseResponse = sandbox.pooledReraiseResponse ?? null;
+    this.pooledFlopShown = sandbox.pooledFlopShown ?? null;
+    this.pooledStreetPrice = sandbox.pooledStreetPrice ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3994,6 +4079,8 @@ export class HorseMind {
       this.pooledProfileIncomplete = live.pooledProfileIncomplete;
       this.pooledStreetRead = live.pooledStreetRead;
       this.pooledReraiseResponse = live.pooledReraiseResponse;
+      this.pooledFlopShown = live.pooledFlopShown;
+      this.pooledStreetPrice = live.pooledStreetPrice;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
