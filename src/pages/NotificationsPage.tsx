@@ -63,6 +63,7 @@ import PushEnableBanner from '../components/notifications/PushEnableBanner';
 import AccountSurfaceHeader from '../components/account/AccountSurfaceHeader';
 import './NotificationsPage.css';
 import { leaveForHub, openInBrowser } from '../lib/openExternal';
+import { isChatMessageNotificationType } from '../lib/notificationFilters';
 
 /** The WEB path Club Arena lives under. A notification's destination is
     written by the server as a web URL, so this is the prefix to strip before
@@ -236,7 +237,7 @@ function readCache(userId: string | null): FeedNotification[] {
     if (typeof parsed[0]._cache_ts !== 'number') return [];
     const age = Date.now() - parsed[0]._cache_ts;
     if (!Number.isFinite(age) || age < 0 || age >= CACHE_TTL_MS) return [];
-    return parsed as FeedNotification[];
+    return (parsed as FeedNotification[]).filter((row) => !isChatMessageNotificationType(row.type));
   } catch {
     // A private-mode browser, a cleared store, or a half-written entry. A
     // cold skeleton is the correct outcome, not a crash.
@@ -323,9 +324,10 @@ function NotificationFeed({ userId }: { userId: string | null }) {
   const rowsRef = useRef(notifications);
   const applyRows = useCallback(
     (rows: FeedNotification[], cache = true) => {
-      rowsRef.current = rows;
-      setNotifications(rows);
-      if (cache) writeCache(userId, rows);
+      const visible = rows.filter((row) => !isChatMessageNotificationType(row.type));
+      rowsRef.current = visible;
+      setNotifications(visible);
+      if (cache) writeCache(userId, visible);
     },
     [userId]
   );
