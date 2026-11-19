@@ -71,12 +71,13 @@ describe('section 14 + 22 — what the readout prints', () => {
 describe('section 1 — only two game rules are sanctioned', () => {
   beforeEach(() => reportError.mockClear());
 
-  it('30, 40 (Lightning) and 50 are the whole list', () => {
-    expect([...ALLOWED_VPIP_REQUIREMENTS]).toEqual([30, 40, 50]);
+  it('25 (Lightning), 30, 40 and 50 are the whole list', () => {
+    expect([...ALLOWED_VPIP_REQUIREMENTS]).toEqual([25, 30, 40, 50]);
+    expect(isAllowedVpipRequirement(25)).toBe(true);
     expect(isAllowedVpipRequirement(40)).toBe(true);
     expect(isAllowedVpipRequirement(30)).toBe(true);
     expect(isAllowedVpipRequirement(50)).toBe(true);
-    for (const bad of [20, 25, 35, 45, 55, 60]) {
+    for (const bad of [20, 35, 45, 55, 60]) {
       expect(isAllowedVpipRequirement(bad)).toBe(false);
     }
   });

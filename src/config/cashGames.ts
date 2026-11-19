@@ -51,7 +51,14 @@ export const PINEAPPLE_CLASSIC_NOTE =
  */
 export const CASH_TABLE_MIN_BB = 50;
 
-export const LIGHTNING_RULES_SUMMARY = 'Big Blind Ante, 40% Minimum VPIP';
+/**
+ * Dan 2026-11-19: "LOWER THE VPIP IN LIGHTNING GAMES TO 25% ACROSS THE BOARD FOR
+ * ALL LIGHTNING GAMES, NO LIMIT OR PLO". The database is the authority
+ * (fn_cash_template_defaults, migration 20261119195413); this prints its answer.
+ */
+export const LIGHTNING_VPIP_FLOOR = 25;
+
+export const LIGHTNING_RULES_SUMMARY = `Big Blind Ante, ${LIGHTNING_VPIP_FLOOR}% Minimum VPIP`;
 
 export const CASH_TEMPLATES: ReadonlyArray<{ id: CashTemplate; label: string; blurb: string }> = [
   {
@@ -124,7 +131,7 @@ export function bombCadenceLabel(
  * SHOULD BE A DESCRIPTION NEXT TO THEM FOR ACTION AND MADNESS EXPLAINING WHAT
  * CHANGES THE VARIATION OF THE GAME."
  *
- * Classic prints no additional note. Lightning uses the same 40% VPIP,
+ * Classic prints no additional note. Lightning uses the same 25% VPIP,
  * big blind ante and five/six-player promise in the picker and on each card.
  * Historical Action identifiers resolve to that one offered format.
  */
@@ -209,7 +216,7 @@ export interface CashRulesetSnapshot {
  * docs/changelog/2026-09-09-a-classic-game-has-no-antes-and-no-bombs.md).
  *
  * The template blurb is a promise: Classic has no antes, bombs or minimum
- * VPIP; Lightning has a big blind ante and 40% minimum VPIP. Since
+ * VPIP; Lightning has a big blind ante and 25% minimum VPIP. Since
  * that date fn_cash_game_create resolves every one of these from
  * fn_cash_template_defaults and reads NOTHING the caller sends for them. So
  * the overrides payload does not carry them, the rules step prints them as
