@@ -49,6 +49,10 @@ export function fixture(
     refuseBegin?: Record<number, string>;
     /** Simulated round-trip time for every F06 RPC and the seq-0 retention. */
     rpcLatencyMs?: number;
+    /** Retained-cancel replies to lose (1-based call numbers). */
+    loseRetainedCancelReply?: number;
+    /** Refuse every retained cancel before it commits (e.g. a frozen platform). */
+    refuseRetainedCancel?: boolean;
   } = {}
 ) {
   const engine = new ServerTableEngine(
@@ -94,9 +98,14 @@ export function fixture(
   // The private writer is qualified separately by OriginalControllerRuntime
   // and native PostgreSQL; this fixture isolates permit cancellation.
   const retainedAt: number[] = [];
-  engine.retainOriginalBatch = vi.fn(async () => {
+  // SQL's private capsules: one per permit, written by the seq-0 save.
+  const capsules = new Map<string, number>();
+  engine.retainOriginalBatch = vi.fn(async (original: any, _seats: unknown, batch: any) => {
     retainedAt.push(Date.now());
     if (opts.rpcLatencyMs) await new Promise((r) => setTimeout(r, opts.rpcLatencyMs));
+    const row = db.get(String(original.permit_id));
+    if (!row || row.state !== 'reserved') throw new Error('HAND_CONTINUATION_ORIGINAL_UNPROVEN');
+    capsules.set(row.permit_id, Number(batch.sequence));
   });
   engine.saveSnapshot = vi.fn(async () => {});
   engine.persistPresenceForRestart = vi.fn(async () => {});
@@ -124,6 +133,7 @@ export function fixture(
   let beginCalls = 0;
   const beginAt: number[] = [];
   let cancelCalls = 0;
+  let retainedCancelCalls = 0;
   const latency = () =>
     opts.rpcLatencyMs ? new Promise((r) => setTimeout(r, opts.rpcLatencyMs)) : Promise.resolve();
   const rpc = vi.fn(async (name: string, input: Record<string, unknown>) => {
@@ -153,6 +163,34 @@ export function fixture(
       if (beginCalls === opts.loseBeginReply) return { data: null, error: new Error('lost reply') };
       return { data: { ...reply(row), ok: true }, error: null };
     }
+    if (name === 'fn_f06_cancel_retained_prepared_hand') {
+      retainedCancelCalls += 1;
+      if (opts.refuseRetainedCancel)
+        return {
+          data: null,
+          error: new Error('PLATFORM_FROZEN: retained preparation keeps its capsule'),
+        };
+      const row = db.get(permitId);
+      if (!row) return { data: null, error: new Error('F06_PREPARED_ORIGINAL_REQUIRED') };
+      if (
+        row.state === 'never_started' &&
+        row.evidence_id === permitId &&
+        !capsules.has(permitId)
+      ) {
+        // The exact replay: the same receipt.
+      } else if (row.state !== 'reserved') {
+        return { data: null, error: new Error('F06_PREPARED_NOT_RESERVED') };
+      } else {
+        if ((capsules.get(permitId) ?? 0) !== 0)
+          return { data: null, error: new Error('F06_RETAINED_ORIGINAL_NOT_PREPARED') };
+        capsules.delete(permitId);
+        row.state = 'never_started';
+        row.evidence_id = permitId;
+      }
+      if (retainedCancelCalls === opts.loseRetainedCancelReply)
+        return { data: null, error: new Error('lost reply') };
+      return { data: { ...reply(row), ok: true }, error: null };
+    }
     if (name === 'fn_f06_cancel_prepared_hand') {
       cancelCalls += 1;
       if (opts.failCancelBeforeCommit)
@@ -160,6 +198,9 @@ export function fixture(
       const row = db.get(permitId);
       if (!row || (row.state !== 'reserved' && row.evidence_id !== permitId))
         return { data: null, error: new Error('F06_PREPARED_NOT_RESERVED') };
+      // A saved original's never_started meets its 'retained' disposition.
+      if (capsules.has(permitId))
+        return { data: null, error: new Error('HAND_CONTINUATION_UNSETTLED') };
       row.state = 'never_started';
       row.evidence_id = permitId;
       if (cancelCalls === opts.loseCancelReply)
@@ -205,6 +246,11 @@ export function fixture(
   }
   const cancels = () =>
     rpc.mock.calls.filter(([name]) => name === 'fn_f06_cancel_prepared_hand').length;
+  const retainedCancels = () =>
+    rpc.mock.calls.filter(([name]) => name === 'fn_f06_cancel_retained_prepared_hand').length;
+  const killed = vi.spyOn(engine, 'killForRestart').mockImplementation(() => {
+    engine.running = false;
+  });
   /** Arm a rest the way the dealing loop does, and stop short of it as the loop does. */
   async function armRestAndLead(restMs: number) {
     engine.nextHandNotBeforeMs = Date.now() + restMs;
@@ -225,9 +271,10 @@ export function fixture(
     reserved,
     dealsTheNextHand,
     cancels,
+    retainedCancels,
+    capsules,
+    killed,
     armRestAndLead,
     retainedAt,
   };
 }
-
-
