@@ -62,7 +62,7 @@ describe('a hand-for-hand wait is an owed wait', () => {
   it('the interval table and its writer are service_role only', () => {
     const sql = newest('CREATE TABLE IF NOT EXISTS public.ca_tournament_hand_for_hand');
     expect(sql).toContain('ALTER TABLE public.ca_tournament_hand_for_hand ENABLE ROW LEVEL SECURITY;');
-    expect(sql).toContain('REVOKE ALL ON TABLE public.ca_tournament_hand_for_hand FROM PUBLIC, anon, authenticated;');
+    expect(sql).toContain('REVOKE ALL ON TABLE public.ca_tournament_hand_for_hand FROM PUBLIC, anon, authenticated, service_role;');
     expect(sql).toContain('REVOKE ALL ON FUNCTION public.fn_ca_note_hand_for_hand(uuid, boolean) FROM PUBLIC, anon, authenticated;');
     expect(sql).toContain('GRANT EXECUTE ON FUNCTION public.fn_ca_note_hand_for_hand(uuid, boolean) TO service_role;');
   });

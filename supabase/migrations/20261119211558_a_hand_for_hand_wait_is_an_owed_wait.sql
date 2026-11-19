@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS public.ca_tournament_hand_for_hand (
 CREATE UNIQUE INDEX IF NOT EXISTS ca_tournament_hand_for_hand_one_open
   ON public.ca_tournament_hand_for_hand (tournament_id) WHERE ended_at IS NULL;
 ALTER TABLE public.ca_tournament_hand_for_hand ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.ca_tournament_hand_for_hand FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.ca_tournament_hand_for_hand FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.ca_tournament_hand_for_hand TO service_role;
 COMMENT ON TABLE public.ca_tournament_hand_for_hand IS
   'Hand-for-hand (money bubble) intervals per tournament, written by the engine. An intended wait between hands; fn_ca_hand_gap_unintended_delay does not grade it (incident 1e532243).';
