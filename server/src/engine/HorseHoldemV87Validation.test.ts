@@ -1228,7 +1228,9 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
 
       const spyFast = vi.spyOn(workerBridge, 'decideFast');
       engine.scheduleHorseAction(horseSeatRow, 4, utgEnginePlayer, st);
-      await vi.advanceTimersByTimeAsync(15_000);
+      // #11416 added up to ~8.75 s of boot-retry backoff per failed store load
+      // under fake timers; advance past both boot retries and the horse think clock.
+      await vi.advanceTimersByTimeAsync(30_000);
 
       expect(spyFast).toHaveBeenCalledTimes(1);
       const passedSnap = spyFast.mock.calls[0][0] as LiveHorseDecisionSnapshot;
