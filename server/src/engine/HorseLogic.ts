@@ -7,6 +7,7 @@ import { reconcileHorsePhaseReceipts } from './HorsePhaseControllerWithdrawal.js
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import {
   HOLDEM_RIVER_BOAT_LEAD_FREQUENCY,
+  holdemRiverBoatLeadPrice,
   holdemRiverLeadBoat,
 } from './HorseHoldemRiverFullHouseValue.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
@@ -357,6 +358,7 @@ import {
   openerRangeWidth,
   strengthBarForTopShare,
   exploitEnvelopeFor,
+  statRead,
 } from './HorseOpponentExploit.js';
 import {
   OMAHA_TIGHT_MIN_EFFECTIVE_BB,
@@ -4986,6 +4988,13 @@ export interface HorseDecideOpts {
    *  equity, so the payout check could never overrule a short stack. Read only as === true: default OFF. */
   tournamentUtilityStackScaledMargin?: boolean;
   holdemRiverFullHouseValue?: boolean;
+  /** ROWFIX 2026-11-18 (Horse Switch lane, NLH-CASH improvement I1): opt-in (`=== true`), default OFF,
+   * unevaluated. With holdemRiverFullHouseValue on, the qualifying river boat leads when EV(lead) beats
+   * EV(check) against the one live opponent's measured river call share and checked-to bet share
+   * (HorseHoldemRiverFullHouseValue.holdemRiverBoatLeadPrice; posteriors on the measured population cell)
+   * instead of a fixed 70%; heads-up only (more opponents: the check). Draws no random number. Off:
+   * byte-identical. */
+  holdemRiverFullHouseValueIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -6848,6 +6857,66 @@ function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
   return gs.dealtSeatIds === undefined
     ? gs.players.length
     : horsePolicyDealtPlayers(gs.players, heroSeat, gs.dealtSeatIds).length;
+}
+
+/**
+ * holdemRiverFullHouseValueIsPriced (ROWFIX 2026-11-18; default OFF): whether a qualifying river boat leads,
+ * by EV against the one live opponent's measured river call share and checked-to bet share (posteriors on
+ * the population cell; HorseHoldemRiverFullHouseValue.holdemRiverBoatLeadPrice). Heads-up only: with more
+ * than one opponent, or no envelope for the table, nothing is priced and the boat keeps the check (the
+ * option-off line of the initiative gate). Draws no random number.
+ */
+function holdemRiverBoatLeadPriced(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  pot: number,
+  equity: number,
+  leadFrac: number,
+  tele: boolean
+): boolean {
+  try {
+    if (opponents.length !== 1) {
+      if (tele) noteFire('holdem_river_full_house_lead_unpriced');
+      return false;
+    }
+    const opp = opponents[0];
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+    const envelope = exploitEnvelopeFor(scope, variant);
+    if (!envelope) {
+      if (tele) noteFire('holdem_river_full_house_lead_unpriced');
+      return false;
+    }
+    const counters =
+      opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+    const callShare = statRead(
+      counters?.riverCall ?? 0,
+      counters?.riverCallOpp ?? 0,
+      envelope.riverCall
+    ).mean;
+    const betShare = statRead(
+      counters?.betCheckedTo ?? 0,
+      counters?.betCheckedToOpp ?? 0,
+      envelope.betCheckedTo
+    ).mean;
+    const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const oppStack = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    const lead = Math.min(pot * leadFrac, heroStack, oppStack);
+    const price = holdemRiverBoatLeadPrice({ pot, lead, equity, callShare, betShare });
+    if (price === null) {
+      if (tele) noteFire('holdem_river_full_house_lead_unpriced');
+      return false;
+    }
+    if (tele)
+      noteFire(
+        price.lead ? 'holdem_river_full_house_lead_priced' : 'holdem_river_full_house_check_priced'
+      );
+    return price.lead;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -22620,7 +22689,21 @@ export class HorseLogic {
         !prevChecked &&
         !ip &&
         holdemRiverLeadBoat(player.cards, board) &&
-        fastRandom() < HOLDEM_RIVER_BOAT_LEAD_FREQUENCY;
+        // holdemRiverFullHouseValueIsPriced (ROWFIX 2026-11-18, default off): the lead against the check by
+        // EV from his measured rates, sized at the monster branch's midpoint, no random number; off: the 70%.
+        (opts.holdemRiverFullHouseValueIsPriced === true
+          ? holdemRiverBoatLeadPriced(
+              player,
+              gs,
+              opts,
+              opponents,
+              pot,
+              equity,
+              (geomFrac > 0 ? Math.max(sizeBase + 0.2, geomFrac) + 0.05 : sizeBase + 0.4) *
+                exploitValueSize,
+              tele15
+            )
+          : fastRandom() < HOLDEM_RIVER_BOAT_LEAD_FREQUENCY);
       if (holdemRiverBoatLead && tele15) noteFire('holdem_river_full_house_lead_seen');
       // ═══ V11 INITIATIVE GATE (Dan 2026-08-22): no more donk leads ═══
       // A player WITHOUT the betting lead, acting BEFORE the prior-street

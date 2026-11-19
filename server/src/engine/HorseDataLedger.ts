@@ -2073,6 +2073,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   flag(
+    'holdemRiverFullHouseValueIsPriced',
+    "Horse Switch lane 2026-11-18 (ROWFIX; NLH-CASH improvement I1; owner 2026-11-17: every decision from ranges, equity, price and EV, no blanket rule). Default off (read === true), unevaluated; acts only with holdemRiverFullHouseValue on. The qualifying river boat (HorseHoldemRiverFullHouseValue.holdemRiverLeadBoat, out of position into the prior aggressor) leads when EV(lead) beats EV(check) instead of a fixed 70% (HOLDEM_RIVER_BOAT_LEAD_FREQUENCY): heads-up, from the aggressor's river call share and checked-to bet share (HorseOpponentExploit.statRead posteriors on his decayed counters, centred on the measured population cell OPPONENT_EXPLOIT_ENVELOPE horse-population-2026-10-16), the lead sized at the monster branch's midpoint, his bet when checked to priced at the same size; holdemRiverBoatLeadPrice. More than one opponent or no envelope: the boat keeps the check. Draws no random number. Off: byte-identical.",
+    'V94'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -7865,6 +7870,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValue)',
     "a qualifying no-limit hold'em river full house led into the prior aggressor instead of checking at the V11 initiative gate",
     '2026-11-15'
+  ),
+  receipt(
+    'holdem_river_full_house_lead_priced',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
+    "a qualifying no-limit hold'em river full house leads: EV(lead) beat EV(check) against the aggressor's measured river call share and checked-to bet share",
+    'V94'
+  ),
+  receipt(
+    'holdem_river_full_house_check_priced',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
+    "a qualifying no-limit hold'em river full house checks: EV(check) was at least EV(lead) (the aggressor bets when checked to at least as often as he calls)",
+    'V94'
+  ),
+  receipt(
+    'holdem_river_full_house_lead_unpriced',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
+    "a qualifying no-limit hold'em river full house with more than one opponent, or no population cell for the table: nothing priced, the boat keeps the check",
+    'V94'
   ),
   receipt(
     'v87_turn_takeaway',
