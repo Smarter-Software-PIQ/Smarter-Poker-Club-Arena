@@ -142,6 +142,8 @@ export function stableReceipt(value: unknown): unknown {
       // R1 style action receipt (Hand Analysis B1): skipped under backlog, budget or a moved scale, like the shadow,
       // so it is a work-budget observation the frozen replay cannot reproduce; the decision itself is compared.
       if (key === 'styleActionReceipt') continue;
+      // The option shadow receipt is rate-budgeted by the clock minute too: a work-budget observation (2026-11-18).
+      if (key === 'optionShadowReceipt') continue;
       if (
         key === 'policyMs' &&
         (value as Record<string, unknown>).policyFamily === 'catastrophe_guard_v1' &&
