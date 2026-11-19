@@ -43,13 +43,12 @@
 -- No chip, custody, receipt or decision changes. Native proof:
 -- scripts/ci/test-a-rebuy-reads-promo-fee-state-outside-its-lane.py.
 --
--- COORDINATION. Lane B7 (#11356, 20261119013430) also substitutes
--- process_tournament_rebuy from the same pre-image d5da7399. Whichever merges
--- second re-pins onto the other's post-image.
+-- COORDINATION. Requires 20261119013430 (lane B7, #11356): applied to its
+-- post-image c294af49, whose anchors this block does not touch.
 --
 -- LOCK FOOTPRINT. CREATE OR REPLACE FUNCTION only; no table or row lock.
 --
--- @live-proof: (SELECT md5(pg_get_functiondef('public.process_tournament_rebuy(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure)) = 'e1c2f55c99c4a3b5e4a9a032a31eae2d')
+-- @live-proof: (SELECT md5(pg_get_functiondef('public.process_tournament_rebuy(uuid,uuid,text,numeric,numeric,integer,text)'::regprocedure)) = '8acb45633fa7bfbd7d63dbb256138e53')
 BEGIN;
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '30s';
@@ -79,7 +78,7 @@ $a$;
 $n$;
   v_n integer;
 BEGIN
-  IF md5(v_def) <> 'd5da73993760ca26529d284c144fec60' THEN
+  IF md5(v_def) <> 'c294af49b455ffc1c421edbe3d6f1d1d' THEN
     RAISE EXCEPTION 'process_tournament_rebuy is not the pinned pre-image (md5 %); revalidate before moving its promo read', md5(v_def);
   END IF;
   v_n := (length(v_def) - length(replace(v_def, v_anchor, ''))) / length(v_anchor);
@@ -87,10 +86,33 @@ BEGIN
     RAISE EXCEPTION 'rebuy lane anchor found % times, expected 1', v_n;
   END IF;
   EXECUTE replace(v_def, v_anchor, v_new);
-  IF md5(pg_get_functiondef(v_sig)) <> 'e1c2f55c99c4a3b5e4a9a032a31eae2d' THEN
+  IF md5(pg_get_functiondef(v_sig)) <> '8acb45633fa7bfbd7d63dbb256138e53' THEN
     RAISE EXCEPTION 'process_tournament_rebuy did not land on its reviewed post-image (md5 %)', md5(pg_get_functiondef(v_sig));
   END IF;
 END
 $rebuy$;
+
+-- The new body runs once before COMMIT, undone: an add-on replay of a fixture
+-- receipt passes the session check, the new block, the event lane and the
+-- receipt read, and returns the recorded answer.
+-- @probe-for: public.process_tournament_rebuy
+DO $probe$
+DECLARE v_t uuid := gen_random_uuid(); v_u uuid := gen_random_uuid(); v_key text; v_r jsonb;
+BEGIN
+  v_key := 'tourney:'||v_t::text||':addon:'||v_u::text;
+  INSERT INTO public.entry_purchase_idempotency_receipts(key_domain,idempotency_key,request,response,claimed_at,completed_at)
+  VALUES('tournament_chip_purchase',v_key,
+    jsonb_build_object('version','v1','tournament_id',v_t,'user_id',v_u,'rebuy_type','addon','idempotency_key',v_key),
+    jsonb_build_object('success',true,'seated',true,'atomic_tournament_chip_purchase','v1','rebuy_type','addon',
+      'table_id',gen_random_uuid(),'seat_id',gen_random_uuid(),'stack',1),
+    clock_timestamp(),clock_timestamp());
+  v_r := public.process_tournament_rebuy(v_t,v_u,'addon',NULL,NULL,NULL,NULL);
+  IF v_r->>'atomic_tournament_chip_purchase' IS DISTINCT FROM 'v1' THEN
+    RAISE EXCEPTION 'process_tournament_rebuy probe did not replay its receipt: %', v_r;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;
