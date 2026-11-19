@@ -76,13 +76,20 @@ def clock_of(text):
 
 
 def window(now_utc, start_hm, by_hm):
-    """(freeze_start_utc, inside) for the night containing now. The freeze
-    starts after midnight (00:45), so the window is one span of one date."""
+    """(freeze_start_utc, inside) for the night containing now. The freeze may
+    start before midnight (23:45) or after it (00:45); the window wraps
+    midnight in the first case, and its start is on the previous date."""
     local = now_utc.astimezone(CHICAGO)
-    start_t, by_t = dtime(*start_hm), dtime(*by_hm)
-    if not (start_t <= local.time() < by_t):
+    start_t, by_t, t = dtime(*start_hm), dtime(*by_hm), local.time()
+    if start_t <= by_t:
+        inside, start_day = start_t <= t < by_t, local.date()
+    elif t >= start_t:
+        inside, start_day = True, local.date()
+    else:
+        inside, start_day = t < by_t, local.date() - timedelta(days=1)
+    if not inside:
         return None, False
-    start = datetime.combine(local.date(), start_t, CHICAGO)
+    start = datetime.combine(start_day, start_t, CHICAGO)
     return start.astimezone(ZoneInfo('UTC')), True
 
 

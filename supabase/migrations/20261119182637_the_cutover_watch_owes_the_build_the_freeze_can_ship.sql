@@ -18,8 +18,12 @@
 -- tonight's frozen copy (scripts/ci/backup-freeze-baseline.py, run by the
 -- backup-engine.yml plan job): the newest server commit merged at least 30
 -- minutes before the freeze began. The watch now owes that build, read with
--- the same cutoff (freeze start 00:45 minus 30 minutes = 00:15 Chicago on the
--- cutover date). Everything else is unchanged: a newer build that ships still
+-- the same cutoff: the freeze start minus 30 minutes, written as an offset from
+-- the cutover date's midnight so it holds whichever side of midnight the
+-- freeze starts. The freeze on main at authoring starts 23:45 (the 00:45
+-- start of #11413 is being reverted until its SQL half ships), so the offset
+-- is -45 minutes (23:15 the evening before); a law fails if the dispatcher
+-- clock and this offset ever disagree. Everything else is unchanged: a newer build that ships still
 -- satisfies the watch (it contains the owed one), the reasons it names are
 -- the same, and an open alarm still closes once production holds its build.
 --
@@ -37,9 +41,10 @@ DO $edit$
 DECLARE
   v_def text := pg_get_functiondef('public.fn_ca_engine_cutover_watch(timestamp with time zone)'::regprocedure);
   c_old constant text := 'v_owed := smarter_private.ca_cutover_owed_build(v_serving, v_cutoff);';
-  c_new constant text := '-- The build the freeze can ship: merged by 00:15 Chicago (freeze start 00:45'
-    || chr(10) || '  -- minus 30 minutes, scripts/ci/backup-freeze-baseline.py SETTLE), 20261119182637.'
-    || chr(10) || '  v_owed := smarter_private.ca_cutover_owed_build(v_serving, least(v_cutoff, (v_day + time ''00:15'') AT TIME ZONE c_tz));';
+  c_new constant text := '-- The build the freeze can ship: merged by the freeze start minus 30 minutes'
+    || chr(10) || '  -- (scripts/ci/merged-migration-dispatch.mjs RELEASE_SCHEMA_FREEZE_CHICAGO,'
+    || chr(10) || '  -- scripts/ci/backup-freeze-baseline.py SETTLE), counted from the cutover date''s midnight, 20261119182637.'
+    || chr(10) || '  v_owed := smarter_private.ca_cutover_owed_build(v_serving, least(v_cutoff, (v_day::timestamp + interval ''-45 minutes'') AT TIME ZONE c_tz));';
 BEGIN
   IF (length(v_def) - length(replace(v_def, c_old, ''))) / length(c_old) <> 1 THEN
     RAISE EXCEPTION 'fn_ca_engine_cutover_watch owed-build anchor did not match exactly once';
@@ -51,7 +56,7 @@ $edit$;
 DO $verify$
 BEGIN
   IF strpos(pg_get_functiondef('public.fn_ca_engine_cutover_watch(timestamp with time zone)'::regprocedure),
-            '(v_day + time ''00:15'') AT TIME ZONE c_tz') = 0 THEN
+            '(v_day::timestamp + interval ''-45 minutes'') AT TIME ZONE c_tz') = 0 THEN
     RAISE EXCEPTION 'fn_ca_engine_cutover_watch did not take the freeze-baseline cutoff';
   END IF;
 END

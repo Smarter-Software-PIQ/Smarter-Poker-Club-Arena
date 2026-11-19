@@ -81,17 +81,28 @@ describe('the reader follows the dispatcher release clock', () => {
   it('a run started at the window end still certifies before the selection reads', () => {
     const windowEnd = selH * 60 + selM - Math.floor(worst / 2);
     expect(windowEnd + Math.floor(worst / 2)).toBeLessThanOrEqual(selH * 60 + selM);
-    expect(windowEnd).toBeGreaterThan(freezeH * 60 + freezeM);
+    // The freeze may start the evening before (23:45): place it on the same
+    // timeline as the window end, minutes from the cutover date's midnight.
+    const start = freezeH * 60 + freezeM;
+    expect(windowEnd).toBeGreaterThan(start >= 12 * 60 ? start - 24 * 60 : start);
   });
 
-  it('replays the 2026-11-19 night', () => {
-    // 00:44 Chicago (06:44Z): before the freeze. 00:46: due. 02:19: due. 02:21: outside.
-    expect(decide('2026-11-19T06:44:00Z').state).toBe('outside');
-    const due = decide('2026-11-19T06:46:00Z');
+  it('replays the 2026-11-19 night against the dispatcher clock', () => {
+    // Chicago is UTC-6 on 2026-11-19. Instants one minute either side of the
+    // freeze start and of the window end, read from the dispatcher clock.
+    const end = selH * 60 + selM - Math.floor(worst / 2);
+    const start = freezeH * 60 + freezeM;
+    const utc = (chicagoMinutes: number) => {
+      const day = chicagoMinutes < 12 * 60 ? 19 : 18; // morning of the 19th, evening of the 18th
+      const t = new Date(Date.UTC(2026, 10, day, 6, 0, 0) + chicagoMinutes * 60_000);
+      return t.toISOString().replace('.000Z', 'Z');
+    };
+    expect(decide(utc(start - 1)).state).toBe('outside');
+    const due = decide(utc(start + 1));
     expect(due.state).toBe('due');
     expect(due.baseline).toBe('a'.repeat(40));
-    expect(decide('2026-11-19T08:19:00Z').state).toBe('due');
-    expect(decide('2026-11-19T08:21:00Z').state).toBe('outside');
+    expect(decide(utc(end - 1)).state).toBe('due');
+    expect(decide(utc(end + 1)).state).toBe('outside');
     expect(decide('2026-11-19T18:00:00Z').state).toBe('outside');
   });
 });
@@ -105,9 +116,11 @@ describe('the cutover watch owes the same build', () => {
     .pop()!;
   const sql = readFileSync(join(dir, latest), 'utf8');
 
-  it('reads the owed build at freeze start minus SETTLE on the cutover date', () => {
-    const cut = freezeH * 60 + freezeM - settle;
-    const hhmm = `${String(Math.floor(cut / 60)).padStart(2, '0')}:${String(cut % 60).padStart(2, '0')}`;
-    expect(sql).toContain(`(v_day + time ''${hhmm}'') AT TIME ZONE c_tz`);
+  it('reads the owed build at freeze start minus SETTLE, counted from the cutover date midnight', () => {
+    // A freeze that starts in the evening (23:45) belongs to the night before
+    // the cutover date: its offset from that date's midnight is negative.
+    const start = freezeH * 60 + freezeM;
+    const fromMidnight = (start >= 12 * 60 ? start - 24 * 60 : start) - settle;
+    expect(sql).toContain(`(v_day::timestamp + interval ''${fromMidnight} minutes'') AT TIME ZONE c_tz`);
   });
 });
