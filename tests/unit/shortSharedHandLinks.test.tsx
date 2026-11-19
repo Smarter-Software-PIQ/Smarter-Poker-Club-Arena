@@ -352,6 +352,9 @@ describe('Link and the sender’s controls, on the real popup', () => {
     answer({ data: { success: true, token: 'AbCd2345', sent: false, views: 0 }, error: null });
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect((writeText.mock.calls[0] as unknown as [string])[0]).toMatch(/\/h\/AbCd2345$/);
+    await waitFor(() =>
+      expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_mark_sent', { p_token: 'AbCd2345' })
+    );
   });
 });
 

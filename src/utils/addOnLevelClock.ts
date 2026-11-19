@@ -98,7 +98,8 @@ export function addOnClockHold(
   const startsAt = epoch(row.addon_period_started_at);
   const endsAt = epoch(row.addon_period_ends_at);
   const hasWindow = startsAt !== null && endsAt !== null && endsAt > startsAt;
-  const closingMinute = hasWindow && endsAt! - startsAt! <= ADD_ON_MINUTE_MS;
+  const closingMinute =
+    hasWindow && !(row.addon_from_start === true && endsAt! - startsAt! > ADD_ON_MINUTE_MS);
 
   // The minute has ended: hold only until the engine's re-anchor is read.
   if (closingMinute && nowMs >= endsAt!) {
