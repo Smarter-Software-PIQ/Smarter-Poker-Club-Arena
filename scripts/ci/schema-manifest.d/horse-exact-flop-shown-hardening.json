@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/plo-flopshown2-01TLQer7J/fix/flop-shown-learner-hardening",
+  "_comment": "Declared by migration 20261119213206 (the flop-shown learner reads each list in one pass, learns for the Omaha family only, reads a showdown entry as shown only with mucked=false, and guards the price record's float8 casts); source declaration only, not installation proof.",
+  "functions": ["fn_horse_flop_shown_wholes", "fn_horse_street_price_number"]
+}
