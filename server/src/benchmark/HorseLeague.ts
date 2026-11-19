@@ -2831,6 +2831,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnCallRealizationByRunout: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-18 OMAHA FACING-BET VALUE REGION FROM HIS RANGE (lane VALUE-REGION,
+  // hand 59993188, default OFF): the river facing-bet verdict, heads-up against
+  // a person's first bet, is priced on his measured betting range on this
+  // board. Both arms carry production's live set; a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_value_is_range_relative`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFacingBetValueIsRangeRelative: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);

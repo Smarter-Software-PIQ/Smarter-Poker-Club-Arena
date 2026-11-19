@@ -383,6 +383,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
   ),
+  omahaFacingBetValueIsRangeRelative: priced(
+    "the river facing-bet verdict, heads-up against a person's first bet, priced on his measured betting range on this board instead of a share of all holdings (default OFF)"
+  ),
   omahaSmallBetIsPriced: priced(
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
   ),
