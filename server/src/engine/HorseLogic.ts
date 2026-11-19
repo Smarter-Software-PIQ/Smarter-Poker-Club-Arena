@@ -148,6 +148,11 @@ import {
   type OmahaSlowplayRead,
 } from './HorseOmahaStrongHandSlowplayMix.js';
 import {
+  omahaValueSizeBand,
+  OMAHA_VALUE_SIZE_BAND_SALT,
+  OMAHA_VALUE_SIZE_KEEP_SALT,
+} from './HorseOmahaValueSizeBand.js';
+import {
   omahaPlanHeroInPosition,
   omahaPlanLineUncommitted,
   omahaPlanOppLine,
@@ -751,7 +756,10 @@ import {
   RERAISE_RATE_FALLBACK,
   type OmahaReraisedCallPricing,
 } from './HorseOmahaOopReraisedPot.js';
-import { omahaPreflopReraiseDefenceRule } from './HorseOmahaPreflopReraiseDefenceRule.js';
+import {
+  omahaPreflopReraiseDefenceHeadsUpInPosition,
+  omahaPreflopReraiseDefenceRule,
+} from './HorseOmahaPreflopReraiseDefenceRule.js';
 import {
   premiumPreflopAnchors,
   shouldPriceTerminalFlop,
@@ -3215,6 +3223,12 @@ export interface HorseDecideOpts {
    * league state (PROTOCOL-nutsize-2) FAILED on the Horse-only cells (PLO4
    * -1.19, PLO5 -1.31 bb/100) while the human field gained +2.29 (z +5.2). */
   omahaNutClassValueSize?: boolean;
+  /** omahaValueSizeIsUnreadable (WooWoo audit NUT-SIZE lane 2026-11-19, owner 2026-11-18 23:00 Chicago:
+   * nut bets "LIKE 80-95% POT", not the full pot every time; HorseOmahaValueSizeBand.ts). Default OFF (read
+   * `=== true`): a PLO4/PLO5 cash postflop full-pot bet or raise with a nut-class hand stays the full pot with
+   * the measured street share and otherwise is sized uniformly in 80-95% of the pot increment; every other
+   * wager is unchanged. The last step of the wager_rules node. */
+  omahaValueSizeIsUnreadable?: boolean;
   /** Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing
    * a 4-bet or more preflop a hand without aces or a premium structure folds
    * unless the committed call pays the price against aces; in a pot 4-bet or
@@ -3616,6 +3630,16 @@ export interface HorseDecideOpts {
    * its declared evaluation passes; league cards plo4/plo5
    * _omaha_preflop_reraise_defence_priced. */
   omahaPreflopReraiseDefencePriced?: boolean;
+  /** THREEBET-2 lane 2026-11-19 (WooWoo audit, THREEBET-DEFENCE: an opener in position folding to one player's 3-bet
+   * folded +EV calls, 148 of 149 at the lower end of the measured realization): opt-in (`=== true`), the companion
+   * scope of omahaPreflopReraiseDefencePriced. Only where the Horse opened, faces exactly one 3-bet heads-up and acts
+   * after the 3-bettor, a person, on every later street (HorseOmahaPreflopReraiseDefenceRule
+   * .omahaPreflopReraiseDefenceHeadsUpInPosition, one definition for table and fast-table cash; tournaments never)
+   * a FOLD of the decision with this option off becomes a CALL when the priced verdict of
+   * omahaPreflopReraiseDefencePriced is a call. It never makes a fold or changes any other decision; every
+   * out-of-position one included is the one with this option off. Default OFF until its declared evaluation
+   * passes. */
+  omahaPreflopReraiseDefencePricedInPosition?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
    * continues on the flop only with a pair plus a straight or flush draw, or
    * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
@@ -8356,6 +8380,7 @@ function omahaReraisedCallCellJudges(
     omahaOopReraisedPotStrongRange(decision0, player, gs, {
       ...opts,
       omahaPreflopReraiseDefencePriced: false,
+      omahaPreflopReraiseDefencePricedInPosition: false,
       telemetry: false,
     });
     return omahaReraisedCallCellJudged;
@@ -8555,6 +8580,52 @@ function omahaOopReraisedPotStrongRange(
   // call cell below judges (HorseOmahaOopReraisedPot, the live implementation,
   // WooWoo audit lane) belongs to that cell, kept or folded; this option then
   // does not answer and the decision is exactly the one with it off.
+  // omahaPreflopReraiseDefencePricedInPosition (default off; review of 01ddd45b4df F1): in the spot where the Horse
+  // opened, faces one person's 3-bet heads-up and acts after him (omahaPreflopReraiseDefenceHeadsUpInPosition), and
+  // only there, a FOLD of the decision with this option off becomes a CALL when the priced verdict of
+  // omahaPreflopReraiseDefencePriced is a call. Nothing else moves: a call, a 4-bet or anything else the off decision
+  // makes is returned as it is, and the option never makes a fold. The parent option on owns the spot as before.
+  if (
+    opts.omahaPreflopReraiseDefencePriced !== true &&
+    opts.omahaPreflopReraiseDefencePricedInPosition === true
+  ) {
+    const offOpts: HorseDecideOpts = { ...opts, omahaPreflopReraiseDefencePricedInPosition: false };
+    const off = omahaOopReraisedPotStrongRange(decision0, player, gs, offOpts);
+    if (
+      off.action !== 'fold' ||
+      !omahaPreflopReraiseDefenceHeadsUpInPosition(player, gs) ||
+      omahaReraisedCallCellJudges(decision0, player, gs, offOpts)
+    )
+      return off;
+    // Silent: a fold that stays a fold is byte-identical to off, receipts included; the receipts of the move fire below.
+    const priced = omahaPreflopReraiseDefenceRule(off, player, gs, {
+      mind: opts.mind !== false,
+      telemetry: false,
+    });
+    if (priced === null || (priced.action !== 'call' && priced.action !== 'all_in')) return off;
+    // ONE OWNER PER CELL, as the parent (review R1 B1b): the call answers to the live call cell when that option is on.
+    if (opts.omahaOopReraisedPotStrongRange === true) {
+      const judged = omahaOopReraisedPotStrongRange(priced, player, gs, {
+        ...offOpts,
+        omahaPreflopReraiseDefencePriced: false,
+        omahaReraisedPotFlopContinueNeedsEquityShape: false,
+        omahaReraiseRangeOutOfPosition: false,
+        omahaReraiseRangeEarlyPosition: false,
+        omahaPreflopStackPlan: false,
+      });
+      if (judged.action !== 'call' && judged.action !== 'all_in') return off;
+      if (telemetryOn(opts)) {
+        noteFire('omaha_preflop_reraise_defence_call');
+        noteFire('omaha_preflop_reraise_defence_changed');
+      }
+      return judged;
+    }
+    if (telemetryOn(opts)) {
+      noteFire('omaha_preflop_reraise_defence_call');
+      noteFire('omaha_preflop_reraise_defence_changed');
+    }
+    return priced;
+  }
   if (
     opts.omahaPreflopReraiseDefencePriced === true &&
     !omahaReraisedCallCellJudges(decision0, player, gs, opts)
@@ -8571,6 +8642,7 @@ function omahaOopReraisedPotStrongRange(
         return omahaOopReraisedPotStrongRange(priced, player, gs, {
           ...opts,
           omahaPreflopReraiseDefencePriced: false,
+          omahaPreflopReraiseDefencePricedInPosition: false,
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
@@ -8840,6 +8912,7 @@ function omahaReraiseRangeRules(
           omahaReraiseRangeEarlyPosition: false,
           omahaPreflopStackPlan: false,
           omahaPreflopReraiseDefencePriced: false,
+          omahaPreflopReraiseDefencePricedInPosition: false,
           telemetry: false,
         }).action !== 'fold';
     } else {
@@ -12476,6 +12549,59 @@ function omahaStrongHandValueRule(
  *
  * Receipts: omaha_strong_hand_slowplay_call, omaha_strong_hand_slowplay_check.
  */
+/**
+ * omahaValueSizeIsUnreadable (WooWoo audit NUT-SIZE lane 2026-11-19; default OFF, read `=== true`):
+ * HorseOmahaValueSizeBand.ts. PLO4/PLO5 cash (table and fast-table cash; never a tournament), pot limit,
+ * high only, one board, no bomb pot, not All-In-Or-Fold, postflop. A full-pot bet or raise with a
+ * nut-class hand (omahaNutClassNow, or the exact river nuts) stays the full pot with the measured street
+ * share and otherwise is sized uniformly in 80-95% of the pot increment; every other decision is
+ * returned as it is. The two draws come from the decision's derived stream (read, never advanced).
+ * Receipts: omaha_value_size_band_applied, omaha_value_size_full_pot_kept.
+ */
+function omahaValueSizeIsUnreadableRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  tele: boolean
+): HorseDecision {
+  if (opts.omahaValueSizeIsUnreadable !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
+  try {
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    if (variant !== 'plo4' && variant !== 'plo5') return decision;
+    if (!vi.isOmaha || vi.isFixedLimit || !vi.isPotLimit) return decision;
+    if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return decision;
+    if (isTournamentMode(gs)) return decision;
+    if (
+      (gs.boardCount ?? 1) !== 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0 ||
+      gs.bombPot === true ||
+      (gs as { allInOrFold?: boolean }).allInOrFold === true
+    )
+      return decision;
+    const stream = saveFastRandom();
+    const spotKey = omahaSlowplaySpotKey(player, gs);
+    const result = omahaValueSizeBand(
+      decision,
+      player,
+      gs,
+      {
+        keepUnit: omahaSlowplayUnit(stream, spotKey, OMAHA_VALUE_SIZE_KEEP_SALT),
+        bandUnit: omahaSlowplayUnit(stream, spotKey, OMAHA_VALUE_SIZE_BAND_SALT),
+      },
+      () => omahaNutClassNow(player, gs) || hasRiverNuts(player, gs, true)
+    );
+    if (tele && result.changed === 'band') noteFire('omaha_value_size_band_applied');
+    if (tele && result.changed === 'full_pot_kept') noteFire('omaha_value_size_full_pot_kept');
+    return result.decision;
+  } catch {
+    return decision;
+  }
+}
+
 function omahaStrongHandSlowplayMixRule(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -14931,8 +15057,17 @@ export class HorseLogic {
     // omahaBetSizeByPublicState (default off): the size of the node's final
     // own bet or raise, chosen from public information only, after every
     // owner rule has decided bet or check (never turns a check into a bet).
+    // omahaValueSizeIsUnreadable (default off): last, how much of the full pot a nut-class
+    // wager is (HorseOmahaValueSizeBand.ts); one owner of that cell, after every rule above.
     const publicSized = (d: HorseDecision): HorseDecision =>
-      this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele);
+      omahaValueSizeIsUnreadableRule(
+        this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele),
+        player,
+        gs,
+        vi,
+        opts,
+        tele
+      );
     decision = graph.run('wager_rules', decision, () => {
       // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
       // in-position hold'em postflop balance runs first, so every owner rule

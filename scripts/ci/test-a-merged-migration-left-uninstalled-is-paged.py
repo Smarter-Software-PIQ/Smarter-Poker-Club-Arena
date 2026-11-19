@@ -26,6 +26,12 @@ a fake extensions.http answering from a table, so every outcome is data:
     hours; a file merged before the switch-on gets its hour from the
     switch-on, so a resume that never sent it still pages; an unreadable
     workflow state holds nothing (20261117165416, incident c1a85d20);
+  * a file merged inside the nightly release schema freeze (23:45-04:15
+    Central), which Dispatch Merged Migrations holds to 04:15 on purpose,
+    pages one hour after 04:15, never at merge + 60; a page raised inside the
+    freeze never says "dispatch it"; a refused file fixed in place resolves
+    its outdated page, restarts its hour from the fixing commit and pages
+    again once if still not installed (20261119064912, incident dc479141);
   * a release page and a migration page do not hold each other back;
   * it never writes schema_migrations and never calls anything but GET.
 """
@@ -48,6 +54,8 @@ SUPERSEDED_FIX = next(MIGRATIONS.glob('*_the_install_watch_reads_a_superseded_mi
 # The never-run marker, spelled in two pieces so this file is not read as one.
 # 20261117165416: installs switched off hold the hour page (incident c1a85d20).
 PAUSE_FIX = next(MIGRATIONS.glob('*_the_install_watch_holds_its_page_while_installs_are_switched*.sql'))
+# 20261119064912: the hour starts when the dispatcher may send (incident dc479141).
+FREEZE_FIX = next(MIGRATIONS.glob('*_the_install_watch_hour_starts_when_the_dispatcher_may_send.sql'))
 MARK = '-- SUPER' + 'SEDED BY '
 PREIMAGES = json.loads((ROOT / 'scripts/ci/fixtures/engine-cutover-preimages.json').read_text())
 REPO = 'https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena'
@@ -440,6 +448,77 @@ def main():
         assert sql("SELECT count(*) FROM mock_http_calls WHERE uri LIKE '%/actions/workflows/%' AND uri NOT IN "
                    f"('{APPLIER}', '{DISPATCHER}')") == '0'
         ok('an unreadable workflow state holds nothing and only the two workflows are read')
+
+        # THE HOUR STARTS WHEN THE DISPATCHER MAY SEND (20261119064912,
+        # incident dc479141, alert 445153). Dispatch Merged Migrations holds an
+        # ordinary file merged inside the nightly release schema freeze
+        # (23:45-04:15 Central) until 04:15 on purpose; a refused file fixed in
+        # place is sent again from its fixing commit. The page must follow
+        # both, and inside the freeze it must never say "dispatch it".
+        if os.environ.get('MIGWATCH_PRE_FREEZE') != '1':
+            for attempt in (1, 2):
+                r = psql(['-f', str(FREEZE_FIX)])
+                assert r.returncode == 0, r.stderr
+            proof = re.search(r'^-- @live-proof: (.+)$', FREEZE_FIX.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', 'freeze-fix live proof must hold after install'
+            ok('the freeze fix amends each anchor once, installs twice idempotently and its live proof holds')
+        workflows('active', 'active')
+
+        def summary(version):
+            return sql(f"SELECT payload->>'summary' FROM operational_alert_events WHERE event_key = 'uninstalled:{version}' AND status = 'firing'")
+
+        # A file merged before the freeze and refused pages after its hour,
+        # which falls inside the freeze: the page says do NOT hand-dispatch.
+        R1 = 'supabase/migrations/20261112050000_refused_before_the_freeze.sql'
+        merge(40, '2026-11-12T05:00:00Z', [{'filename': R1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-12 05:05:00Z')
+        watch('2026-11-12 06:00:00Z')                                   # 00:00 Central
+        assert alert_status('20261112050000') == 'firing'
+        assert 'do NOT hand-dispatch' in summary('20261112050000'), summary('20261112050000')
+        assert 'Dispatch Apply Merged Migration for it' not in summary('20261112050000')
+        ok('a page raised inside the release freeze says not to hand-dispatch, never "dispatch it"')
+
+        # A file merged inside the freeze is held to 04:15; its hour runs from there.
+        F1 = 'supabase/migrations/20261112054800_merged_inside_the_freeze.sql'
+        merge(41, '2026-11-12T05:48:00Z', [{'filename': F1, 'status': 'added', 'patch': '@@ -0,0 +1,1 @@\n+BEGIN; COMMIT;'}])
+        watch('2026-11-12 05:50:00Z')
+        watch('2026-11-12 06:48:00Z')                                   # merge + 60: the old false page
+        watch('2026-11-12 11:14:00Z')                                   # 05:14 Central
+        assert alert_status('20261112054800') == '', 'a freeze-held file must not page before 04:15 + 60'
+        watch('2026-11-12 11:15:00Z')                                   # 05:15 Central
+        assert alert_status('20261112054800') == 'firing'
+        assert 'Dispatch Apply Merged Migration for it' in summary('20261112054800')
+        ok('a file merged inside the release freeze pages one hour after 04:15, never at merge + 60')
+
+        # The refused file is fixed in place: its page resolves with the fix
+        # named, the hour restarts from the fixing commit, and it pages again
+        # once if the fixed file is still not installed after that hour.
+        merge(42, '2026-11-12T16:20:00Z', [{'filename': R1, 'status': 'modified', 'patch': '@@ -1 +1 @@\n-BEGIN; COMMIT;\n+BEGIN; SELECT 1; COMMIT;'}])
+        mock(f'{RAW}/{sha(42)}/{R1}', 'BEGIN; SELECT 1; COMMIT;\n')
+        r = watch('2026-11-12 16:30:00Z')
+        assert r['state'] == 'read' and r['resolved'] >= 1, r
+        assert alert_status('20261112050000') == 'resolved'
+        assert sql("SELECT payload->>'resolution' FROM operational_alert_events WHERE event_key = 'uninstalled:20261112050000'").startswith(
+            f'fixed in place on main by {sha(42)[:8]} at Nov 12 10:20 Central')
+        assert sql("SELECT modified_at = '2026-11-12 16:20:00Z' AND modified_sha = '%s' AND alert_id IS NULL "
+                   "FROM smarter_private.ca_merged_migration_watch WHERE version = '20261112050000'" % sha(42)) == 't'
+        FIXKEY = f'20261112050000@{sha(42)[:12]}'
+        watch('2026-11-12 17:19:00Z')
+        assert alert_status('20261112050000') == 'resolved' and alert_status(FIXKEY) == ''
+        watch('2026-11-12 17:20:00Z')
+        assert alert_status(FIXKEY) == 'firing' and alert_status('20261112050000') == 'resolved'
+        assert 'fixed in place at Nov 12 10:20 Central' in summary(FIXKEY), summary(FIXKEY)
+        assert pages() >= 1 and int(sql(f"SELECT count(*) FROM operational_alert_events WHERE event_key = 'uninstalled:{FIXKEY}' AND investigation_status = 'new'")) == 1
+        watch('2026-11-12 17:30:00Z')
+        assert int(sql("SELECT count(*) FROM operational_alert_events WHERE event_key LIKE 'uninstalled:20261112050000%' AND status = 'firing'")) == 1
+        ok('a fix in place resolves the outdated page, restarts the hour, and pages again once, under its own key, if still not installed')
+
+        # Installing the fixed file resolves the second page too.
+        sql("INSERT INTO supabase_migrations.schema_migrations(version, name) VALUES ('20261112050000', 'refused_before_the_freeze')")
+        watch('2026-11-12 17:40:00Z')
+        assert alert_status(FIXKEY) == 'resolved'
+        sql("DELETE FROM supabase_migrations.schema_migrations WHERE version = '20261112050000'")
+        ok('installing the fixed file resolves its page')
 
         # Release and migration pages keep their own episode clocks.
         sql("SELECT public.fn_record_operational_alert('engine-cutover-watch', 'missed:2026-11-10', 'EngineCutoverMissed', 'firing', 'critical', "
