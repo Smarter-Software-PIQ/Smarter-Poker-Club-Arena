@@ -2922,6 +2922,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: { ...OMAHA_LIVE_OPTIONS_20261116, ...OMAHA_PRICED_FAMILIES_ON },
     })),
   ]),
+  // 2026-11-18 OMAHA FOLD MODEL FITTED ON PEOPLE (HorseOmahaFoldModelFittedOnPeople, default OFF;
+  // WooWoo audit FOLD-MODEL): a person's fold share to every v38 flop / turn bet size is the fold model
+  // fitted on people. The live options of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_fold_model_fitted_on_people`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFoldModelFittedOnPeople: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with
   // the river planned, and the river following the plan. a switches it on,

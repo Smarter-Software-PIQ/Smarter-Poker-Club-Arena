@@ -362,6 +362,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaBlockerBluffIsPriced: priced('the river bluff beside the check on the card-impact model'),
   omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
+  omahaFoldModelFittedOnPeople: priced(
+    'every v38 flop or turn bet size, heads-up against a person facing no bet, is priced with his fold share from the fold model fitted on people (measured cells by variant, street, pot type and bet-size bucket, shrunk to OMAHA_EV_FOLD_MODEL where thin, scaled by his own read); default OFF'
+  ),
   // priced before 2026-11-17 (the audit: "each compares priced lines")
   omahaFacingBetEv: priced('expected value of the call on the exact count'),
   omahaStreetPlan: priced('the bet and the check priced as whole lines'),
