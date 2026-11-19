@@ -109,6 +109,10 @@ const ONCE_PER_DECISION_RECEIPTS: ReadonlySet<string> = new Set([
   // omahaPricedInLightning (PLO Strategy lane 2026-11-18): the priced scope is consulted at several places in one
   // decision; the receipt says only that a Lightning decision was inside it.
   'omaha_priced_in_lightning_scope_seen',
+  // omahaSlowplayMixInLightning / omahaPublicBetSizeInLightning (PLO Strategy lane 2026-11-19): each rule runs at
+  // more than one place in one decision; the receipt says only that a Lightning decision was inside its game.
+  'omaha_slowplay_mix_in_lightning_scope_seen',
+  'omaha_public_bet_size_in_lightning_scope_seen',
 ]);
 const ONCE_PER_DECISION_PREFIXES: readonly string[] = ['style_label_'];
 export function isOncePerDecisionReceipt(feature: string): boolean {

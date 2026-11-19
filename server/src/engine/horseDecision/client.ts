@@ -133,6 +133,7 @@ import {
   horseDecisionReceiptRefusalForGates,
   omahaPricedRaiseGateCandidates,
   omahaPricedInLightningGateCandidates,
+  omahaSlowplayMixInLightningGateCandidates,
   omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
   horseComputeMetadataIsValid,
@@ -2232,6 +2233,11 @@ export class LiveHorseDecisionWorkerClient {
           previous
         ),
         omahaPricedInLightningGateCandidates(
+          active.request.opts,
+          this.deliveredSwitchConfigs.current,
+          previous
+        ),
+        omahaSlowplayMixInLightningGateCandidates(
           active.request.opts,
           this.deliveredSwitchConfigs.current,
           previous

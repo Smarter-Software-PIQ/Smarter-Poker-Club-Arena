@@ -1026,6 +1026,13 @@ export interface HorseDecisionReceiptContext {
    * option). Absent or false, the validator is exactly as before.
    */
   omahaPricedInLightning?: boolean;
+  /**
+   * PLO Strategy lane 2026-11-19: the decision's own omahaSlowplayMixInLightning, read `=== true`. Only then are
+   * the two conversions of omahaStrongHandSlowplayMix (raise -> call, flop bet -> check) admitted in a Lightning
+   * pool, in the mix's own spot as at a table (the mix's game includes Lightning only under that option). Absent
+   * or false, the validator is exactly as before.
+   */
+  omahaSlowplayMixInLightning?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -1639,7 +1646,12 @@ function policyGraphIsValidInScope(
       ['raise', 'all_in'].includes(previous.action) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
-      omahaSlowplayAdmitsCall(context.player, context.gameState, transition.after.amount);
+      omahaSlowplayAdmitsCall(
+        context.player,
+        context.gameState,
+        transition.after.amount,
+        context.omahaSlowplayMixInLightning === true
+      );
     // The same option, the flop: a bet with a set on a very dry flop becomes
     // a check at a mixed frequency. Admitted only with the request, only in
     // the mix's spot re-run on it (the flop, nothing to call, one or two
@@ -1653,7 +1665,11 @@ function policyGraphIsValidInScope(
       transition.after.action === 'check' &&
       previous !== null &&
       previous.action === 'bet' &&
-      omahaSlowplayAdmitsCheckWithRequest(variant, context);
+      omahaSlowplayAdmitsCheckWithRequest(
+        variant,
+        context,
+        context?.omahaSlowplayMixInLightning === true
+      );
     // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
     // heads-up turn bet facing no wager becomes a check when the plan prices
     // the check line higher. A check puts no chip in; when the request is
@@ -2017,43 +2033,86 @@ export function omahaPricedInLightningGateCandidates(
 }
 
 /**
+ * The omahaSlowplayMixInLightning values the worker may have run this
+ * decision with, built exactly as omahaPricedInLightningGateCandidates: the
+ * live switch row this client last delivered, then the request's own option
+ * when it differs, then the configuration delivered before the last change
+ * while it still counts.
+ */
+export function omahaSlowplayMixInLightningGateCandidates(
+  requestOpts: { omahaSlowplayMixInLightning?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.omahaSlowplayMixInLightning === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok
+        ? optionSwitchDecisionOpts(parsed.states).omahaSlowplayMixInLightning
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
  * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
- * gate (and, when given, each candidate omahaPricedInLightning gate) as well:
- * null as soon as one set of gates admits the decision, else the refusal
- * under the first (the effective one). Without `pricedInLightningGates` only
- * the false gate is tried: exactly as before.
+ * gate (and, when given, each candidate omahaPricedInLightning gate and each
+ * candidate omahaSlowplayMixInLightning gate) as well: null as soon as one
+ * set of gates admits the decision, else the refusal under the first (the
+ * effective one). Without `pricedInLightningGates` / `slowplayMixInLightningGates`
+ * only the false gate of each is tried: exactly as before.
  */
 export function horseDecisionReceiptRefusalForGates(
   value: unknown,
   expectedVariant: string | undefined,
   context: Omit<
     HorseDecisionReceiptContext,
-    'omahaStrategyInPlo6' | 'omahaPricedRaise' | 'omahaPricedInLightning'
+    | 'omahaStrategyInPlo6'
+    | 'omahaPricedRaise'
+    | 'omahaPricedInLightning'
+    | 'omahaSlowplayMixInLightning'
   >,
   plo6Gates: readonly boolean[],
   pricedRaiseGates: readonly boolean[],
-  pricedInLightningGates: readonly boolean[] = [false]
+  pricedInLightningGates: readonly boolean[] = [false],
+  slowplayMixInLightningGates: readonly boolean[] = [false]
 ): string | null {
   let first: string | null = null;
   let seen = false;
-  for (const lightningGate of pricedInLightningGates.length > 0
-    ? pricedInLightningGates
+  for (const slowplayGate of slowplayMixInLightningGates.length > 0
+    ? slowplayMixInLightningGates
     : [false]) {
-    for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
-      const refusal = horseDecisionReceiptRefusalForPlo6Gates(
-        value,
-        expectedVariant,
-        {
-          ...context,
-          ...(gate ? { omahaPricedRaise: true } : {}),
-          ...(lightningGate ? { omahaPricedInLightning: true } : {}),
-        },
-        plo6Gates
-      );
-      if (refusal === null) return null;
-      if (!seen) {
-        first = refusal;
-        seen = true;
+    for (const lightningGate of pricedInLightningGates.length > 0
+      ? pricedInLightningGates
+      : [false]) {
+      for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+        const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+          value,
+          expectedVariant,
+          {
+            ...context,
+            ...(gate ? { omahaPricedRaise: true } : {}),
+            ...(lightningGate ? { omahaPricedInLightning: true } : {}),
+            ...(slowplayGate ? { omahaSlowplayMixInLightning: true } : {}),
+          },
+          plo6Gates
+        );
+        if (refusal === null) return null;
+        if (!seen) {
+          first = refusal;
+          seen = true;
+        }
       }
     }
   }
