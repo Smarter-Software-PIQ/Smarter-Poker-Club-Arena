@@ -344,6 +344,10 @@ describe('omahaMultiwayCheckedToBetSpot', () => {
     expect(fs?.street).toBe('flop');
     expect(fs?.opponents.filter((o) => o.behind).map((o) => o.seat)).toEqual([3]);
   });
+  it('the river is out of scope (its measured response did not hold out of sample)', () => {
+    const r = river3(TOP_SET);
+    expect(omahaMultiwayCheckedToBetSpot(r.hero, r.gs)).toBeNull();
+  });
   it('heads-up, a re-raised pot, PLO6, a bet to face and a tournament are out', () => {
     const hu = turnHeadsUp(TOP_SET);
     expect(omahaMultiwayCheckedToBetSpot(hu.hero, hu.gs)).toBeNull();
@@ -411,6 +415,22 @@ describe('omahaMultiwayCheckedToBetVerdict is priced, not classed', () => {
 });
 
 describe('omahaMultiwayCheckedToBetIsPriced on, through decide', () => {
+  // Review B7: the option prices only the chain's final check: a decision it changes was a check and becomes a bet,
+  // and a bet is never re-sized or removed. (With every Omaha option on, two identical decide calls already differ
+  // in a flop bet size on main, so that arm cannot be compared call to call; the replay arm covers it.)
+  it('changes only a final check into a bet', () => {
+    for (const base of [{}])
+      for (const build of SPOTS)
+        for (const seed of SEEDS) {
+          const off = decide(build, base, seed);
+          const on = decide(build, { ...base, omahaMultiwayCheckedToBetIsPriced: true }, seed);
+          if (on.d.action === off.d.action && (on.d.amount ?? null) === (off.d.amount ?? null))
+            continue;
+          expect(off.d.action).toBe('check');
+          expect(on.d.action).toBe('bet');
+          expect(on.refused).toBeNull();
+        }
+  });
   it('a strong multiway check becomes a priced bet; legal, admitted, and the receipt names the final bet', () => {
     // PLO5 four-way flop, top two pair checked to the Horse with one player behind: today's brain checks.
     const build = () => flop4('Ts7h8h5d3c');

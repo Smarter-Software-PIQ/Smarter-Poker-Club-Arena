@@ -1231,7 +1231,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaMultiwayCheckedToBetIsPriced',
-    "Lane MULTIWAY-BET 2026-11-19 (owner: no blanket rules, every decision from ranges, equity, price and EV; the human's largest winning bucket was multiway pots the Horses checked through and he took with a bet every Horse correctly folded to: 109 of 215 multiway turn folders had checked first, 56 with two pair, 14 with the best hand of the field). In PLO4/PLO5 cash, one board, high only, a pot not re-raised before the flop, on the flop, turn or river with nothing to call and two or more live opponents, the owner's check is priced against bets of the card-impact candidate sizes (HorseOmahaMultiwayDiscipline.ts section 4, the one owner of the multiway bet-against-check price): the Horse's showdown share against each opponent's range (exact counts on the turn and river, the sampled flop counts on the flop), each opponent kind's measured multiway response by pot share (continue and raise) and the measured cost of the check (players still to act bet at their kind's measured rate when checked to), fit window 2026-11-01..15 (6,814 hands). The best bet replaces the check only when it is worth more by 2% of the pot; never turns a bet into a check, never overrides an owner-ruled check, never bets all in; heads-up spots stay with the small-bet rule; tournaments and PLO6 unchanged. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_multiway_checked_to_bet_is_priced",
+    "Lane MULTIWAY-BET 2026-11-19 (owner: no blanket rules, every decision from ranges, equity, price and EV; the human's largest winning bucket was multiway pots the Horses checked through and he took with a bet every Horse correctly folded to: 109 of 215 multiway turn folders had checked first, 56 with two pair, 14 with the best hand of the field). In PLO4/PLO5 cash, one board, high only, a pot not re-raised before the flop, on the flop or the turn (not the river: its measured response did not hold out of sample) with nothing to call and two or more live opponents, the owner's check is priced against bets of the card-impact candidate sizes (HorseOmahaMultiwayDiscipline.ts section 4, the one owner of the multiway bet-against-check price): the Horse's showdown share against each opponent's range (exact counts on the turn, the sampled flop counts on the flop), each opponent kind's measured multiway response by pot share (continue and raise) and the measured cost of the check (players still to act bet at their kind's measured rate when checked to), fit window 2026-11-01..15 (6,814 hands). The best bet replaces the check only when it is worth more by 2% of the pot; never turns a bet into a check, never overrides an owner-ruled check, prices only the final check of the rule chain (inside omahaOwnerRuledFinal, never a later rule's bet), never bets all in; heads-up spots stay with the small-bet rule; tournaments and PLO6 unchanged. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_multiway_checked_to_bet_is_priced",
     'V94'
   ),
   flag(
@@ -5095,25 +5095,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_multiway_checked_to_bet_priced_bet',
-    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
-    'a PLO4/PLO5 cash multiway check with nothing to call became a bet: the priced bet beat the check by the margin',
+    'HorseLogic omahaOwnerRuledFinal (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    'a PLO4/PLO5 cash multiway flop or turn check with nothing to call became a bet: the priced bet beat the check by the margin',
     'V94'
   ),
   receipt(
     'omaha_multiway_checked_to_bet_priced_bet_vetoed',
-    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    'HorseLogic omahaOwnerRuledFinal (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
     'the multiway bet the pricing proposed was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
     'omaha_multiway_checked_to_bet_kept',
-    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    'HorseLogic omahaOwnerRuledFinal (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
     "the multiway check was priced and no candidate bet beat it by the margin (or none could be priced); the owner's check stands",
     'V94'
   ),
   receipt(
     'omaha_multiway_checked_to_bet_owner_check_kept',
-    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    'HorseLogic omahaOwnerRuledFinal (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
     "the priced multiway bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's check stands",
     'V94'
   ),

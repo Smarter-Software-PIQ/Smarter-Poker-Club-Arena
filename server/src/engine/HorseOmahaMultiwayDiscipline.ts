@@ -686,7 +686,7 @@ export function omahaMultiwayRiverCallVerdict(
  *
  * THE DECISION. This module owns the multiway bet-against-check price (omahaBetVsCheckEv above prices a bet the
  * Horse chose; this prices a check it chose). PLO4/PLO5 cash, one board, high only, pot limit, no bomb pot, a pot not
- * re-raised before the flop, the flop, the turn or the river, nothing to call, two or more live opponents: the
+ * re-raised before the flop, the flop or the turn, nothing to call, two or more live opponents: the
  * owner's check is compared with a bet of each candidate size (OMAHA_CARD_IMPACT_SIZES of the pot, a candidate set
  * and not a threshold), and the best bet replaces the check only when it is worth more than the check by
  * OMAHA_DISCIPLINE_BET_MARGIN of the pot. No hand class, position or size decides; the inputs are:
@@ -705,6 +705,12 @@ export function omahaMultiwayRiverCallVerdict(
  *   t_j        = (1 - c_j) + c_j (1 - r_j) x share vs his continuing range
  *                + c_j r_j x (share vs his raising range, only when it is above one half: else the Horse folds its bet)
  * with F the chance everyone with chips folds, W the share against every all-in player's range.
+ *
+ * NOT THE RIVER (review 2026-11-19, repairs/MULTIWAY-BET EVAL-RESULTS.md): on the river the measured response rests
+ * on 177 person and 632 Horse responses (24 and 162 continues), this model's all-fold chance on the Horses' own river
+ * bets was 0.309 against 0.582 observed in the fit window, and the strength-conditioned judge missed the held-out river
+ * all-fold by 0.12 (0.624 against 0.743, 70 bets). Until a river response is measured that holds out of sample, a
+ * river check keeps the owner's decision.
  *
  * LIMITS. A one-street model: equity is credited as showdown equity (no later betting is priced on the flop or the
  * turn), a winning bet is credited the pot and one caller's bet, rake is not deducted, the measured curves pool every
@@ -828,6 +834,13 @@ export const OMAHA_MW_RANGE_EDGES: readonly number[] = [
   0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1,
 ];
 
+/**
+ * The flop sample of this option: rivers per turn card of omahaFlopEvCounts (the facing-bet rule walks 12 with no
+ * field). Half the runouts for the decision-time budget (review B9: verdict p99 82 ms); the agreement of the verdict
+ * with the full sample is measured in repairs/MULTIWAY-BET/MEASUREMENT.md section E.
+ */
+export const OMAHA_MW_FLOP_RIVERS = 6;
+
 /** The variants of the option: four- and five-card Omaha only (PLO6 is untouched). */
 export const OMAHA_MW_CHECKED_TO_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -844,7 +857,7 @@ export interface OmahaMwCheckedToOpponent {
 }
 
 export interface OmahaMwCheckedToSpot {
-  street: 'flop' | 'turn' | 'river';
+  street: 'flop' | 'turn';
   opponents: OmahaMwCheckedToOpponent[];
 }
 
@@ -857,7 +870,8 @@ export function omahaMultiwayCheckedToBetSpot(
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (!OMAHA_MW_CHECKED_TO_VARIANTS.has(variant)) return null;
     const stage = String(gs.stage ?? '');
-    if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return null;
+    // The flop and the turn (section comment: the river is out of scope).
+    if (stage !== 'flop' && stage !== 'turn') return null;
     const vi = variantInfo(variant);
     if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return null;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
@@ -905,7 +919,7 @@ export function omahaMultiwayCheckedToBetSpot(
             : omahaShownRangeShare(omahaShownLine(p.seat, gs, stage as 'turn' | 'river')),
       }))
       .sort((x, y) => order(x.seat) - order(y.seat));
-    return { street: stage, opponents };
+    return { street: stage as 'flop' | 'turn', opponents };
   } catch {
     return null;
   }
@@ -922,7 +936,10 @@ function mwCountsOf(hero: SeatPlayer, gs: HorseGameStateV2, street: string): MwC
         hero.cards ?? [],
         gs.communityCards ?? [],
         hero.knownDeadCards ?? [],
-        0.3
+        0.3,
+        undefined,
+        0,
+        OMAHA_MW_FLOP_RIVERS
       );
       return c ? { kind: 'flop', counts: c } : null;
     }

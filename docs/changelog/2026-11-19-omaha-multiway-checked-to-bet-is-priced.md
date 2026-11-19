@@ -1,3 +1,5 @@
 # Omaha multiway checks priced against the bet (omahaMultiwayCheckedToBetIsPriced, default OFF)
 
 Lane MULTIWAY-BET, 2026-11-19. The human's largest winning bucket was multiway pots the Horses checked through (two pair checked 86-99% of the time multiway) and then folded correctly to his bet. With the option on, a multiway check with nothing to call in a pot not re-raised before the flop is priced against the candidate bets on measured, strength-conditioned responses and the measured cost of the check (HorseOmahaMultiwayDiscipline.ts section 4). Default OFF: the declared evaluation failed three bars (docs/horse-option-authority.d/omahaMultiwayCheckedToBetIsPriced.md). Unset or false: byte-identical.
+
+Second build (same day): priced inside omahaOwnerRuledFinal so it changes only a final check (never a later rule's bet); the river is out of scope; the flop count walks 6 rivers per turn card (a new optional argument of omahaFlopEvCounts; its other callers are unchanged). Still OFF pending EVAL-DECLARATION-2.
