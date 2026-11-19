@@ -12,7 +12,8 @@
  *   1. the Backup plan job asks scripts/ci/backup-freeze-baseline.py first,
  *      and a `due` answer certifies that exact build with the refresh forced,
  *      before any superseded / retarget / already-certified step can skip it;
- *   2. the reader's window is derived from the dispatcher's own release clock,
+ *   2. the reader's window is derived from the dispatcher's freeze start and
+ *      the selector's own 03:30 cutoff,
  *      and a run started at its last minute still finishes before 03:30;
  *   3. the cutover watch owes the same build (freeze start minus SETTLE);
  *   4. the 2026-11-19 night replays as `due` inside the freeze and `outside`
@@ -35,8 +36,9 @@ const num = (re: RegExp, text: string) => {
   return m.slice(1).map(Number);
 };
 const [freezeH, freezeM] = num(/RELEASE_SCHEMA_FREEZE_CHICAGO\s*=\s*\{\s*from:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/, dispatcher);
-const [selH, selM] = num(/DAILY_SELECTION_CHICAGO\s*=\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/, dispatcher);
-const [worst] = num(/BACKUP_CERTIFICATE_WORST_MINUTES\s*=\s*(\d+)/, dispatcher);
+const selector = read('scripts/ci/select-daily-engine.py');
+const [selH, selM] = num(/def cutoff\(day\):\s*\n\s*return [\s\S]*?time\((\d+),\s*(\d+)\)/, selector);
+const [runWorst] = num(/BACKUP_RUN_WORST_MINUTES\s*=\s*(\d+)/, reader);
 const [settle] = num(/SETTLE\s*=\s*timedelta\(minutes=(\d+)\)/, reader);
 
 function decide(nowIso: string): Record<string, string> {
@@ -45,7 +47,7 @@ function decide(nowIso: string): Record<string, string> {
     'from datetime import datetime',
     `spec = importlib.util.spec_from_file_location('b', ${JSON.stringify(join(ROOT, 'scripts/ci/backup-freeze-baseline.py'))})`,
     'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)',
-    `clock = m.clock_of(open(${JSON.stringify(join(ROOT, 'scripts/ci/merged-migration-dispatch.mjs'))}).read())`,
+    `clock = m.clock_of(open(${JSON.stringify(join(ROOT, 'scripts/ci/merged-migration-dispatch.mjs'))}).read(), open(${JSON.stringify(join(ROOT, 'scripts/ci/select-daily-engine.py'))}).read())`,
     `now = datetime.fromisoformat(${JSON.stringify(nowIso)}.replace('Z', '+00:00'))`,
     "print(json.dumps(m.decide(now, clock, lambda until: 'a' * 40, lambda sha, start: False)))",
   ].join('\n');
@@ -79,8 +81,8 @@ describe('the Backup certifies the build the freeze can ship', () => {
 
 describe('the reader follows the dispatcher release clock', () => {
   it('a run started at the window end still certifies before the selection reads', () => {
-    const windowEnd = selH * 60 + selM - Math.floor(worst / 2);
-    expect(windowEnd + Math.floor(worst / 2)).toBeLessThanOrEqual(selH * 60 + selM);
+    const windowEnd = selH * 60 + selM - runWorst;
+    expect(windowEnd + runWorst).toBeLessThanOrEqual(selH * 60 + selM);
     // The freeze may start the evening before (23:45): place it on the same
     // timeline as the window end, minutes from the cutover date's midnight.
     const start = freezeH * 60 + freezeM;
@@ -90,7 +92,7 @@ describe('the reader follows the dispatcher release clock', () => {
   it('replays the 2026-11-19 night against the dispatcher clock', () => {
     // Chicago is UTC-6 on 2026-11-19. Instants one minute either side of the
     // freeze start and of the window end, read from the dispatcher clock.
-    const end = selH * 60 + selM - Math.floor(worst / 2);
+    const end = selH * 60 + selM - runWorst;
     const start = freezeH * 60 + freezeM;
     const utc = (chicagoMinutes: number) => {
       const day = chicagoMinutes < 12 * 60 ? 19 : 18; // morning of the 19th, evening of the 18th

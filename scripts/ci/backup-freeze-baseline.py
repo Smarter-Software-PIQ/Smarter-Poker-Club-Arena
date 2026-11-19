@@ -12,12 +12,11 @@ judge (server/scripts/engine-release-installed-migrations.py judge):
     copy was restored;
   * candidates merged inside the nightly release schema freeze
     (scripts/ci/merged-migration-dispatch.mjs RELEASE_SCHEMA_FREEZE_CHICAGO,
-    00:45-04:15 Chicago since #11413) carry migrations the freeze holds out of
-    production, so "Backup copy lacks the exact candidate migration(s) ...".
+    23:45-04:15 Chicago) carry migrations the freeze holds out of production,
+    so "Backup copy lacks the exact candidate migration(s) ...".
 
-#11413 moved the freeze to 00:45 so a migration merged before it reaches a
-certified copy. That still needs the right commit certified on a copy taken
-after the freeze began, and nothing guarantees it: a push run is SUPERSEDED
+Wherever the freeze starts, the right commit must be certified on a copy
+taken after the freeze began, and nothing guaranteed it: a push run is SUPERSEDED
 by any newer push and RETARGETED to main's newest server commit, so the first
 merge inside the freeze replaces the pre-freeze candidate's run with one for
 a commit the freeze makes unshippable. This reader names the pre-freeze
@@ -40,9 +39,9 @@ This reader only READS (GitHub GETs) and prints for the plan job:
   state=unknown    could not tell; plan exactly as before (CLAUDE.md 10.86)
 
 The certification window is [freeze start, selection - one worst Backup run):
-a run started inside it finishes before the 03:30 selection reads
-(DAILY_SELECTION_CHICAGO and BACKUP_CERTIFICATE_WORST_MINUTES / 2, read from
-the dispatcher's own source).
+a run started inside it finishes before the selection reads (the freeze start
+from the dispatcher's own source, the 03:30 cutoff from select-daily-engine.py
+cutoff(), BACKUP_RUN_WORST_MINUTES measured).
 
 The baseline is the newest first-parent main commit touching server/ that was
 committed at least SETTLE before the freeze began, so a migration merged in
@@ -62,16 +61,22 @@ CHICAGO = ZoneInfo('America/Chicago')
 SETTLE = timedelta(minutes=30)
 FREEZE_SOURCE = 'scripts/ci/merged-migration-dispatch.mjs'
 CONTEXT = 'backup-engine/certified'
+SELECTOR_SOURCE = 'scripts/ci/select-daily-engine.py'
+# One Backup run (refresh + certify), measured over the 29 most recent
+# successful backup-engine.yml runs on 2026-11-19: min 43.2, p50 62.0,
+# p90 67.3, max 68.7 minutes.
+BACKUP_RUN_WORST_MINUTES = 70
 
 
-def clock_of(text):
-    """(freeze start (h, m), certify-by (h, m)) from the dispatcher's own source."""
-    m = re.search(r'RELEASE_SCHEMA_FREEZE_CHICAGO\s*=\s*\{\s*from:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]', text)
-    s = re.search(r'DAILY_SELECTION_CHICAGO\s*=\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]', text)
-    w = re.search(r'BACKUP_CERTIFICATE_WORST_MINUTES\s*=\s*(\d+)', text)
-    if not (m and s and w):
-        raise ValueError('dispatcher release clock not found')
-    sel = int(s[1]) * 60 + int(s[2]) - int(w[1]) // 2
+def clock_of(dispatcher_text, selector_text):
+    """(freeze start (h, m), certify-by (h, m)): the freeze start from the
+    dispatcher's own source, the selection cutoff from select-daily-engine.py
+    cutoff(), less one worst Backup run."""
+    m = re.search(r'RELEASE_SCHEMA_FREEZE_CHICAGO\s*=\s*\{\s*from:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]', dispatcher_text)
+    c = re.search(r'def cutoff\(day\):\s*\n\s*return .*?time\((\d+),\s*(\d+)\)', selector_text, re.S)
+    if not (m and c):
+        raise ValueError('release clock not found')
+    sel = int(c[1]) * 60 + int(c[2]) - BACKUP_RUN_WORST_MINUTES
     return (int(m[1]), int(m[2])), (sel // 60, sel % 60)
 
 
@@ -118,8 +123,8 @@ def main():
     a = ap.parse_args()
     now = datetime.fromisoformat(a.now.replace('Z', '+00:00')) if a.now else datetime.now(ZoneInfo('UTC'))
     try:
-        src = gh('-H', 'Accept: application/vnd.github.raw', f'repos/{a.repo}/contents/{FREEZE_SOURCE}?ref=main')
-        clock = clock_of(src)
+        raw = lambda path: gh('-H', 'Accept: application/vnd.github.raw', f'repos/{a.repo}/contents/{path}?ref=main')
+        clock = clock_of(raw(FREEZE_SOURCE), raw(SELECTOR_SOURCE))
 
         def baseline_reader(until):
             out = gh(f'repos/{a.repo}/commits?sha=main&path=server&per_page=1&until='

@@ -5,7 +5,7 @@
 -- fn_ca_engine_cutover_watch decides at 04:30 Chicago which engine build was
 -- owed at 04:00 and pages when production does not hold it. It owed the
 -- newest engine-runtime commit merged before the 03:30 selection. Inside the
--- nightly release schema freeze (00:45-04:15 Chicago,
+-- nightly release schema freeze (23:45-04:15 Chicago,
 -- scripts/ci/merged-migration-dispatch.mjs RELEASE_SCHEMA_FREEZE_CHICAGO) a
 -- commit that carries, or descends from, a held migration can never pass the
 -- 03:30 contents judge ("Backup copy lacks the exact candidate migration(s)"):
@@ -21,7 +21,7 @@
 -- the same cutoff: the freeze start minus 30 minutes, written as an offset from
 -- the cutover date's midnight so it holds whichever side of midnight the
 -- freeze starts. The freeze on main at authoring starts 23:45 (the 00:45
--- start of #11413 is being reverted until its SQL half ships), so the offset
+-- start of #11413 was reverted with booking #11430 until its SQL half ships), so the offset
 -- is -45 minutes (23:15 the evening before); a law fails if the dispatcher
 -- clock and this offset ever disagree. Everything else is unchanged: a newer build that ships still
 -- satisfies the watch (it contains the owed one), the reasons it names are
