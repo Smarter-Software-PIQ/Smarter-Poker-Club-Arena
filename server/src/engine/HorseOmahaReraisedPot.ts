@@ -175,7 +175,15 @@ export function omahaReraisedEquity(
   board: readonly Card[],
   dead: readonly Card[],
   inRange: (h: readonly Card[], board: readonly Card[]) => boolean,
-  samples: number = RERAISED_EQUITY_SAMPLES
+  samples: number = RERAISED_EQUITY_SAMPLES,
+  /**
+   * 2026-11-18 (the priced call-or-raise): told each accepted sample's
+   * holding and hero's result on it (1 win, 0.5 tie, 0 loss), in order, so a
+   * caller can split the SAME samples into bands of the range (common random
+   * numbers). Absent: nothing changes; the samples and the answer are the same
+   * with it or without it.
+   */
+  onSample?: (opp: readonly Card[], result: number) => void
 ): number | null {
   const deck = unseenDeck([...hole, ...board, ...dead]);
   const size = hole.length;
@@ -202,8 +210,10 @@ export function omahaReraisedEquity(
     const run = [...board, ...pick(need, rest)];
     const a = scoreOmahaHi([...hole], run);
     const b = scoreOmahaHi(opp, run);
-    won += a > b ? 1 : a === b ? 0.5 : 0;
+    const result = a > b ? 1 : a === b ? 0.5 : 0;
+    won += result;
     got++;
+    if (onSample) onSample(opp, result);
   }
   return got >= samples / 2 ? won / got : null;
 }

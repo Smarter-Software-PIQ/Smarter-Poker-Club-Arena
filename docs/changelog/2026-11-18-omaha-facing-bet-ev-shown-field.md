@@ -1,0 +1,3 @@
+# 2026-11-18: omahaFacingBetEvShownField (default OFF)
+
+WooWoo audit F-04/F-11 redesign C3. Inside the Omaha facing-bet EV verdict, a turn or river call with another player in the hand is priced on the joint field in the flop form (players behind continue binomially, their calls in the pot), the measured realfit turn realization cells (no 0.85 cap for a player behind) and a 2-SE close-call mix on a public-state draw. New file `server/src/engine/HorseOmahaFacingBetEvShownField.ts`; authority `docs/horse-option-authority.d/omahaFacingBetEvShownField.md`. Default OFF; option off is byte-identical. Caller range shares remain stated until the showdown-range table is measured.

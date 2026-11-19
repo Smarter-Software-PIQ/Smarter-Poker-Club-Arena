@@ -5254,6 +5254,22 @@ export class HorseMind {
     return this.exploit(userId, recencyBlend).bluffMod;
   }
 
+  /**
+   * His postflop fold-to-a-bet counters for this decision (the same durable,
+   * decayed row omahaEvFoldMulOf reads: folds `hit` of `opp` faced first
+   * postflop bets), or null outside a decision or with no row. Pure read: no
+   * receipt, no write. Read by HorseOmahaFlopBetMeasuredFoldShare.
+   */
+  static foldToBetCountersOf(userId: string): { hit: number; opp: number } | null {
+    if (!this.decisionScope) return null;
+    const c = this.decisionExploitCounters(userId);
+    if (!c) return null;
+    const opp = Math.max(0, Number(c.foldToBetOpp ?? 0));
+    const hit = Math.max(0, Math.min(opp, Number(c.foldToBet ?? 0)));
+    if (!Number.isFinite(opp) || !Number.isFinite(hit)) return null;
+    return { hit, opp };
+  }
+
   /** The Omaha EV fold model's multiplier, or null when the option is off,
    *  outside a decision, at a tournament table, or in a game it was not
    *  measured on. */

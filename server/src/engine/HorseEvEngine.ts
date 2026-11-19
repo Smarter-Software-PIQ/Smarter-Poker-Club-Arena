@@ -184,11 +184,50 @@ export interface EvSpot {
   normalizeWager?: (amount: number) => number | null;
   /** PRNG for the mixed strategy */
   rand: () => number;
+  /**
+   * omahaFlopBetPricesTheRaise (default off; HorseOmahaFlopBetRaiseBranch):
+   * the third answer to a bet facing no bet, heads-up. For the wager `s` it
+   * gives the share of his WHOLE range that raises it (taken from the top of
+   * the part that continues), the hero's equity against that share, and the
+   * hero's priced answer once raised (the better of the call-off and the
+   * fold, never below -(c + s)). Null for a wager it cannot price. Absent:
+   * every bet is priced fold or call, exactly as before.
+   */
+  raiseBranch?: (wager: number) => EvRaiseBranch | null;
+  /**
+   * omahaFlopBetUsesMeasuredFoldShare (default off;
+   * HorseOmahaFlopBetMeasuredFoldShare): the fold share of opponent `i` facing
+   * the bet `s` into the pot he sees (`potFacing`), facing no bet, taken from
+   * his measured fold to a Horse flop bet in place of mdfFold x foldMul. The
+   * card-removal delta still applies on top. Null for an opponent or wager it
+   * does not price (that opponent keeps mdfFold). Absent: exactly as before.
+   */
+  foldShareOf?: (opponent: number, potFacing: number, wager: number) => number | null;
+}
+
+/** One wager's raise branch (EvSpot.raiseBranch). */
+export interface EvRaiseBranch {
+  /** share of his whole range that raises the wager (0..1) */
+  share: number;
+  /** hero's equity against the raising share */
+  equityRaise: number;
+  /** hero's EV in chips once he raises: the better of the call-off and the fold */
+  evFacingRaise: number;
 }
 
 export type EvAction =
   | { kind: 'fold' | 'check' | 'call'; ev: number }
-  | { kind: 'bet' | 'raise'; ev: number; amount: number; sizeFrac: number; foldEquity: number };
+  | {
+      kind: 'bet' | 'raise';
+      ev: number;
+      amount: number;
+      sizeFrac: number;
+      foldEquity: number;
+      /** EvSpot.raiseBranch only: the raising share priced into this wager's EV */
+      raiseShare?: number;
+      /** EvSpot.raiseBranch only: the same wager priced fold or call (the price without the branch) */
+      evWithoutRaise?: number;
+    };
 
 export interface EvVerdict {
   /** the action chosen (mixed near indifference) */
@@ -403,7 +442,12 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      const baseMdf = mdfFold(P + c, s, m);
+      const measured =
+        spot.foldShareOf !== undefined && !facing ? spot.foldShareOf(i, P + c, s) : null;
+      const baseMdf =
+        measured !== null && Number.isFinite(measured)
+          ? clamp(measured, 0.02, 0.92)
+          : mdfFold(P + c, s, m);
       const singleFold = clamp(
         baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
         0.02,
@@ -424,13 +468,51 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
     // When called: final pot = P + c + s (hero) + s (caller); hero's cost c + s.
     // Multiway callers are folded into the equity number already.
     const evCalled = realizedCont * (effectivePotWin + c + 2 * s) - (c + s);
-    const ev = foldAll * effectivePotWin + (1 - foldAll) * evCalled;
+    let ev = foldAll * effectivePotWin + (1 - foldAll) * evCalled;
+    let raiseShare: number | undefined;
+    let evWithoutRaise: number | undefined;
+    if (spot.raiseBranch !== undefined && !facing && opps === 1) {
+      // The continuing part splits: the strongest `rho` of his range raises,
+      // the band between his fold and his raise calls. The band's equity is
+      // the continuing equity with the raisers taken out (the same identity
+      // as continuingEquity): cont.eqCont = rho.eqRaise + (cont - rho).eqBand.
+      const rb = spot.raiseBranch(s);
+      const cont = 1 - foldAll;
+      if (
+        rb !== null &&
+        Number.isFinite(rb.share) &&
+        Number.isFinite(rb.equityRaise) &&
+        Number.isFinite(rb.evFacingRaise) &&
+        rb.share > 0 &&
+        cont > 0
+      ) {
+        const rho = clamp(rb.share, 0, cont);
+        const eqBand =
+          cont - rho > 1e-9
+            ? clamp((cont * eqCont - rho * clamp(rb.equityRaise, 0, 1)) / (cont - rho), 0, 1)
+            : eqCont;
+        const realizedBand = clamp(
+          eqBand * wagerRealization(r, c + s, eff) * (1 - rake) -
+            risk * Math.sqrt(clamp(share, 0, 1)),
+          0,
+          1
+        );
+        const evCalledBand = realizedBand * (effectivePotWin + c + 2 * s) - (c + s);
+        ev =
+          foldAll * effectivePotWin +
+          (cont - rho) * evCalledBand +
+          rho * Math.max(-(c + s), rb.evFacingRaise);
+        raiseShare = rho;
+        evWithoutRaise = foldAll * effectivePotWin + (1 - foldAll) * evCalled;
+      }
+    }
     candidates.push({
       kind: facing ? 'raise' : 'bet',
       ev,
       amount: s,
       sizeFrac: s / potForSizing,
       foldEquity: foldAll,
+      ...(raiseShare !== undefined ? { raiseShare, evWithoutRaise } : {}),
     });
   }
 

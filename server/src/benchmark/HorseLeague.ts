@@ -2577,6 +2577,54 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFlopFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-18 OMAHA FLOP DEFENCE (HorseOmahaFlopDefenceTree, default OFF): the
+  // heads-up first-bet flop call priced as a two-street tree. The live
+  // options of 2026-11-16 in both arms; arm A adds the option alone, and on
+  // top of the flop verdict.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_defence_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopDefenceIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_defence_is_priced_on_flop_ev`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261116,
+      omahaFlopFacingBetEv: true,
+      omahaFlopDefenceIsPriced: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopFacingBetEv: true },
+  })),
+  // 2026-11-18 OMAHA FLOP BET PRICES THE RAISE (HorseOmahaFlopBetRaiseBranch,
+  // default OFF; WooWoo audit FLOPBET-RAISE, finding FOURBET F1): every v38
+  // flop bet size priced with his raise as a third branch. The live options
+  // of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_prices_the_raise`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetPricesTheRaise: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
+  // 2026-11-18 OMAHA FLOP BET USES THE MEASURED FOLD SHARE
+  // (HorseOmahaFlopBetMeasuredFoldShare, default OFF; WooWoo audit FOLD-SHARE):
+  // a person's fold share to every v38 flop bet size is the fitted person model.
+  // The live options of 2026-11-16 in both arms; arm A adds the option alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_bet_uses_measured_fold_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261116, omahaFlopBetUsesMeasuredFoldShare: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261116 },
+  })),
   // 2026-11-18 OMAHA READ BY STREET AND TEXTURE (HorseOmahaReadByStreet, default
   // OFF): the value-leader label, the bettor's bet rate and the fold to a bet /
   // raise are read from the decision's own street and flop texture, blended
@@ -2614,6 +2662,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaSmallBetIsPriced: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-18 OMAHA CHECKED-TO BET IS PRICED (HorseOmahaCheckedToBet, default
+  // OFF): on the river (v2: the turn is out), when every opponent has checked
+  // and the answer is a check, the check is priced beside every bet size
+  // against each opponent's checking range and measured continue rate; a
+  // switches it on, b is today's brain. The mirror's memory learning is on
+  // (the league default), so the reads it prices from exist.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_checked_to_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCheckedToBetIsPriced: true },
+    b: {},
   })),
   // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
   // 59517323, default OFF): the paired-river lead and the unimproved turn
@@ -2831,6 +2893,30 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTurnCallRealizationByRunout: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-18 WooWoo F-04/F-11 C3 (HorseOmahaFacingBetEvShownField, default
+  // OFF): inside the facing-bet EV rule, a turn or river call with another
+  // player in the hand is priced on the joint field, the measured turn
+  // realization and the close-call mix. a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_ev_shown_field`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaFacingBetEvShownField: true },
+    b: { omahaFacingBetEv: true },
+  })),
+  // 2026-11-18 WooWoo RIVER-FACING (HorseOmahaRiverBluffCatch, default OFF):
+  // inside the facing-bet EV rule, a heads-up first river bet is priced as a
+  // bluff-catch on the bettor's measured range with the Horse's blockers.
+  // a adds the option, b is the rule as it serves.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_bluff_catch_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true, omahaRiverBluffCatchIsPriced: true },
+    b: { omahaFacingBetEv: true },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);
@@ -2979,6 +3065,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
   ]),
+  // 2026-11-18 (WooWoo audit, CALL-VS-RAISE, default OFF): the priced
+  // call-or-raise facing a re-raise. Both sides run the re-raised-pot rules it
+  // sits on (it acts on their standing call and on the raises they lower); a
+  // adds the pricing, b is those rules alone.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_call_vs_raise_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+      omahaReraisedCallVsRaisePriced: true,
+    },
+    b: {
+      omahaOopReraisedPotStrongRange: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+    },
+  })),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher

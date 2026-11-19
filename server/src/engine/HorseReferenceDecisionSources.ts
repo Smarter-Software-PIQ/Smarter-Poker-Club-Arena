@@ -67,6 +67,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the PLO6 calibration of the Omaha strategy constants (PLO6 lane 2026-11-16, omahaStrategyInPlo6, default off and off-only): HorseLogic.decide registers its six-card values with omahaStrategyConstant only for a decision whose gate is on, and takes them back otherwise',
     'src/engine/HorseOmahaRunoutRealization.ts':
       'the default-off turn call realization read from the per-river counts (PLO Strategy lane 2026-11-17, omahaTurnCallRealizationByRunout): reached only from the Omaha facing-bet EV verdict when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaRunoutRealization.test.ts), so no reference decision depends on it',
+    'src/engine/HorseOmahaRiverBluffCatch.ts':
+      'the default-off bluff-catch pricing of a heads-up first river bet on the bettor measured range (WooWoo audit RIVER-FACING, 2026-11-18, omahaRiverBluffCatchIsPriced): reached only from the Omaha facing-bet EV verdict when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaRiverBluffCatch.test.ts), so no reference decision depends on it',
+    'src/engine/HorseOmahaFacingBetEvShownField.ts':
+      'the default-off joint-field pricing of a turn or river call with another player in the hand (WooWoo audit F-04/F-11 C3, 2026-11-18, omahaFacingBetEvShownField): reached only from the Omaha facing-bet EV verdict when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaFacingBetEvShownField.test.ts), so no reference decision depends on it',
     'src/engine/HorsePlo6FastCount.ts':
       'the exact six-card count used by the Omaha facing-bet EV rule (PLO6 lane 2026-11-16): the barred-pair graph counted as an independence polynomial, equal to the walk it replaces on every tested hand; read only while a six-card hand is counted',
     'src/engine/HorsePlo6PricingPort.ts':
@@ -79,6 +83,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha priced sites (sites-013U37): the made-hand defence wager, the turn set pound size and the river nut-blocker bluff admission priced on the card-impact model, and the bare big pair flop bet priced on sampled bands of his holdings (omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced, omahaFlopBetIsPriced); null outside the scope, so the caller rule acts as before',
     'src/engine/HorseOmahaPricedWiring.ts':
       'the default-off Omaha priced rules: the rule sites HorseLogic calls where a categorical PLO4/PLO5 cash rule acts (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaPricedMix); null outside the scope, so the caller rule acts as before',
+    'src/engine/HorseOmahaCheckedToBet.ts':
+      'the default-off Omaha checked-to bet (WooWoo audit repair programme 2026-11-18, omahaCheckedToBetIsPriced): in PLO4/PLO5 cash on the river (v2: the turn is out), when every opponent has checked and the answer is a check, the check priced beside every bet size on the card-impact model against each checking range and measured continue rate, after the rake, with the standard error of the comparison as the margin; null outside the scope, so the check it was given stands',
     'src/engine/HorseOmahaRiverNutRaise.ts':
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaReraisedPot.ts':
@@ -107,6 +113,12 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
     'src/engine/HorseOmahaFlopFacingBetEv.ts':
       "the default-off Omaha flop facing-bet expected-value verdict (PLO Strategy lane 2026-11-17, omahaFlopFacingBetEv): in PLO4/PLO5 cash on the flop, the spot, the sampled two-card runout counts (a seed taken from the cards, never the brain's random stream), the realization factor read from the runouts and the EV verdict against the bettor's range by pot share, line and measured read",
+    'src/engine/HorseOmahaFlopDefenceTree.ts':
+      'the default-off Omaha flop defence (WooWoo audit FLOP-DEFENCE 2026-11-18, omahaFlopDefenceIsPriced): heads-up facing the first flop bet with chips behind, the call of the flop verdict priced as a two-street tree on the verdict sampled runouts (his measured turn and river bet rates and range composition by street, the Horse priced turn and river answers), and the pot raise measured beside it; pure, null when it cannot read the runouts',
+    'src/engine/HorseOmahaFlopBetMeasuredFoldShare.ts':
+      'the default-off Omaha flop bet measured fold share (WooWoo audit FOLD-SHARE 2026-11-18, omahaFlopBetUsesMeasuredFoldShare): PLO4/PLO5 cash, flop, heads-up against a person, nothing to call: each v38 EV engine bet size is priced with his fold share from the fitted person model (OMAHA_FLOP_BET_PERSON_FOLD_FIT: size, pot type, SPR band, variant, position) shifted by his durable fold-to-bet read shrunk toward the person population, in place of mdfFold x foldMul; receipts omaha_flop_bet_measured_fold_share_*',
+    'src/engine/HorseOmahaFlopBetRaiseBranch.ts':
+      'the default-off Omaha flop bet raise branch (WooWoo audit FLOPBET-RAISE 2026-11-18, omahaFlopBetPricesTheRaise): PLO4/PLO5 cash, flop, heads-up against a person, nothing to call: each v38 EV engine bet size is priced with his raise as a third branch, his measured raising share (the one owner OMAHA_PRICED_SITES_FLOP_RAISE_SHARE), the Horse equity against the strongest share of his holdings from the flop facing-bet sampler (a seed taken from the cards, never the brain random stream) and the Horse priced call-off or fold (omahaPricedSitesFlopRaiseAnswer); receipts omaha_flop_bet_raise_branch_*',
     'src/engine/HorseOmahaFlopFacingBetEvRule.ts':
       'the rule that applies the default-off Omaha flop facing-bet verdict (omahaFlopFacingBetEv): a flop fold or call in the covered spot becomes the verdict, a raise is left alone, the bare-overpair continuation keeps its own verdict; receipts omaha_flop_facing_bet_ev_call / _fold / _changed',
     'src/engine/HorseOmahaReadByStreet.ts':
@@ -147,6 +159,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha one-pair rules (Dan 2026-11-14, hands 59407629, 59430325, 59431232, 59417700, 59426444) on the final answer of the wager rules: no one-pair river value wager, no beaten river call of a 0.66-pot wager, no one-pair flop or turn stack-off',
     'src/engine/HorseTightPlayerExploit.ts':
       "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
+    'src/engine/HorseOmahaReraisedRaisePriced.ts':
+      'the default-off priced call-or-raise facing a re-raise (omahaReraisedCallVsRaisePriced, 2026-11-18): EV(call) by the calling rule priced call against EV(raise) from the re-raiser own answers to a raise of his re-raise, his calling and re-raising bands on one set of samples and the realization at the stack-to-pot ratio left; raises only above twice the sampling error',
     'src/engine/HorseOmahaReraiseResponse.ts':
       "how a re-raiser answers a raise of his own re-raise (2026-11-18): the two nodes of the opponent's durable record, its validation and wire row, and the posterior the default-off option omahaReraisedCallVsRaisePriced prices a raise with",
     'src/engine/HorseOmahaStreetRead.ts':

@@ -361,7 +361,16 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'every public-state size and the check on the card-impact model'
   ),
   omahaBlockerBluffIsPriced: priced('the river bluff beside the check on the card-impact model'),
+  omahaFlopBetPricesTheRaise: priced(
+    'every v38 flop bet size, heads-up against a person facing no bet, is priced with his raise as a third branch (his measured raising share, the Horse equity against it, the Horse priced call-off or fold); default OFF'
+  ),
+  omahaFlopBetUsesMeasuredFoldShare: priced(
+    'every v38 flop bet size, heads-up against a person facing no bet, is priced with his measured fold share (the fitted person model by size, pot type, SPR band, variant and position, shifted by his own shrunk fold read); default OFF'
+  ),
   omahaFlopBetIsPriced: priced('the flop bet beside the check on sampled bands of his holdings'),
+  omahaCheckedToBetIsPriced: priced(
+    'the check priced beside every bet when every opponent has checked the river, the showdown share fitted (default OFF)'
+  ),
   // priced before 2026-11-17 (the audit: "each compares priced lines")
   omahaFacingBetEv: priced('expected value of the call on the exact count'),
   omahaStreetPlan: priced('the bet and the check priced as whole lines'),
@@ -380,8 +389,17 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
+  omahaFlopDefenceIsPriced: priced(
+    'the heads-up flop fold or call facing his first bet is the flop expected-value verdict with the call priced as a two-street tree (his measured barrel and river bet rates, the Horse priced turn and river answers); alone it answers only that spot (default OFF)'
+  ),
   omahaTurnCallRealizationByRunout: priced(
     'the realization of a turn call read river by river from the exact count against his value region and other holdings (default OFF)'
+  ),
+  omahaRiverBluffCatchIsPriced: priced(
+    'a heads-up first river bet priced as a bluff-catch on the bettor measured range composition, reweighted by the Horse blockers and his measured tendency, close calls mixed on a public-state draw (default OFF)'
+  ),
+  omahaFacingBetEvShownField: priced(
+    'a turn or river call with another player in the hand priced on the joint field (players behind continue on a measured rate, their calls in the pot), the measured turn realization and a close-call mix on a public-state draw (default OFF)'
   ),
   omahaSmallBetIsPriced: priced(
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
@@ -440,6 +458,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaReraisedPotDiscipline: outside(PREFLOP),
   omahaReraisedPotStackOffFold: outside(PREFLOP),
   omahaReraisedPotStackOffRealistic: outside(PREFLOP),
+  omahaReraisedCallVsRaisePriced: outside(PREFLOP),
   omahaReraisedFoldVsTight: outside(PREFLOP),
   omahaEliteContinuesVsMeasuredWideThreeBettor: outside(PREFLOP),
   omahaOopReraisedPotStrongRange: outside(
