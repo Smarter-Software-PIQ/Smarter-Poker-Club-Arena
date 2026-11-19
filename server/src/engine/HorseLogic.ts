@@ -14050,10 +14050,14 @@ export class HorseLogic {
         if (telemetryOn(opts)) {
           noteFire('vpip_floor');
           noteFire('vpip_floor_limp_only_seen');
-          // vpipFloorLimpOnlyTenHandWindow: a table judged at ten hands, governed by that option.
-          if (vpipFloorLimpOnlyGovernsTenHandTable(gs, opts, isTournamentMode(gs)))
-            noteFire('vpip_floor_limp_only_governed_ten_hand_window');
         }
+        // vpipFloorLimpOnlyTenHandWindow: a table judged at ten hands, governed by that option.
+        // The pure predicate sits in the gate's condition, never in its body (SecondLookIsNotLive law).
+        if (
+          telemetryOn(opts) &&
+          vpipFloorLimpOnlyGovernsTenHandTable(gs, opts, isTournamentMode(gs))
+        )
+          noteFire('vpip_floor_limp_only_governed_ten_hand_window');
       } else {
         // vpipFloorLimpOnly on, at a table known to be judged at ten hands: today's floor, on purpose.
         if (telemetryOn(opts) && vpipFloorLimpOnlyTenHandTable(gs, opts, isTournamentMode(gs)))
