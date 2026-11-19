@@ -23,6 +23,7 @@
  * GlobalHeader renders this store; HeaderAppearanceSync requests authoritative refreshes.
  */
 
+import { CHAT_NOTIFICATION_TYPE_FILTER } from '../lib/chatNotificationTypes';
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { subscribeRealtime } from '../lib/subscribeRealtime';
@@ -489,7 +490,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
             .from('notifications')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', userId)
-            .eq('read', false),
+            .eq('read', false)
+            .not('type', 'in', CHAT_NOTIFICATION_TYPE_FILTER),
           fetchMessengerUnreadCount(),
         ]);
 
@@ -552,7 +554,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
                 .from('notifications')
                 .select('*', { count: 'exact', head: true })
                 .eq('user_id', userId)
-                .eq('read', false),
+                .eq('read', false)
+                .not('type', 'in', CHAT_NOTIFICATION_TYPE_FILTER),
               fetchMessengerUnreadCount(),
             ]);
             if (get()._userId !== userId || get().refreshAppearance !== refreshAppearance) return;
@@ -600,7 +603,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
             .from('notifications')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', userId)
-            .eq('read', false);
+            .eq('read', false)
+            .not('type', 'in', CHAT_NOTIFICATION_TYPE_FILTER);
           if (error) {
             reportError(error, 'useHeaderDataStore.refreshAllHeaderCounts');
             return;
@@ -704,7 +708,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
                 .from('notifications')
                 .select('*', { count: 'exact', head: true })
                 .eq('user_id', userId)
-                .eq('read', false);
+                .eq('read', false)
+                .not('type', 'in', CHAT_NOTIFICATION_TYPE_FILTER);
               if (get()._userId === userId) get().setNotificationCount(count || 0);
             } catch (e) {
               reportError(e, 'useHeaderDataStore.async');

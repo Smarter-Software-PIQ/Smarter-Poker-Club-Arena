@@ -1,3 +1,4 @@
+import { withoutChatNotifications } from '../lib/chatNotificationTypes';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * NOTIFICATIONS — Club Arena surface
@@ -308,7 +309,9 @@ function NotificationFeed({ userId }: { userId: string | null }) {
   const navigate = useNavigate();
 
   // Painted on frame one. See the header note: synchronous by design.
-  const [notifications, setNotifications] = useState<FeedNotification[]>(() => readCache(userId));
+  const [notifications, setNotifications] = useState<FeedNotification[]>(() =>
+    withoutChatNotifications(readCache(userId))
+  );
   const [loading, setLoading] = useState(() => !!userId && readCache(userId).length === 0);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -323,9 +326,11 @@ function NotificationFeed({ userId }: { userId: string | null }) {
   const rowsRef = useRef(notifications);
   const applyRows = useCallback(
     (rows: FeedNotification[], cache = true) => {
-      rowsRef.current = rows;
-      setNotifications(rows);
-      if (cache) writeCache(userId, rows);
+      // Chat messages belong to the Messenger pop-up, never this list.
+      const shown = withoutChatNotifications(rows);
+      rowsRef.current = shown;
+      setNotifications(shown);
+      if (cache) writeCache(userId, shown);
     },
     [userId]
   );
