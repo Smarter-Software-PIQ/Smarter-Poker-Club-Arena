@@ -121,6 +121,23 @@ END $m$;
     expect(mod.missingProbes(`BEGIN; SELECT md5(pg_get_functiondef('public.fn_read(uuid)'::regprocedure)); COMMIT;`)).toEqual([]);
   });
 
+  it('does not mistake a read-only pin for a rewrite in a file that EXECUTEs (md5, position)', () => {
+    const pins = `BEGIN;
+DO $r$ BEGIN
+  IF md5(pg_get_functiondef('public.fn_pinned(uuid,uuid)'::regprocedure)) <> 'b76daaf8587cca4eeac91ec39e9e7ce3'
+     OR md5(replace(pg_get_functiondef('public.fn_hashed(uuid)'::regprocedure), 'a', '')) <> 'x'
+     OR position('a' IN pg_get_functiondef('smarter_private.fn_found(uuid)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'not installed';
+  END IF;
+END $r$;
+DO $m$ DECLARE d text; BEGIN d := 'SELECT 1'; EXECUTE d; END $m$;
+COMMIT;`;
+    expect(mod.missingProbes(pins)).toEqual([]);
+    // The same file still sees a real rewrite beside those pins.
+    const rewrite = pins.replace("d := 'SELECT 1';", "d := replace(pg_get_functiondef('public.fn_rewritten(uuid)'::regprocedure), 'a', 'b');");
+    expect(mod.missingProbes(rewrite).map((p) => p.fn)).toEqual(['public.fn_rewritten']);
+  });
+
   it('accepts a named exemption only with a real reason', () => {
     const base = definer('public.fn_ext');
     expect(mod.missingProbes(`BEGIN;${base}\n-- @probe-exempt: public.fn_ext calls dblink to another database\nCOMMIT;`)).toEqual([]);

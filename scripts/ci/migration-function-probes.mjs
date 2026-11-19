@@ -113,6 +113,34 @@ export function redefinedFunctions(sql) {
   return out;
 }
 
+// The names of the calls that enclose position `at` in its statement,
+// innermost first: for md5(replace(pg_get_functiondef(...))) at the inner
+// call, ['replace', 'md5'].
+function enclosingCalls(code, at) {
+  const names = [];
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    const c = code[i];
+    if (c === ';') break;
+    if (c === ')') depth += 1;
+    else if (c === '(') {
+      if (depth === 0) {
+        const m = /([a-z_][a-z0-9_]*)\s*$/i.exec(code.slice(Math.max(0, i - 64), i));
+        names.push(m ? m[1].toLowerCase() : '');
+      } else depth -= 1;
+    }
+  }
+  return names;
+}
+
+// A definition read only to be compared - md5(...) of it, position(... IN it)
+// - cannot be EXECUTEd: what leaves the call is a hash or an offset. Such reads
+// are the md5 preconditions and post-image pins anchored-edit migrations carry
+// for functions they do NOT redefine (2026-11-19: 20261119013430 and
+// 20261119015312 were refused for their read-only pins, which turned Client
+// Unit Tests red on main for every pull request).
+const READ_ONLY_CALLS = new Set(['md5', 'position', 'strpos', 'length']);
+
 /**
  * Functions a migration rewrites from their live text:
  * pg_get_functiondef('schema.fn(args)'::regprocedure | 'schema.fn'::regproc)
@@ -125,6 +153,7 @@ export function rewrittenFunctions(sql) {
   const out = new Map();
   let m;
   while ((m = re.exec(code))) {
+    if (enclosingCalls(code, m.index).some((n) => READ_ONLY_CALLS.has(n))) continue;
     const schema = (m[1] || 'public').toLowerCase();
     const name = m[2].toLowerCase();
     const qualified = `${schema}.${name}`;
