@@ -84,11 +84,19 @@ describe('an ended seat settles its pending add-ons', () => {
     expect(triggers!.sql).toMatch(/CREATE TRIGGER zz_record_deleted_seat_occupancy\s+AFTER DELETE ON public\.table_seats/);
   });
 
-  it('the settlement migration asserts the probed board and aborts if it moved', () => {
+  // 2026-11-19: the first version pinned 44 probed ids and was refused
+  // BOARD_MOVED when one probed player sat back down. Each row now proves
+  // itself; any row failing its evidence still aborts the whole settlement.
+  it('the settlement migration proves each row on its own evidence and aborts whole on any failure', () => {
     const { name } = newest();
     const sql = migrationCorpus().find((m) => m.name === name)!.sql;
-    expect(sql).toContain('BOARD_MOVED');
-    expect(sql).toMatch(/v_ready <> 44 OR v_ready_amount <> 17600\.00/);
-    expect(sql).toContain("w.key = 'addon_refund:' || a.id::text");
+    const settle = sql.slice(sql.indexOf('DO $settle$'));
+    expect(settle).not.toMatch(/v_ready <> \d+/);
+    expect(settle).toContain("w.key = 'addon_refund:' || r.id::text");
+    expect(settle).toContain('ADDON_ALREADY_SETTLED');
+    expect(settle).toContain('ADDON_NEVER_DEBITED');
+    expect(settle).toContain('ADDON_SETTLEMENT_MISMATCH');
+    expect(settle).toContain('ADDON_REFUND_KEY_MISSING');
+    expect(settle).not.toMatch(/EXCEPTION\s+WHEN/);
   });
 });
