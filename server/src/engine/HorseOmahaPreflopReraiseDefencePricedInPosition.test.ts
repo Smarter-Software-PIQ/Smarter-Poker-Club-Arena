@@ -49,12 +49,20 @@ interface SpotOpts {
   fourBet?: boolean;
   speed?: 'table' | 'lightning';
   tournament?: boolean;
+  /** the 3-bettor is a Horse (not in the roster of persons, is_horse true) */
+  horse3?: boolean;
+  /** this seat limps first (calls the big blind); it folds to the 3-bet unless limperStays */
+  limperSeat?: number;
+  limperStays?: boolean;
+  /** a two-handed table: seats 1 (dealer, small blind) and 2 (big blind) */
+  twoHanded?: boolean;
 }
 
 /** Six-handed cash, blinds 1/2, dealer seat 6, hero opens to 7, one player 3-bets to 22. */
 function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameStateV2 } {
   const variant = o.variant ?? 'plo5';
   const opener = o.openerSeat ?? o.heroSeat;
+  const seats = o.twoHanded ? [1, 2] : [1, 2, 3, 4, 5, 6];
   const bet: Record<number, number> = { 1: 1, 2: 2, 3: 0, 4: 0, 5: 0, 6: 0 };
   const hist: Array<Record<string, unknown>> = [];
   let t = 0;
@@ -70,14 +78,14 @@ function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameState
     });
   act(1, 'sb', 1);
   act(2, 'bb', 2);
-  const inHand = new Set([
-    o.heroSeat,
-    o.raiserSeat,
-    opener,
-    ...(o.callerSeat ? [o.callerSeat] : []),
-  ]);
-  for (const s of [3, 4, 5, 6, 1, 2]) {
-    if (s === opener) {
+  const inHand = new Set([o.heroSeat, o.raiserSeat, opener]);
+  if (o.callerSeat) inHand.add(o.callerSeat);
+  if (o.limperSeat && o.limperStays) inHand.add(o.limperSeat);
+  for (const s of o.twoHanded ? [1, 2] : [3, 4, 5, 6, 1, 2]) {
+    if (s === o.limperSeat) {
+      act(s, 'call', 2);
+      bet[s] = 2;
+    } else if (s === opener) {
       act(s, 'raise', 7);
       bet[s] = 7;
     } else if (s === o.callerSeat) {
@@ -90,6 +98,8 @@ function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameState
       // the Horse did not open: it is asked cold after the 3-bet
     } else if (!inHand.has(s)) act(s, 'fold', 0);
   }
+  // a limper who does not stay folds to the 3-bet (and to the open before it)
+  if (o.limperSeat && !o.limperStays) act(o.limperSeat, 'fold', 0);
   let currentBet = 22;
   if (o.fourBet) {
     act(o.heroSeat, 'raise', 70);
@@ -98,7 +108,7 @@ function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameState
     bet[o.raiserSeat] = 190;
     currentBet = 190;
   }
-  const players = [1, 2, 3, 4, 5, 6].map(
+  const players = seats.map(
     (n) =>
       ({
         seat: n,
@@ -111,10 +121,12 @@ function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameState
         is_folded: !inHand.has(n),
         is_all_in: false,
         is_sitting_out: false,
+        is_horse: n === o.heroSeat || (n === o.raiserSeat && o.horse3 === true),
       }) as SeatPlayer
   );
   const heroBet = bet[o.heroSeat]!;
-  const pot = Object.values(bet).reduce((a, b) => a + b, 0);
+  const pot = seats.reduce((a, n) => a + bet[n]!, 0);
+  const humanUserIds = players.filter((p) => p.is_horse !== true).map((p) => p.user_id);
   const gs = {
     players,
     communityCards: [],
@@ -130,13 +142,14 @@ function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameState
     bettingStructure: 'pot_limit',
     bigBlind: 2,
     smallBlind: 1,
-    dealerSeat: 6,
+    dealerSeat: o.twoHanded ? 1 : 6,
+    humanUserIds,
     gameMode: o.tournament ? 'tournament' : 'cash',
     ...(o.tournament ? { tournamentId: 't-1' } : {}),
     publicMemoryDomain: { speed: o.speed ?? 'table' },
     actionHistory: hist,
   } as unknown as HorseGameStateV2;
-  return { hero: players[o.heroSeat - 1]!, gs };
+  return { hero: players.find((p) => p.seat === o.heroSeat)!, gs };
 }
 
 /** The button opens, the big blind 3-bets: the Horse acts after him on every later street. */
@@ -205,7 +218,18 @@ const HANDS5 = [
   'JhTh8d7d3s',
   'AsKd6c5h2h',
 ];
-const HANDS4 = ['KhQh9c8c', 'JsTs9h7h', 'AdJc8s7d', 'QsQd8h7c', '9c8d7h6s', 'KdTc8h6s'];
+const HANDS4 = [
+  'KhQh9c8c',
+  'JsTs9h7h',
+  'AdJc8s7d',
+  'QsQd8h7c',
+  '9c8d7h6s',
+  'KdTc8h6s',
+  'AsAhKsKh',
+  'AdAcJdTc',
+];
+/** Premium holdings, so that the off decision 4-bets or calls in the spot. */
+const STRONG5 = ['AsAhKsKhQd', 'AdAcKdKc9s', 'AhAsJhTs9c', 'KsKdQsJdTh'];
 const SEEDS = [1, 42];
 const RDP_ON = { omahaPreflopReraiseDefencePriced: true };
 const IN_POS_ON = { omahaPreflopReraiseDefencePricedInPosition: true };
@@ -227,6 +251,16 @@ describe('the spot: opener, one 3-bet, heads-up, acts after the 3-bettor', () =>
     // the small blind opens (the Horse), the big blind 3-bets: out of position
     const d = spot('KhQh9c8c3d', { heroSeat: 1, raiserSeat: 2 });
     expect(omahaPreflopReraiseDefenceHeadsUpInPosition(d.hero, d.gs)).toBe(false);
+    // a Horse's 3-bet is not the spot; with no roster the seat's is_horse decides; neither known: not the spot
+    const h = spot('KhQh9c8c3d', { ...IP, horse3: true });
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(h.hero, h.gs)).toBe(false);
+    const noRoster = { ...a.gs, humanUserIds: undefined } as unknown as HorseGameStateV2;
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, noRoster)).toBe(true);
+    const unknown = {
+      ...noRoster,
+      players: noRoster.players.map((p) => ({ ...p, is_horse: undefined })),
+    } as unknown as HorseGameStateV2;
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, unknown)).toBe(false);
   });
 
   it('one definition on table cash and fast-table cash; a tournament is never the spot', () => {
@@ -265,27 +299,40 @@ describe('the decision', () => {
   for (const speed of ['table', 'lightning'] as const) {
     const label = speed === 'table' ? 'table cash' : 'fast-table cash';
 
-    it(`${label}, in position heads-up: on is byte-identical to the priced option, and it changes folds`, () => {
-      let changedFoldToContinue = 0;
-      let foldsOff = 0;
+    it(`${label}, in position heads-up: only a fold moves, to the priced call; a call and a 4-bet stay`, () => {
+      let foldToCall = 0;
+      let keptNonFold = 0;
+      let keptRaise = 0;
       for (const [variant, hands] of [
-        ['plo5', HANDS5],
+        ['plo5', [...HANDS5, ...STRONG5]],
         ['plo4', HANDS4],
       ] as const)
         for (const hole of hands)
           for (const seed of SEEDS) {
             const o = { ...IP, variant, speed };
             const off = decide(hole, o, {}, seed);
-            const rdp = decide(hole, o, RDP_ON, seed);
             const on = decide(hole, o, IN_POS_ON, seed);
-            expect(on.key).toBe(rdp.key);
-            if (off.d.action === 'fold') {
-              foldsOff++;
-              if (on.d.action !== 'fold') changedFoldToContinue++;
+            if (off.d.action !== 'fold') {
+              // a call stays the call, a 4-bet stays the 4-bet: byte-identical
+              expect(on.key).toBe(off.key);
+              keptNonFold++;
+              if (off.d.action === 'raise' || off.d.action === 'all_in') keptRaise++;
+              continue;
             }
+            if (on.d.action === 'fold') {
+              expect(on.key).toBe(off.key);
+              continue;
+            }
+            // the only move: fold -> the parent's priced call, for the chips of the call
+            expect(['call', 'all_in']).toContain(on.d.action);
+            const rdp = decide(hole, o, RDP_ON, seed);
+            expect(rdp.d.action).toBe(on.d.action);
+            expect(rdp.d.amount).toBe(on.d.amount);
+            foldToCall++;
           }
-      expect(foldsOff).toBeGreaterThan(0);
-      expect(changedFoldToContinue).toBeGreaterThan(0);
+      expect(foldToCall).toBeGreaterThan(0);
+      expect(keptNonFold).toBeGreaterThan(0);
+      expect(keptRaise).toBeGreaterThan(0);
     });
 
     it(`${label}, out of position: on, unset and false are byte-identical to off (where the priced option would change it)`, () => {
@@ -325,6 +372,46 @@ describe('the decision', () => {
           }
     });
   }
+
+  it('a Horse 3-bettor, a cold 3-bet, a limper still in: on is byte-identical to off', () => {
+    for (const hole of HANDS5)
+      for (const seed of SEEDS)
+        for (const o of [
+          { ...IP, horse3: true },
+          { heroSeat: 6, raiserSeat: 2, openerSeat: 4 },
+          { ...IP, limperSeat: 3, limperStays: true },
+        ]) {
+          const a = spot(hole, o);
+          expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, a.gs)).toBe(false);
+          expect(decide(hole, o, IN_POS_ON, seed).key).toBe(decide(hole, o, {}, seed).key);
+        }
+  });
+
+  it('a raise over a limper who then folds is the first raise: the spot, and only a fold moves', () => {
+    const o = { ...IP, limperSeat: 3 };
+    const a = spot('KhQh9c8c3d', o);
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(a.hero, a.gs)).toBe(true);
+    for (const hole of HANDS5)
+      for (const seed of SEEDS) {
+        const off = decide(hole, o, {}, seed);
+        const on = decide(hole, o, IN_POS_ON, seed);
+        if (off.d.action !== 'fold' || on.d.action === 'fold') expect(on.key).toBe(off.key);
+        else expect(['call', 'all_in']).toContain(on.d.action);
+      }
+  });
+
+  it('two-handed: the dealer (small blind) opens and the big blind 3-bets: in position; the reverse is not', () => {
+    const o = { heroSeat: 1, raiserSeat: 2, twoHanded: true };
+    const dealer = spot('KhQh9c8c3d', o);
+    expect(omahaPreflopReraiseDefenceHeadsUpInPosition(dealer.hero, dealer.gs)).toBe(true);
+    for (const hole of HANDS5.slice(0, 6))
+      for (const seed of SEEDS) {
+        const off = decide(hole, o, {}, seed);
+        const on = decide(hole, o, IN_POS_ON, seed);
+        if (off.d.action !== 'fold' || on.d.action === 'fold') expect(on.key).toBe(off.key);
+        else expect(['call', 'all_in']).toContain(on.d.action);
+      }
+  });
 
   it('a tournament in position heads-up: on is byte-identical to off', () => {
     for (const hole of HANDS5)

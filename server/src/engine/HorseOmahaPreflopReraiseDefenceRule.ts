@@ -44,6 +44,7 @@ import { HorseMind, readScopeOf } from './HorseMind.js';
 import { exploitEnvelopeFor } from './HorseOpponentExploit.js';
 import { preflopRaiseCount } from './HorseOmahaReraisedPot.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
+import { omahaOpponentKindOf } from './HorseOmahaPricedMode.js';
 import {
   OMAHA_PREFLOP_DEFENCE_VARIANTS,
   omahaPreflopDefenceRake,
@@ -207,15 +208,16 @@ export function omahaPreflopReraiserReadOf(
  * where the companion option hands the decision to this rule. True only when ALL hold:
  *   - the spot of omahaPreflopReraiseDefenceSpot (PLO4/PLO5 cash, high only, one board, preflop, no bomb pot, no
  *     All-In-Or-Fold, not a tournament, fold legal, chips to call);
- *   - exactly two preflop raises: the first is the Horse's (it opened), the second is the player it faces (one 3-bet,
- *     no 4-bet, nothing else);
+ *   - exactly two preflop raises: the first is the Horse's (it opened; a raise over limpers who then folded counts as
+ *     the first raise), the second is the player it faces (one 3-bet, no 4-bet, nothing else);
+ *   - that player is a person (omahaOpponentKindOf: gs.humanUserIds, else his seat's is_horse; unknown = not the spot);
  *   - heads-up: every other player has folded (a player still in, all in included, ends the spot);
  *   - POSITION, ONE DEFINITION for every table kind (table cash and fast-table cash alike): the Horse acts after the
  *     3-bettor on every later street (seat order from the dealer, the small blind first, the dealer last). Heads-up
  *     this is also what omahaReraisedPositionOf.ipVsRaiser and the older reading kept for fast tables and
  *     tournaments (omahaReraisedLaneUntouched) give, because nobody else is in the pot; the spot reads none of them.
- * The opponent's kind is not read: the decision state does not carry who is a person, and the price already reads
- * the 3-bettor's own measured re-raise rate (the population mean with no evidence). Nothing is keyed to a player.
+ * The price reads the 3-bettor's own measured re-raise rate (the population mean with no evidence); nothing is keyed
+ * to one player's account. In the spot the option only ever turns a fold into the priced call (HorseLogic).
  * Everything else (out of position, multiway, a 4-bet, a cold 3-bet, a Horse that did not open) is false, and the
  * decision is exactly the one with the option off.
  */
@@ -243,6 +245,9 @@ export function omahaPreflopReraiseDefenceHeadsUpInPosition(
         (!p.is_sitting_out || p.is_all_in === true)
     );
     if (othersInHand.length > 0) return false;
+    // F2: the 3-bettor is a person (the engine's roster, gs.humanUserIds, else the seat's is_horse flag); unknown is
+    // not the spot. The finding and its evaluation are a person's 3-bets.
+    if (omahaOpponentKindOf(gs, found.raiserUserId) !== 'person') return false;
     return order(player.seat, gs.dealerSeat) > order(found.raiserSeat, gs.dealerSeat);
   } catch {
     return false;

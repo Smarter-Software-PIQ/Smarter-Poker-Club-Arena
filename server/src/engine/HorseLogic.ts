@@ -3573,10 +3573,11 @@ export interface HorseDecideOpts {
   /** THREEBET-2 lane 2026-11-19 (WooWoo audit, THREEBET-DEFENCE: an opener in position folding to one player's 3-bet
    * folded +EV calls, 148 of 149 at the lower end of the measured realization): opt-in (`=== true`), the companion
    * scope of omahaPreflopReraiseDefencePriced. Only where the Horse opened, faces exactly one 3-bet heads-up and acts
-   * after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule
+   * after the 3-bettor, a person, on every later street (HorseOmahaPreflopReraiseDefenceRule
    * .omahaPreflopReraiseDefenceHeadsUpInPosition, one definition for table and fast-table cash; tournaments never)
-   * the decision is the priced one of omahaPreflopReraiseDefencePriced, unchanged. Every other decision, every
-   * out-of-position one included, is the one with this option off. Default OFF until its declared evaluation
+   * a FOLD of the decision with this option off becomes a CALL when the priced verdict of
+   * omahaPreflopReraiseDefencePriced is a call. It never makes a fold or changes any other decision; every
+   * out-of-position one included is the one with this option off. Default OFF until its declared evaluation
    * passes. */
   omahaPreflopReraiseDefencePricedInPosition?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
@@ -8413,13 +8414,54 @@ function omahaOopReraisedPotStrongRange(
   // call cell below judges (HorseOmahaOopReraisedPot, the live implementation,
   // WooWoo audit lane) belongs to that cell, kept or folded; this option then
   // does not answer and the decision is exactly the one with it off.
-  // omahaPreflopReraiseDefencePricedInPosition (default off): the same priced decision, handed only the spot where
-  // the Horse opened, faces one 3-bet heads-up and acts after the 3-bettor
-  // (omahaPreflopReraiseDefenceHeadsUpInPosition); anywhere else this branch is not entered for it.
+  // omahaPreflopReraiseDefencePricedInPosition (default off; review of 01ddd45b4df F1): in the spot where the Horse
+  // opened, faces one person's 3-bet heads-up and acts after him (omahaPreflopReraiseDefenceHeadsUpInPosition), and
+  // only there, a FOLD of the decision with this option off becomes a CALL when the priced verdict of
+  // omahaPreflopReraiseDefencePriced is a call. Nothing else moves: a call, a 4-bet or anything else the off decision
+  // makes is returned as it is, and the option never makes a fold. The parent option on owns the spot as before.
   if (
-    (opts.omahaPreflopReraiseDefencePriced === true ||
-      (opts.omahaPreflopReraiseDefencePricedInPosition === true &&
-        omahaPreflopReraiseDefenceHeadsUpInPosition(player, gs))) &&
+    opts.omahaPreflopReraiseDefencePriced !== true &&
+    opts.omahaPreflopReraiseDefencePricedInPosition === true
+  ) {
+    const offOpts: HorseDecideOpts = { ...opts, omahaPreflopReraiseDefencePricedInPosition: false };
+    const off = omahaOopReraisedPotStrongRange(decision0, player, gs, offOpts);
+    if (
+      off.action !== 'fold' ||
+      !omahaPreflopReraiseDefenceHeadsUpInPosition(player, gs) ||
+      omahaReraisedCallCellJudges(decision0, player, gs, offOpts)
+    )
+      return off;
+    // Silent: a fold that stays a fold is byte-identical to off, receipts included; the receipts of the move fire below.
+    const priced = omahaPreflopReraiseDefenceRule(off, player, gs, {
+      mind: opts.mind !== false,
+      telemetry: false,
+    });
+    if (priced === null || (priced.action !== 'call' && priced.action !== 'all_in')) return off;
+    // ONE OWNER PER CELL, as the parent (review R1 B1b): the call answers to the live call cell when that option is on.
+    if (opts.omahaOopReraisedPotStrongRange === true) {
+      const judged = omahaOopReraisedPotStrongRange(priced, player, gs, {
+        ...offOpts,
+        omahaPreflopReraiseDefencePriced: false,
+        omahaReraisedPotFlopContinueNeedsEquityShape: false,
+        omahaReraiseRangeOutOfPosition: false,
+        omahaReraiseRangeEarlyPosition: false,
+        omahaPreflopStackPlan: false,
+      });
+      if (judged.action !== 'call' && judged.action !== 'all_in') return off;
+      if (telemetryOn(opts)) {
+        noteFire('omaha_preflop_reraise_defence_call');
+        noteFire('omaha_preflop_reraise_defence_changed');
+      }
+      return judged;
+    }
+    if (telemetryOn(opts)) {
+      noteFire('omaha_preflop_reraise_defence_call');
+      noteFire('omaha_preflop_reraise_defence_changed');
+    }
+    return priced;
+  }
+  if (
+    opts.omahaPreflopReraiseDefencePriced === true &&
     !omahaReraisedCallCellJudges(decision0, player, gs, opts)
   ) {
     const priced = omahaPreflopReraiseDefenceRule(decision0, player, gs, {

@@ -14,23 +14,27 @@ one board, no bomb pot, no All-In-Or-Fold, not a tournament, preflop. ONLY when 
 (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition):
 
 - the Horse made the first preflop raise (it opened);
-- exactly one player re-raised it (two preflop raises in all, no 4-bet);
+- exactly one player re-raised it (two preflop raises in all, no 4-bet; a raise over limpers who then folded counts as
+  the first raise);
+- that player is a person (gs.humanUserIds, else his seat's is_horse; unknown is not the spot);
 - every other player has folded (heads-up; a player still in, all in included, ends the spot);
 - the Horse acts after that player on every later street (seat order from the dealer).
 
-there the decision is the priced decision of omahaPreflopReraiseDefencePriced, unchanged: EV(fold) = 0, EV(call) =
+there, and only when the decision with this option off is a FOLD, the fold becomes a CALL when the priced verdict of
+omahaPreflopReraiseDefencePriced is a call (review of 01ddd45b4df, F1). It never makes a fold, never changes a call, a
+4-bet or any other decision, and never invents a raise. The verdict: EV(fold) = 0, EV(call) =
 R x equity x (pot after the call - rake) - call, the proposed re-raise priced the same way; equity of the exact hand
 against the 3-bettor's measured re-raise width (his posterior mean through the one read interface, the population mean
 with no evidence); R measured on recorded calls. One owner per cell: where the re-raised-pot call cell judges the call,
-the decision is the one with this option off. Everywhere else, every out-of-position decision included, the decision
-is byte-identical to the option off.
+the fold stands. Everywhere else, every out-of-position decision and a Horse's 3-bet included, the decision is
+byte-identical to the option off.
 
 POSITION, ONE DEFINITION. Heads-up, "acts after the 3-bettor" is the only reading. The fast-table pricing keeps an older
 reading of position for multiway pots (HorseLogic.omahaReraisedLaneUntouched); with nobody else in the pot it gives the
 same answer, and the spot reads none of those helpers. Pinned on table cash and fast-table cash by test.
 
-Who is a person is not read: the decision state does not carry it, and a gate keyed to the opponent's identity would be a
-blanket rule. The price reads the 3-bettor's own measured rate, so a Horse 3-bettor is priced from his own read too.
+The 3-bettor's kind (person or Horse) scopes the option to the cell that was measured and evaluated (a person's 3-bet);
+it is the engine's roster, not a player's account. The price reads the 3-bettor's own measured rate.
 
 ## The owner's orders it rests on (verbatim)
 
@@ -59,8 +63,9 @@ The parent's: omaha_preflop_reraise_defence_fold / \_call / \_raise / \_changed.
 ## Tests
 
 `server/src/engine/HorseOmahaPreflopReraiseDefencePricedInPosition.test.ts` (synthetic cards): the spot on table and
-fast-table cash, out of position, multiway, 4-bet, cold 3-bet, tournament, PLO6, flop; on byte-identical to the parent
-option in the spot and to off everywhere else. `HorseOptionSwitchPreflopHoldLift.test.ts`: the lift names this option
+fast-table cash, two-handed, out of position, multiway, 4-bet, cold 3-bet, a Horse's 3-bet, a raise over a limper,
+tournament, PLO6, flop; in the spot only fold -> call (to the parent's priced call), a call and a 4-bet unchanged; off
+everywhere else byte-identical. `HorseOptionSwitchPreflopHoldLift.test.ts`: the lift names this option
 alone; the parent stays off-only.
 
 ## Evidence rows (docs/HORSE-DECISION-CHANGE-EVIDENCE.md)

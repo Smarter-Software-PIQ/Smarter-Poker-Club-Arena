@@ -450,7 +450,7 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'preflop: fold, call and the proposed re-raise by expected value against the measured range (off-only under the preflop hold)'
   ),
   omahaPreflopReraiseDefencePricedInPosition: outside(
-    'preflop: the priced decision of omahaPreflopReraiseDefencePriced, only for an opener heads-up in position against one 3-bet'
+    "preflop: only a fold becomes the priced call of omahaPreflopReraiseDefencePriced, for an opener heads-up in position against one person's 3-bet"
   ),
   omahaReraiseRangeOutOfPosition: outside(PREFLOP),
   omahaReraiseRangeEarlyPosition: outside(PREFLOP),
