@@ -76,6 +76,8 @@ export function useSharedHandShortLink(
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let ceilingTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolveRetry: ((value: ReservedShortLink | null) => void) | null = null;
+    let resolveCeiling: ((value: null) => void) | null = null;
     const clearTimers = () => {
       if (retryTimer !== null) {
         clearTimeout(retryTimer);
@@ -85,20 +87,34 @@ export function useSharedHandShortLink(
         clearTimeout(ceilingTimer);
         ceilingTimer = null;
       }
+      if (resolveRetry) {
+        const settle = resolveRetry;
+        resolveRetry = null;
+        settle(null);
+      }
+      if (resolveCeiling) {
+        const settle = resolveCeiling;
+        resolveCeiling = null;
+        settle(null);
+      }
     };
     const attempt = () => reserveSharedHand(payload, inviteCode, preview ?? {}).catch(() => null);
     const reserved = attempt().then((first) => {
       if (first || cancelled) return first;
       return new Promise<ReservedShortLink | null>((resolve) => {
+        resolveRetry = resolve;
         retryTimer = setTimeout(() => {
           retryTimer = null;
+          resolveRetry = null;
           resolve(cancelled ? null : attempt());
         }, SHORT_LINK_RETRY_MS);
       });
     });
     const ceiling = new Promise<null>((resolve) => {
+      resolveCeiling = resolve;
       ceilingTimer = setTimeout(() => {
         ceilingTimer = null;
+        resolveCeiling = null;
         resolve(null);
       }, SHORT_LINK_CEILING_MS);
     });
