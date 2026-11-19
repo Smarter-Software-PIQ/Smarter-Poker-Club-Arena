@@ -159,7 +159,7 @@ acquire_checkout_lock() {
     if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } \
        || { [ -z "$holder" ] && [ -n "$(find "$CHECKOUT_LOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
       echo "# checkout lock left by ${holder:-a process that never registered}; taking it over" >&2
-      rm -rf "$CHECKOUT_LOCK"
+      mv "$CHECKOUT_LOCK" "${CHECKOUT_LOCK}.stale.$$" 2>/dev/null && rm -rf "${CHECKOUT_LOCK}.stale.$$" || true
       continue
     fi
     if [ "$waited" -ge "$limit" ]; then

@@ -20,6 +20,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261108020000_a_job_failing_every_run_is_named.sql'
+WEEKLY_MIGRATION = ROOT / 'supabase/migrations/20261119171234_the_drill_chooses_its_club_and_weekly_failures_are_heard.sql'
 COLLECTOR = ROOT / 'server/scripts/collect-monitoring-health.sh'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/cron-failing-jobs')
@@ -122,6 +123,7 @@ try:
     require(r.returncode == 0, r.stderr)
     run('fixture', FIXTURE)
     run('install', MIGRATION.read_text())
+    run('install-weekly', WEEKLY_MIGRATION.read_text())
 
     run('grants', """SELECT
       NOT has_function_privilege('anon', 'public.fn_cron_failing_jobs()', 'EXECUTE')
@@ -132,7 +134,9 @@ try:
       AND has_function_privilege('service_role', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
       AND (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_cron_failing_jobs()'::regprocedure)
       AND (SELECT count(*) = 1 FROM public.declared WHERE proname = 'fn_ca_cron_failure_watch'
-             AND ref = 'migration 20261108020000_a_job_failing_every_run_is_named');""", 't')
+             AND ref = 'migration 20261108020000_a_job_failing_every_run_is_named')
+      AND (SELECT count(*) = 1 FROM public.declared WHERE proname = 'fn_ca_cron_failure_watch'
+             AND ref = 'migration 20261119171234_the_drill_chooses_its_club_and_weekly_failures_are_heard');""", 't')
 
     # 2026-11-07, job 117: one success, then a failed run every 10 s for 13.5 minutes.
     run('the-117-shape-is-named', RESET + """
@@ -210,6 +214,25 @@ try:
       SELECT public.fn_ca_cron_failure_watch();
       SELECT count(*) || '|' || min(dedupe_key) FROM public.raised;""",
         '1|cron-failing:dead:' + run('today', "SELECT CURRENT_DATE::text;"), last=True)
+
+    # 20261119171234: an active infrequent job with runs_24h = 0 whose newest finished run
+    # within 7 days failed is raised keyed to that run; one whose newest finished run succeeded
+    # is not raised.
+    run('an-infrequent-job-failed-last-run-is-raised-and-a-succeeded-one-is-not', RESET + """
+      INSERT INTO cron.job (jobname, active) VALUES
+        ('weekly-failed', true),
+        ('weekly-succeeded', true),
+        ('weekly-inactive', false);
+      SELECT public.runs('weekly-failed', 1, 'failed', interval '1 day', interval '3 days');
+      SELECT public.runs('weekly-succeeded', 1, 'failed', interval '1 day', interval '5 days');
+      SELECT public.runs('weekly-succeeded', 1, 'succeeded', interval '1 day', interval '3 days');
+      SELECT public.runs('weekly-inactive', 1, 'failed', interval '1 day', interval '3 days');
+      SELECT public.fn_ca_cron_failure_watch();
+      SELECT count(*) || '|' || min(severity)
+             || '|' || bool_and(dedupe_key LIKE 'cron-failing:weekly-failed:run:%')
+             || '|' || bool_and(message LIKE 'scheduled job weekly-failed has not run in 24h%')
+        FROM public.raised;""",
+        '1|warning|true|true', last=True)
 
     run('a-failed-read-is-critical-not-silent', RESET + """
       CREATE OR REPLACE FUNCTION public.fn_cron_failing_jobs()

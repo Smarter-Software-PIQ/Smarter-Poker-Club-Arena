@@ -58,16 +58,25 @@ function workflowFiles(): string[] {
     .map((f) => join(WORKFLOWS, f));
 }
 
-/** Workflow names and every job's display name (its `name:`, else its id). */
+/** Workflow names and every job's display name (its `name:`, else its id), plus workflow-driven app check runs. */
 function producedNames(): { workflows: string[]; jobs: Set<string> } {
   const workflows: string[] = [];
   const jobs = new Set<string>();
   for (const file of workflowFiles()) {
-    const doc = parse(readFileSync(file, 'utf8')) as Workflow | null;
+    const raw = readFileSync(file, 'utf8');
+    const doc = parse(raw) as Workflow | null;
     if (!doc) continue;
     if (typeof doc.name === 'string') workflows.push(doc.name);
     for (const [id, job] of Object.entries(doc.jobs ?? {})) {
       jobs.add(typeof job?.name === 'string' ? job.name : id);
+    }
+    if (raw.includes('scripts/ci/money-trigger-check-report.mjs')) {
+      const reporter = readFileSync(
+        resolve(root, 'scripts/ci/money-trigger-check-report.mjs'),
+        'utf8'
+      );
+      const m = /export\s+const\s+CHECK_NAME\s*=\s*['"]([^'"]+)['"]/.exec(reporter);
+      if (m) jobs.add(m[1]);
     }
   }
   return { workflows, jobs };
@@ -105,8 +114,12 @@ describe('no merge gate without a producer, and no release freeze', () => {
   const { workflows, jobs } = producedNames();
 
   it('the canonical ruleset writer only requires checks a workflow here produces', () => {
+    const writer = readFileSync(resolve(root, 'scripts/ci/apply-main-ruleset.mjs'), 'utf8');
+    expect(writer).toContain("const OWNER = 'Smarter-Software-PIQ';");
     const declared = declaredRequiredChecks();
     expect(declared.length).toBeGreaterThan(0);
+    expect(declared).toContain('Money trigger declaration authority');
+    expect(declared).toContain('Weekly refusal receipt cover');
     // 2026-11-18, incident d2d79c4f: no migration merges unrehearsed against production's schema.
     expect(declared).toContain("Window migrations install against production's schema");
     for (const check of declared) expect(jobs, `required check "${check}"`).toContain(check);

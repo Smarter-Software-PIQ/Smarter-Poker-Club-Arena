@@ -61,7 +61,9 @@ END $probe$;
 describe('the checker recognises an unproven function', () => {
   it('refuses the 2026-11-18 shape: a definer function redefined with no probe', () => {
     const sql = `BEGIN;\n${definer('public.fn_cash_capture_hand_manifest')}\nCOMMIT;\n`;
-    expect(mod.missingProbes(sql).map((p) => p.fn)).toEqual(['public.fn_cash_capture_hand_manifest']);
+    expect(mod.missingProbes(sql).map((p) => p.fn)).toEqual([
+      'public.fn_cash_capture_hand_manifest',
+    ]);
   });
 
   it('accepts the same file once a probe after the definition executes it', () => {
@@ -84,9 +86,32 @@ describe('the checker recognises an unproven function', () => {
     expect(mod.missingProbes(sql)).toHaveLength(1);
   });
 
+  it('refuses a probe whose function call is commented out inside DO $probe$', () => {
+    const lineCommented = probe('public.fn_x').replace(
+      'PERFORM public.fn_x(gen_random_uuid());',
+      '-- PERFORM public.fn_x(gen_random_uuid());'
+    );
+    expect(
+      mod.missingProbes(`BEGIN;\n${definer('public.fn_x')}${lineCommented}COMMIT;\n`)
+    ).toHaveLength(1);
+
+    const blockCommented = probe('public.fn_x').replace(
+      'PERFORM public.fn_x(gen_random_uuid());',
+      '/* PERFORM public.fn_x(gen_random_uuid()); */'
+    );
+    expect(
+      mod.missingProbes(`BEGIN;\n${definer('public.fn_x')}${blockCommented}COMMIT;\n`)
+    ).toHaveLength(1);
+  });
+
   it('covers smarter_private and an unqualified name (public)', () => {
     const sql = `BEGIN;\n${definer('smarter_private.fn_a')}${definer('fn_b')}COMMIT;\n`;
-    expect(mod.missingProbes(sql).map((p) => p.fn).sort()).toEqual(['public.fn_b', 'smarter_private.fn_a']);
+    expect(
+      mod
+        .missingProbes(sql)
+        .map((p) => p.fn)
+        .sort()
+    ).toEqual(['public.fn_b', 'smarter_private.fn_a']);
   });
 
   it('does not ask for a probe of an invoker, a SQL-language or a trigger function', () => {
@@ -111,14 +136,32 @@ BEGIN
   EXECUTE d;
 END $m$;
 `;
-    expect(mod.missingProbes(rewrite(`'public.fn_lightning_top_up_request(uuid,uuid,text,numeric)'::regprocedure`) + 'COMMIT;').map((p) => p.fn))
-      .toEqual(['public.fn_lightning_top_up_request']);
-    expect(mod.missingProbes(rewrite(`'smarter_private.fn_r'::regproc`) + 'COMMIT;').map((p) => p.fn)).toEqual(['smarter_private.fn_r']);
-    expect(mod.missingProbes(rewrite(`'fn_bare(uuid)'::regprocedure`) + 'COMMIT;').map((p) => p.fn)).toEqual(['public.fn_bare']);
-    expect(mod.missingProbes(rewrite(`'public.fn_ok(uuid)'::regprocedure`) + probe('public.fn_ok') + 'COMMIT;')).toEqual([]);
+    expect(
+      mod
+        .missingProbes(
+          rewrite(`'public.fn_lightning_top_up_request(uuid,uuid,text,numeric)'::regprocedure`) +
+            'COMMIT;'
+        )
+        .map((p) => p.fn)
+    ).toEqual(['public.fn_lightning_top_up_request']);
+    expect(
+      mod.missingProbes(rewrite(`'smarter_private.fn_r'::regproc`) + 'COMMIT;').map((p) => p.fn)
+    ).toEqual(['smarter_private.fn_r']);
+    expect(
+      mod.missingProbes(rewrite(`'fn_bare(uuid)'::regprocedure`) + 'COMMIT;').map((p) => p.fn)
+    ).toEqual(['public.fn_bare']);
+    expect(
+      mod.missingProbes(
+        rewrite(`'public.fn_ok(uuid)'::regprocedure`) + probe('public.fn_ok') + 'COMMIT;'
+      )
+    ).toEqual([]);
     expect(mod.missingProbes(rewrite(`'auth.fn_other()'::regprocedure`) + 'COMMIT;')).toEqual([]);
     // Reading a definition without executing anything is not a redefinition.
-    expect(mod.missingProbes(`BEGIN; SELECT md5(pg_get_functiondef('public.fn_read(uuid)'::regprocedure)); COMMIT;`)).toEqual([]);
+    expect(
+      mod.missingProbes(
+        `BEGIN; SELECT md5(pg_get_functiondef('public.fn_read(uuid)'::regprocedure)); COMMIT;`
+      )
+    ).toEqual([]);
   });
 
   it('does not mistake a read-only pin for a rewrite in a file that EXECUTEs (md5, position)', () => {
@@ -134,14 +177,23 @@ DO $m$ DECLARE d text; BEGIN d := 'SELECT 1'; EXECUTE d; END $m$;
 COMMIT;`;
     expect(mod.missingProbes(pins)).toEqual([]);
     // The same file still sees a real rewrite beside those pins.
-    const rewrite = pins.replace("d := 'SELECT 1';", "d := replace(pg_get_functiondef('public.fn_rewritten(uuid)'::regprocedure), 'a', 'b');");
+    const rewrite = pins.replace(
+      "d := 'SELECT 1';",
+      "d := replace(pg_get_functiondef('public.fn_rewritten(uuid)'::regprocedure), 'a', 'b');"
+    );
     expect(mod.missingProbes(rewrite).map((p) => p.fn)).toEqual(['public.fn_rewritten']);
   });
 
   it('accepts a named exemption only with a real reason', () => {
     const base = definer('public.fn_ext');
-    expect(mod.missingProbes(`BEGIN;${base}\n-- @probe-exempt: public.fn_ext calls dblink to another database\nCOMMIT;`)).toEqual([]);
-    expect(mod.missingProbes(`BEGIN;${base}\n-- @probe-exempt: public.fn_ext too hard\nCOMMIT;`)).toHaveLength(1);
+    expect(
+      mod.missingProbes(
+        `BEGIN;${base}\n-- @probe-exempt: public.fn_ext calls dblink to another database\nCOMMIT;`
+      )
+    ).toEqual([]);
+    expect(
+      mod.missingProbes(`BEGIN;${base}\n-- @probe-exempt: public.fn_ext too hard\nCOMMIT;`)
+    ).toHaveLength(1);
   });
 });
 
@@ -150,7 +202,9 @@ describe('every bound migration on this branch proves what it redefines', () => 
     expect(mod.bound(`${mod.PROBE_LAW_FROM}_x.sql`)).toBe(true);
     // A late file carrying an old version is bound (94 open PRs did on 2026-11-19).
     expect(mod.bound('20261001000000_a_late_file_with_an_old_version.sql')).toBe(true);
-    expect(mod.bound('20261118164000_a_deferred_cash_rake_proves_its_club_from_the_dealt_chair.sql')).toBe(false);
+    expect(
+      mod.bound('20261118164000_a_deferred_cash_rake_proves_its_club_from_the_dealt_chair.sql')
+    ).toBe(false);
   });
 
   it('the grandfathered list is frozen: never grows, holds only pre-cutoff files that exist', () => {
@@ -164,7 +218,9 @@ describe('every bound migration on this branch proves what it redefines', () => 
 
   it('no bound migration redefines a definer function without a probe', () => {
     const offenders: string[] = [];
-    for (const file of readdirSync(DIR).filter((f) => f.endsWith('.sql')).sort()) {
+    for (const file of readdirSync(DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()) {
       if (!mod.bound(file)) continue;
       for (const p of mod.missingProbes(readFileSync(resolve(DIR, file), 'utf8'))) {
         offenders.push(`${file}: ${p.fn} - ${p.reason}`);

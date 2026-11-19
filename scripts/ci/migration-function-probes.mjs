@@ -67,6 +67,65 @@ function stripLineComments(sql) {
   return sql.replace(/--[^\n]*/g, (m) => ' '.repeat(m.length));
 }
 
+function stripSqlComments(sql) {
+  // Strip SQL line comments (-- ...) and block comments (/* ... */, nested)
+  // while leaving single-quoted string literals intact.
+  let out = '';
+  let i = 0;
+  let blockDepth = 0;
+  while (i < sql.length) {
+    if (blockDepth > 0) {
+      if (sql[i] === '/' && sql[i + 1] === '*') {
+        blockDepth += 1;
+        out += '  ';
+        i += 2;
+      } else if (sql[i] === '*' && sql[i + 1] === '/') {
+        blockDepth -= 1;
+        out += '  ';
+        i += 2;
+      } else {
+        out += sql[i] === '\n' ? '\n' : ' ';
+        i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === "'") {
+      out += sql[i];
+      i += 1;
+      while (i < sql.length) {
+        out += sql[i];
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            out += sql[i + 1];
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === '-' && sql[i + 1] === '-') {
+      while (i < sql.length && sql[i] !== '\n') {
+        out += ' ';
+        i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === '/' && sql[i + 1] === '*') {
+      blockDepth = 1;
+      out += '  ';
+      i += 2;
+      continue;
+    }
+    out += sql[i];
+    i += 1;
+  }
+  return out;
+}
+
 function dollarBodyEnd(sql, from) {
   const open = /\$([A-Za-z_][A-Za-z0-9_]*)?\$/g;
   open.lastIndex = from;
@@ -222,9 +281,11 @@ export function missingProbes(sql) {
       continue;
     }
     const call = new RegExp(`\\b${f.schema}\\.${f.name}\\s*\\(`, 'i');
-    const valid = mine.find(
-      (p) => p.at > f.endsAt && p.body && call.test(p.body) && p.body.includes(`'${PROBE_SENTINEL}'`)
-    );
+    const valid = mine.find((p) => {
+      if (p.at <= f.endsAt || !p.body) return false;
+      const code = stripSqlComments(p.body);
+      return call.test(code) && code.includes(`'${PROBE_SENTINEL}'`);
+    });
     if (!valid) {
       problems.push({
         fn: f.qualified,

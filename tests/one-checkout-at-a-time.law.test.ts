@@ -15,5 +15,13 @@ describe('one checkout at a time', () => {
   it('takes over a lock its holder abandoned and bounds the wait', () => {
     expect(script).toContain('! kill -0 "$holder"');
     expect(script).toContain('AGENT_CHECKOUT_WAIT_SECONDS:-900');
+    const acquire = script.slice(
+      script.indexOf('acquire_checkout_lock() {'),
+      script.indexOf('release_checkout_lock() {')
+    );
+    expect(acquire).toContain(
+      'mv "$CHECKOUT_LOCK" "${CHECKOUT_LOCK}.stale.$$" 2>/dev/null && rm -rf "${CHECKOUT_LOCK}.stale.$$" || true'
+    );
+    expect(acquire).not.toMatch(/^\s*rm -rf "\$CHECKOUT_LOCK"\s*$/m);
   });
 });
