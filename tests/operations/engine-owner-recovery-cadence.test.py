@@ -155,7 +155,7 @@ class OwnerRecoveryCadence(unittest.TestCase):
         self.args.run_id = '903-1'
         (self.repo / 'server/candidate').write_text('another protected descendant')
         self.args.sha = self.commit()
-        self.assertEqual(self.reserve(), 'unavailable')
+        self.assertEqual(self.reserve(), 'owner-claim-consumed:902-1')
         self.assertFalse((self.state_dir / 'engine-recovery-window-903-1.json').exists())
 
     def test_nov7_final_gate_binds_original_run_control_sha_and_active_countdown(self):

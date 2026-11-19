@@ -2777,8 +2777,24 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             if (state['desired']['sha'] != NOV7_PREDECESSOR or args.cause != 'urgent'
                     or args.scheduled_cycle_start is not None or getattr(args, 'certified_policy', None)):
                 die('Nov 7 release predecessor or cause differs')
-            if os.path.lexists(STATE_DIR / NOV7_OWNER_CLAIM) or os.path.lexists(path):
-                # Known or unknown outcome: observe the original reservation.
+            claim_path = STATE_DIR / NOV7_OWNER_CLAIM
+            if os.path.lexists(claim_path):
+                owner_run = 'unknown'
+                try:
+                    existing_claim = json.loads(claim_path.read_text(encoding='utf-8'))
+                    if isinstance(existing_claim, dict) and isinstance(existing_claim.get('runId'), str):
+                        owner_run = existing_claim['runId']
+                except (OSError, ValueError):
+                    owner_run = 'unreadable'
+                if owner_run == run_id:
+                    # Same run (known or unknown outcome): observe the original reservation.
+                    print('unavailable')
+                else:
+                    # Single-use owner window claim already belongs to another run: refuse immediately.
+                    print(f'owner-claim-consumed:{owner_run}')
+                return
+            if os.path.lexists(path):
+                # Known or unknown outcome for this run: observe the original reservation.
                 print('unavailable')
                 return
         if path.exists():

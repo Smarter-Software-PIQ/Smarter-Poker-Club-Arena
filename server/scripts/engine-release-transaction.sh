@@ -2441,6 +2441,11 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
     return 0
   fi
   RECOVERY_CHECKED_CAUSE="$cause_key"
+  if [[ "$stamp" == owner-claim-consumed:* ]]; then
+    if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
+    release_engine_lock
+    die "single-use owner window claim already belongs to run ${stamp#owner-claim-consumed:}; refusing duplicate attempt $RUN_ID"
+  fi
   if [ "$stamp" = unavailable ]; then
     if [ "${FLOOR_RESERVATION_FRESH:-0}" = 1 ]; then retire_unannounced_floor_entry; fi
     release_engine_lock
@@ -3939,10 +3944,31 @@ CANDIDATE_STARTED_AT="$(bounded_break_command 10 docker container inspect -f '{{
 # rollback reserve and rolled back. The candidate is polled every second; the
 # total windows (180 s local, 90 s public), every proof and every budget are
 # unchanged. A poll is one bounded loopback or public health read.
+assert_candidate_container_alive() {
+  local state_line status exit_code oom_killed restart_count current_cid current_started_at tail_log='' last_line=''
+  state_line="$(bounded_break_command 5 docker container inspect -f \
+    '{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}} {{.RestartCount}} {{.Id}} {{.State.StartedAt}}' \
+    "$CONTAINER" 2>/dev/null)" || return 0
+  read -r status exit_code oom_killed restart_count current_cid current_started_at <<< "$state_line"
+  if [ "$status" = exited ] || [ "$status" = dead ] || [ "$status" = restarting ] \
+    || [ "${restart_count:-0}" -gt 0 ] 2>/dev/null \
+    || { [ -n "${CANDIDATE_CID:-}" ] && [ "$current_cid" != "$CANDIDATE_CID" ]; } \
+    || { [ -n "${CANDIDATE_STARTED_AT:-}" ] && [ "$current_started_at" != "$CANDIDATE_STARTED_AT" ]; }; then
+    tail_log="$(bounded_break_command 5 docker logs --tail 40 "$CONTAINER" 2>&1 || true)"
+    if [ -n "$tail_log" ]; then
+      printf '[engine-release-transaction] candidate container last logs (status=%s exit=%s oom=%s restarts=%s):\n%s\n' \
+        "$status" "$exit_code" "$oom_killed" "$restart_count" "$tail_log" >&2
+    fi
+    last_line="$(printf '%s\n' "$tail_log" | awk 'NF { line = $0 } END { print substr(line, 1, 240) }')"
+    die "candidate container exited before serving local release health (status=${status} exit_code=${exit_code} oom=${oom_killed} restarts=${restart_count}${last_line:+; last_log=${last_line}})"
+  fi
+}
+
 for attempt in $(seq 1 180); do
   assert_time_remaining
   assert_break_proof_time
   CANDIDATE_INSTANCE="$(health_instance 'http://127.0.0.1:8080/health')" && break
+  assert_candidate_container_alive
   [ "$attempt" = 180 ] && die 'candidate never served exact local release health'
   bounded_sleep 1
 done

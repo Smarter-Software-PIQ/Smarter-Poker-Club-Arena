@@ -1236,12 +1236,22 @@ ${Object.entries(states)
       });
     });
   });
-  it('serializes all Backup candidates and refreshes only after a successful sealed release', () => {
+  it('serializes all Backup candidates via standby host lease without push-eviction cancellations and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({
-      group: expect.stringContaining("|| 'backup-engine'"),
-      queue: 'max',
+      group: expect.stringContaining(
+        "format('backup-engine-{0}-{1}', github.event_name, github.run_id)"
+      ),
       'cancel-in-progress': false,
     });
+    expect(backup.concurrency).not.toHaveProperty('queue');
+    expect(
+      backup.jobs.refresh.steps.some((s: any) => s.name === 'Acquire exclusive Backup host turn')
+    ).toBe(true);
+    expect(
+      backup.jobs.certify.steps.some(
+        (s: any) => s.name === 'Release exclusive Backup host turn' && s.if === 'always()'
+      )
+    ).toBe(true);
     expect(backup.on.push.paths).toContain('server/**');
     expect(backup.on.workflow_run).toBeUndefined();
     expect(backup.on.repository_dispatch.types).toEqual([
