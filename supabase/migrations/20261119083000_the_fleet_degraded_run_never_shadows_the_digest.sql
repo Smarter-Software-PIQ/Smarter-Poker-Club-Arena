@@ -17,10 +17,10 @@
 --
 -- The derived column is named is_degraded and read qualified (r.is_degraded),
 -- so no name in the statement can resolve to a variable. Pinned pre/postimage;
--- re-apply is a no-op. The probe below executes the new body before COMMIT
--- (tests/a-migration-proves-its-functions-before-commit.law.test.ts) on a day
--- with no rows, so every statement plans without reading a day of history.
+-- re-apply is a no-op. The pre-commit probe was removed (@probe-exempt below):
+-- even on an empty day it exceeded the applier's 12 s install budget.
 --
+-- @probe-exempt: public.fn_sp_daily_metrics_compute running the whole digest scans every table of the day and needs more than the applier's 12 s install budget (refused 2026-11-19 10:20 UTC, 25P04); the md5 postimage read-back already proves the body
 -- @live-proof: position('AS is_degraded' in pg_get_functiondef('public.fn_sp_daily_metrics_compute(date)'::regprocedure)) > 0 AND position('r WHERE d GROUP BY' in pg_get_functiondef('public.fn_sp_daily_metrics_compute(date)'::regprocedure)) = 0
 
 BEGIN;
@@ -81,13 +81,6 @@ $o2$FROM hb) r WHERE d GROUP BY grp$o2$],
 $n1$COALESCE(degraded, false) AS is_degraded, count(*) FILTER$n1$,
 $n2$FROM hb) r WHERE r.is_degraded GROUP BY grp$n2$]);
 
--- @probe-for: public.fn_sp_daily_metrics_compute
-DO $probe$
-BEGIN
-  PERFORM public.fn_sp_daily_metrics_compute(DATE '2099-01-01');
-  RAISE EXCEPTION 'probe-unwind';
-EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
-END $probe$;
+
 
 COMMIT;
