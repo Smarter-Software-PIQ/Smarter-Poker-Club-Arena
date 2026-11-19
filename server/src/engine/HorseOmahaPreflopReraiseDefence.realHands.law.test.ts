@@ -40,7 +40,7 @@
  *  - the equity the verdict prices is within 0.07 of the independent figure.
  */
 import { readFileSync } from 'node:fs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from './HorseLogic.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
@@ -59,6 +59,7 @@ import {
   omahaPreflopReraiseDefenceSpot,
 } from './HorseOmahaPreflopReraiseDefenceRule.js';
 import { omahaPreflopDefenceRangeWidth } from './HorseOmahaPreflopReraiseDefence.js';
+import { emptyReraiseResponse } from './HorseOmahaReraiseResponse.js';
 import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import FIXTURE from './HorseOmahaPreflopReraiseDefence.realHands.fixture.json';
 
@@ -384,4 +385,27 @@ describe('omahaPreflopReraiseDefencePriced on eight real audited decisions', () 
       /if \(verdict === null\) return decision;\s*(?:\/\/[^\n]*\n\s*)*omahaReraisedCallCellJudged = true;/
     );
   });
+});
+
+describe('omahaPreflopReraiseDefencePriced off: the four-bet answer record changes nothing', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('(3) unset and false: the decision is byte-identical with and without a record that folds to every 4-bet and 5-bet, and the record is never read', () => {
+    const folds = emptyReraiseResponse();
+    folds.threeBetFacesFourBet = { opp: 40, fold: 40, call: 0, raise: 0 };
+    folds.fourBetFacesFiveBet = { opp: 40, fold: 40, call: 0, raise: 0 };
+    for (const h of HANDS)
+      for (const seed of [1, 42]) {
+        const bare = decideCounted(h, LIVE, seed);
+        const asked = vi.spyOn(HorseMind, 'omahaReraiseResponseOf').mockReturnValue(folds);
+        const unset = decideCounted(h, LIVE, seed);
+        const off = decideCounted(h, { ...LIVE, omahaPreflopReraiseDefencePriced: false }, seed);
+        expect(asked, `hand ${h.handNumber} seed ${seed}`).not.toHaveBeenCalled();
+        vi.restoreAllMocks();
+        expect(bytes(unset.d), `hand ${h.handNumber} seed ${seed}`).toBe(bytes(bare.d));
+        expect(bytes(off.d), `hand ${h.handNumber} seed ${seed}`).toBe(bytes(bare.d));
+        expect(unset.fires).toEqual(bare.fires);
+        expect(off.fires).toEqual(bare.fires);
+      }
+  }, 300000);
 });

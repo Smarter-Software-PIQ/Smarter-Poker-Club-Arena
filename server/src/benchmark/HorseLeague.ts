@@ -103,6 +103,15 @@ import {
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
 import { leagueLearnStreetRead } from './HorseLeagueStreetRead.js';
+import {
+  leagueSpotProbe,
+  leagueSpotSelectionRecord,
+  selectLeagueSpotDeals,
+  type LeagueSpotPassObservation,
+  type LeagueSpotProbeHand,
+  type LeagueSpotSelection,
+  type LeagueSpotSelectionRecord,
+} from './HorseLeagueSpotSelection.js';
 import { pressureOpponentDecision } from './V53PressurePopulation.js';
 import { leagueHorseDecisionInput } from './LeagueDecisionState.js';
 
@@ -214,6 +223,10 @@ export interface LeagueResult {
   blockStderr?: number;
   /** The number of blocks blockStderr was computed from. */
   stderrBlocks?: number;
+  /** SPOT-SEEDED (2026-11-19): present only when the matchup selected deals
+   *  (LeagueMatchup.spot). The result then measures that spot, not overall
+   *  win rate (HorseLeagueSpotSelection.ts). */
+  spotSelection?: LeagueSpotSelectionRecord;
 }
 
 export interface LeagueBenchmarkComponent {
@@ -354,6 +367,15 @@ export interface LeagueMatchup {
    * reports both runs so a loss that only appears through memory is visible.
    */
   memoryLearning?: 'off';
+  /**
+   * SPOT-SEEDED SESSIONS (2026-11-19, HorseLeagueSpotSelection.ts). Absent:
+   * every deal is played, as every card before. Set: only deals whose public
+   * state reaches the declared spot under a probe of arm B (or either arm) are
+   * played, each as a normal duplicate pair (both arms see the same deal). The
+   * selection rule and its counts are recorded in LeagueResult.spotSelection.
+   * A selected result measures the spot, not overall win rate.
+   */
+  spot?: LeagueSpotSelection;
 }
 
 /** The human field inside one dealt hand (see LeagueMatchup.opponentPopulation). */
@@ -743,6 +765,40 @@ export function blockStandardError(
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit });
 
+/** The deck playHand deals for `handSeed`: seeds fastRandom, then Fisher-Yates on it.
+ *  The stream is left where playHand continues from it. */
+function leagueShuffledDeck(handSeed: number): Card[] {
+  seedFastRandom(handSeed);
+  const deck = [...FULL_DECK];
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(fastRandom() * (i + 1));
+    const tmp = deck[i];
+    deck[i] = deck[j];
+    deck[j] = tmp;
+  }
+  return deck;
+}
+
+/** The hole cards (by seat index) and the five-card board playHand deals for a
+ *  seed, without playing it. The ambient fastRandom stream is restored. */
+export function leagueDealtCards(
+  handSeed: number,
+  gameVariant: string,
+  numSeats: number
+): { holes: Card[][]; board: Card[] } {
+  const saved = saveFastRandom();
+  try {
+    const deck = leagueShuffledDeck(handSeed);
+    const hc = variantInfo(gameVariant).holeCount;
+    return {
+      holes: Array.from({ length: numSeats }, (_, s) => deck.slice(s * hc, s * hc + hc)),
+      board: deck.slice(numSeats * hc, numSeats * hc + 5),
+    };
+  } finally {
+    restoreFastRandom(saved);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // One hand
 // ─────────────────────────────────────────────────────────────────────────────
@@ -808,15 +864,7 @@ export function playHand(
   const START_STACK = stackBB * BB;
   const vi = variantInfo(gameVariant);
   const holeCount = vi.holeCount;
-  seedFastRandom(handSeed);
-  // Deterministic deck for this seed (Fisher-Yates on fastRandom).
-  const deck = [...FULL_DECK];
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(fastRandom() * (i + 1));
-    const tmp = deck[i];
-    deck[i] = deck[j];
-    deck[j] = tmp;
-  }
+  const deck = leagueShuffledDeck(handSeed);
 
   const tally: LeagueCounters = counters ?? { illegal: 0, truncated: 0 };
 
@@ -1653,13 +1701,101 @@ export async function runMatchup(
   // survives mind-on play.
   const sb1 = HorseMind.createSandbox();
   const sb2 = HorseMind.createSandbox();
+  // SPOT-SEEDED: probe candidate deals with arm B (or either arm) at every
+  // seat, each on a fresh sandbox with learning off, and keep the deals that
+  // reach the spot (HorseLeagueSpotSelection.ts); the pass sandboxes never see it.
+  const spot = matchup.spot;
+  const spotDeals = spot
+    ? await selectLeagueSpotDeals(
+        spot,
+        pairs,
+        (c, arm): LeagueSpotProbeHand => {
+          const handSeed = (runSeed ^ (c * 2654435761)) >>> 0 || 1;
+          const dealerSeat = (c % SEATS) + 1;
+          const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+          const handId = matchup.handIdentity === 'deal_seed' ? handSeed : null;
+          const opts = withLearning(
+            withDealHand(withDealMood(arm === 'a' ? matchup.a : matchup.b, moodMs), handId),
+            false
+          );
+          const mods = hybrid
+            ? { ...hybrid.mods, ...((arm === 'a' ? matchup.modsA : matchup.modsB) ?? {}) }
+            : ((arm === 'a' ? matchup.modsA : matchup.modsB) ?? {});
+          const hasMods =
+            matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
+          const styleOf = matchup.productionStyles
+            ? (s: number) => plo4StrengthSeatStyle(handSeed, s + 1)
+            : hybrid
+              ? () => hybrid.style
+              : undefined;
+          const dealt = leagueDealtCards(handSeed, matchup.variant ?? 'nlh', SEATS);
+          const hand = leagueSpotProbe(
+            spot.predicate,
+            dealt,
+            () => true,
+            false,
+            (observer) =>
+              playHand(
+                handSeed,
+                dealerSeat,
+                () => opts,
+                { illegal: 0, truncated: 0 },
+                HorseMind.createSandbox(),
+                matchup.variant ?? 'nlh',
+                SEATS,
+                matchup.stackBB ?? 100,
+                matchup.context ?? CASH_LEAGUE_CONTEXT,
+                hasMods ? () => mods : undefined,
+                undefined,
+                styleOf,
+                false,
+                observer as LeagueHandObserver,
+                leaguePairHandClock(c, runSeed)
+              )
+          );
+          spot.observe?.({
+            candidate: c,
+            pass: arm === 'a' ? 'probe_a' : 'probe_b',
+            handSeed,
+            dealerSeat,
+            cards: hand.cards,
+            board: hand.board,
+          });
+          return hand;
+        },
+        () => true,
+        shouldContinue
+      )
+    : null;
+  const passObserver = (
+    candidate: number,
+    pass: LeagueSpotPassObservation['pass'],
+    handSeed: number,
+    dealerSeat: number
+  ): LeagueHandObserver | undefined =>
+    spot?.observe
+      ? {
+          onEnd: (e) =>
+            spot.observe!({
+              candidate,
+              pass,
+              handSeed,
+              dealerSeat,
+              cards: e.cards.map((c) => [...c]),
+              board: [...e.board],
+            }),
+        }
+      : undefined;
+  const pairCount = spotDeals ? spotDeals.kept.length : pairs;
 
-  for (let p = 0; p < pairs; p++) {
+  for (let k = 0; k < pairCount; k++) {
     if (!shouldContinue()) break;
     // V12.3: retain a worker yield every 16 pairs. Production no longer shares
     // this event loop with live poker, but the yield is where CANCEL messages
     // are observed and where the worker sends its liveness heartbeat.
-    if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+    if (k > 0 && (k & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+    // Unselected: pair k is deal k. Spot-seeded: the k-th kept candidate deal.
+    const p = spotDeals ? spotDeals.kept[k]! : k;
     const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
     const dealerSeat = (p % SEATS) + 1;
     // Both passes of the pair are dealt on one hand clock (leaguePairHandClock).
@@ -1727,7 +1863,7 @@ export async function runMatchup(
       undefined,
       styleOf,
       learn,
-      undefined,
+      passObserver(p, 'pass1', handSeed, dealerSeat),
       handClock
     );
     const net2 = playHand(
@@ -1744,7 +1880,7 @@ export async function runMatchup(
       undefined,
       styleOf,
       learn,
-      undefined,
+      passObserver(p, 'pass2', handSeed, dealerSeat),
       handClock
     );
 
@@ -1793,6 +1929,9 @@ export async function runMatchup(
     inert: n > 0 && (divergentPairs === 0 || stderr === 0),
     ...(block
       ? { blockStderr: (block.stderr / A_HANDS_PER_PAIR) * 100, stderrBlocks: block.blocks }
+      : {}),
+    ...(spot && spotDeals
+      ? { spotSelection: leagueSpotSelectionRecord(spot, spotDeals, 'any_horse_seat') }
       : {}),
   };
 }
@@ -2014,6 +2153,7 @@ async function runHumanFieldMatchup(
   const rngBefore = saveFastRandom();
   const sb1 = HorseMind.createSandbox();
   const sb2 = HorseMind.createSandbox();
+  let spotRecord: LeagueSpotSelectionRecord | null = null;
   const withEvidence = (opts: HorseDecideOpts): HorseDecideOpts => {
     if (!opts.gtoV31DatasetChecksum && !opts.onGtoV31Decision) return opts;
     return {
@@ -2037,15 +2177,95 @@ async function runHumanFieldMatchup(
   const modsA = hybrid ? { ...hybrid.mods, ...(matchup.modsA ?? {}) } : (matchup.modsA ?? {});
   const modsB = hybrid ? { ...hybrid.mods, ...(matchup.modsB ?? {}) } : (matchup.modsB ?? {});
   const styleOf = hybrid ? () => hybrid.style : undefined;
+  const spot = matchup.spot;
 
   try {
-    for (let p = 0; p < pairs; p++) {
+    // SPOT-SEEDED: the probe plays the hero on arm B (or either arm) against
+    // the same field, on a fresh sandbox with learning off and its own response
+    // tally (HorseLeagueSpotSelection.ts); the pass sandboxes never see it.
+    const probeField: LeagueHumanField = { ...field, responses: {} };
+    const spotDeals = spot
+      ? await selectLeagueSpotDeals(
+          spot,
+          pairs,
+          (c, arm): LeagueSpotProbeHand => {
+            const handSeed = (runSeed ^ (c * 2654435761)) >>> 0 || 1;
+            const dealerSeat = (c % SEATS) + 1;
+            const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+            const opts = withDealHand(
+              withDealMood(withLearning(arm === 'a' ? matchup.a : matchup.b, false), moodMs),
+              matchup.handIdentity === 'deal_seed' ? handSeed : null
+            );
+            const mods = arm === 'a' ? modsA : modsB;
+            const dealt = leagueDealtCards(handSeed, variant, SEATS);
+            const hand = leagueSpotProbe(
+              spot.predicate,
+              dealt,
+              (s) => s === HERO,
+              true,
+              (observer) =>
+                playHand(
+                  handSeed,
+                  dealerSeat,
+                  () => opts,
+                  { illegal: 0, truncated: 0 },
+                  HorseMind.createSandbox(),
+                  variant,
+                  SEATS,
+                  matchup.stackBB ?? 100,
+                  matchup.context ?? CASH_LEAGUE_CONTEXT,
+                  () => mods,
+                  probeField,
+                  styleOf,
+                  false,
+                  observer as LeagueHandObserver,
+                  leaguePairHandClock(c, runSeed)
+                )
+            );
+            spot.observe?.({
+              candidate: c,
+              pass: arm === 'a' ? 'probe_a' : 'probe_b',
+              handSeed,
+              dealerSeat,
+              cards: hand.cards,
+              board: hand.board,
+            });
+            return hand;
+          },
+          (s) => s === HERO,
+          shouldContinue
+        )
+      : null;
+    spotRecord = spot && spotDeals ? leagueSpotSelectionRecord(spot, spotDeals, 'hero') : null;
+    const pairCount = spotDeals ? spotDeals.kept.length : pairs;
+    for (let k = 0; k < pairCount; k++) {
       if (!shouldContinue()) break;
-      if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+      if (k > 0 && (k & 0x0f) === 0) await new Promise((res) => setImmediate(res));
+      // Unselected: pair k is deal k. Spot-seeded: the k-th kept candidate deal.
+      const p = spotDeals ? spotDeals.kept[k]! : k;
       const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
       const dealerSeat = (p % SEATS) + 1;
       const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
-      const play = (opts: HorseDecideOpts, mods: HorseProfileMods, sb: HorseMindSandbox) =>
+      const observer = (pass: 'pass1' | 'pass2'): LeagueHandObserver | undefined =>
+        spot?.observe
+          ? {
+              onEnd: (e) =>
+                spot.observe!({
+                  candidate: p,
+                  pass,
+                  handSeed,
+                  dealerSeat,
+                  cards: e.cards.map((c) => [...c]),
+                  board: [...e.board],
+                }),
+            }
+          : undefined;
+      const play = (
+        opts: HorseDecideOpts,
+        mods: HorseProfileMods,
+        sb: HorseMindSandbox,
+        pass: 'pass1' | 'pass2'
+      ) =>
         playHand(
           handSeed,
           dealerSeat,
@@ -2064,12 +2284,12 @@ async function runHumanFieldMatchup(
           field,
           styleOf,
           learn,
-          undefined,
+          observer(pass),
           // Both passes of the pair are dealt on one hand clock.
           leaguePairHandClock(p, runSeed)
         );
-      const a = play(optsA, modsA, sb1)[HERO];
-      const b = play(optsB, modsB, sb2)[HERO];
+      const a = play(optsA, modsA, sb1, 'pass1')[HERO];
+      const b = play(optsB, modsB, sb2, 'pass2')[HERO];
       netA.push(a / BB);
       netB.push(b / BB);
       perPairDiff.push((a - b) / BB);
@@ -2128,6 +2348,7 @@ async function runHumanFieldMatchup(
     opponentPopulation: population,
     humanResponses: responses,
     ...(block ? { blockStderr: block.stderr * 100, stderrBlocks: block.blocks } : {}),
+    ...(spotRecord ? { spotSelection: spotRecord } : {}),
   };
 }
 
@@ -2452,6 +2673,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNutClassValueSize: true },
     b: {},
   })),
+  // 2026-11-19 (WooWoo audit NUT-SIZE): omahaValueSizeIsUnreadable, default OFF: a nut-class full-pot
+  // wager stays the full pot at the measured street share, else is sized in the owner's 80-95% band.
+  // Both arms carry omahaNutClassValueSize (on in production by release default); arm a adds the option.
+  // Same league state caveat as the card above. Declared; not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_value_size_is_unreadable`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaNutClassValueSize: true, omahaValueSizeIsUnreadable: true },
+    b: { omahaNutClassValueSize: true },
+  })),
   // 2026-11-15 HV31 FLOP-5 D1 HEADS-UP POSTFLOP BALANCE
   // (holdemHeadsUpPostflopBalance, default OFF): a switches on the heads-up
   // in-position hold'em c-bet, check-raise defence and turn balance
@@ -2762,6 +2995,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 (THREEBET-2): omahaPreflopReraiseDefencePricedInPosition, default OFF: the same priced
+  // decision, only for a Horse that opened and is heads-up in position against one 3-bet. Both arms carry
+  // production's live set, arm a adds the option. Declared; not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_reraise_defence_priced_in_position`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePricedInPosition: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
@@ -4406,6 +4650,42 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'VPIP window (as the live Madness tables do); until it is built, the recorded-hand cases in ' +
       'HorseOmahaVpipFloorByLimp.test.ts are the only evidence.',
   })),
+  // 2026-11-18 (Lightning parity lane): lightningVpipFloorLimpOnly and
+  // omahaReraisedPositionInLightning, default off. Refused, not dealt: this league
+  // deals no Lightning hand (no Lightning public memory domain in playHand).
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_lightning_vpip_floor_limp_only`,
+      variant,
+      a: { lightningVpipFloorLimpOnly: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option acts only on a Lightning cash decision whose ' +
+        'state carries lightningVpipFloor (HorseLogic.lightningVpipFloorLimpOnlyInputs), and ' +
+        'playHand builds neither a Lightning public memory domain nor that field, so the two arms ' +
+        'play identical poker. The option is DEFAULT OFF (read as === true). ' +
+        'Measured 2026-11-18 by running this refused matchup through runMatchup (seed 20261118, 300 pairs): ' +
+        '0 of 300 pairs diverged. ' +
+        'What would change this: a league pool that deals Lightning hands with a floor and a ' +
+        'per-sitting count of dealt and entered hands; until it is built, ' +
+        'HorseLightningVpipFloorLimpOnly.test.ts is the evidence.',
+    },
+    {
+      name: `${variant}_omaha_reraised_position_in_lightning`,
+      variant,
+      a: { omahaReraisedPositionInLightning: true },
+      b: {},
+      reason:
+        'Unanswerable by this league: the option only lifts the Lightning branch of ' +
+        'omahaReraisedLaneUntouched (HorseLogic), and playHand deals no Lightning hand, so the two ' +
+        'arms play identical poker. The option is DEFAULT OFF (read as === true). ' +
+        'Measured 2026-11-18 by running this refused matchup through runMatchup (seed 20261118, 300 pairs): ' +
+        '0 of 300 pairs diverged. ' +
+        'What would change this: a league pool that deals Lightning hands (a Lightning public ' +
+        'memory domain on the decision state); until it is built, the recorded Lightning lines of ' +
+        'HorseOmahaReraisedPositionInLightning.test.ts are the evidence.',
+    },
+  ]),
   // 2026-11-17 (F-10, owner ruling 14:34 Chicago): vpipFloorLimpOnly, default off.
   // Refused, not dealt: this league seats no VPIP-floor table.
   ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({

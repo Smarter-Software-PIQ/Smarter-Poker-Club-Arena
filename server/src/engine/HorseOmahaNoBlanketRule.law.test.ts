@@ -255,6 +255,7 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
       .sort();
     expect(openRules).toEqual(
       [
+        'omahaBigBetIsPotShare',
         'omahaNoRiverBluffIntoValueLeader',
         'omahaOnePairDiscipline',
         'omahaReraisedPotFlopContinueNeedsEquityShape',
@@ -267,6 +268,7 @@ describe('the register (HorseOmahaRuleSites.ts)', () => {
       '10: omaha_oop_turn_check_fold_no_outs omaha_oop_turn_check_call_nut_draw omaha_oop_turn_check_raise_flatted',
       'S1b (sites-013U37): omaha_bare_overpair_oop_flop_check_called omaha_bare_overpair_oop_flop_check_folded omaha_bare_overpair_oop_flop_check_raise_flatted omaha_bare_overpair_oop_flop_check_failsafe_flatted',
       'S6b (sites-013U37, review R3 B1): omaha_priced_site_blocker_bluff_gate_withheld',
+      '14 (verifier D9, 2026-11-19): range_read_big_bet_counted v16_sizecond_bigbet',
     ]);
     for (const site of OMAHA_OPEN_RULE_SITES) {
       expect(site.why.length, `audit ${site.audit}: the reason is stated`).toBeGreaterThan(40);

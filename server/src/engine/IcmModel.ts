@@ -545,17 +545,39 @@ let bustPaysPlace = false;
  * decision inside withIcmBustPaysPlace(opts.icmBustPaysPlace === true, ...), so the paid-bust valuation is switched
  * live like every other Horse decision change. Off, a bust is valued at 0 exactly as before.
  */
-export function withIcmBustPaysPlace<T>(on: boolean, fn: () => T): T {
+export function withIcmBustPaysPlace<T>(on: boolean, fn: () => T, onFactorChanged?: () => void): T {
   const previous = bustPaysPlace;
+  // Receipt only (2026-11-18): onFactorChanged is called once when fn returns, if the paid-bust value moved at least
+  // one bubble factor while it ran (a nested scope's moves are included). It reads a counter and decides nothing.
+  const changesBefore = bustPaysPlaceFactorChanges;
   bustPaysPlace = on;
+  let value: T;
   try {
-    return fn();
+    value = fn();
   } finally {
     bustPaysPlace = previous;
   }
+  if (on && onFactorChanged && bustPaysPlaceFactorChanges !== changesBefore) onFactorChanged();
+  return value;
 }
 export function icmBustPaysPlaceOn(): boolean {
   return bustPaysPlace;
+}
+/**
+ * Receipt only (icm_bust_pays_place_factor_changed_seen, 2026-11-18): how many bubble factors (bubbleFactor,
+ * pairwiseBubbleFactor) the paid-bust valuation moved off the factor the 0 valuation gives, since the process
+ * started. Monotonic; withIcmBustPaysPlace compares it before and after fn. Read by nothing that decides.
+ */
+let bustPaysPlaceFactorChanges = 0;
+export function icmBustPaysPlaceFactorChangeCount(): number {
+  return bustPaysPlaceFactorChanges;
+}
+/** The clamped factor, counting it when the paid bust moved it (off, a bust is 0 and the loss is the whole equity). */
+function bubbleFactorOf(now: number, loss: number, gain: number, busts: boolean): number {
+  const factor = Math.max(1, Math.min(5, loss / gain));
+  if (bustPaysPlace && busts && factor !== Math.max(1, Math.min(5, now / gain)))
+    bustPaysPlaceFactorChanges++;
+  return factor;
 }
 
 function equityAfterPot(before: number[], after: number[], payouts: number[], idx: number): number {
@@ -602,7 +624,7 @@ export function bubbleFactor(
   const gain = icmEquity(up, payouts, heroIdx) - now;
   const loss = now - equityAfterPot(stacks, down, payouts, heroIdx);
   if (gain <= 1e-12) return 5;
-  return Math.max(1, Math.min(5, loss / gain));
+  return bubbleFactorOf(now, loss, gain, (down[heroIdx] ?? 0) <= 0);
 }
 
 export function premiumFromBubbleFactor(factor: number): number {
@@ -649,7 +671,7 @@ export function pairwiseBubbleFactor(
   const gain = icmEquity(up, payouts, actorIdx) - now;
   const loss = now - equityAfterPot(stacks, down, payouts, actorIdx);
   if (gain <= 1e-12) return 5;
-  return Math.max(1, Math.min(5, loss / gain));
+  return bubbleFactorOf(now, loss, gain, (down[actorIdx] ?? 0) <= 0);
 }
 
 export interface AsymmetricCoverPressure {
