@@ -70,6 +70,11 @@ it('runs the old rejection and repaired stake matrix in isolated PostgreSQL', ()
     PGDATABASE: 'postgres',
     PGUSER: process.env.USER || 'runner',
     PGSSLMODE: 'disable',
+    // A fixed C locale, as every other private PostgreSQL fixture here sets.
+    // Inherited unset locale makes macOS postgres refuse to start
+    // ("postmaster became multithreaded during startup").
+    LC_ALL: 'C',
+    LANG: 'C',
   };
   delete env.PGSERVICE;
   delete env.PGSERVICEFILE;
