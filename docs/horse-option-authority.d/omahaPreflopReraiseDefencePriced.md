@@ -69,7 +69,9 @@ equities from the independent Step 1 evaluator).
    counts loaded as the read; the table's VPIP floor window and second look were not supplied (preflop re-raise spots).
 3. Value: Step 1 per cell (position, 3-bet/4-bet, ratio, players) against the recorded range; replay of real calls:
    the calls it adds made +4.23 bb (SE 3.26, n 629), the calls it removes -2.57 (SE 8.35, n 115). League: below.
-4. Continuation: realization measured from recorded calls, not assumed; the fold-to-re-raise rate is the measured read.
+4. Continuation: realization measured from recorded calls, not assumed; the fold share of a proposed re-raise is the
+   re-raiser's measured answer to that re-raise (corrected 2026-11-18, section below; before that it was his fold to a
+   3-bet as an opener, with a 0.45 fallback).
 5. Reach: 7,768 real decisions replayed: continue share of a Horse that raised, in position facing a 3-bet, 41% -> 98%;
    out of position 17% -> 41%; facing a 4-bet in position 27% -> 78%; cold callers out of position 5% -> 2%.
 6. Scope: PLO4/PLO5 cash only; PLO6, Hi-Lo, multi-board, bomb pots, all-in-or-fold and tournaments excluded by gate
@@ -149,3 +151,42 @@ Review R1 B1 of preflop 070d002127e (one owner per cell), fixed in the batch:
   Tests: HorseOmahaPreflopReraiseDefence.realHands.law.test.ts (seam b on hand 59830020 seed 1; seam a on every fixture seed 1-40 a range cell judged, and the source pin).
   Main moved under this option: since #11247 (0edbb56d179) the live call cell prices the call its class cell folds, so five of the eight audited folds are calls today (the test's "today" column was re-pinned to main).
   Notes: N1 EV(re-raise) (HorseOmahaPreflopReraiseDefence.ts) assumes the players already in also fold to the re-raise, which overstates a multiway re-raise; N2 the receipt validator's admission of a priced call is option-independent (precedent omahaReraiseToCall).
+
+## Corrected input: the fold share of a proposed 4-bet or 5-bet (2026-11-18, Horse Switch lane builder FOURBET)
+
+Defect (PLO45-CASH IMPROVEMENTS item 1; WooWoo 48-hour audit FOURBET F2): EV(re-raise) took f, the re-raiser's fold
+share when re-raised again, from his fold to a 3-bet as an opener (envelope `foldTo3Bet` mean, then
+`HorseMind.opponentRead(...).stats.foldTo3Bet`), with a fallback constant 0.45. That is a different player at a
+different node. Measured (PLO4/PLO5 cash with a person seated, 2026-11-10T07:00Z to 2026-11-18T06:16Z, 8,627 hands,
+evidence woowoo-48h-audit-01BNteGYgf/repairs/FOURBET/FINDINGS.md section 1 and data/events.jsonl): persons folded to a
+Horse 4-bet 0 of 196 (Wilson 95% [0, 1.9%]; 149 calls, 47 5-bets). With the option on every 4-bet against a person
+would have been credited about 45% folds it does not earn.
+
+Corrected input (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiserReadOf, the option's one read interface):
+f = the posterior fold share of the re-raiser's own answers at the node of the re-raise proposed (a 4-bet:
+threeBetFacesFourBet; a 5-bet: fourBetFacesFiveBet; HorseMind.omahaReraiseResponseOf, the counters of
+HorseOmahaReraiseResponse.ts carried from horse_exact_profiles.reraise_response) against his kind's population prior,
+`reraiseResponsePosterior(record, node, prior, mass).fold`. The prior is the Dirichlet posterior of the measured
+answers to a Horse re-raise (count + 1/2 per answer; mean and weight both from the measurement):
+
+| re-raiser                     | node           | measured fold / call / re-raise | prior fold | weight |
+| ----------------------------- | -------------- | ------------------------------- | ---------- | ------ |
+| person (also an unknown kind) | facing a 4-bet | 0 / 149 / 47 (n 196)            | 0.0025     | 197.5  |
+| Horse                         | facing a 4-bet | 53 / 18 / 17 (n 88)             | 0.598      | 89.5   |
+| person (also an unknown kind) | facing a 5-bet | 0 / 6 / 1 (n 7)                 | 0.059      | 8.5    |
+| Horse                         | facing a 5-bet | 1 / 8 / 7 (n 16)                | 0.086      | 17.5   |
+
+With the mind off, no record for him, or the record not carried (the production column not installed, a new player)
+the prior alone applies. Fold-to-3-bet no longer enters, and the 0.45 constant is deleted. No threshold keyed to bet
+size, hand class or position was added: the fold share enters the same EV arithmetic as before. The re-raise rate read
+(range width) is unchanged.
+
+Tests: HorseOmahaPreflopReraiseDefence.test.ts (a person with no 4-bet history is credited the prior, never 45% and never
+his fold to a 3-bet; measured folds to 4-bets are credited by the posterior at the proposed node; in the rule, the
+4-bet's EV moves accordingly) and HorseOmahaPreflopReraiseDefence.realHands.law.test.ts (option unset and false:
+byte-identical decisions and receipts with and without a record that folds to every 4-bet and 5-bet; the record is never
+read).
+
+Status: the option remains OFF (default OFF in source, OFF-ONLY under the owner preflop range hold). This correction is
+UNEVALUATED: no league, replay or human-field run was repeated with the corrected input, and every evaluation figure above
+was measured with the old fold input.
