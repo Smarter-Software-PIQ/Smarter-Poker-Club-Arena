@@ -11158,66 +11158,6 @@ function LiveTablePage({
     },
     [isActive]
   );
-  /**
-   * A SHARED HAND IS RECORDED ONCE (2026-11-18).
-   *
-   * The journals above keep growing after `hand_complete`: the pot push and
-   * the winner's seat paint are journalled when `pot_win` lands, about three
-   * seconds later. The Share sheet used to be handed the hand at completion
-   * and handed it again on every re-read of the journals (sheet open, next
-   * deal, repeated completion event). Each re-read encoded differently, and
-   * the short link is keyed by the payload: production reserved three links
-   * for one hand in ten seconds (payloads of 1,056, 3,030 and 3,540).
-   *
-   * `shareRecording` owns the answer to "is this hand's recording final?".
-   * HAND_COMPLETE begins a recording and offers nothing. `sealSharedHand`
-   * reads the journals ONE time, at the end of the hand's presentation: the
-   * post-hand reset (which POT_WIN already pushes past the award animation),
-   * or the next HAND_STARTED, whichever comes first. Only the sealed hand is
-   * ever given to the sheet, so it has one payload and one link.
-   */
-  const shareRecording = useRef(createSharedHandRecording<SharedTableAppearance, ShareableHand>());
-  /** Writes the open hand's presentation to the local archive (set at HAND_COMPLETE). */
-  const archiveRecordedHand = useRef<((appearance: SharedTableAppearance) => void) | null>(null);
-  const readShareJournal = useCallback(
-    () => ({
-      hand: paintedSeats.current.hand,
-      parts: {
-        chips: [...paintedChips.current.paths],
-        seatPaints: [...paintedSeats.current.events],
-        throws: [...paintedThrows.current.events],
-        boardTiming: { ...visibleBoard.current.times },
-      },
-    }),
-    []
-  );
-  /** `only`: seal nothing unless THIS hand is the one still open. */
-  const sealSharedHand = useCallback(
-    (only?: number) => {
-      const recording = shareRecording.current;
-      if (only != null && recording.pendingHand() !== only) return;
-      /* Archive first: a share waiting on this seal may read the archive. */
-      const journal = readShareJournal();
-      const final = recording.preview(journal);
-      if (final?.appearance) archiveRecordedHand.current?.(final.appearance);
-      recording.seal(journal);
-    },
-    [readShareJournal]
-  );
-  useEffect(() => {
-    /* Leaving the page does not end the hand, so this archives and seals nothing. */
-    const persistLastHand = () => {
-      const open = shareRecording.current.preview(readShareJournal());
-      if (open?.appearance) archiveRecordedHand.current?.(open.appearance);
-    };
-    window.addEventListener('pagehide', persistLastHand);
-    return () => {
-      window.removeEventListener('pagehide', persistLastHand);
-      persistLastHand();
-      archiveRecordedHand.current = null;
-      shareRecording.current.forgetRequest();
-    };
-  }, [tableId, userId, readShareJournal]);
   const observeShareSeat = useCallback(
     (props: SeatSlotProps) => {
       const journal = paintedSeats.current;
@@ -11296,6 +11236,66 @@ function LiveTablePage({
     if (started == null || observation.hand !== Number(hand) || !street || document.hidden) return;
     observation.times[street] ??= Math.round(performance.now() - started);
   }, []);
+  /**
+   * A SHARED HAND IS RECORDED ONCE (2026-11-18).
+   *
+   * The journals above keep growing after `hand_complete`: the pot push and
+   * the winner's seat paint are journalled when `pot_win` lands, about three
+   * seconds later. The Share sheet used to be handed the hand at completion
+   * and handed it again on every re-read of the journals (sheet open, next
+   * deal, repeated completion event). Each re-read encoded differently, and
+   * the short link is keyed by the payload: production reserved three links
+   * for one hand in ten seconds (payloads of 1,056, 3,030 and 3,540).
+   *
+   * `shareRecording` owns the answer to "is this hand's recording final?".
+   * HAND_COMPLETE begins a recording and offers nothing. `sealSharedHand`
+   * reads the journals ONE time, at the end of the hand's presentation: the
+   * post-hand reset (which POT_WIN already pushes past the award animation),
+   * or the next HAND_STARTED, whichever comes first. Only the sealed hand is
+   * ever given to the sheet, so it has one payload and one link.
+   */
+  const shareRecording = useRef(createSharedHandRecording<SharedTableAppearance, ShareableHand>());
+  /** Writes the open hand's presentation to the local archive (set at HAND_COMPLETE). */
+  const archiveRecordedHand = useRef<((appearance: SharedTableAppearance) => void) | null>(null);
+  const readShareJournal = useCallback(
+    () => ({
+      hand: paintedSeats.current.hand,
+      parts: {
+        chips: [...paintedChips.current.paths],
+        seatPaints: [...paintedSeats.current.events],
+        throws: [...paintedThrows.current.events],
+        boardTiming: { ...visibleBoard.current.times },
+      },
+    }),
+    []
+  );
+  /** `only`: seal nothing unless THIS hand is the one still open. */
+  const sealSharedHand = useCallback(
+    (only?: number) => {
+      const recording = shareRecording.current;
+      if (only != null && recording.pendingHand() !== only) return;
+      /* Archive first: a share waiting on this seal may read the archive. */
+      const journal = readShareJournal();
+      const final = recording.preview(journal);
+      if (final?.appearance) archiveRecordedHand.current?.(final.appearance);
+      recording.seal(journal);
+    },
+    [readShareJournal]
+  );
+  useEffect(() => {
+    /* Leaving the page does not end the hand, so this archives and seals nothing. */
+    const persistLastHand = () => {
+      const open = shareRecording.current.preview(readShareJournal());
+      if (open?.appearance) archiveRecordedHand.current?.(open.appearance);
+    };
+    window.addEventListener('pagehide', persistLastHand);
+    return () => {
+      window.removeEventListener('pagehide', persistLastHand);
+      persistLastHand();
+      archiveRecordedHand.current = null;
+      shareRecording.current.forgetRequest();
+    };
+  }, [tableId, userId, readShareJournal]);
   const handStartStacksRef = useRef<Record<number, number>>({});
   /** Button seat captured at HAND_STARTED — the live dealerSeat has already
    *  rotated by the time the hand completes. */
