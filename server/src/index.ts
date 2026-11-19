@@ -29,7 +29,11 @@ import { subscribePlayerSessionRevocations } from './services/PlayerSessionAcces
 import { AsyncResource } from 'node:async_hooks';
 import { horseAdaptiveJournalWorker } from './services/HorseAdaptiveJournalWorker.js';
 import { createEngineHttpServer } from './http/createEngineHttpServer.js';
-import { reportError } from './services/errorReporter.js';
+import { describeError, reportError } from './services/errorReporter.js';
+import {
+  flushEngineLifecycleLogs,
+  recordEngineLifecycleLog,
+} from './services/engineLifecycleLog.js';
 import { tableStateHub } from './transport/TableStateHub.js';
 import { authorizeTableConnection } from './services/TableConnectionAccess.js';
 import { EngineWebSocketServer } from './transport/EngineWebSocketServer.js';
@@ -420,6 +424,12 @@ httpServer.listen(PORT, () => {
   console.log(`[HTTP] Health check server listening on port ${PORT}`);
   console.log(`[WS]   Engine WebSocket server attached at /ws/table/:tableId`);
   console.log(`[WS]   Channel WebSocket server attached at /ws/channel`);
+  void recordEngineLifecycleLog({
+    level: 'info',
+    event: 'boot',
+    message: `Engine HTTP/WS server listening on port ${PORT}`,
+    detail: { port: PORT },
+  });
   leaderStartOperation = startLeaderOwnedServices();
   void leaderStartOperation.catch((err) => fatal(err, 'GameServer.Fatal_error'));
 });
@@ -454,11 +464,19 @@ function beginShutdownStep(
 function scheduleFailedShutdownExit(error: unknown, kind: string): void {
   shutdownMustFail = true;
   reportError(error, kind);
+  void recordEngineLifecycleLog({
+    level: 'fatal',
+    event: 'shutdown_failed',
+    message: describeError(error),
+    error,
+    detail: { kind },
+  });
   console.error(`[GameServer] ${kind} - ownership release was not certified`, error);
   if (shutdownFailureExitScheduled) return;
   shutdownFailureExitScheduled = true;
   // Keep this referenced. Once transports are closed, an unref'd failure
   // timer can let Node fall off the event loop with a misleading status 0.
+  void flushEngineLifecycleLogs(1_500);
   setTimeout(() => process.exit(1), 2_000);
 }
 
@@ -501,8 +519,15 @@ async function performShutdown(): Promise<void> {
       `[GameServer] graceful shutdown exceeded ${SHUTDOWN_DEADLINE_MS}ms before ownership release`
     );
     reportError(error, 'GameServer.shutdown_deadline');
+    void recordEngineLifecycleLog({
+      level: 'fatal',
+      event: 'shutdown_deadline',
+      message: error.message,
+      error,
+      detail: { deadlineMs: SHUTDOWN_DEADLINE_MS },
+    });
     console.error(error.message);
-    process.exit(1);
+    void flushEngineLifecycleLogs(500).finally(() => process.exit(1));
   }, SHUTDOWN_DEADLINE_MS);
 
   // Attach both outcomes to every parallel operation at admission time. This
@@ -539,6 +564,7 @@ async function performShutdown(): Promise<void> {
       );
     }
     await persistEngineAlertsBeforeExit();
+    await flushEngineLifecycleLogs(2_000);
     clearTimeout(hardDeadline);
     process.exit(shutdownMustFail ? 1 : 0);
   } catch (error) {
@@ -565,13 +591,30 @@ const shutdown = AsyncResource.bind((): Promise<void> => {
 // then lets GameServer stop and release all of its distributed ownership.
 registerLeadershipShutdownHandler((reason) => {
   console.error(`[GameServer] Leadership requested shutdown: ${reason}`);
+  void recordEngineLifecycleLog({
+    level: 'warn',
+    event: 'leadership_shutdown',
+    message: String(reason || 'leadership lost'),
+  });
   return shutdown();
 });
 
 process.on('SIGINT', () => {
+  void recordEngineLifecycleLog({
+    level: 'info',
+    event: 'shutdown_signal',
+    message: 'Received SIGINT',
+    detail: { signal: 'SIGINT' },
+  });
   void shutdown().catch(() => undefined);
 });
 process.on('SIGTERM', () => {
+  void recordEngineLifecycleLog({
+    level: 'info',
+    event: 'shutdown_signal',
+    message: 'Received SIGTERM',
+    detail: { signal: 'SIGTERM' },
+  });
   void shutdown().catch(() => undefined);
 });
 /**
@@ -592,6 +635,13 @@ process.on('SIGTERM', () => {
 let exiting = false;
 const fatal = (err: unknown, kind: string) => {
   reportError(err, kind);
+  void recordEngineLifecycleLog({
+    level: 'fatal',
+    event: 'fatal_error',
+    message: describeError(err),
+    error: err,
+    detail: { kind },
+  });
   shutdownMustFail = true;
   if (exiting) return;
   exiting = true;
