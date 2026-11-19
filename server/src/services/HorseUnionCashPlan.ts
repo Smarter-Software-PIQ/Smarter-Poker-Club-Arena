@@ -21,6 +21,12 @@ export const LIGHTNING_HORSE_SEEDED: ReadonlySet<string> = new Set(
     (game) => game.id
   ) ?? []
 );
+/** Every game Horses start with nobody at it: the plan's games and the seeded
+ * Lightning games. A game outside this set is started by a person. */
+export const HORSE_STARTED_CASH_GAMES: ReadonlySet<string> = new Set([
+  ...plan.games.map((game) => game.id),
+  ...LIGHTNING_HORSE_SEEDED,
+]);
 /**
  * A SEEDED LIGHTNING GAME STARTS FIRST (Dan 2026-11-13 14:56 Chicago).
  *

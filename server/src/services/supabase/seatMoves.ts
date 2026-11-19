@@ -204,10 +204,14 @@ export interface ExecuteSeatMovesOptions {
   mustMoveOnly?: boolean;
   /** Withdraws future dispatches; an already issued request remains owned until settled. */
   shouldContinue?: () => boolean;
+  /** A move that is not due at this boundary whatever else is true; it stays
+   *  pending (HorseVarietyFirst: a Horse's feeder start behind a game with no table). */
+  waits?: (move: PendingSeatMove) => boolean;
 }
 
 /** Select execution without discarding the full durable list used for swap holds. */
 export function seatMoveIsDue(move: PendingSeatMove, opts: ExecuteSeatMovesOptions): boolean {
+  if (opts.waits?.(move)) return false;
   const feedsMain = move.reason === 'must_move' && move.swap_move_id == null;
   if (opts.mustMoveOnly) return feedsMain;
   return !opts.announcedOnly || move.announced_at != null || feedsMain;
