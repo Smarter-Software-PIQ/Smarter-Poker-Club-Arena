@@ -167,19 +167,51 @@ it('successor custody cannot dispose an old permit', async () => {
     }))
   ).rejects.toThrow('original_custody');
 });
-it('only explicit used-number refusal permits choosing another number', async () => {
-  for (const reply of [
-    { data: { ok: false, reason: 'hand_number_already_used' }, error: null },
+it('only a refusal SQL names before its insert proves the permit absent (hand delay 2026-11-18)', async () => {
+  const proven = [
+    'hand_number_already_used',
+    'diamond_arena_closed',
+    'permit_released_absent',
+    'source_excluded',
+    'hand_permit_unresolved',
+    'operator_abort_stopped',
+  ];
+  const unproven: { data: any; error: any }[] = [
+    // A lost reply may have committed: replay, never assume.
     { data: null, error: new Error('lost') },
-    { data: { ok: false, reason: 'source_excluded' }, error: null },
-  ]) {
+    // An existing permit row (FOUND path) in another state carries no reason.
+    { data: { ...data, ok: false, state: 'never_started' }, error: null },
+    // A reason this code has never seen is not a proof.
+    { data: { ok: false, reason: 'something_new' }, error: null },
+    // A row-shaped answer is never a pre-insert refusal, whatever else it says.
+    { data: { ...data, ok: false, reason: 'source_excluded' }, error: null },
+  ];
+  for (const reason of proven) {
+    const p = new F06HandPermit(
+      b,
+      async () => ({ data: { ok: false, reason }, error: null }),
+      () => true
+    );
+    await expect(p.reserve()).rejects.toThrow(
+      reason === 'hand_number_already_used'
+        ? 'f06_hand_number_already_used'
+        : 'f06_begin_refused:' + reason
+    );
+    expect(p.knownNumberRefusal()).toBe(true);
+    expect(p.refusedBecause()).toBe(reason);
+    expect(p.recoveryState()).toBe('number_refused');
+    // A proven-absent permit can never be started or begun again.
+    await expect(p.reserve()).rejects.toThrow('f06_permit_consumed');
+  }
+  for (const reply of unproven) {
     const p = new F06HandPermit(
       b,
       async () => reply,
       () => true
     );
     await expect(p.reserve()).rejects.toThrow();
-    expect(p.knownNumberRefusal()).toBe(reply.data?.reason === 'hand_number_already_used');
+    expect(p.knownNumberRefusal()).toBe(false);
+    expect(p.recoveryState()).toBe('unknown');
   }
 });
 

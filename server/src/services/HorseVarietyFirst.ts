@@ -1,0 +1,260 @@
+/**
+ * A PLAN GAME WITH NO TABLE STARTS BEFORE ANOTHER GAME'S EXTRA TABLE
+ * (2026-11-18, PLO5 1/2 Madness dark for eight hours).
+ *
+ * The hourly cash-table cap (fn_cash_hourly_table_range, 2026-11-16) is a
+ * count of occupied tables. It says nothing about WHICH games hold them. After
+ * the night walk-down on 2026-11-18 five games held sixteen of the sixteen
+ * counted tables (NLH .50/1 Classic alone held four) while PLO5 1/2 Madness,
+ * PLO5 .50/1 Classic, PLO6 1/2 Classic, NLH .05/.10 Classic and four seeded
+ * Lightning games held none, from 08:45Z until the cap rose in the evening.
+ *
+ * A free start under the cap is taken through three doors, and before this
+ * rule only one of them had an order at all:
+ *
+ *  1. the seeding walk (HorseFleetManager), which ranked an `opening` feeder
+ *     ahead of every other cluster table, so an empty Main 1 of a game with no
+ *     table stood behind the newest feeder of a game that already had three;
+ *  2. a Horse answering a seat call (claimOfferedSeats), which runs BEFORE
+ *     the walk in the same cycle and sat the head of a full game's list at
+ *     its empty feeder as soon as the cap admitted that table;
+ *  3. the cluster tick's feeder start (`balance` moves of the last two to sit
+ *     at a full Main), executed by the table engine at its own hand boundary
+ *     with no reference to the walk. A move adds no body to the host, so it
+ *     also passed the night seat ceiling that stopped the walk seating anyone.
+ *
+ * Doors 2 and 3 are why a seeded Lightning game, which the walk ranks ahead of
+ * every feeder, got no start either: the walk's order was never consulted.
+ *
+ * The rule, one definition for all three doors. While a game Horses start on
+ * their own (a plan game, or a seeded Lightning game) has NO occupied table
+ * and has a table Horses may start:
+ *
+ *  - that table is walked straight after a short-handed person's table;
+ *  - an EMPTY table of a Classic game that already has an occupied table is
+ *    not started by a Horse: not by the walk, not by a seat call, not by a
+ *    feeder-start move.
+ *
+ * Variety first, then depth. Nothing here raises or reads the cap: the
+ * database still admits one start at a time under it. What it does not touch:
+ *
+ *  - a person. A table with a person at it is never empty, a person who sits
+ *    at an empty table starts it as before, and a person's move is never held;
+ *  - a table that already has players. Filling, must-move into a Main,
+ *    promotion, consolidation and closing are the cluster tick's, unchanged;
+ *  - a Lightning game's next ring, seeded (Dan 2026-11-17, "Fill each to
+ *    10-12") or started by a person: it keeps its rank and is never held, it
+ *    only walks after a game that has nothing.
+ *
+ * A game that cannot be started is not owed for ever. When the walk reaches an
+ * owed table that the cap admits and seats nobody for a reason of that table's
+ * own (no Horse can sit there, the door refused), the game rests for
+ * VARIETY_START_REST_MS and depth proceeds. A floor-wide stop (the seat
+ * ceiling, the seat budget, the cycle clock) is not the game's own reason and
+ * rests nothing.
+ */
+
+export interface VarietyTable {
+  id: string;
+  cluster_id?: string | null;
+  role?: string | null;
+  main_index?: number | null;
+  lifecycle?: string | null;
+}
+
+export interface VarietyFirstInput<T extends VarietyTable> {
+  tables: ReadonlyArray<T>;
+  /** Players seated at a table now. */
+  seatedAt: (tableId: string) => number;
+  /** Games Horses start on their own: the plan's games and the seeded Lightning games. */
+  startGames: ReadonlySet<string>;
+  /** Lightning games: their empty tables are the pool's next ring and are never held. */
+  neverHeldGames: ReadonlySet<string>;
+  /** May Horses start this empty table now? The caller's whole admission policy except the cap. */
+  mayStart: (table: T) => boolean;
+  /** Games resting after a start the walk could not make (see VarietyStartMemory). */
+  restingGames?: ReadonlySet<string>;
+  /** Tables to prefer as a game's start (a seeded Lightning game's starter). */
+  preferredStarts?: ReadonlySet<string>;
+}
+
+export interface VarietyFirstPlan {
+  /** Start table id -> its game: one per startable game with no occupied table. */
+  owedStarts: ReadonlyMap<string, string>;
+  /** Empty tables of games that already have an occupied table; not started by a Horse while a start is owed. */
+  heldStarts: ReadonlySet<string>;
+}
+
+export const NO_VARIETY_PLAN: VarietyFirstPlan = { owedStarts: new Map(), heldStarts: new Set() };
+
+const open = (t: VarietyTable): boolean => t.lifecycle !== 'closed' && t.lifecycle !== 'breaking';
+
+/** PURE. Which starts are owed this cycle and which wait behind them. */
+export function varietyFirstPlan<T extends VarietyTable>(
+  input: VarietyFirstInput<T>
+): VarietyFirstPlan {
+  const seated = (t: VarietyTable): number => {
+    const n = input.seatedAt(String(t.id));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  const occupiedGames = new Set<string>();
+  const emptyByGame = new Map<string, T[]>();
+  for (const t of input.tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string' || !t.cluster_id) continue;
+    /* A breaking table with players on it is still that game being played. */
+    if (seated(t) > 0) {
+      if (t.lifecycle !== 'closed') occupiedGames.add(t.cluster_id);
+      continue;
+    }
+    if (!open(t)) continue;
+    const list = emptyByGame.get(t.cluster_id);
+    if (list) list.push(t);
+    else emptyByGame.set(t.cluster_id, [t]);
+  }
+  const owedStarts = new Map<string, string>();
+  for (const [gameId, empties] of emptyByGame) {
+    if (occupiedGames.has(gameId) || !input.startGames.has(gameId)) continue;
+    if (input.restingGames?.has(gameId)) continue;
+    const start = empties
+      .filter((t) => input.mayStart(t))
+      .sort(
+        (a, b) =>
+          Number(input.preferredStarts?.has(b.id) ?? false) -
+            Number(input.preferredStarts?.has(a.id) ?? false) ||
+          Number(a.role !== 'main') - Number(b.role !== 'main') ||
+          Number(a.main_index ?? 999) - Number(b.main_index ?? 999) ||
+          String(a.id).localeCompare(String(b.id))
+      )[0];
+    if (start) owedStarts.set(start.id, gameId);
+  }
+  const heldStarts = new Set<string>();
+  if (owedStarts.size > 0) {
+    for (const [gameId, empties] of emptyByGame) {
+      if (!occupiedGames.has(gameId) || input.neverHeldGames.has(gameId)) continue;
+      for (const t of empties) heldStarts.add(t.id);
+    }
+  }
+  return { owedStarts, heldStarts };
+}
+
+/**
+ * THE HOLD IS ONLY AS GOOD AS THE CYCLE THAT CAN PAY THE DEBT (review of
+ * 02de6de4e2f, finding 1). An extra table waits for an owed start only in a
+ * cycle that can actually make that start: the walk is not withheld (fleet
+ * disabled, seating paused, brain behind, fleet-wide cap, outside the
+ * schedule) and the hourly cap admits at least one owed table this cycle. In
+ * every other cycle nothing is held by any door: the owed game cannot start
+ * anyway, and a feeder-start move, which adds no Horse to the floor, must not
+ * wait on a fleet that is not seating.
+ */
+export function varietyHoldsThisCycle(
+  plan: VarietyFirstPlan,
+  cycle: { withheld: boolean; admitted: (tableId: string) => boolean }
+): ReadonlySet<string> {
+  if (cycle.withheld) return NO_VARIETY_PLAN.heldStarts;
+  for (const tableId of plan.owedStarts.keys()) {
+    if (cycle.admitted(tableId)) return plan.heldStarts;
+  }
+  return NO_VARIETY_PLAN.heldStarts;
+}
+
+/** The walk's rank: an owed start before everything but a short-handed person. */
+export function compareVarietyFirst(
+  a: { id: string },
+  b: { id: string },
+  plan: VarietyFirstPlan
+): number {
+  return Number(plan.owedStarts.has(String(b.id))) - Number(plan.owedStarts.has(String(a.id)));
+}
+
+/** How long a game the walk could not start stands aside for depth. */
+export const VARIETY_START_REST_MS = 5 * 60_000;
+
+/**
+ * Which games rest. Process-local and deliberately forgetful: a restart or a
+ * new leader simply asks every game again, which is the safe direction.
+ */
+export class VarietyStartMemory {
+  private readonly failedAt = new Map<string, number>();
+
+  /** The walk reached this game's admitted start and seated nobody, for a reason of its own. */
+  noteCouldNotStart(gameId: string, nowMs: number): void {
+    this.failedAt.set(gameId, nowMs);
+  }
+
+  noteStarted(gameId: string): void {
+    this.failedAt.delete(gameId);
+  }
+
+  resting(nowMs: number): ReadonlySet<string> {
+    const out = new Set<string>();
+    for (const [gameId, at] of this.failedAt) {
+      if (nowMs - at < VARIETY_START_REST_MS && nowMs >= at) out.add(gameId);
+      else this.failedAt.delete(gameId);
+    }
+    return out;
+  }
+}
+
+/* ── THE THIRD DOOR ────────────────────────────────────────────────────────
+   The table engine executes a feeder-start move at its own hand boundary and
+   cannot see the floor. The fleet publishes the held tables and its Horse ids
+   once per cycle; the engine asks before it executes a move. A publication
+   older than VARIETY_HOLD_FRESH_MS is ignored: a fleet that has stopped
+   cycling (not the leader, withheld, crashed) must never be the reason a move
+   waits. A person's move is never held. */
+export const VARIETY_HOLD_FRESH_MS = 90_000;
+
+let published: {
+  tables: ReadonlySet<string>;
+  horses: ReadonlySet<string>;
+  atMs: number;
+} | null = null;
+
+export function publishVarietyHolds(
+  tables: ReadonlySet<string>,
+  horses: ReadonlySet<string>,
+  nowMs: number
+): void {
+  published = { tables, horses, atMs: nowMs };
+}
+
+/** Does a Horse's move onto this table wait for a game that has no table? */
+export function moveWaitsForVariety(
+  toTableId: string,
+  playerId: string,
+  nowMs: number = Date.now()
+): boolean {
+  if (!published) return false;
+  const age = nowMs - published.atMs;
+  if (!(age >= 0 && age < VARIETY_HOLD_FRESH_MS)) return false;
+  return published.tables.has(String(toTableId)) && published.horses.has(String(playerId));
+}
+
+/**
+ * The engine's question at a hand boundary. Only the cluster tick's feeder
+ * start (`balance`, one way): a must-move into a Main, a break move and a
+ * seat-change swap are never part of this rule.
+ */
+export function feederStartWaitsForVariety(move: {
+  reason: string;
+  swap_move_id: string | null;
+  to_table_id: string;
+  player_id: string;
+}): boolean {
+  return (
+    move.reason === 'balance' &&
+    move.swap_move_id == null &&
+    moveWaitsForVariety(move.to_table_id, move.player_id)
+  );
+}
+
+/** A cycle that cannot make an owed start holds nothing, at once. */
+export function clearVarietyHolds(): void {
+  published = null;
+}
+
+/** Test seam. */
+export function __resetVarietyHolds(): void {
+  published = null;
+}

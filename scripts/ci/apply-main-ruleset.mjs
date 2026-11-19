@@ -56,6 +56,9 @@ const REQUIRED_CHECKS = [
   'Server Engine (typecheck + tests)',
   'Production Build',
   'CSS Beat E2E (multi-table + animations)',
+  // window-migrations-install-before-merge.yml: every PR reports it; a PR with
+  // no migration passes in seconds (2026-11-18, incident d2d79c4f).
+  "Window migrations install against production's schema",
 ];
 
 const args = process.argv.slice(2);

@@ -251,8 +251,10 @@ describe('a Lightning player between hands', () => {
     const page = readFileSync('src/pages/TablePage.tsx', 'utf8');
     expect(page).toContain('lightningWaitingHero({');
     // The placeholder chair takes its status and balance from the waiting seat.
+    // Through the one stand-in rule (lib/standInStack, 2026-11-18): the
+    // waiting seat's own balance first, pending while it is unknown.
     expect(page).toMatch(
-      /stack:\s*lightningWaitingSeat\?\.stack \?\? heroRowStack \?\? pendingSeatStackRef\.current \?\? 0/
+      /standInStack\(\{\s*lightningStack: lightningWaitingSeat \? lightningWaitingSeat\.stack : undefined,/
     );
     expect(page).toMatch(/status:\s*lightningWaitingSeat\s*\? lightningWaitingSeat\.status\s*:/);
   });

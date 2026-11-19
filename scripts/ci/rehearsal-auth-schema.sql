@@ -90,3 +90,17 @@ AS $function$
     (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
   )::uuid
 $function$;
+
+-- realtime.send as production has it (read read-only on 2026-11-19): signature
+-- only. The supabase/postgres image does not carry it, and a body that calls it
+-- (process_tournament_rebuy enqueues purchase_committed) was refused on the copy
+-- by ca_function_calls_must_resolve while it resolves on production. The copy
+-- never broadcasts, so the body does nothing; the image's own wins if present.
+CREATE SCHEMA IF NOT EXISTS realtime;
+DO $realtime_send$
+BEGIN
+  IF to_regprocedure('realtime.send(jsonb,text,text,boolean)') IS NULL THEN
+    CREATE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT true)
+     RETURNS void LANGUAGE plpgsql AS $body$ BEGIN END $body$;
+  END IF;
+END $realtime_send$;

@@ -329,13 +329,82 @@ describe('Link and the sender’s controls, on the real popup', () => {
     );
     expect(screen.queryByText('Stop Sharing')).toBeNull();
   });
+
+  it('Link tapped before the reservation answers sends the short link, not the long one', async () => {
+    let answer: (v: unknown) => void = () => {};
+    rpc.mockImplementation((fn: string) => {
+      if (fn === 'fn_ca_shared_hand_reserve')
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      return Promise.resolve({ data: { success: true }, error: null });
+    });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
+    await waitFor(() =>
+      expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_reserve', expect.anything())
+    );
+    fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
+    await new Promise((r) => setTimeout(r, 20));
+    // Still being made: nothing has been sent, least of all the long link.
+    expect(writeText).not.toHaveBeenCalled();
+    answer({ data: { success: true, token: 'AbCd2345', sent: false, views: 0 }, error: null });
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect((writeText.mock.calls[0] as unknown as [string])[0]).toMatch(/\/h\/AbCd2345$/);
+  });
+});
+
+describe('a share never sends the long link while the short one is on its way (Dan 2026-11-18)', () => {
+  it('the sheet waits: no long link on screen, nothing to copy, until the short link lands', async () => {
+    const onShared = vi.fn();
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const view = render(
+      <ShareHand isOpen onClose={() => {}} hand={hand()} shortPending onShared={onShared} />
+    );
+    const box = screen.getByLabelText('Hand Link') as HTMLInputElement;
+    expect(box.value).toBe('Creating Your Short Link');
+    expect(box.value).not.toContain('replay?h=');
+    expect(box.getAttribute('data-link-state')).toBe('pending');
+    const copy = screen.getByRole('button', { name: 'Copy Link' }) as HTMLButtonElement;
+    expect(copy.disabled).toBe(true);
+    fireEvent.click(copy);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writeText).not.toHaveBeenCalled();
+    expect(onShared).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ShareHand
+        isOpen
+        onClose={() => {}}
+        hand={hand()}
+        shortUrl="https://smarter.poker/h/AbCd2345"
+        onShared={onShared}
+      />
+    );
+    const ready = screen.getByLabelText('Hand Link') as HTMLInputElement;
+    expect(ready.value).toBe('https://smarter.poker/h/AbCd2345');
+    expect(ready.getAttribute('data-link-state')).toBe('short');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Link' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://smarter.poker/h/AbCd2345'));
+  });
+
+  it('a reservation that really failed is the only time the long link is sent', () => {
+    render(<ShareHand isOpen onClose={() => {}} hand={hand()} />);
+    const box = screen.getByLabelText('Hand Link') as HTMLInputElement;
+    expect(box.value).toContain('/replay?h=');
+    expect(box.getAttribute('data-link-state')).toBe('long');
+  });
 });
 
 describe('Link and the sender’s controls', () => {
   it('Link prefers the reserved short link, marks it sent only once it went, and shows views with Stop Sharing', () => {
     const modal = src('src/components/table/HandDetailModal.tsx');
     expect(modal).toContain('if (h.id === hand?.id && shortLink.url) return shortLink.url;');
-    expect(modal).toContain('if (sent && short) shortLink.markSent();');
+    expect(modal).toContain('if (sent && made) shortLink.markSent();');
+    // Dan 2026-11-18: a short link still being made is waited for.
+    expect(modal).toContain('shortLink.pending ? await shortLink.ready() : shortLink.url');
     expect(modal).toContain('Stop Sharing');
     expect(modal).toContain('Sharing Stopped. The Old Link No Longer Opens This Hand.');
     for (const caller of [
@@ -344,6 +413,7 @@ describe('Link and the sender’s controls', () => {
     ]) {
       const s = src(caller);
       expect(s).toContain('shortUrl={shareShort.url}');
+      expect(s).toContain('shortPending={shareShort.pending}');
       expect(s).toContain('onShared={shareShort.markSent}');
     }
   });
