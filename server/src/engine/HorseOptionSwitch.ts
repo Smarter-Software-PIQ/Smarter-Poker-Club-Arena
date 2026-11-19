@@ -369,6 +369,25 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaStrategyInPlo6',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
+  // 2026-11-18: the short-deck chart is read only `=== true` once the unset-under-V86 path is gone (HorseLogic V46)
+  'v46ShortDeck',
+  // 2026-11-18 no-limit hold'em: read only `=== true` / `!== true` (HorseLogic, HorseMind, observerReads), so off in
+  // source; they had reported 'code' (swarm NLH-CASH IMPROVEMENTS I2). A production row, not the source, turns one on.
+  'styleLongShownMemory',
+  'holdemProfileCompletenessCap',
+  'holdemPersonaReRaiseMix',
+  'holdemPersonaPostflop',
+  'holdemManiacSampleGate',
+  'holdemManiacShortHandedReach',
+  'holdemGearShiftReach',
+  'holdemCallDownExcludesCurrentHand',
+  'holdemCallDownNeedsStyleEvidence',
+  'holdemRiverFullHouseValue',
+  'styleTightPlayerExploit',
+  'styleTightMultiSignal',
+  'styleTightMethodLine',
+  'horseActionTimeIsPublicOnly',
+  'horsePlayStyles',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -383,7 +402,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.free
   'v15Boats',
   'v24PloDefense',
   'v86PloOverhaul',
-  'v46ShortDeck',
   'omahaEvFoldModel',
   'facingClosedAllIn',
 ]);

@@ -517,6 +517,54 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     );
   });
 
+  it('2026-11-18: an option the engine reads only `=== true` / `!== true` states release default off, read from the source', () => {
+    // swarm NLH-CASH IMPROVEMENTS I2: these reported 'code', so the switch audit bucketed styleTightMethodLine as on by
+    // default although it is off in source. v46ShortDeck joins them once the unset-under-V86 short-deck path is gone.
+    const offInSource = [
+      'v46ShortDeck',
+      'styleLongShownMemory',
+      'holdemProfileCompletenessCap',
+      'holdemPersonaReRaiseMix',
+      'holdemPersonaPostflop',
+      'holdemManiacSampleGate',
+      'holdemManiacShortHandedReach',
+      'holdemGearShiftReach',
+      'holdemCallDownExcludesCurrentHand',
+      'holdemCallDownNeedsStyleEvidence',
+      'holdemRiverFullHouseValue',
+      'styleTightPlayerExploit',
+      'styleTightMultiSignal',
+      'styleTightMethodLine',
+      'horseActionTimeIsPublicOnly',
+      'horsePlayStyles',
+    ];
+    const sources = [
+      'server/src/engine/HorseLogic.ts',
+      'server/src/engine/HorseMind.ts',
+      'server/src/engine/horseDecision/observerReads.ts',
+    ].map((path) =>
+      read(path)
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+        .join('\n')
+    );
+    for (const name of offInSource) {
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_OFF, name).toContain(name);
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_ON, name).not.toContain(name);
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_CODE, name).not.toContain(name);
+      expect(OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)?.releaseDefault, name).toBe(
+        'off'
+      );
+      const reads = sources.flatMap((text) => [
+        ...text.matchAll(
+          new RegExp(`(?:opts|decisionReadOptions|carriedOpts)\\??\\.${name}\\b([^\\n]{0,12})`, 'g')
+        ),
+      ]);
+      expect(reads.length, `${name} is read`).toBeGreaterThan(0);
+      for (const m of reads) expect(m[1], `${name}${m[1]}`).toMatch(/^\s*[!=]==\s*true\b/);
+    }
+  });
+
   it('owner 23:10: an option under an owner hold, measured harmful or superseded is OFF-ONLY, enforced at the registry, the parser and the decision options', () => {
     const expectStatus = (name: string, status: string, source: RegExp) => {
       const entry = optionSwitchOffOnly(name);
