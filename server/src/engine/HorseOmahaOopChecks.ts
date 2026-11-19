@@ -98,7 +98,10 @@ import {
 } from './HorsePloPairedBoardFold.js';
 import { v81Cell, v86OmahaUnderboatOrDominatedFold } from './HorseOmahaBigBetCalls.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
-import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
+import {
+  omahaCategoricalCashOnlyExcludes,
+  omahaTournamentIcmPremium,
+} from './HorseOmahaTournamentScope.js';
 import {
   omahaStrategyGameInScope,
   omahaStrategyConstant,
@@ -138,8 +141,9 @@ function scopeStreet(hero: SeatPlayer, gs: HorseGameStateV2, facing: boolean): S
     return null;
   if (gs.allInOrFold === true) return null;
   // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
-  // opens its public tournament scope (HorseOmahaTournamentScope).
-  if (omahaCashOnlyExcludes(hero, gs)) return null;
+  // opens its public tournament scope (HorseOmahaTournamentScope). Every rule here is
+  // categorical (omahaTournamentsExcludeCategoricalRules on: never in a tournament).
+  if (omahaCategoricalCashOnlyExcludes(hero, gs)) return null;
   if ((gs.communityCards ?? []).length !== STREET_BOARD[stage]) return null;
   if (!Array.isArray(hero.cards) || hero.cards.length !== vi.holeCount) return null;
   const toCall = Number.isFinite(gs.toCall)

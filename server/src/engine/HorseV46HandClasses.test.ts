@@ -408,6 +408,68 @@ describe('V46 wiring: the receipts fire from a live decision', () => {
     expect(league.b).toEqual({});
   });
 
+  it('2026-11-18: under V86 an unset v46ShortDeck reads no short-deck chart, exactly as false; Omaha is unchanged', () => {
+    // #10441 turned the short-deck chart on whenever v46ShortDeck was unset under v86PloOverhaul (relabelled
+    // v86_short_deck_class, so the test above still saw no v46_class_read). The option is an off-only owner hold with
+    // measured harm, so only an explicit true reads the chart.
+    enableBrainTelemetry();
+    const decideWith = (
+      cards: Card[],
+      variant: string,
+      seed: number,
+      opts: Record<string, unknown>
+    ) => {
+      const spot = ploSpot(cards, variant);
+      drainFires();
+      seedFastRandom(seed);
+      const d = HorseLogic.decide(spot.hero, spot.gs, 'balanced', {}, { telemetry: true, ...opts });
+      // the hand-class receipts only: other counters (sampling reservoirs) carry state across decisions
+      const fires = drainFires()
+        .filter((f) => /^(v46_|v86_|v87_)/.test(f.feature))
+        .map((f) => `${f.feature}:${f.fires}`)
+        .sort();
+      return { action: d.action, amount: d.amount, fires };
+    };
+    const shortDeckHands = [
+      cc('8s', '8h'),
+      cc('As', 'Ks'),
+      cc('Js', 'Ts'),
+      cc('Ac', 'Ad'),
+      cc('9h', '7c'),
+    ];
+    let trueReads = 0;
+    for (const cards of shortDeckHands)
+      for (let seed = 1; seed <= 4; seed++) {
+        const unset = decideWith(cards, 'short_deck', seed, {});
+        const off = decideWith(cards, 'short_deck', seed, { v46ShortDeck: false });
+        const on = decideWith(cards, 'short_deck', seed, { v46ShortDeck: true });
+        expect(unset).toEqual(off);
+        for (const fire of unset.fires) {
+          expect(fire).not.toMatch(/^v86_short_deck_class:/);
+          expect(fire).not.toMatch(/^v46_class_/);
+        }
+        if (on.fires.some((f) => f.startsWith('v46_class_read:'))) trueReads++;
+      }
+    expect(trueReads).toBeGreaterThan(0);
+
+    const omahaHands = [
+      cc('As', 'Ks', 'Qh', '3c'),
+      cc('Js', 'Th', '9s', '8h'),
+      cc('Ah', 'Ac', 'Ad', '2s'),
+      cc('Ks', 'Kh', 'Qs', 'Jh', '9d'),
+    ];
+    for (const cards of omahaHands)
+      for (const variant of ['plo4', 'plo5'])
+        for (let seed = 1; seed <= 3; seed++) {
+          if (variant === 'plo4' && cards.length !== 4) continue;
+          if (variant === 'plo5' && cards.length !== 5) continue;
+          const unset = decideWith(cards, variant, seed, {});
+          expect(unset.fires.some((f) => f.startsWith('v46_class_read:'))).toBe(true);
+          expect(decideWith(cards, variant, seed, { v46ShortDeck: false })).toEqual(unset);
+          expect(decideWith(cards, variant, seed, { v46ShortDeck: true })).toEqual(unset);
+        }
+  });
+
   it('trips fires the fold receipt, and the flag switches the whole layer off', () => {
     enableBrainTelemetry();
     const trips = ploSpot(cc('As', 'Ah', 'Ad', '7c'));

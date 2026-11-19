@@ -18,7 +18,11 @@
  *   npx tsx scripts/gen-horse-option-switch-sql.ts --follow-up <YYYYMMDDHHMMSS>_horse_option_switch_<what>
  * It writes supabase/migrations/<that name>.sql and updates the option lists of the PostgreSQL proof script.
  */
-import { OPTION_SWITCH_OFF_ONLY_NAMES, OPTION_SWITCH_PLAIN_NAMES } from './HorseOptionSwitch.js';
+import {
+  OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_PLAIN_NAMES,
+  OPTION_SWITCH_SHADOW_NAMES,
+} from './HorseOptionSwitch.js';
 import { STYLE_SWITCH_OPTIONS } from './HorseStyleSwitch.js';
 
 /** The first list migration. Installed: the tool never rewrites it. */
@@ -38,12 +42,20 @@ export const OPTION_SWITCH_FOLLOW_UP_NAME = /^(\d{14})_[a-z0-9]+(?:_[a-z0-9]+)*$
 export const OPTION_SWITCH_FOLLOW_UP_COMMAND =
   'npx tsx scripts/gen-horse-option-switch-sql.ts --follow-up <YYYYMMDDHHMMSS>_horse_option_switch_<what>';
 
-type ListName = 'style-options' | 'plain-options' | 'off-only-options';
+type ListName = 'style-options' | 'plain-options' | 'off-only-options' | 'shadow-options';
 const LISTS: readonly (readonly [ListName, () => readonly string[]])[] = [
   ['style-options', () => STYLE_SWITCH_OPTIONS as readonly string[]],
   ['plain-options', () => OPTION_SWITCH_PLAIN_NAMES],
   ['off-only-options', () => OPTION_SWITCH_OFF_ONLY_NAMES],
+  // 2026-11-18: the non-style options that take shadow (a worker re-decision, HorseOptionShadow.ts)
+  ['shadow-options', () => OPTION_SWITCH_SHADOW_NAMES],
 ];
+/**
+ * The migration every follow-up that carries the shadow list installs after: it makes the switch functions tell the
+ * style options by canary, so a non-style option in shadow keeps every rule of `on` (2026-11-18).
+ */
+export const OPTION_SWITCH_STYLE_BY_NAME_MIGRATION_SUFFIX =
+  '_the_horse_option_switch_tells_style_options_by_name.sql';
 
 /** The names as SQL string literals, comma separated, wrapped under 100 columns with a four space indent. */
 export function sqlNameList(names: readonly string[]): string {
@@ -103,7 +115,14 @@ export function optionSwitchListDriftMessage(listPath: string): string {
 
 /** Null when the list migration's marked lists already equal the registry, otherwise the drift message. */
 export function optionSwitchListDrift(listPath: string, listSql: string): string | null {
-  return withRegistryLists(listSql) === listSql ? null : optionSwitchListDriftMessage(listPath);
+  let rewritten: string;
+  try {
+    rewritten = withRegistryLists(listSql);
+  } catch {
+    // a list migration written before a list existed (the shadow list, 2026-11-18) lacks its markers: that is drift
+    return optionSwitchListDriftMessage(listPath);
+  }
+  return rewritten === listSql ? null : optionSwitchListDriftMessage(listPath);
 }
 
 /**
@@ -135,13 +154,14 @@ export function optionSwitchFollowUpRefusal(name: string, newest: string): strin
   return null;
 }
 
-/** The proof script with its style, plain and off-only lists set to the registry (its refused list is kept). */
+/** The proof script with its style, plain, off-only and shadow lists set to the registry (its refused list is kept). */
 export function proofScriptWithRegistryLists(script: string): string {
   let out = script;
   for (const [variable, names] of [
     ['style', STYLE_SWITCH_OPTIONS as readonly string[]],
     ['plain', OPTION_SWITCH_PLAIN_NAMES],
     ['offonly', OPTION_SWITCH_OFF_ONLY_NAMES],
+    ['shadow', OPTION_SWITCH_SHADOW_NAMES],
   ] as const) {
     const line = new RegExp(`^${variable}='[^']*'$`, 'm');
     if (!line.test(out)) throw new Error(`the proof script has no ${variable}='...' line`);
@@ -170,8 +190,10 @@ export function optionSwitchFollowUpSql(name: string): string {
 -- OPTION_SWITCH_REGISTRY.
 --
 -- WHAT IT DOES: re-asserts the three CHECK constraints of public.ca_horse_style_switch (an option is registered; on
--- for a non-style option cites its own authority; shadow and canary only for the style options, on never for an
--- off-only option) and public.fn_ca_horse_option_switch_states with the registry's current lists. Same table, same
+-- for a non-style option cites its own authority; canary only for the style options, shadow only for the style
+-- options and the listed shadow options, on never for an off-only option) and public.fn_ca_horse_option_switch_states
+-- with the registry's current lists. A shadow option passes nothing to the engine's decision (the release default
+-- acts); the engine re-decides it flipped and records the counterfactual, never acting on it (HorseOptionShadow.ts). Same table, same
 -- functions, same grants. It adds no table, column or row and switches nothing; running it twice leaves the same
 -- state. Registering an option ENABLES NOTHING: no row is the release default.
 --
@@ -190,6 +212,13 @@ DO ${Q}existing_rows_fit${Q}
 DECLARE
   r record;
 BEGIN
+  -- A shadow option keeps every rule of 'on' only when the switch functions tell the style options by canary
+  -- (*${OPTION_SWITCH_STYLE_BY_NAME_MIGRATION_SUFFIX}); refuse to install before that file.
+  IF position('''shadow'' = ANY' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) > 0
+     OR position('ARRAY[''shadow'']' IN pg_get_functiondef('public.fn_ca_horse_style_switch_effective()'::regprocedure)) > 0
+     OR position('ARRAY[''shadow'']' IN pg_get_functiondef('public.fn_ca_horse_option_switch_effective()'::regprocedure)) > 0 THEN
+    RAISE EXCEPTION 'the switch functions still tell the style options by shadow: install *${OPTION_SWITCH_STYLE_BY_NAME_MIGRATION_SUFFIX} first';
+  END IF;
   FOR r IN SELECT s.option, s.state FROM public.ca_horse_style_switch s ORDER BY s.option LOOP
     IF NOT (r.option IN (
     -- registry:style-options:begin
@@ -210,6 +239,18 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
         r.option;
+    END IF;
+    IF r.state IN ('shadow', 'canary') AND NOT (r.option IN (
+    -- registry:style-options:begin
+
+    -- registry:style-options:end
+    )) AND NOT (r.state = 'shadow' AND r.option IN (
+    -- registry:shadow-options:begin
+
+    -- registry:shadow-options:end
+    )) THEN
+      RAISE EXCEPTION 'switch row % is % and the option no longer takes it: set it off or clear it before this migration',
+        r.option, r.state;
     END IF;
   END LOOP;
 END
@@ -243,8 +284,9 @@ ALTER TABLE public.ca_horse_style_switch
     OR (note IS NOT NULL AND note LIKE 'authority: ' || option || ' %' AND note ~ 'sha256 [0-9a-f]{64}')
   );
 
--- Shadow and canary only where the engine has a shadow arm: the seven style options. 'on' never for an off-only
--- option (an owner hold, a measured harm, a superseded option), from any writer.
+-- Canary only where the engine has a shadow arm: the seven style options. Shadow for them and for the listed shadow
+-- options (re-decided flipped by the engine, never acted on). 'on' never for an off-only option (an owner hold, a
+-- measured harm, a superseded option), from any writer.
 ALTER TABLE public.ca_horse_style_switch
   DROP CONSTRAINT IF EXISTS ca_horse_style_switch_state_fits_option,
   ADD CONSTRAINT ca_horse_style_switch_state_fits_option CHECK (
@@ -253,6 +295,11 @@ ALTER TABLE public.ca_horse_style_switch
     -- registry:off-only-options:begin
 
     -- registry:off-only-options:end
+    ))
+    OR (state = 'shadow' AND option IN (
+    -- registry:shadow-options:begin
+
+    -- registry:shadow-options:end
     ))
     OR option IN (
     -- registry:style-options:begin
@@ -280,6 +327,12 @@ AS ${Q}function${Q}
     -- registry:off-only-options:end
     )
       THEN ARRAY['off']
+    WHEN p_option IN (
+    -- registry:shadow-options:begin
+
+    -- registry:shadow-options:end
+    )
+      THEN ARRAY['off', 'shadow', 'on']
     WHEN p_option IN (
     -- registry:plain-options:begin
 
@@ -310,6 +363,13 @@ BEGIN
     -- registry:off-only-options:end
        ]::text[]) AS n
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off'])
+     OR EXISTS (
+       SELECT 1 FROM unnest(ARRAY[
+    -- registry:shadow-options:begin
+
+    -- registry:shadow-options:end
+       ]::text[]) AS n
+       WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off', 'shadow', 'on'])
      OR EXISTS (
        SELECT 1 FROM unnest(ARRAY[
     -- registry:plain-options:begin

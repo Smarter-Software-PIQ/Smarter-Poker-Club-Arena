@@ -181,7 +181,7 @@ describe('persona re-raise mix: OFF is main', () => {
     })
   );
   it('covers a few thousand decisions recorded from the parent commit', () => {
-    expect(recorded.recordedFrom).toBe('b262fd3e0e2');
+    expect(recorded.recordedFrom).toBe('234e11c32df'); // re-recorded: short deck no longer takes the V46 chart by default (b262fd3e0e2 before)
     expect(total).toBeGreaterThan(5000);
   });
 });

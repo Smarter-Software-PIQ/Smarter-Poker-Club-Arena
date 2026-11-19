@@ -564,6 +564,9 @@ export function createFeatureAblationWorker(
             request.opts?.omahaBigBetCallsArePriced === true
               ? { omahaPricedRaise: true }
               : {}),
+            ...(request.opts?.omahaPricedInLightning === true
+              ? { omahaPricedInLightning: true }
+              : {}),
           }) ??
           horsePhase6AttributionMismatch(result.decision, request) ??
           horsePhase7EvidenceMismatch(result.decision, request);

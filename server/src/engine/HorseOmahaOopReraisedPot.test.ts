@@ -1622,3 +1622,85 @@ describe('F-02 in the decision (omahaOopReraisedPotStrongRange on)', () => {
     expect(count(on, 'omaha_reraised_call_in_position_caller_pending_seen')).toBe(0);
   });
 });
+
+// ─── ROWFIX 2026-11-18: each row switches only its own behaviour ───
+// REVIEW-97de6c23913 N8: the re-raise range rules judged the 4-bet they turn into a call with
+// omahaOopReraisedPotStrongRange forced on, so that row off did not turn its cell off.
+describe('omahaOopReraisedPotStrongRange off: the re-raise range rules no longer run its call cell', () => {
+  const STACKS = '1:199,2:198,3:200,4:200,5:200,6:200';
+  // six-handed, dealer seat 6: under the gun (seat 3) opens to 7, the button 3-bets to 24, the blinds fold;
+  // the opener acts out of position facing the 3-bet (two preflop raises: his re-raise is a 4-bet)
+  const facingThreeBet = (variant: string, hole: string): Recorded => ({
+    hand: 0,
+    variant,
+    bb: 2,
+    dealer: 6,
+    seat: 3,
+    hole,
+    stacks: STACKS,
+    actions: '1ps1,2pb2,3pR7,4pF,5pF,6pR24,1pF,2pF,3pC17',
+  });
+  const show = (h: Card[]) => h.map((c) => c.rank + c.suit[0]).join('');
+  function maniacThreeBettor(variant: string, seat: number) {
+    const c: ExploitCounters = freshExploitCounters();
+    c.hands = 40;
+    c.vpip = 0.88 * 40;
+    c.pfr = 0.55 * 40;
+    c.rfiOpp = 20;
+    c.rfi = 0.82 * 20;
+    c.threeBetOpp = 15;
+    c.threeBet = 0.33 * 15;
+    (HorseMind as unknown as { exploitCounters: Map<string, ExploitCounters> }).exploitCounters.set(
+      `${readScopeOf(variant, 6)}|${uidOf(seat)}`,
+      c
+    );
+  }
+  function play(rec: Recorded, opts: HorseDecideOpts) {
+    enableBrainTelemetry();
+    HorseMind.reset();
+    maniacThreeBettor(rec.variant, 6);
+    const { hero, gs } = stateAt(rec, 2);
+    drainFires();
+    seedFastRandom(9400 + rec.hole.length);
+    const d = HorseLogic.decide(hero, gs, 'balanced', {}, { telemetry: true, ...opts });
+    return {
+      action: d.action,
+      bytes: bytesOf(d),
+      next: fastRandom(),
+      fires: drainFires().map((f) => f.feature),
+    };
+  }
+  const isRaise = (a: string) => a === 'raise' || a === 'all_in';
+  const RANGE = { omahaReraiseRangeOutOfPosition: true, omahaReraiseRangeEarlyPosition: true };
+  for (const variant of ['plo4', 'plo5']) {
+    const n = variant === 'plo4' ? 4 : 5;
+    it(`${variant}: a 4-bet the range rules turn into a call stands with the call-cell row off, and is judged by it with the row on`, () => {
+      const rnd = mulberry32(9500 + n);
+      let downgraded = 0;
+      let foldedByCell = 0;
+      for (let k = 0; k < 400; k++) {
+        const deck = SUITS.flatMap((suit) => RANK.filter(Boolean).map((rank) => ({ rank, suit })));
+        const rec = facingThreeBet(variant, show(shuffled(rnd, deck).slice(0, n)));
+        const unset = play(rec, {});
+        if (!isRaise(unset.action)) continue;
+        const rowOff = play(rec, { ...RANGE, omahaOopReraisedPotStrongRange: false });
+        const rowOn = play(rec, { ...RANGE, omahaOopReraisedPotStrongRange: true });
+        // row off: the range rule's own verdict only; it never folds a 4-bet it downgrades
+        expect(rowOff.fires).not.toContain('omaha_reraise_by_position_folded');
+        expect(rowOff.fires.some((f) => f.startsWith('omaha_oop_reraised_call_'))).toBe(false);
+        if (rowOff.fires.includes('omaha_reraise_by_position_called')) {
+          downgraded++;
+          expect(rowOff.action).toBe('call');
+          if (rowOn.action === 'fold') foldedByCell++;
+        }
+        // unset equals both rows off
+        expect(play(rec, { ...RANGE, omahaOopReraisedPotStrongRange: undefined }).bytes).toEqual(
+          rowOff.bytes
+        );
+      }
+      // the spot is live and the call cell decides some of it when its row is on
+      expect(downgraded).toBeGreaterThan(3);
+      expect(foldedByCell).toBeGreaterThan(0);
+    });
+  }
+});

@@ -239,8 +239,8 @@ describe('the re-raise of a raise is counted once (review N1)', () => {
   });
 });
 
-describe('a spot nothing can price falls closed: the categorical rule acts as with the option off (review N4)', () => {
-  it('a draw raise into three players: the bar decides, not the priced comparison', () => {
+describe('a spot nothing can price never falls closed: the categorical rule does not decide it (ROWFIX 2026-11-18)', () => {
+  it('a draw raise into three players: kept, as with the priors off; the bar does not act', () => {
     const st = pricedSpot({ hole: 'Ah5h2c3s4d', board: '9dQdJh7h', potBefore: 216, bet: 100 });
     const seat1 = st.gs.players.find((p: SeatPlayer) => p.seat === 1)!;
     for (const seat of [2, 3]) {
@@ -250,17 +250,20 @@ describe('a spot nothing can price falls closed: the categorical rule acts as wi
       else st.gs.players.push({ ...seat1, seat, user_id: `extra-${seat}`, bet: 0 });
     }
     expect(omahaDrawRaiseBarOf(st.hero, st.gs)).not.toBeNull();
-    const opts = {
-      omahaNoDrawRaiseOutOfPosition: true,
-      omahaDrawRaiseIsPriced: true,
-      omahaPricedPriorsByOpponentKind: true,
-    };
     const raise: HorseDecision = {
       action: 'raise',
       amount: st.gs.maxRaiseTo as number,
       thinkTime: 1,
     };
-    expect(omahaPricedDrawRaiseBarred(st.hero, st.gs, opts as never)).toBeNull();
-    expect(omahaPricedDrawRaiseRule(raise, st.hero, st.gs, opts as never)).toBeNull();
+    for (const priors of [true, false, undefined]) {
+      const opts = {
+        omahaNoDrawRaiseOutOfPosition: true,
+        omahaDrawRaiseIsPriced: true,
+        omahaPricedPriorsByOpponentKind: priors,
+      };
+      // not barred (false), never null (null hands the spot to the categorical bar)
+      expect(omahaPricedDrawRaiseBarred(st.hero, st.gs, opts as never)).toBe(false);
+      expect(omahaPricedDrawRaiseRule(raise, st.hero, st.gs, opts as never)).toEqual(raise);
+    }
   });
 });
