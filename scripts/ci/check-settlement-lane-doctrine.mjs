@@ -14,11 +14,15 @@
  * stopped proving it: the next function to take the global lane in a loop
  * would have gone unnoticed until the platform stalled behind it again.
  * `public.fn_ca_settlement_lane_doctrine()` asks the live catalog the same
- * four questions the migrations asked, and this makes CI ask it:
+ * questions the migrations asked, and this makes CI ask it:
  *   1. G is taken exclusively only by the two lane helpers.
  *   2. F is named only by the three finish-lane helpers.
  *   3. Every function naming the global helper is a reviewed global authority.
  *   4. No rolling authority reaches the global lane within four calls.
+ *   5. No table writer takes G (20261118160405): the writers' lane helpers
+ *      and the F06 hand guards take or try the hand barrier B and their own
+ *      T(id), so one event's authority queued on G never pauses another
+ *      event's tables or a cash hand.
  * A new global-lane caller fails here until somebody reads it for what it
  * writes and adds it to the reviewed list inside the doctrine function, which
  * is the review the lane needs. This asks production because migrations are
@@ -73,7 +77,7 @@ for (const v of answer.violations ?? []) {
 }
 console.error(
   '\n  A function took the global lane, named the finish lane, or reached the global\n' +
-    '  lane from a rolling authority. Read it for what it writes: a per-tournament\n' +
+    '  lane from a rolling authority, or a table writer took G again. Read it for what it writes: a per-tournament\n' +
     '  writer takes fn_ca_lock_settlement_lane_for_tournament or the finish lane; a\n' +
     '  cross-tournament writer is reviewed and added to the list inside\n' +
     '  public.fn_ca_settlement_lane_doctrine() in the same migration.\n' +

@@ -116,7 +116,7 @@ describe('new club opening package and zero-state database law', () => {
     expect(certificate).toContain('SET LOCAL ROLE authenticated');
     expect(certificate).toContain("set_config('request.jwt.claims',$1::text,true)");
     expect(certificate).toContain("set_config('request.jwt.claim.sub',$2::text,true)");
-    expect(certificate).toContain('SELECT public.fn_ca_lock_settlement_lane_global()');
+    expect(certificate).toContain('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)');
     expect(certificate).not.toContain('SELECT pg_advisory_xact_lock(530090,1)');
     expect(certificate).toContain('SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE');
     expect(certificate).toContain('ORDER BY slot_key FOR UPDATE');
@@ -132,7 +132,7 @@ describe('new club opening package and zero-state database law', () => {
     expect(certificate).toContain('AS active_managed_commands');
     const authenticatedRole = certificate.indexOf('SET LOCAL ROLE authenticated');
     const mutation = certificate.indexOf('public.fn_remove_first_club_welcome_games');
-    const globalLane = certificate.indexOf('SELECT public.fn_ca_lock_settlement_lane_global()');
+    const globalLane = certificate.indexOf('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)');
     const preimageReadRole = certificate.indexOf('SET LOCAL ROLE service_role', globalLane);
     const clubLock = certificate.indexOf('SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE');
     const packageItemLocks = certificate.indexOf('ORDER BY slot_key FOR UPDATE');
