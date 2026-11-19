@@ -50,6 +50,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo4_lightning_cheap_entry_omaha',
         // 2026-11-18 (PLO lane): the league deals no Lightning domain (omahaPricedInLightning).
         'plo5_omaha_priced_in_lightning',
+        // 2026-11-19 (PLO lane): the same, for the slowplay mix's and the public bet size's Lightning scopes.
+        'plo5_omaha_slowplay_mix_in_lightning',
+        'plo5_omaha_public_bet_size_in_lightning',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',

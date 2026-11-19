@@ -66,3 +66,9 @@ Candidate 22490fcc781; 2,000 journaled decisions (1,345 river + 655 turn; the sa
 6. Value (model response, cards in hindsight): 41 of 41 changes, mean +40.5 chips (SE 6.2): PASS. Reported beside it: if a checker who holds the winner always calls, the mean is -4.4 (SE 10.5): the gain rests on the model's fold share being independent of who holds the winner.
 7. Reach: 72 heads-up river checked-to control checks have a positive v2 edge; **35 became bets** (bar: half = 36): FAIL. Of the 37 others, 29 are inside the error and 8 were re-checked by a rule that outranks the pricing rules (precedence unchanged).
    Reported: 33 of the 41 changes are bluffs/merges, 8 value bets; reviewer verdicts on the 41 changed checks: correct 29, acceptable_close 12 (kappa 0.29, not gated).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

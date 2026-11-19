@@ -150,7 +150,9 @@ import {
   OMAHA_SLOWPLAY_CALL_SALT,
   OMAHA_SLOWPLAY_CHECK_SALT,
   omahaSlowplayCallDecision,
+  omahaSlowplayCallScope,
   omahaSlowplayCheckDecision,
+  omahaSlowplayCheckScope,
   omahaSlowplayReadMost,
   omahaSlowplayReadOf,
   omahaSlowplaySpotKey,
@@ -3944,6 +3946,21 @@ export interface HorseDecideOpts {
    * byte-identical. Default OFF; the league deals no Lightning (refused matchup); its evaluation is the paired
    * Lightning harness (lightning/LightningPairedEval.test.ts). */
   omahaPricedInLightning?: boolean;
+  /** PLO Strategy lane 2026-11-19 (lead 01TLQer7J; the measured winning human plays the Lightning pools):
+   * opt-in (`=== true`). A SCOPE option: the Lightning pools (gs.publicMemoryDomain.speed === 'lightning') are
+   * inside the game of omahaStrongHandSlowplayMix (HorseOmahaStrongHandSlowplayMix inGame), so that option, when
+   * its OWN switch is on, mixes its two spots in Lightning PLO4/PLO5 cash exactly as at a table. It switches the
+   * mix on nowhere by itself and touches no other rule. Off or unset: Lightning stays outside the mix,
+   * byte-identical. Default OFF; NOT EVALUATED (the league deals no Lightning: refused matchup; its evaluation is
+   * the paired Lightning harness). Receipt omaha_slowplay_mix_in_lightning_scope_seen. */
+  omahaSlowplayMixInLightning?: boolean;
+  /** PLO Strategy lane 2026-11-19 (lead 01TLQer7J): opt-in (`=== true`). A SCOPE option: the Lightning pools are
+   * inside the game of omahaBetSizeByPublicState (HorseLogic.publicBetSizeInGame), so that option, when its OWN
+   * switch is on, sizes the Horse's own postflop bet or raise in Lightning PLO4/PLO5 cash exactly as at a table.
+   * It switches the public size on nowhere by itself; it never decides a bet against a check, a call or a fold.
+   * Off or unset: Lightning stays outside the public size, byte-identical. Default OFF; NOT EVALUATED (refused
+   * league matchup; the paired Lightning harness). Receipt omaha_public_bet_size_in_lightning_scope_seen. */
+  omahaPublicBetSizeInLightning?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -13228,13 +13245,28 @@ function omahaStrongHandSlowplayMixRule(
     const readOf = (seat: number): OmahaSlowplayRead => omahaSlowplayReadOf(conditional(seat));
     const stream = saveFastRandom();
     const spotKey = omahaSlowplaySpotKey(player, gs);
+    // omahaSlowplayMixInLightning (default off): the mix's game includes the Lightning pools.
+    const lightning = opts.omahaSlowplayMixInLightning === true;
+    // Once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS): the mix's public spot held in a Lightning
+    // pool because that option opened it.
+    if (
+      lightning &&
+      telemetryOn(opts) &&
+      gs.publicMemoryDomain?.speed === 'lightning' &&
+      (decision.action === 'bet'
+        ? omahaSlowplayCheckScope(player, gs, true)
+        : omahaSlowplayCallScope(player, gs, true)) !== null
+    )
+      noteFire('omaha_slowplay_mix_in_lightning_scope_seen');
     const result =
       decision.action === 'bet'
         ? omahaSlowplayCheckDecision(decision, player, gs, {
             unit: omahaSlowplayUnit(stream, spotKey, OMAHA_SLOWPLAY_CHECK_SALT),
             read: readOf,
+            lightning,
           })
         : omahaSlowplayCallDecision(decision, player, gs, {
+            lightning,
             unit: omahaSlowplayUnit(stream, spotKey, OMAHA_SLOWPLAY_CALL_SALT),
             read: omahaSlowplayReadMost(
               (gs.players ?? [])
@@ -28213,6 +28245,10 @@ export class HorseLogic {
     if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
     try {
       if (!HorseLogic.publicBetSizeInGame(gs, vi, opts)) return decision;
+      // Once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS): an own bet or raise was inside the public
+      // size's game in a Lightning pool because omahaPublicBetSizeInLightning opened it.
+      if (tele && gs.publicMemoryDomain?.speed === 'lightning')
+        noteFire('omaha_public_bet_size_in_lightning_scope_seen');
       if (opts.omahaNutClassValueSize === true && omahaNutClassNow(player, gs)) {
         if (tele) noteFire('omaha_public_bet_size_nut_class_kept');
         return decision;
@@ -28255,7 +28291,10 @@ export class HorseLogic {
     }
   }
 
-  /** PLO4/PLO5 (omahaStrategyGameInScope) cash, pot limit, high only, one board, no bomb pot, not Lightning, postflop. */
+  /**
+   * PLO4/PLO5 (omahaStrategyGameInScope) cash, pot limit, high only, one board, no bomb pot, not Lightning
+   * (Lightning too when the decision's omahaPublicBetSizeInLightning is on, read `=== true`), postflop.
+   */
   private static publicBetSizeInGame(
     gs: HorseGameStateV2,
     vi: VariantInfo,
@@ -28275,7 +28314,7 @@ export class HorseLogic {
     )
       return false;
     const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
-    if (speed === 'lightning') return false;
+    if (speed === 'lightning' && opts.omahaPublicBetSizeInLightning !== true) return false;
     if (gs.wagersCapped === true) return false;
     if (gs.stage !== 'flop' && gs.stage !== 'turn' && gs.stage !== 'river') return false;
     return (gs.communityCards ?? []).length === { flop: 3, turn: 4, river: 5 }[gs.stage];

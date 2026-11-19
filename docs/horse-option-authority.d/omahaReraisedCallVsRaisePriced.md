@@ -52,3 +52,9 @@ No PLO5 solver exists; these are equity, price and EV verdicts against stated ra
 ## Redesign status (2026-11-18, REDESIGN-PLAN.md section 5)
 
 Ships dark (default OFF). No change to the arithmetic: the value bar of evaluation 2 priced his re-raise share at the prior 0.24 while the option reads his own record (about 0.08), so it could not be met by an honest model. The replacement evaluation is declared fresh (`repairs/F-06-redesign/EVAL-DECLARATION.md`, hashed): heads-up priced spots from hands after migration `20261118023000` is installed and the learner is live; value = EV(raise) - EV(call) against the holding actually held with his later-measured answers, mean > 0 with CI lower > 0; calibration of predicted fold/call/re-raise within 2 SE; the hard safety bars of declaration 2. Not run: the data does not exist yet (about 2-4 weeks of live counters). Activation waits on that result.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

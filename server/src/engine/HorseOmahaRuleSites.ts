@@ -401,6 +401,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaStrongHandValue: priced('value bet, induce check and value raise by expected value'),
   omahaStrongHandSlowplayMix: priced('a mixed frequency over a priced raise and call'),
+  omahaSlowplayMixInLightning: priced(
+    'the game of omahaStrongHandSlowplayMix opened to the Lightning pools when that option is on (a scope, not a rule site)'
+  ),
   omahaTurnBetNeedsRiverPlan: priced('a look-ahead on every river card'),
   omahaRiverMediumBetStrongHandCalls: priced('stands aside for the expected-value verdict'),
   omahaPairedBoardFoldRespectsPrice: priced(
@@ -516,6 +519,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPreflopStackPlan: outside(PREFLOP + '; off-only under the preflop range hold'),
   omahaBetSizeByPublicState: outside(
     'a size chooser from public state only: it never decides a bet against a check, a call or a fold (aBetSizeIsPublicInformationOnly.law)'
+  ),
+  omahaPublicBetSizeInLightning: outside(
+    'the game of omahaBetSizeByPublicState opened to the Lightning pools when that option is on (a scope of a size chooser: it never decides a bet against a check, a call or a fold)'
   ),
   omahaPreflopCallWithActionBehind: outside(PREFLOP),
   omahaCommitZoneThreeBetPriceRelief: outside(PREFLOP),

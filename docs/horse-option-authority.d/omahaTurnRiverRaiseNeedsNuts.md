@@ -42,3 +42,9 @@ One definition (`omahaComboDrawForRaise`, `HorseOmahaBigDrawAggression.ts`) serv
 ## Live change on this head (review B2, 2026-11-16)
 
 This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: For this option the in-position turn exception (the only non-nut raise it lets stand) narrows the same way: on a PLO4/PLO5 cash turn facing a bet, a pair with the nut flush draw (with or without a gutshot) or a pair with a wrap and no flush draw, which kept its raise live today, now calls or folds by the exact-hand EV (omahaFacingBetEv) like every other non-nut hand. One raise is now KEPT that live today becomes a call or a fold: on a PLO4/PLO5 cash turn in position facing a bet, a flush draw with an open-ended straight draw and no top pair or overpair, whose straight outs fell under eight live only because flush-suit straight cards were counted as flush outs, now passes the exception as a combo draw and keeps its raise. The river and every out-of-position turn are unchanged (raise only with a nut-class hand).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

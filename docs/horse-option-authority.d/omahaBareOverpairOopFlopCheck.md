@@ -45,3 +45,9 @@ HorseOmahaOopChecks.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on t
 - The spot was redefined after the 14:19 and 14:23 rulings: before, any single pair on a two-tone or connected flop with no lead test; now only a bare big pair held by the last preflop aggressor, on any flop. The MEASURE.md tables were taken before the redefinition; all nine of their classes are pocket aces or kings overpairs with the lead, so they are in the new spot.
 - The continuation needs one live opponent at the decision: a pot that began heads-up, or a multiway flop where every other player has folded by then. Multiway at the decision, the whole-stack call, a raise war on the flop and a Horse in position keep today's decision.
 - Under load the equity governor may shrink the sample the equity helper is given.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

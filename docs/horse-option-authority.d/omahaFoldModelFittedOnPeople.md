@@ -31,3 +31,9 @@ HorseOmahaFoldModelFittedOnPeople.test.ts: the fitted lookup (cell selection, sh
 - His fold is not stored per street or pot type per player, so his own evidence is one factor from his pooled postflop fold read; the counters are a 2026-11-18 snapshot, so the fit window's personal factors include some of its own hands (disclosed).
 - The cells are conditional on the bets Horses made; a bucket Horses rarely use falls back toward the old model.
 - The river is not priced by the v38 engine; people fold more than the old model credits on the river (measured, not used here).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

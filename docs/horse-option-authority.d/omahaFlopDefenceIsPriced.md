@@ -44,3 +44,9 @@ omaha_flop_defence_priced_call, omaha_flop_defence_priced_fold (every time the t
 ## Evaluation
 
 Declared before the run: archive repairs/FLOP-DEFENCE/EVAL-DECLARATION-v2.md (with its sha256). Result: archive repairs/FLOP-DEFENCE/EVAL-RESULTS-v2.md. The league cards `plo4/plo5_omaha_flop_defence_is_priced` and `_on_flop_ev` are registered and not run by this lane.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

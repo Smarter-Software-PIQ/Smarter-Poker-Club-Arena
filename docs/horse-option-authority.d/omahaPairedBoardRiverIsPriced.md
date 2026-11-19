@@ -80,3 +80,9 @@ No new receipt name. The facing-bet receipts (`omaha_facing_bet_ev_call`, `_fold
 - Mechanism, scope, tests: MET.
 - Option unset or false: the decision is identical byte for byte (test above).
 - Value: NOT MET (evaluation INSUFFICIENT, one bar failed). The option stays off.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

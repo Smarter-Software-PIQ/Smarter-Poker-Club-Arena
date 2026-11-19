@@ -21,3 +21,9 @@ PLO4/PLO5 cash, high only (HorseOmahaMadeHandDefense.omahaNutClassValueSize): a 
 A failed declared evaluation is off-only (OPTION_SWITCH_OFF_ONLY, ploFailed), as for omahaBeatenMadeHandDefense and omahaBluffCatcherRaiseFold of the same day. Production read 2026-11-18 (SELECT only): no option-switch row for it. The follow-up migration 20261118164511_horse_option_switch_omaha_nut_class_off_only re-asserts the database lists so the table refuses an `on` row from any writer.
 
 Lifting it needs a new build or a new bar that passes, then a reviewed source change to OPTION_SWITCH_OFF_ONLY and a follow-up list migration. The human-field gain is recorded here so a future design can start from it.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

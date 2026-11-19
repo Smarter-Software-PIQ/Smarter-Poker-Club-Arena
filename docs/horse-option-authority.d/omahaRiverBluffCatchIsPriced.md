@@ -20,3 +20,9 @@ Inside `omahaFacingBetEv` only (PLO4/PLO5 cash, no tournament, one board, high o
 ## Activation
 
 Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256, after the declared evaluation passes. Rollback: switch row off.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

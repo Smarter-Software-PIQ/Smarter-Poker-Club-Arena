@@ -34,3 +34,9 @@ HorseOmahaPressureNeedsPostflopAggression.test.ts (all pass on the PLO strategy 
 ## Limits
 
 No evaluation run. The 0.15 showdown credit and the 0.15 price floor on the no-outs fold used by the turn rule are the builder's constants, not measured.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

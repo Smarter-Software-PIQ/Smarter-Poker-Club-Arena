@@ -29,3 +29,9 @@ HorseOmahaFlopBetMeasuredFoldShare.test.ts: engine identity without the fold sha
 - His per-pot-type / per-SPR fold is not stored per player (horse_exact_profiles.street_counters is empty in production), so his own evidence is one fitted log-odds shift from his pooled postflop fold read.
 - The personal slope was fitted against today's counter snapshot, which includes some of the fitted hands (disclosed leakage).
 - The measured share is conditional on the bets Horses made; sizes Horses rarely use are extrapolated by the fitted size slope.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

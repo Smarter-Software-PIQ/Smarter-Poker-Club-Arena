@@ -1313,6 +1313,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaSlowplayMixInLightning',
+    "PLO Strategy lane 2026-11-19 (lead 01TLQer7J; the measured winning human plays the Lightning pools; owner 2026-11-17 11:49: no blanket rules). A scope option, default off (read === true), NOT EVALUATED: with it on, the game of omahaStrongHandSlowplayMix (HorseOmahaStrongHandSlowplayMix inGame) includes the Lightning pools (gs.publicMemoryDomain.speed === 'lightning'), so that option, when its OWN switch is on, mixes its raise -> call and its dry-flop set bet -> check in Lightning PLO4/PLO5 cash exactly as at a table. It switches the mix on nowhere by itself and changes no other rule. The receipt validator admits the mix's two conversions in a Lightning pool only under the decision's own option (omahaSlowplayMixInLightningGateCandidates). Off or unset: Lightning stays outside the mix, byte-identical. Receipt omaha_slowplay_mix_in_lightning_scope_seen. The league deals no Lightning: refused matchup plo5_omaha_slowplay_mix_in_lightning; its evaluation is the paired Lightning harness. Authority docs/horse-option-authority.d/omahaSlowplayMixInLightning.md.",
+    'V94'
+  ),
+  flag(
+    'omahaPublicBetSizeInLightning',
+    "PLO Strategy lane 2026-11-19 (lead 01TLQer7J; the measured winning human plays the Lightning pools). A scope option, default off (read === true), NOT EVALUATED: with it on, the game of omahaBetSizeByPublicState (HorseLogic.publicBetSizeInGame) includes the Lightning pools (gs.publicMemoryDomain.speed === 'lightning'), so that option, when its OWN switch is on, sizes the Horse's own postflop bet or raise in Lightning PLO4/PLO5 cash exactly as at a table. It switches the public size on nowhere by itself, and the size chooser never decides a bet against a check, a call or a fold. No receipt-validator change: the chooser's wager is still a bet, a raise or the all-in the legalizer makes of it, which the validator admits at any speed. Off or unset: Lightning stays outside the public size, byte-identical. Receipt omaha_public_bet_size_in_lightning_scope_seen. The league deals no Lightning: refused matchup plo5_omaha_public_bet_size_in_lightning; its evaluation is the paired Lightning harness. Authority docs/horse-option-authority.d/omahaPublicBetSizeInLightning.md.",
+    'V94'
+  ),
+  flag(
     'omahaSmallBetIsPriced',
     "PLO Strategy lane 2026-11-18 (owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV; the size of the bet must not make or break the decision): in PLO4/PLO5 cash, one board, high only, heads-up on the turn or river with nothing to call, the owner's check or bet is priced on the card-impact model beside bets of 10%, 20% and 25% of the pot (a candidate set, not a threshold), with the opponent's fold, call and raise shares at every size taken from the measured response of his kind (a person or a Horse) by pot share (HorseOmahaSmallBetConstants.ts, 5,379 hands) moved by his own fold-to-bet read; the best small bet replaces the owner's choice when it is worth more by 2% of the pot (HorseOmahaSmallBet.ts). Never turns a bet into a check, never makes a nut-class bet smaller, never overrides an owner-ruled check, never touches an all-in; the flop and multiway spots keep the owner's decision. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_small_bet_is_priced",
     'V94'
@@ -5414,6 +5424,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_in_lightning_scope_seen',
     'HorseOmahaPricedWiring.omahaPricedInScope (omahaPricedInLightning)',
     'a priced PLO4/PLO5 option that is on was consulted in a Lightning pool and the priced scope held because omahaPricedInLightning is on; counted at most once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS)',
+    'V94'
+  ),
+  receipt(
+    'omaha_slowplay_mix_in_lightning_scope_seen',
+    'HorseLogic omahaStrongHandSlowplayMixRule (omahaSlowplayMixInLightning)',
+    "omahaStrongHandSlowplayMix read a final raise or flop bet in a Lightning pool and the mix's public spot held because omahaSlowplayMixInLightning is on; counted at most once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS)",
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_in_lightning_scope_seen',
+    'HorseLogic omahaBetSizeByPublicStateRule (omahaPublicBetSizeInLightning)',
+    "omahaBetSizeByPublicState read the Horse's own postflop bet or raise in a Lightning pool and the public size's game held because omahaPublicBetSizeInLightning is on; counted at most once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS)",
     'V94'
   ),
   receipt(

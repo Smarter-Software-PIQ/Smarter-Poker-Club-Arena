@@ -27,3 +27,9 @@ FAIL. Added bets +4.30 bb per change [4.00, 4.61] (n 2,821), adverse variant +3.
 ## Tests
 
 `server/src/engine/HorseOmahaMultiwayCheckedToBet.test.ts` (synthetic cards).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -16,7 +16,8 @@
  * raised 100% of the time in most classes on every street, and a set on a
  * dry flop bet nearly always. This option adds the two mixes the owner asks
  * for. PLO4/PLO5 cash, pot limit, high only, one board, no bomb pot, not
- * Lightning. It only ever turns a raise into a call and a bet into a check:
+ * Lightning (Lightning too when the decision's omahaSlowplayMixInLightning is
+ * on). It only ever turns a raise into a call and a bet into a check:
  * it never folds, never adds a chip and never touches a check, a call or a
  * fold another rule made.
  *
@@ -239,8 +240,13 @@ export function omahaSlowplayReadMost(reads: readonly OmahaSlowplayRead[]): Omah
 type Street = 'flop' | 'turn' | 'river';
 const STREET_BOARD: Record<Street, number> = { flop: 3, turn: 4, river: 5 };
 
-/** PLO4/PLO5 cash, pot limit, high only, one board, no bomb pot, not Lightning, the Horse able to act. */
-function inGame(hero: SeatPlayer, gs: HorseGameStateV2): Street | null {
+/**
+ * PLO4/PLO5 cash, pot limit, high only, one board, no bomb pot, not Lightning, the Horse able to act.
+ * `lightning` (omahaSlowplayMixInLightning, PLO Strategy lane 2026-11-19, default OFF): true only when the
+ * decision's own option is on (the rule in HorseLogic, and the receipt validator under that decision's gate); the
+ * Lightning pools are then read exactly as a table is. Absent or false: Lightning is outside, as before.
+ */
+function inGame(hero: SeatPlayer, gs: HorseGameStateV2, lightning = false): Street | null {
   const variant = String(gs.gameVariant ?? '').toLowerCase();
   if (!omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, gs)) return null;
   const vi = variantInfo(variant);
@@ -261,7 +267,7 @@ function inGame(hero: SeatPlayer, gs: HorseGameStateV2): Street | null {
   )
     return null;
   const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
-  if (speed === 'lightning') return null;
+  if (speed === 'lightning' && lightning !== true) return null;
   const street: Street | null =
     gs.stage === 'flop' || gs.stage === 'turn' || gs.stage === 'river' ? gs.stage : null;
   if (street === null) return null;
@@ -345,10 +351,11 @@ export interface OmahaSlowplayCallScope {
  */
 export function omahaSlowplayCallScope(
   hero: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  lightning = false
 ): OmahaSlowplayCallScope | null {
   try {
-    const street = inGame(hero, gs);
+    const street = inGame(hero, gs, lightning);
     if (street === null) return null;
     const toCall = toCallOf(hero, gs);
     if (!(toCall > 0.005)) return null;
@@ -472,11 +479,13 @@ export function omahaSlowplayCallDecision(
     read: OmahaSlowplayRead;
     /** river only: prices the raise; null where it cannot be counted */
     riverRaise?: () => OmahaSlowplayRiverRaise | null;
+    /** the decision's own omahaSlowplayMixInLightning (`=== true`); absent: Lightning is outside */
+    lightning?: boolean;
   }
 ): OmahaSlowplayResult {
   const same: OmahaSlowplayResult = { decision, changed: null, frequency: 0, share: 0 };
   try {
-    const scope = omahaSlowplayCallScope(hero, gs);
+    const scope = omahaSlowplayCallScope(hero, gs, ctx.lightning === true);
     if (!scope || !raises(decision, hero, scope.paid)) return same;
     if (!omahaNutClassNow(hero, gs)) return same;
     const keep = omahaSlowplayKeepShare(hero, gs);
@@ -499,15 +508,17 @@ export function omahaSlowplayCallDecision(
  * Receipt validation (no options, no opponent memory, no draw in the
  * request): a raise that became a call is admitted only inside the call
  * mix's public spot, with a nut-class hand, and only for the exact chips of
- * the call.
+ * the call. `lightning`: the decision's own omahaSlowplayMixInLightning (the
+ * receipt context's gate); absent or false, Lightning is outside as before.
  */
 export function omahaSlowplayAdmitsCall(
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  amount: number | null | undefined
+  amount: number | null | undefined,
+  lightning = false
 ): boolean {
   try {
-    const scope = omahaSlowplayCallScope(hero, gs);
+    const scope = omahaSlowplayCallScope(hero, gs, lightning);
     if (!scope || !omahaNutClassNow(hero, gs)) return false;
     return typeof amount === 'number' && Math.abs(amount - scope.paid) < 1e-9;
   } catch {
@@ -600,10 +611,11 @@ export interface OmahaSlowplayCheckScope {
  */
 export function omahaSlowplayCheckScope(
   hero: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  lightning = false
 ): OmahaSlowplayCheckScope | null {
   try {
-    if (inGame(hero, gs) !== 'flop') return null;
+    if (inGame(hero, gs, lightning) !== 'flop') return null;
     if (toCallOf(hero, gs) > 0.005) return null;
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('check')) return null;
     const board = gs.communityCards ?? [];
@@ -657,12 +669,17 @@ export function omahaSlowplayCheckDecision(
   decision: HorseDecision,
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  ctx: { unit: number; read: (seat: number) => OmahaSlowplayRead }
+  ctx: {
+    unit: number;
+    read: (seat: number) => OmahaSlowplayRead;
+    /** the decision's own omahaSlowplayMixInLightning (`=== true`); absent: Lightning is outside */
+    lightning?: boolean;
+  }
 ): OmahaSlowplayResult {
   const same: OmahaSlowplayResult = { decision, changed: null, frequency: 0, share: 0 };
   try {
     if (decision.action !== 'bet') return same;
-    const scope = omahaSlowplayCheckScope(hero, gs);
+    const scope = omahaSlowplayCheckScope(hero, gs, ctx.lightning === true);
     if (!scope) return same;
     const hurt = omahaSlowplayHurtShare(hero, gs);
     const frequency = omahaSlowplayCheckFrequency(
@@ -681,8 +698,12 @@ export function omahaSlowplayCheckDecision(
 }
 
 /** Receipt validation: a bet that became a check is admitted only in the check mix's spot. */
-export function omahaSlowplayAdmitsCheck(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
-  return omahaSlowplayCheckScope(hero, gs) !== null;
+export function omahaSlowplayAdmitsCheck(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  lightning = false
+): boolean {
+  return omahaSlowplayCheckScope(hero, gs, lightning) !== null;
 }
 
 /**
@@ -694,11 +715,12 @@ export function omahaSlowplayAdmitsCheck(hero: SeatPlayer, gs: HorseGameStateV2)
  */
 export function omahaSlowplayAdmitsCheckWithRequest(
   variant: string,
-  request: { player: SeatPlayer; gameState: HorseGameStateV2 } | undefined
+  request: { player: SeatPlayer; gameState: HorseGameStateV2 } | undefined,
+  lightning = false
 ): boolean {
   return (
     request !== undefined &&
     String(request.gameState.gameVariant).toLowerCase() === variant &&
-    omahaSlowplayAdmitsCheck(request.player, request.gameState)
+    omahaSlowplayAdmitsCheck(request.player, request.gameState, lightning)
   );
 }

@@ -41,3 +41,9 @@ No evaluation run. The 0.15 showdown credit and the 0.15 price floor on the no-o
 ## Live change on this head (review B2, 2026-11-16)
 
 This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: the "four or more nut outs" forced call facing the turn bet (out of position, after the flop bet was called, PLO4/PLO5 cash) now counts GRADED nut outs (`omahaGradedTurnOuts`): a river card counts 1 only when it makes the nuts, and a card that makes a non-nut full house counts only the share of the opponent's full-house holdings it beats. Live today every card that improved the hand to a full house or better counted whole. Over the 3,000-hand H9 turn sample (two pair, trips or a set) the hands at or over the threshold fall from 2,393 to 686 in PLO4 (1,707, about 57% of the sample, lose the forced call) and from 2,568 to 941 in PLO5 (1,627, about 54%, lose it). A hand that loses the forced call keeps today's call or fold (it folds where today's decision folds), and a raise there still becomes a call. The turn bet that becomes a check, the price test and the no-out fold (whole-card count) are unchanged. PLO6 keeps its own out class.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

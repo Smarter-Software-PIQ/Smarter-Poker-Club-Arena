@@ -41,3 +41,9 @@ Stated, not measured: the showdown-value line 0.5, the shown range 0.5, the 2% m
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
 Review R1 N1 of wave2c e2a6457166f: the all-in fold-equity fix (an all-in opponent has no fold equity in `omahaBetVsCheckEv`, HorseOmahaMultiwayDiscipline.ts) also changes this off-only option's comparison, which uses the same function.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -33,3 +33,9 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 ## Limits
 
 No river betting three-way (a river is a showdown). Card overlap between the two opponents' hands is ignored (independent ranges). No side pots: the bet is capped at the larger opponent stack. The river follow of the first layer is heads-up only.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)
