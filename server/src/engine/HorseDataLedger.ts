@@ -1245,6 +1245,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPricedInLightning',
+    "PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 2026-11-18T20:08:21Z; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). A scope option, default off (read === true): with it on, omahaPricedInScope (HorseOmahaPricedWiring) admits the Lightning pools (gs.publicMemoryDomain.speed === 'lightning'), so each priced PLO4/PLO5 cash option whose OWN switch is on (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced, omahaFlopBetIsPriced) also decides Lightning PLO4/PLO5 cash, the two raise owners reading their turn/river spot (omahaRaiseNeedsNutsScope) there too; the receipt validator admits the priced raise -> call in Lightning only under the decision's own option. It switches no priced option on and leaves every categorical rule's scope as it was. Off or unset: Lightning stays outside the priced scope, byte-identical. The league deals no Lightning (refused matchup plo5_omaha_priced_in_lightning); its evaluation is the paired Lightning harness.",
+    'V94'
+  ),
+  flag(
     'omahaSmallBetIsPriced',
     "PLO Strategy lane 2026-11-18 (owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV; the size of the bet must not make or break the decision): in PLO4/PLO5 cash, one board, high only, heads-up on the turn or river with nothing to call, the owner's check or bet is priced on the card-impact model beside bets of 10%, 20% and 25% of the pot (a candidate set, not a threshold), with the opponent's fold, call and raise shares at every size taken from the measured response of his kind (a person or a Horse) by pot share (HorseOmahaSmallBetConstants.ts, 5,379 hands) moved by his own fold-to-bet read; the best small bet replaces the owner's choice when it is worth more by 2% of the pot (HorseOmahaSmallBet.ts). Never turns a bet into a check, never makes a nut-class bet smaller, never overrides an owner-ruled check, never touches an all-in; the flop and multiway spots keep the owner's decision. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_small_bet_is_priced",
     'V94'
@@ -5318,6 +5323,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_small_bet_unpriced_kept',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
     "the spot is in the card-impact scope but the small bets could not be priced (nut-class bet, all-in, no legal small size, the model returned nothing); the owner's decision stands",
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_in_lightning_scope_seen',
+    'HorseOmahaPricedWiring.omahaPricedInScope (omahaPricedInLightning)',
+    'a priced PLO4/PLO5 option that is on was consulted in a Lightning pool and the priced scope held because omahaPricedInLightning is on; counted at most once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS)',
     'V94'
   ),
   receipt(

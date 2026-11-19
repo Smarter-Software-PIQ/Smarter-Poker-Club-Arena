@@ -3847,6 +3847,15 @@ export interface HorseDecideOpts {
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
    * (config 0, raw rows lost with SSD1) did not pass. */
   omahaRaiseEvCountsLossesOnce?: boolean;
+  /** PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 20:08:21Z): opt-in (`=== true`). A SCOPE option:
+   * the Lightning pools (gs.publicMemoryDomain.speed === 'lightning') are inside omahaPricedInScope
+   * (HorseOmahaPricedWiring), so every priced PLO4/PLO5 cash option whose OWN switch is on (the *IsPriced
+   * families and sites) also decides Lightning PLO4/PLO5 cash; omahaTurnRiverRaiseIsPriced and
+   * omahaBigBetCallsArePriced read their turn/river spot there too. It switches no priced option on by itself,
+   * and the categorical rules keep their own scope. Off or unset: Lightning stays outside the priced scope,
+   * byte-identical. Default OFF; the league deals no Lightning (refused matchup); its evaluation is the paired
+   * Lightning harness (lightning/LightningPairedEval.test.ts). */
+  omahaPricedInLightning?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
