@@ -74,6 +74,34 @@ export function isTournamentPurchasePlayerBusy(
     String(error.message ?? '').includes('TOURNAMENT_PURCHASE_PLAYER_BUSY')
   );
 }
+/**
+ * Sends a purchase refused TOURNAMENT_PURCHASE_PLAYER_BUSY again, at most
+ * `retries` times with a short growing pause, asking `mayResend` before every
+ * attempt so a freeze or a closed decision window ends it at once.
+ */
+export async function resendBusyTournamentPurchase<
+  D,
+  E extends { code?: string; message?: string },
+>(
+  first: { data: D; error: E | null },
+  send: () => PromiseLike<{ data: D; error: E | null }>,
+  mayResend: () => boolean,
+  retries: number,
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+): Promise<{ data: D; error: E | null }> {
+  let result = first;
+  for (
+    let attempt = 1;
+    attempt <= retries && isTournamentPurchasePlayerBusy(result.error) && mayResend();
+    attempt++
+  ) {
+    await pause(150 * attempt);
+    if (!mayResend()) break;
+    const next = await send();
+    result = { data: next.data, error: next.error };
+  }
+  return result;
+}
 import {
   resolveOriginalSatelliteQualifierOutcome,
   readSatelliteQualifierState,
@@ -3261,23 +3289,23 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               // 20261119013430: a purchase whose bounty settle waited over its
               // 500 ms lock bound (or whose player keys were busy) is refused
               // with 55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY before anything is
-              // written. It is the same idempotent request, so retry it in place,
-              // bounded, inside the decision window.
-              for (
-                let attempt = 1;
-                attempt <= TournamentManagerEliminations.HORSE_REBUY_BUSY_RETRIES &&
-                isTournamentPurchasePlayerBusy(error) &&
-                mayMutate() &&
-                !isMaintenanceFrozen() &&
-                !(
-                  timing?.promptUntilMs !== null &&
-                  timing?.promptUntilMs !== undefined &&
-                  Date.now() >= timing.promptUntilMs
-                );
-                attempt++
-              ) {
-                await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
-                ({ data, error } = await supabase.rpc('process_tournament_rebuy', request));
+              // written. It is the same idempotent request, so it is sent again
+              // in place, bounded, and only while the freeze gate, the
+              // mutation gate and the decision window still allow a purchase.
+              if (isTournamentPurchasePlayerBusy(error)) {
+                ({ data, error } = await resendBusyTournamentPurchase(
+                  { data, error },
+                  () => supabase.rpc('process_tournament_rebuy', request),
+                  () =>
+                    mayMutate() &&
+                    !isMaintenanceFrozen() &&
+                    !(
+                      timing?.promptUntilMs !== null &&
+                      timing?.promptUntilMs !== undefined &&
+                      Date.now() >= timing.promptUntilMs
+                    ),
+                  TournamentManagerEliminations.HORSE_REBUY_BUSY_RETRIES
+                ));
               }
               diagnostic(
                 error || (data as { success?: boolean } | null)?.success !== true
