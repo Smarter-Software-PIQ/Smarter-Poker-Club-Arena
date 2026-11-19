@@ -549,6 +549,10 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_cron_failure_watch() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
 
+-- fn_ca_cron_failure_watch is a watched guard: the redefinition is declared,
+-- so the guard-def watch records it instead of raising a notice.
+SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119171234_the_drill_chooses_its_club_and_weekly_failures_are_heard');
+
 -- @probe-for: public.fn_ca_cron_failure_watch
 DO $probe$
 BEGIN
