@@ -152,11 +152,13 @@ describe('Create-Table Switch And Bomb-Schedule Markup', () => {
     expect(blurb.classic).toContain('No Bombs');
     for (const t of CASH_TEMPLATES) expect(t.blurb).not.toMatch(/\bN\b/);
 
-    // A Classic PLO5 or PLO6 game plays a big blind ante and a 50% floor
-    // (20261024213131), so its card never promises "No Antes".
+    // A Classic PLO5 or PLO6 game plays a big blind ante and a 40% floor
+    // (20261024213131 at 50, lowered by 20261118004324), so its card never
+    // promises "No Antes".
     for (const v of ['plo5', 'plo6']) {
       expect(cashTemplateBlurb('classic', v)).toContain('Big Blind Ante');
-      expect(cashTemplateBlurb('classic', v)).toContain('50% Minimum VPIP');
+      expect(cashTemplateBlurb('classic', v)).toContain('40% Minimum VPIP');
+      expect(cashTemplateBlurb('classic', v)).not.toContain('50% Minimum VPIP');
       expect(cashTemplateBlurb('classic', v)).not.toContain('No Antes');
     }
     for (const v of ['nlh', 'plo4', null])
