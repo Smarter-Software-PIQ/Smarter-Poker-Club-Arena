@@ -421,7 +421,15 @@ export abstract class ServerTableEngineBase {
     await this.handContinuation?.awaitRetention();
   }
 
+  /**
+   * A hand built and saved under the between-hands rest is not on the felt
+   * until the rest ends and it starts (hand delay, 2026-11-19): until then
+   * every reader sees the rest, exactly as when the hand was built after it.
+   */
+  protected handPreparedUnderTheRest = false;
+
   protected publishedHandState(): GameState | null {
+    if (this.handPreparedUnderTheRest) return null;
     return this.isOriginalInputPending() || this.handContinuation?.isUnretained()
       ? this.retainedPublicHandState
       : (this.handController?.getState() ?? null);
@@ -2963,6 +2971,61 @@ export abstract class ServerTableEngineBase {
     if (this.f06CurrentPermit !== permit) throw new Error('f06_permit_replaced');
     this.f06CancelledPreparation = Object.freeze({ ...permit.binding });
     this.f06CurrentPermit = null;
+  }
+  /**
+   * Release the unstarted original this process saved (seq 0) and never
+   * started (hand delay, 2026-11-19): its capsule is deleted and its permit
+   * closed never_started in one SQL transaction, exactly once. The table is
+   * then between hands again, so every owner waiting for that boundary (a
+   * balancing move, a weekly payout, hand-for-hand) is woken.
+   * True when released; false when the release could not be proved, and the
+   * caller keeps the existing custody of the saved original.
+   */
+  protected async cancelF06RetainedPreparedHand(controller: HandController): Promise<boolean> {
+    const permit = this.f06CurrentPermit;
+    if (
+      !permit ||
+      permit.recoveryState() !== 'attempted' ||
+      this.retainedPreparedOriginalController !== controller ||
+      this.handController !== controller
+    )
+      return false;
+    // One exact replay (same identity, same receipt) covers a lost reply.
+    let released = false;
+    for (let attempt = 0; attempt < 2 && !released; attempt++) {
+      try {
+        await permit.cancelRetainedPreparedHand();
+        released = true;
+      } catch (error) {
+        if (attempt === 1 || !permit.hasRetainedCancellation()) {
+          reportError(
+            error,
+            'ServerTableEngine.' + this.tableId + '.retained_prepared_cancel_failed'
+          );
+          return false;
+        }
+      }
+    }
+    if (this.f06CurrentPermit !== permit) throw new Error('f06_permit_replaced');
+    this.f06CancelledPreparation = Object.freeze({ ...permit.binding });
+    this.f06CurrentPermit = null;
+    this.retainedPreparedOriginalController = null;
+    this.retainedPublicHandState = null;
+    this.preparedOriginalRetentionUnconfirmed = false;
+    if (this.handController === controller) this.handController = null;
+    this.currentHandDealtStacks.clear();
+    if (this.handSpan) {
+      try {
+        this.handSpan.end();
+      } catch {
+        // Tracing can never keep a released hand open.
+      }
+      this.handSpan = null;
+    }
+    this.shadowRecorder = null;
+    this.notifyParkedPauseReadyIfDrained();
+    if (this.weeklyHandPause.held()) this.observeWeeklyPayoutDrain();
+    return true;
   }
   /**
    * ═══════════════════════════════════════════════════════════════════════

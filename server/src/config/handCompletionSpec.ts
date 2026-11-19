@@ -690,18 +690,17 @@ export function boardClearMs(wentToShowdown: boolean): number {
  *           only by how much it outlasts the rest.
  *
  * ENGINE_BETWEEN_HANDS_BUDGET_MS is the only time allowed on top: the deal's
- * own in-process work plus at most the one database round trip a tournament
- * deal still makes after the rest (the seq-0 retention of the prepared hand,
- * which must be durable before the hand may start). Anything beyond it is an
+ * own in-process work and production jitter. Since 2026-11-19 a tournament
+ * deal makes no database round trip after the rest at all (the F06 state
+ * read, fn_f06_begin_hand and the seq-0 save of the prepared hand ride under
+ * it; the law measures rest + 80 ms at 150 ms per trip). Anything beyond it is an
  * unintended delay: server/src/engine/noUnintendedDelayBetweenHands.law.test.ts
  * fails CI on a new wait in that path, and
  * scripts/sql/hand-gap-unintended-delay.sql grades production hand by hand.
  */
 export const ENGINE_BETWEEN_HANDS_BUDGET_MS = 250;
 
-export function owedBetweenHandsMs(
-  opts: HandCompletionOpts & { rebuyPauseMs?: number }
-): number {
+export function owedBetweenHandsMs(opts: HandCompletionOpts & { rebuyPauseMs?: number }): number {
   const rest = Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(opts.wentToShowdown));
   return handCompletionHoldMs(opts) + Math.max(rest, Math.max(0, opts.rebuyPauseMs ?? 0));
 }

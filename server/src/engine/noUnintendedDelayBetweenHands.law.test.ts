@@ -13,10 +13,12 @@
  *   1. the waterfall: owedBetweenHandsMs is exactly the sum of the named beats
  *      for every hand shape, so no beat can grow a hidden term;
  *   2. the measured gap: the real dealHand, driven from the instant the rest
- *      is armed with 150 ms per database round trip, starts the next hand
- *      within the rest plus ONE round trip (the seq-0 retention) plus a small
- *      in-process allowance - the F06 state read and fn_f06_begin_hand ride
- *      under the rest. Before 2026-11-18 this measured rest + three trips;
+ *      is armed with 150 ms per database round trip, starts the next
+ *      tournament hand within the rest plus a small in-process allowance
+ *      (80 ms) and NO round trip - the F06 state read, fn_f06_begin_hand and
+ *      the seq-0 save of the prepared original all ride under the rest.
+ *      Before 2026-11-18 this measured rest + three trips; #11314 made it
+ *      rest + one (the save); 2026-11-19 made it rest;
  *   3. the path: every await between the end of the hold and the deal is on a
  *      named list with the reason it is not an unintended delay. A new await
  *      there fails here until it is named, proved to run under the rest, or
@@ -104,14 +106,14 @@ describe('the owed beats are the whole cadence', () => {
   });
 });
 
-describe('a tournament deal pays nothing after the rest but its retention', () => {
+describe('a tournament deal pays nothing after the rest', () => {
   const RTT = 150;
   const REST = H.NEXT_HAND_REST_MS;
   // In-process work of the deal itself on a test runner; production budget is
-  // ENGINE_BETWEEN_HANDS_BUDGET_MS, which also covers the retention trip.
+  // ENGINE_BETWEEN_HANDS_BUDGET_MS.
   const IN_PROCESS_MS = 80;
 
-  it('the state read and fn_f06_begin_hand ride under the rest', async () => {
+  it('the state read, fn_f06_begin_hand and the seq-0 save ride under the rest', async () => {
     const f = fixture({ rpcLatencyMs: RTT });
     const armedAt = Date.now();
     f.engine.armNextHandRest(REST);
@@ -119,11 +121,13 @@ describe('a tournament deal pays nothing after the rest but its retention', () =
     await f.dealsTheNextHand();
     const gap = f.startedAt[0] - armedAt;
     expect(f.beginAt[0]).toBeLessThan(armedAt + REST);
+    // The save was asked for, and answered, before the rest ended.
+    expect(f.retainedAt[0] + RTT).toBeLessThanOrEqual(armedAt + REST);
     expect(gap).toBeGreaterThanOrEqual(REST);
-    // rest + the one retention round trip + in-process work, and no more:
-    // the pre-2026-11-18 order paid rest + begin + retention (+ state read).
-    expect(gap).toBeLessThanOrEqual(REST + RTT + IN_PROCESS_MS);
-    expect(RTT + IN_PROCESS_MS).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
+    // rest + in-process work, and no round trip: the pre-2026-11-18 order
+    // paid rest + begin + save (+ state read); #11314 rest + save.
+    expect(gap).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
+    expect(IN_PROCESS_MS).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
   }, 10_000);
 
   it('with an instant database the deal starts on the rest', async () => {
@@ -142,7 +146,7 @@ describe('every wait between the hold and the deal is named', () => {
   const code = (segment: string): string =>
     segment.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   const awaitsIn = (segment: string): string[] =>
-    [...code(segment).matchAll(/await\s+([A-Za-z_.]+)(?=[(\s])/g)].map((m) => m[1]);
+    [...code(segment).matchAll(/await\s+([A-Za-z0-9_.]+)(?=[(\s])/g)].map((m) => m[1]);
 
   it('the hold is one sleep: the owed completion display', () => {
     const a = DEALING.indexOf("this.setLoopPhase('post_hand_hold');");
@@ -167,33 +171,45 @@ describe('every wait between the hold and the deal is named', () => {
     ]);
   });
 
-  it('inside the deal, after the rest, every await is named with its reason', () => {
+  it('inside the deal, every await is named with its reason and its side of the rest', () => {
+    // dealHand, from the reservation's rest hand-off to the controller run:
+    // for a tournament every one of these is still UNDER the rest.
     const a = DEALING.indexOf(
-      'await this.awaitNextHandRest();\n        if (!this.handRestStillAllowsTheDeal())'
+      'await this.awaitRestBlindRead();\n        if (!this.handRestStillAllowsTheDeal())'
     );
     const b = DEALING.indexOf('      } finally {\n        handStarted = attempt.started;', a);
     const r = DEALING.indexOf('  protected async runOriginalController(');
+    const rest = DEALING.indexOf(
+      'await this.awaitNextHandRest();\n      if (!this.handRestStillAllowsTheDeal())',
+      r
+    );
     const rEnd = DEALING.indexOf('return new Promise<void>((resolve) => {', r);
     expect(a).toBeGreaterThan(-1);
     expect(r).toBeGreaterThan(-1);
+    expect(rest).toBeGreaterThan(r);
+    expect(rEnd).toBeGreaterThan(rest);
+    const restEnd = rest + 'await this.awaitNextHandRest('.length;
     expect(awaitsIn(DEALING.slice(a, b))).toEqual([
-      'this.awaitNextHandRest', // the owed rest, finished after the reservation
+      'this.awaitRestBlindRead', // the level read the lead started, under the rest
       'this.sleep', // error backstop only: an unplayable seat count, deals nothing
       'supabase', // a host's manual bomb pot claim: once, on request, cash only
       'this.takePreparedCashHandManifest', // cash: sent under the rest, joined here
       'Promise.all', // time-bank reads for players NEW to the table only
       'this.runOriginalController',
     ]);
-    expect(awaitsIn(DEALING.slice(r, rEnd))).toEqual([
-      // The one round trip a tournament deal still makes after the rest: the
-      // prepared hand's deck is made durable before it may start (a retained
-      // prepared original that meets a hold is fenced, so it cannot move
-      // under the rest). Counted inside ENGINE_BETWEEN_HANDS_BUDGET_MS.
-      'this.retainOriginalBatch',
+    // Before the rest ends: the seq-0 save, then the rest itself.
+    expect(awaitsIn(DEALING.slice(r, restEnd))).toEqual([
+      'this.retainOriginalBatch', // the prepared deck made durable, under the rest
+      'this.awaitNextHandRest', // the owed rest, finished after the save
+    ]);
+    // After the rest: no round trip on the path that deals.
+    expect(awaitsIn(DEALING.slice(restEnd, rEnd))).toEqual([
+      'this.releaseUnstartedRetainedOriginal', // only when the last look refused: no deal
       'this.weeklyHandPause.checkpoint', // in-process cooperative owner
       'this.acquireFinancialControllerStart', // in-process boundary
       'this.weeklyHandPause.checkpoint',
       'this.awaitPauseGate', // only when an owner paused the next hand
+      'this.cancelF06RetainedPreparedHand', // only when a hold met the saved hand: no deal
     ]);
   });
 });
@@ -225,4 +241,3 @@ describe('the production grade reads the same numbers', () => {
     expect(SQL).not.toMatch(/\b(INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE|GRANT)\b/i);
   });
 });
-
