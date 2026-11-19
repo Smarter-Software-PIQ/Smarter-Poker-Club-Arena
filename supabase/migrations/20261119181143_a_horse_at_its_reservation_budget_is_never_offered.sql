@@ -1,4 +1,4 @@
--- 20261119181143_a_horse_at_its_tournament_reservation_budget_is_never_offered.sql
+-- 20261119181143_a_horse_at_its_reservation_budget_is_never_offered.sql
 --
 -- WHAT THIS CHANGES, AND WHY (incident eaafbbfb, SpinFleetProducingNothing):
 --
@@ -60,8 +60,7 @@ AS $function$
     ) b
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_horses_at_tournament_reservation_budget() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_horses_at_tournament_reservation_budget() FROM anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_horses_at_tournament_reservation_budget() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_horses_at_tournament_reservation_budget() TO service_role;
 
 COMMENT ON FUNCTION public.fn_horses_at_tournament_reservation_budget() IS
