@@ -1,0 +1,3 @@
+# server/src/services/aHorseAtItsReservationBudgetIsNeverOffered.law.test.ts
+
+The seat-first free-horse picker (`pickFreeHorses`) never offers a horse the seat door `fn_seat_horse_in_seat_first_game` would refuse for `horse_tournament_reservation_budget` (four unresolved tournament promises). Incident eaafbbfb, 2026-11-19: six Spins overran their 8,400 s ladder envelope (up to 9,407 s) while every fill pass offered budget-exhausted horses. The law pins that the picker excludes the horses `fn_horses_at_tournament_reservation_budget` names, offers nobody rather than a refused seat, remembers a door refusal for two minutes, reports an unreadable read once and otherwise offers as before, and that the read carries the door's own predicate clauses and threshold.

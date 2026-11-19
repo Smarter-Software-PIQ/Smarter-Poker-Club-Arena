@@ -150,6 +150,13 @@ export interface HandDetailModalProps {
   onLoadOlder?: () => Promise<string | null>;
   hasOlderHands?: boolean;
   olderHandsLoading?: boolean;
+  /** Lightning fast-folded deal still playing out on its physical host table. */
+  pendingLightningDeal?: {
+    handNumber: number;
+    status: 'pending' | 'unavailable' | 'failed';
+  } | null;
+  /** Pool/table display name shown in the modal header (e.g. Lightning cluster title). */
+  tableNameFallback?: string | null;
 }
 
 /** How many face-down cards a muck shows - the variant's own holding size. */
@@ -546,6 +553,8 @@ export function HandDetailModal({
   onLoadOlder,
   hasOlderHands = false,
   olderHandsLoading = false,
+  pendingLightningDeal = null,
+  tableNameFallback = null,
 }: HandDetailModalProps) {
   /* THE SUBJECT IS A HAND, NOT A POSITION. `hands` is newest-first and can be
      replaced while the modal is open (a hand finishing behind it). Holding an
@@ -859,6 +868,15 @@ export function HandDetailModal({
 
   if (!isOpen) return null;
 
+  const pendingDealStatusText =
+    pendingLightningDeal?.status === 'unavailable'
+      ? 'Hand Settled · History Unavailable'
+      : pendingLightningDeal?.status === 'failed'
+        ? 'Hand History Unavailable'
+        : 'Awaiting Final Result';
+  const showPendingDeal =
+    !!pendingLightningDeal && !hands.some((h) => h.handNumber === pendingLightningDeal.handNumber);
+
   /* Dan 2026-08-21: this used to `return null` with no hand to show, so a tap
      before the history loaded was indistinguishable from a dead button. Open
      the panel and say why it is empty - and say WHICH why. */
@@ -882,18 +900,26 @@ export function HandDetailModal({
             onClose={onClose}
             as="div"
             className="hdm-console"
-            eyebrow="This Table"
+            eyebrow={tableNameFallback || 'This Table'}
             title="Hand Detail"
+            pill={
+              showPendingDeal && pendingLightningDeal
+                ? `#${pendingLightningDeal.handNumber}`
+                : undefined
+            }
+            pillInk="blue"
             foot="foot"
           >
-            <div className="hdm-empty">
+            <div className="hdm-empty" role={showPendingDeal ? 'status' : undefined}>
               {awaitingHistory
                 ? 'Loading The Hands For This Table'
-                : loadState === 'failed'
-                  ? 'Could Not Load The Hands For This Table. Close And Try Again.'
-                  : viewerSeated
-                    ? 'No Completed Hands For You At This Table Yet. Play A Hand To The End And It Will Appear Here.'
-                    : 'You Are Watching. Hands Are Recorded For The Players Dealt Into Them. Take A Seat And Yours Will Appear Here.'}
+                : showPendingDeal && pendingLightningDeal
+                  ? `Hand #${pendingLightningDeal.handNumber} · ${pendingDealStatusText}`
+                  : loadState === 'failed'
+                    ? 'Could Not Load The Hands For This Table. Close And Try Again.'
+                    : viewerSeated
+                      ? 'No Completed Hands For You At This Table Yet. Play A Hand To The End And It Will Appear Here.'
+                      : 'You Are Watching. Hands Are Recorded For The Players Dealt Into Them. Take A Seat And Yours Will Appear Here.'}
             </div>
             <button type="button" className="hdm-word-btn" aria-label="Close" onClick={onClose}>
               Close
@@ -935,7 +961,7 @@ export function HandDetailModal({
           onClose={onClose}
           as="div"
           className="hdm-console"
-          subtitle={hand.tableName || 'This Table'}
+          subtitle={tableNameFallback || hand.tableName || 'This Table'}
           title="Hand Detail"
           /* Printed beside the game name, without a separate number frame. */
           pill={`#${hand.handNumber}`}
@@ -949,6 +975,12 @@ export function HandDetailModal({
               {variant ? <em className="hdm-variant">{variant}</em> : null}
             </span>
           </div>
+          {showPendingDeal && pendingLightningDeal && (
+            <div className="hdm-pending-deal" role="status">
+              <span>Hand #{pendingLightningDeal.handNumber}</span>
+              <span>{pendingDealStatusText}</span>
+            </div>
+          )}
 
           <div
             className="hdm-body"

@@ -30,6 +30,10 @@ import { masterBus } from '../core/MasterBus';
 import { reportError } from '../utils/errorReporter';
 import { resolveCosmetic } from '../cosmetics/avatarCosmetics';
 
+// Keep inlined here so the entry chunk does not pull in an extra module before first paint.
+const CHAT_MESSAGE_TYPE_EXCLUSION_OR =
+  'type.is.null,type.not.in.(new_message,message,messenger_message,direct_message)';
+
 /**
  * A header read that never reached the server: the phone dropped its radio, the
  * tab was frozen in the background, or the read was aborted on navigation.
@@ -489,7 +493,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
             .from('notifications')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', userId)
-            .eq('read', false),
+            .eq('read', false)
+            .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR),
           fetchMessengerUnreadCount(),
         ]);
 
@@ -552,7 +557,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
                 .from('notifications')
                 .select('*', { count: 'exact', head: true })
                 .eq('user_id', userId)
-                .eq('read', false),
+                .eq('read', false)
+                .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR),
               fetchMessengerUnreadCount(),
             ]);
             if (get()._userId !== userId || get().refreshAppearance !== refreshAppearance) return;
@@ -600,7 +606,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
             .from('notifications')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', userId)
-            .eq('read', false);
+            .eq('read', false)
+            .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR);
           if (error) {
             reportError(error, 'useHeaderDataStore.refreshAllHeaderCounts');
             return;
@@ -704,7 +711,8 @@ export const useHeaderDataStore = create<HeaderDataState>()((set, get) => ({
                 .from('notifications')
                 .select('*', { count: 'exact', head: true })
                 .eq('user_id', userId)
-                .eq('read', false);
+                .eq('read', false)
+                .or(CHAT_MESSAGE_TYPE_EXCLUSION_OR);
               if (get()._userId === userId) get().setNotificationCount(count || 0);
             } catch (e) {
               reportError(e, 'useHeaderDataStore.async');

@@ -43,6 +43,23 @@ function coverage(report) {
       test.results[0]?.status === 'passed'
     );
   });
+  // A recorded non-verdict anywhere in the certificate (a layout or format
+  // production lacked) means it could not test that subject. It is never
+  // certified around, whichever case carried it (support/nonVerdict.ts).
+  for (const spec of specs) {
+    for (const test of Array.isArray(spec?.tests) ? spec.tests : []) {
+      const annotations = [
+        ...(Array.isArray(test?.annotations) ? test.annotations : []),
+        ...(Array.isArray(test?.results)
+          ? test.results.flatMap((result) =>
+              Array.isArray(result?.annotations) ? result.annotations : []
+            )
+          : []),
+      ];
+      const nonVerdict = annotations.find((annotation) => annotation?.type === 'non-verdict');
+      if (nonVerdict) missing.push(`non-verdict: ${spec.title}: ${nonVerdict.description ?? ''}`);
+    }
+  }
   if (report.notRunReason || !Array.isArray(report.errors) || report.errors.length !== 0) {
     missing.push('report has no trustworthy error-free completion');
   }

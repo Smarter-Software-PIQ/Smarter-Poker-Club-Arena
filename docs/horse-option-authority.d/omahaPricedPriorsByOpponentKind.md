@@ -9,7 +9,9 @@ PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default OFF (r
 - every prior and reference rate a priced comparison reads is the opponent's KIND's (`HorseOmahaPricedMode.omahaPricedKindPrior`: a person's bluff table, bet and fold rates by street, card-impact bluff share and bet-rate elasticity for a person, a Horse's for a Horse; kind from `gs.humanUserIds`, else the seat's `is_horse`), each posterior re-centred on it (`omahaPricedRecentred`, `omahaPricedKindBetRate`);
 - the card-impact read starts at his kind's figures, continuous at zero opportunities;
 - the continuous facing-bet range takes the bettor's kind's bluff table (through the per-decision priced mode, `priorsByKind`);
-- a spot a priced family cannot price falls CLOSED: the old categorical rule acts as with the family off, beside the family's `_unpriced_kept` receipt (new receipt `omaha_priced_pressure_unpriced_kept`); `omahaTurnRiverRaiseIsPriced` owns a spot only where it can be priced.
+- a spot a priced family cannot price keeps the decision given, exactly as with this option off; the old categorical rule never decides it (its `_unpriced_kept` receipt still fires with this option on, including `omaha_priced_pressure_unpriced_kept`).
+
+ROWFIX 2026-11-18 (Horse Switch lane, PLO45-CASH improvement 5): until this change the option also made every unpriceable spot fall CLOSED to the categorical rule the family replaces (for example omahaTurnRiverRaiseNeedsNuts deciding PLO4/PLO5 cash turn and river raises), which re-opened blanket rules against the owner's 2026-11-17 ruling and confounded every evaluation of the priors. The fall-closed path is removed; the option now switches only the kind priors. Off is byte-identical (the off path was already "kept"). **Every league and replay result below measured the fall-closed version and is not evidence for the option as it now is: it is unevaluated.**
 
 Off (absent or false): every priced family is byte-identical to #11212 (HorseOmahaPricedKindOptions.test.ts; HorseOmahaPricedRulesRecorded.test.ts on the main fixture).
 

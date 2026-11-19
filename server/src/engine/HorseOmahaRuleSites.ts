@@ -364,12 +364,15 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaBigBetCallsArePriced: priced('the exact count in place of the big-bet cells'),
   omahaUnderpairMultiwayIsPriced: priced('the multiway flop call on sampled shares'),
   omahaPricedPriorsByOpponentKind: priced(
-    "the priors and reference rates every priced comparison reads, by the opponent's measured kind; unpriceable spots fall closed (an input, not a rule site)"
+    "the priors and reference rates every priced comparison reads, by the opponent's measured kind; unpriceable spots keep the decision given, never the categorical rule (an input, not a rule site)"
   ),
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
   omahaPricedMix: priced('mixing between two close priced actions'),
+  omahaPricedInLightning: priced(
+    'the priced scope opened to the Lightning pools for the priced options that are on (a scope, not a rule site)'
+  ),
   // the priced sites of 2026-11-18 (HorseOmahaPricedSites.ts)
   omahaMadeHandBetIsPriced: priced('the defence wager beside the check on the card-impact model'),
   omahaTurnSetSizeIsPriced: priced(
@@ -490,6 +493,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTightOpponentSteal: outside(PREFLOP),
   omahaEvFoldModel: outside('a model switch'),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
+  omahaTournamentsExcludeCategoricalRules: outside(
+    'a scope gate (tournaments): with it on the categorical rules here stay cash-only'
+  ),
   omahaStrategyInPlo6: outside('a scope gate (PLO6)'),
   omahaTournamentFirstIn: outside('tournaments'),
   omahaHiLoTournamentFirstIn: outside('hi-lo tournaments'),

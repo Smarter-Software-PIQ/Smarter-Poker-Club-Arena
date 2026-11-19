@@ -7,6 +7,7 @@ import { openLobbyGameSection } from './support/lobbyGameSections';
 import { CASH_SPECTATOR_ACTION, CASH_TABLE_CARD_SELECTOR } from './support/cashTableCandidates';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
 import { diamondEntryRead, settleDiamondSpinsOffer } from './support/diamondInvitationOffer';
+import { missingFixtureError, proveCashSubjectAbsence } from './support/productionFixture';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 test.use({ viewport: { width: 393, height: 852 }, trace: 'off', video: 'off', screenshot: 'off' });
@@ -105,36 +106,75 @@ test('both club views keep receiving rows and one survives the other unmounting'
       await route.abort('blockedbyclient');
     }
   );
+  // The client's own cash catalogue: the independent read behind an absence.
+  const cashCatalogue = page
+    .waitForResponse(
+      (response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname.endsWith('/rest/v1/tables') &&
+          (url.searchParams.get('select') || '')
+            .replace(/\s+/g, '')
+            .startsWith('id,name,game_variant,') &&
+          url.searchParams.get('tournament_id') === 'is.null'
+        );
+      },
+      { timeout: 35_000 }
+    )
+    .then(async (response) => {
+      const rows: unknown = response.ok() ? await response.json() : null;
+      return Array.isArray(rows) ? rows : null;
+    })
+    .catch(() => null);
   await openLobby(page);
   await page.getByRole('tab', { name: 'ALL', exact: true }).click();
   const cards = page.locator(`${CASH_TABLE_CARD_SELECTOR}:visible`);
-  await expect(cards.first()).toBeVisible();
-  const ids = (
-    await cards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-id')))
-  )
-    .filter((id): id is string => /^[0-9a-f-]{36}$/i.test(id || ''))
-    .slice(0, 32);
-  const response = await request.get(
-    `https://engine.smarter.poker/health?liveness_table_ids=${ids.join(',')}`
-  );
-  expect(response.ok()).toBe(true);
-  const health = await response.json();
-  expect(Array.isArray(health.tableLiveness)).toBe(true);
-  const subject = health.tableLiveness.find(
-    (row: {
-      tableId: string;
-      running: boolean;
-      paused: boolean;
-      seated: number;
-      dealable: number;
-    }) =>
-      ids.includes(row.tableId) &&
-      row.running &&
-      !row.paused &&
-      row.seated >= 2 &&
-      row.dealable >= 2
-  );
-  expect(subject, 'The reserved observer needs an actually served cash table').toBeTruthy();
+  const shown = await cards
+    .first()
+    .waitFor({ state: 'visible', timeout: 30_000 })
+    .then(
+      () => true,
+      () => false
+    );
+  const ids = shown
+    ? (
+        await cards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-id')))
+      ).filter((id): id is string => /^[0-9a-f-]{36}$/i.test(id || ''))
+    : [];
+  type Liveness = {
+    tableId: string;
+    running: boolean;
+    paused: boolean;
+    seated: number;
+    dealable: number;
+  };
+  // Every visible table, in the engine's 32-id batches: never only the first 32.
+  let found: Liveness | undefined;
+  let engineSha: unknown;
+  for (let offset = 0; offset < ids.length && !found; offset += 32) {
+    const batch = ids.slice(offset, offset + 32);
+    const response = await request.get(
+      `https://engine.smarter.poker/health?liveness_table_ids=${batch.join(',')}`
+    );
+    expect(response.ok()).toBe(true);
+    const health = await response.json();
+    expect(Array.isArray(health.tableLiveness)).toBe(true);
+    engineSha = health.releaseSha;
+    found = (health.tableLiveness as Liveness[]).find(
+      (row) =>
+        batch.includes(row.tableId) &&
+        row.running &&
+        !row.paused &&
+        row.seated >= 2 &&
+        row.dealable >= 2
+    );
+  }
+  if (!found)
+    throw missingFixtureError(proveCashSubjectAbsence(ids, await cashCatalogue), {
+      selector: 'The reserved observer needs an actually served cash table',
+      considered: ids,
+    });
+  const subject = found;
   // The data-id is on the card/row itself, not a descendant.
   const selected = page.locator(
     `${CASH_TABLE_CARD_SELECTOR}[data-id="${subject.tableId}"]:visible`
@@ -262,7 +302,7 @@ test('both club views keep receiving rows and one survives the other unmounting'
           ownedFixtureEventOnly: true,
           publishedClient,
           tableId: subject.tableId,
-          engineSha: health.releaseSha,
+          engineSha,
         })
       ),
       contentType: 'application/json',

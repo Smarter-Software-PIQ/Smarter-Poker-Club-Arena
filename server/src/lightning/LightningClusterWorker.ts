@@ -506,7 +506,9 @@ export class LightningClusterWorker {
   peerReleased(playerId: string): boolean {
     if (!this.multiTableHeld || typeof playerId !== 'string') return false;
     if (!this.knownPoolPlayers.includes(playerId)) return false;
-    return this.passSoon();
+    if (!this.passSoon()) return false;
+    this.noteIdle(playerId);
+    return true;
   }
 
   /** The next pass within LIGHTNING_ADMISSION_COALESCE_MS, never later than it would have run. */

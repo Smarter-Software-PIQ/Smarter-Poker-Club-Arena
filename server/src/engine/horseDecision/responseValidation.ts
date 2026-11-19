@@ -1020,6 +1020,12 @@ export interface HorseDecisionReceiptContext {
    * as before.
    */
   omahaPricedRaise?: boolean;
+  /**
+   * PLO Strategy lane 2026-11-18: the decision's own omahaPricedInLightning, read `=== true`. Only then is the
+   * priced raise -> call above admitted in a Lightning pool (the priced scope includes Lightning only under that
+   * option). Absent or false, the validator is exactly as before.
+   */
+  omahaPricedInLightning?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -1613,7 +1619,12 @@ function policyGraphIsValidInScope(
       ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
-      omahaPricedAdmitsRaiseToCall(context.player, context.gameState, transition.after.amount);
+      omahaPricedAdmitsRaiseToCall(
+        context.player,
+        context.gameState,
+        transition.after.amount,
+        context.omahaPricedInLightning === true
+      );
     // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
     // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
     // with a nut-class hand becomes a call at a mixed frequency. The draw and
@@ -1975,30 +1986,75 @@ export function omahaPricedRaiseGateCandidates(
 }
 
 /**
+ * The omahaPricedInLightning values the worker may have run this decision
+ * with, built exactly as omahaStrategyInPlo6GateCandidates: the live switch
+ * row this client last delivered, then the request's own option when it
+ * differs, then the configuration delivered before the last change while it
+ * still counts.
+ */
+export function omahaPricedInLightningGateCandidates(
+  requestOpts: { omahaPricedInLightning?: unknown } | null | undefined,
+  switchConfig: unknown,
+  previousSwitchConfig?: unknown
+): boolean[] {
+  const own = requestOpts?.omahaPricedInLightning === true;
+  const switchedOf = (config: unknown): boolean | undefined => {
+    try {
+      const parsed = parseOptionSwitchConfig(config);
+      return parsed.ok ? optionSwitchDecisionOpts(parsed.states).omahaPricedInLightning : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const out: boolean[] = [];
+  const add = (v: boolean | undefined) => {
+    if (v !== undefined && !out.includes(v)) out.push(v);
+  };
+  add(switchedOf(switchConfig));
+  add(own);
+  if (previousSwitchConfig !== undefined) add(switchedOf(previousSwitchConfig));
+  return out;
+}
+
+/**
  * horseDecisionReceiptRefusalForPlo6Gates under each candidate priced-raise
- * gate as well: null as soon as one pair of gates admits the decision, else
- * the refusal under the first (the effective one).
+ * gate (and, when given, each candidate omahaPricedInLightning gate) as well:
+ * null as soon as one set of gates admits the decision, else the refusal
+ * under the first (the effective one). Without `pricedInLightningGates` only
+ * the false gate is tried: exactly as before.
  */
 export function horseDecisionReceiptRefusalForGates(
   value: unknown,
   expectedVariant: string | undefined,
-  context: Omit<HorseDecisionReceiptContext, 'omahaStrategyInPlo6' | 'omahaPricedRaise'>,
+  context: Omit<
+    HorseDecisionReceiptContext,
+    'omahaStrategyInPlo6' | 'omahaPricedRaise' | 'omahaPricedInLightning'
+  >,
   plo6Gates: readonly boolean[],
-  pricedRaiseGates: readonly boolean[]
+  pricedRaiseGates: readonly boolean[],
+  pricedInLightningGates: readonly boolean[] = [false]
 ): string | null {
   let first: string | null = null;
   let seen = false;
-  for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
-    const refusal = horseDecisionReceiptRefusalForPlo6Gates(
-      value,
-      expectedVariant,
-      { ...context, ...(gate ? { omahaPricedRaise: true } : {}) },
-      plo6Gates
-    );
-    if (refusal === null) return null;
-    if (!seen) {
-      first = refusal;
-      seen = true;
+  for (const lightningGate of pricedInLightningGates.length > 0
+    ? pricedInLightningGates
+    : [false]) {
+    for (const gate of pricedRaiseGates.length > 0 ? pricedRaiseGates : [false]) {
+      const refusal = horseDecisionReceiptRefusalForPlo6Gates(
+        value,
+        expectedVariant,
+        {
+          ...context,
+          ...(gate ? { omahaPricedRaise: true } : {}),
+          ...(lightningGate ? { omahaPricedInLightning: true } : {}),
+        },
+        plo6Gates
+      );
+      if (refusal === null) return null;
+      if (!seen) {
+        first = refusal;
+        seen = true;
+      }
     }
   }
   return first;

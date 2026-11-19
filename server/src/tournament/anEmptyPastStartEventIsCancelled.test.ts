@@ -205,16 +205,24 @@ describe('the cancellation lane', () => {
     source.indexOf('private pastStartTopUpClock: Map<string, PastStartTopUpClock>')
   );
 
-  it('recognises only the lane try-lock refusals, by code and exact name', () => {
+  it('recognises only the lane try-lock and lock-timeout refusals, by code and exact name', () => {
     expect(
       isCancellationLaneBusy({ code: '55P03', message: 'CANCELLATION_GLOBAL_LANE_BUSY' })
     ).toBe(true);
     expect(isCancellationLaneBusy({ code: '55P03', message: 'CANCELLATION_BARRIER_BUSY' })).toBe(
       true
     );
+    // After 20261119053909 (#11381), a single plain event's cancellation takes
+    // its own finish lane, whose lock_timeout raises 55P03 with PG's message.
+    expect(
+      isCancellationLaneBusy({ code: '55P03', message: 'canceling statement due to lock timeout' })
+    ).toBe(true);
     // A different refusal, or the right name under the wrong code, keeps its report.
     expect(
       isCancellationLaneBusy({ code: '55000', message: 'CANCELLATION_GLOBAL_LANE_BUSY' })
+    ).toBe(false);
+    expect(
+      isCancellationLaneBusy({ code: '55000', message: 'canceling statement due to lock timeout' })
     ).toBe(false);
     expect(
       isCancellationLaneBusy({ code: '55000', message: 'CANCELLATION_EVENT_AUTHORITY_INCOMPLETE' })

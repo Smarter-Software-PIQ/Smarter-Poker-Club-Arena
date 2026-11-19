@@ -1155,6 +1155,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTournamentsExcludeCategoricalRules',
+    'Horse Switch lane 2026-11-18 (ROWFIX; owner 2026-11-17 11:49: a blanket rule must not affect a decision, every decision by math, ranges, equity and EV). Default off (read === true), unevaluated. omahaStrategyInTournaments (on in production) opens every cash-scoped PLO4/PLO5 rule of 2026-11-15 to tournament hands inside its public scope, the twelve rules HorseOmahaRuleSites classes categorical among them (the nut-raise scope, the draw-raise bar, the five out-of-position checks, the pressure label, the bluff-catcher fold against a value leader, the underpair multiway fold, the value-leader made-hand defence, the reachable river blocker bluff), although their evaluations were cash-only. With this on, those categorical rules stay cash-only in every tournament hand (HorseOmahaTournamentScope.omahaCategoricalCashOnlyExcludes); the priced rules, the street plan and the survival premium keep the extension. Off: byte-identical. Changing live tournament play, it is a new option rather than a change to omahaStrategyInTournaments.',
+    'V94'
+  ),
+  flag(
     'omahaStrongHandSlowplayMix',
     'Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN\'T ALWAYS RAISE 100% OF THE TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS"): PLO4/PLO5 cash, pot limit, high only, one board (HorseOmahaStrongHandSlowplayMix.ts). Facing a bet on the flop, the turn or the river with a nut-class hand and one or two opponents, the final raise becomes a call at a mixed frequency: higher when few next cards take the nuts away, against a measured aggressive bettor, in position and with stacks behind; lower against a measured station, on the river (priced on the share of his range that calls a raise and loses) and nearly zero when the hand is vulnerable. Nothing to call on a very dry flop (three suits, three ranks, every two at least five apart) with a set and one or two opponents, the final bet becomes a check at a mixed frequency: higher when few turn cards hurt and an opponent is measured to bet when checked to, lower against a passive player or station or with the pot large beside the stacks, in position only when few turn cards hurt. It only turns a raise into a call and a bet into a check, never a fold, never an owner-ruled check; one draw per decision from a stream derived from the strategy stream without advancing it; it stands aside when omahaNutClassValueSize is on. Every constant is a builder\'s choice, none measured. Default OFF (opt-in): only an explicit true switches it on',
     'V94'
@@ -1206,7 +1211,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaPricedPriorsByOpponentKind',
-    "PLO Strategy lane 2026-11-18 (priced2; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Every prior and reference rate the priced families read is the opponent's KIND's, measured (HorseOmahaPricedMode.omahaPricedKindPrior: a person's bluff prior, bet rate, fold rate and card-impact bluff share for a person, a Horse's for a Horse; his posterior re-centred on it), the card-impact read starts at his kind's figures, and a spot a priced family cannot price falls CLOSED: the categorical rule acts as with the family off, beside the family's _unpriced_kept receipt (omahaTurnRiverRaiseIsPriced owns a spot only where it can be priced). Off: every priced family is byte-identical to #11212. No league yet; do not switch on without a WIN.",
+    "PLO Strategy lane 2026-11-18 (priced2; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Every prior and reference rate the priced families read is the opponent's KIND's, measured (HorseOmahaPricedMode.omahaPricedKindPrior: a person's bluff prior, bet rate, fold rate and card-impact bluff share for a person, a Horse's for a Horse; his posterior re-centred on it), the card-impact read starts at his kind's figures. A spot a priced family cannot price keeps the decision given, as with the option off: the categorical rule never decides it (ROWFIX 2026-11-18; until then this option made such spots fall CLOSED to the categorical rule, against the no-blanket ruling). Off: every priced family is byte-identical to #11212. No league yet; do not switch on without a WIN.",
     'V94'
   ),
   flag(
@@ -1237,6 +1242,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaPricedMix',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Frequency mixing inside a priced rule that is on: when the two best actions of the comparison are closer than its own uncertainty (the standard error of the sampled share, plus the spread of the opponent read by its opportunity count) the lower one is taken with probability 0.5 x (1 - gap / uncertainty). The draw is the decision derived stream (read, never advanced) hashed with public state only: the street, the board, the pot, the wager, the seat and the public action count; the Horse hole cards are not read.',
+    'V94'
+  ),
+  flag(
+    'omahaPricedInLightning',
+    "PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 2026-11-18T20:08:21Z; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). A scope option, default off (read === true): with it on, omahaPricedInScope (HorseOmahaPricedWiring) admits the Lightning pools (gs.publicMemoryDomain.speed === 'lightning'), so each priced PLO4/PLO5 cash option whose OWN switch is on (omahaTurnRiverRaiseIsPriced, omahaDrawRaiseIsPriced, omahaOopTurnBarrelIsPriced, omahaPairedBoardBetIsPriced, omahaPressureIsPriced, omahaBigBetCallsArePriced, omahaUnderpairMultiwayIsPriced, omahaMadeHandBetIsPriced, omahaTurnSetSizeIsPriced, omahaBlockerBluffIsPriced, omahaFlopBetIsPriced) also decides Lightning PLO4/PLO5 cash, the two raise owners reading their turn/river spot (omahaRaiseNeedsNutsScope) there too; the receipt validator admits the priced raise -> call in Lightning only under the decision's own option. It switches no priced option on and leaves every categorical rule's scope as it was. Off or unset: Lightning stays outside the priced scope, byte-identical. The league deals no Lightning (refused matchup plo5_omaha_priced_in_lightning); its evaluation is the paired Lightning harness.",
     'V94'
   ),
   flag(
@@ -1753,6 +1763,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-14'
   ),
   receipt(
+    'option_shadow_*',
+    'horseDecision workerRuntime (OPTION SHADOW, HorseOptionShadow)',
+    'option_shadow_<option>_changed_seen / option_shadow_<option>_same_seen: a registered non-style option in shadow (passes nothing to the brain, so the acted decision is the release default) was re-decided once with its value flipped from the same RNG position, never acted on, and the counterfactual action or amount differed / did not differ; option_shadow_<option>_changed_person_seen / _same_person_seen: the same, only when a person (a seat that is not a Horse) was dealt into the hand (Horse-only = all minus person); the journal field HorseDecision.optionShadowReceipt carries the counterfactual action and amount, street, variant, format and person presence; option_shadow_rotated_out_seen: another option in shadow of the same decision was not re-decided (one per decision, rotated by decision key); option_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen / _skipped_rate_seen: no re-decision because work was queued, the decision had spent the 15 ms budget, the governor scale moved, or the per-minute budget (HORSE_OPTION_SHADOW_PER_MINUTE) was used; option_shadow_scale_mismatch_seen / _redecide_failed_seen / _unencodable_seen: the re-decision ran at another scale, threw, or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
     'raise_ladder_*',
     'RaiseLadderAlarm (live raise-ladder alarm, measurement only; ServerTableEngineHandEvents PLAYER_ACTION)',
     'raise_ladder_<variant>_<horse_only|mixed>_seen: a no-limit or pot-limit street reached 4 consecutive minimum raises (a full raise whose increment is the minimum legal raise; calls between raises do not break the run, a larger raise, a short all in or a new street ends it; fixed limit is not counted), fired once per street on the 4th; <variant> is the watchcounter variant, horse_only when every raiser of the run is a Horse, mixed otherwise; changes no action; occurrence counter; named *_seen',
@@ -2146,6 +2162,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdemRiverFullHouseValue',
     "2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (HorseHoldemRiverFullHouseValue; owner order 11:20 Chicago, the shared audit of Hold'em hands against people): in no-limit hold'em on the river, out of position without the betting lead, a full house or better that uses a hole card (not an under-full, not a trips-board boat, not the board playing) leads 70% of the time through the existing monster sizing instead of checking to the prior aggressor at the V11 initiative gate; the rest keeps the check. Replay of the 131 flagged decisions on main: 48 still checked at that gate, 19 of them qualifying hands. Read === true, default OFF.",
     '2026-11-15'
+  ),
+  flag(
+    'holdemRiverFullHouseValueIsPriced',
+    "Horse Switch lane 2026-11-18 (ROWFIX; NLH-CASH improvement I1; owner 2026-11-17: every decision from ranges, equity, price and EV, no blanket rule). Default off (read === true), unevaluated; acts only with holdemRiverFullHouseValue on. The qualifying river boat (HorseHoldemRiverFullHouseValue.holdemRiverLeadBoat, out of position into the prior aggressor) leads when EV(lead) beats EV(check) instead of a fixed 70% (HOLDEM_RIVER_BOAT_LEAD_FREQUENCY): heads-up, from the aggressor's river call share and checked-to bet share (HorseOpponentExploit.statRead posteriors on his decayed counters, centred on the measured population cell OPPONENT_EXPLOIT_ENVELOPE horse-population-2026-10-16), the lead sized at the monster branch's midpoint, his bet when checked to priced at the same size; holdemRiverBoatLeadPrice. More than one opponent or no envelope: the boat keeps the check. Draws no random number. Off: byte-identical.",
+    'V94'
   ),
   flag(
     'omahaTightOpponentSteal',
@@ -5293,6 +5314,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_priced_in_lightning_scope_seen',
+    'HorseOmahaPricedWiring.omahaPricedInScope (omahaPricedInLightning)',
+    'a priced PLO4/PLO5 option that is on was consulted in a Lightning pool and the priced scope held because omahaPricedInLightning is on; counted at most once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS)',
+    'V94'
+  ),
+  receipt(
     'omaha_small_bet_owner_check_kept',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
     "the priced small bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's decision stands",
@@ -5681,7 +5708,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
-    'a raise in the option scope whose hand could not be counted: the categorical rule acts as with the option off (fall closed)',
+    'a raise in the option scope whose hand could not be counted: the decision given is kept; the categorical rule does not decide it',
     'V94'
   ),
   receipt(
@@ -5699,7 +5726,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_draw_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
-    'the same decision, no sample could be drawn (three or more opponents, one all in): the bar acts as with the option off (fall closed)',
+    'the same decision, no sample could be drawn (three or more opponents, one all in): the raise is kept; the bar does not decide it (fires with omahaPricedPriorsByOpponentKind on)',
     'V94'
   ),
   receipt(
@@ -5729,7 +5756,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_oop_turn_barrel_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaOopTurnBarrelIsPriced)',
-    'the same decision, outside the card-impact model: the categorical rule acts as with the option off (fall closed)',
+    'the same decision, outside the card-impact model: the decision given is kept; the categorical rule does not decide it',
     'V94'
   ),
   receipt(
@@ -5747,7 +5774,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_paired_board_bet_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
-    'the same decision, outside the card-impact model: the categorical rule acts as with the option off (fall closed)',
+    'the same decision, outside the card-impact model: the decision given is kept; the categorical rule does not decide it',
     'V94'
   ),
   receipt(
@@ -5783,7 +5810,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_pressure_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
-    'the pressure play against this bettor where no comparison could be computed: the label test acts as with the option off',
+    'the pressure play against this bettor where no comparison could be computed: withheld as with omahaPricedPriorsByOpponentKind off; the label test does not decide it (fires with that option on)',
     'V94'
   ),
   receipt(
@@ -5801,7 +5828,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_big_bet_call_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
-    'the same decision, the hand could not be counted: the cells act as with the option off (fall closed)',
+    'the same decision, the hand could not be counted: the decision given is kept; the cells do not decide it',
     'V94'
   ),
   receipt(
@@ -8106,6 +8133,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValue)',
     "a qualifying no-limit hold'em river full house led into the prior aggressor instead of checking at the V11 initiative gate",
     '2026-11-15'
+  ),
+  receipt(
+    'holdem_river_full_house_lead_priced',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
+    "a qualifying no-limit hold'em river full house leads: EV(lead) beat EV(check) against the aggressor's measured river call share and checked-to bet share",
+    'V94'
+  ),
+  receipt(
+    'holdem_river_full_house_check_priced',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
+    "a qualifying no-limit hold'em river full house checks: EV(check) was at least EV(lead) (the aggressor bets when checked to at least as often as he calls)",
+    'V94'
+  ),
+  receipt(
+    'holdem_river_full_house_lead_unpriced',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValueIsPriced)',
+    "a qualifying no-limit hold'em river full house with more than one opponent, or no population cell for the table: nothing priced, the boat keeps the check",
+    'V94'
   ),
   receipt(
     'v87_turn_takeaway',

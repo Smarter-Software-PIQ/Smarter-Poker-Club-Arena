@@ -14,7 +14,12 @@ import {
   type ComplaintAction,
   type ExtractedHand,
 } from './HorseComplaintReplay.js';
-import { holdemRiverLeadBoat } from './HorseHoldemRiverFullHouseValue.js';
+import { holdemRiverBoatLeadPrice, holdemRiverLeadBoat } from './HorseHoldemRiverFullHouseValue.js';
+import { HorseLogic } from './HorseLogic.js';
+import { HorseMind, readScopeOf } from './HorseMind.js';
+import { freshExploitCounters, type ExploitCounters } from './HorseOpponentExploit.js';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { seedFastRandom } from './HorseEval.js';
 import type { Card } from '../types.js';
 
 const SUIT = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' } as const;
@@ -142,6 +147,103 @@ describe("a hold'em river full house leads for value", () => {
     ] as const) {
       const st = spot(hole, board);
       expect(run(st, true), `${hole} ${board}`).toEqual(run(st, undefined));
+    }
+  });
+});
+
+// ─── ROWFIX 2026-11-18: holdemRiverFullHouseValueIsPriced (default OFF) ───
+describe('the priced lead (holdemRiverFullHouseValueIsPriced): EV(lead) against EV(check)', () => {
+  it('closed form: with the nuts the lead wins exactly when he calls more often than he bets', () => {
+    const p = holdemRiverBoatLeadPrice({
+      pot: 51,
+      lead: 40,
+      equity: 1,
+      callShare: 0.43,
+      betShare: 0.31,
+    })!;
+    expect(p.evLead).toBeCloseTo(0.57 * 51 + 0.43 * 91, 9);
+    expect(p.evCheck).toBeCloseTo(0.69 * 51 + 0.31 * 91, 9);
+    expect(p.lead).toBe(true);
+    expect(
+      holdemRiverBoatLeadPrice({ pot: 51, lead: 40, equity: 1, callShare: 0.2, betShare: 0.6 })!
+        .lead
+    ).toBe(false);
+    // equal rates: no edge, the check stands (strictly better is required)
+    expect(
+      holdemRiverBoatLeadPrice({ pot: 51, lead: 40, equity: 1, callShare: 0.4, betShare: 0.4 })!
+        .lead
+    ).toBe(false);
+    expect(
+      holdemRiverBoatLeadPrice({ pot: 0, lead: 40, equity: 1, callShare: 0.4, betShare: 0.3 })
+    ).toBeNull();
+    expect(
+      holdemRiverBoatLeadPrice({ pot: 51, lead: NaN, equity: 1, callShare: 0.4, betShare: 0.3 })
+    ).toBeNull();
+  });
+  const PRICED = { holdemRiverFullHouseValue: true, holdemRiverFullHouseValueIsPriced: true };
+  it('off and unset are the 70% line exactly; the priced option alone does nothing', () => {
+    const st = spot('7c6d', 'Kd7h6hTc7s');
+    const on = run(st, true);
+    for (const v of [false, undefined])
+      expect(
+        replayAt(st, LIVE, SEEDS, {
+          holdemRiverFullHouseValue: true,
+          holdemRiverFullHouseValueIsPriced: v,
+        })
+      ).toEqual(on);
+    expect(replayAt(st, LIVE, SEEDS, { holdemRiverFullHouseValueIsPriced: true })).toEqual(
+      run(st, undefined)
+    );
+  });
+  it('on, with no read the population cell prices it: the top boat leads every time, no random draw', () => {
+    const st = spot('7c6d', 'Kd7h6hTc7s');
+    const priced = replayAt(st, LIVE, SEEDS, PRICED);
+    expect(bets(priced)).toBe(SEEDS.length);
+    expect(priced.receipts.holdem_river_full_house_lead_priced).toBe(SEEDS.length);
+    expect(priced.receipts.holdem_river_full_house_lead_seen).toBe(SEEDS.length);
+  });
+  it('on, a measured aggressor who bets when checked to more than he calls a river bet gets the check', () => {
+    const st = spot('7c6d', 'Kd7h6hTc7s');
+    const scope = readScopeOf('nlh', 3);
+    const decideWith = (c: ExploitCounters | null, opts: Record<string, unknown>) => {
+      HorseMind.reset();
+      if (c)
+        (
+          HorseMind as unknown as { exploitCounters: Map<string, ExploitCounters> }
+        ).exploitCounters.set(`${scope}|p3`, c);
+      enableBrainTelemetry();
+      drainFires();
+      seedFastRandom(11);
+      const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        telemetry: true,
+        ...opts,
+      } as never);
+      return { action: d.action, fires: drainFires().map((f) => f.feature) };
+    };
+    const barreler = freshExploitCounters();
+    barreler.betCheckedToOpp = 60;
+    barreler.betCheckedTo = 48; // bets 80% when checked to
+    barreler.riverCallOpp = 40;
+    barreler.riverCall = 8; // calls 20% of river bets
+    const checked = decideWith(barreler, PRICED);
+    expect(checked.fires).toContain('holdem_river_full_house_check_priced');
+    expect(checked.action).toBe('check');
+    const station = freshExploitCounters();
+    station.betCheckedToOpp = 60;
+    station.betCheckedTo = 6;
+    station.riverCallOpp = 40;
+    station.riverCall = 34;
+    const led = decideWith(station, PRICED);
+    expect(led.fires).toContain('holdem_river_full_house_lead_priced');
+    expect(['bet', 'raise', 'all_in']).toContain(led.action);
+  });
+  it('on, hands that do not qualify keep exactly the off decision', () => {
+    for (const [hole, board] of [
+      ['5s4d', '8dTh5c5h8s'],
+      ['AsKd', 'Kh7h6hTc2s'],
+    ] as const) {
+      const st = spot(hole, board);
+      expect(replayAt(st, LIVE, SEEDS, PRICED), `${hole} ${board}`).toEqual(run(st, undefined));
     }
   });
 });

@@ -1,21 +1,28 @@
-"""An unintended delay between hands pages within minutes (incident 075013fd, lane E5).
+"""An unintended delay between hands pages after 15 minutes and grades cadence (incident 075013fd, lane 3).
 
 Proves, on a throwaway PostgreSQL cluster (no network, no production
-connection), migration 20261119052955 exactly as it is on disk:
+connection), migrations 20261119052955 and 20261119180500 exactly as on disk:
 
+  * hand_history.cadence jsonb is added (nullable, no default) and both
+    migrations' @live-proof queries evaluate to true;
   * fn_ca_hand_gap_unintended_delay grades synthetic hand_history rows by
     shape the way scripts/sql/hand-gap-unintended-delay.sql does: a hand
     whose gap is exactly its owed beats grades 0 ms unintended (fold, river
     chips, checked river, all-in), and the window counts each pair once;
+  * legacy cash_bust and rit rows without cadence remain ungraded and never
+    alert, while cash_bust and rit rows WITH recorded cadence are graded
+    accurately (with rebuy_pause_ms clamped to 5000 ms and rit_reveal_ms
+    clamped to 30000 ms so an engine hang cannot excuse itself);
   * Lightning hands, gaps of 60 s or more, a recorded maintenance break and
-    a tournament break are not graded; a cash bust and a run-it-twice hand
-    are their own shapes, never over budget, never an alert;
+    a tournament break are not graded;
   * fn_ca_hand_gap_watch records one history row per window x kind x shape,
-    an on-time table gives no alert, one breached window gives no alert, two
-    consecutive breached windows give ONE critical alert, a third breached
-    window (and a re-run of the same window) adds none, and the alert
-    resolves when the shape is back within the budget;
-  * the cron job is the one the migration's live proof names.
+    opens nothing on 1 or 2 consecutive breached windows (5 or 10 minutes),
+    opens ONE critical financial_alerts row and sends ONE owner notification
+    on the 3rd consecutive breached window (15 minutes), adds none on a
+    re-run or 4th breached window, resolves and sends ONE clear notification
+    when the shape returns within budget, and sends no duplicate clear
+    notification on subsequent windows or re-runs;
+  * the cron job is the one 20261119052955's live proof names.
 """
 import argparse
 import datetime as dt
@@ -28,8 +35,11 @@ import tempfile
 import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-FILE = '20261119052955_an_unintended_delay_between_hands_pages_within_minutes.sql'
+BASE_FILE = '20261119052955_an_unintended_delay_between_hands_pages_within_minutes.sql'
+FILE = '20261119180500_sustained_hand_delay_alerts_and_cadence_grading.sql'
+BASE_MIGRATION = ROOT / 'supabase' / 'migrations' / BASE_FILE
 MIGRATION = ROOT / 'supabase' / 'migrations' / FILE
+SCRIPT_SQL = ROOT / 'scripts' / 'sql' / 'hand-gap-unintended-delay.sql'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/hand-gap-watch')
@@ -67,7 +77,10 @@ def check(name, passed, detail=None):
         raise AssertionError(f'{name}: {detail}')
 
 
-SCHEMA = """
+OWNER = '47965354-0e56-43ef-931c-ddaab82af765'
+JUNIOR = '47965354-0e56-43ef-931c-ddaab82af766'
+
+SCHEMA = f"""
 CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
 CREATE TABLE hand_history(id uuid PRIMARY KEY, table_id uuid, tournament_id uuid, created_at timestamptz,
   started_at timestamptz, ended_at timestamptz, actions jsonb, players jsonb, pots jsonb, showdown jsonb,
@@ -79,8 +92,20 @@ CREATE INDEX idx_lightning_hand_hand_history_id ON lightning_hand(hand_history_i
 CREATE TABLE engine_maintenance_break_log(break_started_at timestamptz PRIMARY KEY, break_ended_at timestamptz);
 CREATE TABLE tournaments(id uuid PRIMARY KEY, break_started_at timestamptz, break_ends_at timestamptz);
 CREATE TABLE financial_alerts(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), severity text, source text, message text,
-  context jsonb DEFAULT '{}'::jsonb, resolved boolean DEFAULT false, resolved_at timestamptz,
+  context jsonb DEFAULT '{{}}'::jsonb, resolved boolean DEFAULT false, resolved_at timestamptz,
   created_at timestamptz DEFAULT now(), resolved_by uuid, resolution text);
+CREATE TABLE notifications(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, type text,
+  title text, message text, link text, data jsonb DEFAULT '{{}}'::jsonb, created_at timestamptz DEFAULT now());
+CREATE TABLE ca_incident_recipients(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid,
+  scope text, active boolean, senior boolean);
+INSERT INTO ca_incident_recipients(user_id, scope, active, senior) VALUES
+  ('{OWNER}', 'platform', true, true),
+  ('{JUNIOR}', 'platform', true, false),
+  ('{JUNIOR}', 'platform', false, true);
+CREATE FUNCTION public.fn_raise_notification(p_user_id uuid, p_type text, p_title text, p_message text,
+  p_link text DEFAULT NULL, p_data jsonb DEFAULT '{{}}'::jsonb) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.notifications(user_id, type, title, message, link, data)
+  VALUES (p_user_id, p_type, p_title, p_message, p_link, COALESCE(p_data, '{{}}'::jsonb)) $$;
 CREATE SCHEMA cron;
 CREATE TABLE cron.job(jobid bigserial PRIMARY KEY, jobname text UNIQUE, schedule text, command text, active boolean DEFAULT true);
 CREATE FUNCTION cron.schedule(job_name text, schedule text, command text) RETURNS bigint LANGUAGE sql AS $$
@@ -120,11 +145,11 @@ def payload(shape):
             'pots': [{'awards': [{'userId': U1, 'amount': 10}]}]}
 
 
-def table(shape, extra_ms, windows, tournament=None, lightning=False, gap_ms=None):
+def table(shape, extra_ms, windows, tournament=None, lightning=False, gap_ms=None, cadence=None, base_owed_ms=None):
     """A table dealing `shape` hands across `windows` (list of window ends, as k), with
     extra_ms(k) unintended delay on the hands whose NEXT hand is written in window k."""
     tid = str(uuid.uuid4())
-    owed = OWED.get(shape, OWED['fold'])
+    owed = base_owed_ms if base_owed_ms is not None else OWED.get(shape, OWED['fold'])
     start = T0 + dt.timedelta(minutes=5 * (min(windows) - 1)) - dt.timedelta(seconds=40)
     stop = T0 + dt.timedelta(minutes=5 * max(windows))
     rows, s = [], start
@@ -138,15 +163,18 @@ def table(shape, extra_ms, windows, tournament=None, lightning=False, gap_ms=Non
         if s + dt.timedelta(seconds=HAND_S) > stop - dt.timedelta(seconds=1):
             break
     p = payload(shape)
+    cad_sql = f"'{json.dumps(cadence)}'::jsonb" if cadence is not None else 'NULL'
     vals = []
-    for s, e in rows:
+    for idx, (s, e) in enumerate(rows):
         hid = str(uuid.uuid4())
-        vals.append("('%s','%s',%s,'%s','%s','%s','%s','%s','%s','%s',%s)" % (
+        # Cadence is written on the NEXT hand (rows 1..N-1 carry the prior hand's cadence).
+        row_cad = cad_sql if idx > 0 else 'NULL'
+        vals.append("('%s','%s',%s,'%s','%s','%s','%s','%s','%s','%s',%s,%s)" % (
             hid, tid, f"'{tournament}'" if tournament else 'NULL', (e + dt.timedelta(milliseconds=200)).isoformat(),
             s.isoformat(), e.isoformat(), json.dumps(p['actions']), json.dumps(p['players']), json.dumps(p['pots']),
-            json.dumps(p['showdown']), f"'{json.dumps(p['rit_boards'])}'" if p['rit_boards'] else 'NULL'))
+            json.dumps(p['showdown']), f"'{json.dumps(p['rit_boards'])}'" if p['rit_boards'] else 'NULL', row_cad))
     run('INSERT INTO hand_history(id, table_id, tournament_id, created_at, started_at, ended_at, actions, players,'
-        ' pots, showdown, rit_boards) VALUES ' + ','.join(vals))
+        ' pots, showdown, rit_boards, cadence) VALUES ' + ','.join(vals))
     if lightning:
         run(f"INSERT INTO lightning_hand(hand_history_id) SELECT id FROM hand_history WHERE table_id = '{tid}'")
     return tid
@@ -168,26 +196,36 @@ def alerts():
       severity, resolved) ORDER BY created_at), '[]') FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'"""))
 
 
+def notifs():
+    return json.loads(run("""SELECT COALESCE(jsonb_agg(jsonb_build_array(user_id::text, title,
+      data->>'event', data->>'kind', data->>'shape') ORDER BY created_at, id), '[]')
+      FROM notifications WHERE data->>'source' = 'fn_ca_hand_gap_watch'"""))
+
+
 try:
     command(as_owner + [pg / 'initdb', '-D', cluster / 'data', '-A', 'trust', '-U', 'postgres'])
     command(as_owner + [pg / 'pg_ctl', '-D', cluster / 'data', '-o', f"-k {sock} -p {PORT} -c listen_addresses=''",
                         '-l', cluster / 'log', '-w', 'start'])
     results['server_version'] = run('SHOW server_version')
     run(SCHEMA)
+    run(BASE_MIGRATION.read_text())
+    base_proof = BASE_MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
+    check('base migration 20261119052955 installs and its live proof holds', run('SELECT ' + base_proof) == 't', base_proof)
+
     run(MIGRATION.read_text())
     proof = MIGRATION.read_text().split('@live-proof: ', 1)[1].split('\n', 1)[0]
-    check('the migration installs as written and its live proof holds', run('SELECT ' + proof) == 't', proof)
+    check('migration 20261119180500 installs as written and its live proof holds', run('SELECT ' + proof) == 't', proof)
     check('the grade is STABLE and the watch is not',
           run("SELECT string_agg(proname || ':' || provolatile::text, ',' ORDER BY proname) FROM pg_proc "
               "WHERE proname IN ('fn_ca_hand_gap_unintended_delay', 'fn_ca_hand_gap_watch')")
           == 'fn_ca_hand_gap_unintended_delay:s,fn_ca_hand_gap_watch:v')
 
-    # Window 1 alone: every graded shape exactly on its owed beats, plus the exclusions.
+    # Window 1: every graded shape on its owed beats, plus legacy ungraded cash_bust & rit, plus exclusions.
     on_time = lambda k: 0
     for shape in OWED:
         table(shape, on_time, [1])
-    tbust = table('cash_bust', lambda k: 4000, [1])
-    table('rit', lambda k: 4000, [1])
+    table('cash_bust', lambda k: 4000, [1])   # legacy row (cadence IS NULL) -> ungraded
+    table('rit', lambda k: 4000, [1])         # legacy row (cadence IS NULL) -> ungraded
     table('fold', lambda k: 3000, [1], lightning=True)
     table('fold', lambda k: 0, [1], gap_ms=61_000)
     g = grade(1)
@@ -197,61 +235,125 @@ try:
               r and r['graded'] and r['unintended_p95_ms'] == 0 and r['owed_p50_ms'] == OWED[shape]
               and r['over_budget'] == 0, r)
     r = g.get(('cash', 'cash_bust'))
-    check('grade: a cash bust is its own shape, not graded, not over budget',
+    check('grade: a legacy cash bust without cadence is ungraded and never over budget',
           r and not r['graded'] and r['over_budget'] is None and r['unintended_p50_ms'] >= 4000, r)
     r = g.get(('cash', 'rit'))
-    check('grade: a run-it-twice hand is its own shape, not graded', r and not r['graded'] and r['over_budget'] is None, r)
+    check('grade: a legacy run-it-twice hand without cadence is ungraded',
+          r and not r['graded'] and r['over_budget'] is None, r)
     hands = sum(r['hands'] for r in g.values())
     fold = g[('cash', 'fold')]['hands']
     check('grade: Lightning hands and gaps of 60 s or more are not graded (only the on-time fold table counts)',
           g[('cash', 'fold')]['unintended_p99_ms'] == 0 and 15 <= fold <= 25, {'fold_hands': fold, 'all': hands})
     w = watch(1)
-    check('watch: window 1 is recorded, one row per kind x shape, and nothing alerts',
-          w['recorded'] == len(g) and w['opened'] == 0 and alerts() == [], w)
+    check('watch: window 1 is recorded, one row per kind x shape, and nothing alerts or notifies',
+          w['recorded'] == len(g) and w['opened'] == 0 and w['notified_open'] == 0
+          and alerts() == [] and notifs() == [], w)
     check('watch: a re-run of the same window records nothing new',
           watch(1)['recorded'] == 0 and run('SELECT count(*) FROM ca_hand_gap_watch_history') == str(len(g)))
 
-    # Windows 2..5: an on-time cash table, a tournament table 600 ms late in windows 2..4,
-    # a cash bust table always 4 s "late", and two tournament tables whose delay sits in a break.
+    # Windows 2..7: 15-minute sustained delay (3 consecutive 5-minute windows = windows 2, 3, 4)
+    # on tournament fold (600 ms late in windows 2..5, back to 40 ms in windows 6..7),
+    # plus an on-time cash table, a legacy cash_bust table (always ungraded), and a tournament-break table.
     tour, tbreak = str(uuid.uuid4()), str(uuid.uuid4())
     run(f"INSERT INTO tournaments(id) VALUES ('{tour}');"
         f"INSERT INTO tournaments(id, break_started_at, break_ends_at) VALUES ('{tbreak}', '{T0.isoformat()}', "
-        f"'{(T0 + dt.timedelta(hours=1)).isoformat()}')")
-    table('fold', on_time, [2, 3, 4, 5])
-    table('fold', lambda k: 600 if k in (2, 3, 4) else 40, [2, 3, 4, 5], tournament=tour)
-    table('cash_bust', lambda k: 4000, [2, 3, 4, 5])
-    table('showdown_river_chips', lambda k: 3000, [2, 3, 4, 5], tournament=tbreak)
+        f"'{(T0 + dt.timedelta(hours=2)).isoformat()}')")
+    table('fold', on_time, [2, 3, 4, 5, 6, 7])
+    table('fold', lambda k: 600 if k in (2, 3, 4, 5) else 40, [2, 3, 4, 5, 6, 7], tournament=tour)
+    table('cash_bust', lambda k: 4000, [2, 3, 4, 5, 6, 7])  # legacy without cadence
+    table('showdown_river_chips', lambda k: 3000, [2, 3, 4, 5, 6, 7], tournament=tbreak)
 
     g2 = grade(2)
     check('grade: gaps inside the tournament break are not graded',
           ('tournament', 'showdown_river_chips') not in g2, sorted(g2))
     w2 = watch(2)
-    check('watch: one breached window opens nothing',
-          w2['opened'] == 0 and alerts() == [] and g2[('tournament', 'fold')]['unintended_p95_ms'] == 600, w2)
+    check('watch: 1st breached window (5 min) opens nothing and sends no notification',
+          w2['opened'] == 0 and w2['notified_open'] == 0 and alerts() == [] and notifs() == []
+          and g2[('tournament', 'fold')]['unintended_p95_ms'] == 600, w2)
     w3 = watch(3)
-    check('watch: the second consecutive breached window opens ONE critical alert, for that shape only',
-          w3['opened'] == 1 and alerts() == [['tournament', 'fold', 'critical', False]], [w3, alerts()])
-    ctx = json.loads(run("SELECT context FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'"))
-    check('watch: the alert names the shape, both windows and the budget',
-          ctx['unintended_p95_ms'] == 600 and ctx['previous_window_p95_ms'] == 600 and ctx['budget_ms'] == 250
-          and ctx['hands'] >= 5, ctx)
-    w3b = watch(3)
+    check('watch: 2nd consecutive breached window (10 min) STILL opens nothing and sends no notification',
+          w3['opened'] == 0 and w3['notified_open'] == 0 and alerts() == [] and notifs() == [], w3)
     w4 = watch(4)
-    check('watch: a re-run and a third breached window add no second alert (deduplicated)',
-          w3b['opened'] == 0 and w4['opened'] == 0 and w4['breaching'] == 1 and len(alerts()) == 1, [w3b, w4, alerts()])
-    check('watch: the cash bust table is recorded and never alerts',
-          run("SELECT bool_and(NOT graded AND over_budget IS NULL) AND count(*) = 4 FROM ca_hand_gap_watch_history "
-              "WHERE kind = 'cash' AND shape = 'cash_bust'") == 't')
+    check('watch: 3rd consecutive breached window (15 min) opens ONE critical alert and notifies owner ONCE',
+          w4['opened'] == 1 and w4['notified_open'] == 1
+          and alerts() == [['tournament', 'fold', 'critical', False]]
+          and notifs() == [[OWNER, 'Unintended Delay Between Hands', 'opened', 'tournament', 'fold']],
+          [w4, alerts(), notifs()])
+    ctx = json.loads(run("SELECT context FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'"))
+    check('watch: the alert names the shape, all 3 consecutive windows (15 min), and the budget',
+          ctx['consecutive_windows'] == 3 and ctx['sustained_minutes'] == 15
+          and ctx['unintended_p95_ms'] == 600 and ctx['previous_window_p95_ms'] == 600
+          and ctx['two_windows_ago_p95_ms'] == 600 and ctx['budget_ms'] == 250 and ctx['hands'] >= 5, ctx)
+    w4b = watch(4)
     w5 = watch(5)
-    check('watch: the alert resolves when the shape is back within the budget',
-          w5['resolved'] == 1 and alerts() == [['tournament', 'fold', 'critical', True]], [w5, alerts()])
-    # Window 7: a maintenance break recorded across the whole window grades nothing.
-    run(f"INSERT INTO engine_maintenance_break_log VALUES ('{(T0 + dt.timedelta(minutes=29)).isoformat()}', "
-        f"'{(T0 + dt.timedelta(minutes=36)).isoformat()}')")
-    table('all_in_showdown', lambda k: 3000, [7])
-    check('grade: gaps inside a recorded maintenance break are not graded', grade(7) == {}, sorted(grade(7)))
+    check('watch: a re-run and a 4th breached window add no second alert or open notification (deduplicated)',
+          w4b['opened'] == 0 and w4b['notified_open'] == 0
+          and w5['opened'] == 0 and w5['notified_open'] == 0 and w5['breaching'] == 1
+          and len(alerts()) == 1 and len(notifs()) == 1, [w4b, w5, alerts(), notifs()])
+    check('watch: legacy cash bust without cadence is recorded and never alerts',
+          run("SELECT bool_and(NOT graded AND over_budget IS NULL) AND count(*) = 5 FROM ca_hand_gap_watch_history "
+              "WHERE kind = 'cash' AND shape = 'cash_bust'") == 't')
+    w6 = watch(6)
+    check('watch: when the delay clears, the alert resolves and notifies owner ONCE',
+          w6['resolved'] == 1 and w6['notified_clear'] == 1
+          and alerts() == [['tournament', 'fold', 'critical', True]]
+          and notifs() == [
+              [OWNER, 'Unintended Delay Between Hands', 'opened', 'tournament', 'fold'],
+              [OWNER, 'Hand Delay Cleared', 'cleared', 'tournament', 'fold'],
+          ], [w6, alerts(), notifs()])
+    w6b = watch(6)
+    w7 = watch(7)
+    check('watch: a re-run and subsequent healthy window send no duplicate clear notification',
+          w6b['resolved'] == 0 and w6b['notified_clear'] == 0
+          and w7['resolved'] == 0 and w7['notified_clear'] == 0
+          and len(notifs()) == 2, [w6b, w7, notifs()])
+
+    # Window 9: maintenance break recorded across the whole window grades nothing.
+    run(f"INSERT INTO engine_maintenance_break_log VALUES ('{(T0 + dt.timedelta(minutes=39)).isoformat()}', "
+        f"'{(T0 + dt.timedelta(minutes=46)).isoformat()}')")
+    table('all_in_showdown', lambda k: 3000, [9])
+    check('grade: gaps inside a recorded maintenance break are not graded', grade(9) == {}, sorted(grade(9)))
+
+    # Window 11: cash_bust and rit WITH recorded cadence are graded accurately (0 ms unintended when on time).
+    # cash_bust fold with 4000 ms rebuy pause: hold = 1850, max(1500, 4000) = 4000 -> owed = 5850.
+    table('cash_bust', on_time, [11], base_owed_ms=1850 + 4000,
+          cadence={'hold_ms': 1850, 'rest_ms': 1500, 'rebuy_pause_ms': 4000})
+    # 2-run flop RIT (2 streets: turn + river): rit_reveal_ms = 600 + 2*2*1400 + 1800 + 900 + 2*4100 = 17100,
+    # push = 500 + 1100 + 250 = 1850, rest = 1500 -> owed = 20450.
+    table('rit', on_time, [11], base_owed_ms=17100 + 1850 + 1500,
+          cadence={'hold_ms': 17100 + 1850, 'rest_ms': 1500, 'rebuy_pause_ms': 0, 'rit_reveal_ms': 17100})
+    g11 = grade(11)
+    r_bust = g11.get(('cash', 'cash_bust'))
+    check('grade: cash_bust with recorded cadence is graded and 0 ms unintended when on time',
+          r_bust and r_bust['graded'] and r_bust['owed_p50_ms'] == 5850
+          and r_bust['unintended_p95_ms'] == 0 and r_bust['over_budget'] == 0, r_bust)
+    r_rit = g11.get(('cash', 'rit'))
+    check('grade: rit with recorded cadence is graded and 0 ms unintended when on time',
+          r_rit and r_rit['graded'] and r_rit['owed_p50_ms'] == 20450
+          and r_rit['unintended_p95_ms'] == 0 and r_rit['over_budget'] == 0, r_rit)
+
+    # Window 12: clamping proof — an engine hang in rebuy_pause_ms (>5000) or rit_reveal_ms (>30000)
+    # cannot excuse itself as owed time; it is caught as unintended delay.
+    table('cash_bust', on_time, [12], base_owed_ms=1850 + 8000,
+          cadence={'hold_ms': 1850, 'rest_ms': 1500, 'rebuy_pause_ms': 8000})
+    table('rit', on_time, [12], base_owed_ms=32000 + 1850 + 1500,
+          cadence={'hold_ms': 32000 + 1850, 'rest_ms': 1500, 'rebuy_pause_ms': 0, 'rit_reveal_ms': 32000})
+    g12 = grade(12)
+    r_bust_clamp = g12.get(('cash', 'cash_bust'))
+    check('grade: cash_bust rebuy_pause_ms is clamped to 5000 ms so a hang is caught as unintended delay',
+          r_bust_clamp and r_bust_clamp['graded'] and r_bust_clamp['owed_p50_ms'] == 6850
+          and r_bust_clamp['unintended_p95_ms'] == 3000 and r_bust_clamp['over_budget'] >= 5, r_bust_clamp)
+    r_rit_clamp = g12.get(('cash', 'rit'))
+    check('grade: rit rit_reveal_ms is clamped to 30000 ms so a hang is caught as unintended delay',
+          r_rit_clamp and r_rit_clamp['graded'] and r_rit_clamp['owed_p50_ms'] == 33350
+          and r_rit_clamp['unintended_p95_ms'] == 2000 and r_rit_clamp['over_budget'] >= 5, r_rit_clamp)
+
+    # Standalone read-only script executes cleanly against the upgraded schema.
+    run(SCRIPT_SQL.read_text())
+    check('scripts/sql/hand-gap-unintended-delay.sql executes cleanly on PostgreSQL', True)
+
     msgs = run("SELECT count(DISTINCT message) FROM financial_alerts WHERE source = 'fn_ca_hand_gap_watch'")
-    check('watch: the message is constant, so one cause is one incident', msgs == '1', msgs)
+    check('watch: the alert message is constant, so one cause is one incident', msgs == '1', msgs)
     results['history_rows'] = int(run('SELECT count(*) FROM ca_hand_gap_watch_history'))
     results['passed'] = True
 finally:

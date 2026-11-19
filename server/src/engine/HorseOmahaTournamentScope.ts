@@ -14,6 +14,12 @@
  *    now asks instead of "is this a tournament". True (the rule stands aside,
  *    exactly as before) in every tournament hand unless the option is on and
  *    the public scope holds. In a cash hand it is false, as before.
+ *  - omahaCategoricalCashOnlyExcludes(hero, gs): what the CATEGORICAL rules
+ *    of the day (HorseOmahaRuleSites, classed 'categorical') ask instead. The
+ *    same answer as omahaCashOnlyExcludes, except that with the default-off
+ *    option omahaTournamentsExcludeCategoricalRules on (ROWFIX 2026-11-18;
+ *    owner 2026-11-17 11:49: no blanket rules) a categorical rule stands aside
+ *    in every tournament hand while the priced rules keep the extension.
  *  - omahaTournamentIcmPremium(hero, gs, chips): the engine's existing
  *    tournament survival premium (HorseLogic icmRisk: the V16 real-ICM bubble
  *    premium, V23 endgame adjusted, at most 0.15), charged the way every
@@ -62,6 +68,11 @@ export interface OmahaTournamentScope {
   readonly extension: boolean;
   /** HorseLogic icmRisk for the Horse at this decision (0 outside tournaments). */
   readonly icmRisk: number;
+  /**
+   * omahaTournamentsExcludeCategoricalRules is on for this decision (default OFF; absent is off): the
+   * categorical rules stay cash-only (omahaCategoricalCashOnlyExcludes) even with the extension on.
+   */
+  readonly excludeCategorical?: boolean;
 }
 
 export const OMAHA_TOURNAMENT_SCOPE_OFF: OmahaTournamentScope = Object.freeze({
@@ -139,6 +150,17 @@ export function omahaTournamentExtensionSpot(hero: SeatPlayer, gs: HorseGameStat
 export function omahaCashOnlyExcludes(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   if (!omahaIsTournamentMode(gs)) return false;
   return !(current.extension && omahaTournamentExtensionSpot(hero, gs));
+}
+
+/**
+ * omahaCashOnlyExcludes for a CATEGORICAL rule (HorseOmahaRuleSites classes it 'categorical': it decides
+ * by a size, a chip count, a hand category, a line or a label). Identical to omahaCashOnlyExcludes unless
+ * omahaTournamentsExcludeCategoricalRules is on, when it is also true in every tournament hand: the
+ * extension then opens only the priced rules to tournaments.
+ */
+export function omahaCategoricalCashOnlyExcludes(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
+  if (omahaCashOnlyExcludes(hero, gs)) return true;
+  return current.excludeCategorical === true && omahaIsTournamentMode(gs);
 }
 
 /**

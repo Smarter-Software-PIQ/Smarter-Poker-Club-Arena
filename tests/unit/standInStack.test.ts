@@ -66,6 +66,13 @@ describe('the stand-in for a seated player who is not in the hand', () => {
     // ...and never inherits the previous occupant's chips.
     expect(page).toContain('...standInStack({ rowStack: null }),');
     expect(page).not.toContain('existing?.stack');
+    // Warmed, prefetched, bootstrap DB, and seat-first seats never fall back to raw 0.
+    expect(page).not.toContain('stack: seat.stack || 0');
+    expect(page).not.toContain('Number(seatFirstBuyIn?.startingChips || 0)');
+    // Must-move lobby modal shows '...' when a seated player's stack is unknown.
+    const mustMove = src('src/components/table/MustMoveLobbyModal.tsx');
+    expect(mustMove).not.toContain('formatAmount(Number(s.stack ?? 0))');
+    expect(mustMove).toMatch(/s\.stack == null\s*\?\s*'\.\.\.'/);
   });
 
   it('the seat draws its loading mark, not a number, while the balance is pending', () => {

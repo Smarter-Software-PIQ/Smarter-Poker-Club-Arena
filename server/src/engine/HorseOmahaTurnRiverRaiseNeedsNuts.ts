@@ -23,7 +23,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { variantInfo } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
 import { omahaComboDrawForRaise } from './HorseOmahaBigDrawAggression.js';
-import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import { omahaCategoricalCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_RAISE_NEEDS_NUTS_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -65,10 +65,15 @@ export function omahaRaiseNeedsNutsInPosition(player: SeatPlayer, gs: HorseGameS
   return live.every((p) => after(p.seat) < after(player.seat));
 }
 
-/** The rule's public scope, or null outside it. Looks at no hole card beyond the count. */
+/**
+ * The rule's public scope, or null outside it. Looks at no hole card beyond the count. `lightning`: true only
+ * from the priced owners (HorseOmahaPricedWiring) when the decision's omahaPricedInLightning is on, so the same
+ * spot is read in a Lightning pool; this rule's own callers never pass it and stay out of Lightning.
+ */
 export function omahaRaiseNeedsNutsScope(
   player: SeatPlayer,
-  gs: HorseGameStateV2
+  gs: HorseGameStateV2,
+  lightning = false
 ): OmahaRaiseNeedsNutsScope | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
@@ -77,8 +82,9 @@ export function omahaRaiseNeedsNutsScope(
     if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return null;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
     // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
-    // opens its public tournament scope (HorseOmahaTournamentScope).
-    if (omahaCashOnlyExcludes(player, gs)) return null;
+    // opens its public tournament scope (HorseOmahaTournamentScope); a categorical rule
+    // (omahaTournamentsExcludeCategoricalRules on: never in a tournament).
+    if (omahaCategoricalCashOnlyExcludes(player, gs)) return null;
     if (
       (gs.boardCount ?? 1) !== 1 ||
       (gs.communityCards2?.length ?? 0) > 0 ||
@@ -87,7 +93,7 @@ export function omahaRaiseNeedsNutsScope(
     )
       return null;
     const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
-    if (speed === 'lightning') return null;
+    if (speed === 'lightning' && lightning !== true) return null;
     const street = gs.stage === 'turn' ? 'turn' : gs.stage === 'river' ? 'river' : null;
     if (street === null) return null;
     if ((gs.communityCards ?? []).length !== (street === 'turn' ? 4 : 5)) return null;

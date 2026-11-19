@@ -544,7 +544,9 @@ export default function CashGameCreateFlow({
               }
             >
               <span className="cash-create__card-title">{t.label}</span>
-              <span className="cash-create__card-blurb">{cashTemplateBlurb(t.id, variant)}</span>
+              <span className="cash-create__card-blurb">
+                {cashTemplateBlurb(t.id, variant, snapshot)}
+              </span>
             </button>
           ))}
         </div>

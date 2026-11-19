@@ -1033,6 +1033,36 @@ describe('V86 3. Postflop commitment, river underboat/PLO6 folds, combo draws, m
     expect(mwFold.reason).toBe('v86_plo_multiway_dominated_fold');
   });
 
+  it('v58Plo6RiverNuts off switches only its own rule: the V86 PLO6 river big-bet fold still acts (ROWFIX 2026-11-18)', () => {
+    // An unpaired PLO6 river (v58's paired-river fold cannot apply): a second-nut flush facing a pot bet.
+    const spot = () => makeRiverSpot('plo6', 'Ks9s7d6c4h2d', 'QsJs4s8h2c', 40, { potBefore: 40 });
+    enableBrainTelemetry();
+    let folded = 0;
+    for (const seed of [123, 7, 42, 2026]) {
+      const run = (opts: HorseDecideOpts) => {
+        HorseMind.reset();
+        const st = spot();
+        drainFires();
+        seedFastRandom(seed);
+        const d = HorseLogic.decide(st.hero, st.gs, 'balanced', {}, { telemetry: true, ...opts });
+        return {
+          d: JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v)),
+          fires: drainFires().map((f) => f.feature),
+        };
+      };
+      const base = run({});
+      const v58Off = run({ v58Plo6RiverNuts: false });
+      expect(v58Off.d).toEqual(base.d);
+      if (base.fires.includes('v86_plo6_big_bet_fold')) {
+        folded++;
+        expect(v58Off.fires).toContain('v86_plo6_big_bet_fold');
+      }
+      // the V86 cells still have their own off switch
+      expect(run({ v86PloOverhaul: false }).fires).not.toContain('v86_plo6_big_bet_fold');
+    }
+    expect(folded).toBeGreaterThan(0);
+  });
+
   it('excludes current-street bet when bet-then-raised in Omaha and zeroes turn V68 no-room-to-be-paid implied credit', () => {
     // 1. Omaha bet-then-raised deep spot: hero invested 4 preflop, bet 60 into 60 on turn, villain raised to 180;
     //    hero has 140 left (total commitmentStack + investedNow = 204). Including hero's 60 turn bet as prior
@@ -3225,7 +3255,8 @@ describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker ->
     }
     expect(sawSmallPotNearNutRaise).toBe(true);
 
-    // 4. Short Deck chart active by default under v86PloOverhaul (unless v46ShortDeck: false)
+    // 4. Short Deck chart is opt-in only (2026-11-18): v46ShortDeck is an off-only owner hold with measured harm,
+    // so under v86PloOverhaul an unset option reads no short-deck class, exactly as an explicit false does.
     const sdHero = makeSeat(2, LAG_SHARK_HORSE, 'JsTs', { stack: 200 });
     const sdPreGs: HorseGameStateV2 = {
       players: [makeSeat(1, 'sd-opp', '', { bet: 2, totalInvested: 2, stack: 198 }), sdHero],
@@ -3249,12 +3280,16 @@ describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker ->
     drainFires();
     seedFastRandom(55);
     HorseLogic.decide(sdHero, sdPreGs, 'lag', {}, { telemetry: true });
-    expect(drainFires().some((f) => f.feature === 'v86_short_deck_class')).toBe(true);
+    const sdUnsetFires = drainFires().map((f) => f.feature);
+    expect(sdUnsetFires).not.toContain('v86_short_deck_class');
+    expect(sdUnsetFires).not.toContain('v46_class_read');
 
     drainFires();
     seedFastRandom(55);
     HorseLogic.decide(sdHero, sdPreGs, 'lag', {}, { telemetry: true, v46ShortDeck: false });
-    expect(drainFires().some((f) => f.feature === 'v86_short_deck_class')).toBe(false);
+    const sdOffFires = drainFires().map((f) => f.feature);
+    expect(sdOffFires).not.toContain('v86_short_deck_class');
+    expect(sdOffFires).not.toContain('v46_class_read');
 
     // 5. turnDeadlineMs Hollywood ceiling clamp (never exceeds Math.max(floor, deadlineRemainingMs - 1500), zero PRNG draws)
     const deadlineGs: HorseGameStateV2 = {

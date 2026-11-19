@@ -31,6 +31,7 @@ import {
   OMAHA_TOURNAMENT_SCOPE_ADMISSION,
   OMAHA_TOURNAMENT_SCOPE_OFF,
   omahaCashOnlyExcludes,
+  omahaCategoricalCashOnlyExcludes,
   omahaIcmPremiumOf,
   omahaTournamentExtensionSpot,
   omahaTournamentIcmPremium,
@@ -894,3 +895,112 @@ describe('the receipt validator admits the tournament answers', () => {
 });
 
 void (null as unknown as HorseGameStateV2 | SeatPlayer);
+
+// ─── ROWFIX 2026-11-18: omahaTournamentsExcludeCategoricalRules (default OFF) ───
+// With omahaStrategyInTournaments on, the rules HorseOmahaRuleSites classes 'categorical' stay cash-only when
+// this option is on; the priced and outside rules keep the extension. Off (absent or false) is byte-identical.
+describe('omahaTournamentsExcludeCategoricalRules: the categorical rules stay cash-only in tournaments', () => {
+  const EXCL = { extension: true, icmRisk: 0.03, excludeCategorical: true } as const;
+  it('the scope read: identical to omahaCashOnlyExcludes unless the option is on, and never in cash', () => {
+    const t = tournament(nodeAt(ACES, 16));
+    const cash = nodeAt(ACES, 16);
+    for (const scope of [
+      OMAHA_TOURNAMENT_SCOPE_OFF,
+      OMAHA_TOURNAMENT_SCOPE_ADMISSION,
+      { extension: true, icmRisk: 0.05 },
+      { extension: true, icmRisk: 0.05, excludeCategorical: false },
+    ])
+      withOmahaTournamentScope(scope, () => {
+        expect(omahaCategoricalCashOnlyExcludes(t.hero, t.gs)).toBe(
+          omahaCashOnlyExcludes(t.hero, t.gs)
+        );
+        expect(omahaCategoricalCashOnlyExcludes(cash.hero, cash.gs)).toBe(false);
+      });
+    withOmahaTournamentScope(EXCL, () => {
+      expect(omahaCashOnlyExcludes(t.hero, t.gs)).toBe(false);
+      expect(omahaCategoricalCashOnlyExcludes(t.hero, t.gs)).toBe(true);
+      expect(omahaCategoricalCashOnlyExcludes(cash.hero, cash.gs)).toBe(false);
+    });
+  });
+  it('the forced-input categorical rules stand aside; a rule classed outside still acts', () => {
+    const st = tournament(nodeAt(TOP_SET, 20));
+    const raise: HorseDecision = {
+      action: 'raise',
+      amount: st.gs.maxRaiseTo as number,
+      thinkTime: 1,
+    };
+    const nuts: HorseDecideOpts = { omahaTurnRiverRaiseNeedsNuts: true };
+    expect(
+      withOmahaTournamentScope(EXCL, () =>
+        omahaTurnRiverRaiseNeedsNutsRule(raise, st.hero, st.gs, nuts)
+      )
+    ).toBe(raise);
+    const wrap = tournament(nodeAt(NUT_WRAP, 12));
+    const opp = wrap.gs.players.find(
+      (p) => p.seat !== wrap.hero.seat && !p.is_folded && !p.is_sitting_out
+    )!;
+    (wrap.gs as { dealerSeat?: number }).dealerSeat = opp.seat;
+    const drawRaise: HorseDecision = {
+      action: 'raise',
+      amount: wrap.gs.currentBet * 3,
+      thinkTime: 1,
+    };
+    const bar: HorseDecideOpts = { omahaNoDrawRaiseOutOfPosition: true };
+    expect(
+      withOmahaTournamentScope(EXCL, () =>
+        omahaNoDrawRaiseFinal(drawRaise, wrap.hero, wrap.gs, bar)
+      )
+    ).toBe(drawRaise);
+    // omahaBigDrawAggression is not categorical: it keeps the extension
+    const fd = tournament(nodeAt(FD_NUT_WRAP, 10));
+    (fd.gs as { dealerSeat?: number }).dealerSeat = fd.hero.seat;
+    const owed = Number.isFinite(fd.gs.toCall)
+      ? (fd.gs.toCall as number)
+      : fd.gs.currentBet - fd.hero.bet;
+    const passive: HorseDecision =
+      owed > 0.005
+        ? { action: 'call', amount: Math.min(owed, fd.hero.stack), thinkTime: 1 }
+        : { action: 'check', thinkTime: 1 };
+    const big: HorseDecideOpts = { omahaBigDrawAggression: true, mind: false };
+    const open = withOmahaTournamentScope({ extension: true, icmRisk: 0 }, () =>
+      omahaBigDrawAggression(passive, fd.hero, fd.gs, big)
+    );
+    const excl = withOmahaTournamentScope({ ...EXCL, icmRisk: 0 }, () =>
+      omahaBigDrawAggression(passive, fd.hero, fd.gs, big)
+    );
+    expect(excl).toEqual(open);
+    expect(['bet', 'raise', 'all_in']).toContain(open.action);
+  });
+  const CATEGORICAL_RECEIPT =
+    /^(omaha_turn_river_raise_needs_nuts_|omaha_oop_|omaha_bare_overpair_|omaha_overpair_no_oop_|omaha_paired_(turn|river)_|omaha_pressure_needs_|omaha_bluff_catcher_fold_vs_value_leader|omaha_underpair_no_multiway_|omaha_made_hand_defense_vs_value_leader|omaha_no_draw_raise_)/;
+  it.each(NODES)(
+    '%s: off and unset decide the same; in cash the option changes nothing',
+    (_n, build) => {
+      const b = () => tournament(build(), 'bubble');
+      const base = play(b, { ...DAY, ...EXT }, LEADER);
+      for (const v of [false, undefined])
+        expect(
+          play(b, { ...DAY, ...EXT, omahaTournamentsExcludeCategoricalRules: v }, LEADER).bytes
+        ).toEqual(base.bytes);
+      const cashBase = play(build, { ...DAY, ...EXT }, LEADER);
+      const cashOn = play(
+        build,
+        { ...DAY, ...EXT, omahaTournamentsExcludeCategoricalRules: true },
+        LEADER
+      );
+      expect(cashOn.bytes).toEqual(cashBase.bytes);
+      expect(cashOn.next).toEqual(cashBase.next);
+    }
+  );
+  it('in tournament hands no categorical receipt fires with it on, and the corpus reaches them with it off', () => {
+    let reachedOff = 0;
+    for (const [, build] of NODES) {
+      const b = () => tournament(build(), 'bubble');
+      const off = play(b, { ...DAY, ...EXT }, LEADER);
+      const on = play(b, { ...DAY, ...EXT, omahaTournamentsExcludeCategoricalRules: true }, LEADER);
+      reachedOff += off.fires.flat().filter((f) => CATEGORICAL_RECEIPT.test(f)).length;
+      expect(on.fires.flat().filter((f) => CATEGORICAL_RECEIPT.test(f))).toEqual([]);
+    }
+    expect(reachedOff).toBeGreaterThan(0);
+  });
+});

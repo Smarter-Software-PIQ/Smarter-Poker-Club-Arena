@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/075013fd/lane1-engine-crash-logs",
+  "_comment": "Migration 20261119175748 (pending protected-main installation): bounded append-only engine boot, shutdown, and FATAL/crash logs.",
+  "tables": ["engine_lifecycle_logs"]
+}
