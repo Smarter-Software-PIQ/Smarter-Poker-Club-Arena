@@ -35,13 +35,15 @@ const RULES = readFileSync(join(ROOT, 'infra/monitoring/engine-freeze-rules.yml'
 const MONITOR = readFileSync(join(ROOT, 'server/src/observability/StatsHealthMonitor.ts'), 'utf8');
 
 describe('the cron failure watch lets a recovered job go', () => {
-  const NEW = CRON.slice(CRON.indexOf('$n1$'), CRON.lastIndexOf('$n2$'));
+  const NEW = CRON.slice(CRON.indexOf('$n1$'), CRON.lastIndexOf('$n3$'));
 
   it('is a pinned pre/postimage rewrite with a probe', () => {
     expect(CRON).toContain(
-      "'public.fn_ca_cron_failure_watch()',\n  '527df2af34fa21e074e6a27a46e08cbd', 'a12fa874f03893621417846c56500c99'"
+      "'public.fn_ca_cron_failure_watch()',\n  'd8de9c61e621578f080b8a6e7342b602', '01de978319d5cb5a2946c6509530b877'"
     );
     expect(CRON).toContain('already the postimage, nothing to do');
+    expect(CRON).toContain('public.ca_detector_runs pr');
+    expect(CRON).toContain('(day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed');
     expect(CRON.indexOf('-- @probe-for: public.fn_ca_cron_failure_watch')).toBeGreaterThan(
       CRON.indexOf('SELECT pg_temp.cfw_subst(')
     );
