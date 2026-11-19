@@ -13347,6 +13347,9 @@ export function riverOnePairShadeShape(opts: HorseDecideOpts): RiverOnePairShade
  * n=90). A raise over a value bet is far more value-heavy than a river bet,
  * so the bet-fitted V61/V63 shade under-prices it. */
 export const V67_RIVER_RAISE_SHADE = 0.1;
+/** V68: the shipped scale on the (b) air shade (opts.v68AirShadeScaleOverride replaces it; 0.5 is the
+ * half-strength fallback). Runtime-tunable through the engine runtime settings (runtimeSettings/registry.ts). */
+export const V68_AIR_SHADE_SCALE = 1;
 /** V88: the dearest all-in price at which a prior-street commitment is honored on a blank.
  * A call for a stack no larger than the pot costs at most one third of the final pot; the
  * margin above a third covers the rake taken from the award. */
@@ -26753,7 +26756,7 @@ export class HorseLogic {
       ) {
         shade68 =
           v65TurnOnePairShade(toCall, pot, V65_TURN_SHADE_CAP) *
-          Math.max(0, opts.v68AirShadeScaleOverride ?? 1);
+          Math.max(0, opts.v68AirShadeScaleOverride ?? V68_AIR_SHADE_SCALE);
       }
       if (tele15 && (shade68 > 0 || impliedBonus68 !== impliedBonus))
         noteFire('v68_turn_air_draw_calls');
