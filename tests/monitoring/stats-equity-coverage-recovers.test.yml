@@ -1,0 +1,223 @@
+{
+  "rule_files": [
+    "../../infra/monitoring/engine-freeze-rules.yml"
+  ],
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "name": "2026-11-19 17:25 UTC: the week is 96.9% but the last day is back over the bar, so it stands down",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9694+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "304755+0x20"
+        },
+        {
+          "series": "poker_stats_ev_coverage_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9922+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "17544+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "The week and the last day are both under the bar: a writer still dropping equity pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9694+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "304755+0x20"
+        },
+        {
+          "series": "poker_stats_ev_coverage_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9809+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "41688+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The last day is over the bar on too thin a sample: the week still decides, and pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9694+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "304755+0x20"
+        },
+        {
+          "series": "poker_stats_ev_coverage_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "12+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "No 24 hour figure exported yet (unread or older engine): the week still decides, and pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9694+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "304755+0x20"
+        },
+        {
+          "series": "poker_stats_ev_coverage_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "NaN+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "NaN+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The 24 hour gauges are absent altogether: the week still decides, and pages",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9694+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "304755+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": [
+            {
+              "labels": "{}",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "A healthy week never pages, whatever the last day says",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.9986+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "715+0x20"
+        },
+        {
+          "series": "poker_stats_ev_coverage_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.95+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "400+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": []
+        }
+      ]
+    },
+    {
+      "name": "A quiet week under the bar does not page on a handful of hands",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "poker_stats_ev_coverage_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.8+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_7d{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "49+0x20"
+        },
+        {
+          "series": "poker_stats_ev_coverage_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "0.8+0x20"
+        },
+        {
+          "series": "poker_stats_allin_showdowns_24h{job=\"engine_game_server\",instance=\"engine\",app=\"club-arena-engine\",host=\"engine-01\",role=\"engine\"}",
+          "values": "49+0x20"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "count(ALERTS{alertname=\"StatsAllInEquityCoverageLow\",alertstate=\"firing\"})",
+          "eval_time": "15m",
+          "exp_samples": []
+        }
+      ]
+    }
+  ]
+}

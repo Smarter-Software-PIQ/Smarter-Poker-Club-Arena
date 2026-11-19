@@ -314,8 +314,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install browser dependencies from the primary mirror
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium webkit
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium webkit
       # The announcement does not wait for this job. A predecessor inside its
       # announced last hand is still admitted; a freeze already begun, or the
       # candidate already serving, is NOT OBSERVED (late) and creates no fixture.

@@ -59,10 +59,13 @@ import React, { useEffect, useRef } from 'react';
 import { reportError } from '../../utils/errorReporter';
 import './VpipRequirementBadge.css';
 
-/** The sanctioned game rules (spec §1), plus Lightning's 40 (Dan 2026-10-24: "40% VPIP AND BB ANTE"). */
-export type VpipRequirement = 30 | 40 | 50;
+/**
+ * The sanctioned game rules (spec §1), plus 40 (Dan 2026-10-24: "40% VPIP AND BB ANTE")
+ * and Lightning's 25 (Dan 2026-11-19: "LOWER THE VPIP IN LIGHTNING GAMES TO 25%").
+ */
+export type VpipRequirement = 25 | 30 | 40 | 50;
 
-export const ALLOWED_VPIP_REQUIREMENTS: readonly number[] = [30, 40, 50];
+export const ALLOWED_VPIP_REQUIREMENTS: readonly number[] = [25, 30, 40, 50];
 
 export interface VpipRequirementBadgeProps {
   /** The game's rule. Fixed for the life of the table (spec §2). */

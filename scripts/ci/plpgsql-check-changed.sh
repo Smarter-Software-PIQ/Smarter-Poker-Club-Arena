@@ -31,11 +31,107 @@ while IFS= read -r path; do
   f="$MIG_DIR/$(basename "$path")"
   [ -f "$f" ] || continue
   while IFS= read -r q; do names+=("$q"); done < <(
-    sed 's/--.*$//' "$f" \
-      | grep -oiE 'create[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?function[[:space:]]+("?[a-z_][a-z0-9_]*"?[[:space:]]*\.[[:space:]]*)?"?[a-z_][a-z0-9_]*"?' \
-      | sed -E 's/^.*[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn][[:space:]]+//; s/"//g; s/[[:space:]]//g' \
-      | tr 'A-Z' 'a-z' \
-      | awk -F. '{ if (NF == 1) print "public." $1; else print $1 "." $2 }'
+    python3 - "$f" <<'PY'
+import re, sys
+
+sql = open(sys.argv[1], encoding='utf-8').read()
+
+# Strip SQL line comments (-- ...) and nested block comments (/* ... */)
+# while preserving single-quoted string literals.
+out = []
+i = 0
+n = len(sql)
+depth = 0
+while i < n:
+    if depth > 0:
+        if sql[i:i+2] == '/*':
+            depth += 1
+            out.append('  ')
+            i += 2
+        elif sql[i:i+2] == '*/':
+            depth -= 1
+            out.append('  ')
+            i += 2
+        else:
+            out.append('\n' if sql[i] == '\n' else ' ')
+            i += 1
+        continue
+    if sql[i] == "'":
+        out.append("'")
+        i += 1
+        while i < n:
+            out.append(sql[i])
+            if sql[i] == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    out.append("'")
+                    i += 2
+                    continue
+                i += 1
+                break
+            i += 1
+        continue
+    if sql[i:i+2] == '--':
+        while i < n and sql[i] != '\n':
+            out.append(' ')
+            i += 1
+        continue
+    if sql[i:i+2] == '/*':
+        depth = 1
+        out.append('  ')
+        i += 2
+        continue
+    out.append(sql[i])
+    i += 1
+
+code = ''.join(out)
+
+found = set()
+create_re = re.compile(
+    r'\bcreate\s+(?:or\s+replace\s+)?function\s+'
+    r'(?:("?)([a-z_][a-z0-9_]*)\1\s*\.\s*)?("?)([a-z_][a-z0-9_]*)\3\s*\(',
+    re.IGNORECASE,
+)
+for m in create_re.finditer(code):
+    schema = (m.group(2) or 'public').lower()
+    name = m.group(4).lower()
+    found.add(f'{schema}.{name}')
+
+if re.search(r'\bexecute\b', code, re.IGNORECASE):
+    read_only = {'md5', 'position', 'strpos', 'length'}
+    fn_lit = r"'\s*(?:\"?([a-z_][a-z0-9_]*)\"?\s*\.\s*)?\"?([a-z_][a-z0-9_]*)\"?\s*(?:\([^']*\))?\s*'"
+    rewrite_re = re.compile(
+        r'pg_get_functiondef\s*\(\s*(?:'
+        + fn_lit + r'\s*::\s*(?:pg_catalog\.)?regproc(?:edure)?\b'
+        + r'|(?:pg_catalog\.)?to_regproc(?:edure)?\s*\(\s*' + fn_lit + r'\s*\)'
+        + r'|cast\s*\(\s*' + fn_lit + r'\s+as\s+(?:pg_catalog\.)?regproc(?:edure)?\s*\)'
+        + r')',
+        re.IGNORECASE,
+    )
+    def enclosing_calls(pos):
+        calls = []
+        d = 0
+        j = pos - 1
+        while j >= 0 and code[j] != ';':
+            if code[j] == ')':
+                d += 1
+            elif code[j] == '(':
+                if d == 0:
+                    cm = re.search(r'([a-z_][a-z0-9_]*)\s*$', code[max(0, j - 64):j], re.IGNORECASE)
+                    calls.append(cm.group(1).lower() if cm else '')
+                else:
+                    d -= 1
+            j -= 1
+        return calls
+    for m in rewrite_re.finditer(code):
+        if any(c in read_only for c in enclosing_calls(m.start())):
+            continue
+        schema = (m.group(1) or m.group(3) or m.group(5) or 'public').lower()
+        name = (m.group(2) or m.group(4) or m.group(6)).lower()
+        found.add(f'{schema}.{name}')
+
+for item in sorted(found):
+    print(item)
+PY
   )
 done < "$CHANGED"
 

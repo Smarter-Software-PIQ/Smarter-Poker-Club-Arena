@@ -57,6 +57,10 @@ const MARKERS: Record<string, string[]> = {
     'terminal_epoch < smarter_private.money_law_epoch()',
   ],
   'public.trg_finish_hand_post_commit_obligations': ["NOT IN ('banked', 'terminal')"],
+  'public.fn_post_commit_stranded_watchdog': [
+    'rp.terminal_epoch is null or rp.terminal_epoch < smarter_private.money_law_epoch()',
+    'bp.terminal_epoch is null or bp.terminal_epoch < smarter_private.money_law_epoch()',
+  ],
 };
 
 describe('a refused hand obligation never holds its table', () => {
@@ -71,13 +75,17 @@ describe('a refused hand obligation never holds its table', () => {
   it('only a refusal a retry can change is retried', () => {
     const cls = fnBody(sql, 'smarter_private.bank_refusal_is_transient');
     expect(cls).not.toBeNull();
-    for (const s of ["'40'", "'53'", "'57'", "'08'", "'55P03'", "'55006'"]) expect(cls).toContain(s);
+    for (const s of ["'40'", "'53'", "'57'", "'08'", "'55P03'", "'55006'"])
+      expect(cls).toContain(s);
     // A check, data or privilege refusal is never transient.
     for (const s of ["'23", "'22", "'42", "'P0"]) expect(cls).not.toContain(s);
   });
 
   it('the epoch is read before the attempt, so old code never stamps a new law', () => {
-    for (const fn of ['public.fn_ca_bank_pending_cash_rake', 'public.fn_ca_bank_pending_hand_obligations']) {
+    for (const fn of [
+      'public.fn_ca_bank_pending_cash_rake',
+      'public.fn_ca_bank_pending_hand_obligations',
+    ]) {
       const body = fnBody(sql, fn)!;
       const read = body.indexOf('v_epoch := smarter_private.money_law_epoch()');
       expect(read).toBeGreaterThan(0);
@@ -86,25 +94,36 @@ describe('a refused hand obligation never holds its table', () => {
   });
 
   it('the re-ask is the code change, not a timer', () => {
-    expect(sql).toMatch(/CREATE EVENT TRIGGER ca_money_law_change_reasks_refusals ON ddl_command_end/);
-    expect(sql).toContain("WHEN TAG IN ('CREATE FUNCTION', 'ALTER FUNCTION', 'CREATE PROCEDURE', 'ALTER PROCEDURE')");
+    expect(sql).toMatch(
+      /CREATE EVENT TRIGGER ca_money_law_change_reasks_refusals ON ddl_command_end/
+    );
+    expect(sql).toContain(
+      "WHEN TAG IN ('CREATE FUNCTION', 'ALTER FUNCTION', 'CREATE PROCEDURE', 'ALTER PROCEDURE')"
+    );
     expect(sql).not.toMatch(/cron\.schedule/);
   });
 
   it('a terminal obligation is paged at its source, not again by the stranded watchdog', () => {
     const wd = fnBody(sql, 'public.fn_post_commit_stranded_watchdog')!;
-    expect(wd).toContain('rp.terminal_epoch is null or rp.terminal_epoch < smarter_private.money_law_epoch()');
-    expect(wd).toContain('bp.terminal_epoch is null or bp.terminal_epoch < smarter_private.money_law_epoch()');
+    expect(wd).toContain(
+      'rp.terminal_epoch is null or rp.terminal_epoch < smarter_private.money_law_epoch()'
+    );
+    expect(wd).toContain(
+      'bp.terminal_epoch is null or bp.terminal_epoch < smarter_private.money_law_epoch()'
+    );
   });
 
   it('no later migration redefines these functions without the law', () => {
-    const later = readdirSync(DIR).filter((f) => f.endsWith('.sql') && f > BANKERS).sort();
+    const later = readdirSync(DIR)
+      .filter((f) => f.endsWith('.sql') && f > BANKERS)
+      .sort();
     for (const f of later) {
       const text = readFileSync(join(DIR, f), 'utf8');
       for (const [fn, markers] of Object.entries(MARKERS)) {
         const body = fnBody(text, fn);
         if (!body) continue;
-        for (const m of markers) expect(body, `${f} redefines ${fn} and must keep ${m}`).toContain(m);
+        for (const m of markers)
+          expect(body, `${f} redefines ${fn} and must keep ${m}`).toContain(m);
       }
     }
   });

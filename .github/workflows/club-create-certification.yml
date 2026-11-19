@@ -168,8 +168,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium
       - name: Wait For This Exact Revision On Both Public Endpoints
         shell: bash
         run: |

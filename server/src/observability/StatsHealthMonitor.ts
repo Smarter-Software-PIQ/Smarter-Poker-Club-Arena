@@ -73,6 +73,17 @@ export interface StatsHealthSnapshot {
     withoutEquity: number | null;
     ratio: number | null;
   } | null;
+  /**
+   * The same measure over the last 24 hours, recorded by every witness audit
+   * run (20261119173100). The 7-day figure stays under the bar for days after
+   * a fix is live; this one is what says the fix holds, and the EV alert
+   * stands down on it. Null until the database publishes it.
+   */
+  evCoverage24h: {
+    allInShowdowns: number | null;
+    withoutEquity: number | null;
+    ratio: number | null;
+  } | null;
   lastAudit: {
     ranAt: string | null;
     hands: number | null;
@@ -135,6 +146,24 @@ export const STATS_HEALTH_PERIOD_MS = 60 * 1000;
  */
 export const STATS_EV_COVERAGE_MIN_RATIO = 0.99;
 export const STATS_EV_COVERAGE_MIN_SAMPLE = 50;
+
+/**
+ * A FIXED WRITER STOPS PAGING WITHIN A DAY (2026-11-19). The equity fix went
+ * live at the 10:00 UTC cutover; the 7-day coverage read 96.9% and would
+ * have stayed under the bar for days while the last 24 hours were already
+ * recovering. The EV alert now stands down when the last 24 hours are back
+ * over the same bar on at least the same sample floor, and keeps firing when
+ * the recent figure is missing, too thin to judge, or also low.
+ */
+export function evCoverageRecovered(recent: StatsHealthSnapshot['evCoverage24h']): boolean {
+  return (
+    recent !== null &&
+    recent.ratio !== null &&
+    recent.allInShowdowns !== null &&
+    recent.allInShowdowns >= STATS_EV_COVERAGE_MIN_SAMPLE &&
+    recent.ratio >= STATS_EV_COVERAGE_MIN_RATIO
+  );
+}
 
 const num = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v)
@@ -260,6 +289,7 @@ export function parseStatsHealth(raw: unknown, fallbackCheckedAt: string): Stats
   const repair = obj(r.repair);
   const seatfill = obj(r.seatBackfill);
   const ev = obj(r.evCoverage7d);
+  const ev24 = obj(r.evCoverage24h);
   const audit = obj(r.lastAudit);
   return {
     checkedAt: str(r.checkedAt) ?? fallbackCheckedAt,
@@ -291,6 +321,13 @@ export function parseStatsHealth(raw: unknown, fallbackCheckedAt: string): Stats
           allInShowdowns: num(ev.allInShowdowns),
           withoutEquity: num(ev.withoutEquity),
           ratio: num(ev.ratio),
+        }
+      : null,
+    evCoverage24h: ev24
+      ? {
+          allInShowdowns: num(ev24.allInShowdowns),
+          withoutEquity: num(ev24.withoutEquity),
+          ratio: num(ev24.ratio),
         }
       : null,
     lastAudit: audit
@@ -519,6 +556,16 @@ export class StatsHealthMonitor {
         s?.evCoverage7d?.allInShowdowns ?? null
       ),
       ...g(
+        'poker_stats_ev_coverage_24h',
+        'The same all-in equity coverage over the last 24 hours, measured by every witness audit run; NaN when unread or there were none',
+        s?.evCoverage24h?.ratio ?? null
+      ),
+      ...g(
+        'poker_stats_allin_showdowns_24h',
+        'All-in runout seats in the last 24 hours that owe an equity figure, from the last witness audit',
+        s?.evCoverage24h?.allInShowdowns ?? null
+      ),
+      ...g(
         'poker_stats_health_age_seconds',
         'Seconds since the engine last read ca_stats_health() successfully',
         this.snapshot ? Math.round((this.now() - this.snapshotAt) / 1000) : null
@@ -662,7 +709,13 @@ export class StatsHealthMonitor {
       // assume a mutable object property stays non-null across a closure.
       const allInShowdowns = ev.allInShowdowns;
       const ratio = ev.ratio;
-      if (allInShowdowns >= STATS_EV_COVERAGE_MIN_SAMPLE && ratio < STATS_EV_COVERAGE_MIN_RATIO) {
+      const recent = s.evCoverage24h;
+      const recovered = evCoverageRecovered(recent);
+      if (
+        allInShowdowns >= STATS_EV_COVERAGE_MIN_SAMPLE &&
+        ratio < STATS_EV_COVERAGE_MIN_RATIO &&
+        !recovered
+      ) {
         if (
           !(await this.deliverAlert(generation, () =>
             this.deps.raise({
@@ -671,7 +724,10 @@ export class StatsHealthMonitor {
               component: STATS_HEALTH_COMPONENT,
               summary:
                 `All-in equity coverage is ${(ratio * 100).toFixed(1)}% over 7 days ` +
-                `(${ev.withoutEquity ?? 0} of ${allInShowdowns} all-in runout seats without equity)`,
+                `(${ev.withoutEquity ?? 0} of ${allInShowdowns} all-in runout seats without equity)` +
+                (recent?.ratio != null
+                  ? `; ${(recent.ratio * 100).toFixed(1)}% over the last 24 hours`
+                  : '; no 24 hour figure yet'),
               description:
                 'ca_hand_facts.all_in_equity is captured from the all_in_equity broadcast of every ' +
                 'all-in runout and written at settlement. The EV line, "EV Adjusted" and the luck ' +
@@ -685,6 +741,8 @@ export class StatsHealthMonitor {
                 allin_showdowns_7d: String(allInShowdowns),
                 without_equity_7d: String(ev.withoutEquity ?? 0),
                 ratio: ratio.toFixed(4),
+                ratio_24h: recent?.ratio != null ? recent.ratio.toFixed(4) : 'unknown',
+                allin_showdowns_24h: String(recent?.allInShowdowns ?? 'unknown'),
               },
             })
           ))
@@ -692,14 +750,19 @@ export class StatsHealthMonitor {
           return;
       } else if (
         ratio >= STATS_EV_COVERAGE_MIN_RATIO ||
-        allInShowdowns < STATS_EV_COVERAGE_MIN_SAMPLE
+        allInShowdowns < STATS_EV_COVERAGE_MIN_SAMPLE ||
+        recovered
       ) {
         if (
           !(await this.deliverAlert(generation, () =>
             this.deps.resolve(
               STATS_EV_COVERAGE_ALERT,
               STATS_HEALTH_COMPONENT,
-              'All-in equity coverage is back above the bar'
+              ratio < STATS_EV_COVERAGE_MIN_RATIO && recovered && recent?.ratio != null
+                ? `All-in equity coverage is back above the bar over the last 24 hours ` +
+                    `(${(recent.ratio * 100).toFixed(1)}% of ${recent.allInShowdowns} seats); ` +
+                    `the 7-day figure (${(ratio * 100).toFixed(1)}%) still carries the days before the fix`
+                : 'All-in equity coverage is back above the bar'
             )
           ))
         )

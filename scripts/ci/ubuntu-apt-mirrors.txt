@@ -1,0 +1,12 @@
+# THE ONE UBUNTU MIRROR LIST (2026-11-19). Every Ubuntu package install in CI
+# reads this file through scripts/ci/ubuntu-apt.sh: hosted runners append these
+# hosts to their own mirrorlist (scripts/ci/ubuntu-apt-mirror.py), and the
+# native qualification image
+# (scripts/verification-harness/leaderboard-native-function-batch.Dockerfile)
+# builds its apt mirrorlist from it. One active URI per line, tried in order;
+# a stalled or unreachable host fails over to the next one. On 2026-11-19 the
+# primary stalled a Docker build and Post-Deploy E2E, and a single pinned azure
+# mirror failed on runners that cannot reach it: never fewer than three hosts.
+http://archive.ubuntu.com/ubuntu
+http://us.archive.ubuntu.com/ubuntu
+http://azure.archive.ubuntu.com/ubuntu

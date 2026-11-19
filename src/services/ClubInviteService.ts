@@ -38,6 +38,8 @@ export interface InviteFigures {
   membersLine: string | null;
   activityLine: string | null;
   clubActiveDisplayLine?: string;
+  membersCount?: number | null;
+  activeCount?: number | null;
 }
 
 export interface InviteLink {
@@ -86,37 +88,70 @@ export interface ClaimResult {
 
 export { normalizeInviteCode };
 
+function extractLeadingCount(text: unknown): number | null {
+  if (typeof text !== 'string') return null;
+  const match = text.trim().match(/^(\d[\d,]*)\b/);
+  if (!match) return null;
+  const parsed = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null;
+}
+
+function positiveInt(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+}
+
 /** The text that travels with the link in the OS share sheet, signed with the alias. */
 export function inviteShareText(
   inviterAlias: string,
   clubName: string,
-  clubNumber: unknown,
+  _clubNumber?: unknown,
   figures: InviteFigures | null = null
 ): string {
-  const lines = [`${inviterAlias} Invited You To Join ${clubName} On Smarter.Poker!`];
-  if (clubNumber != null && clubNumber !== '') lines.push(`Club ID: ${String(clubNumber)}`);
-  if (figures?.membersLine) lines.push(figures.membersLine);
-  if (figures?.clubActiveDisplayLine) lines.push(figures.clubActiveDisplayLine);
-  if (figures?.activityLine) lines.push(figures.activityLine);
-  return lines.join('\n');
+  const headline = `${inviterAlias} Invited You To Join ${clubName} On Smarter.Poker!`;
+  const membersCount =
+    positiveInt(figures?.membersCount) ?? extractLeadingCount(figures?.membersLine);
+  const activeCount =
+    positiveInt(figures?.activeCount) ??
+    extractLeadingCount(figures?.clubActiveDisplayLine ?? figures?.activityLine);
+  const stats: string[] = [];
+  if (membersCount !== null) {
+    stats.push(`${membersCount} ${membersCount === 1 ? 'Member' : 'Members'}`);
+  }
+  if (activeCount !== null) {
+    stats.push(`${activeCount} Active`);
+  }
+  if (stats.length === 0) return headline;
+  return `${headline} Currently ${stats.join(' ')}`;
 }
 
 /** Reads the figures block fn_club_invite_link returns; anything malformed is null. */
 export function parseInviteFigures(raw: unknown): InviteFigures | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as {
+    members?: unknown;
+    players_playing?: unknown;
     members_line?: unknown;
     activity_line?: unknown;
     club_active_display_line?: unknown;
   };
   const line = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const membersLine = line(r.members_line);
+  const activityLine = line(r.activity_line);
   const clubActiveDisplayLine = line(r.club_active_display_line);
-  const figures = {
-    membersLine: line(r.members_line),
-    activityLine: line(r.activity_line),
+  const membersCount = extractLeadingCount(membersLine) ?? positiveInt(r.members);
+  const activeCount =
+    extractLeadingCount(clubActiveDisplayLine ?? activityLine) ?? positiveInt(r.players_playing);
+  const figures: InviteFigures = {
+    membersLine,
+    activityLine,
     ...(clubActiveDisplayLine ? { clubActiveDisplayLine } : {}),
+    membersCount,
+    activeCount,
   };
-  return figures.membersLine || figures.activityLine || clubActiveDisplayLine ? figures : null;
+  return membersLine || activityLine || clubActiveDisplayLine || membersCount || activeCount
+    ? figures
+    : null;
 }
 
 export function shortInviteUrl(code: string): string {
