@@ -261,6 +261,38 @@ END
 $fn$;
 REVOKE ALL ON FUNCTION smarter_private.fn_ca_migration_applier_claimed() FROM PUBLIC, anon, authenticated, service_role;
 
+-- @probe-for: smarter_private.fn_ca_migration_applier_claim
+-- @probe-for: smarter_private.fn_ca_migration_applier_claimed
+-- Both bodies run once in a subtransaction that is always undone (the claim
+-- row, its marker and its deferred check go with it): unclaimed reads false,
+-- a claim for an unrecorded probe version binds this backend and transaction,
+-- and a claim for a recorded version is refused.
+DO $probe$
+DECLARE
+  v_recorded text;
+BEGIN
+  IF smarter_private.fn_ca_migration_applier_claimed() THEN
+    RAISE EXCEPTION 'probe: an unclaimed transaction read as the applier';
+  END IF;
+  PERFORM smarter_private.fn_ca_migration_applier_claim('00000000000000', 'probe_never_recorded', md5('probe'));
+  IF NOT smarter_private.fn_ca_migration_applier_claimed() THEN
+    RAISE EXCEPTION 'probe: a claim did not bind its own transaction';
+  END IF;
+  SELECT m.version INTO v_recorded FROM supabase_migrations.schema_migrations m
+   WHERE m.version ~ '^[0-9A-Za-z_]{1,64}$' AND m.name ~ '^[A-Za-z0-9_.-]{1,255}$' LIMIT 1;
+  IF v_recorded IS NOT NULL THEN
+    BEGIN
+      PERFORM smarter_private.fn_ca_migration_applier_claim(v_recorded, 'probe_rerun', md5('probe'));
+      RAISE EXCEPTION 'probe: a claim for recorded version % was admitted', v_recorded;
+    EXCEPTION WHEN object_not_in_prerequisite_state THEN
+      IF SQLERRM NOT LIKE 'migration_already_applied:%' AND SQLERRM NOT LIKE 'duplicate key%' THEN RAISE; END IF;
+    END;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 -- SQL text without comments; with p_keep_dollar false, without dollar-quoted
 -- bodies either.
 CREATE FUNCTION smarter_private.fn_ca_ddl_code(p_query text, p_keep_dollar boolean)
