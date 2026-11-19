@@ -384,12 +384,23 @@ import {
 // services/tableLease.ts for the dual-container incident that motivated them.
 import {
   INSTANCE_ID,
+  INSTANCE_VERSION,
   claimTableLease,
   heartbeatTables,
   releaseTables,
   leaseDiagnostics,
   TABLE_LEASE_PROOF_WINDOW_MS,
 } from './services/tableLease.js';
+// 2026-11-19: rolling engine handoff (docs/ENGINE-ROLLING-HANDOFF.md). Inert
+// unless ENGINE_ROLLING_HANDOFF=on: the coordinator is never constructed.
+import { rollingHandoffEnabled } from './handoff/rollingHandoffFlag.js';
+import {
+  RollingHandoffCoordinator,
+  type HandoffEnginePort,
+  type HandoffUnit,
+} from './handoff/RollingHandoffCoordinator.js';
+import { createLeaseHandoffStore } from './handoff/leaseHandoffStore.js';
+import { supabase as rollingHandoffDatabase } from './services/supabase/client.js';
 import {
   launchSeatingBudgetMs,
   launchWouldCrossLastHand,
@@ -1406,6 +1417,11 @@ export class GameServer {
          2026-10-02 22:27Z storm ~340 tables reported that while one instance
          existed and its rows still named it: the proof had simply run out
          while PostgREST's pool answered nobody. Both are fenced the same. */
+      if (this.rollingHandoff?.isTransferring({ scope: 'table', key: tableId })) {
+        // Rolling handoff moved this lease on purpose; the coordinator retires it.
+        engine.fenceForEngineLeaseLoss('engine_handoff_yielded', false);
+        continue;
+      }
       const refuted = this.cashLeasesRefutedByDatabase?.has(engine) === true;
       reportError(
         new Error(
@@ -1452,6 +1468,11 @@ export class GameServer {
     const lostManagers: Array<[string, TournamentManager]> = [];
     for (const [tournamentId, manager] of lostTournamentIds) {
       if (this.tournamentEngines.get(tournamentId) !== manager) continue;
+      // Rolling handoff moved this lease on purpose: it is fenced below but
+      // never judged, reported or charged, and the coordinator retires it.
+      const movedOnPurpose =
+        this.rollingHandoff?.isTransferring({ scope: 'tournament', key: tournamentId }) === true;
+      if (movedOnPurpose) this.tournamentManagersJudgedLost.add(manager);
       if (!this.tournamentManagersJudgedLost.has(manager)) {
         this.tournamentManagersJudgedLost.add(manager);
         /* "I COULD NOT TELL" IS NOT "I LOST IT" (2026-09-26, CLAUDE.md 10.86).
@@ -1483,6 +1504,7 @@ export class GameServer {
         }
       }
       manager.fenceForTournamentLeaseLoss();
+      if (movedOnPurpose) continue;
       lostManagers.push([tournamentId, manager]);
     }
 
@@ -2167,6 +2189,9 @@ export class GameServer {
     this.releaseWeeklyPayout(engine);
     tableStateHub.dropTable(tableId);
     if (!this.running) return;
+    // Rolling handoff: a table that moved (or is moving) to another instance
+    // is not re-admitted here; its new owner, or ordinary recovery, deals it.
+    if (this.rollingHandoff?.suppressesReadmission({ scope: 'table', key: tableId })) return;
 
     if (engine.getStartupPolicyRefusal() || engine.getStartupRetainedHandRefusal()) {
       // Closure is not a crash, and neither is a standing retained-hand
@@ -3457,6 +3482,7 @@ export class GameServer {
   ): Promise<void> {
     await this.awaitTournamentManagerLeaseRelease(tournamentId);
     if (!this.directAdmissionIsCurrent(generation)) return;
+    if (this.rollingHandoff?.refusesAdmission({ scope: 'tournament', key: tournamentId })) return;
     const admitted = this.tournamentEngines.get(tournamentId);
     if (admitted) {
       const continuation = this.mixedF06AdmissionContinuations?.get(tournamentId);
@@ -4884,6 +4910,7 @@ export class GameServer {
     this.lifecycleGeneration = generation;
     this.running = true;
     this.leaderBootComplete = false;
+    this.rollingHandoff?.startAdoptionLoop();
     this.resetDealerPrerequisiteGate(generation);
     openTerminalFinishLanes();
     const operation = this.performStart(generation);
@@ -5487,6 +5514,7 @@ export class GameServer {
     const stoppingGeneration = this.lifecycleGeneration;
     this.running = false;
     this.leaderBootComplete = false;
+    this.rollingHandoff?.stopAdoptionLoop();
     this.revokeDealerPrerequisites(stoppingGeneration);
     this.lifecycleGeneration += 1;
     // Before the first await: no finish still queued in a club's finish lane
@@ -14787,6 +14815,8 @@ export class GameServer {
       }
     }
     if (!this.dealerAdmissionIsCurrent(generation)) return 'not_wakeable';
+    if (this.rollingHandoff?.refusesAdmission({ scope: 'table', key: tableId }))
+      return 'owned_elsewhere';
 
     const requestedLeaseGeneration =
       this.directTableAdmissionLeaseGenerations.get(tableId) ?? randomUUID();
@@ -14885,6 +14915,10 @@ export class GameServer {
     engine.setHub(tableStateHub);
     this.wireDirectTableEngineRecovery(tableId, engine);
     this.tableEngines.set(tableId, engine);
+    // Rolling handoff: an adopted table starts held until its boundary
+    // fingerprint is proven identical, so it can still go back unsplit.
+    if (this.rollingHandoff?.holdsArrival({ scope: 'table', key: tableId }))
+      engine.setMaintenanceLock(true);
     /* The caller UUID is retryable only until one dealer object consumes it.
        A startup failure retires that object and its exact database generation;
        its successor must choose a new UUID so delayed work from the retired
@@ -14936,6 +14970,242 @@ export class GameServer {
   /** Current manager only; missing or retired authority is explicitly unknown. */
   getTournamentHandForHand(tournamentId: string): boolean | null {
     return this.tournamentEngines.get(tournamentId)?.getHandForHandPresentation() ?? null;
+  }
+
+  // ═══ ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md) ═══════
+  //
+  // Owner order: "WE NEED TO STOP REQUIRING AN ENGINE CUT OVER FOR ANY AND ALL
+  // UPGRADES AND IMPROVEMENTS AND FIXES." A certified new engine takes each
+  // table (and each tournament) over at that unit's own hand boundary. Null
+  // unless ENGINE_ROLLING_HANDOFF=on; every reader goes through `?.`, so with
+  // the flag off nothing below runs and no existing path changes.
+
+  /** How long one parked unit may wait for its hand to finish before it is kept. */
+  private static readonly ROLLING_HANDOFF_PARK_MAX_WAIT_MS = 180_000;
+  /** How long an adopted tournament manager may take to report running. */
+  private static readonly ROLLING_HANDOFF_ADOPT_START_MS = 30_000;
+
+  private readonly rollingHandoff: RollingHandoffCoordinator | null = rollingHandoffEnabled()
+    ? new RollingHandoffCoordinator(
+        this.createRollingHandoffPort(),
+        createLeaseHandoffStore(rollingHandoffDatabase)
+      )
+    : null;
+
+  /** The coordinator, or null with the flag off (the routes then do not exist). */
+  getRollingHandoff(): RollingHandoffCoordinator | null {
+    return this.rollingHandoff ?? null;
+  }
+
+  /** Every park condition the maintenance restart census asks, for one engine. */
+  private rollingHandoffTableBoundary(engine: ServerTableEngine): string | null {
+    if (!engine.isRunning()) return 'not_running';
+    if (!engine.isBetweenHands()) return 'cards_in_air';
+    if (!engine.isParkedBetweenHands()) return 'not_parked';
+    if (engine.hasUnresolvedF06Preparation()) return 'f06_preparation_unresolved';
+    if (engine.hasUnretiredStoppedTimeBankCustody()) return 'stopped_bank_custody';
+    if (engine.hasAccountingInFlight()) return 'accounting_in_flight';
+    if (!engine.isMaintenanceStateDurable())
+      return engine.maintenanceDurabilityReason() ?? 'not_durable';
+    return null;
+  }
+
+  private createRollingHandoffPort(): HandoffEnginePort {
+    const cashEngine = (unit: HandoffUnit): ServerTableEngine | undefined =>
+      unit.scope === 'table' && !this.tournamentOwnedTables.has(unit.key)
+        ? this.tableEngines.get(unit.key)
+        : undefined;
+    const manager = (unit: HandoffUnit): TournamentManager | undefined =>
+      unit.scope === 'tournament' ? this.tournamentEngines.get(unit.key) : undefined;
+    const managerTables = (m: TournamentManager): ServerTableEngine[] =>
+      m
+        .getTableIds()
+        .map((id) => this.tableEngines.get(id))
+        .filter((e): e is ServerTableEngine => e !== undefined);
+    const maxWait = GameServer.ROLLING_HANDOFF_PARK_MAX_WAIT_MS;
+
+    return {
+      instanceId: INSTANCE_ID,
+      version: INSTANCE_VERSION,
+
+      ownedUnits: () => {
+        const units: HandoffUnit[] = [];
+        for (const [id, engine] of this.tableEngines) {
+          if (!this.tournamentOwnedTables.has(id) && engine.isRunning())
+            units.push({ scope: 'table', key: id });
+        }
+        for (const [id, m] of this.tournamentEngines) {
+          if (m.isRunning()) units.push({ scope: 'tournament', key: id });
+        }
+        return units;
+      },
+
+      eligibility: (unit) => {
+        // A move never races the platform break: its resume waves lift every
+        // maintenance park, which is the park a move stands on.
+        if (this.maintenanceBreak.isActive() || isMaintenanceFrozen())
+          return 'maintenance_break_active';
+        if (unit.scope === 'table') {
+          const engine = cashEngine(unit);
+          if (!engine || !engine.isRunning()) return 'not_running';
+          const authority = engine.getEngineLeaseAuthority();
+          if (
+            !authority ||
+            authority.scope !== 'cash' ||
+            !authority.verified ||
+            !engine.hasCurrentEngineLeaseAuthority()
+          )
+            return 'no_verified_cash_lease';
+          if (engine.describeHandoffBoundary().lightning) return 'lightning_cluster_stays';
+          return null;
+        }
+        const m = manager(unit);
+        if (!m || !m.isRunning()) return 'not_running';
+        if (!m.getTournamentLeaseGeneration() || !m.hasCurrentTournamentLeaseAuthority())
+          return 'no_verified_tournament_lease';
+        if (m.isF06RecoveryOwner()) return 'f06_recovery_owner';
+        return null;
+      },
+
+      leaseGeneration: (unit) => {
+        if (unit.scope === 'table') {
+          const authority = cashEngine(unit)?.getEngineLeaseAuthority();
+          return authority?.scope === 'cash' && authority.verified ? authority.generation : null;
+        }
+        return manager(unit)?.getTournamentLeaseGeneration() ?? null;
+      },
+
+      parkAtNextBoundary: (unit) => {
+        if (unit.scope === 'table') {
+          cashEngine(unit)?.pauseForMaintenance(maxWait);
+          return;
+        }
+        const m = manager(unit);
+        if (m) for (const engine of managerTables(m)) engine.pauseForMaintenance(maxWait);
+      },
+
+      releasePark: (unit) => {
+        if (unit.scope === 'table') {
+          cashEngine(unit)?.resumeFromMaintenance();
+          return;
+        }
+        const m = manager(unit);
+        if (m) for (const engine of managerTables(m)) engine.resumeFromMaintenance();
+      },
+
+      boundaryState: (unit) => {
+        if (this.maintenanceBreak.isActive() || isMaintenanceFrozen())
+          return { atBoundary: false, reason: 'maintenance_break_active' };
+        if (unit.scope === 'table') {
+          const engine = cashEngine(unit);
+          if (!engine) return { atBoundary: false, reason: 'not_running' };
+          const reason = this.rollingHandoffTableBoundary(engine);
+          return reason === null ? { atBoundary: true } : { atBoundary: false, reason };
+        }
+        const m = manager(unit);
+        if (!m || !m.isRunning()) return { atBoundary: false, reason: 'not_running' };
+        for (const engine of managerTables(m)) {
+          if (!engine.isRunning()) continue;
+          // A table the manager opened after the park was asked is parked now
+          // (idempotent for the rest), so every table of the event stops together.
+          engine.pauseForMaintenance(maxWait);
+          const reason = this.rollingHandoffTableBoundary(engine);
+          if (reason !== null) return { atBoundary: false, reason: `table_${reason}` };
+        }
+        return { atBoundary: true };
+      },
+
+      fingerprint: (unit) => {
+        if (unit.scope === 'table') {
+          const engine = cashEngine(unit);
+          return engine ? { seats: engine.describeHandoffBoundary().seats, clock: null } : null;
+        }
+        const m = manager(unit);
+        // A tournament's seats are anchored in table_seats and the manager's
+        // own durable custody; what a move must not touch is the clock.
+        return m ? { seats: [], clock: m.describeHandoffClock() } : null;
+      },
+
+      retireYielded: async (unit) => {
+        if (unit.scope === 'table') {
+          const engine = cashEngine(unit);
+          if (!engine) return;
+          engine.fenceForEngineLeaseLoss('engine_handoff_yielded', false);
+          await this.recoverDirectTableEngine(unit.key, engine, 'engine_handoff_yielded');
+        } else {
+          const m = manager(unit);
+          if (!m) return;
+          m.fenceForTournamentLeaseLoss();
+          const stopped = await this.stopTournamentManagerIfOwned(
+            unit.key,
+            m,
+            'GameServer.rolling_handoff_retire_failed',
+            false
+          );
+          if (!stopped) throw new Error(`rolling handoff could not stop manager ${unit.key}`);
+        }
+        this.rollingHandoff?.noteUnitLeft();
+      },
+
+      adopt: async (unit, generation) => {
+        if (unit.scope === 'table') {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            // A discovery admission already in flight claimed with its own
+            // UUID and will be refused; let it settle, then ask with ours.
+            const inFlight = this.directTableAdmissionOperations.get(unit.key);
+            if (inFlight) await inFlight.catch(() => undefined);
+            const current = this.tableEngines.get(unit.key);
+            if (current) {
+              return (
+                current.isRunning() && current.getEngineLeaseAuthority()?.generation === generation
+              );
+            }
+            this.directTableAdmissionLeaseGenerations.set(unit.key, generation);
+            if (await this.ensureCashTableEngine(unit.key)) break;
+          }
+          const engine = this.tableEngines.get(unit.key);
+          return (
+            engine !== undefined &&
+            engine.isRunning() &&
+            engine.getEngineLeaseAuthority()?.generation === generation
+          );
+        }
+        this.tournamentManagerAdmissionLeaseGenerations.set(unit.key, generation);
+        await this.ensureTournamentManagerAdmission(
+          unit.key,
+          'resume',
+          'rolling_handoff_adopt',
+          this.lifecycleGeneration
+        );
+        const deadline = Date.now() + GameServer.ROLLING_HANDOFF_ADOPT_START_MS;
+        for (;;) {
+          const m = this.tournamentEngines.get(unit.key);
+          if (m && m.isRunning() && m.getTournamentLeaseGeneration() === generation) return true;
+          if (Date.now() >= deadline || !this.running) return false;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      },
+
+      releaseArrivalHold: (unit) => {
+        if (unit.scope === 'table') cashEngine(unit)?.setMaintenanceLock(false);
+      },
+
+      holdsArrivalOf: (unit) => unit.scope === 'table',
+
+      activeNonUnitWork: () => {
+        const hosts = this.lightningRooms.activeHosts();
+        return hosts > 0 ? `lightning_hosts:${hosts}` : null;
+      },
+
+      report: (error, context, extra) => reportError(error, context, extra),
+
+      onRetired: (summary) => {
+        console.log(
+          `[RollingHandoff] instance ${summary.instanceId} owns nothing and is retired; ` +
+            `successor ${summary.successor ?? 'none'}`
+        );
+      },
+    };
   }
 
   /**

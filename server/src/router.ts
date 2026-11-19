@@ -100,6 +100,8 @@ type AnyGameServer = Parameters<typeof handleAction>[2]['gameServer'] &
     prepareTournamentOriginalRecovery?: GameServer['prepareTournamentOriginalRecovery'];
     readTournamentOriginalRecoveryPreparation?: GameServer['readTournamentOriginalRecoveryPreparation'];
     endOperatorMaintenance?: GameServer['endOperatorMaintenance'];
+    /** Rolling handoff: null unless ENGINE_ROLLING_HANDOFF=on (then its routes exist). */
+    getRollingHandoff?: GameServer['getRollingHandoff'];
     /** Lightning Phase 6: a pool_session_id resolves to its seat proxy. */
     getActionEngine?: GameServer['getActionEngine'];
     getPreActionEngine?: GameServer['getPreActionEngine'];
@@ -431,6 +433,62 @@ export function createRouter(
         // reuses its original timestamp; it must never create another pause.
         return sendJSON(res, 503, { error: 'Recovery window outcome unknown' });
       }
+    }
+
+    /* ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md). These
+       routes exist only while ENGINE_ROLLING_HANDOFF=on; with the flag off the
+       coordinator is null and the request falls through to the same 404 as
+       before. Only the host-local release transaction may call them, with the
+       internal key, exactly like the recovery-window route above. */
+    const rollingHandoff =
+      url.startsWith('/internal/rolling-handoff/') && gameServer.getRollingHandoff
+        ? gameServer.getRollingHandoff()
+        : null;
+    if (rollingHandoff) {
+      res.setHeader('Cache-Control', 'no-store');
+      const peer = req.socket.remoteAddress;
+      if (
+        !verifyInternalKey(req) ||
+        !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer || '') ||
+        req.headers['x-forwarded-for'] !== undefined ||
+        req.headers.forwarded !== undefined
+      )
+        return sendJSON(res, 401, { error: 'Unauthorized' });
+      if (url === '/internal/rolling-handoff/status') {
+        if (method !== 'GET') return sendJSON(res, 405, { error: 'Method not allowed' });
+        return sendJSON(res, 200, rollingHandoff.status());
+      }
+      if (url === '/internal/rolling-handoff/abort') {
+        if (method !== 'POST') return sendJSON(res, 405, { error: 'Method not allowed' });
+        return sendJSON(res, 200, rollingHandoff.abortYield());
+      }
+      if (url === '/internal/rolling-handoff/yield') {
+        if (method !== 'POST') return sendJSON(res, 405, { error: 'Method not allowed' });
+        const body = await readBody(req);
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body) ||
+          Object.keys(body).length !== 1 ||
+          typeof body.successorInstanceId !== 'string' ||
+          !/^[A-Za-z0-9._-]{1,80}$/.test(body.successorInstanceId)
+        )
+          return sendJSON(res, 400, { error: 'Invalid handoff request' });
+        const successor = body.successorInstanceId;
+        const current = rollingHandoff.status();
+        if (successor === current.instanceId)
+          return sendJSON(res, 409, { error: 'An instance cannot hand its tables to itself' });
+        if (current.mode === 'retired')
+          return sendJSON(res, 409, { error: 'This instance is retired' });
+        if (current.mode === 'yielding' && current.successor !== successor)
+          return sendJSON(res, 409, { error: `Already yielding to ${current.successor}` });
+        // Each unit moves at its own boundary; the caller polls /status.
+        void rollingHandoff
+          .yieldTo(successor)
+          .catch((error) => console.error('[RollingHandoff] yield run failed', error));
+        return sendJSON(res, 202, rollingHandoff.status());
+      }
+      return sendJSON(res, 404, { error: 'Not found' });
     }
 
     if (/^\/internal\/tournament-diagnostics(?:\/|$)/.test(url)) {
