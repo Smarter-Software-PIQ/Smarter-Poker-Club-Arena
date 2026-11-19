@@ -22,15 +22,21 @@
  * blocking exclusive writes, row locks and advisory locks on them. This law
  * pins, without a database:
  *
- *   1. the live reader the migration installs IS the module's block, so CI
- *      and the applier ask the same question;
+ *   1. the live reader the latest reader migration installs IS the module's
+ *      block, so CI and the applier ask the same question; since
+ *      20261118160106 an UPDATE OF trigger is followed only when the
+ *      statement SETs one of its columns (PostgreSQL's own rule);
  *   2. the applier splices the module's snapshot/check into every migration's
  *      own transaction, after the stale-pin pieces, so a migration that ADDS
  *      a shared write to a hand's path is refused and nothing installs;
  *   3. the allowlist is reasoned (function, kind, target, owner, reason, date)
  *      and does NOT excuse any of the 14 writes #11270/#11266 remove;
- *   4. judged against production's answer of 2026-11-18, exactly those 14 are
- *      the violations, and an answer without its doors is UNKNOWN, never green;
+ *   4. judged against production's answer of 2026-11-18, exactly those 14 and
+ *      the 11 the SET-target rule proves cannot fire are the violations; judged
+ *      against production's answer under the SET-target rule, every violation
+ *      is allowlisted AND every allowlisted entry still occurs (an entry whose
+ *      write is gone fails here until it is removed); an answer without its
+ *      doors is UNKNOWN, never green;
  *   5. the bankers excluded by name are the ones #11270/#11266 define, and
  *      nothing here runs on a timer;
  *   6. CI runs the live check (main's code under pull_request_target) and the
@@ -58,10 +64,42 @@ const ROOT = join(__dirname, '..');
 const read = (...p: string[]) => readFileSync(join(ROOT, ...p), 'utf8');
 const MIGRATION = '20261118084747_a_hands_money_path_never_writes_a_shared_row.sql';
 const migration = read('supabase', 'migrations', MIGRATION);
+/** The migration that installs the reader as it stands (the SET-target rule). */
+const READER = '20261118160106_a_trigger_fires_only_on_the_columns_an_update_sets.sql';
+const reader = read('supabase', 'migrations', READER);
 const allowlist = JSON.parse(read('scripts', 'ci', 'hand-path-shared-writes.allowlist.json'));
 const production = JSON.parse(
   read('scripts', 'ci', 'fixtures', 'hand-path-shared-writes', 'production-2026-11-18.json')
 );
+/** Production 2026-11-18 ~15:55 UTC, after #11270/#11266, read with the SET-target rule. */
+const productionSet = JSON.parse(
+  read('scripts', 'ci', 'fixtures', 'hand-path-shared-writes', 'production-2026-11-18-set-list-targets.json')
+);
+
+/**
+ * Taken off the path by 20261118161644 (lane H1, installs on merge), proved on
+ * production's own texts by scripts/ci/test-hand-path-cash-lane.py.
+ */
+const FIXED_BY_20261118161644 = [
+  'fn_ca_deleted_wallet_bank_return|write|clubs',
+  'fn_ca_horse_split_return_late_credit|row_lock|clubs',
+  'fn_ca_horse_split_return_late_credit|write|clubs',
+];
+
+/** Reported by the first reader through UPDATE OF triggers that cannot fire: a column named only outside the SET list. */
+const SET_TARGET_FALSE_POSITIVES = [
+  'fn_apply_club_ladder|write|clubs',
+  'fn_ca_fund_overlay_on_lock|row_lock|clubs',
+  'fn_ca_fund_overlay_on_lock|row_lock|union_wallets',
+  'fn_ca_fund_overlay_on_lock|write|clubs',
+  'fn_ca_fund_overlay_on_lock|write|union_wallets',
+  'fn_guard_tournament_start_readiness|row_lock|clubs',
+  'fn_guard_tournament_start_readiness|row_lock|union_wallets',
+  'fn_refresh_club_activity_counts|write|clubs',
+  'fn_sync_club_staff_notice_group|write|club_messenger_staff_notice_groups',
+  'fn_sync_club_table_counts|write|clubs',
+  'guard_member_club_standalone_game|advisory_lock|club-game-ownership:',
+];
 
 /** What #11270 and #11266 take off the path, as the reader names it on production. */
 const REMOVED_BY_11270_11266 = [
@@ -82,21 +120,37 @@ const REMOVED_BY_11270_11266 = [
 ];
 
 describe("a hand's money path never writes a shared row", () => {
-  it('the live reader the migration installs is the module block, byte for byte', () => {
-    expect(migration).toContain(handPathFunctionSQL() + ';');
-    expect(migration).toMatch(/^BEGIN;$/m);
-    expect(migration).toMatch(/^COMMIT;\s*$/m);
-    expect(migration).toMatch(
-      /^-- @live-proof: \(SELECT md5\(pg_get_functiondef\('public\.fn_ca_hand_path_shared_writes\(\)'::regprocedure\)\) = '[0-9a-f]{32}'\)$/m
-    );
-    expect(migration).toContain(
-      'REVOKE ALL ON FUNCTION public.fn_ca_hand_path_shared_writes() FROM PUBLIC, anon, authenticated;'
-    );
+  it('the live reader the latest reader migration installs is the module block, byte for byte', () => {
+    // The newest migration that (re)defines the reader is READER: a later
+    // change to the block moves this pin with a migration of its own.
+    const definers = readdirSync(join(ROOT, 'supabase', 'migrations'))
+      .filter((f) => /^\d{14}_.*\.sql$/.test(f))
+      .filter((f) => read('supabase', 'migrations', f).includes('FUNCTION public.fn_ca_hand_path_shared_writes()\n'))
+      .sort();
+    expect(definers[definers.length - 1]).toBe(READER);
+    // Lane H2's earlier SET-target reader (#11311) is superseded by this stricter one.
+    expect(definers).toContain('20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql');
+    for (const m of [migration, reader]) {
+      expect(m).toMatch(/^BEGIN;$/m);
+      expect(m).toMatch(/^COMMIT;\s*$/m);
+      expect(m).toMatch(
+        /^-- @live-proof: \(SELECT md5\(pg_get_functiondef\('public\.fn_ca_hand_path_shared_writes\(\)'::regprocedure\)\) = '[0-9a-f]{32}'\)$/m
+      );
+      expect(m).toContain(
+        'REVOKE ALL ON FUNCTION public.fn_ca_hand_path_shared_writes() FROM PUBLIC, anon, authenticated;'
+      );
+      expect(m).not.toMatch(/@install-window/);
+    }
+    expect(reader).toContain(handPathFunctionSQL() + ';');
+    // The SET-target rule: a trigger column is matched against what the statement SETs.
+    expect(handPathFunctionSQL()).toContain('AND pa.attname::text = ANY (CASE WHEN w.stmt ~');
+    expect(handPathFunctionSQL()).not.toContain("ANY (pg_catalog.regexp_split_to_array(w.stmt, '[^a-z0-9_]+'))))))");
     // A reader: it writes nothing and runs on no timer.
     const body = handPathFunctionSQL();
     expect(body).not.toMatch(/\b(insert\s+into|delete\s+from)\b/i);
     expect(body).not.toMatch(/\bupdate\s+(public\.)?[a-z_]+\s+set\b/i);
     expect(migration).not.toMatch(/cron\.schedule/i);
+    expect(reader).not.toMatch(/cron\.schedule/i);
     expect(body).toMatch(/\bSTABLE\b/);
   });
 
@@ -170,12 +224,61 @@ describe("a hand's money path never writes a shared row", () => {
     }
   });
 
-  it("judged against production's answer of 2026-11-18, exactly the 14 that #11270/#11266 remove are violations", () => {
+  it("judged against production's first answer of 2026-11-18, exactly the 14 #11270/#11266 remove and the 11 that cannot fire are not excused", () => {
     const verdict = judge(production, allowlist)!;
     expect(verdict.unknown).toBeUndefined();
-    expect(verdict.unexpected!.map(violationKey).sort()).toEqual([...REMOVED_BY_11270_11266].sort());
+    expect(verdict.unexpected!.map(violationKey).sort()).toEqual(
+      [...REMOVED_BY_11270_11266, ...SET_TARGET_FALSE_POSITIVES, ...FIXED_BY_20261118161644].sort()
+    );
     expect(verdict.stale).toEqual([]);
     expect(production.violations.length).toBe(37);
+    const keys = new Set(allowlist.entries.map(violationKey));
+    for (const k of SET_TARGET_FALSE_POSITIVES) expect(keys.has(k), k).toBe(false);
+  });
+
+  it("judged against production's answer under the SET-target rule, the allowlist is exact: nothing unexcused, nothing stale", () => {
+    // As measured: only what 20261118161644 removes is not excused.
+    const measured = judge(productionSet, allowlist)!;
+    expect(measured.unknown).toBeUndefined();
+    expect(measured.unexpected!.map(violationKey).sort()).toEqual([...FIXED_BY_20261118161644].sort());
+    expect(measured.stale).toEqual([]);
+    // With 20261118161644 installed, exactly as the PostgreSQL proof shows it.
+    const proof = read('scripts', 'ci', 'test-hand-path-cash-lane.py');
+    for (const k of FIXED_BY_20261118161644) expect(proof, k).toContain(`'${k}'`);
+    const afterPart1 = {
+      ...productionSet,
+      violations: productionSet.violations.filter(
+        (v: any) => !FIXED_BY_20261118161644.includes(violationKey(v))
+      ),
+    };
+    const verdict = judge(afterPart1, allowlist)!;
+    expect(verdict.unexpected).toEqual([]);
+    // An allowlisted entry whose write is gone is a failure here, not a note:
+    // remove the entry in the change that removes the write.
+    expect(verdict.stale).toEqual([]);
+    expect(afterPart1.violations.length).toBe(allowlist.entries.length);
+    for (const k of SET_TARGET_FALSE_POSITIVES)
+      expect(productionSet.violations.map(violationKey)).not.toContain(k);
+    // Lane H2's remaining entries are reasoned from production evidence, with their native proof named.
+    for (const e of allowlist.entries.filter((x: { function: string }) =>
+      ['fn_ca_burn', 'fn_spin_book_entry', 'fn_spin_reserve_pool'].includes(x.function)
+    )) {
+      expect(e.reason).toMatch(/STATIC ONLY/);
+      expect(e.reason).toContain('test-hand-path-shared-writes.py G3');
+    }
+    // Every violation carries the path the reader printed.
+    for (const v of productionSet.violations) expect(v.path, violationKey(v)).toMatch(/^fn_ca_/);
+  });
+
+  it('a stale entry (its write gone) and an unexcused violation are both named by judge', () => {
+    const one = allowlist.entries[0];
+    const now = productionSet.violations.filter(
+      (v: any) => !FIXED_BY_20261118161644.includes(violationKey(v))
+    );
+    const gone = { ...productionSet, violations: now.filter((v: any) => violationKey(v) !== violationKey(one)) };
+    expect(judge(gone, allowlist)!.stale!.map(violationKey)).toEqual([violationKey(one)]);
+    const extra = { ...productionSet, violations: [...now, { function: 'fn_x', kind: 'write', target: 'clubs' }] };
+    expect(judge(extra, allowlist)!.unexpected!.map(violationKey)).toEqual(['fn_x|write|clubs']);
   });
 
   it('an answer without its doors, or a malformed one, is never green', () => {
