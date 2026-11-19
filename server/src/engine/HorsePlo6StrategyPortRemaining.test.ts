@@ -139,7 +139,9 @@ describe('PLO6 port: options that need no new six-card branch', () => {
     const body = sliceMethod(src, 'function omahaValueLeaderDefenseInScope(');
     expect(body).toContain('omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&');
     expect(body).toContain('gs.bombPot !== true &&');
-    expect(body).toContain('!omahaCashOnlyExcludes(player, gs)');
+    // cash only: the categorical form of the tournament gate (ROWFIX 2026-11-18,
+    // omahaTournamentsExcludeCategoricalRules; identical to omahaCashOnlyExcludes with that option off)
+    expect(body).toContain('!omahaCategoricalCashOnlyExcludes(player, gs)');
     // Every read of the option in a rule passes through that scope.
     const reads = src.split('opts.omahaMadeHandDefenseVsValueLeader === true').length - 1;
     const scoped =

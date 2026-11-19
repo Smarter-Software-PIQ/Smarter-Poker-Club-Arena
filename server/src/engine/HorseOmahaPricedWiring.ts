@@ -46,7 +46,6 @@ import {
   omahaOpponentKindOf,
   omahaPricedModeNow,
 } from './HorseOmahaPricedMode.js';
-import { omahaFacingBetEvSpot } from './HorseOmahaFacingBetEv.js';
 import {
   OMAHA_PRICED_MIX_SALT,
   OMAHA_PRICED_NO_READ,
@@ -179,12 +178,13 @@ export function omahaPricedReadOfUser(
   }
 }
 /**
- * omahaPricedPriorsByOpponentKind: a spot a priced family cannot price falls CLOSED (the categorical rule
- * acts as with the family off, beside its _unpriced_kept receipt). Off: the #11212 handling (the decision
- * given is kept).
+ * A spot a priced family cannot price never falls back to the categorical rule it replaces (ROWFIX
+ * 2026-11-18; owner 2026-11-17 11:49, no blanket rules): the decision given is kept, the #11212 handling,
+ * whatever omahaPricedPriorsByOpponentKind says. Until 2026-11-18 that option also switched the families
+ * to fall CLOSED (the categorical rule decided every unpriceable spot, e.g. omahaTurnRiverRaiseNeedsNuts in
+ * cash); it now switches only the kind priors. Its receipt for such a spot still fires with it on.
  */
-const fallsClosed = (opts: HorseDecideOpts): boolean =>
-  opts.omahaPricedPriorsByOpponentKind === true;
+const priorsOn = (opts: HorseDecideOpts): boolean => opts.omahaPricedPriorsByOpponentKind === true;
 const readOfSeat =
   (gs: HorseGameStateV2, opts: HorseDecideOpts) =>
   (seat: number): OmahaPricedRead =>
@@ -365,10 +365,10 @@ export function omahaPricedTurnRiverRaiseRule(
     }
     const priced = raiseVerdictOf(decision, player, gs, opts, deps);
     if (!priced) {
-      // Nothing could be priced: the categorical rule acts as with the option off (fall closed,
-      // REVIEW-9f803db63df-013U37.md N4); the receipt says so.
+      // Nothing could be priced: the decision given is kept and the categorical rule does not decide it
+      // (ROWFIX 2026-11-18: no fall closed); the receipt says so.
       if (tele && raises) noteFire('omaha_priced_raise_unpriced_kept');
-      return fallsClosed(opts) ? null : decision;
+      return decision;
     }
     const { verdict, read } = priced;
     const best = verdict.best;
@@ -432,19 +432,9 @@ export function omahaPricedOwnsTurnRiverRaise(
   return (
     opts.omahaTurnRiverRaiseIsPriced === true &&
     omahaPricedInScope(player, gs, opts) &&
-    omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts)) !== null &&
-    // omahaPricedPriorsByOpponentKind: only where the comparison can be computed (elsewhere the inner
-    // rule acts as with the option off); off: every spot in scope (#11212)
-    (!fallsClosed(opts) || omahaPricedRaisePriceable(player, gs))
+    // every spot in scope, priceable or not (#11212): the inner nut rule never decides one
+    omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts)) !== null
   );
-}
-/** The turn/river facing-bet spot can be counted (the exact-count comparison has a spot to price). */
-function omahaPricedRaisePriceable(player: SeatPlayer, gs: HorseGameStateV2): boolean {
-  try {
-    return omahaFacingBetEvSpot(player, pricedState(gs)) !== null;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -552,19 +542,17 @@ export function omahaPricedDrawRaiseBarred(
   if (!omahaPricedOwnsDrawRaise(player, gs, opts)) return null;
   try {
     if (omahaDrawRaiseBarOf(player, gs) === null) return false;
-    // A spot the sample cannot price (three or more opponents, one all in): the bar acts as with
-    // the option off (fall closed, REVIEW-9f803db63df-013U37.md N4).
+    // A spot the sample cannot price (three or more opponents, one all in): not barred (#11212); the
+    // bar never decides it (ROWFIX 2026-11-18: no fall closed).
     const spot = sampledSpot(player, gs);
     if (!spot) {
-      if (!fallsClosed(opts)) return false;
-      if (telemetryOn(opts)) noteFire('omaha_priced_draw_raise_unpriced_kept');
-      return null;
+      if (priorsOn(opts) && telemetryOn(opts)) noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return false;
     }
     const verdict = sampledVerdict(player, gs, opts, spot, potRaiseTo(player, gs, spot.toCall));
     if (!verdict) {
-      if (!fallsClosed(opts)) return false;
-      if (telemetryOn(opts)) noteFire('omaha_priced_draw_raise_unpriced_kept');
-      return null;
+      if (priorsOn(opts) && telemetryOn(opts)) noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return false;
     }
     if (telemetryOn(opts))
       noteFire(
@@ -595,15 +583,20 @@ export function omahaPricedDrawRaiseRule(
   if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
   const tele = telemetryOn(opts);
   try {
-    if (!fallsClosed(opts) && !sampledSpot(player, gs)) return decision; // #11212 order
-    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
-    if (omahaDrawRaiseBarOf(player, gs) === null) return decision;
+    // unpriceable: kept (#11212 order); the bar never decides it (ROWFIX 2026-11-18: no fall closed)
     const spot = sampledSpot(player, gs);
     if (!spot) {
-      // unpriceable: the bar acts as with the option off (fall closed)
-      if (tele) noteFire('omaha_priced_draw_raise_unpriced_kept');
-      return null;
+      if (
+        tele &&
+        priorsOn(opts) &&
+        !(Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) &&
+        omahaDrawRaiseBarOf(player, gs) !== null
+      )
+        noteFire('omaha_priced_draw_raise_unpriced_kept');
+      return decision;
     }
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
+    if (omahaDrawRaiseBarOf(player, gs) === null) return decision;
     const to =
       decision.action === 'raise' && typeof decision.amount === 'number'
         ? decision.amount
@@ -611,7 +604,7 @@ export function omahaPricedDrawRaiseRule(
     const verdict = sampledVerdict(player, gs, opts, spot, to);
     if (!verdict) {
       if (tele) noteFire('omaha_priced_draw_raise_unpriced_kept');
-      return fallsClosed(opts) ? null : decision;
+      return decision;
     }
     let raise = verdict.raise;
     const gap = verdict.evRaise - (verdict.evCall + verdict.margin);
@@ -664,9 +657,9 @@ function ownBetRule(
     const readOf = readOfSeat(gs, opts);
     const verdict = Number.isFinite(amount) ? omahaPricedBet(player, gs, readOf, amount) : null;
     if (!verdict || verdict.proposed === null) {
-      // unpriceable: the categorical rule acts as with the option off (fall closed); off: kept (#11212)
+      // unpriceable: kept (#11212); the categorical rule never decides it (ROWFIX 2026-11-18)
       if (tele) receipts.unpriced();
-      return fallsClosed(opts) ? null : decision;
+      return decision;
     }
     let bet = verdict.proposed.ev >= verdict.evCheck;
     const opp = (gs.players ?? []).find(
@@ -781,8 +774,7 @@ export function omahaPricedPressureWithheld(
   try {
     const stage = String(gs.stage ?? '');
     let admitted = false;
-    // whether any comparison produced a number: with none, the label test acts as with the option
-    // off (fall closed, REVIEW-9f803db63df-013U37.md N4)
+    // whether any comparison produced a number (its receipt, with omahaPricedPriorsByOpponentKind on)
     let priceable = false;
     if (stage === 'turn' || stage === 'river') {
       const priced = raiseVerdictOf({ action: 'call', thinkTime: 0 }, player, gs, opts, deps);
@@ -813,10 +805,9 @@ export function omahaPricedPressureWithheld(
         admitted = eq !== null && eq.bet * (num(gs.pot) + toCall) - toCall > 0;
       }
     }
-    if (!priceable && fallsClosed(opts)) {
-      if (tele) noteFire('omaha_priced_pressure_unpriced_kept');
-      return null;
-    }
+    // unpriceable: withheld as with the option off (#11212); the label test never decides it (ROWFIX
+    // 2026-11-18: no fall closed)
+    if (!priceable && tele && priorsOn(opts)) noteFire('omaha_priced_pressure_unpriced_kept');
     if (tele) {
       if (kind === 'raise')
         noteFire(
@@ -865,9 +856,9 @@ export function omahaPricedBigBetCallRule(
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
     const priced = raiseVerdictOf(decision, player, gs, opts, deps);
     if (!priced) {
-      // unpriceable: the cells act as with the option off (fall closed; HorseLogic.omahaBigBetCallFold)
+      // unpriceable: kept (#11212); the cells never decide it (ROWFIX 2026-11-18)
       if (tele) noteFire('omaha_priced_big_bet_call_unpriced_kept');
-      return fallsClosed(opts) ? null : decision;
+      return decision;
     }
     const { verdict } = priced;
     if (isCall) {

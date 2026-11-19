@@ -13,7 +13,12 @@
 #   'on' WITH the option's own citation is written and leaves an audit row with
 #   the note and the actor; off and clear work;
 # - the refused options stay refused, and the seven style options keep 'on',
-#   'shadow' and 'canary' exactly as before. It enables nothing.
+#   'shadow' and 'canary' exactly as before. It enables nothing;
+# - (2026-11-18) a listed SHADOW option is offered off, shadow and on: shadow is
+#   written and read back in the wide read (never in the style read), and its
+#   'on' keeps every rule above (own citation, recorded evidence); any other
+#   non-style option is refused shadow and canary, at the set function and at
+#   the table.
 #
 # It installs the style switch migration (20261113201841), the option switch
 # migration (20261114072215, or OPTION_SWITCH_MIGRATION to prove the test fails
@@ -57,21 +62,33 @@ option_migration="${OPTION_SWITCH_MIGRATION:-$repo/supabase/migrations/202611140
 "${psql[@]}" -c "SELECT public.fn_ca_horse_style_switch_set('styleFoldBluff', 'on', 'fixture', 'before');" >/dev/null
 "${psql[@]}" -f "$option_migration"
 # The follow-ups: the newest one is the database whitelist the lists below must equal (the law checks them).
+# Installed in version order, as production installs them, together with the two migrations that replace the
+# switch's write functions between them: the evidence record (*_the_horse_option_switch_on_needs_a_recorded_
+# evidence_row.sql) and the style-by-canary read (*_the_horse_option_switch_tells_style_options_by_name.sql), so a
+# follow-up that names shadow options is proven against the set function production runs.
 follow_ups=()
+last_list=''
 if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
   for f in "$repo"/supabase/migrations/*.sql; do
     [ "$(basename "$f")" \> "$(basename "$option_migration")" ] || continue
-    grep -q -- '-- registry:plain-options:begin' "$f" && follow_ups+=("$f")
+    if grep -q -- '-- registry:plain-options:begin' "$f"; then
+      follow_ups+=("$f"); last_list="$f"
+    else
+      case "$(basename "$f")" in
+        *_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql|*_the_horse_option_switch_refuses_what_the_serving_engine_does.sql|*_the_horse_option_switch_tells_style_options_by_name.sql)
+          follow_ups+=("$f");;
+      esac
+    fi
   done
 fi
-for f in ${OPTION_SWITCH_FOLLOW_UPS:-}; do follow_ups+=("$f"); done
+for f in ${OPTION_SWITCH_FOLLOW_UPS:-}; do follow_ups+=("$f"); last_list="$f"; done
 for f in ${follow_ups[@]+"${follow_ups[@]}"}; do
   "${psql[@]}" -f "$f"
   echo "ok    follow-up $(basename "$f") installed"
 done
-if [ "${#follow_ups[@]}" -gt 0 ]; then
+if [ -n "$last_list" ]; then
   # idempotent: the newest follow-up installed a second time changes nothing
-  last="${follow_ups[$((${#follow_ups[@]} - 1))]}"
+  last="$last_list"
   before="$("${psql[@]}" -At -c "SELECT md5(string_agg(conname || pg_get_constraintdef(oid), '|' ORDER BY conname)) FROM pg_constraint WHERE conrelid = 'public.ca_horse_style_switch'::regclass")"
   "${psql[@]}" -f "$last"
   after="$("${psql[@]}" -At -c "SELECT md5(string_agg(conname || pg_get_constraintdef(oid), '|' ORDER BY conname)) FROM pg_constraint WHERE conrelid = 'public.ca_horse_style_switch'::regclass")"
@@ -79,12 +96,16 @@ if [ "${#follow_ups[@]}" -gt 0 ]; then
 fi
 
 style='styleValueBettorNotManiac styleBigBetHonesty styleRaiseRespect styleTightReRaiserRespect styleFoldRatePreRepair styleValueExtraction styleFoldBluff'
-plain='streetIQ handReading v7 v7Preflop v7Barrels v7SizeReads v7CounterAdapt v7AdaptiveMC v8 v8Draws v8HiLo v8Nlh v9 v9Sizing v9Timing decisionGravityTiming horseActionTimeIsPublicOnly omahaBetSizeByPublicState v9Mood v10 v10Cbet v10Spr v10Rake v10ThinValue v10Iso v11 v12 v12Ranges v12River v13 v15 v15Boats v16Reads v16Icm v16Hu v16Blockers v16SizeCond v16PloPolar v16Ratio v17Pos v17RiverProbe v17CatchBlock v17ShortDeck v18Straddle v18Squeeze v18SelfImage v18ExploitSize v18Families v20Multiway v20Mzone v21River v21Deep v23Endgame v23Plan v23Reads v23Variants v23ShortDeck v23Spin v24Bounty v24PloDefense v25PloTourney v26Prizes v27GtoCharts v29GtoFlop v30GtoTurnRiver v32FacingDefense v33DepthCeiling gtoV31CellContractV3Serving v37Satellite v38Ev v40Omaha holdemPremiumAggression holdemDominatedFold ploPairedBoardFold ploPairedBoardRiverCheck ploSuitedAcesFourBet v86PloOverhaul v87HoldemOverhaul v87RiverBlockBetTrap v87HollywoodTank v87FlopStabCheckRaise v46Charts v46ShortDeck v51RiverFlat v55OmahaRiverTripsFlat v56OmahaPressureRange v57TournamentAggression v61RiverOnePairShade v66BetRaisedOnePair v67RiverBetRaisedOnePair v88CommitmentHonored omahaSmallBlindSteal omahaTournamentFirstIn omahaHiLoTournamentFirstIn tokenCallPrice omahaRiverNutRaiseOnly omahaTurnSetPound omahaBeatenMadeHandDefense omahaBluffCatcherRaiseFold omahaReraisedPotDiscipline omahaReraisedPotStackOffFold omahaReraisedPotStackOffRealistic omahaReraisedFoldVsTight omahaEliteContinuesVsMeasuredWideThreeBettor omahaOopReraisedPotStrongRange omahaPreflopReraiseDefencePriced omahaPreflopReraiseDefencePricedInPosition omahaReraiseRangeOutOfPosition omahaReraiseRangeEarlyPosition omahaReraisedPotFlopContinueNeedsEquityShape omahaMadeHandDefenseVsValueLeader omahaBluffCatcherFoldVsValueLeader omahaRiverMediumBetStrongHandCalls omahaBigBetIsPotShare omahaPairedRiverNoThinLeadVsValueLeader omahaOverpairNoOopBarrelVsValueLeader omahaPairedTurnNoBarrelWithoutBoatVsValueLeader omahaPairedBoardFoldRespectsPrice omahaFlopFacingBetEv omahaReadIsByStreetAndTexture omahaTurnBetNeedsRiverPlan omahaPressureNeedsPostflopAggression omahaOopTurnCheckAfterFlopCall omahaBareOverpairOopFlopCheck omahaNoCallColdFourBetWithoutPremium omahaUnderpairNoMultiwayFlopContinue omahaMultiwayRiverCallNeedsStrength omahaNoRiverBluffIntoValueLeader omahaMultiwayWeakHandNoBet omahaVpipFloorByLimp vpipFloorLimpOnly lightningVpipFloorLimpOnly omahaReraisedPositionInLightning omahaManiacReRaiseWidthMeasured omahaCardImpact omahaFacingBetEv omahaTurnCallRealizationByRunout omahaTurnRiverRaiseNeedsNuts omahaStreetPlan omahaStreetPlanFlop omahaStreetPlanThreeWay omahaPreflopStackPlan omahaBigDrawAggression omahaNoDrawRaiseOutOfPosition omahaStrategyInTournaments omahaStrongHandSlowplayMix omahaTurnRiverRaiseIsPriced omahaDrawRaiseIsPriced omahaOopTurnBarrelIsPriced omahaPairedBoardBetIsPriced omahaBluffShareFromBetRate omahaFacingBetRangeIsContinuous omahaPressureIsPriced omahaBigBetCallsArePriced omahaUnderpairMultiwayIsPriced omahaPricedPriorsByOpponentKind omahaRaiseEvCountsLossesOnce omahaMadeHandBetIsPriced omahaTurnSetSizeIsPriced omahaBlockerBluffIsPriced omahaFlopBetIsPriced omahaPricedMix omahaPricedInLightning omahaSmallBetIsPriced horsePlayStyles omahaStrongHandValue omahaNutClassValueSize omahaValueSizeIsUnreadable omahaRiverNutBlockerBluffReachable omahaOnePairDiscipline holdemHeadsUpPostflopBalance plo6ManiacPriceRefusalToRangePlay plo6TopSetNutRealization plo6NoMultiwayBetWithWeakMadeHand omahaStrategyInPlo6 fixedLimitRiverFullBetRead fixedLimitHiLoNutLowRiverBet fixedLimitRiverOneBetValueRaise v64RiverRaiseNeedsTwoPair v63LargeRiverBetShade v74OmahaSemiBluffNeedsDraw v62RiverBettorPolarity v60CashPressure v65TurnOnePairShade v68TurnAirDrawCalls v69TurnCallGaps v70GtoOpeningRanges v71AnteAwarePushFold v72DefenceByOpener v73Vs3BetDefence v75SqueezeDefence v79TopPairWeakKicker v81OmahaBigBetCalls v15RiverNoNearLock v85CashAction lightningStyleReadSeparate styleStealTightBlinds styleTightPlayerExploit styleLongShownMemory holdemProfileCompletenessCap styleTightMultiSignal styleTightMethodLine holdemManiacSampleGate holdemManiacShortHandedReach holdemGearShiftReach holdemCallDownExcludesCurrentHand holdemCallDownNeedsStyleEvidence v84OmahaRiverReraiseCalls v83AggressionNeedsBluffs readPostflopFoldRate readShrinkResponse readBreakEvenBluff omahaEvFoldModel omahaNeutralUnknown omahaTightOpponent tournamentUtilityStackScaledMargin icmBustPaysPlace holdemRiverFullHouseValue omahaTightOpponentSteal readScopedShrink planFingerprint v80TopPairStrongKicker v78NoCommittingBluffRaise v70FacingOpenZone huBbDefendsToPrice huBbDefendsUnreadToPrice huOpenerDefendsToPrice huLimpDefendsToPrice huSmallBlindStealsVsTightBigBlind committedStackPricedIn holdemPersonaReRaiseMix holdemPersonaPostflop holdemPersonaPreflop nashCallVsJam aofClosingSeatNashCall nashPushFoldIcm facingOpenFullRingZone vs3BetShortStack omahaCommitZoneThreeBetPriceRelief fixedLimitCallIsNotACommitment fixedLimitReadIgnoresProbes fixedLimitHiLoLowHalfFloor fixedLimitPricedPreflop fixedLimitStealVsTightBlinds fixedLimitRiverStrongHandLeads fixedLimitOmahaNoPresumption fixedLimitBetsAreNeverProbes lightningParticipationHoldem lightningParticipationOmaha lightningEarlyFoldNeedsFoldThrough lightningCheapEntryHoldem lightningCheapEntryOmaha facingClosedAllIn limpReraiseIsoRead commitUnderPot v77SeatAwareJams v76RetireFourBetBluffBand v74NlhOpenSizes v52RangeAdvantage v53Pressure v58Plo6RiverNuts v59Plo6RiverUnpaired drawOutlookQuality committedRaiseDiscipline callDeductionPricing flopTurnBluffBaseline riverBluffBaseline riverLeadRange riverBluffHiLo riverBluffMultiway riverFastCalldown probeAwareAggression riverBluffFixedLimit riverBluffShortDeck riverBluffBombPot riverBluffMultiBoard v43Tempo v86UnblockedPreflop v86MultiStreetUnblocked'
+plain='streetIQ handReading v7 v7Preflop v7Barrels v7SizeReads v7CounterAdapt v7AdaptiveMC v8 v8Draws v8HiLo v8Nlh v9 v9Sizing v9Timing decisionGravityTiming horseActionTimeIsPublicOnly omahaBetSizeByPublicState v9Mood v10 v10Cbet v10Spr v10Rake v10ThinValue v10Iso v11 v12 v12Ranges v12River v13 v15 v15Boats v16Reads v16Icm v16Hu v16Blockers v16SizeCond v16PloPolar v16Ratio v17Pos v17RiverProbe v17CatchBlock v17ShortDeck v18Straddle v18Squeeze v18SelfImage v18ExploitSize v18Families v20Multiway v20Mzone v21River v21Deep v23Endgame v23Plan v23Reads v23Variants v23ShortDeck v23Spin v24Bounty v24PloDefense v25PloTourney v26Prizes v27GtoCharts v29GtoFlop v30GtoTurnRiver v32FacingDefense v33DepthCeiling gtoV31CellContractV3Serving v37Satellite v38Ev v40Omaha holdemPremiumAggression holdemDominatedFold ploPairedBoardFold ploPairedBoardRiverCheck ploSuitedAcesFourBet v86PloOverhaul v87HoldemOverhaul v87RiverBlockBetTrap v87HollywoodTank v87FlopStabCheckRaise v46Charts v46ShortDeck v51RiverFlat v55OmahaRiverTripsFlat v56OmahaPressureRange v57TournamentAggression v61RiverOnePairShade v66BetRaisedOnePair v67RiverBetRaisedOnePair v88CommitmentHonored omahaSmallBlindSteal omahaTournamentFirstIn omahaHiLoTournamentFirstIn tokenCallPrice omahaRiverNutRaiseOnly omahaTurnSetPound omahaBeatenMadeHandDefense omahaBluffCatcherRaiseFold omahaReraisedPotDiscipline omahaReraisedPotStackOffFold omahaReraisedPotStackOffRealistic omahaReraisedFoldVsTight omahaEliteContinuesVsMeasuredWideThreeBettor omahaOopReraisedPotStrongRange omahaPreflopReraiseDefencePriced omahaPreflopReraiseDefencePricedInPosition omahaReraiseRangeOutOfPosition omahaReraiseRangeEarlyPosition omahaReraisedPotFlopContinueNeedsEquityShape omahaMadeHandDefenseVsValueLeader omahaBluffCatcherFoldVsValueLeader omahaRiverMediumBetStrongHandCalls omahaBigBetIsPotShare omahaPairedRiverNoThinLeadVsValueLeader omahaOverpairNoOopBarrelVsValueLeader omahaPairedTurnNoBarrelWithoutBoatVsValueLeader omahaPairedBoardFoldRespectsPrice omahaFlopFacingBetEv omahaReadIsByStreetAndTexture omahaTurnBetNeedsRiverPlan omahaPressureNeedsPostflopAggression omahaOopTurnCheckAfterFlopCall omahaBareOverpairOopFlopCheck omahaNoCallColdFourBetWithoutPremium omahaUnderpairNoMultiwayFlopContinue omahaMultiwayRiverCallNeedsStrength omahaNoRiverBluffIntoValueLeader omahaMultiwayWeakHandNoBet omahaVpipFloorByLimp vpipFloorLimpOnly lightningVpipFloorLimpOnly omahaReraisedPositionInLightning omahaManiacReRaiseWidthMeasured omahaCardImpact omahaFacingBetEv omahaTurnCallRealizationByRunout omahaTurnRiverRaiseNeedsNuts omahaStreetPlan omahaStreetPlanFlop omahaStreetPlanThreeWay omahaPreflopStackPlan omahaBigDrawAggression omahaNoDrawRaiseOutOfPosition omahaStrategyInTournaments omahaTournamentsExcludeCategoricalRules omahaStrongHandSlowplayMix omahaTurnRiverRaiseIsPriced omahaDrawRaiseIsPriced omahaOopTurnBarrelIsPriced omahaPairedBoardBetIsPriced omahaBluffShareFromBetRate omahaFacingBetRangeIsContinuous omahaPressureIsPriced omahaBigBetCallsArePriced omahaUnderpairMultiwayIsPriced omahaPricedPriorsByOpponentKind omahaRaiseEvCountsLossesOnce omahaMadeHandBetIsPriced omahaTurnSetSizeIsPriced omahaBlockerBluffIsPriced omahaFlopBetIsPriced omahaPricedMix omahaPricedInLightning omahaSmallBetIsPriced horsePlayStyles omahaStrongHandValue omahaNutClassValueSize omahaValueSizeIsUnreadable omahaRiverNutBlockerBluffReachable omahaOnePairDiscipline holdemHeadsUpPostflopBalance plo6ManiacPriceRefusalToRangePlay plo6TopSetNutRealization plo6NoMultiwayBetWithWeakMadeHand omahaStrategyInPlo6 fixedLimitRiverFullBetRead fixedLimitHiLoNutLowRiverBet fixedLimitRiverOneBetValueRaise v64RiverRaiseNeedsTwoPair v63LargeRiverBetShade v74OmahaSemiBluffNeedsDraw v62RiverBettorPolarity v60CashPressure v65TurnOnePairShade v68TurnAirDrawCalls v69TurnCallGaps v70GtoOpeningRanges v71AnteAwarePushFold v72DefenceByOpener v73Vs3BetDefence v75SqueezeDefence v79TopPairWeakKicker v81OmahaBigBetCalls v15RiverNoNearLock v85CashAction lightningStyleReadSeparate styleStealTightBlinds styleTightPlayerExploit styleLongShownMemory holdemProfileCompletenessCap styleTightMultiSignal styleTightMethodLine holdemManiacSampleGate holdemManiacShortHandedReach holdemGearShiftReach holdemCallDownExcludesCurrentHand holdemCallDownNeedsStyleEvidence v84OmahaRiverReraiseCalls v83AggressionNeedsBluffs readPostflopFoldRate readShrinkResponse readBreakEvenBluff omahaEvFoldModel omahaNeutralUnknown omahaTightOpponent tournamentUtilityStackScaledMargin icmBustPaysPlace holdemRiverFullHouseValue holdemRiverFullHouseValueIsPriced omahaTightOpponentSteal readScopedShrink planFingerprint v80TopPairStrongKicker v78NoCommittingBluffRaise v70FacingOpenZone huBbDefendsToPrice huBbDefendsUnreadToPrice huOpenerDefendsToPrice huLimpDefendsToPrice huSmallBlindStealsVsTightBigBlind committedStackPricedIn holdemPersonaReRaiseMix holdemPersonaPostflop holdemPersonaPreflop nashCallVsJam aofClosingSeatNashCall nashPushFoldIcm facingOpenFullRingZone vs3BetShortStack omahaCommitZoneThreeBetPriceRelief fixedLimitCallIsNotACommitment fixedLimitReadIgnoresProbes fixedLimitHiLoLowHalfFloor fixedLimitPricedPreflop fixedLimitStealVsTightBlinds fixedLimitRiverStrongHandLeads fixedLimitOmahaNoPresumption fixedLimitBetsAreNeverProbes lightningParticipationHoldem lightningParticipationOmaha lightningEarlyFoldNeedsFoldThrough lightningCheapEntryHoldem lightningCheapEntryOmaha facingClosedAllIn limpReraiseIsoRead commitUnderPot v77SeatAwareJams v76RetireFourBetBluffBand v74NlhOpenSizes v52RangeAdvantage v53Pressure v58Plo6RiverNuts v59Plo6RiverUnpaired drawOutlookQuality committedRaiseDiscipline callDeductionPricing flopTurnBluffBaseline riverBluffBaseline riverLeadRange riverBluffHiLo riverBluffMultiway riverFastCalldown probeAwareAggression riverBluffFixedLimit riverBluffShortDeck riverBluffBombPot riverBluffMultiBoard v43Tempo v86UnblockedPreflop v86MultiStreetUnblocked'
 offonly='v16Hu v17RiverProbe v23ShortDeck v24PloDefense v32FacingDefense v33DepthCeiling gtoV31CellContractV3Serving v46ShortDeck v55OmahaRiverTripsFlat omahaSmallBlindSteal omahaBeatenMadeHandDefense omahaBluffCatcherRaiseFold omahaReraisedPotDiscipline omahaReraisedFoldVsTight omahaPreflopReraiseDefencePriced omahaReraisedPotFlopContinueNeedsEquityShape omahaMultiwayRiverCallNeedsStrength omahaNoRiverBluffIntoValueLeader omahaStreetPlanFlop omahaPreflopStackPlan omahaPairedBoardBetIsPriced omahaRaiseEvCountsLossesOnce omahaMadeHandBetIsPriced omahaFlopBetIsPriced omahaPricedMix omahaNutClassValueSize omahaOnePairDiscipline plo6TopSetNutRealization plo6NoMultiwayBetWithWeakMadeHand omahaStrategyInPlo6 fixedLimitRiverFullBetRead v62RiverBettorPolarity styleStealTightBlinds readPostflopFoldRate omahaNeutralUnknown omahaTightOpponent omahaTightOpponentSteal huBbDefendsToPrice huBbDefendsUnreadToPrice huOpenerDefendsToPrice huLimpDefendsToPrice huSmallBlindStealsVsTightBigBlind committedStackPricedIn holdemPersonaPreflop aofClosingSeatNashCall nashPushFoldIcm facingOpenFullRingZone vs3BetShortStack omahaCommitZoneThreeBetPriceRelief fixedLimitPricedPreflop fixedLimitStealVsTightBlinds lightningParticipationOmaha lightningCheapEntryHoldem lightningCheapEntryOmaha commitUnderPot'
+shadow='streetIQ handReading v7 v7Preflop v7SizeReads v8 v9Sizing v9Timing decisionGravityTiming horseActionTimeIsPublicOnly v9Mood v10Cbet v10Spr v10Rake v10ThinValue v10Iso v11 v12 v12Ranges v12River v13 v15 v16Reads v16Icm v16Blockers v16SizeCond v16PloPolar v16Ratio v17Pos v17CatchBlock v17ShortDeck v18Straddle v18Squeeze v18SelfImage v18ExploitSize v18Families v20Multiway v20Mzone v21River v21Deep v23Endgame v23Plan v23Reads v23Variants v23Spin v24Bounty v25PloTourney v26Prizes v27GtoCharts v29GtoFlop v30GtoTurnRiver v37Satellite v38Ev v40Omaha holdemPremiumAggression holdemDominatedFold ploPairedBoardFold ploPairedBoardRiverCheck ploSuitedAcesFourBet v87HoldemOverhaul v87RiverBlockBetTrap v87HollywoodTank v87FlopStabCheckRaise v46Charts v51RiverFlat v56OmahaPressureRange v57TournamentAggression v61RiverOnePairShade v66BetRaisedOnePair v67RiverBetRaisedOnePair v88CommitmentHonored omahaTournamentFirstIn omahaHiLoTournamentFirstIn tokenCallPrice omahaRiverNutRaiseOnly omahaTurnSetPound omahaReraisedPotStackOffFold omahaReraisedPotStackOffRealistic omahaTournamentsExcludeCategoricalRules omahaTurnRiverRaiseIsPriced omahaDrawRaiseIsPriced omahaOopTurnBarrelIsPriced omahaBluffShareFromBetRate omahaFacingBetRangeIsContinuous omahaPressureIsPriced omahaBigBetCallsArePriced omahaUnderpairMultiwayIsPriced omahaPricedPriorsByOpponentKind omahaTurnSetSizeIsPriced omahaBlockerBluffIsPriced omahaPricedInLightning horsePlayStyles plo6ManiacPriceRefusalToRangePlay fixedLimitHiLoNutLowRiverBet fixedLimitRiverOneBetValueRaise v64RiverRaiseNeedsTwoPair v63LargeRiverBetShade v74OmahaSemiBluffNeedsDraw v60CashPressure v65TurnOnePairShade v68TurnAirDrawCalls v69TurnCallGaps v70GtoOpeningRanges v71AnteAwarePushFold v72DefenceByOpener v73Vs3BetDefence v75SqueezeDefence v79TopPairWeakKicker v81OmahaBigBetCalls v15RiverNoNearLock v85CashAction styleTightPlayerExploit styleTightMultiSignal styleTightMethodLine holdemManiacSampleGate holdemManiacShortHandedReach holdemGearShiftReach holdemCallDownExcludesCurrentHand holdemCallDownNeedsStyleEvidence v84OmahaRiverReraiseCalls v83AggressionNeedsBluffs readShrinkResponse readBreakEvenBluff holdemRiverFullHouseValue holdemRiverFullHouseValueIsPriced readScopedShrink planFingerprint v80TopPairStrongKicker v78NoCommittingBluffRaise v70FacingOpenZone holdemPersonaReRaiseMix holdemPersonaPostflop nashCallVsJam fixedLimitCallIsNotACommitment fixedLimitReadIgnoresProbes fixedLimitHiLoLowHalfFloor fixedLimitRiverStrongHandLeads fixedLimitOmahaNoPresumption lightningParticipationHoldem limpReraiseIsoRead v77SeatAwareJams v76RetireFourBetBluffBand v74NlhOpenSizes v52RangeAdvantage v53Pressure v58Plo6RiverNuts v59Plo6RiverUnpaired drawOutlookQuality committedRaiseDiscipline callDeductionPricing flopTurnBluffBaseline riverBluffBaseline riverLeadRange riverBluffHiLo riverBluffMultiway riverFastCalldown probeAwareAggression riverBluffFixedLimit riverBluffShortDeck riverBluffBombPot riverBluffMultiBoard v43Tempo v86UnblockedPreflop v86MultiStreetUnblocked'
 refused='comboDrawPressure v54RiverBluff riverPositionDefense riverBluffCheckRaise barrelContinuationOutlook smallPotNearNutRiverValue multiwayRiverBluffCheckRaise v53PloTourneyIcm phase8Postflop phase8PolicyFamily phase8CatastropheGuard phase10Plo4 phase11Omaha phase12Remaining phase13Joint phase14 phase14Corrective phase15Anything v87DeepDiveDiscipline v87ShouldSuppressOmahaPositionStab pillar2PositionStab v31GtoSuitAware solverRound7 heldOutPack vpipFloorDeepStackOff omahaPreflopCallWithActionBehind notAnOption leakMapRead telemetry observeMind mind v41Leaks'
 authority_tail='OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md sha256 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1'
 is_offonly() { case " $offonly " in *" $1 "*) return 0;; *) return 1;; esac; }
-on_count=0; off_count=0
+is_shadow() { case " $shadow " in *" $1 "*) return 0;; *) return 1;; esac; }
+on_count=0; off_count=0; shadow_count=0
+# With the evidence record installed (every follow-up run), 'on' needs the cited sha256 recorded for the option.
+has_evidence="$("${psql[@]}" -At -c "SELECT to_regclass('public.ca_horse_option_switch_evidence') IS NOT NULL")"
 
 fail=0
 check() { # name, expected, actual
@@ -119,7 +140,18 @@ for o in $plain; do
     continue
   fi
   on_count=$((on_count + 1))
-  check "$o is offered off and on" "{off,on}" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
+  if is_shadow "$o"; then
+    shadow_count=$((shadow_count + 1))
+    check "$o is offered off, shadow and on" "{off,shadow,on}" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
+    q "SELECT public.fn_ca_horse_option_switch_set('$o', 'shadow', 'fixture', 'shadow')" >/dev/null
+    check "$o: shadow is written, in the wide read and not the style read" "shadow|shadow|" \
+      "$(q "SELECT s.state || '|' || coalesce(public.fn_ca_horse_option_switch_effective()->'options'->>'$o', '') || '|' || coalesce(public.fn_ca_horse_style_switch_effective()->'options'->>'$o', '') FROM public.ca_horse_style_switch s WHERE s.option = '$o'")"
+    expect_refusal "$o: canary is refused" "does not support state canary" "SELECT public.fn_ca_horse_option_switch_set('$o', 'canary', 'fixture', 'canary')"
+  else
+    check "$o is offered off and on" "{off,on}" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
+    expect_refusal "$o: the set function refuses shadow" "does not support state shadow" "SELECT public.fn_ca_horse_option_switch_set('$o', 'shadow', 'fixture', 'shadow')"
+    expect_refusal "$o: the table refuses a shadow row from any writer" "ca_horse_style_switch_state_fits_option" "INSERT INTO public.ca_horse_style_switch (option, state, updated_by) VALUES ('$o', 'shadow', 'owner')"
+  fi
   expect_refusal "$o: the set function refuses on with a junk note" "cites its own authority" "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', 'try on')"
   expect_refusal "$o: the set function refuses on with no note" "cites its own authority" "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', NULL)"
   expect_refusal "$o: the set function refuses on with a generic authority note" "cites its own authority" "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', 'authority: 0123456789abc')"
@@ -133,6 +165,10 @@ for o in $plain; do
   q "SELECT public.fn_ca_horse_option_switch_set('$o', 'off', 'fixture', 'rollback')" >/dev/null
   check "$o: off is written" "off" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = '$o'")"
   expect_refusal "$o: the table refuses turning its off row on without its own citation" "ca_horse_style_switch_on_cites_authority" "UPDATE public.ca_horse_style_switch SET state = 'on' WHERE option = '$o'"
+  if [ "$has_evidence" = t ]; then
+    expect_refusal "$o: on with its own citation and no evidence row is refused" "only after its evidence is recorded" "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', '$own')"
+    q "SELECT public.fn_ca_horse_option_switch_record_evidence('$o', 'OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md', '${authority_tail##* }', 'owner_forced', 'fixture', NULL, 'fixture')" >/dev/null
+  fi
   q "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', '$own')" >/dev/null
   check "$o: on with its own citation is written" "on|$own" "$(q "SELECT state || '|' || note FROM public.ca_horse_style_switch WHERE option = '$o'")"
   q "SELECT public.fn_ca_horse_option_switch_clear('$o', 'fixture', 'clear')" >/dev/null
@@ -140,7 +176,7 @@ for o in $plain; do
 done
 check "the off-only options are the listed ones" "$(set -- $offonly; echo $#)" "$off_count"
 check "every off, on and clear wrote one audit row; no refused on wrote one" \
-  "$((audit_before + 3 * on_count + 2 * off_count))" "$(q "SELECT count(*) FROM public.ca_horse_style_switch_audit")"
+  "$((audit_before + 3 * on_count + 2 * off_count + shadow_count))" "$(q "SELECT count(*) FROM public.ca_horse_style_switch_audit")"
 check "every audit row of an on for a non-style option carries that option's own citation" "$on_count|0" \
   "$(q "SELECT count(*) FILTER (WHERE note = 'authority: ' || option || ' $authority_tail') || '|' || count(*) FILTER (WHERE note IS DISTINCT FROM 'authority: ' || option || ' $authority_tail') FROM public.ca_horse_style_switch_audit WHERE new_state = 'on' AND option NOT IN ('$(echo $style | sed "s/ /','/g")')")"
 check "no audit row records on for an off-only option" "0" \
@@ -182,6 +218,13 @@ if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
   "${psql[@]}" -f "$evidence_migration"
   "${psql[@]}" -f "$evidence_migration"
   echo "ok    evidence record $(basename "$evidence_migration") installed (twice)"
+  # It was installed above in version order; a second install replaces the set function with its own text, so the
+  # later replacements are put back exactly as production holds them (the style-by-canary read, then the lists).
+  for f in "$repo"/supabase/migrations/*_the_horse_option_switch_tells_style_options_by_name.sql "$last_list"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    "${psql[@]}" -f "$f"
+    echo "ok    $(basename "$f") installed again after the evidence record"
+  done
   sha_a='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   sha_b='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
   sha_c='cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
@@ -217,18 +260,23 @@ if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
   q "SELECT public.fn_ca_horse_option_switch_set('styleFoldBluff', 'shadow', 'fixture', 'style')" >/dev/null
   q "SELECT public.fn_ca_horse_option_switch_set('styleFoldBluff', 'on', 'fixture', 'style')" >/dev/null
   check "a style option still goes on without an evidence row" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'styleFoldBluff'")"
-  check "the evidence rows are the two recorded" "2" "$(q "SELECT count(*) FROM public.ca_horse_option_switch_evidence")"
+  # the two recorded here, and one per option switched on in the loop above (the evidence record was installed then)
+  check "the evidence rows are the ones recorded" "$((2 + on_count))" "$(q "SELECT count(*) FROM public.ca_horse_option_switch_evidence")"
 
-  # THE SERVING-REGISTRY GUARD (migration *_the_horse_option_switch_refuses_what_the_serving_engine_does.sql): a
-  # switch row for a name or state the SERVING engine does not register makes that engine drop every switched option
-  # to its release default, so the two writers refuse it when a fresh published registry exists, and behave as before
-  # (with a NOTICE) when none does. REGISTRY_GUARD_MIGRATION names another file to prove the assertions fail without
-  # the guard.
-  guard_migration="${REGISTRY_GUARD_MIGRATION:-$(ls "$repo"/supabase/migrations/*_the_horse_option_switch_refuses_what_the_serving_engine_does.sql)}"
+  # THE SERVING-REGISTRY GUARD (migration *_the_horse_option_switch_refuses_what_the_serving_engine_does.sql, installed
+  # above in version order): a switch row for a name or state the SERVING engine does not register makes that engine
+  # drop every switched option to its release default, so the two writers refuse it when a fresh published registry
+  # exists, and behave as before (with a NOTICE) when none does. The writers production ends with are the ones of the
+  # LATER by-name migration (*_the_horse_option_switch_tells_style_options_by_name.sql: style options told by canary,
+  # so a non-style option can take shadow), which carries the guard call in both bodies; it is installed twice more
+  # here and every assertion below runs against it. (The guard migration itself is never installed after a list that
+  # names shadow options: its own writers tell a style option by shadow, and production installed it before them.)
+  # REGISTRY_GUARD_MIGRATION names another file to prove the assertions fail without the guard.
+  guard_migration="${REGISTRY_GUARD_MIGRATION:-$(ls "$repo"/supabase/migrations/*_the_horse_option_switch_tells_style_options_by_name.sql)}"
   q "SELECT public.fn_ca_horse_option_switch_set('readShrinkResponse', 'off', 'fixture', 'a row before the guard')" >/dev/null
   "${psql[@]}" -f "$guard_migration"
   "${psql[@]}" -f "$guard_migration"
-  echo "ok    registry guard $(basename "$guard_migration") installed (twice)"
+  echo "ok    registry-guarded writers $(basename "$guard_migration") installed (twice)"
   check "a switch row written before the guard survives it" "off" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'readShrinkResponse'")"
   # the engine's canonical digest, computed independently: sha256 of [[name,[states...]],...] sorted by name
   digest() { python3 -c 'import hashlib,json,sys; r=json.loads(sys.argv[1]); print(hashlib.sha256(json.dumps([[k,r[k]] for k in sorted(r)],separators=(",",":")).encode()).hexdigest())' "$1"; }

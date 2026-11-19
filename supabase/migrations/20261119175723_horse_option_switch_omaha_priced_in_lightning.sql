@@ -7,8 +7,10 @@
 -- OPTION_SWITCH_REGISTRY.
 --
 -- WHAT IT DOES: re-asserts the three CHECK constraints of public.ca_horse_style_switch (an option is registered; on
--- for a non-style option cites its own authority; shadow and canary only for the style options, on never for an
--- off-only option) and public.fn_ca_horse_option_switch_states with the registry's current lists. Same table, same
+-- for a non-style option cites its own authority; canary only for the style options, shadow only for the style
+-- options and the listed shadow options, on never for an off-only option) and public.fn_ca_horse_option_switch_states
+-- with the registry's current lists. A shadow option passes nothing to the engine's decision (the release default
+-- acts); the engine re-decides it flipped and records the counterfactual, never acting on it (HorseOptionShadow.ts). Same table, same
 -- functions, same grants. It adds no table, column or row and switches nothing; running it twice leaves the same
 -- state. Registering an option ENABLES NOTHING: no row is the release default.
 --
@@ -27,6 +29,13 @@ DO $existing_rows_fit$
 DECLARE
   r record;
 BEGIN
+  -- A shadow option keeps every rule of 'on' only when the switch functions tell the style options by canary
+  -- (*_the_horse_option_switch_tells_style_options_by_name.sql); refuse to install before that file.
+  IF position('''shadow'' = ANY' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) > 0
+     OR position('ARRAY[''shadow'']' IN pg_get_functiondef('public.fn_ca_horse_style_switch_effective()'::regprocedure)) > 0
+     OR position('ARRAY[''shadow'']' IN pg_get_functiondef('public.fn_ca_horse_option_switch_effective()'::regprocedure)) > 0 THEN
+    RAISE EXCEPTION 'the switch functions still tell the style options by shadow: install *_the_horse_option_switch_tells_style_options_by_name.sql first';
+  END IF;
   FOR r IN SELECT s.option, s.state FROM public.ca_horse_style_switch s ORDER BY s.option LOOP
     IF NOT (r.option IN (
     -- registry:style-options:begin
@@ -74,15 +83,16 @@ BEGIN
     'omahaTurnCallRealizationByRunout', 'omahaTurnRiverRaiseNeedsNuts', 'omahaStreetPlan',
     'omahaStreetPlanFlop', 'omahaStreetPlanThreeWay', 'omahaPreflopStackPlan',
     'omahaBigDrawAggression', 'omahaNoDrawRaiseOutOfPosition', 'omahaStrategyInTournaments',
-    'omahaStrongHandSlowplayMix', 'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced',
-    'omahaOopTurnBarrelIsPriced', 'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate',
-    'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced', 'omahaBigBetCallsArePriced',
-    'omahaUnderpairMultiwayIsPriced', 'omahaPricedPriorsByOpponentKind',
-    'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced', 'omahaTurnSetSizeIsPriced',
-    'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced', 'omahaPricedMix', 'omahaPricedInLightning',
-    'omahaSmallBetIsPriced', 'horsePlayStyles', 'omahaStrongHandValue', 'omahaNutClassValueSize',
-    'omahaValueSizeIsUnreadable', 'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline',
-    'holdemHeadsUpPostflopBalance', 'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
+    'omahaTournamentsExcludeCategoricalRules', 'omahaStrongHandSlowplayMix',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous',
+    'omahaPressureIsPriced', 'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced',
+    'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced',
+    'omahaPricedMix', 'omahaPricedInLightning', 'omahaSmallBetIsPriced', 'horsePlayStyles',
+    'omahaStrongHandValue', 'omahaNutClassValueSize', 'omahaValueSizeIsUnreadable',
+    'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline', 'holdemHeadsUpPostflopBalance',
+    'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
     'plo6NoMultiwayBetWithWeakMadeHand', 'omahaStrategyInPlo6', 'fixedLimitRiverFullBetRead',
     'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
     'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v62RiverBettorPolarity',
@@ -96,12 +106,13 @@ BEGIN
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
     'omahaNeutralUnknown', 'omahaTightOpponent', 'tournamentUtilityStackScaledMargin',
-    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'omahaTightOpponentSteal', 'readScopedShrink',
-    'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
-    'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
+    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
+    'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
+    'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
+    'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice', 'huLimpDefendsToPrice',
+    'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn', 'holdemPersonaReRaiseMix',
+    'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam', 'aofClosingSeatNashCall',
+    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
     'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
     'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
@@ -143,6 +154,59 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
         r.option;
+    END IF;
+    IF r.state IN ('shadow', 'canary') AND NOT (r.option IN (
+    -- registry:style-options:begin
+    'styleValueBettorNotManiac', 'styleBigBetHonesty', 'styleRaiseRespect',
+    'styleTightReRaiserRespect', 'styleFoldRatePreRepair', 'styleValueExtraction', 'styleFoldBluff'
+    -- registry:style-options:end
+    )) AND NOT (r.state = 'shadow' AND r.option IN (
+    -- registry:shadow-options:begin
+    'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7SizeReads', 'v8', 'v9Sizing', 'v9Timing',
+    'decisionGravityTiming', 'horseActionTimeIsPublicOnly', 'v9Mood', 'v10Cbet', 'v10Spr',
+    'v10Rake', 'v10ThinValue', 'v10Iso', 'v11', 'v12', 'v12Ranges', 'v12River', 'v13', 'v15',
+    'v16Reads', 'v16Icm', 'v16Blockers', 'v16SizeCond', 'v16PloPolar', 'v16Ratio', 'v17Pos',
+    'v17CatchBlock', 'v17ShortDeck', 'v18Straddle', 'v18Squeeze', 'v18SelfImage', 'v18ExploitSize',
+    'v18Families', 'v20Multiway', 'v20Mzone', 'v21River', 'v21Deep', 'v23Endgame', 'v23Plan',
+    'v23Reads', 'v23Variants', 'v23Spin', 'v24Bounty', 'v25PloTourney', 'v26Prizes', 'v27GtoCharts',
+    'v29GtoFlop', 'v30GtoTurnRiver', 'v37Satellite', 'v38Ev', 'v40Omaha', 'holdemPremiumAggression',
+    'holdemDominatedFold', 'ploPairedBoardFold', 'ploPairedBoardRiverCheck', 'ploSuitedAcesFourBet',
+    'v87HoldemOverhaul', 'v87RiverBlockBetTrap', 'v87HollywoodTank', 'v87FlopStabCheckRaise',
+    'v46Charts', 'v51RiverFlat', 'v56OmahaPressureRange', 'v57TournamentAggression',
+    'v61RiverOnePairShade', 'v66BetRaisedOnePair', 'v67RiverBetRaisedOnePair',
+    'v88CommitmentHonored', 'omahaTournamentFirstIn', 'omahaHiLoTournamentFirstIn',
+    'tokenCallPrice', 'omahaRiverNutRaiseOnly', 'omahaTurnSetPound', 'omahaReraisedPotStackOffFold',
+    'omahaReraisedPotStackOffRealistic', 'omahaTournamentsExcludeCategoricalRules',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced',
+    'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced',
+    'omahaPricedInLightning', 'horsePlayStyles', 'plo6ManiacPriceRefusalToRangePlay',
+    'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
+    'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v60CashPressure', 'v65TurnOnePairShade',
+    'v68TurnAirDrawCalls', 'v69TurnCallGaps', 'v70GtoOpeningRanges', 'v71AnteAwarePushFold',
+    'v72DefenceByOpener', 'v73Vs3BetDefence', 'v75SqueezeDefence', 'v79TopPairWeakKicker',
+    'v81OmahaBigBetCalls', 'v15RiverNoNearLock', 'v85CashAction', 'styleTightPlayerExploit',
+    'styleTightMultiSignal', 'styleTightMethodLine', 'holdemManiacSampleGate',
+    'holdemManiacShortHandedReach', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
+    'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
+    'readShrinkResponse', 'readBreakEvenBluff', 'holdemRiverFullHouseValue',
+    'holdemRiverFullHouseValueIsPriced', 'readScopedShrink', 'planFingerprint',
+    'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
+    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
+    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
+    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
+    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
+    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
+    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
+    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
+    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
+    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
+    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    -- registry:shadow-options:end
+    )) THEN
+      RAISE EXCEPTION 'switch row % is % and the option no longer takes it: set it off or clear it before this migration',
+        r.option, r.state;
     END IF;
   END LOOP;
 END
@@ -198,15 +262,16 @@ ALTER TABLE public.ca_horse_style_switch
     'omahaTurnCallRealizationByRunout', 'omahaTurnRiverRaiseNeedsNuts', 'omahaStreetPlan',
     'omahaStreetPlanFlop', 'omahaStreetPlanThreeWay', 'omahaPreflopStackPlan',
     'omahaBigDrawAggression', 'omahaNoDrawRaiseOutOfPosition', 'omahaStrategyInTournaments',
-    'omahaStrongHandSlowplayMix', 'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced',
-    'omahaOopTurnBarrelIsPriced', 'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate',
-    'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced', 'omahaBigBetCallsArePriced',
-    'omahaUnderpairMultiwayIsPriced', 'omahaPricedPriorsByOpponentKind',
-    'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced', 'omahaTurnSetSizeIsPriced',
-    'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced', 'omahaPricedMix', 'omahaPricedInLightning',
-    'omahaSmallBetIsPriced', 'horsePlayStyles', 'omahaStrongHandValue', 'omahaNutClassValueSize',
-    'omahaValueSizeIsUnreadable', 'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline',
-    'holdemHeadsUpPostflopBalance', 'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
+    'omahaTournamentsExcludeCategoricalRules', 'omahaStrongHandSlowplayMix',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous',
+    'omahaPressureIsPriced', 'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced',
+    'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced',
+    'omahaPricedMix', 'omahaPricedInLightning', 'omahaSmallBetIsPriced', 'horsePlayStyles',
+    'omahaStrongHandValue', 'omahaNutClassValueSize', 'omahaValueSizeIsUnreadable',
+    'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline', 'holdemHeadsUpPostflopBalance',
+    'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
     'plo6NoMultiwayBetWithWeakMadeHand', 'omahaStrategyInPlo6', 'fixedLimitRiverFullBetRead',
     'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
     'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v62RiverBettorPolarity',
@@ -220,12 +285,13 @@ ALTER TABLE public.ca_horse_style_switch
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
     'omahaNeutralUnknown', 'omahaTightOpponent', 'tournamentUtilityStackScaledMargin',
-    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'omahaTightOpponentSteal', 'readScopedShrink',
-    'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
-    'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
+    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
+    'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
+    'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
+    'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice', 'huLimpDefendsToPrice',
+    'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn', 'holdemPersonaReRaiseMix',
+    'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam', 'aofClosingSeatNashCall',
+    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
     'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
     'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
@@ -257,8 +323,9 @@ ALTER TABLE public.ca_horse_style_switch
     OR (note IS NOT NULL AND note LIKE 'authority: ' || option || ' %' AND note ~ 'sha256 [0-9a-f]{64}')
   );
 
--- Shadow and canary only where the engine has a shadow arm: the seven style options. 'on' never for an off-only
--- option (an owner hold, a measured harm, a superseded option), from any writer.
+-- Canary only where the engine has a shadow arm: the seven style options. Shadow for them and for the listed shadow
+-- options (re-decided flipped by the engine, never acted on). 'on' never for an off-only option (an owner hold, a
+-- measured harm, a superseded option), from any writer.
 ALTER TABLE public.ca_horse_style_switch
   DROP CONSTRAINT IF EXISTS ca_horse_style_switch_state_fits_option,
   ADD CONSTRAINT ca_horse_style_switch_state_fits_option CHECK (
@@ -283,6 +350,51 @@ ALTER TABLE public.ca_horse_style_switch
     'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'lightningCheapEntryHoldem',
     'lightningCheapEntryOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
+    ))
+    OR (state = 'shadow' AND option IN (
+    -- registry:shadow-options:begin
+    'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7SizeReads', 'v8', 'v9Sizing', 'v9Timing',
+    'decisionGravityTiming', 'horseActionTimeIsPublicOnly', 'v9Mood', 'v10Cbet', 'v10Spr',
+    'v10Rake', 'v10ThinValue', 'v10Iso', 'v11', 'v12', 'v12Ranges', 'v12River', 'v13', 'v15',
+    'v16Reads', 'v16Icm', 'v16Blockers', 'v16SizeCond', 'v16PloPolar', 'v16Ratio', 'v17Pos',
+    'v17CatchBlock', 'v17ShortDeck', 'v18Straddle', 'v18Squeeze', 'v18SelfImage', 'v18ExploitSize',
+    'v18Families', 'v20Multiway', 'v20Mzone', 'v21River', 'v21Deep', 'v23Endgame', 'v23Plan',
+    'v23Reads', 'v23Variants', 'v23Spin', 'v24Bounty', 'v25PloTourney', 'v26Prizes', 'v27GtoCharts',
+    'v29GtoFlop', 'v30GtoTurnRiver', 'v37Satellite', 'v38Ev', 'v40Omaha', 'holdemPremiumAggression',
+    'holdemDominatedFold', 'ploPairedBoardFold', 'ploPairedBoardRiverCheck', 'ploSuitedAcesFourBet',
+    'v87HoldemOverhaul', 'v87RiverBlockBetTrap', 'v87HollywoodTank', 'v87FlopStabCheckRaise',
+    'v46Charts', 'v51RiverFlat', 'v56OmahaPressureRange', 'v57TournamentAggression',
+    'v61RiverOnePairShade', 'v66BetRaisedOnePair', 'v67RiverBetRaisedOnePair',
+    'v88CommitmentHonored', 'omahaTournamentFirstIn', 'omahaHiLoTournamentFirstIn',
+    'tokenCallPrice', 'omahaRiverNutRaiseOnly', 'omahaTurnSetPound', 'omahaReraisedPotStackOffFold',
+    'omahaReraisedPotStackOffRealistic', 'omahaTournamentsExcludeCategoricalRules',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced',
+    'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced',
+    'omahaPricedInLightning', 'horsePlayStyles', 'plo6ManiacPriceRefusalToRangePlay',
+    'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
+    'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v60CashPressure', 'v65TurnOnePairShade',
+    'v68TurnAirDrawCalls', 'v69TurnCallGaps', 'v70GtoOpeningRanges', 'v71AnteAwarePushFold',
+    'v72DefenceByOpener', 'v73Vs3BetDefence', 'v75SqueezeDefence', 'v79TopPairWeakKicker',
+    'v81OmahaBigBetCalls', 'v15RiverNoNearLock', 'v85CashAction', 'styleTightPlayerExploit',
+    'styleTightMultiSignal', 'styleTightMethodLine', 'holdemManiacSampleGate',
+    'holdemManiacShortHandedReach', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
+    'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
+    'readShrinkResponse', 'readBreakEvenBluff', 'holdemRiverFullHouseValue',
+    'holdemRiverFullHouseValueIsPriced', 'readScopedShrink', 'planFingerprint',
+    'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
+    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
+    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
+    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
+    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
+    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
+    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
+    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
+    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
+    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
+    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    -- registry:shadow-options:end
     ))
     OR option IN (
     -- registry:style-options:begin
@@ -329,6 +441,52 @@ AS $function$
     )
       THEN ARRAY['off']
     WHEN p_option IN (
+    -- registry:shadow-options:begin
+    'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7SizeReads', 'v8', 'v9Sizing', 'v9Timing',
+    'decisionGravityTiming', 'horseActionTimeIsPublicOnly', 'v9Mood', 'v10Cbet', 'v10Spr',
+    'v10Rake', 'v10ThinValue', 'v10Iso', 'v11', 'v12', 'v12Ranges', 'v12River', 'v13', 'v15',
+    'v16Reads', 'v16Icm', 'v16Blockers', 'v16SizeCond', 'v16PloPolar', 'v16Ratio', 'v17Pos',
+    'v17CatchBlock', 'v17ShortDeck', 'v18Straddle', 'v18Squeeze', 'v18SelfImage', 'v18ExploitSize',
+    'v18Families', 'v20Multiway', 'v20Mzone', 'v21River', 'v21Deep', 'v23Endgame', 'v23Plan',
+    'v23Reads', 'v23Variants', 'v23Spin', 'v24Bounty', 'v25PloTourney', 'v26Prizes', 'v27GtoCharts',
+    'v29GtoFlop', 'v30GtoTurnRiver', 'v37Satellite', 'v38Ev', 'v40Omaha', 'holdemPremiumAggression',
+    'holdemDominatedFold', 'ploPairedBoardFold', 'ploPairedBoardRiverCheck', 'ploSuitedAcesFourBet',
+    'v87HoldemOverhaul', 'v87RiverBlockBetTrap', 'v87HollywoodTank', 'v87FlopStabCheckRaise',
+    'v46Charts', 'v51RiverFlat', 'v56OmahaPressureRange', 'v57TournamentAggression',
+    'v61RiverOnePairShade', 'v66BetRaisedOnePair', 'v67RiverBetRaisedOnePair',
+    'v88CommitmentHonored', 'omahaTournamentFirstIn', 'omahaHiLoTournamentFirstIn',
+    'tokenCallPrice', 'omahaRiverNutRaiseOnly', 'omahaTurnSetPound', 'omahaReraisedPotStackOffFold',
+    'omahaReraisedPotStackOffRealistic', 'omahaTournamentsExcludeCategoricalRules',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced',
+    'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced',
+    'omahaPricedInLightning', 'horsePlayStyles', 'plo6ManiacPriceRefusalToRangePlay',
+    'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
+    'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v60CashPressure', 'v65TurnOnePairShade',
+    'v68TurnAirDrawCalls', 'v69TurnCallGaps', 'v70GtoOpeningRanges', 'v71AnteAwarePushFold',
+    'v72DefenceByOpener', 'v73Vs3BetDefence', 'v75SqueezeDefence', 'v79TopPairWeakKicker',
+    'v81OmahaBigBetCalls', 'v15RiverNoNearLock', 'v85CashAction', 'styleTightPlayerExploit',
+    'styleTightMultiSignal', 'styleTightMethodLine', 'holdemManiacSampleGate',
+    'holdemManiacShortHandedReach', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
+    'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
+    'readShrinkResponse', 'readBreakEvenBluff', 'holdemRiverFullHouseValue',
+    'holdemRiverFullHouseValueIsPriced', 'readScopedShrink', 'planFingerprint',
+    'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
+    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
+    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
+    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
+    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
+    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
+    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
+    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
+    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
+    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
+    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    -- registry:shadow-options:end
+    )
+      THEN ARRAY['off', 'shadow', 'on']
+    WHEN p_option IN (
     -- registry:plain-options:begin
     'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7Barrels', 'v7SizeReads', 'v7CounterAdapt',
     'v7AdaptiveMC', 'v8', 'v8Draws', 'v8HiLo', 'v8Nlh', 'v9', 'v9Sizing', 'v9Timing',
@@ -369,15 +527,16 @@ AS $function$
     'omahaTurnCallRealizationByRunout', 'omahaTurnRiverRaiseNeedsNuts', 'omahaStreetPlan',
     'omahaStreetPlanFlop', 'omahaStreetPlanThreeWay', 'omahaPreflopStackPlan',
     'omahaBigDrawAggression', 'omahaNoDrawRaiseOutOfPosition', 'omahaStrategyInTournaments',
-    'omahaStrongHandSlowplayMix', 'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced',
-    'omahaOopTurnBarrelIsPriced', 'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate',
-    'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced', 'omahaBigBetCallsArePriced',
-    'omahaUnderpairMultiwayIsPriced', 'omahaPricedPriorsByOpponentKind',
-    'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced', 'omahaTurnSetSizeIsPriced',
-    'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced', 'omahaPricedMix', 'omahaPricedInLightning',
-    'omahaSmallBetIsPriced', 'horsePlayStyles', 'omahaStrongHandValue', 'omahaNutClassValueSize',
-    'omahaValueSizeIsUnreadable', 'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline',
-    'holdemHeadsUpPostflopBalance', 'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
+    'omahaTournamentsExcludeCategoricalRules', 'omahaStrongHandSlowplayMix',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous',
+    'omahaPressureIsPriced', 'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced',
+    'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced',
+    'omahaPricedMix', 'omahaPricedInLightning', 'omahaSmallBetIsPriced', 'horsePlayStyles',
+    'omahaStrongHandValue', 'omahaNutClassValueSize', 'omahaValueSizeIsUnreadable',
+    'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline', 'holdemHeadsUpPostflopBalance',
+    'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
     'plo6NoMultiwayBetWithWeakMadeHand', 'omahaStrategyInPlo6', 'fixedLimitRiverFullBetRead',
     'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
     'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v62RiverBettorPolarity',
@@ -391,12 +550,13 @@ AS $function$
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
     'omahaNeutralUnknown', 'omahaTightOpponent', 'tournamentUtilityStackScaledMargin',
-    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'omahaTightOpponentSteal', 'readScopedShrink',
-    'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
-    'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
+    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
+    'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
+    'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
+    'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice', 'huLimpDefendsToPrice',
+    'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn', 'holdemPersonaReRaiseMix',
+    'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam', 'aofClosingSeatNashCall',
+    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
     'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
     'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',
@@ -456,6 +616,53 @@ BEGIN
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off'])
      OR EXISTS (
        SELECT 1 FROM unnest(ARRAY[
+    -- registry:shadow-options:begin
+    'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7SizeReads', 'v8', 'v9Sizing', 'v9Timing',
+    'decisionGravityTiming', 'horseActionTimeIsPublicOnly', 'v9Mood', 'v10Cbet', 'v10Spr',
+    'v10Rake', 'v10ThinValue', 'v10Iso', 'v11', 'v12', 'v12Ranges', 'v12River', 'v13', 'v15',
+    'v16Reads', 'v16Icm', 'v16Blockers', 'v16SizeCond', 'v16PloPolar', 'v16Ratio', 'v17Pos',
+    'v17CatchBlock', 'v17ShortDeck', 'v18Straddle', 'v18Squeeze', 'v18SelfImage', 'v18ExploitSize',
+    'v18Families', 'v20Multiway', 'v20Mzone', 'v21River', 'v21Deep', 'v23Endgame', 'v23Plan',
+    'v23Reads', 'v23Variants', 'v23Spin', 'v24Bounty', 'v25PloTourney', 'v26Prizes', 'v27GtoCharts',
+    'v29GtoFlop', 'v30GtoTurnRiver', 'v37Satellite', 'v38Ev', 'v40Omaha', 'holdemPremiumAggression',
+    'holdemDominatedFold', 'ploPairedBoardFold', 'ploPairedBoardRiverCheck', 'ploSuitedAcesFourBet',
+    'v87HoldemOverhaul', 'v87RiverBlockBetTrap', 'v87HollywoodTank', 'v87FlopStabCheckRaise',
+    'v46Charts', 'v51RiverFlat', 'v56OmahaPressureRange', 'v57TournamentAggression',
+    'v61RiverOnePairShade', 'v66BetRaisedOnePair', 'v67RiverBetRaisedOnePair',
+    'v88CommitmentHonored', 'omahaTournamentFirstIn', 'omahaHiLoTournamentFirstIn',
+    'tokenCallPrice', 'omahaRiverNutRaiseOnly', 'omahaTurnSetPound', 'omahaReraisedPotStackOffFold',
+    'omahaReraisedPotStackOffRealistic', 'omahaTournamentsExcludeCategoricalRules',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced',
+    'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced',
+    'omahaPricedInLightning', 'horsePlayStyles', 'plo6ManiacPriceRefusalToRangePlay',
+    'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
+    'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v60CashPressure', 'v65TurnOnePairShade',
+    'v68TurnAirDrawCalls', 'v69TurnCallGaps', 'v70GtoOpeningRanges', 'v71AnteAwarePushFold',
+    'v72DefenceByOpener', 'v73Vs3BetDefence', 'v75SqueezeDefence', 'v79TopPairWeakKicker',
+    'v81OmahaBigBetCalls', 'v15RiverNoNearLock', 'v85CashAction', 'styleTightPlayerExploit',
+    'styleTightMultiSignal', 'styleTightMethodLine', 'holdemManiacSampleGate',
+    'holdemManiacShortHandedReach', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
+    'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
+    'readShrinkResponse', 'readBreakEvenBluff', 'holdemRiverFullHouseValue',
+    'holdemRiverFullHouseValueIsPriced', 'readScopedShrink', 'planFingerprint',
+    'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
+    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'nashCallVsJam',
+    'fixedLimitCallIsNotACommitment', 'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor',
+    'fixedLimitRiverStrongHandLeads', 'fixedLimitOmahaNoPresumption',
+    'lightningParticipationHoldem', 'limpReraiseIsoRead', 'v77SeatAwareJams',
+    'v76RetireFourBetBluffBand', 'v74NlhOpenSizes', 'v52RangeAdvantage', 'v53Pressure',
+    'v58Plo6RiverNuts', 'v59Plo6RiverUnpaired', 'drawOutlookQuality', 'committedRaiseDiscipline',
+    'callDeductionPricing', 'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange',
+    'riverBluffHiLo', 'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression',
+    'riverBluffFixedLimit', 'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard',
+    'v43Tempo', 'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
+    -- registry:shadow-options:end
+       ]::text[]) AS n
+       WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off', 'shadow', 'on'])
+     OR EXISTS (
+       SELECT 1 FROM unnest(ARRAY[
     -- registry:plain-options:begin
     'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7Barrels', 'v7SizeReads', 'v7CounterAdapt',
     'v7AdaptiveMC', 'v8', 'v8Draws', 'v8HiLo', 'v8Nlh', 'v9', 'v9Sizing', 'v9Timing',
@@ -496,15 +703,16 @@ BEGIN
     'omahaTurnCallRealizationByRunout', 'omahaTurnRiverRaiseNeedsNuts', 'omahaStreetPlan',
     'omahaStreetPlanFlop', 'omahaStreetPlanThreeWay', 'omahaPreflopStackPlan',
     'omahaBigDrawAggression', 'omahaNoDrawRaiseOutOfPosition', 'omahaStrategyInTournaments',
-    'omahaStrongHandSlowplayMix', 'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced',
-    'omahaOopTurnBarrelIsPriced', 'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate',
-    'omahaFacingBetRangeIsContinuous', 'omahaPressureIsPriced', 'omahaBigBetCallsArePriced',
-    'omahaUnderpairMultiwayIsPriced', 'omahaPricedPriorsByOpponentKind',
-    'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced', 'omahaTurnSetSizeIsPriced',
-    'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced', 'omahaPricedMix', 'omahaPricedInLightning',
-    'omahaSmallBetIsPriced', 'horsePlayStyles', 'omahaStrongHandValue', 'omahaNutClassValueSize',
-    'omahaValueSizeIsUnreadable', 'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline',
-    'holdemHeadsUpPostflopBalance', 'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
+    'omahaTournamentsExcludeCategoricalRules', 'omahaStrongHandSlowplayMix',
+    'omahaTurnRiverRaiseIsPriced', 'omahaDrawRaiseIsPriced', 'omahaOopTurnBarrelIsPriced',
+    'omahaPairedBoardBetIsPriced', 'omahaBluffShareFromBetRate', 'omahaFacingBetRangeIsContinuous',
+    'omahaPressureIsPriced', 'omahaBigBetCallsArePriced', 'omahaUnderpairMultiwayIsPriced',
+    'omahaPricedPriorsByOpponentKind', 'omahaRaiseEvCountsLossesOnce', 'omahaMadeHandBetIsPriced',
+    'omahaTurnSetSizeIsPriced', 'omahaBlockerBluffIsPriced', 'omahaFlopBetIsPriced',
+    'omahaPricedMix', 'omahaPricedInLightning', 'omahaSmallBetIsPriced', 'horsePlayStyles',
+    'omahaStrongHandValue', 'omahaNutClassValueSize', 'omahaValueSizeIsUnreadable',
+    'omahaRiverNutBlockerBluffReachable', 'omahaOnePairDiscipline', 'holdemHeadsUpPostflopBalance',
+    'plo6ManiacPriceRefusalToRangePlay', 'plo6TopSetNutRealization',
     'plo6NoMultiwayBetWithWeakMadeHand', 'omahaStrategyInPlo6', 'fixedLimitRiverFullBetRead',
     'fixedLimitHiLoNutLowRiverBet', 'fixedLimitRiverOneBetValueRaise', 'v64RiverRaiseNeedsTwoPair',
     'v63LargeRiverBetShade', 'v74OmahaSemiBluffNeedsDraw', 'v62RiverBettorPolarity',
@@ -518,12 +726,13 @@ BEGIN
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
     'omahaNeutralUnknown', 'omahaTightOpponent', 'tournamentUtilityStackScaledMargin',
-    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'omahaTightOpponentSteal', 'readScopedShrink',
-    'planFingerprint', 'v80TopPairStrongKicker', 'v78NoCommittingBluffRaise', 'v70FacingOpenZone',
-    'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
-    'holdemPersonaReRaiseMix', 'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
+    'icmBustPaysPlace', 'holdemRiverFullHouseValue', 'holdemRiverFullHouseValueIsPriced',
+    'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
+    'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
+    'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice', 'huLimpDefendsToPrice',
+    'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn', 'holdemPersonaReRaiseMix',
+    'holdemPersonaPostflop', 'holdemPersonaPreflop', 'nashCallVsJam', 'aofClosingSeatNashCall',
+    'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
     'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitCallIsNotACommitment',
     'fixedLimitReadIgnoresProbes', 'fixedLimitHiLoLowHalfFloor', 'fixedLimitPricedPreflop',
     'fixedLimitStealVsTightBlinds', 'fixedLimitRiverStrongHandLeads',

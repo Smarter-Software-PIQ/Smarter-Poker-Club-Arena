@@ -2,7 +2,7 @@
  * THE PRICED2 OPTIONS ARE OPT-IN (2026-11-18, lead ruling on review R2 B1/B2 of priced2 54d47a6a706).
  *
  * priced2 changed every priced family: the priors by opponent kind, the fall-closed handling of an
- * unpriceable spot, the ownership of omahaTurnRiverRaiseIsPriced and the re-raisers' losses counted once.
+ * unpriceable spot (removed by ROWFIX 2026-11-18: an unpriceable spot keeps the decision given), the ownership of omahaTurnRiverRaiseIsPriced and the re-raisers' losses counted once.
  * Those changes now sit behind two default-OFF options, omahaPricedPriorsByOpponentKind and
  * omahaRaiseEvCountsLossesOnce (off-only). The recorded decisions of HorseOmahaPricedRules.fixture.json
  * know every seat's kind (person or Horse, the seat rows), so:
@@ -63,15 +63,18 @@ const MOVED: ReadonlyArray<readonly [number, number, string, string, Act, Act]> 
     { a: 'raise', amt: 440 },
   ],
   [13, 59804454, 'river', 'all', { a: 'call', amt: 88 }, { a: 'raise', amt: 440 }],
+  // ROWFIX 2026-11-18: priced2 moved this record only by falling closed (the turn barrel could not be priced,
+  // omaha_priced_oop_turn_barrel_unpriced_kept, and the categorical check decided). No family falls closed
+  // any more, so with both on it is main's answer; kept here as the pin of that change.
   [
     14,
     59852287,
     'turn',
     'omahaOopTurnBarrelIsPriced',
     { a: 'all_in', amt: null },
-    { a: 'check', amt: null },
+    { a: 'all_in', amt: null },
   ],
-  [14, 59852287, 'turn', 'all', { a: 'all_in', amt: null }, { a: 'check', amt: null }],
+  [14, 59852287, 'turn', 'all', { a: 'all_in', amt: null }, { a: 'all_in', amt: null }],
   [24, 59821219, 'turn', 'all', { a: 'call', amt: 102 }, { a: 'raise', amt: 204 }],
   [
     25,
