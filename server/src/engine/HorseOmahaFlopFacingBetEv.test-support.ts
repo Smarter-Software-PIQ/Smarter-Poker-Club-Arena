@@ -46,7 +46,15 @@ import type { Card, CardRank, CardSuit } from '../types.js';
 export interface RecordedFlopFacingBet {
   /** Hand number. */
   n: number;
-  group: 'wrongFold' | 'wrongFoldKept' | 'lostCall' | 'smallBetCall' | 'rc02a' | 'bareOverpair';
+  group:
+    | 'wrongFold'
+    | 'wrongFoldKept'
+    | 'lostCall'
+    | 'smallBetCall'
+    | 'rc02a'
+    | 'bareOverpair'
+    // a recorded fold the 48-hour audit accepted (HorseOmahaFlopBettorRead.test.ts holds these; none is in the list below)
+    | 'auditRightFold';
   /** The audit's cause or note for the decision. */
   audit: string;
   /** What the Horse did. */

@@ -391,7 +391,7 @@ describe('an opponent is read by street and by flop texture', () => {
     ).not.toThrow();
   });
 
-  it('8. ONLY ITS OPTION READS IT: outside its owner, its transport and omahaReadIsByStreetAndTexture, no engine source names the read', () => {
+  it('8. ONLY ITS OPTIONS READ IT: outside its owner, its transport, omahaReadIsByStreetAndTexture and omahaFlopVerdictReadsTheBettor, no engine source names the read', () => {
     const root = resolve(process.cwd(), 'src');
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -412,8 +412,11 @@ describe('an opponent is read by street and by flop texture', () => {
     // the accessor is defined in HorseMind; since 2026-11-18 (omahaReadIsByStreetAndTexture, default off) it is
     // called only by HorseMind's own two per-street readers (the value-leader label and the facing-bet bet rate,
     // each behind omahaReadByStreetNow().on) and by the option's per-decision installer
+    // since 2026-11-19 (omahaFlopVerdictReadsTheBettor, default off) also by the flop facing-bet rule, behind
+    // ctx.readsTheBettor === true, for the bettor alone
     expect(naming(/omahaStreetReadOf\(/)).toEqual([
       'engine/HorseMind.ts',
+      'engine/HorseOmahaFlopFacingBetEvRule.ts',
       'engine/HorseOmahaReadByStreetRule.ts',
     ]);
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
@@ -442,6 +445,9 @@ describe('an opponent is read by street and by flop texture', () => {
       'benchmark/HorseLeagueStreetRead.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
+      // omahaFlopVerdictReadsTheBettor's pure read (2026-11-19) and the flop rule that asks for it (flopTextureOf)
+      'engine/HorseOmahaFlopBettorRead.ts',
+      'engine/HorseOmahaFlopFacingBetEvRule.ts',
       // omahaReadIsByStreetAndTexture's pure read (2026-11-18)
       'engine/HorseOmahaReadByStreet.ts',
       // its per-decision mode (types only), the one part HorseMind imports

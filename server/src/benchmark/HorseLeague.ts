@@ -1419,7 +1419,14 @@ export function playHand(
       });
       // omahaReadIsByStreetAndTexture (2026-11-18): the street read the option uses, learned the way the
       // accepted-hand learner keeps it, only for a hand a seat's configuration reads it in.
-      if (seats.some((_, i) => configOf(i).omahaReadIsByStreetAndTexture === true))
+      // omahaFlopVerdictReadsTheBettor (2026-11-19) reads the same record.
+      if (
+        seats.some(
+          (_, i) =>
+            configOf(i).omahaReadIsByStreetAndTexture === true ||
+            configOf(i).omahaFlopVerdictReadsTheBettor === true
+        )
+      )
         leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
@@ -2832,6 +2839,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReadIsByStreetAndTexture: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 THE FLOP VERDICT READS THE BETTOR (HorseOmahaFlopBettorRead,
+  // default OFF): the flop facing-bet verdict's value share, non-value share
+  // and later-street realization take this bettor's own street record beside
+  // his kind. It changes nothing by itself: it is an input of
+  // omahaFlopFacingBetEv, so that option is on in BOTH arms (over
+  // production's live set, OMAHA_LIVE_OPTIONS_20261118) and arm A adds the
+  // read. The street record is learned inside the card
+  // (HorseLeagueStreetRead). Guarded by ADefaultOffFlagHasALeagueCard.law.test.ts.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_verdict_reads_the_bettor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaFlopFacingBetEv: true,
+      omahaFlopVerdictReadsTheBettor: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFlopFacingBetEv: true },
   })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is

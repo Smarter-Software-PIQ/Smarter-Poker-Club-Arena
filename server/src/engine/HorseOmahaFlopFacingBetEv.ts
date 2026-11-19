@@ -826,12 +826,16 @@ export interface OmahaFlopRunoutRealization {
  *
  * @param bluffShare  q: the share of the bettor's range that is not value
  * @param inPosition  the Horse acts last on the later streets
+ * @param laterBetFactor  omahaFlopVerdictReadsTheBettor only: this bettor's turn and river bet rate over his
+ *                    kind's (HorseOmahaFlopBettorRead); the share of later streets a non-value holding BETS is
+ *                    multiplied by it. Absent or 1: the population's share, the arithmetic unchanged.
  */
 export function omahaFlopRunoutRealization(
   rows: ArrayLike<number> | null | undefined,
   turnOf: ArrayLike<number> | null | undefined,
   bluffShare: number,
-  inPosition: boolean
+  inPosition: boolean,
+  laterBetFactor?: number
 ): OmahaFlopRunoutRealization | null {
   const W = OMAHA_FLOP_RUNOUT_ROW;
   if (!rows || !turnOf || rows.length < W || rows.length !== turnOf.length * W) return null;
@@ -857,7 +861,11 @@ export function omahaFlopRunoutRealization(
   // The weights of the verdict's own blend: pWin = q x other + (1 - q) x value.
   const wVal = valN > 0 ? (1 - q) / valN : 0;
   const wOth = othN > 0 ? q / othN : 0;
-  const base = OMAHA_FLOP_RUNOUT_CHECKDOWN[inPosition ? 'ip' : 'oop'];
+  const population = OMAHA_FLOP_RUNOUT_CHECKDOWN[inPosition ? 'ip' : 'oop'];
+  const base =
+    laterBetFactor === undefined || laterBetFactor === 1 || !Number.isFinite(laterBetFactor)
+      ? population
+      : clamp01(1 - (1 - population) * Math.max(0, laterBetFactor));
   const catches = clamp01(
     (q - OMAHA_FLOP_RUNOUT_BLUFF_CATCH_MIN) /
       (OMAHA_FLOP_RUNOUT_BLUFF_CATCH_MAX - OMAHA_FLOP_RUNOUT_BLUFF_CATCH_MIN)
@@ -1161,7 +1169,21 @@ export interface OmahaFlopFacingBetEvVerdict {
   runouts: number;
   samples: number;
   seed: number;
+  /** omahaFlopVerdictReadsTheBettor only (absent otherwise): the factors of this bettor's read the verdict applied */
+  bettorRangeFactor?: number;
+  bettorLaterBetFactor?: number;
 }
+
+/** omahaFlopVerdictReadsTheBettor: what one bettor's street record moves (HorseOmahaFlopBettorRead). */
+export interface OmahaFlopBettorAdjustment {
+  /** the factor on the value share and on the non-value share of his bet (1: the population's range) */
+  rangeFactor: number;
+  /** the factor on the share of later streets a non-value holding of his bets (1: the population's) */
+  laterBetFactor: number;
+}
+/** Bounds of a value share moved by a bettor's read. */
+export const OMAHA_FLOP_EV_BETTOR_VALUE_SHARE_MIN = 0.02;
+export const OMAHA_FLOP_EV_BETTOR_VALUE_SHARE_MAX = 0.95;
 
 export interface OmahaFlopFacingBetEvContext {
   /** the marginal rake on the pot, as a fraction (0 when capped or none) */
@@ -1172,6 +1194,8 @@ export interface OmahaFlopFacingBetEvContext {
   salt?: number;
   /** measurement only: realization cells in place of the fitted ones (the decision never passes them) */
   fit?: OmahaFlopRealizationFit;
+  /** omahaFlopVerdictReadsTheBettor only: this bettor's read. Absent: every number is the verdict's own. */
+  bettor?: OmahaFlopBettorAdjustment;
 }
 
 function binomial(n: number, k: number): number {
@@ -1208,6 +1232,24 @@ export function omahaFlopFacingBetEvVerdict(
   const always: number[] = [];
   for (let i = 0; i < spot.callers; i++) always.push(callerShare);
   for (let i = 0; i < spot.allIns; i++) always.push(OMAHA_EV_ALL_IN_SHARE);
+  // omahaFlopVerdictReadsTheBettor: one factor on both shares of this bettor's range (a factor of exactly 1
+  // leaves every number as it is).
+  const rangeFactor =
+    ctx.bettor && Number.isFinite(ctx.bettor.rangeFactor) && ctx.bettor.rangeFactor > 0
+      ? ctx.bettor.rangeFactor
+      : 1;
+  const valueShare =
+    rangeFactor === 1
+      ? spot.valueShare
+      : Math.max(
+          OMAHA_FLOP_EV_BETTOR_VALUE_SHARE_MIN,
+          Math.min(OMAHA_FLOP_EV_BETTOR_VALUE_SHARE_MAX, spot.valueShare * rangeFactor)
+        );
+  const priorBluff = rangeFactor === 1 ? spot.priorBluff : spot.priorBluff * rangeFactor;
+  const laterBetFactor =
+    ctx.bettor && Number.isFinite(ctx.bettor.laterBetFactor) && ctx.bettor.laterBetFactor >= 0
+      ? ctx.bettor.laterBetFactor
+      : 1;
   let counted: OmahaFlopEvCounts | null;
   let klass: OmahaFlopHandClass;
   try {
@@ -1215,7 +1257,7 @@ export function omahaFlopFacingBetEvVerdict(
       hole,
       board,
       dead,
-      spot.valueShare,
+      valueShare,
       { always, behind: spot.behind, behindShare: callerShare },
       ctx.salt ?? 0
     );
@@ -1225,14 +1267,17 @@ export function omahaFlopFacingBetEvVerdict(
   }
   if (!counted) return null;
   const hand = counted;
-  const q = omahaEvBluffShare(spot.priorBluff, read);
+  const q = omahaEvBluffShare(priorBluff, read);
   const inPosition = ctx.inPosition === true;
   let modelRealization = 1;
   let fitMultiplier = 1;
   let realization = 1;
   let robustShare: number | null = null;
   if (!spot.final) {
-    const r = omahaFlopRunoutRealization(hand.rows, hand.turnOf, q, inPosition);
+    const r =
+      laterBetFactor === 1
+        ? omahaFlopRunoutRealization(hand.rows, hand.turnOf, q, inPosition)
+        : omahaFlopRunoutRealization(hand.rows, hand.turnOf, q, inPosition, laterBetFactor);
     if (!r) return null;
     modelRealization = r.realization;
     robustShare = r.robustShare;
@@ -1298,6 +1343,7 @@ export function omahaFlopFacingBetEvVerdict(
     runouts: hand.runouts,
     samples: hand.samples,
     seed: hand.seed,
+    ...(ctx.bettor ? { bettorRangeFactor: rangeFactor, bettorLaterBetFactor: laterBetFactor } : {}),
   };
 }
 
