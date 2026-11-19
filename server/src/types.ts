@@ -1053,6 +1053,8 @@ export interface HorseDecision {
   /** Journal-only, bounded: whether the one applied style option this decision re-decided without changed the
    *  final action (HorseStyleShadow StyleActionReceipt; set by the worker's FAST look, 2026-11-15). */
   styleActionReceipt?: import('./engine/HorseStyleShadow.js').StyleActionReceipt;
+  /** OPTION SHADOW (2026-11-18): the counterfactual of one option in shadow, never acted on (HorseOptionShadow). */
+  optionShadowReceipt?: import('./engine/HorseOptionShadow.js').OptionShadowReceipt;
   featureAuthority?: import('./engine/HorseFeatureAuthority.js').HorseFeatureDecisionReceipt;
   correctivePolicy?: import('./services/horseCorrectiveReview/liveKernel.js').CorrectiveLiveKernelReceipt;
   /** Private reference lookup/route evidence; not final causal or GTO proof. */

@@ -554,8 +554,12 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',
       ],
       'tele: boolean': [
-        2,
-        'the gate as the parameter of omahaBetSizeByPublicStateRule and omahaValueSizeIsUnreadableRule, read there only to count',
+        3,
+        'the gate as the parameter of omahaBetSizeByPublicStateRule, omahaValueSizeIsUnreadableRule and holdemRiverBoatLeadPriced, read there only to count',
+      ],
+      tele15: [
+        1,
+        'the gate passed as the last argument to holdemRiverBoatLeadPriced, which only counts with it; the lead is the same either way',
       ],
       'this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele),': [
         1,

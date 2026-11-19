@@ -132,7 +132,6 @@ const GRANDFATHERED: readonly string[] = [
   'v41Leaks',
   'v43Tempo',
   'v46Charts',
-  'v46ShortDeck',
   'v51RiverFlat',
   'v52RangeAdvantage',
   'v53Pressure',

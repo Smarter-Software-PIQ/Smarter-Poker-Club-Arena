@@ -10,7 +10,7 @@
  * register HorseOmahaRuleSites.ts) priced by the comparisons #11212 built.
  * Each option is default OFF (read `=== true`) and acts only inside
  * omahaPricedInScope (PLO4/PLO5 cash, one board, high only, no bomb pot, not
- * Lightning, not fixed limit). Out of scope, or with the option off, every
+ * Lightning unless omahaPricedInLightning is on, not fixed limit). Out of scope, or with the option off, every
  * function returns null / false and the caller's rule acts exactly as before:
  * the decisions are byte-identical with the options off.
  *
@@ -122,7 +122,7 @@ export function omahaPricedSitesOwnsMadeHandBet(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
-  return opts.omahaMadeHandBetIsPriced === true && omahaPricedInScope(player, gs);
+  return opts.omahaMadeHandBetIsPriced === true && omahaPricedInScope(player, gs, opts);
 }
 
 /**
@@ -165,7 +165,7 @@ export function omahaPricedSitesOwnsTurnSetSize(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
-  return opts.omahaTurnSetSizeIsPriced === true && omahaPricedInScope(player, gs);
+  return opts.omahaTurnSetSizeIsPriced === true && omahaPricedInScope(player, gs, opts);
 }
 
 /**
@@ -225,7 +225,7 @@ export function omahaPricedSitesOwnsBlockerBluff(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
-  return opts.omahaBlockerBluffIsPriced === true && omahaPricedInScope(player, gs);
+  return opts.omahaBlockerBluffIsPriced === true && omahaPricedInScope(player, gs, opts);
 }
 
 /**
@@ -446,7 +446,7 @@ export function omahaPricedSitesFlopBet(
   opts: HorseDecideOpts,
   legacySpot: boolean
 ): HorseDecision | null {
-  if (opts.omahaFlopBetIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  if (opts.omahaFlopBetIsPriced !== true || !omahaPricedInScope(player, gs, opts)) return null;
   if (!isWager(decision) || !omahaPricedSitesFlopBetSpot(player, gs)) return null;
   const tele = telemetryOn(opts);
   const unpriced = (): HorseDecision | null => {

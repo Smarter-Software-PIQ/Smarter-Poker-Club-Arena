@@ -7,6 +7,7 @@ import { reconcileHorsePhaseReceipts } from './HorsePhaseControllerWithdrawal.js
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import {
   HOLDEM_RIVER_BOAT_LEAD_FREQUENCY,
+  holdemRiverBoatLeadPrice,
   holdemRiverLeadBoat,
 } from './HorseHoldemRiverFullHouseValue.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
@@ -135,6 +136,7 @@ import {
 import {
   OMAHA_TOURNAMENT_SCOPE_OFF,
   omahaCashOnlyExcludes,
+  omahaCategoricalCashOnlyExcludes,
   omahaTournamentExtensionSpot,
   omahaTournamentIcmPremium,
   omahaTournamentIcmRisk,
@@ -370,6 +372,7 @@ import {
   openerRangeWidth,
   strengthBarForTopShare,
   exploitEnvelopeFor,
+  statRead,
 } from './HorseOpponentExploit.js';
 import {
   OMAHA_TIGHT_MIN_EFFECTIVE_BB,
@@ -3914,16 +3917,33 @@ export interface HorseDecideOpts {
   /** PLO Strategy lane 2026-11-18 (priced2, lead ruling on review R2 B1): opt-in (`=== true`). Every prior
    * and reference rate the priced families read is the opponent's KIND's (a person's for a person, a
    * Horse's for a Horse: HorseOmahaPricedMode.omahaPricedKindPrior, measured), the card-impact read starts
-   * at his kind's figures, and a spot a priced family cannot price falls CLOSED (the categorical rule acts
-   * as with the family off, beside its _unpriced_kept receipt; omahaTurnRiverRaiseIsPriced owns a spot
-   * only where it can be priced). Off: every priced family is byte-identical to #11212. Default OFF; no
-   * league yet. */
+   * at his kind's figures. A spot a priced family cannot price keeps the decision given, as with the
+   * option off: the categorical rule never decides it (ROWFIX 2026-11-18; until then this option made such
+   * spots fall CLOSED to the categorical rule). Off: every priced family is byte-identical to #11212.
+   * Default OFF; its league evidence measured the fall-closed version. */
   omahaPricedPriorsByOpponentKind?: boolean;
+  /** ROWFIX 2026-11-18 (Horse Switch lane; owner 2026-11-17 11:49: no blanket rules): opt-in (`=== true`),
+   * default OFF, unevaluated. With omahaStrategyInTournaments on, the rules HorseOmahaRuleSites classes
+   * 'categorical' (the nut-raise scope, the draw-raise bar, the out-of-position checks, the pressure label,
+   * the bluff-catcher fold against a value leader, the underpair multiway fold, the value-leader made-hand
+   * defence, the reachable river blocker bluff) stay cash-only (HorseOmahaTournamentScope
+   * omahaCategoricalCashOnlyExcludes); the priced rules and the survival premium keep the extension. Off
+   * (absent or false): byte-identical. */
+  omahaTournamentsExcludeCategoricalRules?: boolean;
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
    * (config 0, raw rows lost with SSD1) did not pass. */
   omahaRaiseEvCountsLossesOnce?: boolean;
+  /** PLO Strategy lane 2026-11-18 (HORSE SWITCH lane finding 20:08:21Z): opt-in (`=== true`). A SCOPE option:
+   * the Lightning pools (gs.publicMemoryDomain.speed === 'lightning') are inside omahaPricedInScope
+   * (HorseOmahaPricedWiring), so every priced PLO4/PLO5 cash option whose OWN switch is on (the *IsPriced
+   * families and sites) also decides Lightning PLO4/PLO5 cash; omahaTurnRiverRaiseIsPriced and
+   * omahaBigBetCallsArePriced read their turn/river spot there too. It switches no priced option on by itself,
+   * and the categorical rules keep their own scope. Off or unset: Lightning stays outside the priced scope,
+   * byte-identical. Default OFF; the league deals no Lightning (refused matchup); its evaluation is the paired
+   * Lightning harness (lightning/LightningPairedEval.test.ts). */
+  omahaPricedInLightning?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -5183,6 +5203,13 @@ export interface HorseDecideOpts {
    *  equity, so the payout check could never overrule a short stack. Read only as === true: default OFF. */
   tournamentUtilityStackScaledMargin?: boolean;
   holdemRiverFullHouseValue?: boolean;
+  /** ROWFIX 2026-11-18 (Horse Switch lane, NLH-CASH improvement I1): opt-in (`=== true`), default OFF,
+   * unevaluated. With holdemRiverFullHouseValue on, the qualifying river boat leads when EV(lead) beats
+   * EV(check) against the one live opponent's measured river call share and checked-to bet share
+   * (HorseHoldemRiverFullHouseValue.holdemRiverBoatLeadPrice; posteriors on the measured population cell)
+   * instead of a fixed 70%; heads-up only (more opponents: the check). Draws no random number. Off:
+   * byte-identical. */
+  holdemRiverFullHouseValueIsPriced?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -7148,6 +7175,66 @@ function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
 }
 
 /**
+ * holdemRiverFullHouseValueIsPriced (ROWFIX 2026-11-18; default OFF): whether a qualifying river boat leads,
+ * by EV against the one live opponent's measured river call share and checked-to bet share (posteriors on
+ * the population cell; HorseHoldemRiverFullHouseValue.holdemRiverBoatLeadPrice). Heads-up only: with more
+ * than one opponent, or no envelope for the table, nothing is priced and the boat keeps the check (the
+ * option-off line of the initiative gate). Draws no random number.
+ */
+function holdemRiverBoatLeadPriced(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  opponents: readonly SeatPlayer[],
+  pot: number,
+  equity: number,
+  leadFrac: number,
+  tele: boolean
+): boolean {
+  try {
+    if (opponents.length !== 1) {
+      if (tele) noteFire('holdem_river_full_house_lead_unpriced');
+      return false;
+    }
+    const opp = opponents[0];
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    const scope = readScopeOf(variant, dealtHorseTableSize(gs, player.seat));
+    const envelope = exploitEnvelopeFor(scope, variant);
+    if (!envelope) {
+      if (tele) noteFire('holdem_river_full_house_lead_unpriced');
+      return false;
+    }
+    const counters =
+      opts.mind !== false ? HorseMind.getExploitCounters(opp.user_id, scope) : undefined;
+    const callShare = statRead(
+      counters?.riverCall ?? 0,
+      counters?.riverCallOpp ?? 0,
+      envelope.riverCall
+    ).mean;
+    const betShare = statRead(
+      counters?.betCheckedTo ?? 0,
+      counters?.betCheckedToOpp ?? 0,
+      envelope.betCheckedTo
+    ).mean;
+    const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const oppStack = Number.isFinite(opp.stack) ? Math.max(0, opp.stack) : 0;
+    const lead = Math.min(pot * leadFrac, heroStack, oppStack);
+    const price = holdemRiverBoatLeadPrice({ pot, lead, equity, callShare, betShare });
+    if (price === null) {
+      if (tele) noteFire('holdem_river_full_house_lead_unpriced');
+      return false;
+    }
+    if (tele)
+      noteFire(
+        price.lead ? 'holdem_river_full_house_lead_priced' : 'holdem_river_full_house_check_priced'
+      );
+    return price.lead;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * V53 (2026-10-24): the fold multiplier the tournament utility arbiter prices
  * a wager with. Before the river it is the legacy exploit bluff multiplier.
  * On the river, against a credible river over-folder, it is raised so the
@@ -8462,7 +8549,7 @@ function omahaPostflopPressureWithheld(
   if (opts.omahaPressureNeedsPostflopAggression !== true || opts.mind === false) return false;
   try {
     if (!omahaStrategyGameInScope(OMAHA_PRESSURE_OPTION_VARIANTS, gs, opts)) return false;
-    if (player ? omahaCashOnlyExcludes(player, gs) : isTournamentMode(gs)) return false;
+    if (player ? omahaCategoricalCashOnlyExcludes(player, gs) : isTournamentMode(gs)) return false;
     const stage = String(gs.stage ?? '');
     if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return false;
     // omahaPressureIsPriced (default off): the play is withheld or made by its price, not his label.
@@ -9204,13 +9291,15 @@ function omahaReraiseRangeRules(
       action: 'call',
       amount: Math.round(Math.min(toCall, stack) * 100) / 100,
     };
-    // The call it leaves answers to the calling rule, whether or not that option is on.
+    // The call it leaves answers to the calling rule's own row (ROWFIX 2026-11-18, REVIEW-97de6c23913 N8):
+    // with omahaOopReraisedPotStrongRange off the call stands; on (production's rows) it is judged by that
+    // rule exactly as before. Each row switches only its own behaviour.
     let stands: boolean;
     if (preflopRaises >= 2) {
       stands =
         omahaOopReraisedPotStrongRange(called, player, gs, {
           ...opts,
-          omahaOopReraisedPotStrongRange: true,
+          omahaOopReraisedPotStrongRange: opts.omahaOopReraisedPotStrongRange === true,
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
@@ -9569,7 +9658,7 @@ function omahaUnderpairFlopFold(
         : variantInfo(gs.gameVariant).isHiLo,
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
-      tournament: omahaCashOnlyExcludes(player, gs),
+      tournament: omahaCategoricalCashOnlyExcludes(player, gs),
       allInOrFold: gs.allInOrFold === true,
     });
     if (verdict === null) return decision;
@@ -9864,13 +9953,10 @@ function omahaBigBetCallFold(
   if (omahaPricedOwnsBigBetCalls(player, gs, opts)) {
     const cell = omahaBigBetCallFoldCells(decision, player, gs, { ...opts, telemetry: false });
     if (cell === decision) return decision;
-    // Unpriceable (null): with omahaPricedPriorsByOpponentKind on the cells decide as with the option
-    // off (fall closed); off, the decision given is kept (#11212).
+    // Unpriceable: the decision given is kept (#11212); the cells never decide it, whatever
+    // omahaPricedPriorsByOpponentKind says (ROWFIX 2026-11-18: no fall closed).
     return (
-      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ??
-      (opts.omahaPricedPriorsByOpponentKind === true
-        ? omahaBigBetCallFoldCells(decision, player, gs, opts)
-        : decision)
+      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ?? decision
     );
   }
   return omahaBigBetCallFoldCells(decision, player, gs, opts);
@@ -9886,10 +9972,10 @@ function omahaBigBetCallFoldCells(
   try {
     const v81On = opts.v81OmahaBigBetCalls !== false;
     const v84On = opts.v84OmahaRiverReraiseCalls !== false;
-    const v86On =
-      opts.v86PloOverhaul !== false &&
-      opts.v40Omaha !== false &&
-      !(String(gs.gameVariant) === 'plo6' && opts.v58Plo6RiverNuts === false);
+    // Each option switches only its own rule (ROWFIX 2026-11-18, PLO6-HILO improvement 2): the V86 cells
+    // no longer go off in PLO6 when v58Plo6RiverNuts (the paired-river M1 fold) is switched off. Both are
+    // release-default on with no switch row in production, where this is unchanged.
+    const v86On = opts.v86PloOverhaul !== false && opts.v40Omaha !== false;
     const v87On = opts.v87DeepDiveDiscipline !== false;
     if (!v81On && !v84On && !v86On && !v87On) return decision;
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
@@ -9977,7 +10063,7 @@ function omahaBigBetCallFoldCells(
       faced.bettorSeat !== player.seat &&
       // Cash only (audit 2026-11-15): the read and its evidence are cash play;
       // omahaStrategyInTournaments opens its public tournament scope.
-      !omahaCashOnlyExcludes(player, gs) &&
+      !omahaCategoricalCashOnlyExcludes(player, gs) &&
       // The facing-bet expected value, when it answers this spot, is the single decider.
       omahaFacingBetEvOf(player, gs, opts) === null;
     const bluffCatcherCell =
@@ -9990,7 +10076,7 @@ function omahaBigBetCallFoldCells(
             ...shared,
             // omahaStrategyInTournaments: the vs-value-leader folds reach the turn cells too.
             tournament: bluffCatcherVsLeader
-              ? omahaCashOnlyExcludes(player, gs)
+              ? omahaCategoricalCashOnlyExcludes(player, gs)
               : shared.tournament,
             heroHasStreetChips: heroBet > 0.005,
             callPrice,
@@ -10518,7 +10604,7 @@ function omahaValueLeaderDefenseInScope(
   return (
     omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&
     gs.bombPot !== true &&
-    !omahaCashOnlyExcludes(player, gs)
+    !omahaCategoricalCashOnlyExcludes(player, gs)
   );
 }
 
@@ -14156,7 +14242,12 @@ export class HorseLogic {
             risk = 0;
           }
           return withOmahaStrategyGameScope(gameScope, () =>
-            withOmahaTournamentScope({ extension: true, icmRisk: risk }, decideIt)
+            withOmahaTournamentScope(
+              opts.omahaTournamentsExcludeCategoricalRules === true
+                ? { extension: true, icmRisk: risk, excludeCategorical: true }
+                : { extension: true, icmRisk: risk },
+              decideIt
+            )
           );
         } finally {
           applyPlo6OmahaStrategyCalibration(plo6CalibrationHeldBefore);
@@ -17140,7 +17231,7 @@ export class HorseLogic {
             vi.isOmaha &&
             !vi.isHiLo &&
             (vi.holeCount === 4 || vi.holeCount === 5) &&
-            !omahaCashOnlyExcludes(player, gs) &&
+            !omahaCategoricalCashOnlyExcludes(player, gs) &&
             (() => {
               try {
                 const read53 = HorseMind.opponentRead(raiser38.user_id);
@@ -18811,12 +18902,15 @@ export class HorseLogic {
       // read, so this is byte-identical outside Omaha and short deck.
       ...(() => {
         if ((opts.v46Charts ?? true) === false) return {};
-        const v86ShortDeckDefault =
-          v86 && vi.isShortDeck && opts.v46ShortDeck !== false && opts.v46ShortDeck !== true;
+        // SHORT DECK IS OPT-IN ONLY (2026-11-18). v46ShortDeck is an off-only
+        // owner hold with measured harm (shortdeck_v46_classes -0.51 +/- 0.15
+        // over 960k hands), so only an explicit true reads the short-deck
+        // chart. #10441 had turned it on whenever the option was unset under
+        // v86PloOverhaul, with no evaluation; that path is removed.
         const baseRead46 = handClassRead(
           player.cards,
           vi.isOmaha,
-          vi.isShortDeck && (opts.v46ShortDeck === true || v86ShortDeckDefault),
+          vi.isShortDeck && opts.v46ShortDeck === true,
           opts.v86UnblockedPreflop === false || opts.v86PloOverhaul === false
         );
         const eliteActive86 = v86 && omahaElite && omahaElite.cls !== 'other';
@@ -18864,13 +18958,9 @@ export class HorseLogic {
         }
         if (read46.cls === 'other' || read46.cls === 'sd_other') return {};
         if (telemetryOn(opts)) {
-          if (v86ShortDeckDefault) {
-            noteFire('v86_short_deck_class');
-          } else {
-            noteFire('v46_class_read');
-            if (read46.foldAlways) noteFire('v46_class_fold');
-            else if (read46.neverThreeBet) noteFire('v46_class_never_3bet');
-          }
+          noteFire('v46_class_read');
+          if (read46.foldAlways) noteFire('v46_class_fold');
+          else if (read46.neverThreeBet) noteFire('v46_class_never_3bet');
         }
         return {
           classShift: read46.shift,
@@ -23079,7 +23169,7 @@ export class HorseLogic {
           // PLO4/PLO5 only. PLO6 never, omahaStrategyInPlo6 on or not (PLO6
           // lane SPEC-B 3.19, skip: no PLO6 equity window, adds bluff chips).
           (vi.holeCount === 4 || vi.holeCount === 5) &&
-          !omahaCashOnlyExcludes(player, gs)
+          !omahaCategoricalCashOnlyExcludes(player, gs)
             ? 2
             : 1) &&
         // omahaBlockerBluffIsPriced (default off): admitted by the price of the exact bet it places
@@ -23608,7 +23698,21 @@ export class HorseLogic {
         !prevChecked &&
         !ip &&
         holdemRiverLeadBoat(player.cards, board) &&
-        fastRandom() < HOLDEM_RIVER_BOAT_LEAD_FREQUENCY;
+        // holdemRiverFullHouseValueIsPriced (ROWFIX 2026-11-18, default off): the lead against the check by
+        // EV from his measured rates, sized at the monster branch's midpoint, no random number; off: the 70%.
+        (opts.holdemRiverFullHouseValueIsPriced === true
+          ? holdemRiverBoatLeadPriced(
+              player,
+              gs,
+              opts,
+              opponents,
+              pot,
+              equity,
+              (geomFrac > 0 ? Math.max(sizeBase + 0.2, geomFrac) + 0.05 : sizeBase + 0.4) *
+                exploitValueSize,
+              tele15
+            )
+          : fastRandom() < HOLDEM_RIVER_BOAT_LEAD_FREQUENCY);
       if (holdemRiverBoatLead && tele15) noteFire('holdem_river_full_house_lead_seen');
       // ═══ V11 INITIATIVE GATE (Dan 2026-08-22): no more donk leads ═══
       // A player WITHOUT the betting lead, acting BEFORE the prior-street
@@ -26280,7 +26384,7 @@ export class HorseLogic {
         if (
           opts.omahaPressureNeedsPostflopAggression === true &&
           omahaStrategyGameInScope(OMAHA_PRESSURE_OPTION_VARIANTS, gs, opts) &&
-          !omahaCashOnlyExcludes(player, gs) &&
+          !omahaCategoricalCashOnlyExcludes(player, gs) &&
           !vi.isHiLo &&
           !multiBoard36 &&
           (street === 'turn' || isRiver) &&
