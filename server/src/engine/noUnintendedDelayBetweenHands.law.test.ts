@@ -12,8 +12,11 @@
  * This file holds that three ways:
  *   1. the waterfall: owedBetweenHandsMs is exactly the sum of the named beats
  *      for every hand shape, so no beat can grow a hidden term;
- *   2. the measured gap (added with the F06 pre-reserve change, which moves
- *      the tournament round trips under the rest);
+ *   2. the measured gap: the real dealHand, driven from the instant the rest
+ *      is armed with 150 ms per database round trip, starts the next hand
+ *      within the rest plus ONE round trip (the seq-0 retention) plus a small
+ *      in-process allowance - the F06 state read and fn_f06_begin_hand ride
+ *      under the rest. Before 2026-11-18 this measured rest + three trips;
  *   3. the path: every await between the end of the hold and the deal is on a
  *      named list with the reason it is not an unintended delay. A new await
  *      there fails here until it is named, proved to run under the rest, or
@@ -22,7 +25,7 @@
  * Production grading of the same rule, hand by hand:
  * scripts/sql/hand-gap-unintended-delay.sql.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +51,9 @@ import {
   HAND_COMPLETION as H,
   owedBetweenHandsMs,
 } from '../config/handCompletionSpec.js';
+import { disposeEngines, fixture } from './f06RestDealFixture.test-support.js';
+
+afterEach(() => disposeEngines());
 
 const DEALING = readFileSync(
   fileURLToPath(new URL('./ServerTableEngineDealing.ts', import.meta.url)),
@@ -98,6 +104,39 @@ describe('the owed beats are the whole cadence', () => {
   });
 });
 
+describe('a tournament deal pays nothing after the rest but its retention', () => {
+  const RTT = 150;
+  const REST = H.NEXT_HAND_REST_MS;
+  // In-process work of the deal itself on a test runner; production budget is
+  // ENGINE_BETWEEN_HANDS_BUDGET_MS, which also covers the retention trip.
+  const IN_PROCESS_MS = 80;
+
+  it('the state read and fn_f06_begin_hand ride under the rest', async () => {
+    const f = fixture({ rpcLatencyMs: RTT });
+    const armedAt = Date.now();
+    f.engine.armNextHandRest(REST);
+    await f.engine.awaitNextHandRestLead();
+    await f.dealsTheNextHand();
+    const gap = f.startedAt[0] - armedAt;
+    expect(f.beginAt[0]).toBeLessThan(armedAt + REST);
+    expect(gap).toBeGreaterThanOrEqual(REST);
+    // rest + the one retention round trip + in-process work, and no more:
+    // the pre-2026-11-18 order paid rest + begin + retention (+ state read).
+    expect(gap).toBeLessThanOrEqual(REST + RTT + IN_PROCESS_MS);
+    expect(RTT + IN_PROCESS_MS).toBeLessThanOrEqual(ENGINE_BETWEEN_HANDS_BUDGET_MS);
+  }, 10_000);
+
+  it('with an instant database the deal starts on the rest', async () => {
+    const f = fixture();
+    const armedAt = Date.now();
+    f.engine.armNextHandRest(REST);
+    await f.engine.awaitNextHandRestLead();
+    await f.dealsTheNextHand();
+    expect(f.startedAt[0] - armedAt).toBeGreaterThanOrEqual(REST);
+    expect(f.startedAt[0] - armedAt).toBeLessThanOrEqual(REST + IN_PROCESS_MS);
+  }, 10_000);
+});
+
 describe('every wait between the hold and the deal is named', () => {
   // Comments are prose, not waits: strip them before reading the code.
   const code = (segment: string): string =>
@@ -113,15 +152,48 @@ describe('every wait between the hold and the deal is named', () => {
   });
 
   it('after the rest the loop waits only on a pause owner, then deals', () => {
-    const a = DEALING.indexOf('await this.awaitNextHandRest();');
+    const a = DEALING.indexOf(
+      'if (this.reservesPermitUnderTheRest()) await this.awaitNextHandRestLead();'
+    );
     const b = DEALING.indexOf('await this.dealHand(activePlayers);', a);
     expect(a).toBeGreaterThan(-1);
     expect(awaitsIn(DEALING.slice(a, b))).toEqual([
-      'this.awaitNextHandRest', // the rest itself
+      'this.awaitNextHandRestLead', // the rest itself (stops short; dealHand ends it)
+      'this.awaitNextHandRest', // the rest itself, for every other table
       'this.persistPresenceForRestart', // only when a maintenance pause owns the table
       'this.awaitPauseGate', // only when an owner paused the next hand
       'this.persistPresenceForRestart', // the same two, on the post-rest pause check
       'this.awaitPauseGate',
+    ]);
+  });
+
+  it('inside the deal, after the rest, every await is named with its reason', () => {
+    const a = DEALING.indexOf(
+      'await this.awaitNextHandRest();\n        if (!this.handRestStillAllowsTheDeal())'
+    );
+    const b = DEALING.indexOf('      } finally {\n        handStarted = attempt.started;', a);
+    const r = DEALING.indexOf('  protected async runOriginalController(');
+    const rEnd = DEALING.indexOf('return new Promise<void>((resolve) => {', r);
+    expect(a).toBeGreaterThan(-1);
+    expect(r).toBeGreaterThan(-1);
+    expect(awaitsIn(DEALING.slice(a, b))).toEqual([
+      'this.awaitNextHandRest', // the owed rest, finished after the reservation
+      'this.sleep', // error backstop only: an unplayable seat count, deals nothing
+      'supabase', // a host's manual bomb pot claim: once, on request, cash only
+      'this.takePreparedCashHandManifest', // cash: sent under the rest, joined here
+      'Promise.all', // time-bank reads for players NEW to the table only
+      'this.runOriginalController',
+    ]);
+    expect(awaitsIn(DEALING.slice(r, rEnd))).toEqual([
+      // The one round trip a tournament deal still makes after the rest: the
+      // prepared hand's deck is made durable before it may start (a retained
+      // prepared original that meets a hold is fenced, so it cannot move
+      // under the rest). Counted inside ENGINE_BETWEEN_HANDS_BUDGET_MS.
+      'this.retainOriginalBatch',
+      'this.weeklyHandPause.checkpoint', // in-process cooperative owner
+      'this.acquireFinancialControllerStart', // in-process boundary
+      'this.weeklyHandPause.checkpoint',
+      'this.awaitPauseGate', // only when an owner paused the next hand
     ]);
   });
 });

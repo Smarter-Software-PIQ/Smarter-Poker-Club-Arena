@@ -120,7 +120,32 @@ export class F06HandPermit {
     const r = result.data as Record<string, unknown> | null;
     if (!result.error && r?.ok === false && r.reason === 'hand_number_already_used') {
       this.phase = 'number_refused';
+      this.beginRefusal = 'hand_number_already_used';
       throw new Error('f06_hand_number_already_used');
+    }
+    /* A REFUSAL THAT NAMES ITS REASON PROVES THERE IS NO PERMIT (hand delay,
+       2026-11-18). fn_f06_begin_hand answers an existing permit_id with that
+       row (to_jsonb of the permit, which has no `reason` column), and returns
+       every `reason` - diamond_arena_closed, permit_released_absent,
+       source_excluded, hand_permit_unresolved, operator_abort_stopped - from
+       the same transaction BEFORE its INSERT, after taking this table's lane
+       row lock (fn_ca_f06_share_table_lane), so a lost earlier call with the
+       same permit_id has either committed (and is FOUND) or never inserted.
+       Leaving such a refusal `unknown` made the next attempt replay the same
+       begin, get the same refusal and throw again: a table refused for a
+       break's source exclusion looped on its error backoff instead of
+       allocating fresh and reading the exclusion. The permit is known absent;
+       the slot is free and the next attempt starts over. */
+    if (
+      !result.error &&
+      r?.ok === false &&
+      typeof r.reason === 'string' &&
+      F06HandPermit.PRE_INSERT_REFUSALS.has(r.reason) &&
+      r.permit_id === undefined
+    ) {
+      this.phase = 'number_refused';
+      this.beginRefusal = r.reason;
+      throw new Error('f06_begin_refused:' + r.reason);
     }
     if (
       result.error ||
@@ -138,8 +163,23 @@ export class F06HandPermit {
       throw new Error('f06_permit_unproven');
     this.phase = 'reserved';
   }
+  /** Every reason fn_f06_begin_hand returns before it inserts a permit. */
+  static readonly PRE_INSERT_REFUSALS: ReadonlySet<string> = new Set([
+    'hand_number_already_used',
+    'diamond_arena_closed',
+    'permit_released_absent',
+    'source_excluded',
+    'hand_permit_unresolved',
+    'operator_abort_stopped',
+  ]);
+  private beginRefusal: string | null = null;
+  /** SQL proved no permit row exists for this permit_id: the slot is free. */
   knownNumberRefusal(): boolean {
     return this.phase === 'number_refused';
+  }
+  /** The reason SQL gave for refusing this begin, when it gave one. */
+  refusedBecause(): string | null {
+    return this.beginRefusal;
   }
   async drainNeverStarted(stop: () => Promise<void>, released: () => boolean): Promise<void> {
     if (this.phase === 'attempted') throw new Error('f06_hand_may_have_started');
