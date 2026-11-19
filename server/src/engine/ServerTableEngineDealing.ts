@@ -2091,6 +2091,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private restFinishesAfterRetention = false;
   /** This rest's blind read was awaited before the build; never read twice. */
   private restBlindReadConsumed = false;
+  /** A hold met this attempt's saved original past the last look. */
+  private retainedOriginalMetAHold = false;
 
   /** Await the blind read the lead started: the hand is built at that level. */
   protected async awaitRestBlindRead(): Promise<void> {
@@ -4633,6 +4635,28 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       unstartedCause ??= 'threw:' + ServerTableEngineDealing.causeOf(error);
       throw error;
     } finally {
+      // A SAVED ORIGINAL THIS ATTEMPT NEVER STARTED (hand delay 2026-11-19):
+      // its last look refused it, a hold met it before the start, or the
+      // engine stopped. Released exactly once, so the table is between hands
+      // again and the loop goes round to its pause handling. A release that
+      // cannot be proved keeps the existing custody: a running table is
+      // fenced (as a hold on a saved original always was); a stopped one
+      // leaves its capsule for the successor.
+      const metAHold = this.retainedOriginalMetAHold;
+      this.retainedOriginalMetAHold = false;
+      if (
+        !handStarted &&
+        retainedPreparedOriginal &&
+        (this.dealAbandonedAtRestEnd || metAHold || !this.running)
+      ) {
+        const saved = this.retainedPreparedOriginalController;
+        if (saved && (await this.cancelF06RetainedPreparedHand(saved))) {
+          retainedPreparedOriginal = false;
+          this.dealAbandonedAtRestEnd = true;
+        } else if (this.running) {
+          this.killForRestart('retained_original_start_unproven');
+        }
+      }
       // A reserved number abandoned before start is not a completed boundary.
       // Keep parked banks bound to the last real hand, including every pause
       // that can arrive during asynchronous hand preparation.
@@ -4923,27 +4947,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     );
   }
 
-  /**
-   * A saved, never-started original whose last look refused it: released
-   * exactly once when this process saved it, so the loop goes round to its
-   * pause handling with nothing held. A claimed original, or a release that
-   * cannot be proved, keeps the existing custody: a running table is fenced
-   * (as a hold on a saved original always was), a stopped one leaves its
-   * capsule for the successor.
-   */
-  private async releaseUnstartedRetainedOriginal(
-    controller: HandController,
-    savedHere: boolean
-  ): Promise<void> {
-    if (savedHere && (await this.cancelF06RetainedPreparedHand(controller))) return;
-    if (!savedHere && this.handController === controller && this.f06CurrentPermit === null) {
-      // No original (no F06 admission): nothing was saved; drop the build.
-      this.handController = null;
-      return;
-    }
-    if (this.running) this.killForRestart('retained_original_start_unproven');
-  }
-
   protected async runOriginalController(
     players: SeatedPlayer[],
     preparedController: HandController,
@@ -5004,13 +5007,21 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     // shown or started (publishedHandState stays the rest's until the start).
     // The loop's last look runs again on the far side; a refusal releases the
     // saved, never-started original exactly once.
+    // dealHand's finally releases it (it holds the attempt's proof of
+    // non-start); nothing here waits on the release.
     if (this.restFinishesAfterRetention) {
       this.restFinishesAfterRetention = false;
       await this.awaitNextHandRest();
+      if (
+        this.handController !== preparedController ||
+        !this.running ||
+        !this.isCurrentEngine() ||
+        !this.lifecycleCanMutate()
+      )
+        return;
       if (!this.handRestStillAllowsTheDeal()) {
         this.dealAbandonedAtRestEnd = true;
         attempt.cause = 'last_look_after_retained_rest';
-        await this.releaseUnstartedRetainedOriginal(preparedController, !!original && !recovered);
         return;
       }
     }
@@ -5102,8 +5113,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // 2026-11-19); a claimed one, or a release that cannot be proved,
         // is fenced for canonical custody as before.
         attempt.cause = 'retained_original_met_a_hold';
-        if (!recovered && (await this.cancelF06RetainedPreparedHand(preparedController))) {
-          this.dealAbandonedAtRestEnd = true;
+        if (!recovered) {
+          // Released by dealHand's finally; fenced there if it cannot be.
+          this.retainedOriginalMetAHold = true;
           return;
         }
         this.killForRestart('retained_original_start_unproven');

@@ -49,14 +49,14 @@ SET LOCAL statement_timeout = '30s';
 
 DO $preimage$
 BEGIN
-  IF md5(pg_get_functiondef('smarter_private.f06_retained_submission_guard()'::regprocedure))
-       <> '44902103e4c5f0feba7d19081af4325e' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('smarter_private.f06_retained_submission_guard()')))
+       IS DISTINCT FROM '44902103e4c5f0feba7d19081af4325e' THEN
     RAISE EXCEPTION 'RETAINED_PREPARED_CANCEL_GUARD_PREIMAGE_CHANGED';
   END IF;
-  IF md5(pg_get_functiondef('public.fn_f06_retain_hand_continuation(uuid,uuid,uuid,bigint,bigint,text,text)'::regprocedure))
-       <> '64833fbf30f5e2011550f6f59f8a7fab'
-     OR md5(pg_get_functiondef('public.fn_f06_cancel_prepared_hand(uuid,uuid,uuid,bigint,uuid,bigint,uuid)'::regprocedure))
-       <> '2eaabb545cbc3251be0cef438b08f989' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_f06_retain_hand_continuation(uuid,uuid,uuid,bigint,bigint,text,text)')))
+       IS DISTINCT FROM '64833fbf30f5e2011550f6f59f8a7fab'
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_f06_cancel_prepared_hand(uuid,uuid,uuid,bigint,uuid,bigint,uuid)')))
+       IS DISTINCT FROM '2eaabb545cbc3251be0cef438b08f989' THEN
     RAISE EXCEPTION 'RETAINED_PREPARED_CANCEL_NEIGHBOUR_CHANGED';
   END IF;
   IF to_regprocedure('public.fn_f06_cancel_retained_prepared_hand(uuid,uuid,uuid,bigint,uuid,bigint,uuid)') IS NOT NULL THEN
@@ -147,6 +147,24 @@ REVOKE ALL ON FUNCTION public.fn_f06_cancel_retained_prepared_hand(uuid,uuid,uui
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_f06_cancel_retained_prepared_hand(uuid,uuid,uuid,bigint,uuid,bigint,uuid)
   TO service_role;
+
+-- Executed before COMMIT. Its only lawful outcome without a live lease is its
+-- own identity refusal, which proves the body compiles and runs; every other
+-- path (lanes, capsule, receipt, guard) is executed on production's exact
+-- bodies by scripts/ci/test-f06-retained-prepared-cancel-postgres.py.
+-- @probe-for: public.fn_f06_cancel_retained_prepared_hand
+DO $probe$
+BEGIN
+  BEGIN
+    PERFORM public.fn_f06_cancel_retained_prepared_hand(NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    RAISE EXCEPTION 'RETAINED_PREPARED_CANCEL_PROBE_ACCEPTED_NULL_IDENTITY';
+  EXCEPTION WHEN invalid_parameter_value THEN
+    IF SQLERRM <> 'F06_PREPARED_IDENTITY_REQUIRED' THEN RAISE; END IF;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 CREATE OR REPLACE FUNCTION smarter_private.f06_retained_submission_guard()
  RETURNS trigger

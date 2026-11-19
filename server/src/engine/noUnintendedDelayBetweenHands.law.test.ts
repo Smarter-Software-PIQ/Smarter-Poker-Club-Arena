@@ -180,7 +180,7 @@ describe('every wait between the hold and the deal is named', () => {
     const b = DEALING.indexOf('      } finally {\n        handStarted = attempt.started;', a);
     const r = DEALING.indexOf('  protected async runOriginalController(');
     const rest = DEALING.indexOf(
-      'await this.awaitNextHandRest();\n      if (!this.handRestStillAllowsTheDeal())',
+      'await this.awaitNextHandRest();\n      if (\n        this.handController !== preparedController ||',
       r
     );
     const rEnd = DEALING.indexOf('return new Promise<void>((resolve) => {', r);
@@ -202,14 +202,14 @@ describe('every wait between the hold and the deal is named', () => {
       'this.retainOriginalBatch', // the prepared deck made durable, under the rest
       'this.awaitNextHandRest', // the owed rest, finished after the save
     ]);
-    // After the rest: no round trip on the path that deals.
+    // After the rest: no round trip on the path that deals. A saved hand the
+    // last look (or a later hold) refuses is released in dealHand's finally,
+    // off this path: it deals nothing.
     expect(awaitsIn(DEALING.slice(restEnd, rEnd))).toEqual([
-      'this.releaseUnstartedRetainedOriginal', // only when the last look refused: no deal
       'this.weeklyHandPause.checkpoint', // in-process cooperative owner
       'this.acquireFinancialControllerStart', // in-process boundary
       'this.weeklyHandPause.checkpoint',
       'this.awaitPauseGate', // only when an owner paused the next hand
-      'this.cancelF06RetainedPreparedHand', // only when a hold met the saved hand: no deal
     ]);
   });
 });

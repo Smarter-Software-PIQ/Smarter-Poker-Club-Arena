@@ -39,6 +39,7 @@ import { type BalancerTable, type MoveInstruction } from '../engine/TableBalance
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import { reportError } from '../services/errorReporter.js';
 import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
+import { CommittedSeatShow, type CommittedSeatRow } from './committedSeatShow.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 import { tableStateHub } from '../transport/TableStateHub.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
@@ -860,6 +861,46 @@ export class TournamentManager extends TournamentManagerEliminations {
 
   private readonly tournamentBreakArrivalWakes = new Map<string, Map<string, ServerTableEngine>>();
 
+  /**
+   * A TOURNAMENT CHAIR IS SHOWN THE MOMENT IT IS TAKEN (Dan 2026-11-18). See
+   * committedSeatShow.ts. Display only: one read, no write, no seat authority.
+   */
+  private committedSeatShowOwned?: CommittedSeatShow;
+
+  /** Built on first use, so a manager assembled without its constructor still has one. */
+  private get committedSeatShow(): CommittedSeatShow {
+    return (this.committedSeatShowOwned ??= this.buildCommittedSeatShow());
+  }
+
+  private buildCommittedSeatShow(): CommittedSeatShow {
+    return new CommittedSeatShow({
+      tables: () =>
+        [...this.tableEngines].filter(([tableId, engine]) =>
+          this.gameServer.ownsTournamentTableEngine(tableId, engine)
+        ),
+      readSeats: async (tableIds) => {
+        const read = await selectInChunks<CommittedSeatRow>(
+          tableIds,
+          (batch) =>
+            supabase
+              .from('table_seats')
+              .select('table_id, user_id, occupancy_id, seat_number, stack')
+              .in('table_id', batch)
+              .is('left_at', null),
+          'Tournament.committedSeatShow'
+        );
+        return read.complete ? read.rows : null;
+      },
+      active: () => this.isRunning() && !this.tournamentFinished,
+      report: (error, context) => reportError(error, context, { tournamentId: this.tournamentId }),
+    });
+  }
+
+  /** The database committed a seat or a stack in this field (a manager wake). */
+  showCommittedSeats(): void {
+    void this.committedSeatShow.request();
+  }
+
   /** Direct and reconciled receipts name the same committed arrival. */
   private wakeTournamentBreakArrival(
     breakId: string,
@@ -873,6 +914,7 @@ export class TournamentManager extends TournamentManagerEliminations {
       this.tournamentBreakArrivalWakes.get(breakId) ?? new Map<string, ServerTableEngine>();
     if (arrivals.get(receipt.requestId) === engine) return;
     engine.wakeWaitingForPlayers();
+    this.committedSeatShow.moved(receipt.destinationTableId);
     arrivals.set(receipt.requestId, engine);
     this.tournamentBreakArrivalWakes.set(breakId, arrivals);
   }
@@ -3709,6 +3751,7 @@ export class TournamentManager extends TournamentManagerEliminations {
         );
         this.pendingTournamentSeatMoveOutcomes.delete(requestId);
         this.tableEngines.get(pending.move.toTableId)?.wakeWaitingForPlayers();
+        this.committedSeatShow.moved(pending.move.toTableId);
         console.log(
           `[Tournament:${this.tournamentId.slice(0, 8)}] Atomic move ${receipt.requestId.slice(0, 8)} replay certified for ${pending.move.playerId.slice(0, 8)}`
         );
@@ -4940,6 +4983,8 @@ export class TournamentManager extends TournamentManagerEliminations {
             // The destination may be waiting below its deal minimum on a
             // backed-off roster read; it looks now rather than in a minute.
             this.tableEngines.get(move.toTableId)?.wakeWaitingForPlayers();
+            // And it shows the chair now, even with a hand in the air.
+            this.committedSeatShow.moved(move.toTableId);
             console.log(
               `[Tournament:${this.tournamentId.slice(0, 8)}] Atomic move ${receipt.requestId.slice(0, 8)} certified for ${move.playerId.slice(0, 8)}: table ${move.fromTableId.slice(0, 8)} seat ${receipt.sourceSeatNumber} to table ${move.toTableId.slice(0, 8)} seat ${receipt.destinationSeatNumber}`
             );

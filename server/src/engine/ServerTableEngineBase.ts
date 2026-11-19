@@ -2986,8 +2986,7 @@ export abstract class ServerTableEngineBase {
     if (
       !permit ||
       permit.recoveryState() !== 'attempted' ||
-      this.retainedPreparedOriginalController !== controller ||
-      this.handController !== controller
+      this.retainedPreparedOriginalController !== controller
     )
       return false;
     // One exact replay (same identity, same receipt) covers a lost reply.
