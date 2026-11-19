@@ -5,7 +5,7 @@
  * column aliased `d`; the function DECLAREs `d jsonb`, so PL/pgSQL could not
  * resolve `WHERE d` and sp-daily-metrics-snapshot failed on every run from
  * 06:15 UTC. Migration 20261119083000 names the column is_degraded, reads it
- * qualified, and executes the new body before COMMIT.
+ * qualified, and proves the new body by its md5 read-back before COMMIT.
  */
 import { describe, expect, it } from 'vitest';
 import { migrationNames, migrationText } from './helpers/migrationCorpus';
@@ -29,10 +29,12 @@ describe('the fleet degraded run never shadows the digest', () => {
     expect(MIG).toContain('$n2$FROM hb) r WHERE r.is_degraded GROUP BY grp$n2$');
   });
 
-  it('executes the new body before COMMIT on a day with no rows', () => {
-    const probe = MIG.indexOf('-- @probe-for: public.fn_sp_daily_metrics_compute');
-    expect(probe).toBeGreaterThan(MIG.indexOf('SELECT pg_temp.dmc_subst('));
-    expect(probe).toBeLessThan(MIG.lastIndexOf('COMMIT;'));
-    expect(MIG).toContain("PERFORM public.fn_sp_daily_metrics_compute(DATE '2099-01-01');");
+  it('proves the body by its postimage read-back and installs within the applier budget', () => {
+    // 2026-11-19: the pre-commit probe ran the whole digest and production
+    // refused the file at 10:20 UTC (25P04, 12 s budget). The md5 read-back
+    // inside dmc_subst proves the replaced body instead.
+    expect(MIG).toContain('the replaced function does not read back as the postimage');
+    expect(MIG).toMatch(/^-- @probe-exempt: public\.fn_sp_daily_metrics_compute .{20,}$/m);
+    expect(MIG).not.toContain('PERFORM public.fn_sp_daily_metrics_compute(');
   });
 });
