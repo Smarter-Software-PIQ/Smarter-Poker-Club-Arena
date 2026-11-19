@@ -296,7 +296,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v86MultiStreetUnblocked',
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
-  'omahaNutClassValueSize',
   // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
   'fixedLimitBetsAreNeverProbes',
 ]);
@@ -352,6 +351,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaBeatenMadeHandDefense',
   'omahaBluffCatcherRaiseFold',
   'omahaReraisedPotDiscipline',
+  // read `=== true` since #10989 (Hand Analysis ruling 2026-11-15T13:39:23Z); failed its declared evaluation
+  // (OPTION_SWITCH_OFF_ONLY). It was listed ON here from before that flip.
+  'omahaNutClassValueSize',
   // 2026-11-17 wave two: read `=== true`, off in source; both failed their declared evaluation (OPTION_SWITCH_OFF_ONLY)
   'omahaStreetPlanFlop',
   'omahaMultiwayRiverCallNeedsStrength',
@@ -534,6 +536,13 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   omahaBluffCatcherRaiseFold: ploFailed(
     'bluff-raising field PLO4 -1.39 bb/100 (SE 0.58, z -2.38), Horse-only PLO4 -0.78 (z -2.34), PLO5 -0.88 (z -2.01)',
     '2026-11-15T11:40:49Z (eval3-20261115/RESULTS-omahaBluffCatcherRaiseFold.md)'
+  ),
+  // 2026-11-18 (sub-agent offonly-013U37): the one-name registry delta promised at ea3e9c95 once the nut-class
+  // OFF head merged (#10989), never made until now. Its re-run engaged the rule and FAILED the Horse-only bar while
+  // gaining against the development human field (+2.29 bb/100, SE 0.44); Hand Analysis ruled the bar governs.
+  omahaNutClassValueSize: ploFailed(
+    'Horse-only PLO4 -1.19 bb/100 (SE 0.41, z -2.91), PLO5 -1.31 (SE 0.59, z -2.22) broke the harm bar; development human field pooled +2.29 (SE 0.44)',
+    '2026-11-15T12:26:53Z (eval3-20261115/RESULTS-nutsize-2.md, PROTOCOL-nutsize-2.md); Hand Analysis ruling 2026-11-15T13:39:23Z'
   ),
   // PLO Strategy's priced rules, 2026-11-17 (owner 11:49 "no blanket rules"): FAILED its declared evaluation
   omahaPairedBoardBetIsPriced: ploFailed(
