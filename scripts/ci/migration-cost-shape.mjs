@@ -71,7 +71,77 @@ export function migrationCostRisks(file, sql) {
       reasons.push(`${file}: @live-proof ${hit} reads chip_ledger by a LIKE prefix - name the keys and use = or = ANY(...).`);
     }
   }
+  for (const [fn, why] of overBudgetCalls(sql)) {
+    reasons.push(
+      `${file}: calls ${fn}(...) at install time (a probe, a DO block or a top-level statement), and ${why} - ` +
+        'far past the ~12 s install budget, so the applier is killed by statement timeout. Prove the changed ' +
+        'statement directly and name the function with -- @probe-exempt (scripts/ci/migration-function-probes.mjs).'
+    );
+  }
   return reasons;
+}
+
+/**
+ * FUNCTIONS MEASURED OVER THE INSTALL BUDGET (2026-11-19).
+ *
+ * 20261119083000 (the fleet degraded run never shadows the digest) fixed an
+ * ambiguous column in fn_sp_daily_metrics_compute correctly, then proved it
+ * with the probe the probe law asks for: PERFORM fn_sp_daily_metrics_compute
+ * (DATE '2099-01-01'), on the belief that an empty day reads no history. A
+ * dozen sections of that function are not bounded by the day (lifetime
+ * human totals, diamond circulation, admins, stuck tournaments, freshness
+ * maxima), and production measures 238-264 s per call (cron
+ * sp-daily-metrics-snapshot, 2026-11-19 06:15-09:45 UTC). The applier killed
+ * the install at 10 s (run 44503916790, 10:20 UTC); the digest stayed broken
+ * (incident dc479141). CI could not see it: its schema copy holds no rows.
+ *
+ * A call to one of these at install time can never fit. The executable text
+ * is the file with comments, string literals and CREATE FUNCTION bodies
+ * removed - a function body that calls one is fine, it is not run by the
+ * install. Each entry names its measurement; add one when production
+ * measures a function past the budget.
+ */
+export const OVER_BUDGET_FUNCTIONS = Object.freeze({
+  'public.fn_sp_daily_metrics_compute':
+    'production measured 238-264 s per call on 2026-11-19 (cron sp-daily-metrics-snapshot)',
+  'public.fn_sp_daily_metrics_snapshot':
+    'it runs public.fn_sp_daily_metrics_compute (238-264 s per call on production, 2026-11-19)',
+});
+
+/** The text an install executes: no comments, no string literals, no function definitions. */
+export function installExecutedText(sql) {
+  let text = stripComments(sql);
+  // Remove each CREATE [OR REPLACE] FUNCTION/PROCEDURE ... AS $tag$ ... $tag$
+  // definition whole: its header names the function without calling it, and
+  // its body is not run by the install.
+  const head = /create\s+(?:or\s+replace\s+)?(?:function|procedure)\b/gi;
+  let out = '';
+  let at = 0;
+  let m;
+  while ((m = head.exec(text))) {
+    const asAt = text.slice(m.index).search(/\bas\s+\$[A-Za-z_0-9]*\$/i);
+    if (asAt < 0) break;
+    const open = /\$[A-Za-z_0-9]*\$/.exec(text.slice(m.index + asAt));
+    const bodyEnd = text.indexOf(open[0], m.index + asAt + open.index + open[0].length);
+    if (bodyEnd < 0) break;
+    out += text.slice(at, m.index);
+    at = bodyEnd + open[0].length;
+    head.lastIndex = at;
+  }
+  text = out + text.slice(at);
+  return text.replace(/'(?:[^']|'')*'/g, "''");
+}
+
+/** [qualified name, why] for each over-budget function the install would call. */
+export function overBudgetCalls(sql) {
+  const text = installExecutedText(sql);
+  const found = [];
+  for (const [fn, why] of Object.entries(OVER_BUDGET_FUNCTIONS)) {
+    const [schema, name] = fn.split('.');
+    const qualified = new RegExp(`(?:\\b${schema}\\s*\\.\\s*|(?<![.\\w"]))"?${name}"?\\s*\\(`, 'i');
+    if (qualified.test(text)) found.push([fn, why]);
+  }
+  return found;
 }
 
 /** True when this file is judged by migrationCostRisks. */
