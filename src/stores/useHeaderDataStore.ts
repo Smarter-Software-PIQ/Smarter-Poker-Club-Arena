@@ -29,7 +29,10 @@ import { subscribeRealtime } from '../lib/subscribeRealtime';
 import { masterBus } from '../core/MasterBus';
 import { reportError } from '../utils/errorReporter';
 import { resolveCosmetic } from '../cosmetics/avatarCosmetics';
-import { CHAT_MESSAGE_TYPE_EXCLUSION_OR } from '../lib/notificationFilters';
+
+// Keep inlined here so the entry chunk does not pull in an extra module before first paint.
+const CHAT_MESSAGE_TYPE_EXCLUSION_OR =
+  'type.is.null,type.not.in.(new_message,message,messenger_message,direct_message)';
 
 /**
  * A header read that never reached the server: the phone dropped its radio, the
