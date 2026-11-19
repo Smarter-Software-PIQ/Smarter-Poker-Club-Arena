@@ -15,9 +15,16 @@ import type { OmahaReraisedCallPricing } from './HorseOmahaOopReraisedPot.js';
 import { reraiseResponseFromRow } from './HorseOmahaReraiseResponse.js';
 import {
   RERAISE_RAISE_SE_MULTIPLE,
+  RERAISE_THIRD_PLAYER_FOLD,
+  heroShareOfPots,
   omahaReraisedRaiseEv,
+  omahaReraisedRaiseMultiwayPriced,
   omahaReraisedRaisePriced,
   reraiseResponseRatesForTheRaise,
+  thirdPlayerFoldShare,
+  thirdPlayerRaiseLevelOf,
+  type OmahaReraisedOtherPlayer,
+  type OmahaReraisedRaiseMultiwayInput,
   type OmahaReraisedRaiseSamples,
   type OmahaReraisedRaiseSpot,
 } from './HorseOmahaReraisedRaisePriced.js';
@@ -198,5 +205,235 @@ describe('through the sampler (synthetic cards, not a recorded hand)', () => {
     const thin = omahaReraisedRaisePriced(spot(0.3, [0, 0, 0, 0, 4, 0, 3, 1]))!;
     const thick = omahaReraisedRaisePriced(spot(0.3, [0, 0, 0, 0, 80, 0, 60, 20]))!;
     expect(thick.seRates).toBeLessThan(thin.seRates);
+  });
+});
+
+describe('other players in the hand are priced in it (review of 59ea78d08f3, B1)', () => {
+  // Synthetic cards and stacks, not a recorded hand. Hero faces a 3-bet that one player has already called.
+  const caller = (over: Partial<OmahaReraisedOtherPlayer> = {}): OmahaReraisedOtherPlayer => ({
+    kind: 'caller',
+    bet: 36,
+    stack: 164,
+    band: [0.3, 0.86],
+    inForPrice: true,
+    afterHero: false,
+    ...over,
+  });
+  const input = (
+    hole: string,
+    others: OmahaReraisedOtherPlayer[],
+    row: number[] | null = null
+  ): OmahaReraisedRaiseMultiwayInput => ({
+    hole: cards(hole),
+    dead: [] as Card[],
+    preflopRaises: 2,
+    call: 24,
+    pot: 12 + 36 + 3 + others.reduce((a, o) => a + o.bet, 0),
+    stack: 188,
+    heroBet: 12,
+    raiseTo: 12 + 24 + (12 + 36 + 3 + others.reduce((a, o) => a + o.bet, 0) + 24),
+    raiserBet: 36,
+    raiserStack: 164,
+    pricing: {
+      rate: 0.2,
+      opportunities: 60,
+      rateSource: 'measured',
+      inPosition: true,
+      othersIn: others.filter((o) => o.inForPrice).length,
+      ...(others.some((o) => o.inForPrice)
+        ? { othersInBands: others.filter((o) => o.inForPrice).map((o) => o.band) }
+        : {}),
+      raiserBehind: 164,
+      rakeFraction: 0.02,
+      heroAlreadyRaised: true,
+      heroInvested: 12,
+    },
+    rates: reraiseResponseRatesForTheRaise(
+      row ? reraiseResponseFromRow(row) : null,
+      'threeBetFacesFourBet'
+    )!,
+    rakeCalled: 0.01,
+    standing: 'call',
+    others,
+  });
+  const round = (x: number) => Math.round(x * 100) / 100;
+
+  it('THE DEFECT: a caller in for the price continues in most outcomes; he was priced as always folding', () => {
+    const v = omahaReraisedRaiseMultiwayPriced(input('AsAhKsQh7d', [caller()]))!;
+    const m = v.multiway!;
+    // the measured fold share of a player who had called the 3-bet: 7 of 45 at the low end, 55 of 91 at the high
+    expect(m.low.foldShares).toEqual([7 / 45]);
+    expect(m.high.foldShares).toEqual([55 / 91]);
+    expect(m.low.shareMultiway).toBeGreaterThan(0.7);
+    expect(m.high.shareMultiway).toBeGreaterThan(0.3);
+    expect(m.low.shareMultiway).toBeGreaterThan(m.high.shareMultiway);
+    // every sample is one of: everyone folds, only the re-raiser continues, a third player continues
+    for (const e of [m.low, m.high])
+      expect(e.shareAllFold + e.shareHeadsUp + e.shareMultiway).toBeCloseTo(1, 12);
+    expect(m.samples).toBe(1600);
+  });
+  it('with every third player folding (test override) the price is the heads-up price, his money dead in the pot', () => {
+    const i = input('AsAhKsQh7d', [caller()]);
+    const folded = omahaReraisedRaiseMultiwayPriced({
+      ...i,
+      thirdPlayerFoldOverride: { low: 1, high: 1 },
+    })!;
+    const { others: _o, ...headsUpInput } = i;
+    void _o;
+    const headsUp = omahaReraisedRaisePriced({
+      ...headsUpInput,
+      pricing: { ...i.pricing, othersIn: 0, othersInBands: undefined },
+    })!;
+    expect(folded.multiway!.low.shareMultiway).toBe(0);
+    // two different runs of the sampler: equal within their sampling error
+    expect(Math.abs(folded.evRaise - headsUp.evRaise)).toBeLessThan(
+      4 * Math.max(folded.seSampling, headsUp.seSampling) + 1
+    );
+  });
+  it('the raise is worth less when the caller is priced in than when he was priced as folding (aces, low stack-to-pot)', () => {
+    const i = input('AsAhKsQh7d', [caller()]);
+    const priced = omahaReraisedRaiseMultiwayPriced(i)!;
+    const assumedFold = omahaReraisedRaiseMultiwayPriced({
+      ...i,
+      thirdPlayerFoldOverride: { low: 1, high: 1 },
+    })!;
+    expect(priced.multiway!.low.evRaise).not.toBeCloseTo(assumedFold.evRaise, 0);
+  });
+  it('a raise needs BOTH measured ends to clear the bar; the receipt carries the end nearer its bar', () => {
+    for (const hole of ['AsAhKsQh7d', 'KsKhQsJh9d', 'JsTs9h8h7d', 'AsKsQhJhTd', '9s8s7h6h2d']) {
+      for (const others of [
+        [caller()],
+        [
+          caller(),
+          caller({ kind: 'pending', bet: 2, stack: 198, band: [0, 1], inForPrice: false }),
+        ],
+        [caller({ kind: 'pendingRaiser', bet: 12, stack: 188, band: [0.4, 1], inForPrice: false })],
+      ]) {
+        const v = omahaReraisedRaiseMultiwayPriced(input(hole, others))!;
+        const m = v.multiway!;
+        expect(v.verdict === 'raise').toBe(m.low.verdict === 'raise' && m.high.verdict === 'raise');
+        for (const e of [m.low, m.high]) {
+          expect(e.verdict === 'raise').toBe(
+            e.evRaise > 0 && e.edge > RERAISE_RAISE_SE_MULTIPLE * e.se
+          );
+          expect(e.se ** 2).toBeCloseTo(
+            e.seSampling ** 2 + e.seRates ** 2 + e.seRealization ** 2,
+            6
+          );
+          expect(e.seRates).toBeGreaterThanOrEqual(e.seThirdPlayers);
+        }
+        const b = m[m.binding];
+        expect([v.evRaise, v.edge, v.se]).toEqual([b.evRaise, b.edge, b.se]);
+        expect(m.low.edge - 2 * m.low.se <= m.high.edge - 2 * m.high.se).toBe(m.binding === 'low');
+        // the same cards and spot give the same numbers; no random stream is drawn
+        expect(omahaReraisedRaiseMultiwayPriced(input(hole, others))).toEqual(v);
+      }
+    }
+  });
+  it('pinned: aces against a 3-bet and a caller raise; a middling rundown stands', () => {
+    const aces = omahaReraisedRaiseMultiwayPriced(input('AsAhKsQh7d', [caller()]))!;
+    const rundown = omahaReraisedRaiseMultiwayPriced(input('9s8s7h6h2d', [caller()]))!;
+    expect([
+      aces.verdict,
+      round(aces.evCall),
+      round(aces.evRaise),
+      round(aces.edge),
+      round(aces.se),
+    ]).toEqual(['raise', 21, 62.31, 41.31, 6.06]);
+    expect([
+      rundown.verdict,
+      round(rundown.evCall),
+      round(rundown.evRaise),
+      round(rundown.edge),
+      round(rundown.se),
+    ]).toEqual(['stand', 4.93, -11.43, -16.36, 5.11]);
+  });
+  it('THE TIGHT RE-RAISER WHO NEVER FOLDS AND RE-RAISES OFTEN does not get the raise, with a caller in', () => {
+    // a tight range (re-raise rate 0.046), 0 folds, 14 calls, 6 re-raises of 20, deeper stacks so a re-raise is possible
+    const i = input('KsKhQsJh9d', [caller({ stack: 564 })], [20, 0, 14, 6, 0, 0, 0, 0]);
+    const v = omahaReraisedRaiseMultiwayPriced({
+      ...i,
+      stack: 588,
+      raiserStack: 564,
+      pricing: { ...i.pricing, rate: 0.046, raiserBehind: 564 },
+    })!;
+    expect(v.verdict).toBe('stand');
+    expect(v.pFold).toBe(0);
+  });
+  it('with nobody else in (evaluation only) the joint run gives the heads-up price: two implementations, one answer', () => {
+    for (const hole of ['AsAhKsQh7d', 'KsKhQsJh9d', 'JsTs9h8h7d', '9s8s7h6h2d']) {
+      const i = input(hole, []);
+      const joint = omahaReraisedRaiseMultiwayPriced({ ...i, allowNoOthers: true })!;
+      const { others: _o, ...h } = i;
+      void _o;
+      const headsUp = omahaReraisedRaisePriced(h)!;
+      const tol = 4 * Math.max(joint.seSampling, headsUp.seSampling) + 1;
+      expect(Math.abs(joint.evRaise - headsUp.evRaise), hole).toBeLessThan(tol);
+      expect(Math.abs(joint.evCall - headsUp.evCall), hole).toBeLessThan(tol);
+      expect(joint.multiway!.low).toEqual(joint.multiway!.high);
+    }
+  });
+  it('a player already all in cannot fold: he is in every outcome', () => {
+    const v = omahaReraisedRaiseMultiwayPriced(
+      input('AsAhKsQh7d', [caller({ kind: 'allIn', bet: 20, stack: 0, inForPrice: true })])
+    )!;
+    const m = v.multiway!;
+    expect(m.low.foldShares).toEqual([0]);
+    expect(m.low.shareAllFold).toBe(0);
+    expect(m.low).toEqual(m.high);
+  });
+  it('the depth-cost shift of the evaluation is off in the engine: zero is the same as absent', () => {
+    const i = input('KsKhQsJh9d', [caller()]);
+    expect(omahaReraisedRaiseMultiwayPriced({ ...i, depthCostShiftSe: 0 })).toEqual(
+      omahaReraisedRaiseMultiwayPriced(i)
+    );
+  });
+  it('not priceable: no other player, an empty band, nothing to call', () => {
+    const i = input('AsAhKsQh7d', [caller()]);
+    expect(omahaReraisedRaiseMultiwayPriced({ ...i, others: [] })).toBeNull();
+    expect(
+      omahaReraisedRaiseMultiwayPriced({ ...i, others: [caller({ band: [0.5, 0.5] })] })
+    ).toBeNull();
+    expect(omahaReraisedRaiseMultiwayPriced({ ...i, call: 0 })).toBeNull();
+  });
+  it('the measured table: every cell has spots, low is the lowest measured group and high the highest', () => {
+    for (const level of ['fourBet', 'fiveBetOrLater'] as const)
+      for (const kind of ['caller', 'pendingRaiser', 'pending'] as const) {
+        const c = RERAISE_THIRD_PLAYER_FOLD[level][kind];
+        expect(c.low.spots).toBeGreaterThan(0);
+        expect(c.high.spots).toBeGreaterThan(0);
+        expect(thirdPlayerFoldShare(c.low).fold).toBeLessThanOrEqual(
+          thirdPlayerFoldShare(c.high).fold
+        );
+        expect(thirdPlayerFoldShare(c.low).variance).toBeGreaterThan(0);
+      }
+    expect(thirdPlayerRaiseLevelOf(2)).toBe('fourBet');
+    expect(thirdPlayerRaiseLevelOf(3)).toBe('fiveBetOrLater');
+  });
+});
+
+describe('main pot and side pots (heroShareOfPots)', () => {
+  it('a short all-in wins only the main pot; hero wins the side pot from the re-raiser', () => {
+    // hero 100, re-raiser 100, short all-in 20, 5 dead: main 20 x 3 + 5 = 65, side 80 x 2 = 160
+    const seats = (hero: number, z: number, short: number) => [
+      { c: 100, live: true, score: hero },
+      { c: 100, live: true, score: z },
+      { c: 20, live: true, score: short },
+    ];
+    expect(heroShareOfPots(seats(3, 2, 1), 5)).toEqual({ won: 225, pot: 225 });
+    expect(heroShareOfPots(seats(2, 1, 3), 5)).toEqual({ won: 160, pot: 225 });
+    expect(heroShareOfPots(seats(1, 2, 3), 5)).toEqual({ won: 0, pot: 225 });
+    expect(heroShareOfPots(seats(2, 2, 1), 5)).toEqual({ won: 112.5, pot: 225 });
+  });
+  it('money of a player who folded stays in the pot and wins nothing', () => {
+    const r = heroShareOfPots(
+      [
+        { c: 100, live: true, score: 1 },
+        { c: 36, live: false, score: 9 },
+        { c: 100, live: true, score: 0 },
+      ],
+      3
+    );
+    expect(r).toEqual({ won: 239, pot: 239 });
   });
 });

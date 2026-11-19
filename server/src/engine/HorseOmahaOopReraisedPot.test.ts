@@ -1696,10 +1696,85 @@ describe('omahaReraisedCallVsRaisePriced in the decision (default OFF)', () => {
     }
     // the option reaches these spots (pinned so the test cannot pass vacuously)
     expect(priced).toBeGreaterThan(0);
-    // 16 priced decisions (the heads-up spots only: B1), none raised: with no record of the re-raiser he has no
-    // fold share (B2) and the raise does not clear its bar. The raises are pinned on recorded spots in
-    // HorseOmahaReraisedRaisePriced.test.ts.
-    expect([priced, raised]).toEqual([16, 0]);
+    // 48 priced decisions (16 heads-up, 32 with other players in the hand, priced with them in it: B1), none
+    // raised: with no record of the re-raiser he has no fold share (B2) and the raise does not clear its bar.
+    // The raises are pinned on recorded spots in HorseOmahaReraisedRaisePriced.test.ts.
+    expect([priced, raised]).toEqual([48, 0]);
+  });
+  it('OTHER PLAYERS IN THE HAND ARE PRICED IN IT (review of 59ea78d08f3, B1): a caller in for the price, a caller still to act, a raiser still to act', () => {
+    const BASE = {
+      hand: 0,
+      variant: 'plo5',
+      bb: 2,
+      dealer: 5,
+      stacks: '1:398,2:398,3:400,4:400,5:400,6:400',
+    };
+    // Seat 3 opens, hero (4) calls, the button (5) calls, the small blind re-raises, the opener calls: the opener is
+    // in for the price, the button has not answered.
+    const CALLER_IN: Recorded = {
+      ...BASE,
+      seat: 4,
+      hole: '',
+      actions: '1ps1,2pb2,3pR7,4pC7,5pC7,6pF,1pR36,2pF,3pC29,4pC29',
+    };
+    // Hero (3) limps, seat 4 raises, the small blind re-raises: the first raiser is still to act behind hero.
+    const RAISER_PENDING: Recorded = {
+      ...BASE,
+      seat: 3,
+      hole: '',
+      actions: '1ps1,2pb2,3pC2,4pR9,5pF,6pF,1pR30,2pF,3pC28',
+    };
+    const cases: Array<[string, Recorded, string[]]> = [
+      ['a caller in and a caller pending', CALLER_IN, ['caller', 'pending']],
+      ['a raiser pending', RAISER_PENDING, ['pendingRaiser']],
+    ];
+    let priced = 0;
+    let raised = 0;
+    for (const [name, rec, kinds] of cases)
+      for (const hole of ['AsAhKsQh7d', 'KsKhQs9h4d', 'Ts9s8h7h6d', 'AsKsQhJh9d', 'QsQhJsTh3c']) {
+        const build = () => stateAt(withHole(rec, hole), 2);
+        const rules = playMany(build, RULES);
+        const on = playMany(build, ON);
+        // no draw from the brain's random stream
+        expect(on.next, name).toEqual(rules.next);
+        on.bytes.forEach((b, k) => {
+          const d = JSON.parse(b) as {
+            action: string;
+            omahaReraisedRaise?: {
+              verdict: string;
+              multiway?: {
+                others: Array<{ kind: string; band: [number, number] }>;
+                low: { verdict: string; shareMultiway: number; foldShares: number[] };
+                high: { verdict: string; shareMultiway: number; foldShares: number[] };
+              };
+            };
+          };
+          expect(rank(d.action), `${name} ${hole}`).toBeGreaterThanOrEqual(rank(rules.actions[k]));
+          const r = d.omahaReraisedRaise;
+          if (!r) {
+            expect(b, name).toBe(rules.bytes[k]);
+            return;
+          }
+          priced++;
+          // the spot is priced with the other players in it, never heads-up and never with them folding
+          expect(r.multiway, `${name} ${hole}`).toBeDefined();
+          const m = r.multiway!;
+          expect(m.others.map((o) => o.kind).sort(), name).toEqual(kinds);
+          expect(m.low.shareMultiway, name).toBeGreaterThan(0);
+          expect(m.high.shareMultiway, name).toBeGreaterThan(0);
+          for (const fold of [...m.low.foldShares, ...m.high.foldShares])
+            expect(fold).toBeLessThan(1);
+          expect(r.verdict === 'raise').toBe(
+            m.low.verdict === 'raise' && m.high.verdict === 'raise'
+          );
+          if (d.action !== rules.actions[k]) {
+            raised++;
+            expect(r.verdict, name).toBe('raise');
+          }
+        });
+      }
+    // pinned so the test cannot pass vacuously: the option reaches these spots and prices them
+    expect([priced, raised]).toEqual([80, 0]);
   });
   it('PLO6, a tournament, Lightning, a bomb pot: on is byte-identical to the rules alone', () => {
     const rec = withHole(RECORDED.h59407629, 'KsKhQs9h4d');
