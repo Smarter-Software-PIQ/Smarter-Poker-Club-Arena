@@ -1,5 +1,6 @@
 import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
+import { withoutValueSizeStamp } from '../engine/HorseOmahaValueSizeBand.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
 import { priceLightningRunout } from './LightningRunoutEquity.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
@@ -2726,12 +2727,16 @@ export class LightningHandHost {
         const result = this.recheckHorseDecisionAtDoor(userId, decision);
         if (!result) return;
         featureRefused = result.featureRefused;
+        const replaced =
+          result.checked.action !== decision.action || result.checked.amount !== decision.amount;
         decision = {
           ...decision,
           action: result.checked.action,
           amount: result.checked.amount,
           workerFallback: decision.workerFallback || featureRefused,
         };
+        // omahaValueSizeIsUnreadable: a door that replaced the wager keeps no band stamp.
+        if (replaced) decision = withoutValueSizeStamp(decision);
       }
       noteLightningHorseCommitEvaluated(issued);
       // A rejected candidate has no qualified aggressive substitute. Do not let

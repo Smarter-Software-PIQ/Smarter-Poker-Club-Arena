@@ -1255,6 +1255,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaValueSizeIsUnreadable',
+    'WooWoo audit NUT-SIZE lane 2026-11-19 (owner 2026-11-18 23:00 Chicago: "HORSES NEED TO VARY THERE BETS WITH THE NUTS, NOT FULL PUT EVERY TIME, BUT LIKE 80-95% POT"; measured 2026-11-05..19, PLO4/PLO5 cash, 11,741 Horse postflop wagers: a full-pot wager was the exact nuts 55.0% (n 1,280) against 11.9% at 80-95% of the pot (n 2,091), river 57.5% against 2.2%). PLO4/PLO5 cash (table and fast-table cash, never a tournament), pot limit, high only, one board, no bomb pot, postflop (HorseOmahaValueSizeBand.ts): a bet or raise that is already the full pot (95% of the pot-limit increment or more) with a nut-class hand (omahaNutClassNow or the exact river nuts), when the pot-limit maximum is not the whole stack, stays the full pot with the measured street share (flop 0.094, turn 0.509, river 0.469: the share that makes the nut share of the full pot equal that of the 80-95% band) and otherwise is sized uniformly in 80-95% of the pot increment, never under the legal minimum, never over the pot-limit maximum, never the whole stack and never larger than before; two draws from the decision derived stream (read, never advanced). Every non-nut wager, check, call, fold and all-in is unchanged. The last step of the wager_rules node; the table commit guards (riverNutsRaise, fullPotNearPotWager) and the river value alarm keep an accepted band wager. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaRiverNutBlockerBluffReachable',
     'PLO Strategy 2026-11-15: the Omaha nut-blocker river bluff (receipt v86_river_nut_blocker_bluff) is on but has never fired in production, because its made-hand gate is no pair at all (cat <= 1) and the baseline river bluff answers every no-pair heads-up river first. On, the gate is one pair or less, the bottom-pair band its own comment names (one pair, 0.25 to 0.28 equity, nut blocker, heads-up, unpaired board, capped opponent, never a station). Opt-in, default off, read === true; its declared evaluation has not been run.',
     'V94'
@@ -4503,6 +4508,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_beaten_river_no_value_bet',
     'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
     'a river bet with a made hand a possible straight or flush beats, into a player who bet or raised a street on which it was already possible: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_size_band_applied',
+    'HorseLogic wager_rules (HorseOmahaValueSizeBand, omahaValueSizeIsUnreadable)',
+    'a PLO4/PLO5 cash full-pot bet or raise with a nut-class hand was sized in the owner 80-95% pot band',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_size_full_pot_kept',
+    'HorseLogic wager_rules (HorseOmahaValueSizeBand, omahaValueSizeIsUnreadable)',
+    'a PLO4/PLO5 cash full-pot bet or raise with a nut-class hand stayed the full pot at the measured street share (valid no-change)',
     'V94'
   ),
   receipt(

@@ -387,6 +387,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
   ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
+  omahaValueSizeIsUnreadable: priced(
+    'how much of the full pot a nut-class wager is: the measured keep share at the full pot, else a uniform draw in the owner 80-95% pot band (default OFF)'
+  ),
   // wave two (2026-11-16, PR #11211; all default OFF)
   omahaMultiwayWeakHandNoBet: priced(
     'a multiway bet with a weak hand becomes a check only when the bet-versus-check expected value over every live range says so'
