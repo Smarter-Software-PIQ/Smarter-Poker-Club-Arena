@@ -1169,7 +1169,17 @@ export function ShareHand({
         </div>
 
         {/* Share As Video (Phase 9.1): only for a hand with a stored row id. */}
-        {handId && <ShareAsVideoPanel handId={handId} />}
+        {handId && (
+          <ShareAsVideoPanel
+            handId={handId}
+            handNumber={hand.handNumber}
+            shortUrl={shortUrl}
+            shortPending={shortPending}
+            shareText={shareText}
+            shareTitle={'Hand Replay - ' + clubName}
+            onShared={onShared}
+          />
+        )}
       </div>
     </div>
   );

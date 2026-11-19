@@ -110,6 +110,25 @@ export function hasShareSheet(): boolean {
   return typeof nav()?.share === 'function';
 }
 
+/**
+ * True where a tap can hand another app a FILE of this type (the app's own
+ * sheet, or a Web Share sheet that says it takes one). A surface asks before
+ * it fetches a large file, and words its button for what will happen: a
+ * rendered hand clip is several megabytes, and a desktop browser that cannot
+ * take it should be offered the link instead of a download nobody asked for.
+ */
+export function canShareFile(type: string, filename = 'file'): boolean {
+  if (IS_NATIVE_BUILD && isNativePlatform()) return true;
+  const n = nav();
+  if (!n || typeof n.share !== 'function' || typeof n.canShare !== 'function') return false;
+  try {
+    const probe = new File([new Uint8Array(1)], filename, { type });
+    return n.canShare({ files: [probe] }) === true;
+  } catch {
+    return false;
+  }
+}
+
 /*
  * THE BUTTON SAYS WHAT THE TAP WILL DO (2026-11-15).
  *
@@ -120,7 +139,10 @@ export function hasShareSheet(): boolean {
  */
 export type ShareKind = 'link' | 'image';
 
-export function shareButtonLabel(kind: ShareKind = 'link', sheet: boolean = hasShareSheet()): string {
+export function shareButtonLabel(
+  kind: ShareKind = 'link',
+  sheet: boolean = hasShareSheet()
+): string {
   if (sheet) return 'Share';
   return kind === 'image' ? 'Save Image' : 'Copy Link';
 }

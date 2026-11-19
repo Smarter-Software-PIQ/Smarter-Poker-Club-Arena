@@ -1,0 +1,3 @@
+# tests/a-bounty-rebuy-never-crosses-a-hand.law.test.ts
+
+Owner rule 2026-08-30 ("REBUYS IN A TOURNAMENT SHOULD NOT PAUSE THE ACTION"): on the shared event lane a rebuy or add-on takes the 'atomic-table:' key only after the tournament row, in a hand commit's order, so it never deadlocks with a hand of its own table; the bust claim's seat-first sync takes no field-wide table and seat lock inside the event's change lane on a non-seat-first event; the bounty settle's lock waits are bounded at 500 ms with the retryable 55P03 the engine retries in place. Pins migration 20261119013430 to the production pre-images and the native proof (section B7 of scripts/ci/test-rebuy-never-pauses-the-tournament.py).
