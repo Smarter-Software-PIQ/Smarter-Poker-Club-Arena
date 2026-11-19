@@ -505,6 +505,26 @@ export interface HandCompletionOpts {
    * the table longer.
    */
   allInShowdown?: boolean;
+  /**
+   * ── THE SWEEP IS HELD ONLY WHEN IT PLAYS (hand delay, 2026-11-18) ──
+   *
+   * Dan 2026-11-17: "hand delay" is the time to finish one hand, move the
+   * button and start the next; under a second, two at most. Measured on
+   * production the same day, 97% of tournament showdowns and 70% of cash
+   * showdowns had NO chips committed on the river (an all-in run out, or a
+   * river checked through). TablePage ships the pot after BETS_SWEEP_MS only
+   * when chips are still on the felt (`betsStillOnFelt` in the pot_win
+   * handler); with nothing to sweep it ships at once. The hold still counted
+   * the 500 ms sweep on every hand, so on those showdowns the felt sat for
+   * half a second after the muck with no animation playing.
+   *
+   * `false` means the engine has proved there is nothing on the felt to
+   * sweep (ShowdownSweepOwed.ts: a single-board showdown whose river
+   * carried no committed chips). Default true: anything unproven keeps the
+   * sweep, so the hold can only ever be at least as long as the felt.
+   * Ignored on a run-it-multiple hand, whose reveal timeline owns the ship.
+   */
+  betsSweepOwed?: boolean;
 }
 
 /**
@@ -556,7 +576,9 @@ export function handCompletionHoldMs(opts: HandCompletionOpts): number {
   // multi-winner case because the arithmetic only ever described one.
   const groups = Math.max(1, Math.floor(opts.potAwardGroups ?? 1));
   const staggerTail = (groups - 1) * H.POT_AWARD_STAGGER_MS;
-  const push = H.BETS_SWEEP_MS + H.POT_PUSH_MS + H.MUCK_MS + H.POST_PUSH_PAUSE_MS + staggerTail;
+  const multiBoard = (opts.ritRuns ?? 0) >= 2;
+  const sweep = opts.betsSweepOwed === false && !multiBoard ? 0 : H.BETS_SWEEP_MS;
+  const push = sweep + H.POT_PUSH_MS + H.MUCK_MS + H.POST_PUSH_PAUSE_MS + staggerTail;
 
   if (!opts.wentToShowdown) return push;
 
@@ -648,4 +670,38 @@ export function boardClearMs(wentToShowdown: boolean): number {
   return wentToShowdown
     ? HAND_COMPLETION.BOARD_CLEAR_SHOWDOWN_MS
     : HAND_COMPLETION.BOARD_CLEAR_FOLD_MS;
+}
+
+/**
+ * ── NO UNINTENDED DELAY BETWEEN HANDS (Dan 2026-11-18) ──
+ *
+ * Dan, verbatim: "i just don't want any 'un intended delays'". Every beat in
+ * this file stays at its length; the standard is that NOTHING ELSE separates
+ * one hand's completion from the next hand's start.
+ *
+ * owedBetweenHandsMs is everything a hand of this shape owes between the
+ * instant its settlement starts (hand_history.ended_at, HAND_COMPLETE) and
+ * the next hand's HAND_START (hand_history.started_at):
+ *
+ *   hold  = handCompletionHoldMs(shape)   read, display, sweep, push, muck
+ *   rest  = max(NEXT_HAND_REST_MS, boardClearMs)   the Rabbit Hunt window
+ *   rebuy = the five-second rebuy pause actually waited (cash bust, CLAUDE.md
+ *           10.5); it is armed with the rest and overlaps it, so it counts
+ *           only by how much it outlasts the rest.
+ *
+ * ENGINE_BETWEEN_HANDS_BUDGET_MS is the only time allowed on top: the deal's
+ * own in-process work plus at most the one database round trip a tournament
+ * deal still makes after the rest (the seq-0 retention of the prepared hand,
+ * which must be durable before the hand may start). Anything beyond it is an
+ * unintended delay: server/src/engine/noUnintendedDelayBetweenHands.law.test.ts
+ * fails CI on a new wait in that path, and
+ * scripts/sql/hand-gap-unintended-delay.sql grades production hand by hand.
+ */
+export const ENGINE_BETWEEN_HANDS_BUDGET_MS = 250;
+
+export function owedBetweenHandsMs(
+  opts: HandCompletionOpts & { rebuyPauseMs?: number }
+): number {
+  const rest = Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(opts.wentToShowdown));
+  return handCompletionHoldMs(opts) + Math.max(rest, Math.max(0, opts.rebuyPauseMs ?? 0));
 }

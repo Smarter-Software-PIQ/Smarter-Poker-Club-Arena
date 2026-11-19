@@ -1,0 +1,57 @@
+name: Projection table lock bound
+
+# Migration 20261118155509 (incident 075013fd follow-up to #11269):
+# fn_project_hand_side_effects tries the per-table mutex for at most 250 ms and
+# every other key ('player-stats:', 'hand-projection:' and the after-function's
+# 'player-stats-user:' keys, in uuid order) within one 1 s deadline instead of
+# queueing. Runs scripts/ci/test-projection-table-lock-bound-postgres.py against
+# a throwaway PostgreSQL 17 cluster, never production: 20 callers behind a 10 s
+# mutex time out before and answer table_busy within ~0.3 s after; a held
+# player-stats-user key waits past 1 s and a reverse-order holder deadlocks
+# before, and after answers obligation_lock_busy within ~1 s with no deadlock;
+# two hands with overlapping players, concurrent in both orders: 0 deadlocks,
+# no wait past 1 s, each projected exactly once. The drain is not changed.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    paths:
+      - supabase/migrations/20260909085724_a_hand_that_finished_stops_paging_and_an_orphan_envelope_gets_drained.sql
+      - supabase/migrations/20261019194410_replay_holds_no_lock_past_its_receipt_player_stats_key_order.sql
+      - supabase/migrations/20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql
+      - supabase/migrations/20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql
+      - supabase/migrations/20261118071728_a_hands_bbj_drop_and_insurance_wait_in_their_own_rows_not_on.sql
+      - supabase/migrations/20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql
+      - supabase/migrations/20261118073646_a_post_commit_envelope_never_queues_behind_a_slow_predecesso.sql
+      - supabase/migrations/20261118155509_the_projection_worker_never_queues_on_the_table_lock_and_the.sql
+      - scripts/ci/fixtures/cash-rake-pending/**
+      - scripts/ci/test-projection-table-lock-bound-postgres.py
+      - .github/workflows/projection-table-lock-bound.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: projection-table-lock-bound-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  projection-table-lock-bound:
+    name: The projection worker never queues on the table lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The projection worker never queues on the table lock
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-projection-table-lock-bound-postgres.py --output artifacts/projection-table-lock-bound
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: projection-table-lock-bound-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/projection-table-lock-bound/*.json
+          retention-days: 7
+          if-no-files-found: warn

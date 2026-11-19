@@ -26,7 +26,11 @@ export async function retireTerminalWelcomeFixture({ client, clubId, account, re
   // Join/cleanup own the membership lane first. All cashier hierarchy lanes
   // precede club/member rows: DELETE's maintained trigger takes the same lane.
   await client.query('SELECT public.fn_club_membership_lock($1::uuid)', [account.id]);
-  await client.query('SELECT public.fn_ca_lock_settlement_lane_global()');
+  // This club's settlement lane, never the platform lane (2026-11-18, incident
+  // 075013fd): the global lane held every table and cash hand on production for
+  // this cleanup's whole transaction, and the database now refuses it as a
+  // script's top-level statement.
+  await client.query('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)', [clubId]);
   const clubScopes = [...new Set([clubId, ...preparedTerminalStaffClubs])].sort();
   for (const scope of clubScopes) {
     await client.query(
