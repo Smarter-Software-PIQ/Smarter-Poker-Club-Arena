@@ -2,10 +2,11 @@
 # THE SETTLEMENT LANE DOCTRINE HOLDS ON THE LIVE CATALOG
 #
 # scripts/ci/check-settlement-lane-doctrine.mjs asks production's
-# fn_ca_settlement_lane_doctrine() the four questions every lane migration
+# fn_ca_settlement_lane_doctrine() the questions every lane migration
 # re-proved inside its own transaction and then stopped asking: who takes G
-# exclusively, who names F, who takes the global lane, and whether any
-# rolling authority reaches it. Migrations are applied to production before
+# exclusively, who names F, who takes the global lane, whether any rolling
+# authority reaches it, and (since 20261118160405) whether any table writer
+# takes G at all. Migrations are applied to production before
 # their pull request merges, so the live catalog is the branch's truth.
 #
 # Runs on every pull request that touches a migration and on every push to

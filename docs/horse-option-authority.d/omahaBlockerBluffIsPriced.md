@@ -39,13 +39,23 @@ HorseOmahaPricedSites.test.ts (off and out of scope change nothing; each answer 
 
 - Mechanism, scope, visibility (receipts), tests: MET.
 - Replay on audited real decisions (PASS-BAR section 1): NOT MET (1 change, judged wrong, -57.4 bb). Archive plo-handoff-review-01a1cbbd/sites-013U37/REPLAY-20261118.md.
-- League (PASS-BAR section 2): NOT RUN (sequenced after the opponent-kind prior fix).
+- League: INCONCLUSIVE (near-inert, low reach). Archive `plo-handoff-review-01a1cbbd/evals-013U37/omahaBlockerBluffIsPriced/RESULTS.md` (bar `PASS-BAR.md` there, written first), source eb30ce7a6f9, 2026-11-18. A minus B, bb/100:
+
+  | cell | table                                          | sessions x pairs | A - B, bb/100 | SE    | z     | divergent pairs | inert sessions |
+  | ---- | ---------------------------------------------- | ---------------- | ------------- | ----- | ----- | --------------- | -------------- |
+  | F4   | PLO4, one Horse vs five human-calibrated seats | 400 x 500        | -0.036        | 0.036 | -1.00 | 1               | 399            |
+  | F5   | PLO5, the same                                 | 400 x 500        | -0.008        | 0.017 | -0.47 | 3               | 397            |
+  | M4   | PLO4, Horse-only, production styles            | 100 x 500        | +0.059        | 0.049 | +1.20 | 146             | 77             |
+  | M5   | PLO5, the same                                 | 100 x 500        | +0.042        | 0.077 | +0.55 | 85              | 83             |
+
+  Pooled: human-like -0.022 bb/100, SE 0.020 (z -1.11); Horse-only +0.051, SE 0.046 (z +1.11). Valid: every session present, 0 illegal, 0 truncated, 0 fallbacks. The option moved 1 and 3 of 200,000 pairs in the human-like cells: too little reach to measure.
+
 - Overall: NOT MET. Do not switch on.
 
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
-Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 change), no league yet; do not switch on.**
+Default OFF, switchable in the registry but: **replay NOT MET (too thin: 1 change), league INCONCLUSIVE (near-inert); do not switch on.** It stays off.
 
 Review R3 B1 of sites 27852aafb40, fixed in the batch: the admission priced "some bet beats the check" while a later, never-priced size (bet86Rb) was placed. Now the engine sizes the bluff first and `omahaPricedSitesBlockerBluffAdmits(player, gs, opts, bet86Rb)` prices THAT exact amount (`omahaPricedBet(..., amount).proposed.ev > evCheck`); a bet it cannot price makes no bluff (test: HorseOmahaPricedSites.test.ts, the placed amount is the priced amount). The gates that decide whether the bluff is offered at all (chips behind, the capped-line and station label reads, the persona frequency draw targetRb86) still act with the option on: they are registered as OPEN site S6b in HorseOmahaRuleSites.ts with their own receipt `omaha_priced_site_blocker_bluff_gate_withheld` (they are not priced).
 
-League cards (HorseLeague.ts, declared, not run): plo4_omaha_blocker_bluff_is_priced and plo5_omaha_blocker_bluff_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaBlockerBluffIsPriced.
+League cards (HorseLeague.ts, declared, not run): plo4_omaha_blocker_bluff_is_priced and plo5_omaha_blocker_bluff_is_priced: the live options of 2026-11-16 in both arms, arm A adds omahaBlockerBluffIsPriced. Run once on eb30ce7a6f9: INCONCLUSIVE (Evidence rows).
