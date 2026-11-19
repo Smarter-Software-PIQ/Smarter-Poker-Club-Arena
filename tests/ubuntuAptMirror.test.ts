@@ -154,7 +154,8 @@ describe('Ubuntu browser dependency mirror', () => {
       expect(run()).toContain('updated 1 source files');
       expect(readFileSync(source, 'utf8')).toBe(definition);
       expect(readFileSync(mirror, 'utf8')).toBe(
-        'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://archive.ubuntu.com/ubuntu/\tpriority:2\n# http://azure.archive.ubuntu.com/ubuntu\nhttps://example.com/ubuntu\tpriority:3 # http://azure.archive.ubuntu.com/ubuntu\n'
+        'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://archive.ubuntu.com/ubuntu/\tpriority:2\n# http://azure.archive.ubuntu.com/ubuntu\nhttps://example.com/ubuntu\tpriority:3 # http://azure.archive.ubuntu.com/ubuntu\n' +
+          'http://azure.archive.ubuntu.com/ubuntu/\tpriority:4 # ca-fallback: replaced mirror, tried last\n'
       );
       expect(readFileSync(join(root, 'unused.txt'), 'utf8')).toBe(unused);
       expect(run()).toContain('updated 0 source files');
@@ -191,11 +192,61 @@ describe('Ubuntu browser dependency mirror', () => {
       expect(first).toContain('updated 1 source files');
       expect(first).toContain('us-east-2.ec2.archive.ubuntu.com');
       expect(readFileSync(mirror, 'utf8')).toBe(
-        'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://archive.ubuntu.com/ubuntu/\tpriority:2\nhttp://security.ubuntu.com/ubuntu/\tpriority:3\nhttp://ports.ubuntu.com/ubuntu-ports/\tpriority:4\nhttp://us.archive.ubuntu.com/ubuntu-extra/\tpriority:5\n'
+        'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://archive.ubuntu.com/ubuntu/\tpriority:2\nhttp://security.ubuntu.com/ubuntu/\tpriority:3\nhttp://ports.ubuntu.com/ubuntu-ports/\tpriority:4\nhttp://us.archive.ubuntu.com/ubuntu-extra/\tpriority:5\n' +
+          'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:6 # ca-fallback: replaced mirror, tried last\n'
       );
       expect(run()).toContain('updated 0 source files');
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // A STALLED MIRROR FAILS OVER (2026-11-19). Every fallback line named the
+  // primary host, so when the primary stalled, Post-Deploy E2E's live-table
+  // browser install hung for 20+ minutes (run 44519687021) with nowhere else
+  // to go. The replaced cloud mirror stays listed last, and an idle fetch gives
+  // up after 30 s so apt's mirror method reaches it.
+  it('keeps the replaced mirror as a last fallback and bounds every idle fetch', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ca-apt-mirror-'));
+    try {
+      mkdirSync(join(root, 'sources.list.d'));
+      writeFileSync(
+        join(root, 'sources.list.d', 'ubuntu.sources'),
+        'Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\nSuites: noble\nComponents: main\n'
+      );
+      const mirror = join(root, 'apt-mirrors.txt');
+      writeFileSync(mirror, 'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:1\n');
+      const run = () =>
+        execFileSync('python3', ['scripts/ci/ubuntu-apt-mirror.py', '--root', root], {
+          encoding: 'utf8',
+        });
+      expect(run()).toContain('bounded fetches set');
+      expect(readFileSync(mirror, 'utf8')).toBe(
+        'https://archive.ubuntu.com/ubuntu/\tpriority:1\n' +
+          'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:2 # ca-fallback: replaced mirror, tried last\n'
+      );
+      expect(readFileSync(join(root, 'apt.conf.d', '80-ca-bounded-fetch'), 'utf8')).toBe(
+        'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "3";\n'
+      );
+      const again = run();
+      expect(again).toContain('updated 0 source files');
+      expect(again).toContain('bounded fetches already set');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('bounds the live-table browser installation too', () => {
+    const workflow = parse(readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8'));
+    const installs = Object.values(
+      workflow.jobs as Record<string, { steps?: { name?: string; 'timeout-minutes'?: number }[] }>
+    ).flatMap((job) =>
+      (job.steps ?? []).filter((step) => step.name === 'Install Chromium and WebKit')
+    );
+    expect(installs.length).toBeGreaterThanOrEqual(2);
+    for (const install of installs) {
+      expect(install['timeout-minutes']).toBeGreaterThan(0);
+      expect(install['timeout-minutes']).toBeLessThanOrEqual(10);
     }
   });
 

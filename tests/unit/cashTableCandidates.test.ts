@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   CASH_SPECTATOR_ACTION,
   CASH_TABLE_CARD_SELECTOR,
+  admitsForCoverage,
   collectVisibleCashCandidates,
+  coverageComplete,
   selectClassicCashCandidate,
   takeNextLayoutCandidate,
 } from '../e2e/support/cashTableCandidates';
@@ -156,5 +158,24 @@ describe('classic hero subject mode', () => {
         { ...ordinary, cluster: { cluster_mode: 'lightning' } },
       ])
     ).toThrow('Duplicate cash catalogue identity');
+  });
+});
+
+// A LAYOUT PROOF REACHES A FULL-RING TABLE (2026-11-19): 17 occupied six-seat
+// tables to 3 nine-seat ones kept every nine-seat table past the per-tab cap.
+describe('a layout proof reaches every capacity it needs', () => {
+  it('admits a still-needed capacity past the per-tab limit, and nothing else', () => {
+    const cover = ['6', '9'] as const;
+    const selected = new Set(['6']);
+    expect(admitsForCoverage(selected, '9', cover)).toBe(true);
+    expect(admitsForCoverage(selected, '6', cover)).toBe(false);
+    expect(admitsForCoverage(selected, undefined, cover)).toBe(false);
+    expect(admitsForCoverage(selected, '9', undefined)).toBe(false);
+  });
+
+  it('keeps scanning until every required capacity is selected', () => {
+    expect(coverageComplete(new Set(['6']), ['6', '9'])).toBe(false);
+    expect(coverageComplete(new Set(['6', '9']), ['6', '9'])).toBe(true);
+    expect(coverageComplete(new Set(), undefined)).toBe(true);
   });
 });

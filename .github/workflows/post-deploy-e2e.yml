@@ -2453,6 +2453,9 @@ jobs:
 
       - name: Install Chromium and WebKit
         if: steps.engine_gate.outputs.current == 'true'
+        # Bounded like the client lane's install: a stalled mirror held this
+        # step for 20+ minutes on 2026-11-19 (run 44519687021).
+        timeout-minutes: 10
         run: |
           sudo python3 scripts/ci/ubuntu-apt-mirror.py
           npx playwright install chromium webkit --with-deps

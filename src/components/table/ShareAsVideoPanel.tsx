@@ -300,6 +300,7 @@ export default function ShareAsVideoPanel({
       return;
     }
 
+    if (shortPending && !shortUrl) return;
     const secondTap = leave.kind === 'armed';
     setLeave({ kind: 'working', action: 'share' });
     let blob: Blob;
@@ -331,7 +332,9 @@ export default function ShareAsVideoPanel({
         if (downloadBlob(name, file) !== true) throw new Error('the file could not be handed over');
       },
     });
-    if (shortUrl && outcome === 'shared') onShared?.();
+    if (shortUrl && (outcome === 'shared' || outcome === 'copied' || outcome === 'saved')) {
+      onShared?.();
+    }
     if (!alive.current) return;
     if (outcome === 'shared') setLeave({ kind: 'done', label: 'Shared' });
     else if (outcome === 'saved') setLeave({ kind: 'done', label: 'Saved' });
@@ -346,6 +349,7 @@ export default function ShareAsVideoPanel({
     shareTitle,
     fileShare,
     shortUrl,
+    shortPending,
     onShared,
     leave.kind,
     readClipFile,
@@ -375,16 +379,18 @@ export default function ShareAsVideoPanel({
   }, [videoUrl, fileName, readClipFile]);
 
   const leaveBusy = leave.kind === 'working';
-  /* Without a file sheet the button sends the short link, so it waits for it. */
+  /* Wait while the short link is still being reserved so neither a file share
+     nor a link-only share goes out without it. */
+  const waitingForShortLink = Boolean(shortPending && !shortUrl);
   const linkOnly = !fileShare;
   const noShortLink = linkOnly && !shortUrl && !shortPending;
   const shareLabel =
     leave.kind === 'failed' && leave.action === 'share'
       ? 'Try Again'
-      : fileShare
-        ? 'Share Video'
-        : shortPending && !shortUrl
-          ? 'Preparing Link'
+      : waitingForShortLink
+        ? 'Preparing Link'
+        : fileShare
+          ? 'Share Video'
           : hasShareSheet()
             ? 'Share Link'
             : 'Copy Link';
@@ -399,7 +405,7 @@ export default function ShareAsVideoPanel({
           type="button"
           className="share-hand__video-btn share-hand__video-btn--plate"
           data-clip-action="share"
-          disabled={leaveBusy || (linkOnly && !shortUrl)}
+          disabled={leaveBusy || waitingForShortLink || (linkOnly && !shortUrl)}
           onClick={shareVideo}
         >
           {shareLabel}
