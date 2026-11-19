@@ -3836,6 +3836,13 @@ export interface HorseDecideOpts {
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
    * (config 0, raw rows lost with SSD1) did not pass. */
   omahaRaiseEvCountsLossesOnce?: boolean;
+  /** PLO lane 2026-11-19 (verifier defect, HorseOmahaPricedRules.omahaPricedSampledRaise): opt-in
+   * (`=== true`). The sampled raise of omahaDrawRaiseIsPriced and omahaPressureIsPriced prices the fold,
+   * the call and a raise to each legal size (the minimum, the middle, the maximum and the one proposed),
+   * each raise's fold share at the price that raise lays (omahaPricedSampledFoldAtPrice), and the draw
+   * raise is made to the size of highest value. Off: one size, its fold share size-blind (#11212,
+   * byte-identical). Default OFF; no league yet. */
+  omahaSampledRaiseIsPricedAtEverySize?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw

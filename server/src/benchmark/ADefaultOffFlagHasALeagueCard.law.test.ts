@@ -226,6 +226,11 @@ describe('a default-off Horse flag has a league card', () => {
       omahaPricedPriorsByOpponentKind: () => [...pricedFamilies, ...pricedSites],
       // HorseOmahaPricedWiring.raiseVerdictOf: the priced raise count.
       omahaRaiseEvCountsLossesOnce: () => pricedFamilies,
+      // HorseOmahaPricedWiring.sampledVerdict: the sampled raise of the draw-raise and pressure families.
+      omahaSampledRaiseIsPricedAtEverySize: () => [
+        'omahaDrawRaiseIsPriced',
+        'omahaPressureIsPriced',
+      ],
       // HorseLogic.omahaFacingBetEvCount: the facing-bet EV's realization.
       omahaTurnCallRealizationByRunout: () => ['omahaFacingBetEv'],
     };

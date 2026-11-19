@@ -369,6 +369,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
+  omahaSampledRaiseIsPricedAtEverySize: priced(
+    'the sampled raise at every legal size, its fold share at the price each raise lays (an input, not a rule site)'
+  ),
   omahaPricedMix: priced('mixing between two close priced actions'),
   // the priced sites of 2026-11-18 (HorseOmahaPricedSites.ts)
   omahaMadeHandBetIsPriced: priced('the defence wager beside the check on the card-impact model'),

@@ -60,6 +60,7 @@ import {
   omahaPricedSampledRaise,
   type OmahaPricedRaiseVerdict,
   type OmahaPricedRead,
+  type OmahaPricedSampledSizes,
   type OmahaPricedStreetRates,
 } from './HorseOmahaPricedRules.js';
 
@@ -491,7 +492,30 @@ function sampledVerdict(
       bet: num(p.bet),
       read: omahaPricedReadOfUser(p.user_id, gs, opts),
     })),
+    sizes: sampledSizes(player, gs, opts, spot.toCall),
   });
+}
+/**
+ * omahaSampledRaiseIsPricedAtEverySize (default OFF): the legal raise-to range of the decision, so
+ * the sampled comparison prices the fold, the call and a raise to each legal size, each raise's fold
+ * share at the price it lays. Null with the option off: the one size given, its fold share
+ * size-blind (#11212, byte-identical).
+ */
+function sampledSizes(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  toCall: number
+): OmahaPricedSampledSizes | null {
+  if (opts.omahaSampledRaiseIsPricedAtEverySize !== true) return null;
+  const menu = Array.isArray(gs.legalActions) ? gs.legalActions : null;
+  return {
+    minTo: Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : num(gs.currentBet) * 2,
+    maxTo: potRaiseTo(player, gs, toCall),
+    whole: (gs.bigBlind ?? 1) >= 1,
+    canRaise: menu === null || menu.includes('raise'),
+    canShove: menu === null || menu.includes('all_in'),
+  };
 }
 const potRaiseTo = (player: SeatPlayer, gs: HorseGameStateV2, toCall: number): number => {
   const cap = num(gs.currentBet) + num(gs.pot) + toCall;
@@ -600,6 +624,21 @@ export function omahaPricedDrawRaiseRule(
     )
       raise = !raise;
     if (raise) {
+      // omahaSampledRaiseIsPricedAtEverySize: the raise is made to the size of highest value. The
+      // size given is kept when it is that size (as matched: no more than the deepest opponent holds).
+      const best = verdict.best ?? null;
+      const heroAll = num(player.bet) + num(player.stack);
+      const cover = Math.max(...spot.live.map((p) => num(p.stack) + num(p.bet)));
+      if (best && Math.abs(Math.min(to, heroAll, cover) - best.to) >= 0.006) {
+        if (tele) noteFire('omaha_priced_draw_raise_resized');
+        const resized: HorseDecision =
+          best.to >= heroAll - 0.005
+            ? { ...decision, action: 'all_in' }
+            : { ...decision, action: 'raise', amount: best.to };
+        if (resized.action === 'all_in') delete resized.amount;
+        delete resized.continuationGuard;
+        return resized;
+      }
       if (tele) noteFire('omaha_priced_draw_raise_kept');
       return decision;
     }
