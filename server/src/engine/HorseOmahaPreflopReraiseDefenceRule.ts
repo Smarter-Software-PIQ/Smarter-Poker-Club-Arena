@@ -26,11 +26,16 @@
  * one, at their size.
  *
  * THE READ comes through one function, omahaPreflopReraiserReadOf: the pooled
- * read of today (HorseMind.omahaReadConditionalOf for the re-raise rate,
- * HorseMind.opponentRead for the fold rate), each a posterior mean that is
- * the population mean with no evidence. With the mind off, or no row for the
- * player, the population means decide. A per-street read can replace the body
- * of that one function without touching the decision.
+ * read of today (HorseMind.omahaReadConditionalOf for the re-raise rate), a
+ * posterior mean that is the population mean with no evidence, and the fold
+ * share of the proposed re-raise from his measured answer to exactly that
+ * re-raise (HorseMind.omahaReraiseResponseOf, the threeBetFacesFourBet /
+ * fourBetFacesFiveBet counters, HorseOmahaReraiseResponse.ts) against the
+ * measured population answer of his kind (PREFLOP_DEFENCE_RERAISE_RESPONSE_MEASURED).
+ * With the mind off, no record for him, or the record not carried (the
+ * production column not installed) the population prior alone decides. A
+ * per-street read can replace the body of that one function without touching
+ * the decision.
  *
  * Receipts: omaha_preflop_reraise_defence_fold / _call / _raise (the verdict,
  * every time it answers) and omaha_preflop_reraise_defence_changed when the
@@ -44,6 +49,13 @@ import { HorseMind, readScopeOf } from './HorseMind.js';
 import { exploitEnvelopeFor } from './HorseOpponentExploit.js';
 import { preflopRaiseCount } from './HorseOmahaReraisedPot.js';
 import { omahaIsTournamentMode } from './HorseOmahaTournamentScope.js';
+import { omahaOpponentKindOf, type OmahaOpponentKind } from './HorseOmahaPricedMode.js';
+import {
+  reraiseResponseNodeOf,
+  reraiseResponsePosterior,
+  type ReraiseResponseNode,
+  type ReraiseResponseRates,
+} from './HorseOmahaReraiseResponse.js';
 import {
   OMAHA_PREFLOP_DEFENCE_VARIANTS,
   omahaPreflopDefenceRake,
@@ -61,9 +73,64 @@ export interface OmahaPreflopReraiseDefenceContext {
   telemetry: boolean;
 }
 
-/** The population means used when no envelope is recorded for the game (the full-ring PLO5 envelope's own). */
+/** The population mean re-raise rate used when no envelope is recorded for the game (the full-ring PLO5 envelope's own). */
 export const PREFLOP_DEFENCE_FALLBACK_RERAISE_RATE = 0.046;
-export const PREFLOP_DEFENCE_FALLBACK_FOLD_TO_RERAISE = 0.45;
+
+/**
+ * HOW THE RE-RAISER ANSWERS THE RE-RAISE THE HORSE PROPOSES, MEASURED (2026-11-18). The fold share of a
+ * proposed 4-bet is the 3-bettor's answer to a 4-bet (node threeBetFacesFourBet), of a proposed 5-bet the
+ * 4-bettor's answer to a 5-bet (fourBetFacesFiveBet): never an opener's fold to a 3-bet (foldTo3Bet, a
+ * different player at a different node) and never an assumed constant (the 0.45 this replaced credited a
+ * Horse 4-bet with about 45% folds; persons folded 0 of 196).
+ *
+ * Counts of answers to a Horse's re-raise, PLO4/PLO5 cash with a person seated, 2026-11-10T07:00Z to
+ * 2026-11-18T06:16Z (8,627 hands; WooWoo 48-hour audit lane FOURBET, evidence
+ * woowoo-48h-audit-01BNteGYgf/repairs/FOURBET/FINDINGS.md section 1 and data/events.jsonl; an all-in
+ * re-raise counted as a re-raise, a hand without a recorded answer left out):
+ *  - a person 3-bettor facing a Horse 4-bet: fold 0, call 149, 5-bet 47 (n 196, fold Wilson 95% [0, 1.9%]);
+ *  - a Horse 3-bettor facing a Horse 4-bet: fold 53, call 18, 5-bet 17 (n 88);
+ *  - a person 4-bettor facing a Horse 5-bet: fold 0, call 6, re-raise 1 (n 7);
+ *  - a Horse 4-bettor facing a Horse 5-bet: fold 1, call 8, re-raise 7 (n 16).
+ */
+export const PREFLOP_DEFENCE_RERAISE_RESPONSE_MEASURED: Readonly<
+  Record<OmahaOpponentKind, Readonly<Record<ReraiseResponseNode, ReraiseResponseRates>>>
+> = {
+  person: {
+    threeBetFacesFourBet: { fold: 0, call: 149, raise: 47 },
+    fourBetFacesFiveBet: { fold: 0, call: 6, raise: 1 },
+  },
+  horse: {
+    threeBetFacesFourBet: { fold: 53, call: 18, raise: 17 },
+    fourBetFacesFiveBet: { fold: 1, call: 8, raise: 7 },
+  },
+};
+/** Jeffreys' prior, a half observation per answer, before the measured counts. */
+export const PREFLOP_DEFENCE_RERAISE_RESPONSE_JEFFREYS = 0.5;
+
+/**
+ * The population prior of his answer at `node`, by his kind: the Dirichlet posterior of the measured counts
+ * (count + 1/2 per answer), mean and weight both from the measurement: weight = n + 3/2 opportunities
+ * (persons facing a 4-bet: fold 0.5/197.5 = 0.0025, call 0.757, 5-bet 0.241, weight 197.5). An unknown kind
+ * takes the person prior, the smaller fold share: a fold the measurement never showed is not credited.
+ */
+export function preflopDefenceReraiseResponsePrior(
+  kind: OmahaOpponentKind | null,
+  node: ReraiseResponseNode
+): { prior: ReraiseResponseRates; mass: number } {
+  const c = PREFLOP_DEFENCE_RERAISE_RESPONSE_MEASURED[kind ?? 'person'][node];
+  const j = PREFLOP_DEFENCE_RERAISE_RESPONSE_JEFFREYS;
+  const mass = c.fold + c.call + c.raise + 3 * j;
+  return {
+    prior: { fold: (c.fold + j) / mass, call: (c.call + j) / mass, raise: (c.raise + j) / mass },
+    mass,
+  };
+}
+
+/** What the read needs of the re-raise faced: the raise count it is (2 = a 3-bet) and the re-raiser's kind. */
+export interface OmahaPreflopReraiseFaced {
+  preflopRaises: number;
+  kind: OmahaOpponentKind | null;
+}
 
 export interface OmahaPreflopReraiseDefenceSpotFound {
   spot: OmahaPreflopDefenceSpot;
@@ -166,25 +233,25 @@ export function omahaPreflopReraiseDefenceSpot(
 /**
  * THE ONE READ INTERFACE of the option: what is known of the player who
  * re-raised. Today's pooled read; the population means (the envelope of the
- * game and table size) with the mind off or no row for him.
+ * game and table size) with the mind off or no row for him. His fold share
+ * when re-raised again is the posterior of his own answers at the node of the
+ * re-raise proposed (`faced`) against his kind's measured prior: the prior
+ * alone with the mind off or no record carried for him.
  */
 export function omahaPreflopReraiserReadOf(
   userId: string,
   variant: string,
   dealt: number,
-  mind: boolean
+  mind: boolean,
+  faced: OmahaPreflopReraiseFaced
 ): OmahaPreflopReraiserRead {
   let rate = PREFLOP_DEFENCE_FALLBACK_RERAISE_RATE;
-  let foldToReraise = PREFLOP_DEFENCE_FALLBACK_FOLD_TO_RERAISE;
   let opportunities = 0;
   try {
     const envelope = exploitEnvelopeFor(readScopeOf(variant, dealt), variant);
-    if (envelope) {
-      if (Number.isFinite(envelope.threeBet?.mean)) rate = envelope.threeBet.mean;
-      if (Number.isFinite(envelope.foldTo3Bet?.mean)) foldToReraise = envelope.foldTo3Bet.mean;
-    }
+    if (envelope && Number.isFinite(envelope.threeBet?.mean)) rate = envelope.threeBet.mean;
   } catch {
-    /* the fallback means stand */
+    /* the fallback mean stands */
   }
   if (mind && userId) {
     try {
@@ -193,13 +260,75 @@ export function omahaPreflopReraiserReadOf(
         rate = cond.threeBet.mean;
         opportunities = Number.isFinite(cond.threeBet.n) ? cond.threeBet.n : 0;
       }
-      const fold = HorseMind.opponentRead(userId)?.stats.foldTo3Bet;
-      if (fold && Number.isFinite(fold.mean)) foldToReraise = fold.mean;
     } catch {
-      /* the population means stand */
+      /* the population mean stands */
     }
   }
+  // The re-raiser's own raise was the `preflopRaises`-th of the street: the node of his answer to the next.
+  const node = reraiseResponseNodeOf(faced.preflopRaises) ?? 'threeBetFacesFourBet';
+  const { prior, mass } = preflopDefenceReraiseResponsePrior(faced.kind, node);
+  let record = null;
+  if (mind && userId) {
+    try {
+      record = HorseMind.omahaReraiseResponseOf(userId);
+    } catch {
+      /* the prior alone */
+    }
+  }
+  const posterior = reraiseResponsePosterior(record, node, prior, mass);
+  const foldToReraise = posterior ? posterior.fold : prior.fold;
   return { rate, opportunities, foldToReraise };
+}
+
+/**
+ * omahaPreflopReraiseDefencePricedInPosition (THREEBET-2 lane 2026-11-19; default OFF, read `=== true`): the one spot
+ * where the companion option hands the decision to this rule. True only when ALL hold:
+ *   - the spot of omahaPreflopReraiseDefenceSpot (PLO4/PLO5 cash, high only, one board, preflop, no bomb pot, no
+ *     All-In-Or-Fold, not a tournament, fold legal, chips to call);
+ *   - exactly two preflop raises: the first is the Horse's (it opened; a raise over limpers who then folded counts as
+ *     the first raise), the second is the player it faces (one 3-bet, no 4-bet, nothing else);
+ *   - that player is a person (omahaOpponentKindOf: gs.humanUserIds, else his seat's is_horse; unknown = not the spot);
+ *   - heads-up: every other player has folded (a player still in, all in included, ends the spot);
+ *   - POSITION, ONE DEFINITION for every table kind (table cash and fast-table cash alike): the Horse acts after the
+ *     3-bettor on every later street (seat order from the dealer, the small blind first, the dealer last). Heads-up
+ *     this is also what omahaReraisedPositionOf.ipVsRaiser and the older reading kept for fast tables and
+ *     tournaments (omahaReraisedLaneUntouched) give, because nobody else is in the pot; the spot reads none of them.
+ * The price reads the 3-bettor's own measured re-raise rate (the population mean with no evidence); nothing is keyed
+ * to one player's account. In the spot the option only ever turns a fold into the priced call (HorseLogic).
+ * Everything else (out of position, multiway, a 4-bet, a cold 3-bet, a Horse that did not open) is false, and the
+ * decision is exactly the one with the option off.
+ */
+export function omahaPreflopReraiseDefenceHeadsUpInPosition(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): boolean {
+  try {
+    const found = omahaPreflopReraiseDefenceSpot(player, gs);
+    if (!found || found.spot.preflopRaises !== 2) return false;
+    const raises = (gs.actionHistory ?? []).filter(
+      (a) =>
+        a.stage === 'preflop' &&
+        (a.action === 'raise' ||
+          a.action === 'bet' ||
+          (a.action === 'all_in' && a.isFullRaise !== undefined))
+    );
+    if (raises.length !== 2) return false;
+    if (raises[0]!.seat !== player.seat || raises[1]!.seat !== found.raiserSeat) return false;
+    const othersInHand = (gs.players ?? []).filter(
+      (p) =>
+        p.seat !== player.seat &&
+        p.seat !== found.raiserSeat &&
+        !p.is_folded &&
+        (!p.is_sitting_out || p.is_all_in === true)
+    );
+    if (othersInHand.length > 0) return false;
+    // F2: the 3-bettor is a person (the engine's roster, gs.humanUserIds, else the seat's is_horse flag); unknown is
+    // not the spot. The finding and its evaluation are a person's 3-bets.
+    if (omahaOpponentKindOf(gs, found.raiserUserId) !== 'person') return false;
+    return order(player.seat, gs.dealerSeat) > order(found.raiserSeat, gs.dealerSeat);
+  } catch {
+    return false;
+  }
 }
 
 export interface OmahaPreflopReraiseDefenceAnswer {
@@ -221,7 +350,14 @@ export function omahaPreflopReraiseDefenceAnswer(
     found.raiserUserId,
     found.spot.variant,
     found.dealt,
-    ctx.mind
+    ctx.mind,
+    {
+      preflopRaises: found.spot.preflopRaises,
+      kind: omahaOpponentKindOf(
+        gs as Parameters<typeof omahaOpponentKindOf>[0],
+        found.raiserUserId
+      ),
+    }
   );
   const verdict = omahaPreflopDefenceVerdict(
     found.spot,

@@ -1,0 +1,227 @@
+/**
+ * SWITCH REACH WORKER COUNTERS ARE TELEMETRY ONLY (2026-11-18, Horse Switch lane).
+ *
+ *  - holdem_option_decision_cash / _tournament: one count per FAST decision whose fire scope holds any holdem_*
+ *    receipt, by the request's format; none when no holdem_* receipt fired.
+ *  - <style option>_receipt_picked_seen: one count per R1 action-change re-decision that answered, so
+ *    <option>_changed_action_seen / <option>_receipt_picked_seen is a rate; none when no option applied.
+ * Driven through the production HorseDecisionWorkerRuntime with a scripted brain (the harness of
+ * aStyleActionReceiptNamesAChangedAction.test.ts), and the committed decision is the brain's answer either way.
+ */
+import { performance } from 'node:perf_hooks';
+import { afterEach, describe, expect, it } from 'vitest';
+import { HorseLogic } from '../HorseLogic.js';
+import { HorseMind } from '../HorseMind.js';
+import { equityGovernor } from '../EquityLoadGovernor.js';
+import { fastRandom, restoreFastRandom, saveFastRandom } from '../HorseEval.js';
+import { drainFires, enableBrainTelemetry, noteFire } from '../BrainTelemetry.js';
+import { liveHorsePhase8Safety } from '../HorsePhase8Safety.js';
+import { prepareTournamentFutureHandFacts } from '../HorseTournamentFutureHand.js';
+import { solverPolicyArtifactStatus } from '../../gto/SolverPolicyArtifactLoader.js';
+import { noteStyleOptionApplied, type StyleActionReceiptOption } from '../HorseStyleShadow.js';
+import type { HorseDecision } from '../../types.js';
+import type {
+  FastHorseDecisionRequest,
+  FastHorseDecisionResult,
+  HorseDecisionWorkerResponse,
+} from './protocol.js';
+import { buildHorseDecisionKey } from './protocol.js';
+import {
+  HorseDecisionWorkerRuntime,
+  type HorseDecisionWorkerDependencies,
+} from './workerRuntime.js';
+import {
+  STYLE_SWITCH_OPTIONS,
+  StyleSwitchHolder,
+  styleSwitchSourceFromStates,
+  type StyleSwitchStates,
+} from '../HorseStyleSwitch.js';
+import { currentReplaySolverStores } from './replay/references.js';
+import { qualifiedReplayAdmissions } from './replay/qualifiedAuthority.js';
+import {
+  PHASE6C_FIXTURE_IDS as IDS,
+  phase6cFixtureBody,
+  phase6cFixtureRecord,
+} from './replay/fixtures/index.js';
+
+const SEED = 20261115;
+const DECISION_TIME_MS = Date.UTC(2099, 0, 1, 0, 0, 30);
+
+const readiness = () => {
+  const { identity, charts, postflop, postflopV31, postflopV31Dataset } =
+    currentReplaySolverStores();
+  return {
+    solverStores: { charts, postflop, postflopV31, postflopV31Dataset },
+    solverStoreIdentity: identity,
+    solverPolicyArtifact: solverPolicyArtifactStatus(),
+    governor: equityGovernor.snapshot(),
+  };
+};
+
+const allOn = (): StyleSwitchStates =>
+  Object.fromEntries(STYLE_SWITCH_OPTIONS.map((o) => [o, 'on'])) as StyleSwitchStates;
+
+function riverRequest(): FastHorseDecisionRequest {
+  const base = phase6cFixtureBody<{ snapshot: FastHorseDecisionRequest }>(
+    phase6cFixtureRecord(IDS.cashNlhRiver)
+  ).snapshot;
+  const request = {
+    ...base,
+    decisionTimeMs: DECISION_TIME_MS,
+  } as unknown as FastHorseDecisionRequest;
+  return { ...request, decisionKey: buildHorseDecisionKey(request) };
+}
+
+type Opts = Record<string, unknown>;
+/** A scripted brain: what it answers with and without each option, and what it notes on the way. */
+interface Script {
+  applies: StyleActionReceiptOption[];
+  /** the answer when every applied option is on, and the answer when `option` is off */
+  on: HorseDecision;
+  off: Partial<Record<StyleActionReceiptOption, HorseDecision>>;
+  /** read-time receipts the brain fires on every call (twice, as a bettor read at two places would) */
+  reads?: string[];
+}
+
+interface Run {
+  fast: FastHorseDecisionResult;
+  deep: HorseDecision;
+  calls: Opts[];
+  features: string[];
+  fires: Record<string, number>;
+}
+
+async function run(script: Script): Promise<Run> {
+  HorseMind.reset();
+  restoreFastRandom(SEED);
+  const request = riverRequest();
+  const calls: Opts[] = [];
+  const features: string[] = [];
+  const messages: HorseDecisionWorkerResponse[] = [];
+  const brain = (
+    _p: unknown,
+    _g: unknown,
+    _s: unknown,
+    _m: unknown,
+    opts: Opts = {}
+  ): HorseDecision => {
+    calls.push(opts);
+    fastRandom();
+    fastRandom();
+    for (const k of script.reads ?? []) {
+      noteFire(k);
+      noteFire(k);
+    }
+    let answer = script.on;
+    for (const o of script.applies) {
+      if (opts[o] === false) answer = script.off[o] ?? script.on;
+      else noteStyleOptionApplied(o);
+    }
+    return { ...answer };
+  };
+  const deps: HorseDecisionWorkerDependencies = {
+    ...qualifiedReplayAdmissions,
+    journalEnabled: () => false,
+    async startServices() {
+      prepareTournamentFutureHandFacts();
+      return readiness();
+    },
+    async stopServices() {},
+    decide: brain as never,
+    decideDiscard: HorseLogic.decideDiscard.bind(HorseLogic),
+    captureDecisionEffects: (fn) => HorseMind.captureDecisionEffects(fn),
+    applyDecisionEffects: () => {},
+    saveRng: saveFastRandom,
+    restoreRng: restoreFastRandom,
+    governorScale: () => equityGovernor.current(),
+    atGovernorScale: (fn) => equityGovernor.withDecisionScale(fn),
+    workerReadiness: readiness,
+    phase8SafetyDisabledReason: () => liveHorsePhase8Safety.disabledReason,
+    observeCompletedHand: () => {},
+    noteDecision: () => {},
+    noteFeature: (k: string) => {
+      features.push(k);
+    },
+    now: () => performance.now(),
+    styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(allOn()), () => {}),
+  };
+  enableBrainTelemetry();
+  drainFires();
+  const runtime = new HorseDecisionWorkerRuntime((m) => messages.push(m), deps);
+  await runtime.start();
+  runtime.receive(request);
+  await runtime.drain();
+  const fast = messages.find((m): m is FastHorseDecisionResult => m.type === 'FAST_RESULT');
+  if (!fast) throw new Error(`no FAST result: ${JSON.stringify(messages.at(-1))}`);
+  const fastFires = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+  const deepDraft = {
+    ...request,
+    type: 'DECIDE_DEEP' as const,
+    requestId: request.requestId + 1,
+    rngBefore: fast.rngBefore,
+    deepEquity: 2,
+  };
+  runtime.receive({ ...deepDraft, decisionKey: buildHorseDecisionKey(deepDraft) } as never);
+  await runtime.drain();
+  const deep = messages.find((m) => m.type === 'DEEP_RESULT') as
+    | { decision: HorseDecision }
+    | undefined;
+  if (!deep) throw new Error(`no DEEP result: ${JSON.stringify(messages.at(-1))}`);
+  const deepFires = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+  for (const [k, n] of Object.entries(deepFires)) fastFires[`deep:${k}`] = n;
+  return { fast, deep: deep.decision, calls, features, fires: fastFires };
+}
+
+const CALL: HorseDecision = { action: 'call', amount: 40, thinkTime: 0 };
+const FOLD: HorseDecision = { action: 'fold', thinkTime: 0 };
+const holdemSplit = (fs: string[]) => fs.filter((k) => k.startsWith('holdem_option_decision_'));
+const picked = (fs: string[]) => fs.filter((k) => k.endsWith('_receipt_picked_seen'));
+
+afterEach(() => {
+  HorseMind.setDecisionScope(null);
+  HorseMind.reset();
+});
+
+describe('holdem_option_decision_cash / _tournament', () => {
+  it('a cash decision with a holdem_* receipt in its scope is counted once, as cash', async () => {
+    const r = await run({
+      applies: [],
+      on: CALL,
+      off: {},
+      reads: ['holdem_persona_open_shift_seen'],
+    });
+    expect(r.fast.decision.action).toBe('call');
+    expect(holdemSplit(r.features)).toEqual(['holdem_option_decision_cash']);
+  });
+  // The tournament arm is the same line with gameMode 'tournament'; the replay fixture here is a cash hand and the
+  // worker refuses it relabelled as a tournament (settlement chip rules), so that arm is pinned by reading only.
+  it('no holdem_* receipt in the scope: nothing counted', async () => {
+    const r = await run({ applies: [], on: CALL, off: {}, reads: ['style_fold_bluff_seen'] });
+    expect(holdemSplit(r.features)).toEqual([]);
+  });
+});
+
+describe('<style option>_receipt_picked_seen', () => {
+  it('counted once per re-decision that answered, changed or not; the decision is the brain answer', async () => {
+    const changed = await run({
+      applies: ['styleBigBetHonesty'],
+      on: FOLD,
+      off: { styleBigBetHonesty: CALL },
+    });
+    expect(changed.fast.decision.action).toBe('fold');
+    expect(picked(changed.features)).toEqual(['style_big_bet_honesty_receipt_picked_seen']);
+    expect(changed.features).toContain('style_big_bet_honesty_changed_action_seen');
+    const same = await run({
+      applies: ['styleBigBetHonesty'],
+      on: FOLD,
+      off: { styleBigBetHonesty: FOLD },
+    });
+    expect(same.fast.decision.action).toBe('fold');
+    expect(picked(same.features)).toEqual(['style_big_bet_honesty_receipt_picked_seen']);
+    expect(same.features).not.toContain('style_big_bet_honesty_changed_action_seen');
+  });
+  it('no option applied: no re-decision and nothing counted', async () => {
+    const r = await run({ applies: [], on: CALL, off: {} });
+    expect(picked(r.features)).toEqual([]);
+  });
+});

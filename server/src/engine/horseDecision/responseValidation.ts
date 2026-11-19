@@ -31,6 +31,7 @@ import { JOINT_LIVE_DOMAIN } from '../multiway/JointLivePolicy.js';
 import { horsePhase13ContinuationVersion } from '../HorsePhase13Authority.js';
 import {
   PLO_PAIRED_BOARD_VARIANTS,
+  ploPairedBoardMustFold,
   ploPairedBoardRiverMustCheck,
 } from '../HorsePloPairedBoardFold.js';
 import { callLargeRiverBoatWager } from '../HorseOmahaBigBetCalls.js';
@@ -1497,12 +1498,51 @@ function policyGraphIsValidInScope(
     // is admitted only with the request, only in the spot the rule covers and
     // only for the exact chips the call puts in. Its whole-stack form is an
     // all-in, a wager action.
+    // The composed chain inside wager_rules (journal debcf579..., 2026-11-18
+    // 23:00:11Z, Lightning PLO5): a raise or an all-in raise that the PLO
+    // paired-board fold turned into a fold, then omahaFacingBetEv turned into
+    // the call. The node records raise -> call; the fold in between is not
+    // recorded. At a table the same transition was admitted only because the
+    // nut-rule admission happens to cover it (omahaRaiseNeedsNutsScope), which
+    // refuses Lightning, so the Horse got a fallback action there. It is
+    // admitted where both rules hold on the request: the paired-board fold
+    // spot (re-run, with and without V86 multi-street, which the request does
+    // not carry) and the facing-bet EV spot for the exact chips below.
+    const pairedFoldThenEvCall =
+      previous !== null &&
+      (previous.action === 'raise' || previous.action === 'all_in') &&
+      context !== undefined &&
+      PLO_PAIRED_BOARD_VARIANTS.has(variant) &&
+      (() => {
+        const gs = context.gameState;
+        // plo4/plo5/plo6 only (PLO_PAIRED_BOARD_VARIANTS): high-only unless the table's rules say split
+        const hiLo = gs.variantRules?.splitLow8OrBetter === true;
+        const input = {
+          gameVariant: gs.gameVariant,
+          hiLo,
+          multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+          board: gs.communityCards ?? [],
+          hero: context.player,
+          players: gs.players ?? [],
+          currentBet: gs.currentBet,
+          toCall: gs.toCall,
+          pot: gs.pot,
+        };
+        try {
+          return (
+            ploPairedBoardMustFold({ ...input, v86MultiStreetUnblocked: true }) ||
+            ploPairedBoardMustFold({ ...input, v86MultiStreetUnblocked: false })
+          );
+        } catch {
+          return false;
+        }
+      })();
     const omahaFacingBetEvCalled =
       transition.node === 'wager_rules' &&
       omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
-      previous.action === 'fold' &&
+      (previous.action === 'fold' || pairedFoldThenEvCall) &&
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       (() => {

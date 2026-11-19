@@ -388,6 +388,72 @@ export class F06HandPermit {
     return this.preparedCancellation;
   }
 
+  /**
+   * A RETAINED PREPARED ORIGINAL IS CANCELLED, NOT FENCED (hand delay,
+   * 2026-11-19). The seq-0 save of an unstarted original now runs under the
+   * between-hands rest, so a pause can meet a saved hand that never started.
+   * Only this object can prove the start never ran (`start` was never
+   * called after attemptOriginalRetention); it gives that proof up first,
+   * synchronously, so no later start can race the release, then asks SQL to
+   * delete the unstarted capsule and close the permit never_started in one
+   * transaction (fn_f06_cancel_retained_prepared_hand). The receipt is the
+   * same one fn_f06_cancel_prepared_hand writes. A lost reply keeps the
+   * intent: the same call replays with the same identity. The phase stays
+   * `attempted` until the receipt is proved, so a caller that cannot finish
+   * the release leaves the capsule custody exactly as it was.
+   */
+  async cancelRetainedPreparedHand(): Promise<void> {
+    if (
+      !this.current() ||
+      this.phase !== 'attempted' ||
+      !(this.originalRetentionAwaitingStart || this.retainedCancellation)
+    )
+      throw new Error('f06_retained_cancellation_unproven');
+    this.retainedCancellation = true;
+    this.originalRetentionAwaitingStart = false; // start() is refused from here on.
+    const b = this.binding;
+    const input = {
+      p_tournament_id: b.tournament_id,
+      p_lease_generation: b.lease_generation,
+      p_table_id: b.table_id,
+      p_lifecycle: b.lifecycle,
+      p_permit_id: b.permit_id,
+      p_hand_number: b.hand_number,
+      p_custody_id: b.custody_id,
+    };
+    const valid = (data: unknown): boolean => {
+      const r = data as Record<string, unknown> | null;
+      return (
+        !!r &&
+        r.ok === true &&
+        r.state === 'never_started' &&
+        r.evidence_id === b.permit_id &&
+        r.tournament_id === b.tournament_id &&
+        r.table_id === b.table_id &&
+        r.lifecycle === b.lifecycle &&
+        r.hand_number === b.hand_number &&
+        r.permit_id === b.permit_id &&
+        r.custody_id === b.custody_id &&
+        r.generation === b.lease_generation
+      );
+    };
+    const result = await observeCurrentEngineWriter(
+      'permit-finish',
+      JSON.stringify({ ...b, kind: 'retained-prepared-cancellation' }),
+      () => this.rpc('fn_f06_cancel_retained_prepared_hand', input),
+      (value) => !!value.error || !valid(value.data)
+    );
+    if (!this.current() || result.error || !valid(result.data))
+      throw new Error('f06_retained_cancellation_unknown');
+    this.phase = 'terminated';
+    this.preparedCancellation = true;
+  }
+  private retainedCancellation = false;
+  /** A retained prepared original whose release was asked for; never starts. */
+  hasRetainedCancellation(): boolean {
+    return this.retainedCancellation;
+  }
+
   assertPreparedStartAllowed(): void {
     if (this.phase !== 'reserved' || !this.current() || !this.startAllowed())
       throw new Error('f06_start_unproven');

@@ -604,6 +604,14 @@ export interface OptionSwitchPreflopHoldLift {
  * horsePlayStyles (the three Horse playing styles, default OFF): its tight and pressure styles move preflop entry
  * and 3-bet/4-bet bars. Lifted by the owner's 2026-11-15 16:42 Chicago text, ruled sufficient for this option alone
  * by Hand Analysis (inbox 2026-11-16T03:06:28Z, B1).
+ * omahaPreflopReraiseDefencePricedInPosition (THREEBET-2, default OFF): the in-position heads-up scope of the priced
+ * preflop re-raise defence (it changes the continuing range of an opener against one 3-bet). Lifted for this name alone
+ * under the owner's delegation of activation decisions to the WooWoo audit programme lane, 2026-11-18: "YOU OWN THE
+ * CODEBASE, YOU DECIDE WHAT TURNS ON AND IF ITS READY" (relayed by the integrator, session 013U37bYh22, in the
+ * THREEBET-2 brief), and the owner text it repeats, recorded verbatim at 2026-11-18T00:01:03Z in the programme
+ * checkpoint ("you own this code base ... turn activation on and off as you see fit"). The lift makes the switch
+ * accept `on` and `off`; it turns nothing on. omahaPreflopReraiseDefencePriced itself and every other
+ * PREFLOP_HOLD_SOURCE entry stay off-only.
  */
 export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
   Record<string, OptionSwitchPreflopHoldLift>
@@ -614,6 +622,13 @@ export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
     file: 'OWNER-TEXT-20261115-1000-PLO-CHAT-VERBATIM.md',
     sha256: '7921dea5df9daf5992faacb5a585f2fa67e2ae1c878936f040a3e7b0eea58b39',
     readAt: '2026-11-16T03:22:11Z (15,830 bytes; append-only, the digest moves as the file grows)',
+  }),
+  omahaPreflopReraiseDefencePricedInPosition: Object.freeze({
+    source:
+      'owner 2026-11-18, delegation of activation decisions to the WooWoo audit programme lane: "YOU OWN THE CODEBASE, YOU DECIDE WHAT TURNS ON AND IF ITS READY" (relayed by the integrator, session 013U37bYh22); the owner text it repeats, verbatim at 2026-11-18T00:01:03Z: "you own this code base ... turn activation on and off as you see fit." Lift for omahaPreflopReraiseDefencePricedInPosition by name, alone',
+    file: 'woowoo-48h-audit-01BNteGYgf/CHECKPOINT.md',
+    sha256: '63f041c4ca82354bcc6bec5edd93d7e121a56d6f8518aa99507d1d9de53b1be6',
+    readAt: '2026-11-19T01:14:21Z (135,509 bytes; append-only, the digest moves as the file grows)',
   }),
 });
 /** The names whose off-only entry is the owner preflop range hold (used by the lift law test). */

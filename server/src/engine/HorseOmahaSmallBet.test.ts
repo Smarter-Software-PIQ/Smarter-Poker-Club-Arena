@@ -17,6 +17,7 @@ import {
 } from './HorseOmahaCardImpact.js';
 import {
   omahaSmallBetAmounts,
+  omahaSmallBetComparesSize,
   omahaSmallBetCurve,
   omahaSmallBetVerdict,
 } from './HorseOmahaSmallBet.js';
@@ -267,5 +268,61 @@ describe('omahaSmallBetIsPriced receipts describe the final action (blockbet rev
         }
     expect(made).toBeGreaterThan(0);
     expect(vetoed).toBeGreaterThan(0);
+  });
+});
+
+describe('one owner of the size (verifier D1/D2/D11, 2026-11-19)', () => {
+  it('without a handed-over press the verdict is exactly the small-bet verdict', () => {
+    for (const build of ALL) {
+      const st = build();
+      for (const d of [check, ...omahaSmallBetAmounts(st.hero, st.gs).map((a) => bet(a + 1))]) {
+        const plain = JSON.stringify(omahaSmallBetVerdict(d, st.hero, st.gs, null));
+        omahaCardImpactResetCache();
+        expect(JSON.stringify(omahaSmallBetVerdict(d, st.hero, st.gs, null, null))).toBe(plain);
+        omahaCardImpactResetCache();
+      }
+    }
+  });
+  it('a later size is priced on the same sample and curve as the placed bet, and taken only by the margin', () => {
+    let compared = 0;
+    for (const build of ALL) {
+      const st = build();
+      const v = omahaSmallBetVerdict(check, st.hero, st.gs, null);
+      if (v.changed === null) continue;
+      const placed = v.decision.amount!;
+      for (const share of [0.4, 0.5, 1]) {
+        const other = Math.round(st.gs.pot * share);
+        if (!(other > placed) || other >= st.hero.stack) continue;
+        const cmp = omahaSmallBetComparesSize(placed, other, st.hero, st.gs, null)!;
+        expect(cmp).not.toBeNull();
+        compared++;
+        // the placed bet is priced exactly as the verdict priced it
+        expect(cmp.evPlaced).toBeCloseTo(v.best!.ev, 6);
+        expect(cmp.margin).toBe(v.margin);
+        expect(cmp.takeOther).toBe(cmp.evOther >= cmp.evPlaced + cmp.margin);
+      }
+    }
+    expect(compared).toBeGreaterThan(0);
+  });
+  it('a handed-over press is one more priced candidate: chosen only when it is the best and beats the owner by the margin', () => {
+    let changed = 0;
+    for (const build of ALL) {
+      const st = build();
+      const pot = st.gs.pot;
+      const press = Math.round(pot * 0.75);
+      if (!(press < st.hero.stack)) continue;
+      const v = omahaSmallBetVerdict(check, st.hero, st.gs, null, press);
+      if (v.changed === null) continue;
+      changed++;
+      expect(v.best!.ev).toBeGreaterThanOrEqual(v.evOwner! + v.margin);
+      if (v.changed === 'press_bet') {
+        expect(v.decision.amount).toBe(press);
+      } else expect(omahaSmallBetAmounts(st.hero, st.gs)).toContain(v.decision.amount);
+    }
+    expect(changed).toBeGreaterThan(0);
+  });
+  it('out of the card-impact scope (the flop) nothing is compared: the placed bet stands', () => {
+    const st = acesFlop();
+    expect(omahaSmallBetComparesSize(2, 10, st.hero, st.gs, null)).toBeNull();
   });
 });

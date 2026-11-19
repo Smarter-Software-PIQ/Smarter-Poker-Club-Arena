@@ -8,13 +8,22 @@
  * F06_RESERVE_LEAD_MS of the rest, then finishes the rest, re-applies the last
  * look and only then builds, retains and starts the hand.
  *
+ * 2026-11-19: the seq-0 save of the prepared original moved under the rest
+ * too; the rest ends after the save (runOriginalController).
+ *
  * Pinned here, on the real dealHand, the real F06HandPermit and an RPC fake
  * that keeps SQL's one-reserved-permit-per-table rule:
- *   - the reservation happens before the rest ends, the hand never before it;
- *   - every hold that can arrive inside the remaining rest (maintenance,
- *     hand-for-hand, balancing move, final-table deal, terminal close-out,
- *     weekly payout, admin, Cluster halt, a stop) leaves no hand and releases
- *     the permit exactly once, through fn_f06_cancel_prepared_hand;
+ *   - the reservation and the save happen before the rest ends, the hand
+ *     never before it;
+ *   - every hold (maintenance, hand-for-hand, balancing move, final-table
+ *     deal, terminal close-out, weekly payout, admin, Cluster halt, a stop)
+ *     that stands before the build releases the permit exactly once through
+ *     fn_f06_cancel_prepared_hand, and one that arrives after the save
+ *     releases the saved original exactly once through
+ *     fn_f06_cancel_retained_prepared_hand - never an engine fence;
+ *   - a lost retained release is replayed with the same identity; one that
+ *     cannot be proved keeps the old custody (fence while running, capsule
+ *     left for the successor on a stop);
  *   - a lost release is finished by the next attempt, never a second permit;
  *   - a begin refused for a named reason (source_excluded) frees the slot,
  *     and the next attempt begins fresh instead of replaying the refusal;
@@ -85,16 +94,44 @@ describe('the F06 permit is reserved under the rest', () => {
     expect(f.engine.dealAbandonedAtRestEnd).toBe(false);
   });
 
-  it.each(HOLDS)(
-    '%s arriving inside the remaining rest deals nothing and releases the permit exactly once',
+  // A stop during fn_f06_begin_hand is the reservation's own fence
+  // (f06_dealer_fenced, stop custody); every other owner is read here.
+  it.each(HOLDS.filter(([name]) => name !== 'an engine stop'))(
+    '%s standing at the reservation deals nothing, saves nothing and releases the permit exactly once',
     async (_name, hold) => {
-      // Applied after the reservation, while dealHand waits out the rest.
+      // Applied while fn_f06_begin_hand is in flight: no build, no save.
+      const f = fixture({ onBegin: () => hold(f.engine) });
+      await f.armRestAndLead(1100);
+      await f.engine.dealHand(f.seats);
+      expect(f.started).not.toHaveBeenCalled();
+      expect(f.retainedAt).toEqual([]);
+      expect(f.cancels()).toBe(1);
+      expect(f.retainedCancels()).toBe(0);
+      expect([...f.db.values()].map((row) => row.state)).toEqual(['never_started']);
+      expect(f.reserved()).toEqual([]);
+      expect(f.engine.f06PermitPhase()).toBe('none');
+      expect(f.killed).not.toHaveBeenCalled();
+      expect(f.engine.handCount).toBe(0);
+    }
+  );
+
+  it.each(HOLDS)(
+    '%s arriving after the save, inside the remaining rest, releases the saved original exactly once',
+    async (_name, hold) => {
+      // Applied after the reservation and the seq-0 save, while the rest runs.
       const f = fixture({ onBegin: () => void setTimeout(() => hold(f.engine), 100) });
       await f.armRestAndLead(1100);
       await f.engine.dealHand(f.seats);
       expect(f.started).not.toHaveBeenCalled();
+      expect(f.retainedAt).toHaveLength(1);
       expect(f.engine.dealAbandonedAtRestEnd).toBe(true);
-      expect(f.cancels()).toBe(1);
+      expect(f.retainedCancels()).toBe(1);
+      expect(f.cancels()).toBe(0);
+      // No strand: the capsule is gone and nothing holds the table.
+      expect([...f.capsules.keys()]).toEqual([]);
+      expect(f.engine.retainedPreparedOriginalController).toBeNull();
+      expect(f.engine.handController).toBeNull();
+      expect(f.killed).not.toHaveBeenCalled();
       expect([...f.db.values()].map((row) => row.state)).toEqual(['never_started']);
       expect(f.reserved()).toEqual([]);
       expect(f.engine.f06PermitPhase()).toBe('none');
@@ -108,20 +145,90 @@ describe('the F06 permit is reserved under the rest', () => {
     }
   );
 
+  it('a saved original whose release reply is lost is released by the exact replay', async () => {
+    const f = fixture({
+      loseRetainedCancelReply: 1,
+      onBegin: (n) => {
+        if (n === 1) setTimeout(() => (f.engine.adminPauseLock = true), 100);
+      },
+    });
+    await f.armRestAndLead(1100);
+    await f.engine.dealHand(f.seats);
+    expect(f.started).not.toHaveBeenCalled();
+    const calls = f.rpc.mock.calls.filter(([n]) => n === 'fn_f06_cancel_retained_prepared_hand');
+    expect(calls).toHaveLength(2);
+    expect(calls[1][1]).toEqual(calls[0][1]);
+    expect([...f.db.values()].map((row) => row.state)).toEqual(['never_started']);
+    expect(f.engine.f06PermitPhase()).toBe('none');
+    expect(f.killed).not.toHaveBeenCalled();
+    f.engine.adminPauseLock = false;
+    await f.dealsTheNextHand();
+    expect([...f.db.values()].map((row) => row.state)).toEqual(['never_started', 'reserved']);
+  });
+
+  it('a saved original whose release SQL refuses keeps the old custody: fenced while running', async () => {
+    const f = fixture({
+      refuseRetainedCancel: true,
+      onBegin: () => void setTimeout(() => (f.engine.adminPauseLock = true), 100),
+    });
+    await f.armRestAndLead(1100);
+    await f.engine.dealHand(f.seats);
+    expect(f.started).not.toHaveBeenCalled();
+    expect(f.killed).toHaveBeenCalledWith('retained_original_start_unproven');
+    expect([...f.capsules.keys()]).toHaveLength(1);
+    expect(f.reserved()).toHaveLength(1);
+  });
+
+  it('a stop whose release SQL refuses leaves the capsule for the successor, unfenced', async () => {
+    const f = fixture({
+      refuseRetainedCancel: true,
+      onBegin: () => void setTimeout(() => (f.engine.running = false), 100),
+    });
+    await f.armRestAndLead(1100);
+    await f.engine.dealHand(f.seats);
+    expect(f.started).not.toHaveBeenCalled();
+    expect(f.killed).not.toHaveBeenCalled();
+    expect([...f.capsules.keys()]).toHaveLength(1);
+    expect(f.engine.f06PermitPhase()).toBe('attempted');
+  });
+
+  it('a hold that meets a saved original past the last look is released, not fenced', async () => {
+    const f = fixture();
+    await f.armRestAndLead(400);
+    // A financial start boundary held past the rest: the hold lands after
+    // the last look and before the start, the old fence site.
+    let releaseStart: () => void = () => {};
+    const gate = new Promise<void>((r) => (releaseStart = r));
+    const original = f.engine.acquireFinancialControllerStart.bind(f.engine);
+    let reached = false;
+    f.engine.acquireFinancialControllerStart = async () => {
+      reached = true;
+      await gate;
+      return original();
+    };
+    const deal = f.engine.dealHand(f.seats);
+    await vi.waitFor(() => expect(reached).toBe(true), { timeout: 3000 });
+    f.engine.dealingHaltLock = true;
+    releaseStart();
+    await deal;
+    expect(f.started).not.toHaveBeenCalled();
+    expect(f.retainedCancels()).toBe(1);
+    expect(f.killed).not.toHaveBeenCalled();
+    expect([...f.db.values()].map((row) => row.state)).toEqual(['never_started']);
+  });
+
   it('a release whose reply is lost is finished by the next attempt before any new permit', async () => {
     const f = fixture({
       loseCancelReply: 1,
       onBegin: (n) => {
-        if (n === 1) setTimeout(() => (f.engine.adminPauseLock = true), 100);
+        if (n === 1) f.engine.adminPauseLock = true;
       },
     });
     await f.armRestAndLead(1100);
     // The same pause path as a hold that arrives after the reservation always
     // had: the lost receipt surfaces to the loop's error handling, and the
     // permit stays held as a positive cancellation intent - never re-begun.
-    await expect(f.engine.dealHand(f.seats)).rejects.toThrow(
-      'f06_prepared_cancellation_unknown'
-    );
+    await expect(f.engine.dealHand(f.seats)).rejects.toThrow('f06_prepared_cancellation_unknown');
     expect(f.started).not.toHaveBeenCalled();
     expect(f.engine.f06PermitPhase()).toBe('terminated');
     expect(f.engine.hasUnresolvedF06Preparation()).toBe(true);

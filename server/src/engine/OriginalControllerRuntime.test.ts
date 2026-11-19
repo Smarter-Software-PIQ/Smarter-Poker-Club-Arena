@@ -519,7 +519,7 @@ it('keeps the retained prepared original when maintenance arrives during its fir
 });
 
 it.each([false, true])(
-  'fences a prepared original refused by a polled owner (claimed: %s)',
+  'refuses a prepared original met by a polled owner: fences a claimed one, hands a saved one to its release (claimed: %s)',
   async (claimed) => {
     const { e, emitted, roster } = fixture();
     const controller: HandController = e.handController;
@@ -562,11 +562,19 @@ it.each([false, true])(
         e.adminPauseLock = true;
       };
     }
-    await e.runOriginalController(roster, controller, 42, Date.now(), {
-      started: false,
-      cause: null,
-    });
-    expect(e.killForRestart).toHaveBeenCalledWith('retained_original_start_unproven');
+    const attempt = { started: false, cause: null as string | null };
+    await e.runOriginalController(roster, controller, 42, Date.now(), attempt);
+    // A claimed original is fenced here, as always. The one this process
+    // saved is handed to dealHand's finally, which releases it exactly once
+    // (fn_f06_cancel_retained_prepared_hand, 2026-11-19) or fences it there
+    // when the release cannot be proved (ThePermitIsReservedUnderTheRest).
+    if (claimed) {
+      expect(e.killForRestart).toHaveBeenCalledWith('retained_original_start_unproven');
+    } else {
+      expect(e.killForRestart).not.toHaveBeenCalled();
+      expect(e.retainedOriginalMetAHold).toBe(true);
+      expect(attempt.cause).toBe('retained_original_met_a_hold');
+    }
     expect(emitted).toEqual([]);
     expect(e.handController).toBe(controller);
     expect(JSON.parse(controller.serializeRecoveryState()).handStarted).toBe(false);
@@ -651,7 +659,7 @@ it('resumes a reclaimed unstarted original while an unclaimed move waits', async
   expect(e.pendingOriginalContinuation).toBeNull();
 });
 
-it('still fences a retained original when an admin pause sits beside the move', async () => {
+it('still refuses a retained original when an admin pause sits beside the move', async () => {
   const { e, emitted, roster } = fixture();
   const controller: HandController = e.handController;
   await originalPermit(e);
@@ -668,9 +676,12 @@ it('still fences a retained original when an admin pause sits beside the move', 
   });
   // The move alone neither parks nor holds the original (an unclaimed move on
   // a retained original is not a release-holding owner); the polled admin
-  // owner still fences it at the start edge.
+  // owner still refuses it at the start edge. Since 2026-11-19 the refusal is
+  // handed to dealHand's finally, which releases the saved original exactly
+  // once instead of fencing the engine.
   await run;
-  expect(e.killForRestart).toHaveBeenCalledWith('retained_original_start_unproven');
+  expect(e.killForRestart).not.toHaveBeenCalled();
+  expect(e.retainedOriginalMetAHold).toBe(true);
   expect(emitted).toEqual([]);
   expect(JSON.parse(controller.serializeRecoveryState()).handStarted).toBe(false);
 });
