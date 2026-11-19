@@ -8886,8 +8886,8 @@ function omahaReraisedPotRulesThenCallVsRaise(
 
 /**
  * omahaPreflopJamFacingReraiseIsPriced (2026-11-19, default OFF, read `=== true`;
- * hand #60156608): PLO4/PLO5 cash tables, high only, one board, no bomb pot, not
- * Lightning, preflop, facing two or more raises heads-up with the re-raiser not
+ * hand #60156608): PLO4/PLO5 cash (table and Lightning), high only, one board, no bomb pot,
+ * preflop, facing two or more raises heads-up with the re-raiser not
  * all in and chips behind after a call. The standing fold, call or raise (a 4-bet,
  * a 5-bet, a jam) is replaced by the largest of EV(fold) = 0, EV(call) and
  * EV(raise) at the lower bound of hero's equity against the measured ranges
@@ -8918,7 +8918,9 @@ function omahaPreflopFacingReraiseThreeWay(
     if (kind === null) return standing;
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (variant !== 'plo4' && variant !== 'plo5') return standing;
-    if (omahaCashOnlyExcludes(player, gs) || omahaReraisedLaneUntouched(gs, opts)) return standing;
+    // Lightning (fast-fold) cash is priced too: the owner's aces question (2026-11-19 16:56 Chicago) is
+    // mostly there (34 of 46 heads-up calls of aces facing a 4-bet or more from a person in the held-out set).
+    if (omahaCashOnlyExcludes(player, gs) || isTournamentMode(gs)) return standing;
     if (gs.bombPot === true || gs.allInOrFold === true) return standing;
     if (gs.communityCards2?.length || gs.communityCards3?.length) return standing;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : variantInfo(gs.gameVariant).isHiLo)

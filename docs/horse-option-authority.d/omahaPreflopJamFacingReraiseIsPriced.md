@@ -4,7 +4,7 @@ Built 2026-11-19 by lane CALL-OR-RAISE-2B of the WooWoo 48-hour audit successor,
 
 ## What it does
 
-PLO4/PLO5 cash tables, high only, one board, no bomb pot, not Lightning, not a tournament, preflop, facing two or more raises (a 3-bet, a 4-bet, a 5-bet or later), heads-up with the re-raiser, the re-raiser not all in and the Horse with chips behind after a call. Before this option the preflop rules chose the re-raise (4-bet), the 5-bet jam and the call facing a re-raise by the hand's entry-score percentile against a bar (HorsePreflop, `raises >= 3` "jam-or-fold on true premiums only" and the 4-bet threshold facing a 3-bet); no step priced any of them against the hands that put the money in.
+PLO4/PLO5 cash (ordinary and Lightning tables), high only, one board, no bomb pot, not a tournament, preflop, facing two or more raises (a 3-bet, a 4-bet, a 5-bet or later), heads-up with the re-raiser, the re-raiser not all in and the Horse with chips behind after a call. Before this option the preflop rules chose the re-raise (4-bet), the 5-bet jam and the call facing a re-raise by the hand's entry-score percentile against a bar (HorsePreflop, `raises >= 3` "jam-or-fold on true premiums only" and the 4-bet threshold facing a 3-bet); no step priced any of them against the hands that put the money in.
 
 With the option on, the decision the re-raised-pot rules leave standing is replaced by the largest of three EVs, each at the lower bound of the Horse's equity (the estimate minus twice its standard error):
 
@@ -19,6 +19,13 @@ Nothing is keyed to a hand class, the strength percentile, a position, a bet siz
 Hand #60156608 (anonymised suits, unit test): fold 0, call +15.7, 5-bet +9.2 (lower bounds, chips); the call is played.
 
 Boundaries: a call that `omahaPreflopReraiseDefencePricedInPosition` (ON in production) made of a fold is that option's and is not priced here. A spot with any other player still in the hand is not priced. A call that closes an all-in (nothing behind after it) is not priced. `omahaReraisedCallVsRaisePriced` runs after this option on its result.
+
+Owner 2026-11-19 16:56 Chicago (aces facing a raise should get it all in when they can): measurement
+`repairs/CALL-OR-RAISE-2/AA-MEASUREMENT.md`. In PLO4/PLO5 a Horse holding aces facing a person's 4-bet or more called
+95 of 107 times in 7 days (median 1.8 pots behind); the call is chosen by HorseLogic's V38 preflop all-in price
+(`v38_preflop_allin_price`, maniac_price consumer), which jams only to isolate other live players and so calls heads-up
+however few chips stay behind. This option prices those calls against the jam; 34 of the 46 such heads-up calls in the
+held-out set were at Lightning tables, so Lightning cash is in scope.
 
 ## Dependencies
 
@@ -47,7 +54,7 @@ Neither is an order to switch this option on.
 
 ## Limits
 
-Shown hands only (a pot that ends before a showdown is not counted: 180 of 351 people's 4-bets were shown). One pooled composition of people for every opponent: a Horse raiser holds aces more often (Horses' 4-bets shown: 160 aces of 323), so against a Horse this prices the Horse's equity high. No per-player record of shown hands exists in the engine. The rest of the range is the percentile band. Heads-up only. No PLO5 solver exists.
+Shown hands only (a pot that ends before a showdown is not counted: 180 of 351 people's 4-bets were shown). One pooled composition of people for every opponent: a Horse raiser holds aces more often (Horses' 4-bets shown: 160 aces of 323), so against a Horse this prices the Horse's equity high. No per-player record of shown hands exists in the engine. The rest of the range is the percentile band. Heads-up only. At Lightning tables the same realization constants and compositions are used (both were measured over all cash hands; no Lightning-only measurement). No PLO5 solver exists.
 
 ## Rollback
 

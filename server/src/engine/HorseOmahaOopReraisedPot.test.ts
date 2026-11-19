@@ -1900,7 +1900,7 @@ describe('omahaPreflopJamFacingReraiseIsPriced in the decision (default OFF)', (
     }
     expect(priced).toBeGreaterThan(0);
   });
-  it('PLO6, a tournament, Lightning, a bomb pot: on is byte-identical to the rules alone', () => {
+  it('PLO6, a tournament, a bomb pot: on is byte-identical to the rules alone (Lightning cash is priced)', () => {
     const rec = withHole(RECORDED.h59407629, 'KsKhQs9h4d');
     const variants: Array<[string, () => ReturnType<typeof stateAt>]> = [
       ['plo6', () => stateAt({ ...rec, variant: 'plo6', hole: 'KsKhQs9h4d2c' }, 2)],
@@ -1909,18 +1909,6 @@ describe('omahaPreflopJamFacingReraiseIsPriced in the decision (default OFF)', (
         () => {
           const st = stateAt(rec, 2);
           (st.gs as unknown as { gameMode: string }).gameMode = 'tournament';
-          return st;
-        },
-      ],
-      [
-        'lightning',
-        () => {
-          const st = stateAt(rec, 2);
-          (st.gs as unknown as { publicMemoryDomain: object }).publicMemoryDomain = {
-            version: 1,
-            speed: 'lightning',
-            ante: 'none',
-          };
           return st;
         },
       ],
