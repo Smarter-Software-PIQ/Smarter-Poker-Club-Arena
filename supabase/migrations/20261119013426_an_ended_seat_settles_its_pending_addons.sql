@@ -60,10 +60,10 @@
 -- 400.00, 17,600.00 in total, 44 new 'addon_refund:' keys, deferred
 -- constraints (ledger tally, seat custody) passed under SET CONSTRAINTS ALL
 -- IMMEDIATE. All 44 are horses (10.5: refunded exactly as a human). The block
--- below asserts every probed id is still in the probed state and aborts if the
--- board moved. Rows whose seat ended after the probe and before this commit
--- (same defect, same evidence required) are settled by the same path and
--- reported. The 5 rows whose player is seated at that table now (4 re-seated
+-- below checks each row's own evidence and aborts whole if any row fails it
+-- (it no longer pins the probed count; see the note in the block). Rows whose
+-- seat ended after the probe and before this commit (same defect, same
+-- evidence required) are settled by the same path and reported. The 5 rows whose player is seated at that table now (4 re-seated
 -- after the funded occupancy ended, 1 still on it) are not touched: resolving
 -- them now would land 400 on a live Lightning anchor; the trigger refunds each
 -- the moment that seat ends, or the engine delivers it first. Nothing is
@@ -172,65 +172,22 @@ UPDATE public.ca_declared_money_triggers
 -- THE SETTLEMENT: the rows whose seat ended before this body existed.
 DO $settle$
 DECLARE
-  v_probed uuid[] := ARRAY[
-    '2931968a-7ebd-4c7e-990d-1a43845d12b2','bd8af98c-3db4-4b5c-b8b2-bed12f8775d1',
-    '038653a8-2b98-463a-94cc-f417db55ae64','fc87e3bc-7834-415e-aca1-ae4965048a28',
-    'f8b94da4-b3fc-47b8-892b-e0955dfe4c58','0c207b12-3efd-4dd4-88e1-7996f075b2cf',
-    '6518552b-43a6-4c6f-bcc0-04430d9b9493','be855e20-6620-479d-afa6-3360d4eee381',
-    '6f9701b7-cbcf-4b2d-a99e-4da1fa942d50','316d7ddf-72f3-4ce8-ba18-698e79338601',
-    '1e2f97d2-ebbb-4173-a7b0-f07c115aa8fa','72c32ec0-cdb1-4914-bc58-b53d0e8750ce',
-    'ea047fa0-0387-4386-8a78-8ccfc3bed120','dadbcdbb-abd4-408b-9a1c-6011259c87f3',
-    '12045a9f-cf23-4623-956b-93d63794e281','4b254f5a-0687-4d44-be91-5e787d3759f1',
-    'f8636604-4b18-4ff6-bb37-c3218a4e52aa','ed756827-5e77-4ac2-b9f9-24984357d615',
-    '8ee29338-2e99-4dbd-aff9-6d787aa86058','6443179a-51a5-4154-b573-04e9d8f009fe',
-    '32249005-e6b5-44dd-a3e5-956bbef3cbb0','1f6ccf47-c27f-4083-872e-9bd076235162',
-    'bd8f24ec-c3b7-4d1e-8a27-0ee6d8e60be3','ff97dc44-637e-4bdc-aa42-7572b5110eea',
-    'c7fa8b98-a17b-448f-9751-9b7c7ddbb170','85ef2583-ad26-4522-a8d6-7b6fd96676cd',
-    '2bf6ed38-3c85-4028-a29f-2a818c54293a','078c2f5d-18de-4a99-b662-42cfa19b6d30',
-    '73bcf479-2709-4cd3-bbad-bdb11f8d224c','8ea2bafb-b6ee-488f-9ef3-6fa9b9114764',
-    '86d0d162-37f0-4613-994d-3dd124647024','0d590423-7e5f-4414-8552-1fe7573b2f9b',
-    '4af760e4-6e31-4a9c-ac3d-a41ee7146f4e','cf123719-86f9-4101-b519-588b5e777268',
-    'ca0c2516-f7b6-4ce0-a1cd-2767b1759bf0','63c68b00-eb77-4d88-80bd-a9a88ac795c5',
-    'd0366c6d-42fa-44b3-b1e6-0df82dcd9b09','07f849fb-3f66-45cf-bb36-7bc43e6d9bee',
-    '78785c6a-2b5f-48ad-93ce-ebaed6d756df','e50f39b3-7f4c-47b8-9c7d-cedd8d9bab85',
-    'a65db55a-0aa0-42fe-8e74-4e7ac228a0dc','8f2c89b1-f8d6-4c2d-88b2-8b76e2b56cf5',
-    '2f21ae5a-99bb-4ce4-8f11-3639a4ea0193','64995aa2-16b2-4570-9108-2506c27e0043'
-  ]::uuid[];
-  v_ready integer;
-  v_ready_amount numeric;
   r record;
   v_res record;
   v_n integer := 0;
   v_refunded numeric := 0;
-  v_probed_n integer := 0;
-  v_probed_refunded numeric := 0;
 BEGIN
-  -- The board as probed: every id unresolved, 400.00, debited, never refunded,
-  -- no open seat for its player at that table, not frozen in an envelope.
-  SELECT count(*), COALESCE(sum(a.amount), 0) INTO v_ready, v_ready_amount
-    FROM public.table_pending_addons a
-    JOIN public.tables t ON t.id = a.table_id AND t.tournament_id IS NULL
-   WHERE a.id = ANY (v_probed)
-     AND a.resolved_at IS NULL
-     AND a.amount = 400.00
-     AND NOT EXISTS (SELECT 1 FROM public.table_seats s
-                      WHERE s.table_id = a.table_id AND s.user_id = a.user_id
-                        AND s.left_at IS NULL)
-     AND NOT EXISTS (SELECT 1 FROM public.wallet_credit_idempotency w
-                      WHERE w.key = 'addon_refund:' || a.id::text)
-     AND NOT EXISTS (SELECT 1 FROM public.cash_funding_application_receipts f
-                      WHERE f.pending_addon_id = a.id)
-     AND EXISTS (SELECT 1 FROM public.chip_ledger l
-                  WHERE l.table_id = a.table_id AND l.created_at = a.created_at
-                    AND l.from_type = 'player_wallet' AND l.to_type = 'table_stack'
-                    AND l.amount = a.amount);
-  IF v_ready <> 44 OR v_ready_amount <> 17600.00 THEN
-    RAISE EXCEPTION 'BOARD_MOVED: % of 44 probed add-ons (% of 17600.00) are still in the probed state',
-      v_ready, v_ready_amount;
-  END IF;
-
+  -- Corrected 2026-11-19: the first version pinned the 44 ids probed at
+  -- authoring time and aborted with BOARD_MOVED when one of those players sat
+  -- back down before the apply (05:36 UTC, 43 of 44). A seat that reopened is
+  -- settled by the live path, so a fixed count is the wrong assertion on a
+  -- board that is in play. Each row now carries its own evidence instead:
+  -- cash table, no open seat for its player there, not frozen in a hand
+  -- envelope, wallet debit on the ledger, no refund key, no application
+  -- receipt. Any row that fails its evidence aborts the whole settlement.
+  -- Read 05:44 UTC: 72 rows / 28,800.00, every one passing all six.
   FOR r IN
-    SELECT a.id, a.amount
+    SELECT a.id, a.amount, a.table_id, a.created_at
       FROM public.table_pending_addons a
       JOIN public.tables t ON t.id = a.table_id AND t.tournament_id IS NULL
      WHERE a.resolved_at IS NULL
@@ -247,13 +204,17 @@ BEGIN
      ORDER BY a.created_at, a.id
      FOR UPDATE OF a
   LOOP
-    -- Same evidence for a row that appeared after the probe: debited, never
-    -- refunded, never applied. Anything else aborts the whole settlement.
     IF EXISTS (SELECT 1 FROM public.wallet_credit_idempotency w
                 WHERE w.key = 'addon_refund:' || r.id::text)
        OR EXISTS (SELECT 1 FROM public.cash_funding_application_receipts f
                    WHERE f.pending_addon_id = r.id) THEN
       RAISE EXCEPTION 'ADDON_ALREADY_SETTLED: % carries a refund key or an application receipt', r.id;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.chip_ledger l
+                    WHERE l.table_id = r.table_id AND l.created_at = r.created_at
+                      AND l.from_type = 'player_wallet' AND l.to_type = 'table_stack'
+                      AND l.amount = r.amount) THEN
+      RAISE EXCEPTION 'ADDON_NEVER_DEBITED: % has no wallet debit on the ledger', r.id;
     END IF;
     SELECT * INTO STRICT v_res FROM public.resolve_pending_addon(r.id, NULL::numeric);
     IF COALESCE(v_res.applied, 0) <> 0 OR v_res.refunded IS DISTINCT FROM r.amount
@@ -261,24 +222,14 @@ BEGIN
       RAISE EXCEPTION 'ADDON_SETTLEMENT_MISMATCH: % applied % refunded % of %',
         r.id, v_res.applied, v_res.refunded, r.amount;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.wallet_credit_idempotency w
+                    WHERE w.key = 'addon_refund:' || r.id::text) THEN
+      RAISE EXCEPTION 'ADDON_REFUND_KEY_MISSING: %', r.id;
+    END IF;
     v_n := v_n + 1;
     v_refunded := v_refunded + v_res.refunded;
-    IF r.id = ANY (v_probed) THEN
-      v_probed_n := v_probed_n + 1;
-      v_probed_refunded := v_probed_refunded + v_res.refunded;
-    END IF;
   END LOOP;
-
-  IF v_probed_n <> 44 OR v_probed_refunded <> 17600.00 THEN
-    RAISE EXCEPTION 'PROBED_SET_NOT_SETTLED: % rows / % refunded, expected 44 / 17600.00',
-      v_probed_n, v_probed_refunded;
-  END IF;
-  IF (SELECT count(*) FROM public.wallet_credit_idempotency w
-       WHERE w.key = ANY (SELECT 'addon_refund:' || x::text FROM unnest(v_probed) x)) <> 44 THEN
-    RAISE EXCEPTION 'PROBED_REFUND_KEYS_MISSING';
-  END IF;
-  RAISE NOTICE 'ended-seat add-ons settled: % rows, % refunded (probed 44 / 17600.00, % later rows / %)',
-    v_n, v_refunded, v_n - v_probed_n, v_refunded - v_probed_refunded;
+  RAISE NOTICE 'ended-seat add-ons settled: % rows, % refunded', v_n, v_refunded;
 END
 $settle$;
 
