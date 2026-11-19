@@ -39,7 +39,7 @@ import {
   gtoV31FeatureContractVersion,
   gtoV31PolicyContractValid,
 } from '../engine/GtoPostflopV31.js';
-import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import { createAdaptiveRefreshLoop, type BootRetryOptions } from './AdaptiveRefreshLoop.js';
 import {
   gtoV31CellContractV3ServingLoaderOn,
   onGtoV31CellContractV3ServingChange,
@@ -362,6 +362,13 @@ const refreshLoop = createAdaptiveRefreshLoop({
 
 export async function loadGtoPostflopV31(): Promise<number> {
   return (await refreshLoop.runNow()).count;
+}
+
+/** First authoritative load of a live decision worker: retried in-budget
+ * (AdaptiveRefreshLoop BOOT_RETRY_DELAYS_MS) so one transient read failure
+ * cannot leave this worker on a different corpus than its siblings. */
+export async function loadGtoPostflopV31ForBoot(options?: BootRetryOptions): Promise<number> {
+  return (await refreshLoop.runBoot(options)).count;
 }
 
 /** One explicit administrative attempt. Does not arm backoff or a retry. */

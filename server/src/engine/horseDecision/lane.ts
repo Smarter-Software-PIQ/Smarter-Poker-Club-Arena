@@ -6,6 +6,7 @@ import {
   readStyleSwitchFromDatabase,
   type StyleSwitchStateMessage,
 } from './styleSwitchDelivery.js';
+import { publishOptionRegistryToDatabase } from './optionRegistryPublisher.js';
 import { mainHorseHistoryRetentionBudget } from './ownPublicHistoryBudget.js';
 import { readHorseOwnPublicHistory } from '../../services/HorseOwnPublicHistory.js';
 import { HorseObserverParticipantRegistry } from './observerParticipants.js';
@@ -332,6 +333,12 @@ export interface LiveHorseDecisionLaneOptions extends LiveHorseDecisionWorkerCli
    * option stays at its source default (off).
    */
   styleSwitchRead?: (() => Promise<unknown>) | false;
+  /**
+   * Publishes this release's option registry at every switch read (optionRegistryPublisher.ts: the database guard
+   * against the reset trap). Absent: the production publish, but ONLY with the production read (a lane given its
+   * own styleSwitchRead publishes nothing unless it passes one here). false: never publish.
+   */
+  optionRegistryPublish?: (() => Promise<unknown>) | false;
 }
 
 const PHASE_RANK: Record<LiveHorseDecisionWorkerPhase, number> = {
@@ -856,8 +863,23 @@ export async function startLiveHorseDecisionWorker(
   }
   await singleton.ready();
   if (!styleSwitchDelivery && singleton && options.styleSwitchRead !== false) {
+    const switchRead = options.styleSwitchRead ?? readStyleSwitchFromDatabase;
+    const publishRegistry =
+      options.optionRegistryPublish === false
+        ? null
+        : (options.optionRegistryPublish ??
+          (options.styleSwitchRead === undefined ? publishOptionRegistryToDatabase : null));
     styleSwitchDelivery = createStyleSwitchDelivery({
-      read: options.styleSwitchRead ?? readStyleSwitchFromDatabase,
+      // The registry publish rides the same tick and is never awaited by the read: a failed publish cannot delay,
+      // fail or change a delivery (optionRegistryPublisher.ts).
+      read: publishRegistry
+        ? () => {
+            void Promise.resolve()
+              .then(publishRegistry)
+              .catch(() => undefined);
+            return switchRead();
+          }
+        : switchRead,
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
       broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });

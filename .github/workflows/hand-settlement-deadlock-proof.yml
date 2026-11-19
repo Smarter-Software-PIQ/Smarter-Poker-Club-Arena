@@ -1,0 +1,44 @@
+name: Hand settlement deadlock proof
+# Native proof for 20261119141104 (production alerts 258600, 267092): a
+# deadlock, serialization failure or lock timeout caught inside the stack
+# settlement must reach the engine as the canonical atomic_hand_rolled_back
+# envelope, the only shape server/src/services/supabase/handHistory.ts retries
+# in the live path. Runs production's exact preimage of
+# fn_ca_commit_hand_settlement_before_lease_generation on PostgreSQL 17,
+# reproduces the defect, installs the migration and proves the fix.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261119141104_a_deadlocked_hand_settlement_is_the_retryable_rolled_back_en.sql'
+      - 'scripts/ci/test-a-deadlocked-hand-settlement-is-retried.sh'
+      - 'scripts/qualification/retained18-correction/fixtures/current-authorities.sql'
+      - 'server/src/services/supabase/handHistory.ts'
+      - 'tests/a-deadlocked-hand-settlement-is-retried-in-the-live-path.law.test.ts'
+      - '.github/workflows/hand-settlement-deadlock-proof.yml'
+concurrency:
+  group: hand-settlement-deadlock-proof-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Prove the deadlocked settlement answers the retryable envelope
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          DEADLOCK_WORK: ${{ runner.temp }}/pg-hand-deadlock
+          DEADLOCK_EVIDENCE: artifacts/hand-settlement-deadlock
+        run: bash scripts/ci/test-a-deadlocked-hand-settlement-is-retried.sh
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-settlement-deadlock
+          path: artifacts/hand-settlement-deadlock
+          if-no-files-found: ignore
