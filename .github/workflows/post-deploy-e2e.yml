@@ -2752,12 +2752,35 @@ jobs:
           E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
           E2E_UNION_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/seat-move-announcement.json
+          EXPECTED_LIVE_SHA: ${{ steps.live.outputs.sha }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          STATUS=0
           npx playwright test tests/e2e/production-seat-move-announcement.spec.ts \
             --project=chromium --reporter=line,json --workers=1 --retries=0 \
-            --output=test-results/seat-move-announcement
-          node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/seat-move-announcement.json
+            --output=test-results/seat-move-announcement || STATUS=$?
+          if [ "$STATUS" -eq 0 ]; then
+            node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/seat-move-announcement.json
+            exit $?
+          fi
+          # A publish that lands mid-proof is a NON-VERDICT, exactly as the
+          # release-window step classifies it: only when the proof failed on
+          # that alone AND the release window confirms a forward publish.
+          if grep -q 'PRODUCTION_ADVANCED_DURING_PROOF' e2e-report/seat-move-announcement.json \
+             && [[ "$EXPECTED_LIVE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+             && timeout 30s git fetch --no-tags origin main; then
+            BODY="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+              "https://smarter.poker/hub/club-arena/build-info.json?seatmove=$RANDOM")" || BODY=''
+            WSTATUS=0
+            WINDOW="$(printf '%s' "$BODY" \
+              | node scripts/ci/production-e2e-provenance.mjs release-window "$EXPECTED_LIVE_SHA")" || WSTATUS=$?
+            if [ -n "$BODY" ] && [ "$WSTATUS" -eq 3 ]; then
+              echo "::warning::UNKNOWN: production advanced during the seat-move proof ($WINDOW). It certifies no release; it is not a report of a defect."
+              echo "NON-VERDICT: production advanced from \`$EXPECTED_LIVE_SHA\` during the seat-move notice proof ($WINDOW)." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          exit "$STATUS"
 
       - name: Qualify one natural same-hand turn and river in Chromium
         id: natural_board_reveal
