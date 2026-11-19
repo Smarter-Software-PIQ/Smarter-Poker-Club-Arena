@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS public.ca_hand_gap_watch_history (
 );
 
 ALTER TABLE public.ca_hand_gap_watch_history ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.ca_hand_gap_watch_history FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.ca_hand_gap_watch_history FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.ca_hand_gap_watch_history TO service_role;
 
 COMMENT ON TABLE public.ca_hand_gap_watch_history IS
