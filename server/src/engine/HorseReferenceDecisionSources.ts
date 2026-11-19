@@ -73,6 +73,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off joint-field pricing of a turn or river call with another player in the hand (WooWoo audit F-04/F-11 C3, 2026-11-18, omahaFacingBetEvShownField): reached only from the Omaha facing-bet EV verdict when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaFacingBetEvShownField.test.ts), so no reference decision depends on it',
     'src/engine/HorseOmahaFacingBetValueRange.ts':
       "the default-off river facing-bet verdict priced on the bettor's measured betting range (lane VALUE-REGION 2026-11-18, omahaFacingBetValueIsRangeRelative): reached only from the Omaha facing-bet EV count (HorseLogic.omahaFacingBetEvCount) when the option is on; with it unset or false the verdict is identical key for key (HorseOmahaFacingBetValueRange.test.ts), so no reference decision depends on it",
+    'src/engine/HorseOmahaPairedRiverPriced.ts':
+      "the default-off paired-river verdict priced on the bettor's line-conditioned range (lane PAIRED-RIVER 2026-11-18, omahaPairedBoardRiverIsPriced): reached only from the Omaha facing-bet EV count (HorseLogic.omahaFacingBetEvCount) when the option is on; with it unset or false the verdict is identical key for key",
     'src/engine/HorsePlo6FastCount.ts':
       'the exact six-card count used by the Omaha facing-bet EV rule (PLO6 lane 2026-11-16): the barred-pair graph counted as an independence polynomial, equal to the walk it replaces on every tested hand; read only while a six-card hand is counted',
     'src/engine/HorsePlo6PricingPort.ts':

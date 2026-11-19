@@ -410,6 +410,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetValueIsRangeRelative: priced(
     "the river facing-bet verdict, heads-up against a person's first bet, priced on his measured betting range on this board instead of a share of all holdings (default OFF)"
   ),
+  omahaPairedBoardRiverIsPriced: priced(
+    "a nut-class straight or flush on a paired river, heads-up against the first bet, priced on the bettor's line-conditioned range inside the facing-bet verdict (default OFF)"
+  ),
   omahaSmallBetIsPriced: priced(
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
   ),

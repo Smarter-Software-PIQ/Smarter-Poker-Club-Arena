@@ -2941,6 +2941,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFacingBetValueIsRangeRelative: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-18 OMAHA PAIRED-BOARD RIVER IS PRICED (lane PAIRED-RIVER, hand
+  // 59993188, default OFF): a nut-class straight or flush on a paired river,
+  // heads-up against the first bet, is priced on the bettor's line-conditioned
+  // range. Both arms carry production's live set; a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_paired_board_river_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPairedBoardRiverIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
   // 59534208, default OFF): facing a bet or a raise on the turn or the river a
   // raise stands only nut class (or the in-position turn combo draw of 12:30);

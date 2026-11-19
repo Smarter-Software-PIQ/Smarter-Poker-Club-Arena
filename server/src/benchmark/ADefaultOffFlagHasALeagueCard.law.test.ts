@@ -230,6 +230,8 @@ describe('a default-off Horse flag has a league card', () => {
       omahaTurnCallRealizationByRunout: () => ['omahaFacingBetEv'],
       // HorseLogic.omahaFacingBetEvCount: the facing-bet EV's river verdict against a person's bet.
       omahaFacingBetValueIsRangeRelative: () => ['omahaFacingBetEv'],
+      // HorseLogic.omahaFacingBetEvCount: the facing-bet EV's verdict on a paired river.
+      omahaPairedBoardRiverIsPriced: () => ['omahaFacingBetEv'],
     };
     for (const [option, consumersOf] of Object.entries(consumers)) {
       const cards = LEAGUE_MATCHUPS.filter((m) => switchedOnInOneArm([m]).has(option));
