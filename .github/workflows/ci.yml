@@ -159,6 +159,7 @@ jobs:
       phase4: ${{ steps.f.outputs.phase4 }}
       fixture: ${{ steps.f.outputs.fixture }}
       instructions_only: ${{ steps.f.outputs.instructions_only }}
+      native_image: ${{ steps.f.outputs.native_image }}
       unit_shards: ${{ steps.f.outputs.unit_shards }}
       head_current: ${{ steps.head.outputs.head_current }}
     steps:
@@ -3994,8 +3995,46 @@ jobs:
 
   # Preserve the required check name. A cancelled/failed matrix, or an
   # unexplained skip, must never satisfy branch protection through one shard.
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  THE NATIVE QUALIFICATION IMAGE PROVES ITSELF (2026-11-19)
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # #11404 changed only the native qualification Dockerfile and merged without
+  # its image ever being built: shard 4/7 of accounting_postgres was the one
+  # job that built it, and a Dockerfile-only change does not admit that job.
+  # Any change to an input of the image (the classifier's
+  # NATIVE_QUALIFICATION_IMAGE_INPUTS: the Dockerfile, transformation, fixture
+  # test, build script, and the Ubuntu entry point and mirror list it installs
+  # through) runs exactly that build and its stock-parity fixture here, on one
+  # runner, without buying the whole accounting matrix. Required through the
+  # Server Engine check below.
+  native_qualification_image:
+    needs: changes
+    if: >-
+      !cancelled() &&
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
+      needs.changes.outputs.head_current != 'false' &&
+      (needs.changes.result != 'success' ||
+       needs.changes.outputs.native_image != 'false')
+    name: Native qualification image builds and passes its fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Native Leaderboard Metadata Batching Retains Exact Export And Restore
+        timeout-minutes: 8
+        run: bash scripts/verification-harness/leaderboard-native-function-batch-build.sh "${{ runner.temp }}"
+
   server:
-    needs: [changes, server_shards, accounting_postgres]
+    needs: [changes, server_shards, accounting_postgres, native_qualification_image]
     if: always()
     name: Server Engine (typecheck + tests)
     runs-on: ubuntu-latest
@@ -4032,6 +4071,29 @@ jobs:
               *) echo "::error::Required $suite checks did not pass ($result)."; exit 1 ;;
             esac
           done
+      - name: The native qualification image was built when its inputs changed
+        env:
+          IMAGE_RESULT: ${{ needs.native_qualification_image.result }}
+          DIFF_RESULT: ${{ needs.changes.result }}
+          IMAGE_CHANGED: ${{ needs.changes.outputs.native_image }}
+          HEAD_CURRENT: ${{ needs.changes.outputs.head_current }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          case "$IMAGE_RESULT" in
+            success) echo "The native qualification image built and passed its fixture." ;;
+            skipped)
+              if [ "$CI_EVENT_NAME" != pull_request ] && [ "$CI_EVENT_NAME" != merge_group ]; then
+                echo "Native image check is pull-request only; accounting shard 4 builds it on every scheduled run."
+              elif [ "$DIFF_RESULT" = success ] && [ "$IMAGE_CHANGED" = false ]; then
+                echo "Native image check skipped: the checked diff does not change an input of the image."
+              elif [ "$HEAD_CURRENT" = false ]; then
+                echo "::notice title=SUPERSEDED::native image check skipped: this sha is no longer the pull request head."
+              else
+                echo "::error::The native qualification image check was unexpectedly skipped."
+                exit 1
+              fi ;;
+            *) echo "::error::The native qualification image did not build or pass its fixture ($IMAGE_RESULT)."; exit 1 ;;
+          esac
 
   # ═══════════════════════════════════════════════════════════════════════════
   #  WHAT DID THIS RUN ACTUALLY VERIFY?
@@ -4310,8 +4372,7 @@ jobs:
       - name: Install Performance Browser
         if: success()
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium
 
       - name: Route Performance Budget
         if: success()
@@ -4379,8 +4440,7 @@ jobs:
 
       - name: Install Playwright Browsers
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium
 
       - name: Wait for Production Deploy
         run: |
@@ -4867,12 +4927,11 @@ jobs:
         run: npm ci --ignore-scripts
 
       # Azure's Ubuntu mirror exhausted this job's budget before tests began.
-      # Keep the signed Ubuntu archive and exact browser dependencies unchanged.
-      - name: Use Ubuntu primary HTTPS mirror for browser dependencies
-        run: sudo python3 scripts/ci/ubuntu-apt-mirror.py
-
+      # Keep the signed Ubuntu archive and exact browser dependencies unchanged;
+      # the one entry point selects the shared mirror list, bounds each attempt
+      # and retries on a different mirror (scripts/ci/ubuntu-apt.sh).
       - name: Install Chromium and WebKit
-        run: npx playwright install chromium webkit --with-deps
+        run: bash scripts/ci/ubuntu-apt.sh run npx playwright install chromium webkit --with-deps
 
       - name: Verify bounded table reloads in Linux WebKit
         if: matrix.partition == 'general' && matrix.shard == 1
@@ -5272,8 +5331,7 @@ jobs:
 
       - name: Install Chromium
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install chromium --with-deps
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install chromium --with-deps
 
       - name: Run the Diamond playfields
         id: diamond-playfield

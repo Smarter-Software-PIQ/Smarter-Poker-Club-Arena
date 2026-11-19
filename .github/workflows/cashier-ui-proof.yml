@@ -58,8 +58,7 @@ jobs:
       - name: Install Chromium only
         timeout-minutes: 5
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium
 
       - name: Create the owned isolated account
         id: account
@@ -200,8 +199,7 @@ jobs:
           node scripts/verification-harness/cashier-ui-proof.mjs eco-preflight
       - name: Install Chromium only
         run: |
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          npx playwright install --with-deps chromium
+          bash scripts/ci/ubuntu-apt.sh run npx playwright install --with-deps chromium
       - name: Pin the served ECO components before observation
         env:
           GITHUB_TOKEN: ${{ github.token }}
