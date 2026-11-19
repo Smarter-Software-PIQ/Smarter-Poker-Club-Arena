@@ -1722,6 +1722,18 @@ jobs:
             output_dir="${json%.json}"
             PLAYWRIGHT_JSON_OUTPUT_NAME="e2e-report/$json" npx playwright test $specs $flags \
               --output="test-results/$output_dir"
+            suite_rc=$?
+            # A suite whose ONLY failures are proved PRODUCTION_LACKS_FIXTURE
+            # absences could not test; it neither passed nor failed. Record it,
+            # and the release window below then certifies nothing.
+            if [ "$suite_rc" -ne 0 ]; then
+              node scripts/ci/classify-fixture-absence.mjs "e2e-report/$json"
+              if [ $? -eq 3 ]; then
+                echo "$json" >> e2e-report/fixture-non-verdicts.txt
+                return 0
+              fi
+            fi
+            return "$suite_rc"
           }
 
           # THE PHASE 1 JOURNEYS RUN FIRST, INSIDE ONE RELEASE BRACKET.
@@ -2116,6 +2128,10 @@ jobs:
         run: |
           set -uo pipefail
           echo 'certified=false' >> "$GITHUB_OUTPUT"
+          if [ -s e2e-report/fixture-non-verdicts.txt ]; then
+            echo "NON-VERDICT: production lacked a fixture these suites need ($(tr '\n' ' ' < e2e-report/fixture-non-verdicts.txt)); this run does not certify a release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if ! [[ "$EXPECTED_LIVE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::The recorded live SHA is malformed."
             exit 1
@@ -2760,6 +2776,15 @@ jobs:
             node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/seat-move-announcement.json
             exit $?
           fi
+          # Production had no table of the kind this proof needs, proved by an
+          # independent catalogue read in the spec: a NON-VERDICT the release
+          # window reads from `verdict`, never a pass and never a defect.
+          FSTATUS=0
+          node scripts/ci/classify-fixture-absence.mjs e2e-report/seat-move-announcement.json || FSTATUS=$?
+          if [ "$FSTATUS" -eq 3 ]; then
+            echo 'verdict=non-verdict' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # A publish that lands mid-proof is a NON-VERDICT, exactly as the
           # release-window step classifies it: only when the proof failed on
           # that alone AND the release window confirms a forward publish.
@@ -3026,6 +3051,7 @@ jobs:
           NATURAL_ADDON_REQUESTED: ${{ needs.publication-gate.outputs.natural_addon }}
           NATURAL_BOARD_REQUESTED: ${{ needs.publication-gate.outputs.natural_board_reveal }}
           SEAT_MOVE_NOTICE_OUTCOME: ${{ steps.seat_move_notice.outcome }}
+          SEAT_MOVE_NOTICE_VERDICT: ${{ steps.seat_move_notice.outputs.verdict }}
           HORSE_SOCIAL_REQUESTED: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.horse_social) == 'true' }}
           HORSE_SOCIAL_OUTCOME: ${{ steps.horse_social.outcome }}
           MULTIRUN_REQUESTED: ${{ github.event_name == 'repository_dispatch' && toJSON(github.event.client_payload.mobile_multirun) == 'true' }}
@@ -3051,6 +3077,10 @@ jobs:
           fi
           if [ "${SEAT_MOVE_NOTICE_OUTCOME:-}" != 'success' ]; then
             echo "NON-VERDICT: the served seat-move notice did not pass its isolated browser proof." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "${SEAT_MOVE_NOTICE_VERDICT:-}" = 'non-verdict' ]; then
+            echo "NON-VERDICT: production lacked the table the seat-move notice proof needs; it could not be tested." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if ! [[ "$EXPECTED_LIVE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -3471,6 +3501,11 @@ jobs:
             ${{ needs.live-table-e2e.result }}|Live-table and engine verification
             ${{ needs.phase1-customization-cutover-seal.result }}|Seal certified Phase 1 customization cutover
           GH_TOKEN: ${{ github.token }}
+          # A lane that ended green WITHOUT certifying a release (a fixture
+          # production lacked, a publish mid-proof, an unreadable window) is a
+          # non-verdict: it fires nothing and closes nothing.
+          CLIENT_NON_VERDICT: ${{ needs.production-e2e.result == 'success' && needs.production-e2e.outputs.certified != 'true' }}
+          LIVE_TABLE_NON_VERDICT: ${{ needs.live-table-e2e.result == 'success' && needs.live-table-e2e.outputs.certified != 'true' }}
           # A lane is owed only when its own `if:` held. The SEO contract runs
           # only for a publisher (workflow_run) event, so an engine-triggered
           # certificate (repository_dispatch) skips it by design: run
@@ -3502,6 +3537,14 @@ jobs:
             UNOWED_LANES+=$'Seal certified Phase 1 customization cutover\n'
           fi
           export UNOWED_LANES
+          NON_VERDICT_LANES=''
+          if [ "$CLIENT_NON_VERDICT" = 'true' ]; then
+            NON_VERDICT_LANES+=$'Client browser verification\n'
+          fi
+          if [ "$LIVE_TABLE_NON_VERDICT" = 'true' ]; then
+            NON_VERDICT_LANES+=$'Live-table and engine verification\n'
+          fi
+          export NON_VERDICT_LANES
           node scripts/ci/record-post-deploy-verdict.mjs
 
   # A RUN THAT TESTED NOTHING DOES NOT SAY SUCCESS (2026-10-26).
