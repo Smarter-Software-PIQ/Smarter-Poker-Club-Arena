@@ -31,7 +31,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261118160405_tournament_table_writers_never_wait_on_the_platform_lane.sql'
 MIG2 = ROOT / 'supabase/migrations/20261118171613_tournament_and_club_lanes_fence_only_their_own_tables.sql'
 FIX = json.loads((ROOT / 'scripts/ci/fixtures/tournament-lane-isolation/preimages.json').read_text())
-require_hash = 'ca2e5c85df8774e2c04b5aa4fad6b41b11d2dabe75f56f1acd6803be8e2b4e89'
+require_hash = '56830fd23ccf2f89472a5cadefdca0b9836e72c27ed3027e7b3a3e702bfa29eb'
 require_hash2 = 'd2185dae53729403bb3d5cde55b96ba7384e1866fecdc11faaff60178ce5e2c8'
 
 parser = argparse.ArgumentParser(description=__doc__)

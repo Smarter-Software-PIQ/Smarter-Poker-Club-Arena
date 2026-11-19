@@ -84,6 +84,12 @@
 BEGIN;
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '60s';
+-- The hand commit's lane helper returns to exactly the lock set it had on
+-- 2026-09-10 (B shared, then T shared; 20260910035435 added G in front of
+-- them). fn_ca_function_lineage_on_create refuses a body whose fingerprint was
+-- superseded unless the return is declared; this return is the fix (dispatch
+-- 2026-11-18 19:40 UTC was refused with nothing sent for exactly this).
+SET LOCAL ca.allow_function_rollback = 'public.fn_ca_share_settlement_lane_for_table';
 
 DO $subs$
 DECLARE

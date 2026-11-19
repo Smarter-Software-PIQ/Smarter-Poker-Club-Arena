@@ -1,6 +1,6 @@
 # server/src/engine/noUnintendedDelayBetweenHands.law.test.ts
 
-Dan 2026-11-18: "i just don't want any 'un intended delays'". Every intended beat keeps its length; between one hand's settlement (`hand_history.ended_at`, HAND_COMPLETE) and the next HAND_START (`started_at`) the gap is `owedBetweenHandsMs(shape)` plus at most `ENGINE_BETWEEN_HANDS_BUDGET_MS` (250 ms: in-process work plus the one tournament round trip still after the rest, the seq-0 retention). The law pins the waterfall per shape and names every await between the hold and the deal so a new wait fails CI (the measured tournament deal timing lands with the F06 pre-reserve change). Production grading: `scripts/sql/hand-gap-unintended-delay.sql`.
+Dan 2026-11-18: "i just don't want any 'un intended delays'". Every intended beat keeps its length; between one hand's settlement (`hand_history.ended_at`, HAND_COMPLETE) and the next HAND_START (`started_at`) the gap is `owedBetweenHandsMs(shape)` plus at most `ENGINE_BETWEEN_HANDS_BUDGET_MS` (250 ms: in-process work plus the one tournament round trip still after the rest, the seq-0 retention). The law pins the waterfall per shape, measures the real dealHand at 150 ms per round trip (the F06 state read and `fn_f06_begin_hand` ride under the rest), and names every await between the hold and the deal so a new wait fails CI. Production grading: `scripts/sql/hand-gap-unintended-delay.sql`.
 
 Waterfall at the player's default Animation Speed (the engine holds 1x for every seat), in milliseconds:
 
