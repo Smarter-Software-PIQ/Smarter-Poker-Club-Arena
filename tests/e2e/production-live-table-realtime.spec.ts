@@ -2288,7 +2288,23 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         const selected = await selectOccupiedRunningCashTables(page, request, {
           admitLastHand: true,
         });
-        const { candidate } = selected.tables[0];
+        /* A LIGHTNING POOL HAS NO HAND BOUNDARY TO WITNESS (2026-11-19). The
+           release of dfaa9717 (receiver 44577448928) took the first occupied
+           cash table, which was the NLH Lightning pool a8cbda4f. A pool plays
+           many hands at once on one table id (hands 60134845 and 60134846
+           both began at 17:38:16.29Z there), so "one hand ends, the next
+           begins" never appears on its socket and the case went red after
+           240 s on a healthy release. /health names a pool by its loop phase
+           (`pool_...`); the spectator watches a table that plays one hand at
+           a time. */
+        const singleHand = selected.tables.find(
+          ({ table }) => !table.loopPhase.startsWith('pool_')
+        );
+        if (!singleHand)
+          throw new Error(
+            'Every occupied cash table offered was a Lightning pool; no single-hand table to span the replacement'
+          );
+        const { candidate } = singleHand;
         const tableId = candidate.id;
         /* THE LOBBY'S SNAPSHOT IS NOT THE TABLE PAGE'S (2026-11-16). The lobby
            opens its own game socket and pre-subscribes up to three visible
