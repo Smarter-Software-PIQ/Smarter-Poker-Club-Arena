@@ -32,7 +32,7 @@ PLO4/PLO5 cash (table and fast-table cash; never a tournament), pot limit, high 
 
 Every other wager is unchanged, the full-pot wagers of hands that are not nut class included, so the full pot is no longer nut-only. Checks, calls, folds and all-ins are never touched; a wager is never made larger; the size never goes above the pot-limit maximum, under the legal minimum (a minimum above the band leaves the wager as it is) or to the whole stack. The two draws come from the decision's derived stream (omahaSlowplayUnit, own salts; read, never advanced), so no other rule's draw moves.
 
-The sized wager carries `valueSize: 'unreadable_band'`. At commit the table keeps it while it is still legal and in the band on the fresh menu (omahaValueSizeBandHolds) instead of rounding it back up with riverNutsRaise / fullPotNearPotWager; the river value alarm (HorseRiverValueAudit.ts) excuses exactly an accepted band wager the table registered. With the option off nothing is marked or registered.
+The sized wager carries a stamp `valueSize` naming its kind, action and amount; a later rebuild that replaces the action or the amount (an authority withdrawal restoring a baseline) is no longer a band wager, and the phase 13 and phase 14 withdrawals drop the stamp. At commit the table (and the fast-table door, shapeLightningHorseAction) keeps it while it is still the stamped wager, legal and in the band on the fresh menu (omahaValueSizeBandHolds) instead of rounding it back up with riverNutsRaise / fullPotNearPotWager; the river value alarm (HorseRiverValueAudit.ts) excuses exactly an accepted band wager the table registered. With the option off nothing is marked or registered.
 
 ## One owner, in order
 

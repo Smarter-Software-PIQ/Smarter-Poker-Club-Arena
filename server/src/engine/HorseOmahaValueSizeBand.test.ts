@@ -17,6 +17,7 @@ import {
   OMAHA_VALUE_SIZE_FULL_POT_KEEP,
   omahaValueSizeBand,
   omahaValueSizeBandHolds,
+  withoutValueSizeStamp,
 } from './HorseOmahaValueSizeBand.js';
 import {
   __resetValueSizeBandWagers,
@@ -171,7 +172,11 @@ describe('omahaValueSizeBand: legal bounds', () => {
       expect(r.decision.amount!).toBeLessThanOrEqual(95);
       expect(r.decision.amount!).toBeGreaterThanOrEqual(s.gs.minRaiseTo!);
       expect(r.decision.amount!).toBeLessThanOrEqual(s.gs.maxRaiseTo!);
-      expect(r.decision.valueSize).toBe('unreadable_band');
+      expect(r.decision.valueSize).toEqual({
+        kind: 'unreadable_band',
+        action: 'bet',
+        amount: r.decision.amount,
+      });
       expect(omahaValueSizeBandHolds(r.decision, s.hero, s.gs)).toBe(true);
     }
   });
@@ -235,6 +240,9 @@ describe('omahaValueSizeBand: legal bounds', () => {
     expect(omahaValueSizeBandHolds(banded, s.hero, { ...s.gs, maxRaiseTo: 50 })).toBe(false);
     expect(omahaValueSizeBandHolds(banded, s.hero, { ...s.gs, pot: 200 })).toBe(false);
     expect(omahaValueSizeBandHolds({ ...banded, valueSize: undefined }, s.hero, s.gs)).toBe(false);
+    // A rebuild that replaced the amount (a withdrawn selection's baseline) keeps no band wager.
+    expect(omahaValueSizeBandHolds({ ...banded, amount: 88 }, s.hero, s.gs)).toBe(false);
+    expect(withoutValueSizeStamp(banded).valueSize).toBeUndefined();
   });
 });
 

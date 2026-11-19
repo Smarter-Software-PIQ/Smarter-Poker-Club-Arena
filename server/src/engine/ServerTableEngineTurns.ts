@@ -52,7 +52,11 @@ import { canQuickCheckFold, facingShovePrice } from './HorseQuickCheckFold.js';
 import { HorseLogic, holdemPremiumAggression, type HorseGameStateV2 } from './HorseLogic.js';
 import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import { riverNutsRaise, fullPotNearPotWager } from './HorseRiverNuts.js';
-import { omahaValueSizeBandHolds } from './HorseOmahaValueSizeBand.js';
+import {
+  omahaValueSizeBandHolds,
+  omahaValueSizeStamped,
+  withoutValueSizeStamp,
+} from './HorseOmahaValueSizeBand.js';
 import { noteValueSizeBandWager } from './HorseRiverValueAudit.js';
 import { tournamentShoveDiscipline } from './HorseTournamentShoveDiscipline.js';
 import { shortAllInCallFloor } from './HorseShortAllInCallFloor.js';
@@ -5118,11 +5122,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
                     prior.finalAction = jointLedger.baselineAction;
                     prior.finalAmount = jointLedger.baselineAmount;
                   }
-                decision = {
+                // omahaValueSizeIsUnreadable: a restored baseline is not the band wager.
+                decision = withoutValueSizeStamp({
                   ...decision,
                   action: jointLedger.baselineAction,
                   amount: jointLedger.baselineAmount ?? undefined,
-                };
+                });
                 noteFire('phase13_selection_withdrawn_before_acceptance');
               }
             }
@@ -5600,7 +5605,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               // this accepted band wager (HorseRiverValueAudit.noteValueSizeBandWager).
               if (
                 applied &&
-                decision.valueSize === 'unreadable_band' &&
+                omahaValueSizeStamped(decision) &&
                 acceptedWager !== null &&
                 (acceptedWager.record.action === 'bet' || acceptedWager.record.action === 'raise')
               )

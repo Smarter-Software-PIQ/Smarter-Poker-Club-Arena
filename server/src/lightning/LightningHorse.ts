@@ -26,6 +26,7 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  */
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
+import { omahaValueSizeBandHolds } from '../engine/HorseOmahaValueSizeBand.js';
 import {
   noteFire,
   noteHorseLegalizerDegraded,
@@ -337,7 +338,7 @@ export function lightningHorseThinkTimeMs(input: {
 export function shapeLightningHorseAction(
   hc: HandController,
   userId: string,
-  decision: { action: string; amount?: number },
+  decision: { action: string; amount?: number; valueSize?: HorseDecision['valueSize'] },
   allInOrFold: boolean
 ): { action: ActionType; amount?: number } {
   const state = hc.getState();
@@ -386,13 +387,28 @@ export function shapeLightningHorseAction(
       fixedBetSize: auth.fixedBetSize,
       wagersCapped: auth.wagersCapped,
     } as HorseGameStateV2;
-    const value = riverNutsRaise(
-      { action: action as HorseDecision['action'], amount, thinkTime: 0 },
+    // omahaValueSizeIsUnreadable (default off): the nut wager the cell sized in the owner's
+    // 80-95% band stays as sized while it is still the stamped wager, legal and in the band
+    // on this fresh menu; the exact-nuts rule would only put the full pot back.
+    const banded = omahaValueSizeBandHolds(
+      {
+        action: action as HorseDecision['action'],
+        amount,
+        thinkTime: 0,
+        valueSize: decision.valueSize,
+      },
       me,
       nutState
     );
-    action = value.action;
-    amount = value.amount;
+    if (!banded) {
+      const value = riverNutsRaise(
+        { action: action as HorseDecision['action'], amount, thinkTime: 0 },
+        me,
+        nutState
+      );
+      action = value.action;
+      amount = value.amount;
+    }
   }
   const fixed = auth?.structure === 'fixed_limit';
   if (me && action === 'bet' && amount !== undefined) {

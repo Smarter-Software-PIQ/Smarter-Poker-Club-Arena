@@ -41,7 +41,7 @@
  * legal minimum (a band that the minimum lies above leaves the wager as it
  * is), it is always smaller than the wager it replaces, and when the target
  * reaches the seat's whole stack the wager is left as it is (the all-in the
- * stack makes stays). The sized wager carries `valueSize: 'unreadable_band'`
+ * stack makes stays). The sized wager carries the stamp `valueSize` (kind, action, amount)
  * so the table's commit guards (riverNutsRaise, fullPotNearPotWager) keep a
  * size that is still legal and still in the band on the fresh state
  * (omahaValueSizeBandHolds) instead of rounding it back up to the pot.
@@ -169,12 +169,43 @@ export function omahaValueSizeBand(
     if (target >= total - 0.005) return same;
     if (!(target < amount - 0.005)) return same;
     return {
-      decision: { ...decision, amount: target, valueSize: 'unreadable_band' },
+      decision: {
+        ...decision,
+        amount: target,
+        valueSize: { kind: 'unreadable_band', action, amount: target },
+      },
       changed: 'band',
     };
   } catch {
     return same;
   }
+}
+
+/**
+ * The decision is exactly the wager this cell sized: the stamp names its action and amount, so a later
+ * rebuild that replaced either (an authority withdrawal restoring a baseline) is not a band wager.
+ */
+export function omahaValueSizeStamped(decision: {
+  action: string;
+  amount?: number;
+  valueSize?: HorseDecision['valueSize'];
+}): boolean {
+  const v = decision.valueSize;
+  return (
+    v !== undefined &&
+    v !== null &&
+    v.kind === 'unreadable_band' &&
+    v.action === decision.action &&
+    v.amount === decision.amount
+  );
+}
+
+/** A copy without the band stamp (for a rebuild that replaces the action or the amount). */
+export function withoutValueSizeStamp<T extends { valueSize?: unknown }>(decision: T): T {
+  if (decision.valueSize === undefined) return decision;
+  const copy = { ...decision };
+  delete copy.valueSize;
+  return copy;
 }
 
 /**
@@ -188,7 +219,7 @@ export function omahaValueSizeBandHolds(
   gs: HorseGameStateV2
 ): boolean {
   try {
-    if (decision.valueSize !== 'unreadable_band' || !inShape(decision, hero, gs)) return false;
+    if (!omahaValueSizeStamped(decision) || !inShape(decision, hero, gs)) return false;
     const frame = wagerFrame(decision.action as 'bet' | 'raise', gs);
     if (frame === null) return false;
     const amount = decision.amount as number;

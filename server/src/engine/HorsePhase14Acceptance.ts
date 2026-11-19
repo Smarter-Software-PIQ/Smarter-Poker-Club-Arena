@@ -8,6 +8,7 @@ import {
   recordHorsePhase14Verdict,
 } from './HorseExecutionWitness.js';
 import { noteFire } from './BrainTelemetry.js';
+import { withoutValueSizeStamp } from './HorseOmahaValueSizeBand.js';
 /** Request-owned last check, shared by physical and Lightning action doors. */
 export function recheckHorsePhase14BeforeAcceptance(decision: HorseDecision): HorseDecision {
   const receipt = decision.correctivePolicy;
@@ -23,7 +24,12 @@ export function recheckHorsePhase14BeforeAcceptance(decision: HorseDecision): Ho
   receipt.reason = 'withdrawn_before_acceptance';
   receipt.selected = { ...receipt.baseline };
   noteFire('phase14_selection_withdrawn_before_acceptance');
-  return { ...decision, action: receipt.baseline.action, amount: receipt.baseline.amount };
+  // omahaValueSizeIsUnreadable: a restored baseline is not the band wager.
+  return withoutValueSizeStamp({
+    ...decision,
+    action: receipt.baseline.action,
+    amount: receipt.baseline.amount,
+  });
 }
 /** Called after the existing controller witness settles, never on submission. */
 export function observeHorsePhase14Execution(decision: HorseDecision): void {
