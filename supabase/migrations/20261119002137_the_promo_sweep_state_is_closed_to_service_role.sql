@@ -7,5 +7,9 @@
 -- (the cron job, as postgres) reads or writes the table or calls the
 -- procedure, so both are closed to service_role here. Idempotent.
 
+BEGIN;
+
 REVOKE ALL ON TABLE public.ca_promo_profit_sweep_state FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON PROCEDURE public.sp_ca_promo_profit_hourly_sweep(integer) FROM PUBLIC, anon, authenticated, service_role;
+
+COMMIT;
