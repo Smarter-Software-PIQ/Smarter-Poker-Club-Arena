@@ -4384,6 +4384,21 @@ export abstract class TournamentManagerBase {
   }
 
   /**
+   * ROLLING HANDOFF (2026-11-19, docs/ENGINE-ROLLING-HANDOFF.md): the level
+   * clock a move between engine instances must preserve exactly. The clock is
+   * the durable `tournaments.level_started_at` a resumed manager reads back, so
+   * a move neither freezes nor restarts it. A pure read; with
+   * ENGINE_ROLLING_HANDOFF off nothing calls it.
+   */
+  describeHandoffClock(): { level: number; levelStartedAtMs: number; onBreak: boolean } {
+    return {
+      level: this.currentLevel,
+      levelStartedAtMs: this.blindTimerStartedAt,
+      onBreak: this.isOnBreak(),
+    };
+  }
+
+  /**
    * Is this tournament on a break of its own right now?
    *
    * Added 2026-09-01 for the maintenance break, which resumes EVERY table on
