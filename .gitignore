@@ -238,3 +238,4 @@ graphify-out
 
 # npm cache written by npx runs inside a worktree (TMPDIR/npm_config_cache in the task dir); never commit it
 server/.npm-cache/
+**/.npm-cache/

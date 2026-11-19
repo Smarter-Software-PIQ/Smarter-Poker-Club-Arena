@@ -366,6 +366,23 @@ export const OMAHA_PRICED_RAISE_MARGIN = 0.04;
  * responders are persons and Horses together (the file does not say which).
  */
 export const OMAHA_PRICED_RERAISE_SHARE = 0.26;
+/**
+ * The population's fold to a turn or river raise, at the prices those raises laid. MEASURED,
+ * PLO4/PLO5 cash, heads-up, 2026-11-10 to 2026-11-15 (the same file as OMAHA_PRICED_RERAISE_SHARE):
+ * folded 14 of 54 turn and river raises (turn 9 of 39, river 5 of 15). The street read's
+ * fold-to-raise cell is shrunk toward it and read as a ratio to it.
+ */
+export const OMAHA_PRICED_FOLD_TO_RAISE_POPULATION = 14 / 54;
+
+/**
+ * How many times as often as the population he folds to a raise: the street read's fold-to-raise
+ * cell shrunk toward the population figure by its own opportunity count, over that figure. 1 with
+ * no cell. The cell counts raises of every size; the price of the raise being priced carries the size.
+ */
+export function omahaPricedFoldToRaiseRatio(cell: OmahaPricedCell | null | undefined): number {
+  const P = OMAHA_PRICED_FOLD_TO_RAISE_POPULATION;
+  return omahaPricedShrunk(cell, P) / P;
+}
 /** Raise sizes priced: the minimum, the middle and the maximum legal raise, and the proposed one. */
 export const OMAHA_PRICED_RAISE_STEPS: readonly number[] = [0, 0.5, 1];
 
@@ -524,12 +541,23 @@ export function omahaPricedRaise(
       const allIn = to >= heroAll - 0.005;
       // The share of his betting range that folds to the raise. The population figure is the
       // minimum-defence one at the price the raise lays him (1 - price). Only a measured fold
-      // to a RAISE moves it: the street read's fold-to-raise cell replaces it after shrinking
-      // toward it by its own opportunity count. A fold to a bet when checked to is not read
-      // as a fold to a raise (a player who bets holds a range he chose to bet).
+      // to a RAISE moves it: the street read's fold-to-raise cell, shrunk toward the
+      // minimum-defence figure by its own opportunity count. That cell counts raises of every
+      // size, so it is not the fold to THIS raise: read alone, a minimum raise bought the fold
+      // of a pot raise for a fraction of the chips, and two Horses facing each other's minimum
+      // raises re-raised by the minimum until the stacks were in (plo-truncation-013U37). So the
+      // read is also taken AT THIS PRICE (the minimum-defence figure times how much more or less
+      // often than the population he folds to a raise), and the fold priced is the smaller of the
+      // two: a read never makes a raise worth more than either reading of it. With no cell both
+      // are the minimum-defence figure. A fold to a bet when checked to is not read as a fold to
+      // a raise (a player who bets holds a range he chose to bet).
       const price = (win + toCall) / (win + toCall + his);
       const modelFold = clamp(1 - price, 0.03, 0.95);
-      const keep = clamp(1 - omahaPricedShrunk(read.foldToRaise, modelFold), 0.03, 0.97);
+      const folds = Math.min(
+        omahaPricedShrunk(read.foldToRaise, modelFold),
+        modelFold * omahaPricedFoldToRaiseRatio(read.foldToRaise)
+      );
+      const keep = clamp(1 - folds, 0.03, 0.97);
       // RIVER: his bluffs fold first, so the continuing part comes out of his value region.
       // TURN: the part of his bets that is not value holds draws, and a draw does not fold
       // to a raise at a good price. When more of his range continues than his value region

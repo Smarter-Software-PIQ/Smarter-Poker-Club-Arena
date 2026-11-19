@@ -1408,6 +1408,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           handId={sharedHandId}
           inviteCode={shareInvite}
           shortUrl={shareShort.url}
+          shortPending={shareShort.pending}
           onShared={shareShort.markSent}
         />
       )}

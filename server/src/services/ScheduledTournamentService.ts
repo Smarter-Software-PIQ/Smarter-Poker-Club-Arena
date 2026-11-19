@@ -1039,7 +1039,28 @@ export class ScheduledTournamentService {
       );
       return false;
     }
-    const plan = planFixedBoardSync((data ?? []) as ExistingFixedBoardRow[]);
+    // A CLOSED ARENA IS NOT ON THE BOARD (2026-11-18, planFixedBoardSync).
+    // Unread closures are not "no closures": the write waits for the next poll.
+    const { data: closures, error: closureError } = await supabase
+      .from('ca_diamond_arena_owner_closure')
+      .select('club_id')
+      .eq('closed', true);
+    if (closureError) {
+      reportError(
+        new Error(`[ScheduledTournaments] arena closure read failed: ${closureError.message}`),
+        'ScheduledTournaments.fixed_board_closure_read_failed'
+      );
+      return false;
+    }
+    const closedClubIds = new Set(
+      ((closures ?? []) as { club_id: string }[]).map((c) => c.club_id)
+    );
+    const plan = planFixedBoardSync(
+      (data ?? []) as ExistingFixedBoardRow[],
+      undefined,
+      undefined,
+      closedClubIds
+    );
     let ok = true;
     for (const id of plan.deactivate) {
       const { error: e } = await supabase

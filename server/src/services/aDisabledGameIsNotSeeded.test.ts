@@ -223,8 +223,11 @@ describe('a seat call on a disabled game is not answered', () => {
      seeding loop does - a game the operator switched off is not supply. The
      thing this test guards is unchanged and is the second line: nobody reads
      `disabledGameIds` directly. */
-  it('one predicate, three callers - no second copy of the rule', () => {
-    expect((SRC.match(/isTableOfDisabledGame\(/g) || []).length).toBe(3);
+  /* PIN MOVED 2026-11-18: FOUR callers. The fourth is the variety-first plan
+     (HorseVarietyFirst): a switched-off game is not owed a start, for the same
+     reason it is not seeded. Still one predicate; the second line is the guard. */
+  it('one predicate, four callers - no second copy of the rule', () => {
+    expect((SRC.match(/isTableOfDisabledGame\(/g) || []).length).toBe(4);
     expect(SRC).not.toMatch(/disabledGameIds\.has\(/);
   });
 });
