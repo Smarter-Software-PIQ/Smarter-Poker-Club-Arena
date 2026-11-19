@@ -1,7 +1,38 @@
+import { createHash } from 'node:crypto';
 import {
   declaredInstallBudgetSeconds,
   DEFAULT_INSTALL_BUDGET_MS,
 } from './migration-install-budget.mjs';
+
+// The applier's atomic history row (apply-recorded-migration.mjs,
+// historyStatement): version, name and the exact source bytes between the
+// reserved $ca_file_history_<version>$ delimiters, which the applier refuses
+// inside a source file.
+const HISTORY_ROW =
+  /INSERT INTO supabase_migrations\.schema_migrations\(version,name,statements\)\s*VALUES \('([0-9A-Za-z_]+)','([A-Za-z0-9_.-]+)',ARRAY\[(\$ca_file_history_\1\$)([\s\S]*?)\3::text\]\);/g;
+
+/**
+ * The live-table guard's applier claim (migration 20261119053515, incident
+ * 075013fd): the first thing the owning transaction does is claim the exact
+ * history it will record. The database binds the claim to this backend and
+ * this transaction, refuses it for a migration already recorded, and refuses
+ * the COMMIT unless that history row was written with these bytes. Before the
+ * claim function exists (the guard's own install, and fixtures without it)
+ * the block does nothing. A transaction without exactly one history row is
+ * not a migration install and gets no claim.
+ */
+export function applierClaimSQL(sql) {
+  const rows = [...String(sql).matchAll(HISTORY_ROW)];
+  if (rows.length !== 1) return '';
+  const [, version, name, , bytes] = rows[0];
+  const md5 = createHash('md5').update(bytes, 'utf8').digest('hex');
+  return (
+    '\nDO $ca_applier_claim$ BEGIN' +
+    " IF to_regprocedure('smarter_private.fn_ca_migration_applier_claim(text,text,text)') IS NOT NULL THEN" +
+    ` PERFORM smarter_private.fn_ca_migration_applier_claim('${version}', '${name}', '${md5}');` +
+    ' END IF; END $ca_applier_claim$;'
+  );
+}
 
 // Supavisor can replace startup application_name. Bind the existing installer
 // identity on the backend that owns this transaction, without changing source
@@ -12,12 +43,18 @@ export function bindMigrationSession(sql, transactionBudgetMs = null) {
     (!Number.isSafeInteger(transactionBudgetMs) || transactionBudgetMs <= 0)
   )
     throw new Error('Invalid migration transaction budget');
+  if (String(sql).includes('$ca_applier_claim$'))
+    throw new Error('migration conflicts with the reserved applier-claim delimiter');
+  const claim = applierClaimSQL(sql);
   const bound = sql.replace(
     /^([ \t]*BEGIN[ \t]*;)/im,
-    "$1\nSET LOCAL application_name = 'apply-recorded-migration';" +
+    (begin) =>
+      begin +
+      "\nSET LOCAL application_name = 'apply-recorded-migration';" +
       (transactionBudgetMs === null
         ? ''
-        : `\nSET LOCAL transaction_timeout = '${transactionBudgetMs}ms';`)
+        : `\nSET LOCAL transaction_timeout = '${transactionBudgetMs}ms';`) +
+      claim
   );
   if (bound === sql) throw new Error('Migration transaction has no initial BEGIN statement');
   return bound;

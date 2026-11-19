@@ -609,6 +609,9 @@ export const NOT_REHEARSED = {
   ca_break_window_refuses_ddl:
     'refuses by wall clock (:50-:03 UTC) and session role, not by what the file does; the applier and installer schedule around it, and on the copy it would turn a pull request red by the time of day',
   ca_break_window_refuses_drops: 'the same wall-clock guard on sql_drop',
+  ca_live_tables_refuse_manual_ddl:
+    'refuses live-table DDL from any session that is not the claimed migration applier; the rehearsal sends files as plain psql, so on the copy it would refuse every window file for who sent it, not for what it does (native proof: scripts/ci/test-manual-ddl-guard-postgres.py)',
+  ca_live_tables_refuse_manual_ddl_held: 'the same session guard on ddl_command_end',
 };
 const REHEARSED_SCHEMAS = new Set(['public', 'smarter_private']);
 
