@@ -851,12 +851,21 @@ export function omahaPricedBlockerBluffAdmits(
  * measured fold rate; river, the exact count), the call-down unless the call
  * is priced above the fold. Null out of scope: the label test acts.
  */
+/**
+ * What omahaPricedPressureWithheld tells its caller beside the answer. `sampledAtPrice`: the raise
+ * was admitted by the sampled comparison at a priced size (omahaSampledRaiseIsPricedAtEverySize).
+ * The object belongs to the caller and to one decision; this module keeps nothing.
+ */
+export interface OmahaPricedPressureAdmission {
+  sampledAtPrice?: boolean;
+}
 export function omahaPricedPressureWithheld(
   kind: 'raise' | 'call_down',
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
-  deps: OmahaPricedDeps
+  deps: OmahaPricedDeps,
+  out?: OmahaPricedPressureAdmission
 ): boolean | null {
   if (opts.omahaPressureIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
   const tele = telemetryOn(opts);
@@ -884,9 +893,9 @@ export function omahaPricedPressureWithheld(
           priceable = true;
           admitted = kind === 'raise' ? verdict.raise : verdict.evCall > 0;
           // omahaSampledRaiseIsPricedAtEverySize: the raise admitted here is admitted at the
-          // priced size of highest value, and is made at it (omahaPricedPressureRaiseSized)
-          if (kind === 'raise' && verdict.best)
-            notePressureAdmittedAtPrice(player, gs, verdict.raise);
+          // priced size of highest value. The caller is told so, and carries it with its own
+          // decision to the rule that makes the raise at that size (omahaPricedPressureRaiseSized).
+          if (out && kind === 'raise' && verdict.best && verdict.raise) out.sampledAtPrice = true;
         }
       } else if (kind === 'call_down' && stage === 'flop') {
         const eq = omahaBigDrawEquities(
@@ -922,54 +931,14 @@ export function omahaPricedPressureWithheld(
 }
 
 /**
- * The decisions whose pressure raise the sampled comparison admitted at a priced size
- * (omahaSampledRaiseIsPricedAtEverySize): the brain sizes that raise itself, after this module has
- * answered, so the admission is kept for the rule that runs on the brain's answer. Keyed by the
- * whole spot (hand, seat, street, chips, cards, actions so far); every pricing of the spot rewrites
- * its entry; bounded. It only says THAT the raise was admitted by price: the size is priced again
- * where it is applied.
- */
-const PRESSURE_ADMITTED_AT_PRICE = new Set<string>();
-const PRESSURE_ADMITTED_LIMIT = 256;
-const cardKey = (cs: ReadonlyArray<{ rank: string; suit: string }> | null | undefined): string =>
-  (cs ?? []).map((c) => `${c.rank}${c.suit[0]}`).join('');
-function pressureSpotKey(player: SeatPlayer, gs: HorseGameStateV2): string {
-  return [
-    (gs as { handNumber?: number }).handNumber ?? '',
-    String(gs.stage ?? ''),
-    player.user_id ?? '',
-    player.seat,
-    num(player.bet),
-    num(player.stack),
-    num(gs.pot),
-    num(gs.currentBet),
-    cardKey(player.cards),
-    cardKey(gs.communityCards),
-    (gs.actionHistory ?? []).length,
-  ].join('|');
-}
-function notePressureAdmittedAtPrice(
-  player: SeatPlayer,
-  gs: HorseGameStateV2,
-  admitted: boolean
-): void {
-  const key = pressureSpotKey(player, gs);
-  PRESSURE_ADMITTED_AT_PRICE.delete(key);
-  if (!admitted) return;
-  if (PRESSURE_ADMITTED_AT_PRICE.size >= PRESSURE_ADMITTED_LIMIT)
-    for (const oldest of PRESSURE_ADMITTED_AT_PRICE) {
-      PRESSURE_ADMITTED_AT_PRICE.delete(oldest);
-      break;
-    }
-  PRESSURE_ADMITTED_AT_PRICE.add(key);
-}
-
-/**
  * omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced: the pressure raise is admitted
  * when the priced size of highest value is worth more than the call, so the raise the brain then
  * makes is made AT that size (before, it kept the brain's own size: a minimum raise admitted on the
- * fold share of the pot raise). Applies to a raise or an all-in facing the wager in a spot whose
- * pressure raise the sampled comparison admitted in this decision. A draw the bar names is left to
+ * fold share of the pot raise). Applies to a raise or an all-in facing the wager in a decision
+ * whose pressure raise the sampled comparison admitted: `admitted` is the caller's own record of
+ * THIS decision (HorseLogic's per-decision memo, set by the brain where it priced the pressure
+ * raise, bound to the state object of the decision and cleared when the decision starts and when
+ * it ends). This module holds no state. A draw the bar names is left to
  * omahaPricedDrawRaiseRule where that rule owns it (it prices and sizes the same way). The raise is
  * priced again here: where it is no longer priced above the call, or the size given is already the
  * size of highest value, the decision is returned as given. Receipt:
@@ -979,14 +948,15 @@ export function omahaPricedPressureRaiseSized(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  opts: HorseDecideOpts
+  opts: HorseDecideOpts,
+  admitted: boolean
 ): HorseDecision {
+  if (admitted !== true) return decision;
   if (opts.omahaSampledRaiseIsPricedAtEverySize !== true || opts.omahaPressureIsPriced !== true)
     return decision;
   if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
   try {
     if (!omahaPricedInScope(player, gs)) return decision;
-    if (!PRESSURE_ADMITTED_AT_PRICE.has(pressureSpotKey(player, gs))) return decision;
     const spot = sampledSpot(player, gs);
     if (!spot) return decision;
     if (

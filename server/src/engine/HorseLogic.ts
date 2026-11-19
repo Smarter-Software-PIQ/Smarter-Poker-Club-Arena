@@ -501,6 +501,7 @@ import {
   omahaPricedDrawRaiseBarred,
   omahaPricedDrawRaiseRule,
   omahaPricedPressureRaiseSized,
+  type OmahaPricedPressureAdmission,
   omahaPricedFacingRead,
   omahaPricedNoteFacingInputs,
   omahaPricedOopTurnBarrelRule,
@@ -8332,7 +8333,8 @@ function omahaPostflopPressureWithheld(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
   player?: SeatPlayer,
-  kind: 'raise' | 'call_down' = 'raise'
+  kind: 'raise' | 'call_down' = 'raise',
+  admission?: OmahaPricedPressureAdmission
 ): boolean {
   if (opts.omahaPressureNeedsPostflopAggression !== true || opts.mind === false) return false;
   try {
@@ -8347,7 +8349,8 @@ function omahaPostflopPressureWithheld(
         player,
         gs,
         opts,
-        omahaPricedDeps(player, gs)
+        omahaPricedDeps(player, gs),
+        admission
       );
       if (priced !== null) return priced;
     }
@@ -9533,7 +9536,15 @@ function omahaDrawRules(
   // raise admitted at a priced size is made at that size (the decision itself with either off).
   return omahaBigDrawAggression(
     omahaNoDrawRaiseFinal(
-      omahaPricedPressureRaiseSized(decision, player, gs, opts),
+      omahaPricedPressureRaiseSized(
+        decision,
+        player,
+        gs,
+        opts,
+        omahaPressureAdmittedAtPriceMemo !== null &&
+          omahaPressureAdmittedAtPriceMemo.gs === gs &&
+          omahaPressureAdmittedAtPriceMemo.seat === player.seat
+      ),
       player,
       gs,
       opts
@@ -11837,6 +11848,15 @@ let omahaStreetPlanRiverMemo: {
   gs: HorseGameStateV2;
   calls: boolean;
 } | null = null;
+/**
+ * omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced (both default off): the brain
+ * priced the pressure raise of the decision in progress and the sampled comparison admitted it at a
+ * priced size. Written only by the brain's V53 pressure block, for the state object and seat it
+ * priced; read by omahaDrawRules on the same state object, which then makes the raise at that
+ * size. Null in every other decision: cleared with the other per-decision memos when a decision
+ * starts and when it ends, so a later decision on the same public spot inherits nothing.
+ */
+let omahaPressureAdmittedAtPriceMemo: { gs: HorseGameStateV2; seat: number } | null = null;
 
 /**
  * The per-decision memos above are keyed by the identity of the player and
@@ -11848,6 +11868,7 @@ let omahaStreetPlanRiverMemo: {
  * keyed by card strings) is cross-decision by design and is not touched.
  */
 function omahaClearDecisionMemos(): void {
+  omahaPressureAdmittedAtPriceMemo = null;
   omahaSmallBetOwned = null;
   omahaSmallBetPress = null;
   omahaFacingBetEvMemo = null;
@@ -11863,6 +11884,7 @@ function omahaClearDecisionMemos(): void {
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
 export function omahaDecisionMemosHeld(): string[] {
   const held: string[] = [];
+  if (omahaPressureAdmittedAtPriceMemo !== null) held.push('omahaPressureAdmittedAtPriceMemo');
   if (omahaSmallBetOwned !== null) held.push('omahaSmallBetOwned');
   if (omahaSmallBetPress !== null) held.push('omahaSmallBetPress');
   if (omahaFacingBetEvMemo !== null) held.push('omahaFacingBetEvMemo');
@@ -25455,14 +25477,19 @@ export class HorseLogic {
         // the pressure play needs the bettor's own postflop betting measured
         // high; a preflop-wide or presumed-aggressive bettor who is a value
         // leader or unmeasured after the flop gets none.
+        const admission53: OmahaPricedPressureAdmission = {};
         if (
           pressure53 !== null &&
           bettor53 &&
-          omahaPostflopPressureWithheld(bettor53, gs, opts, player)
+          omahaPostflopPressureWithheld(bettor53, gs, opts, player, 'raise', admission53)
         ) {
           pressure53 = null;
           if (tele15) noteFire('omaha_pressure_withheld_value_leader');
         }
+        // omahaSampledRaiseIsPricedAtEverySize: the pressure raise stands because a priced size
+        // beats the call; the raise this decision makes is made at that size (omahaDrawRules).
+        if (pressure53 !== null && admission53.sampledAtPrice === true)
+          omahaPressureAdmittedAtPriceMemo = { gs, seat: player.seat };
       } catch {
         pressure53 = null;
       }

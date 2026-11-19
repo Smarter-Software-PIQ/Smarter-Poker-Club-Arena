@@ -23,6 +23,12 @@ Both families are OFF in production, and their evaluations (EQUAL) were measured
 - A raise the mix took without being priced above the call is resized under `omaha_priced_draw_raise_mixed_resized`.
 - The legal sizes are priced whatever the proposed size is; a resized decision drops `valueSize` with `continuationGuard`.
 
+## Delta review follow-up (same day, REVIEW-DELTA-51018cc8c3b, one blocking item)
+
+- The admission of the pressure raise is carried with the decision. 51018cc8c3b kept it in a module set in HorseOmahaPricedWiring.ts keyed by the public spot, which outlived the decision: a later decision on the same public spot could inherit it. The set is deleted. `omahaPricedPressureWithheld` tells its caller (an object the caller owns); the brain's pressure block writes HorseLogic's per-decision memo `omahaPressureAdmittedAtPriceMemo` (the decision's state object and seat; cleared with the other per-decision memos at the start and end of every decision); `omahaDrawRules` reads it for the same state object and passes it to `omahaPricedPressureRaiseSized`.
+- Tests: the whole decision in which the brain prices and admits the pressure raise and it is made at the priced size; a second decision on the same public spot inherits nothing (fails on 51018cc8c3b).
+- Authority file: the dedicated validator admission against the generic clause; the direction of the bias of the two-class continuing range; the price of a player still to answer.
+
 ## Not in this change
 
 The option-switch list migration (the lane lead generates one list migration for the lane) and the CI switch-evidence script's option list that goes with it; any league or replay; any switch.
