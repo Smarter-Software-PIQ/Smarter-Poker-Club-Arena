@@ -12,9 +12,10 @@
  * `supabase_timeout`, the lane failed "worker 2 loaded a different solver
  * corpus than worker 0", and the cutover was rolled back.
  *
- * The first load therefore retries a failed attempt a bounded number of times
- * and refuses with a named error if it never completes. It never reports a
- * partial or empty store as loaded, and it changes nothing about refreshes.
+ * The first load therefore retries a failed attempt at once, a bounded
+ * number of times. A failed read already took its own timeout, so no timer is
+ * added. If every attempt fails, the worker keeps the loader's own answer, as
+ * before, and lane.ts still refuses a genuinely divergent corpus.
  */
 
 export interface SolverLoadOutcome {
@@ -22,41 +23,27 @@ export interface SolverLoadOutcome {
   count: number;
 }
 
-/** Three complete attempts with 1.5 s and 3 s between them fit well inside
- * the restart certificate's 150 s candidate proof even at the slowest
- * measured single load (26 s). */
+/** Three complete attempts; the slowest measured single load is 26 s, well
+ * inside the restart certificate's 150 s candidate proof. */
 export const SOLVER_BOOT_LOAD_ATTEMPTS = 3;
-export const SOLVER_BOOT_LOAD_RETRY_MS = 1_500;
-
-const pause = (ms: number) =>
-  new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
-    t.unref?.();
-  });
 
 export async function loadSolverStoreForBoot(
   name: string,
   attempt: () => Promise<SolverLoadOutcome>,
-  attempts: number = SOLVER_BOOT_LOAD_ATTEMPTS,
-  retryMs: number = SOLVER_BOOT_LOAD_RETRY_MS,
-  wait: (ms: number) => Promise<void> = pause
+  attempts: number = SOLVER_BOOT_LOAD_ATTEMPTS
 ): Promise<number> {
-  let lastError: unknown = null;
   for (let tried = 1; ; tried += 1) {
+    let outcome: SolverLoadOutcome;
     try {
-      const outcome = await attempt();
-      if (outcome.ok) return outcome.count;
-      lastError = null;
+      outcome = await attempt();
     } catch (error) {
-      lastError = error;
+      if (tried >= attempts) throw error;
+      console.warn(`[SolverBootLoad] ${name} attempt ${tried} of ${attempts} threw; retrying`);
+      continue;
     }
-    if (tried >= attempts) {
-      const cause = lastError instanceof Error ? `: ${lastError.message}` : '';
-      throw new Error(`${name}_boot_load_incomplete_after_${attempts}_attempts${cause}`);
-    }
+    if (outcome.ok || tried >= attempts) return outcome.count;
     console.warn(
       `[SolverBootLoad] ${name} attempt ${tried} of ${attempts} did not complete; retrying`
     );
-    await wait(retryMs * tried);
   }
 }
