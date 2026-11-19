@@ -260,6 +260,8 @@ COMMIT;`;
     expect(Object.keys(NOT_REHEARSED)).toEqual([
       'ca_break_window_refuses_ddl',
       'ca_break_window_refuses_drops',
+      'ca_live_tables_refuse_manual_ddl',
+      'ca_live_tables_refuse_manual_ddl_held',
     ]);
     expect(arm.triggerSql).toContain(
       "CREATE EVENT TRIGGER ca_superseded_function_body_is_refused ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION', 'CREATE PROCEDURE') EXECUTE FUNCTION smarter_private.fn_ca_function_lineage_on_create();"

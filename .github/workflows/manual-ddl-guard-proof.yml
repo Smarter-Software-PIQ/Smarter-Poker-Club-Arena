@@ -1,0 +1,73 @@
+name: Manual DDL Guard Proof
+# A MANUAL SESSION NEVER LOCKS THE LIVE TABLES (incident 075013fd).
+# On 2026-11-18 23:32 UTC an ad-hoc postgres session re-ran
+# 20260308_tournament_bounties_and_columns.sql on production, statement by
+# statement: 30 no-op ADD COLUMN IF NOT EXISTS each queued ACCESS EXCLUSIVE on
+# tournaments and froze it for ~100 s. Migration 20261119053515 makes the
+# database refuse live-table DDL from any session that is not the claimed
+# migration applier, refuse a re-run of an applied migration, and refuse a
+# no-op IF NOT EXISTS before its lock. scripts/ci/test-manual-ddl-guard-postgres.py
+# proves it by execution, on PostgreSQL 16 (the runner's own) and on
+# PostgreSQL 17 (production's major), with the applier's real history template
+# and binder.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261119053515_a_manual_session_never_locks_the_live_tables.sql'
+      - 'scripts/ci/test-manual-ddl-guard-postgres.py'
+      - 'scripts/ci/migration-session-identity.mjs'
+      - 'scripts/ci/apply-recorded-migration.mjs'
+      - '.github/actions/install-postgres-17/**'
+      - '.github/workflows/manual-ddl-guard-proof.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261119053515_a_manual_session_never_locks_the_live_tables.sql'
+      - 'scripts/ci/test-manual-ddl-guard-postgres.py'
+      - 'scripts/ci/migration-session-identity.mjs'
+      - 'scripts/ci/apply-recorded-migration.mjs'
+      - '.github/workflows/manual-ddl-guard-proof.yml'
+# A newer push to the same pull request fully supersedes this pure check, and
+# the job mutates nothing outside its runner.
+concurrency:
+  group: manual-ddl-guard-proof-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the production Node major
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # ubuntu-latest carries no PostgreSQL 16 of its own; both majors come
+      # from the one signed PGDG install every workflow uses.
+      - name: Install PostgreSQL 16 and 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+        with:
+          packages: postgresql-17 postgresql-16
+      - name: Prove the guard on PostgreSQL 16
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/manual-ddl-guard
+          python3 -B scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin /usr/lib/postgresql/16/bin \
+            --out artifacts/manual-ddl-guard/pg16.json | tee artifacts/manual-ddl-guard/pg16.log
+          grep -q '^PASS  every manual-DDL guard assertion held$' artifacts/manual-ddl-guard/pg16.log
+      - name: Prove the guard on PostgreSQL 17
+        run: |
+          set -euo pipefail
+          python3 -B scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin /usr/lib/postgresql/17/bin \
+            --out artifacts/manual-ddl-guard/pg17.json | tee artifacts/manual-ddl-guard/pg17.log
+          grep -q '^PASS  every manual-DDL guard assertion held$' artifacts/manual-ddl-guard/pg17.log
+      - name: Retain the proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-ddl-guard-proof
+          path: artifacts/manual-ddl-guard/
+          if-no-files-found: error
