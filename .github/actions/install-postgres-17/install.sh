@@ -22,13 +22,21 @@
 # A signature failure is not a transfer failure: apt refuses it the same way
 # on every attempt, and the step fails.
 #
+# THE UBUNTU MIRROR GOES THROUGH THE ONE ENTRY POINT (2026-11-19). Every
+# install selects the shared multi-host mirror list first
+# (scripts/ci/ubuntu-apt.sh setup), bounds every attempt
+# (PG_APT_ATTEMPT_SECONDS) and starts each retry on a different Ubuntu mirror
+# (scripts/ci/ubuntu-apt.sh rotate). It used to be opt-in (PG_UBUNTU_MIRROR),
+# so most of the hundred-odd callers waited on one host with no bound.
+#
 # Inputs (environment):
-#   PG_PACKAGES       packages to install from PGDG (default: postgresql-17)
-#   PG_SERVER_MINOR   server minor to install (default: VERSION in
-#                     scripts/ci/build_pg17_isolationtester.py)
-#   PG_UBUNTU_MIRROR  "true" runs scripts/ci/ubuntu-apt-mirror.py first
-#   PG_APT_ATTEMPTS   whole-command attempts (default 4)
-#   PG_APT_DELAY      first back-off in seconds (default 5)
+#   PG_PACKAGES             packages to install from PGDG (default: postgresql-17)
+#   PG_SERVER_MINOR         server minor to install (default: VERSION in
+#                           scripts/ci/build_pg17_isolationtester.py)
+#   PG_UBUNTU_MIRROR        accepted for older callers; the mirror is always set
+#   PG_APT_ATTEMPTS         whole-command attempts (default 4)
+#   PG_APT_DELAY            first back-off in seconds (default 5)
+#   PG_APT_ATTEMPT_SECONDS  bound on each attempt (default 240)
 set -euo pipefail
 
 : "${GITHUB_WORKSPACE:?GITHUB_WORKSPACE must be the checkout}"
@@ -42,14 +50,22 @@ if [ ! -f "$PG_KEY_SRC" ]; then
   exit 1
 fi
 
+PG_UBUNTU_APT="$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt.sh"
+if [ ! -f "$PG_UBUNTU_APT" ]; then
+  echo "::error::$PG_UBUNTU_APT is missing: check out scripts/ci/ubuntu-apt.sh, ubuntu-apt-mirror.py and ubuntu-apt-mirrors.txt before installing PostgreSQL." >&2
+  exit 1
+fi
+
 pg_attempt() {
-  local n=1 max=${PG_APT_ATTEMPTS:-4} delay=${PG_APT_DELAY:-5}
-  until "$@"; do
+  local n=1 max=${PG_APT_ATTEMPTS:-4} delay=${PG_APT_DELAY:-5} bound=${PG_APT_ATTEMPT_SECONDS:-240}
+  until timeout --kill-after=15 "$bound" "$@"; do
     if [ "$n" -ge "$max" ]; then
       echo "::error::failed after $n attempts: $*" >&2
       return 1
     fi
-    echo "::warning::attempt $n of $max failed: $*; retrying in ${delay}s" >&2
+    echo "::warning::attempt $n of $max failed or exceeded ${bound}s: $*; retrying on the next Ubuntu mirror in ${delay}s" >&2
+    bash "$PG_UBUNTU_APT" rotate
+    sudo dpkg --configure -a >/dev/null 2>&1 || true
     sleep "$delay"
     n=$((n + 1))
     delay=$((delay * 2))
@@ -122,9 +138,7 @@ pg_resolve_cron_build() {
   return 1
 }
 
-if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then
-  sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"
-fi
+bash "$PG_UBUNTU_APT" setup
 
 pg_sources="$(mktemp -d "$RUNNER_TEMP/ca-postgres-apt.XXXXXX")"
 chmod 755 "$pg_sources"
@@ -134,8 +148,8 @@ pg_apt=(
   -o "Dir::Etc::sourcelist=/dev/null"
   -o "Dir::Etc::sourceparts=$pg_sources"
   -o "Acquire::Retries=5"
-  -o "Acquire::http::Timeout=60"
-  -o "Acquire::https::Timeout=60"
+  -o "Acquire::http::Timeout=30"
+  -o "Acquire::https::Timeout=30"
 )
 pg_update=(-o "APT::Update::Error-Mode=any")
 pg_attempt sudo apt-get "${pg_apt[@]}" "${pg_update[@]}" update

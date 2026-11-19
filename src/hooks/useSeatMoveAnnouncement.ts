@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { PLAYER_NAME_COLUMNS, playerDisplayName } from '../utils/playerDisplayName';
 import { reportError } from '../utils/errorReporter';
+import { SEAT_MOVE_DESTINATION_COLUMNS, seatMoveDestinationLabel } from '../utils/clusterTableRole';
 
 /** Explain a committed move to everyone still watching its source table. */
 export function useSeatMoveAnnouncement({
@@ -50,10 +51,14 @@ export function useSeatMoveAnnouncement({
     const cachedName = scope.names.get(data.user_id);
     void (async () => {
       let name = cachedName;
-      let destination = data.reason === 'must_move' ? 'The Main Game' : 'Another Table';
+      let destination = seatMoveDestinationLabel(data.reason, null);
       try {
         const [table, profile] = await Promise.all([
-          supabase.from('tables').select('name').eq('id', data.to_table_id).maybeSingle(),
+          supabase
+            .from('tables')
+            .select(SEAT_MOVE_DESTINATION_COLUMNS)
+            .eq('id', data.to_table_id)
+            .maybeSingle(),
           cachedName
             ? Promise.resolve(null)
             : supabase
@@ -65,19 +70,11 @@ export function useSeatMoveAnnouncement({
         if (table.error) reportError(table.error, 'useSeatMoveAnnouncement.destination');
         if (profile?.error) reportError(profile.error, 'useSeatMoveAnnouncement.player');
         if (!profile?.error && profile?.data) name = playerDisplayName(profile.data);
-        if (!table.error && table.data?.name) {
-          const label = String(table.data.name).trim();
-          // A MUST-MOVE ALWAYS LANDS IN THE MAIN GAME (2026-11-19). Cluster
-          // tables stopped carrying "Main" in their names at 02:37 UTC (the main
-          // is "NLH 0.50/1 Classic", its feeders "... Classic Feeder"), so the
-          // name alone stopped recognising the main game. A must-move is the
-          // move into the main game by definition; only a seat change names
-          // its destination table.
-          destination =
-            data.reason === 'must_move' || /\bmain(?:\s*\d+)?\b/i.test(label)
-              ? 'The Main Game'
-              : label || destination;
-        }
+        // THE DESTINATION'S ROLE, NEVER ITS NAME (2026-11-19). Main 1 wears
+        // the bare game name ("NLH 0.50/1 Classic") and generated names change
+        // (02:37 UTC today), so `tables.role` alone says it is the main game.
+        if (!table.error && table.data)
+          destination = seatMoveDestinationLabel(data.reason, table.data);
       } catch (error) {
         reportError(error, 'useSeatMoveAnnouncement.read');
       }

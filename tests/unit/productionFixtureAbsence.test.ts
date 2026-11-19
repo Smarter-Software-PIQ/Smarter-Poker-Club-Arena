@@ -339,39 +339,37 @@ describe('productionFixture.ts', () => {
     expect(allConsidered.verdict).toBe('absent');
   });
 
-  it('selects seat-move destinations by kind and proves destination absence honestly', () => {
-    const MAIN = /\bmain\b/i;
+  it('selects seat-move destinations by role and proves destination absence honestly', () => {
+    const isMain = (table: { role?: string | null }) => table.role === 'main';
     const cat = [
-      { id: 'src', name: 'Cluster A' },
-      { id: 't-main', name: 'NLH Main 1' },
-      { id: 't-other', name: 'NLH Table 2' },
+      { id: 'src', name: 'Cluster A', role: 'feeder' },
+      { id: 't-main', name: 'NLH 0.50/1 Classic', role: 'main' },
+      { id: 't-other', name: 'NLH Table 2', role: 'feeder' },
     ];
-    expect(selectSeatMoveDestinations(cat, 'src', MAIN)).toEqual({
-      main: { id: 't-main', name: 'NLH Main 1' },
-      other: { id: 't-other', name: 'NLH Table 2' },
+    expect(selectSeatMoveDestinations(cat, 'src', isMain)).toEqual({
+      main: { id: 't-main', name: 'NLH 0.50/1 Classic', role: 'main' },
+      other: { id: 't-other', name: 'NLH Table 2', role: 'feeder' },
     });
 
-    // Falls back to any distinct named table when no Main-named table exists
+    // No role=main table -> absent
     const noMainCat = [
-      { id: 'src', name: 'Cluster A' },
-      { id: 't-1', name: 'NLH Table 1' },
-      { id: 't-2', name: 'NLH Table 2' },
+      { id: 'src', name: 'Cluster A', role: 'feeder' },
+      { id: 't-1', name: 'NLH Table 1', role: 'feeder' },
+      { id: 't-2', name: 'NLH Table 2', role: 'feeder' },
     ];
-    expect(selectSeatMoveDestinations(noMainCat, 'src', MAIN)).toEqual({
-      main: { id: 't-1', name: 'NLH Table 1' },
-      other: { id: 't-2', name: 'NLH Table 2' },
-    });
+    expect(selectSeatMoveDestinations(noMainCat, 'src', isMain)).toBeNull();
+    expect(proveSeatMoveDestinationAbsence(noMainCat, 'src', isMain).verdict).toBe('absent');
 
-    // Only one other table -> absent
-    const oneOther = [
-      { id: 'src', name: 'Cluster A' },
-      { id: 't-1', name: 'NLH Table 1' },
+    // Only a role=main table and no non-main destination -> absent
+    const onlyMain = [
+      { id: 'src', name: 'Cluster A', role: 'feeder' },
+      { id: 't-main', name: 'NLH 0.50/1 Classic', role: 'main' },
     ];
-    expect(selectSeatMoveDestinations(oneOther, 'src', MAIN)).toBeNull();
-    expect(proveSeatMoveDestinationAbsence(oneOther, 'src', MAIN).verdict).toBe('absent');
+    expect(selectSeatMoveDestinations(onlyMain, 'src', isMain)).toBeNull();
+    expect(proveSeatMoveDestinationAbsence(onlyMain, 'src', isMain).verdict).toBe('absent');
 
     // Valid pair exists -> missed if selector failed to pick
-    expect(proveSeatMoveDestinationAbsence(cat, 'src', MAIN).verdict).toBe('missed');
+    expect(proveSeatMoveDestinationAbsence(cat, 'src', isMain).verdict).toBe('missed');
   });
 
   it('normalizes lobby and service catalogue rows and refuses unproven cash subject absence', () => {

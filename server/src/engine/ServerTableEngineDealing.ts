@@ -81,7 +81,9 @@ import { holeCardCount, deckSizeFor, maxSeatsFor } from './VariantRules.js';
 // both. See the override block below.
 import { maxSeatsForVariant } from '../config/tableSeating.js';
 import {
+  BOMB_POT_CLEAR_CHANGED_FILTER,
   bombPotSettingsFromTable,
+  canonicalBombPotPersistKey,
   resolveBombPotVariant,
   type BombPotDecision,
 } from './BombPotScheduler.js';
@@ -4006,7 +4008,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           const snapObj = enabled
             ? { ...this.bombPotScheduler.exportState(), b: this.bombButtonSeat ?? null }
             : null;
-          const snap = JSON.stringify(snapObj);
+          const snap = canonicalBombPotPersistKey(snapObj, dueAtIso);
+          if (this.bombPotSchedPersistedJson === null) {
+            // Seed from the loaded `tables` row so non-bomb tables (already
+            // NULL/NULL) and restarted timed/bomb-pot-only tables whose state
+            // did not move on Hand 1 skip no-op UPDATEs on `tables` (154 cols
+            // in supabase_realtime).
+            this.bombPotSchedPersistedJson = canonicalBombPotPersistKey(
+              this.tableInfo.bomb_pot_sched_state ?? null,
+              this.tableInfo.bomb_pot_next_due_at ?? null
+            );
+          }
           if (snap !== this.bombPotSchedPersistedJson) {
             this.bombPotSchedPersistedJson = snap;
             this.tableInfo.bomb_pot_sched_state = snapObj;
@@ -4014,12 +4026,14 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // Promise.resolve turns the PostgrestBuilder thenable into a real
             // Promise so the house .catch rule (noUnhandledRejections.test.ts)
             // is satisfiable.
-            void Promise.resolve(
-              supabase
-                .from('tables')
-                .update({ bomb_pot_sched_state: snapObj, bomb_pot_next_due_at: dueAtIso })
-                .eq('id', this.tableId)
-            )
+            let query = supabase
+              .from('tables')
+              .update({ bomb_pot_sched_state: snapObj, bomb_pot_next_due_at: dueAtIso })
+              .eq('id', this.tableId);
+            if (snapObj === null && dueAtIso === null) {
+              query = query.or(BOMB_POT_CLEAR_CHANGED_FILTER);
+            }
+            void Promise.resolve(query)
               .then(({ error }) => {
                 if (error) {
                   console.warn('[BombPot] scheduler persistence failed:', error.message);

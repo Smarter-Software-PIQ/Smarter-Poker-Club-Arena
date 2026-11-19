@@ -300,48 +300,50 @@ export async function readFixtureCatalogue(
 }
 
 /**
- * Seat-move destinations by kind: a distinct named cash table to carry the
- * must-move notice (a "Main"-named one preferred), and a further distinct,
- * non-Main named table for the seat change.
+ * Seat-move destinations by kind: a distinct table whose recorded role is
+ * 'main' (the must-move destination), and a distinct named non-main table
+ * (the seat-change destination whose own name is announced).
  */
 export function selectSeatMoveDestinations<T extends { id: string; name: string }>(
   catalogue: readonly T[],
   sourceId: string,
-  mainName: RegExp
+  isMain: (table: T) => boolean
 ): { main: T; other: T } | null {
-  const named = catalogue.filter((table) => table.id !== sourceId && table.name.trim());
-  const main = named.find((table) => mainName.test(table.name)) ?? named[0];
-  const other = named.find((table) => table.id !== main?.id && !mainName.test(table.name));
+  const main = catalogue.find((table) => table.id !== sourceId && isMain(table));
+  const other = catalogue.find(
+    (table) => table.id !== sourceId && table.id !== main?.id && !isMain(table) && table.name.trim()
+  );
   return main && other ? { main, other } : null;
 }
 
 /**
  * The independent count behind a missing seat-move destination: the proof
- * needs two distinct named tables besides its subject, one not Main-named.
+ * needs a role=main table and a distinct named non-main table besides its
+ * subject.
  */
 export function proveSeatMoveDestinationAbsence<T extends { id: string; name: string }>(
   catalogue: readonly T[],
   sourceId: string,
-  mainName: RegExp
+  isMain: (table: T) => boolean
 ): FixtureProof {
   const kind = 'cash/second-destination-table';
-  const others = catalogue.filter((table) => table.id !== sourceId && table.name.trim());
-  const distinct = new Set(others.map((table) => table.id));
-  const nonMain = new Set(
-    others.filter((table) => !mainName.test(table.name)).map((table) => table.id)
+  const others = catalogue.filter((table) => table.id !== sourceId);
+  const mains = new Set(others.filter((table) => isMain(table)).map((table) => table.id));
+  const nonMains = new Set(
+    others.filter((table) => !isMain(table) && table.name.trim()).map((table) => table.id)
   );
-  if (distinct.size < 2 || nonMain.size === 0)
+  if (mains.size === 0 || nonMains.size === 0)
     return {
       verdict: 'absent',
       kind,
-      detail: `the cash catalogue lists ${distinct.size} named table(s) besides the subject, ${nonMain.size} not Main-named; the proof needs two distinct ones, one not Main-named`,
-      catalogueMatches: [...distinct],
+      detail: `the cash catalogue lists ${mains.size} role=main table(s) and ${nonMains.size} named non-main table(s) besides the subject; the proof needs one of each`,
+      catalogueMatches: [...new Set([...mains, ...nonMains])],
     };
   return {
     verdict: 'missed',
     kind,
-    detail: `the cash catalogue lists ${distinct.size} distinct named tables besides the subject (${nonMain.size} not Main-named), yet no main/other pair was chosen`,
-    missed: [...distinct],
+    detail: `the cash catalogue lists ${mains.size} role=main table(s) and ${nonMains.size} named non-main table(s) besides the subject, yet no main/other pair was chosen`,
+    missed: [...new Set([...mains, ...nonMains])],
   };
 }
 

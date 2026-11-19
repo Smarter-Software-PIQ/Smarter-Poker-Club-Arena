@@ -73,13 +73,19 @@ FIX_E2 = ROOT / 'scripts/ci/fixtures/event-scoped-field-lane/preimages.json'
 # Lane L (20261119052513) changes the doctrine first; E2 rebases on its post-image.
 MIG_L = ROOT / 'supabase/migrations/20261119052513_a_late_registration_never_pauses_the_tournament.sql'
 FIX_L = ROOT / 'scripts/ci/fixtures/late-registration-never-pauses/preimages.json'
+# Lane E3 (20261119054539) & Lane E4 (20261119181500): hand commits take
+# FOR KEY SHARE and shared-change-lane writers take FOR NO KEY UPDATE on
+# public.tournaments so tables of one event never wait on each other's row.
+MIG_E3 = ROOT / 'supabase/migrations/20261119054539_a_rebuy_reads_promo_fee_state_outside_its_event_lane.sql'
+MIG_E4 = ROOT / 'supabase/migrations/20261119181500_tournament_tables_never_wait_on_another_tables_event_row.sql'
+FIX_HAND = ROOT / 'scripts/ci/fixtures/original-paid-custody/hand-authorities.json'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/rebuy-never-pauses')
 parser.add_argument('--print-post-images', action='store_true')
 parser.add_argument('--print-e2-post-images', action='store_true')
 args = parser.parse_args()
-for p in (MIG, MIG2, MIG_T1, MIG_T2, FIX, FIX_T, MIG_E2, FIX_E2, MIG_L, FIX_L):
+for p in (MIG, MIG2, MIG_T1, MIG_T2, FIX, FIX_T, MIG_E2, FIX_E2, MIG_L, FIX_L, MIG_E3, MIG_E4, FIX_HAND):
     if not p.exists():
         sys.exit(f'missing {p.relative_to(ROOT)} (lane T, PR #11310, must be in this tree)')
 out = args.output.resolve()
@@ -781,7 +787,7 @@ try:
                                '--no-locale'], check=True, capture_output=True, env=env)
     subprocess.run(as_owner + [str(pg / 'pg_ctl'), '-D', str(cluster / 'data'), '-l', str(LOG), '-o',
                    f"-k {sock} -p {PORT} -c listen_addresses='' -c log_lock_waits=on -c deadlock_timeout=200ms "
-                   "-c max_connections=80", '-w', 'start'], check=True, capture_output=True, env=env)
+                   "-c max_connections=80 -c fsync=off -c full_page_writes=off", '-w', 'start'], check=True, capture_output=True, env=env)
     subprocess.run(as_owner + [str(pg / 'createdb'), '-h', str(sock), '-p', PORT, '-U', 'postgres', 'w'],
                    check=True, env=env)
 
@@ -1926,6 +1932,203 @@ COMMIT;""")
           and q("SELECT count(*) FROM (SELECT obligation_id FROM public.bounty_paid GROUP BY 1 HAVING count(*)>1) d") == '0')
     e2_invariants('after E2: mixed run')
     results['e2_after'] = e2_after
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # LANE E4 (20261119181500): TOURNAMENT TABLES NEVER WAIT ON ANOTHER
+    # TABLE'S EVENT ROW (FOR KEY SHARE on hand commit + FOR NO KEY UPDATE on
+    # shared-change-lane writers).
+    # ═══════════════════════════════════════════════════════════════════════
+    hand_auths = json.loads(FIX_HAND.read_text())
+    hand_sigs = (
+        'fn_ca_commit_hand_settlement_exact_before_obligations(uuid,bigint,jsonb,numeric,numeric,text,numeric,jsonb,jsonb,text,uuid)',
+        'fn_ca_commit_hand_settlement_before_lease_generation(uuid,bigint,jsonb,numeric,numeric,text,numeric,jsonb,jsonb)',
+    )
+    for it in hand_auths:
+        if it.get('signature') in hand_sigs:
+            psql(it['definition'])
+            got_md5 = q(f"SELECT md5(pg_get_functiondef('public.{it['signature']}'::regprocedure))")
+            check(f"E4 hand pre-image {it['signature'].split('(')[0]} matches production",
+                  got_md5 == it['definition_md5'], f'{got_md5} != {it["definition_md5"]}')
+    # Minimal stubs for E3's promo pre-check on tables not in the E2 harness
+    psql("""
+ALTER TABLE public.entry_purchase_idempotency_receipts
+  ADD COLUMN IF NOT EXISTS claimed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+CREATE TABLE IF NOT EXISTS public.ca_promo_play_through_settings (id boolean PRIMARY KEY, enforced_from timestamptz);
+CREATE TABLE IF NOT EXISTS public.ca_promo_play_through_grants (club_id uuid, user_id uuid, closed_at timestamptz);
+CREATE OR REPLACE FUNCTION public.fn_ca_promo_fee_state_ensure(uuid, uuid) RETURNS void LANGUAGE sql AS $$ SELECT; $$;
+""")
+    p = psql(MIG_E3.read_text(), check=False)
+    check('migration 20261119054539 (E3) installs natively', p.returncode == 0, p.stderr.strip()[-400:])
+
+    # BEFORE E4: a hand commit (FOR SHARE) at an untouched table WAITS for a
+    # move at another table (which holds public.tournaments FOR UPDATE).
+    e4_src_t, e4_dst_t, e4_untouched_t = clean_tables(3)
+    e4_mover = live_player_at(e4_src_t)
+    hold_move_before = bg(move_sql(e4_mover, e4_src_t, e4_dst_t, hold=1.6, app='e4_before'))
+    wait_until_holding('e4_before', hold_move_before)
+    dt_before, rc_before, o_before = timed(w_commit(e4_untouched_t))
+    done_before = finish(hold_move_before)
+    check('before E4: move completes', done_before[1] == 0, done_before[2][-200:])
+    check('before E4: hand commit (FOR SHARE) on an untouched table WAITS for move (the defect)',
+          rc_before == 0 and dt_before >= 1.0, f'{dt_before:.3f}s rc={rc_before} {o_before[-120:]}')
+
+    # Install E4: refuses if E2/E3 missing, installs cleanly, refuses to run twice
+    mig_e4 = MIG_E4.read_text()
+    p = psql(mig_e4.replace("'76dddeb34b3508a48b777c2c79442072'", "'00000000000000000000000000000000'"), check=False)
+    check('E4 refuses when lane E2/E3 is not its pinned text',
+          p.returncode != 0 and 'must be installed first' in p.stderr, p.stderr.strip()[-160:])
+    p = psql(mig_e4, check=False)
+    check('migration 20261119181500 (E4) installs (all 19 pre/post pins, probes, doctrine rule 9 ok)',
+          p.returncode == 0, p.stderr.strip()[-600:])
+    check('E4 refuses to run twice', psql(mig_e4, check=False).returncode != 0)
+    doc_e4 = q("SELECT public.fn_ca_settlement_lane_doctrine()")
+    check('E4 doctrine holds after the change, rule 9 included', '"ok": true' in doc_e4, doc_e4)
+    # Mirror E4's FOR NO KEY UPDATE on the two minimal test-harness stubs
+    # (fn_collect_bounty_obligation and fn_claim_bounty_legacy_candidate_20260907)
+    # whose real production counterparts delegate to fn_collect_bounty /
+    # fn_claim_tournament_bounty_elimination (both downgraded by E4 above).
+    psql("""
+DO $$
+DECLARE v_def text;
+BEGIN
+  v_def := pg_get_functiondef('public.fn_collect_bounty_obligation(uuid)'::regprocedure);
+  EXECUTE replace(v_def, 'FROM public.tournaments WHERE id=o.tournament_id FOR UPDATE;', 'FROM public.tournaments WHERE id=o.tournament_id FOR NO KEY UPDATE;');
+  v_def := pg_get_functiondef('public.fn_claim_bounty_legacy_candidate_20260907(uuid,uuid,integer,numeric,uuid,uuid,bigint,timestamp with time zone,uuid,jsonb,numeric,boolean)'::regprocedure);
+  EXECUTE replace(v_def, 'FROM public.tournaments WHERE id=p_t FOR UPDATE;', 'FROM public.tournaments WHERE id=p_t FOR NO KEY UPDATE;');
+END $$;
+""")
+
+    def w_commit_e4(table, hold=0.0, app='commit_e4'):
+        """A hand commit after E4: G S, T(id) S, tournament row FOR KEY SHARE,
+        table row FOR UPDATE, [hold], atomic-table key, zero-sum stack move."""
+        return (f"SET application_name='{app}'; BEGIN; SET LOCAL lock_timeout='6s'; "
+                f"SELECT public.fn_ca_share_settlement_lane_for_table('{table}'); "
+                f"SELECT 1 FROM public.tournaments WHERE id='{TR}' FOR KEY SHARE; "
+                f"SELECT 1 FROM public.tables WHERE id='{table}' FOR UPDATE; "
+                + (f"SELECT pg_sleep({hold}); " if hold else '') +
+                f"SELECT pg_advisory_xact_lock(hashtextextended('atomic-table:'||'{table}',0)); "
+                f"WITH two AS (SELECT s.id, row_number() OVER (ORDER BY s.id) rn FROM public.table_seats s "
+                f"  WHERE s.table_id='{table}' AND s.left_at IS NULL AND s.stack>3 ORDER BY s.id LIMIT 2) "
+                f"UPDATE public.table_seats s SET stack=s.stack+CASE two.rn WHEN 1 THEN 3 ELSE -3 END "
+                f"  FROM two WHERE s.id=two.id AND (SELECT count(*) FROM two)=2; "
+                f"UPDATE public.tournament_players tp SET chips=s.stack FROM public.table_seats s "
+                f"  WHERE s.table_id='{table}' AND s.left_at IS NULL AND s.user_id=tp.user_id "
+                f"  AND tp.tournament_id='{TR}' AND tp.chips IS DISTINCT FROM s.stack::int; COMMIT;")
+
+    e4_after = {}
+
+    def e4_untouched_check(label, holder_sql, app_name, untouched_table):
+        h = bg(holder_sql)
+        wait_until_holding(app_name, h)
+        dt, rc, o = timed(w_commit_e4(untouched_table))
+        done = finish(h)
+        check(f'after E4: {label} completes', done[1] == 0, done[2][-240:])
+        check(f'after E4: hand commit on untouched table proceeds AT ONCE while {label} is in flight',
+              rc == 0 and dt < 0.5, f'{dt:.3f}s rc={rc} {o[-120:]}')
+        e4_after[label] = round(dt, 3)
+
+    # 1. Move in flight -> untouched table commits at once
+    ct = clean_tables(3)
+    mv_u = live_player_at(ct[0])
+    e4_untouched_check('move', move_sql(mv_u, ct[0], ct[1], hold=1.6, app='e4_move'), 'e4_move', ct[2])
+    # 2. Break park in flight -> untouched table commits at once
+    ct = clean_tables(3)
+    e4_parked_t = ct[0]
+    e4_brk = q("SELECT gen_random_uuid()")
+    e4_untouched_check('break_park', park_sql(e4_brk, e4_parked_t, hold=1.6, app='e4_park'), 'e4_park', ct[2])
+    # 3. Bounty rebuy in flight -> untouched table commits at once
+    ct = [t for t in clean_tables(8, avoid=(e4_parked_t,)) if live_player_at(t) and free_chair(t)][:4]
+    rb_u, rb_k, rb_t = bust_pending_bounty(ct[0])
+    rb_other = [t for t in ct if t not in (rb_t, seat_of(rb_k))][0]
+    e4_untouched_check('bounty_rebuy', rebuy_sql(rb_u, 'pending', hold=1.6), 'rebuy', rb_other)
+    # 4. Elimination (bust) in flight -> untouched table commits at once
+    ct = clean_tables(3, avoid=(e4_parked_t,))
+    el_u = live_player_at(ct[0])
+    e4_untouched_check(
+        'elimination',
+        f"SET application_name='e4_bust'; BEGIN; SELECT public.fn_eliminate_tournament_player_atomic('{TR}','{el_u}',99,0,0); SELECT pg_sleep(1.6); COMMIT;",
+        'e4_bust',
+        ct[2],
+    )
+    # 5. Entry close in flight -> untouched table commits at once
+    ct = clean_tables(3, avoid=(e4_parked_t,))
+    e4_untouched_check('entry_close', close_sql(TR, hold=1.6, app='e4_close'), 'e4_close', ct[2])
+    # 6. Touched table STILL serializes in BOTH orders (0 deadlocks)
+    ct = clean_tables(3, avoid=(e4_parked_t,))
+    mv_u2 = live_player_at(ct[0])
+    d0 = deadlocks()
+    h1 = bg(move_sql(mv_u2, ct[0], ct[1], hold=1.0, app='e4_race1'))
+    wait_until_holding('e4_race1', h1)
+    h2 = bg(w_commit_e4(ct[0]))
+    r1, r2 = finish(h1), finish(h2)
+    check('after E4: move vs hand on SAME source table (move-first) serializes on table row, 0 deadlocks',
+          deadlocks() == d0 and r1[1] == 0 and r2[1] == 0 and r2[0] >= 0.6,
+          f'dl={deadlocks()-d0} hand={r2[0]:.2f}s {r1[2][-120:]} {r2[2][-120:]}')
+
+    ct = clean_tables(3, avoid=(e4_parked_t,))
+    mv_u3 = live_player_at(ct[0])
+    d0 = deadlocks()
+    h1 = bg(w_commit_e4(ct[0], hold=1.0, app='e4_hand_first'))
+    wait_until_holding('e4_hand_first', h1)
+    h2 = bg(move_sql(mv_u3, ct[0], ct[1], hold=0.0, app='e4_race2'))
+    r1, r2 = finish(h1), finish(h2)
+    check('after E4: move vs hand on SAME source table (hand-first) serializes on table row, 0 deadlocks',
+          deadlocks() == d0 and r1[1] == 0 and r2[1] == 0 and r2[0] >= 0.6,
+          f'dl={deadlocks()-d0} move={r2[0]:.2f}s {r1[2][-120:]} {r2[2][-120:]}')
+
+    # 7. Exclusive lifecycle FOR UPDATE on public.tournaments STILL excludes FOR KEY SHARE hand commits
+    ct = clean_tables(3, avoid=(e4_parked_t,))
+    h_excl = bg(f"SET application_name='e4_excl'; BEGIN; SELECT 1 FROM public.tournaments WHERE id='{TR}' FOR UPDATE; SELECT pg_sleep(1.0); COMMIT;")
+    wait_until_holding('e4_excl', h_excl)
+    dt_excl, rc_excl, o_excl = timed(w_commit_e4(ct[0]))
+    finish(h_excl)
+    check('after E4: exclusive FOR UPDATE lifecycle lock STILL blocks FOR KEY SHARE hand commit',
+          rc_excl == 0 and dt_excl >= 0.6, f'{dt_excl:.3f}s rc={rc_excl}')
+
+    # 8. Mixed concurrent E4 stress run (0 deadlocks, 100% chip conservation)
+    log0 = LOG.read_text().count('deadlock detected')
+    e4_outcomes = {'hand': [], 'move': [], 'rebuy': [], 'close': []}
+    def e4_worker(kind, jobs):
+        for sq in jobs:
+            dt, rc, o = timed(sq)
+            e4_outcomes[kind].append((rc, round(dt, 3), o[-160:]))
+    alive_e4 = [t for t in clean_tables(8, avoid=(e4_parked_t,)) if live_player_at(t) and free_chair(t)][:6]
+    e4_reb = [bust_pending_bounty(alive_e4[i % len(alive_e4)])[0] for i in range(4)]
+    e4_movers = [live_player_at(t) for t in alive_e4[:4] if live_player_at(t)]
+    e4_dest_arr = ','.join(f"'{t}'" for t in alive_e4)
+    def e4_rand_move(u):
+        return (
+            f"DO $mv$ DECLARE v_src uuid; v_dst uuid; v_chair int; BEGIN "
+            f"SELECT table_id INTO v_src FROM public.table_seats WHERE user_id='{u}' AND left_at IS NULL; "
+            f"SELECT id INTO v_dst FROM public.tables WHERE id = ANY(ARRAY[{e4_dest_arr}]::uuid[]) AND id<>v_src ORDER BY random() LIMIT 1; "
+            f"SELECT min(n) INTO v_chair FROM generate_series(1,9) n WHERE NOT EXISTS ("
+            f"  SELECT 1 FROM public.table_seats s WHERE s.table_id=v_dst AND s.seat_number=n AND s.left_at IS NULL); "
+            f"IF v_src IS NULL OR v_chair IS NULL THEN RETURN; END IF; "
+            f"PERFORM public.fn_move_tournament_player('{TR}','{u}',v_src,v_dst,v_chair,gen_random_uuid(),'live_source'); "
+            f"END $mv$;"
+        )
+    e4_ths = (
+        [threading.Thread(target=e4_worker, args=('hand', [w_commit_e4(alive_e4[rng.randrange(len(alive_e4))]) for _ in range(25)])) for _ in range(4)]
+        + [threading.Thread(target=e4_worker, args=('move', [e4_rand_move(u) for u in e4_movers]))]
+        + [threading.Thread(target=e4_worker, args=('rebuy', [rebuy_sql(u, 'pending') for u in e4_reb]))]
+        + [threading.Thread(target=e4_worker, args=('close', [close_sql(TR) for _ in range(8)]))]
+    )
+    [t.start() for t in e4_ths]
+    [t.join() for t in e4_ths]
+    dl_e4 = LOG.read_text().count('deadlock detected') - log0
+    e4_failed = {kk: [x for x in v if x[0] != 0 and not any(t in x[2] for t in taken)] for kk, v in e4_outcomes.items()}
+    results['e4_after'] = e4_after
+    results['e4_mixed'] = {
+        'transactions': sum(len(v) for v in e4_outcomes.values()),
+        'deadlocks': dl_e4,
+        'failures': {kk: len(v) for kk, v in e4_failed.items()},
+        'hand_commit_p100_s': max(x[1] for x in e4_outcomes['hand']),
+    }
+    check('E4 mixed run: 0 deadlocks and every transaction committed',
+          dl_e4 == 0 and all(not v for v in e4_failed.values()), results['e4_mixed'])
+    e2_invariants('after E4: mixed run')
+
     results['final'] = final
     results['ok'] = True
 finally:
