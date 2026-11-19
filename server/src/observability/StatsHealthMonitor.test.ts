@@ -9,6 +9,7 @@ import {
   STATS_EV_COVERAGE_ALERT,
   STATS_EV_COVERAGE_MIN_RATIO,
   STATS_EV_COVERAGE_MIN_SAMPLE,
+  evCoverageRecovered,
   STATS_HEALTH_COMPONENT,
   STATS_INDEX_LAG_THRESHOLD_S,
   STATS_HEALTH_PERIOD_MS,
@@ -646,6 +647,45 @@ describe('StatsHealthMonitor', () => {
     ]);
     await mon.tick();
     expect(raise.mock.calls.some((c) => c[0]?.alertname === STATS_EV_COVERAGE_ALERT)).toBe(true);
+  });
+
+  it('2026-11-19: a week still under the bar stands down once the last 24 hours are back over it', async () => {
+    // Read from production at 17:25 UTC: the fix went live at 10:00.
+    const week = { allInShowdowns: 304755, withoutEquity: 9332, ratio: 0.9694 };
+    const day = { allInShowdowns: 17544, withoutEquity: 137, ratio: 0.9922 };
+    expect(evCoverageRecovered(day)).toBe(true);
+    const { mon, raise, resolve } = harness([
+      { ...LIVE_SAMPLE, evCoverage7d: week, evCoverage24h: day },
+    ]);
+    await mon.tick();
+    expect(raise.mock.calls.some((c) => c[0]?.alertname === STATS_EV_COVERAGE_ALERT)).toBe(false);
+    const note = resolve.mock.calls.find((c) => c[0] === STATS_EV_COVERAGE_ALERT)?.[2];
+    expect(note).toContain('over the last 24 hours (99.2% of 17544 seats)');
+    expect(note).toContain('the 7-day figure (96.9%)');
+    const lines = mon.prometheusLines().join('\n');
+    expect(lines).toContain('poker_stats_ev_coverage_24h 0.9922');
+    expect(lines).toContain('poker_stats_allin_showdowns_24h 17544');
+  });
+
+  it('keeps paging while the last 24 hours are also low, thin, or not published', async () => {
+    const week = { allInShowdowns: 304755, withoutEquity: 9332, ratio: 0.9694 };
+    for (const day of [
+      { allInShowdowns: 41688, withoutEquity: 795, ratio: 0.9809 },
+      { allInShowdowns: STATS_EV_COVERAGE_MIN_SAMPLE - 1, withoutEquity: 0, ratio: 1 },
+      { allInShowdowns: 0, withoutEquity: 0, ratio: null },
+      null,
+    ]) {
+      expect(evCoverageRecovered(day)).toBe(false);
+      const { mon, raise } = harness([{ ...LIVE_SAMPLE, evCoverage7d: week, evCoverage24h: day }]);
+      await mon.tick();
+      const ev = raise.mock.calls.find((c) => c[0]?.alertname === STATS_EV_COVERAGE_ALERT);
+      expect(ev, JSON.stringify(day)).toBeTruthy();
+      expect(ev?.[0].labels?.ratio_24h).toBe(day?.ratio != null ? day.ratio.toFixed(4) : 'unknown');
+    }
+    expect(parseStatsHealth(LIVE_SAMPLE, 'fb').evCoverage24h).toBeNull();
+    const { mon } = harness([LIVE_SAMPLE]);
+    await mon.tick();
+    expect(mon.prometheusLines().join('\n')).toContain('poker_stats_ev_coverage_24h NaN');
   });
 
   it('does not touch the EV alert when the week had no all-in showdowns (ratio null)', async () => {

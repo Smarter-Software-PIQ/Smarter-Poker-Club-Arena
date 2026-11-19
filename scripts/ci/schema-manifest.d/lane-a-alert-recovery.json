@@ -1,0 +1,6 @@
+{
+  "_owner": "lane-a/alert-recovery-sweep-budget",
+  "columns": {
+    "ca_stats_witness_audit_log": ["allin_showdown_24h", "allin_showdown_without_equity_24h"]
+  }
+}
