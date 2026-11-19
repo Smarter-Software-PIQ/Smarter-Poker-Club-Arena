@@ -313,6 +313,18 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'omahaTurnSetPound',
   // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
   'fixedLimitBetsAreNeverProbes',
+  // 2026-11-19 (Horse Switch lane, DEFAULT-ON-AUDIT): were 'code'; every read site is on when unset, so a shadow
+  // re-decision passes false. v9 / v10: every read is `(opts.<child> ?? opts.<master>) !== false` (a registered child
+  // row masks the master at its own site); v86PloOverhaul: `!== false` / `=== false`, and HorsePreflop's
+  // ctx.v86PloOverhaul is set true exactly when `opts.v86PloOverhaul !== false` (HorseLogic decidePreflopV7Glue);
+  // omahaEvFoldModel: `(opts.omahaEvFoldModel ?? true) !== false`, carried to HorseMind.decisionReadOptions from that
+  // expression; facingClosedAllIn: `=== false` turns the computed closed-all-in read off, unset leaves it on. Held by
+  // the law "an option listed release default ON is on when unset at every read site".
+  'v9',
+  'v10',
+  'v86PloOverhaul',
+  'omahaEvFoldModel',
+  'facingClosedAllIn',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTournamentsExcludeCategoricalRules',
@@ -419,13 +431,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.free
   'v8Draws',
   'v8HiLo',
   'v8Nlh',
-  'v9',
-  'v10',
   'v15Boats',
   'v24PloDefense',
-  'v86PloOverhaul',
-  'omahaEvFoldModel',
-  'facingClosedAllIn',
 ]);
 const releaseDefaultOf = (name: string): OptionSwitchReleaseDefault =>
   OPTION_SWITCH_RELEASE_DEFAULT_ON.includes(name)

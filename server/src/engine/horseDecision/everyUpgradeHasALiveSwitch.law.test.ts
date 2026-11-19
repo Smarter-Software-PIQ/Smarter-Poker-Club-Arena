@@ -559,6 +559,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       'styleTightMethodLine',
       'horseActionTimeIsPublicOnly',
       'horsePlayStyles',
+      'omahaNutClassValueSize',
     ];
     const sources = [
       'server/src/engine/HorseLogic.ts',
@@ -585,6 +586,150 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       expect(reads.length, `${name} is read`).toBeGreaterThan(0);
       for (const m of reads) expect(m[1], `${name}${m[1]}`).toMatch(/^\s*[!=]==\s*true\b/);
     }
+  });
+
+  it('2026-11-19: an option listed release default ON is on when unset at every read site in the engine, so its shadow re-decision passes false', () => {
+    // DEFAULT-ON-AUDIT (Horse Switch lane): optionSwitchShadowFlip passes !releaseDefault, so an option listed ON
+    // whose unset value is really off would be re-decided with the value it acted with and always receipt "same".
+    // Every read of a listed ON option through the decision options (opts / o / carriedOpts / snapshot.opts), in every
+    // engine source file but the replay reconstruction (which copies a record's options verbatim), must be one of:
+    //   `!== false`, `=== false`, `?? true) !== false|=== false`, a fallback `?? <master>` to an ON master
+    //   (v7, v8, v9, v10, v12), or a `typeof ... === '<type>'` guard and the value read it guards (whose default is
+    //   pinned below). Values carried out of the options under another name are listed in CARRIERS with the line
+    //   that carries them, which must stand in the source.
+    const ENGINE = join(REPO, 'server/src/engine');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (p.endsWith(join('horseDecision', 'replay'))) continue;
+          walk(p);
+        } else if (
+          /\.ts$/.test(e.name) &&
+          !/\.test\.ts$|test-support|replayState\.ts$/.test(e.name)
+        )
+          files.push(p);
+      }
+    };
+    walk(ENGINE);
+    const text = files.map((f) => ({
+      f,
+      src: readFileSync(f, 'utf8')
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+        .join('\n'),
+    }));
+    const MASTERS: Readonly<Record<string, string>> = {
+      v7: 'v7',
+      useV7: 'v7',
+      useV8: 'v8',
+      v9: 'v9',
+      v10: 'v10',
+      v12: 'v12',
+    };
+    const onWhenUnset = (before: string, after: string, name: string, src: string): boolean => {
+      const a = after.replace(/\s+/g, ' ');
+      // `!== false` / `=== false`, also as the master of a child fallback: `(opts.<child> ?? opts.<master>) !== false`
+      if (/^ ?(\) ?)*(!==|===) false\b/.test(a)) return true;
+      if (/^ ?\?\? true ?\) ?(!==|===) false\b/.test(a)) return true;
+      const fb = a.match(/^ ?\?\? ?(?:[\w]+\??\.)*(\w+)/);
+      if (fb && MASTERS[fb[1]!] && OPTION_SWITCH_RELEASE_DEFAULT_ON.includes(MASTERS[fb[1]!]!))
+        return true;
+      if (/typeof\s*$/.test(before) && /^ ?=== '\w+'/.test(a)) return true;
+      // the value a typeof guard hands on: `typeof X.name === '...' ? X.name : <default>`
+      if (
+        /\?\s*$/.test(before) &&
+        new RegExp(`typeof\\s+\\w+\\??\\.${name}\\s*===\\s*'\\w+'`).test(src)
+      )
+        return true;
+      return false;
+    };
+    const bad: string[] = [];
+    let readsSeen = 0;
+    for (const name of OPTION_SWITCH_RELEASE_DEFAULT_ON) {
+      for (const { f, src } of text) {
+        const re = new RegExp(
+          `(?:\\bopts|\\bo|\\bcarriedOpts|snapshot\\.opts)\\??\\.${name}\\b`,
+          'g'
+        );
+        for (const m of src.matchAll(re)) {
+          readsSeen++;
+          const before = src.slice(Math.max(0, m.index! - 24), m.index!);
+          const after = src.slice(m.index! + m[0].length, m.index! + m[0].length + 48);
+          if (!onWhenUnset(before, after, name, src))
+            bad.push(
+              `${name} ${f.slice(ENGINE.length + 1)}: ...${before.slice(-12)}${m[0]}${after.slice(0, 24)}`
+            );
+        }
+      }
+    }
+    expect(readsSeen).toBeGreaterThan(100);
+    expect(
+      bad,
+      'a release-default ON option read as off-when-unset: classify it from its reads'
+    ).toEqual([]);
+    // the typeof-guarded ON option's own default is on
+    expect(read('server/src/engine/HorseMind.ts')).toContain(
+      'export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;'
+    );
+    // CARRIERS: an ON option's value read under another name; each is carried by an on-when-unset expression.
+    const CARRIERS: ReadonlyArray<{
+      name: string;
+      reader: string;
+      read: RegExp;
+      carrier: string;
+      carried: RegExp;
+    }> = [
+      {
+        name: 'omahaEvFoldModel',
+        reader: 'server/src/engine/HorseMind.ts',
+        read: /decisionReadOptions\.omahaEvFoldModel\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried: /omahaEvFoldModel: \(opts\.omahaEvFoldModel \?\? true\) !== false,/,
+      },
+      {
+        name: 'v86PloOverhaul',
+        reader: 'server/src/engine/HorsePreflop.ts',
+        read: /ctx\.v86PloOverhaul\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried:
+          /const v86 = opts\.v86PloOverhaul !== false;[\s\S]*?\.\.\.\(v86\s*\?\s*\{\s*v86PloOverhaul: true,/,
+      },
+      {
+        name: 'facingClosedAllIn',
+        reader: 'server/src/engine/HorsePreflop.ts',
+        read: /ctx\.facingClosedAllIn\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried:
+          /facingClosedAllIn:\s*opts\.facingClosedAllIn === false\s*\?\s*undefined\s*:\s*facingClosedAllInRaise\(/,
+      },
+      {
+        name: 'v86MultiStreetUnblocked',
+        reader: 'server/src/engine/HorseOmahaOopChecks.ts',
+        read: /env\.v86MultiStreetUnblocked\b/g,
+        carrier: 'server/src/engine/HorseLogic.ts',
+        carried: /v86MultiStreetUnblocked: opts\.v86MultiStreetUnblocked !== false,/,
+      },
+    ];
+    for (const c of CARRIERS) {
+      expect(OPTION_SWITCH_RELEASE_DEFAULT_ON, c.name).toContain(c.name);
+      expect([...read(c.reader).matchAll(c.read)].length, `${c.name} carried read`).toBeGreaterThan(
+        0
+      );
+      expect(read(c.carrier), `${c.name} carrier`).toMatch(c.carried);
+    }
+    // the omahaEvFoldModel carrier is the only engine caller of HorseMind.setDecisionReadOptions
+    const setters = text.filter(({ src }) => src.includes('HorseMind.setDecisionReadOptions('));
+    expect(setters.map(({ f }) => f.slice(ENGINE.length + 1))).toEqual(['HorseLogic.ts']);
+    // the 2026-11-19 additions, and omahaNutClassValueSize (read only `=== true`) is off, not on
+    for (const name of ['v9', 'v10', 'v86PloOverhaul', 'omahaEvFoldModel', 'facingClosedAllIn'])
+      expect(OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)?.releaseDefault, name).toBe(
+        'on'
+      );
+    expect(
+      OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === 'omahaNutClassValueSize')?.releaseDefault
+    ).toBe('off');
   });
 
   it('owner 23:10: an option under an owner hold, measured harmful or superseded is OFF-ONLY, enforced at the registry, the parser and the decision options', () => {
