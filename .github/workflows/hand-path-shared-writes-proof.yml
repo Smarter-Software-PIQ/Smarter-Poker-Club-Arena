@@ -1,0 +1,87 @@
+name: Hand path shared writes and post-commit lag (PostgreSQL proof)
+
+# Incident 075013fd lane F. Runs scripts/ci/test-hand-path-shared-writes.py
+# against a throwaway PostgreSQL 17 cluster, never production:
+#   G1  the reader's rules on a synthetic catalog; on production's own texts
+#       (the r5 fixtures) every shared write #11270/#11266 remove is reported
+#       before and gone after the four migrations, each admitted by the
+#       applier's in-transaction check; the applier refuses a migration that
+#       adds one, admits it declared, and splices nothing into data-only files;
+#   G2  fn_ca_post_commit_lag_watch warns, escalates, dedupes per table,
+#       resolves and caps a storm;
+#   G3  (lane H2) a hand busting a seat on a full spin table commits while
+#       another session holds the spin pool, club and union wallet rows, and
+#       the diamond expiry burn retires a player's diamonds without them.
+# and scripts/ci/test-hand-path-cash-lane.py (lane H1): on production's own
+# texts, 20261118161644 + 20261118161703 take the club bank off the cash
+# hand's path (the
+# reader before/after, a hand under a held bank row completes at once,
+# identical outcomes uncontended, callers keep their wait, union ladder).
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/ci/hand-path-shared-writes.mjs
+      - scripts/ci/hand-path-shared-writes.allowlist.json
+      - scripts/ci/check-hand-path-shared-writes.mjs
+      - scripts/ci/apply-recorded-migration.mjs
+      - scripts/ci/test-hand-path-shared-writes.py
+      - scripts/ci/test-deadlock-lock-orders-r5.py
+      - scripts/ci/fixtures/cash-rake-pending/**
+      - scripts/ci/fixtures/hand-bank-pending/**
+      - supabase/migrations/20261118034950_a_cash_hands_rake_waits_in_its_own_row_not_on_the_union_wall.sql
+      - supabase/migrations/20261118035606_a_cash_hand_never_waits_on_a_tournament_wallet_lock.sql
+      - supabase/migrations/20261118071728_a_hands_bbj_drop_and_insurance_wait_in_their_own_rows_not_on.sql
+      - supabase/migrations/20261118071736_a_cash_hand_never_waits_on_the_union_bbj_pool_or_insurance_b.sql
+      - supabase/migrations/20261118084747_a_hands_money_path_never_writes_a_shared_row.sql
+      - supabase/migrations/20261118084759_post_commit_lag_warns_before_the_cascade.sql
+      - supabase/migrations/20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql
+      - scripts/ci/fixtures/hand-path-shared-writes/**
+      - supabase/migrations/20261118160106_a_trigger_fires_only_on_the_columns_an_update_sets.sql
+      - supabase/migrations/20261118161644_a_hand_never_waits_on_the_club_bank_for_a_deleted_or_departe.sql
+      - supabase/migrations/20261118161703_account_deletion_and_union_counts_keep_their_own_triggers_of.sql
+      - supabase/migrations/20261118191855_the_projection_pass_banks_a_stored_wallet_return_inside_its_.sql
+      - scripts/ci/maintenance-window-migrations.mjs
+      - scripts/ci/test-hand-path-cash-lane.py
+      - scripts/ci/migration-stale-pins.mjs
+      - scripts/ci/fixtures/hand-path-cash-lane/**
+      - .github/workflows/hand-path-shared-writes-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hand-path-shared-writes-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: A hand's money path never writes a shared row; lag warns early
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Prove G1 and G2 on PostgreSQL 17
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-hand-path-shared-writes.py --output artifacts/hand-path-shared-writes
+      - name: Prove a cash hand never waits on the club bank (lane H1) on PostgreSQL 17
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-hand-path-cash-lane.py --output artifacts/hand-path-shared-writes/cash-lane
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hand-path-shared-writes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/hand-path-shared-writes/*.json
+            artifacts/hand-path-shared-writes/cash-lane/*.json
+          retention-days: 7
+          if-no-files-found: warn

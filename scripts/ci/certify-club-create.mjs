@@ -207,14 +207,23 @@ async function certifyWelcomeResetInsideRollback({
     // authenticated reset. Every lock is
     // transaction-scoped and remains held through the existing ROLLBACK.
     //
-    // The reset authority takes the global settlement lane before any club or
+    // The reset authority takes this club's settlement lane before any club or
     // package lock. Keep that exact order here. The 530090 advisory lane is a
     // maintenance/entry boundary, not part of this reset authority; taking it
-    // here can deadlock with a settlement worker that already owns the global
-    // lane. DATABASE_URL connects through the privileged certification session,
-    // so acquire the private global authority before narrowing the transaction
-    // to service_role.
-    await client.query('SELECT public.fn_ca_lock_settlement_lane_global()');
+    // here can deadlock with a settlement worker that already owns the lane.
+    // DATABASE_URL connects through the privileged certification session, so
+    // acquire the private lane authority before narrowing the transaction to
+    // service_role.
+    //
+    // THE CLUB LANE, NEVER THE PLATFORM LANE (2026-11-18, incident 075013fd).
+    // This used to take fn_ca_lock_settlement_lane_global(): every run held
+    // every tournament table and cash hand on production for its whole
+    // rolled-back transaction (six stalls of up to 14.5 s on 2026-11-17).
+    // The club lane fences only this certification club; the reset's own
+    // nested lane call re-enters it. The database now refuses the old
+    // top-level call, and tests/a-script-never-holds-the-platform-lane.law.test.ts
+    // refuses it here.
+    await client.query('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)', [clubId]);
     await client.query('SET LOCAL ROLE service_role');
     await client.query('SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE', [clubId]);
     await client.query(

@@ -1,0 +1,83 @@
+{
+ "_captured": "2026-11-18 ~15:55 UTC, read-only on production (project kuklfnapbkmacvwxktbh): the block of scripts/ci/hand-path-shared-writes.mjs WITH the SET-target rule (20261118160106) run as an anonymous DO, after #11270 and #11266. Paths as the block printed them.",
+ "roots": [
+  "fn_ca_commit_hand_settlement",
+  "fn_ca_commit_hand_submission",
+  "fn_ca_process_hand_post_commit_obligations"
+ ],
+ "closure": 726,
+ "violations": [
+  {
+   "function": "fn_apply_union_ladder",
+   "kind": "write",
+   "target": "unions",
+   "path": "fn_ca_process_hand_post_commit_obligations -> promo_apply_playthrough =T=> fn_ca_horse_split_return_late_credit =T=> fn_union_totals_follow_club_counts -> recompute_union_levels -> fn_apply_union_ladder"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "row_lock",
+   "target": "clubs",
+   "path": "fn_ca_commit_hand_settlement =T=> fn_poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance =T=> allocate_lifetime_vip_diamond_spend -> expire_lifetime_vip_diamond_lots_for_user -> fn_ca_burn"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "row_lock",
+   "target": "union_wallets",
+   "path": "fn_ca_commit_hand_settlement =T=> fn_poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance =T=> allocate_lifetime_vip_diamond_spend -> expire_lifetime_vip_diamond_lots_for_user -> fn_ca_burn"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "write",
+   "target": "clubs",
+   "path": "fn_ca_commit_hand_settlement =T=> fn_poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance =T=> allocate_lifetime_vip_diamond_spend -> expire_lifetime_vip_diamond_lots_for_user -> fn_ca_burn"
+  },
+  {
+   "function": "fn_ca_burn",
+   "kind": "write",
+   "target": "union_wallets",
+   "path": "fn_ca_commit_hand_settlement =T=> fn_poker_diamond_jackpot_accept_hand -> fn_poker_diamond_jackpot_pay -> add_diamonds_to_balance =T=> allocate_lifetime_vip_diamond_spend -> expire_lifetime_vip_diamond_lots_for_user -> fn_ca_burn"
+  },
+  {
+   "function": "fn_ca_deleted_wallet_bank_return",
+   "kind": "row_lock",
+   "target": "clubs",
+   "path": "fn_ca_process_hand_post_commit_obligations -> promo_apply_playthrough =T=> fn_ca_deleted_wallet_credit -> fn_ca_deleted_wallet_bank_return"
+  },
+  {
+   "function": "fn_ca_deleted_wallet_bank_return",
+   "kind": "write",
+   "target": "clubs",
+   "path": "fn_ca_process_hand_post_commit_obligations -> promo_apply_playthrough =T=> fn_ca_deleted_wallet_credit -> fn_ca_deleted_wallet_bank_return"
+  },
+  {
+   "function": "fn_ca_horse_split_return_late_credit",
+   "kind": "row_lock",
+   "target": "clubs",
+   "path": "fn_ca_process_hand_post_commit_obligations -> promo_apply_playthrough =T=> fn_ca_horse_split_return_late_credit"
+  },
+  {
+   "function": "fn_ca_horse_split_return_late_credit",
+   "kind": "write",
+   "target": "clubs",
+   "path": "fn_ca_process_hand_post_commit_obligations -> promo_apply_playthrough =T=> fn_ca_horse_split_return_late_credit"
+  },
+  {
+   "function": "fn_spin_book_entry",
+   "kind": "row_lock",
+   "target": "spin_bonus_pools",
+   "path": "fn_ca_commit_hand_settlement -> fn_ca_commit_hand_settlement_exact_before_obligations -> fn_ca_commit_hand_settlement_before_lease_generation -> fn_ca_settle_hand_stacks_absolute =T=> fn_seat_change_syncs_seat_first_count -> fn_sync_seat_first_player_count -> fn_spin_book_entry"
+  },
+  {
+   "function": "fn_spin_book_entry",
+   "kind": "write",
+   "target": "spin_bonus_pools",
+   "path": "fn_ca_commit_hand_settlement -> fn_ca_commit_hand_settlement_exact_before_obligations -> fn_ca_commit_hand_settlement_before_lease_generation -> fn_ca_settle_hand_stacks_absolute =T=> fn_seat_change_syncs_seat_first_count -> fn_sync_seat_first_player_count -> fn_spin_book_entry"
+  },
+  {
+   "function": "fn_spin_reserve_pool",
+   "kind": "write",
+   "target": "spin_bonus_pools",
+   "path": "fn_ca_commit_hand_settlement -> fn_ca_commit_hand_settlement_exact_before_obligations -> fn_ca_commit_hand_settlement_before_lease_generation -> fn_ca_settle_hand_stacks_absolute =T=> fn_seat_change_syncs_seat_first_count -> fn_sync_seat_first_player_count -> fn_spin_book_entry -> fn_spin_reserve_pool"
+  }
+ ]
+}
