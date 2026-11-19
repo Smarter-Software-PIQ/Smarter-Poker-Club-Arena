@@ -75,3 +75,9 @@ So the evidence for switching on is NOT MET as declared. The option is one switc
 ## Limits
 
 Offline model, not a live table: six Horses with no reads and no human, preflop only; the one-chair spot mix was measured at a thirty-hand PLO5 table and applied to every variant; PLO8 and short deck run on the same six-seat blind-and-ante table (production short deck structure was not checked) and the limp's pricing model was never checked on hi-lo or short deck (they ship 'every', which prices nothing); the option base is the set production decided with at release 28372c9a plus `vpipFloorLimpOnly`, not the switch set production carries today; the table-hour of 54 hands was measured on a thirty-hand PLO5 table. Who fills a vacated chair and how fast was verified for thirty-hand tables only (audit archive `repairs/F-10/REPLACEMENT-MECHANIC.md`).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
