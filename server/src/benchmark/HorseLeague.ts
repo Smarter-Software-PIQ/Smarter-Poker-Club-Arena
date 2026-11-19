@@ -47,6 +47,8 @@ import {
   type HorseProfileMods,
 } from '../engine/HorseLogic.js';
 import { HorseMind, readScopeOf, type HorseMindSandbox } from '../engine/HorseMind.js';
+import { seedHorseTimingRandom } from '../engine/horsePublicActionTime.js';
+import { seedHorseBetSizeRandom } from '../engine/horsePublicBetSize.js';
 import {
   seedFastRandom,
   saveFastRandom,
@@ -765,6 +767,34 @@ export function blockStandardError(
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit });
 
+/**
+ * THE BRAIN'S TWO PUBLIC STREAMS ARE PINNED PER DECISION (2026-11-19).
+ * horsePublicBetSize (every public bet size, with omahaBetSizeByPublicState)
+ * and horsePublicActionTime draw from streams production seeds from the
+ * operating system at load, never from a deal. Unpinned, the two passes of a
+ * duplicate pair drew different sizes: IDENTICAL arms with the option on
+ * diverged in 38 and 39 of 300 pairs (seed 20261119), and 0 of 300 with the
+ * stream held. playHand seeds both before every seat's decision from the
+ * deal, the seat and the decision's place in the hand, so the two passes of a
+ * pair draw the same numbers at the same node and an arm that draws more
+ * does not shift a later decision. Benchmark only: production never calls it.
+ */
+export function leaguePinPublicStreams(
+  handSeed: number,
+  seatIdx: number,
+  decisionIndex: number
+): void {
+  let h = (handSeed ^ 0x9e3779b9) >>> 0;
+  for (const x of [seatIdx + 1, decisionIndex + 1]) {
+    h = Math.imul(h ^ (x >>> 0), 0x85ebca6b) >>> 0;
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35) >>> 0;
+    h ^= h >>> 16;
+  }
+  seedHorseBetSizeRandom(h);
+  seedHorseTimingRandom(h ^ 0x5bd1e995);
+}
+
 /** The deck playHand deals for `handSeed`: seeds fastRandom, then Fisher-Yates on it.
  *  The stream is left where playHand continues from it. */
 function leagueShuffledDeck(handSeed: number): Card[] {
@@ -1031,6 +1061,7 @@ export function playHand(
         }) ?? { player: p, gameState: gs };
 
       const toCall = Math.max(0, currentBet - p.bet);
+      leaguePinPublicStreams(handSeed, i, history.length);
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
