@@ -1506,6 +1506,33 @@ it kept drifting for another 135 commits.
 
 ---
 
+## 10.88 CLAIM AN INCIDENT BEFORE YOU WORK IT, AND CHECK OUT ONE TREE AT A TIME (2026-11-18, BINDING)
+
+**1. Claim first.** An "AI AGENT NEEDED" handoff goes to every lane at once.
+On 2026-11-18 incident `d2d79c4f` reached two lanes; both started the same
+root cause and neither could see the other. Before you investigate a
+reliability incident, claim it:
+
+```sql
+SELECT smarter_private.fn_claim_reliability_incident('<incident id>', '<your session id>', '<your branch>', '<PR, when there is one>');
+```
+
+`claimed: true` means it is yours for four hours (renew with the same call;
+release with `smarter_private.fn_release_reliability_incident_claim`).
+`claimed: false` means another lane holds it: the answer names the owner,
+branch and PR. Do not start a second fix. Coordinate through the owner's PR or
+`COORDINATION-INBOX.md` (10.8 rule 5), or take a different incident. The
+handoff text itself shows a live claim, so a reminder tells every reader who
+already has it. A claim expires on its own; nothing watches it.
+
+**2. One checkout at a time.** Make worktrees with `scripts/agent-workspace.sh`,
+which now holds a machine-wide lock around the checkout. Never run your own
+parallel `git worktree add` or `git reset --hard` of the whole tree on the
+Mac: six at once took the load average to 41 and left half-made trees behind.
+A lane that does not need the whole tree sets `AGENT_SPARSE_PATHS`.
+
+---
+
 ## 11. AGENT NETWORK AND PUBLICATION
 
 Use configured authenticated Git/GitHub and provider interfaces. Inspect the current tools and actual repository state; do not assume a tool is absent or that a historical proxy is available. If one interface fails, use another configured authorized interface and retain the exact error. Never read credential values from `.env`, remotes, sibling repositories or old notes.

@@ -316,6 +316,47 @@ describe('the board is hard coded in the engine, so it can never run ahead of it
     expect(planFixedBoardSync(existing)).toEqual({ inserts: [], updates: [], deactivate: [] });
   });
 
+  it('a closed arena is not on the board: nothing is written for it', () => {
+    const closed = FIXED_BOARD_CLUBS[FIXED_BOARD_CLUBS.length - 1];
+    const closedIds = new Set([closed.clubId]);
+    const fresh = planFixedBoardSync([], undefined, undefined, closedIds);
+    expect(fresh.inserts.length).toBeGreaterThan(0);
+    expect(fresh.inserts.filter((r) => r.club_id === closed.clubId)).toEqual([]);
+    // Its rows already inactive: the steady state, no write at all.
+    const existing = FIXED_BOARD_CLUBS.flatMap((c, ci) =>
+      FIXED_BOARD.filter((e) => !isRetiredMidwayBoardEvent(c.clubId, e.name)).map((e, ei) => ({
+        ...asExisting(`${ci}-${ei}`, c, e),
+        active: c.clubId !== closed.clubId,
+      }))
+    );
+    expect(planFixedBoardSync(existing, undefined, undefined, closedIds)).toEqual({
+      inserts: [],
+      updates: [],
+      deactivate: [],
+    });
+    // Without the closure the same table would be asked for active rows the
+    // database refuses, every poll.
+    expect(planFixedBoardSync(existing).updates.length).toBeGreaterThan(0);
+  });
+
+  it('a closed arena that still has active rows has exactly those rows retired', () => {
+    const closed = FIXED_BOARD_CLUBS[FIXED_BOARD_CLUBS.length - 1];
+    const existing = FIXED_BOARD_CLUBS.flatMap((c, ci) =>
+      FIXED_BOARD.filter((e) => !isRetiredMidwayBoardEvent(c.clubId, e.name)).map((e, ei) =>
+        asExisting(`${ci}-${ei}`, c, e)
+      )
+    );
+    const plan = planFixedBoardSync(existing, undefined, undefined, new Set([closed.clubId]));
+    expect(plan.inserts).toEqual([]);
+    expect(plan.updates).toEqual([]);
+    expect([...plan.deactivate].sort()).toEqual(
+      existing
+        .filter((r) => r.club_id === closed.clubId)
+        .map((r) => r.id)
+        .sort()
+    );
+  });
+
   it('a row whose times differ from the code is rewritten to the code', () => {
     const existing = FIXED_BOARD_CLUBS.flatMap((c, ci) =>
       FIXED_BOARD.filter((e) => !isRetiredMidwayBoardEvent(c.clubId, e.name)).map((e, ei) =>

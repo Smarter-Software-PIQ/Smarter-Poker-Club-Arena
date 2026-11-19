@@ -1,0 +1,3 @@
+# tests/bounty-rebuys-and-busts-share-the-event-lane.law.test.ts
+
+Owner rule 2026-08-30 ("REBUYS IN A TOURNAMENT SHOULD NOT PAUSE THE ACTION"), in every format: a bounty, PKO or mystery rebuy and every bust (fn_eliminate_tournament_player_atomic, fn_claim_tournament_bounty_elimination) take the event's shared change lane, never T(id) exclusive; nested authorities take that lane as held, a bounty settlement locks its claimants' tables before their rows, and a bust locks its own table first. Pins migration 20261119011750 and the native PostgreSQL proof (scripts/ci/test-rebuy-never-pauses-the-tournament.py).
