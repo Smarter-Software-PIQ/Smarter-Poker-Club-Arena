@@ -405,6 +405,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'styleTightMethodLine',
   'horseActionTimeIsPublicOnly',
   'horsePlayStyles',
+  // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
+  'omahaReraisedPotFlopContinueNeedsEquityShape',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -503,6 +505,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
     'its check is gated by an opponent label (measured value leader): held until rewritten as a priced comparison'
   ),
+  // 2026-11-18 horse-switch swarm (PLO6-HILO VERDICT-READY items 1 and 16): it decides by hand class, player count
+  // and street with no price ("a check has no price to weigh"); 0 fires in 7 days. Off-only until it is priced.
+  plo6NoMultiwayBetWithWeakMadeHand: hold(
+    'owner order 2026-11-17 11:49 America/Chicago (no blanket rules: every decision by math, ranges, equity and EV)',
+    'categorical, no price: it skips a multiway bet by hand class alone; held until rewritten as a priced comparison'
+  ),
   // 2026-11-17 PLO Strategy wave two: the two options whose verdicts were rewritten under the owner's
   // no-blanket-rules order were then evaluated on a bar written before the runs, and both lost.
   omahaStreetPlanFlop: ploFailed(
@@ -516,6 +524,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   // 2026-11-17 PLO Strategy: the priced preflop re-raise defence changes which hands continue against a 3-bet
   // or more (a preflop calling and re-raising range), so it is under the owner preflop range hold.
   omahaPreflopReraiseDefencePriced: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-18 horse-switch swarm (LIMIT-HU-OTHER VERDICT-READY item 2): it changes fixed-limit first-in and
+  // big-blind-defence ranges, which is the owner preflop range hold's definition.
+  fixedLimitPricedPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,
@@ -590,6 +601,15 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'PROVISIONAL (raw rows lost with SSD1): Horse-only PLO4 -1.84 bb/100 (SE 0.88, z -2.09), PLO5 -0.83 (SE 0.78), field pooled +0.25 +/- 1.64, with the opponent-kind priors and this correction on together (priced2 config 0, fad0d304ffd)',
     '2026-11-18 priced2 league (priced2-013U37/PASS-BAR.md configuration 0, eval/RUN1-LOST-SSD1.md)'
   ),
+  // 2026-11-18 WooWoo 48-hour audit (lead ruling): measured harm on real hands, switched OFF live at
+  // 2026-11-18T01:42:08Z (switch audit row 69). Off-only until a priced replacement passes its declared evaluation.
+  omahaReraisedPotFlopContinueNeedsEquityShape: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm on real hands: its rule omaha_reraised_flop_continue_folded took re-raised-pot heads-up flop folds from 9 of 30 to 37 of 69; switching it off removes 15 of 15 of its folds (13 audited wrong or questionable) and breaks 0 audited-correct calls or raises',
+    source:
+      'WooWoo 48-hour audit, 2026-11-18 (repairs/FLOP-DEFENCE/ATTRIBUTION.md; SWITCH-AUDIT.md anomaly 5); switched off live 2026-11-18T01:42:08Z',
+  }),
   omahaPricedMix: ploFailed(
     'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'

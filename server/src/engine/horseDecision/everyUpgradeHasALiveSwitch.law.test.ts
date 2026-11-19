@@ -176,6 +176,7 @@ const PREFLOP_HOLD_NAMES = [
   'facingOpenFullRingZone',
   'committedStackPricedIn',
   'vs3BetShortStack',
+  'fixedLimitPricedPreflop',
 ];
 const GENERATOR = optionSwitchListDriftMessage(LIST_MIGRATION_PATH);
 const noteFor = (option: string) =>
@@ -613,6 +614,17 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       expectStatus(name, 'harm', /^declared evaluation measured harm/);
     expectStatus('omahaNeutralUnknown', 'harm', /failed evaluation/);
     expectStatus('fixedLimitRiverFullBetRead', 'harm', /failed evaluation/);
+    // WooWoo 48-hour audit of 2026-11-18: measured harm on real hands, switched off live 01:42:08Z
+    expectStatus(
+      'omahaReraisedPotFlopContinueNeedsEquityShape',
+      'harm',
+      /^WooWoo 48-hour audit, 2026-11-18 /
+    );
+    expectStatus(
+      'plo6NoMultiwayBetWithWeakMadeHand',
+      'hold',
+      /^owner order 2026-11-17 11:49 America\/Chicago \(no blanket rules/
+    );
     // PLO Strategy's declared evaluations of 2026-11-15 that FAILED: off-only, each citing its inbox record
     for (const name of [
       'omahaReraisedPotDiscipline',
