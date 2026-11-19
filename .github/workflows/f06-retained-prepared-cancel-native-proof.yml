@@ -1,0 +1,42 @@
+name: F06 retained prepared cancel (native PostgreSQL proof)
+
+# Hand delay, 2026-11-19 (Dan: "i just don't want any 'un intended delays'").
+# Migration 20261119053155 adds fn_f06_cancel_retained_prepared_hand so the
+# engine can save the prepared original under the between-hands rest and
+# release it exactly once when a pause meets it before it starts.
+# scripts/ci/test-f06-retained-prepared-cancel-postgres.py installs
+# production's exact bodies on a throwaway native PostgreSQL cluster (16 locally, 17 here),
+# applies the migration byte for byte and proves exactly-once cancel, replay
+# identity, no strand and every refusal.
+#
+# A dedicated workflow so a change to this proof never has to rewrite ci.yml.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to what it reads.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261119053155_a_retained_prepared_hand_is_cancelled_under_the_rest.sql
+      - scripts/ci/test-f06-retained-prepared-cancel-postgres.py
+      - scripts/ci/fixtures/f06-retained-prepared-cancel-production-bodies.sql
+      - .github/workflows/f06-retained-prepared-cancel-native-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: f06-retained-prepared-cancel-native-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  retained-prepared-cancel:
+    name: A retained prepared original is cancelled exactly once (throwaway PostgreSQL 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The retained prepared cancel is certified on native PostgreSQL
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-f06-retained-prepared-cancel-postgres.py
