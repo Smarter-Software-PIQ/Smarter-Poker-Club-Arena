@@ -207,20 +207,47 @@ describe('the Report tables are written by the club the money moved through', ()
   });
 
   it('the club rake totals read the after-the-hand witness before any guess', () => {
-    const b = squash(latest('fn_ca_club_rake_daily_compute'));
-    const ra = b.indexOf('SELECT ra.club_id FROM rake_attributions ra');
-    const receipt = b.indexOf(
-      'SELECT x.funding_club_id FROM public.cash_participant_funding_receipts x'
+    // 20261116021751: the calculation lives in fn_ca_club_rake_daily_parts
+    // (which also names the rule that placed each part); the totals are its sum.
+    expect(squash(latest('fn_ca_club_rake_daily_compute'))).toContain(
+      'FROM public.fn_ca_club_rake_daily_parts(p_from, p_to, p_ids) p GROUP BY p.club_id, p.stat_date'
     );
-    const seat = b.indexOf('SELECT ts.club_id FROM public.table_seats ts');
-    const guess = b.indexOf('ORDER BY cm.joined_at ASC');
+    const b = squash(latest('fn_ca_club_rake_daily_parts'));
+    const ra = b.indexOf("SELECT ra.club_id::text || '|witness' FROM rake_attributions ra");
+    const receipt = b.indexOf(
+      "SELECT x.funding_club_id::text || '|receipt' FROM public.cash_participant_funding_receipts x"
+    );
+    const seat = b.indexOf("SELECT ts.club_id::text || '|seat' FROM public.table_seats ts");
+    // Owner rule 2026-11-15: a zero contribution counts the hand for the club
+    // of the occupancy it was dealt from - the hand's own commit record names
+    // it (seat_joined_at) - read from that occupancy's receipt, seat row, or the
+    // player's own witness on a neighbouring hand of the same occupancy, and
+    // only then the table's club. No membership guess; no seat-exit record
+    // (it is not written for a bust-out and can belong to a later sitting).
+    const sitting = b.indexOf("min(n.club_id::text) || '|same_sitting'");
+    const table = b.indexOf("b.table_club::text || '|table_club'");
     expect(ra).toBeGreaterThan(-1);
     expect(receipt).toBeGreaterThan(ra);
     expect(seat).toBeGreaterThan(receipt);
-    expect(guess).toBeGreaterThan(seat);
+    expect(sitting).toBeGreaterThan(seat);
+    expect(table).toBeGreaterThan(sitting);
+    expect(b).toContain('x.seat_joined_at = o.sj');
+    expect(b).toContain('ts.joined_at = o.sj');
+    expect(b).toContain(
+      "WHERE b.hand_id IS NOT NULL AND hc.hand_id = b.hand_id AND st->>'user_id' = c.uid::text"
+    );
+    expect(b).toContain("THEN (ns->>'seat_joined_at')::timestamptz END = o.sj");
+    expect(b).toContain('CASE WHEN count(DISTINCT n.club_id) = 1');
+    // A hand with no commit record keeps the dated (never later) reads.
     expect(b).toContain('x.seat_joined_at <= b.created_at');
     expect(b).toContain('ts.joined_at <= b.created_at');
+    expect(b).not.toContain('ca_seat_stack_exits');
     expect(b).not.toContain('fn_ca_cash_seat_club(');
+    expect(b).not.toMatch(/joined_at ASC/);
+    expect(b).not.toContain('club_members');
+    expect(squash(latest('fn_ca_club_rake_daily_rule_counts'))).toContain(
+      'FROM public.fn_ca_club_rake_daily_parts(p_from, p_to, NULL) p'
+    );
   });
 
   it('every rebuild of a covered day is a rebuild from the facts', () => {
