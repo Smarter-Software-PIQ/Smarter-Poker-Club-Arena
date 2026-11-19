@@ -4429,6 +4429,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-14'
   ),
   receipt(
+    'receipt_format_split_failed_seen',
+    'workerRuntime executeFastWithUpgradeEvidence',
+    'the receipts-by-format split (holdem_option_decision_*, fmt_*) threw after the FAST answer was sent; the decision and its lifecycle were not touched and that decision is missing from the format counts',
+    '2026-11-19'
+  ),
+  receipt(
     'per_horse_evidence_batch_rejected_seen',
     'HorseUpgradeEvidenceFlush publisher',
     'fn_horse_upgrade_evidence_flush refused a batch for a property of its bytes and the publisher dropped it instead of resending it',
