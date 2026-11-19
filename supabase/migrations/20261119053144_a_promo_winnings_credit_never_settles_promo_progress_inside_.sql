@@ -118,6 +118,21 @@ BEGIN
  VALUES(p_source_kind,p_source,p_grant,p_club,p_user,p_kind,p_entity,p_amount,restricted,phase);
  RETURN restricted;
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_credit_owned(text,uuid,uuid,uuid,uuid,text,uuid,numeric) FROM PUBLIC, anon, authenticated, service_role;
+
+-- @probe-for: public.fn_ca_promo_profit_credit_owned
+DO $probe$
+DECLARE v_grant uuid := gen_random_uuid(); v_user uuid := gen_random_uuid(); v_club uuid := gen_random_uuid();
+BEGIN
+  -- An orphan fixture grant (no profile, so no notice is delivered); its
+  -- seed triggers write its gate and gift phase. Undone with the probe.
+  INSERT INTO public.ca_promo_play_through_grants(id,club_id,user_id,amount,remaining,multiplier,source_kind,source_ref,cycle_started_at,expires_at)
+  VALUES(v_grant,v_club,v_user,1,1,4,'club_promo','probe:20261119053144:'||v_grant::text,now(),now()+interval '30 days');
+  PERFORM public.fn_ca_promo_profit_credit_owned('tournament_win',gen_random_uuid(),v_grant,v_club,v_user,'player_wallet',v_user,1);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 CREATE OR REPLACE FUNCTION public.fn_ca_promo_profit_finish_entry_fee(p_charge uuid)
  RETURNS void
@@ -131,5 +146,15 @@ BEGIN
  -- settles promo progress. The hourly sweep and the live cash-out do.
  IF NOT public.fn_ca_promo_profit_consume_entry_fee(p_charge) THEN RETURN;END IF;
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_finish_entry_fee(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+-- @probe-for: public.fn_ca_promo_profit_finish_entry_fee
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_promo_profit_finish_entry_fee(gen_random_uuid());
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;
