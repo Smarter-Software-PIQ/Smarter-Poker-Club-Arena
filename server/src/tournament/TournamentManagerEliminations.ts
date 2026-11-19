@@ -6322,6 +6322,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     message: string;
   } | null = null;
   static readonly SATELLITE_REFUSAL_ALERT_EVERY_MS = 10 * 60_000;
+  static readonly SATELLITE_CONTENTION_GRACE_MS = 5 * 60_000;
+
+  /** Busy-database refusals: the statement did not run to an answer. */
+  static isContentionRefusal(message: string): boolean {
+    return /canceling statement due to (?:statement|lock) timeout|deadlock detected|could not serialize access|could not obtain lock|\((?:57014|55P03|40001|40P01)\)/i.test(
+      message
+    );
+  }
 
   private async recordSatelliteSettlementRefusal(
     error: SatelliteSettlementRefusedError,
@@ -6335,6 +6343,21 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         : { count: 1, firstAt: now, lastAlertAt: 0, message: error.message };
     this.satelliteRefusals = refusals;
     if (refusals.count < 2) return;
+    // A refusal the database gave because it was BUSY (statement or lock
+    // timeout, deadlock victim, serialization failure) can change on the next
+    // sweep, and usually does. Production 2026-11-18 19:22Z, satellite
+    // 3f9f1ff2: two qualifier settlements ten seconds apart were cancelled
+    // with 57014 while a Free Buy rebuy convoy (incident 075013fd) held the
+    // tournament lanes; the critical alert said the event "cannot finish until
+    // the refusal is fixed", and the third sweep settled all 20 qualifiers
+    // eleven seconds later. Contention pages only once it has persisted for
+    // SATELLITE_CONTENTION_GRACE_MS; any other refusal pages on its first
+    // repeat, exactly as before.
+    if (
+      TournamentManagerEliminations.isContentionRefusal(refusals.message) &&
+      now - refusals.firstAt < TournamentManagerEliminations.SATELLITE_CONTENTION_GRACE_MS
+    )
+      return;
     if (
       refusals.lastAlertAt > 0 &&
       now - refusals.lastAlertAt < TournamentManagerEliminations.SATELLITE_REFUSAL_ALERT_EVERY_MS
