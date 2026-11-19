@@ -182,6 +182,7 @@ import {
   omahaReraisedPremium,
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
+import { omahaFoldModelFittedOnPeopleOf } from './HorseOmahaFoldModelFittedOnPeople.js';
 import {
   TOKEN_CALL_COUNTED_PRICE,
   TOKEN_CALL_PRICE,
@@ -4868,6 +4869,12 @@ export interface HorseDecideOpts {
    *  significantly negative); explicit false is the old multiplier, and the
    *  league matchups plo*_omaha_ev_fold keep measuring it. */
   omahaEvFoldModel?: boolean;
+  /** WooWoo audit FOLD-MODEL (HorseOmahaFoldModelFittedOnPeople): PLO4/PLO5 cash in the priced scope,
+   *  flop or turn, heads-up against a person, nothing to call: his fold share to every v38 bet size is the
+   *  fold model fitted on people only (variant x street x pot type x bet-size bucket, shrunk to
+   *  OMAHA_EV_FOLD_MODEL where people's answers are thin, scaled by his own read relative to people), in
+   *  place of mdfFold x foldMul (OMAHA_EV_FOLD_MODEL was fitted with Horses pooled in). Default off. */
+  omahaFoldModelFittedOnPeople?: boolean;
   /** Owner directive 2026-11-13 (Omaha read): an unknown Omaha opponent gets a
    *  neutral read (no presumed aggressive raise width) instead of
    *  presumedAggressorRead. Default OFF; true enables it. */
@@ -23213,6 +23220,18 @@ export class HorseLogic {
           models38.push({ foldMul, canRespond });
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
+        // omahaFoldModelFittedOnPeople (default off): a person's fold share to the bet is
+        // the fold model fitted on people (HorseOmahaFoldModelFittedOnPeople).
+        const peopleFold38 =
+          opts.omahaFoldModelFittedOnPeople === true
+            ? omahaFoldModelFittedOnPeopleOf(player, gs, opts, opponents, 0, (userId) =>
+                useMind ? HorseMind.foldToBetCountersOf(userId) : null
+              )
+            : null;
+        if (peopleFold38?.kind === 'priced' && tele15)
+          noteFire('omaha_fold_model_fitted_on_people_priced');
+        if (peopleFold38?.kind === 'unpriced' && tele15)
+          noteFire('omaha_fold_model_fitted_on_people_unpriced_kept');
         const indifference38 = evIndifference();
         const verdict38 = evaluateSpot({
           indifference: indifference38,
@@ -23278,6 +23297,7 @@ export class HorseLogic {
                 runout: runout86,
               }
             : {}),
+          ...(peopleFold38?.kind === 'priced' ? { foldShareOf: peopleFold38.foldShareOf } : {}),
           rand: fastRandom,
         });
         if (verdict38.pick.kind === 'bet') {

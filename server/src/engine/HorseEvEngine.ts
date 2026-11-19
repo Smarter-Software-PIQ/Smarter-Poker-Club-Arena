@@ -182,6 +182,14 @@ export interface EvSpot {
   indifference?: HorseEvIndifferenceContext;
   /** Map a nominal wager to the exact executable increment before pricing it. */
   normalizeWager?: (amount: number) => number | null;
+  /**
+   * omahaFoldModelFittedOnPeople (default off; HorseOmahaFoldModelFittedOnPeople): the fold share of
+   * opponent `i` facing the bet `wager` into the pot he sees (`potFacing`), facing no bet, from the fold
+   * model fitted on people, in place of mdfFold x foldMul. The card-removal delta still applies on top.
+   * Null for an opponent or wager it does not price (that opponent keeps mdfFold). Never read when hero
+   * faces a bet. Absent: exactly as before.
+   */
+  foldShareOf?: (opponent: number, potFacing: number, wager: number) => number | null;
   /** PRNG for the mixed strategy */
   rand: () => number;
 }
@@ -403,7 +411,9 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      const baseMdf = mdfFold(P + c, s, m);
+      const fitted = spot.foldShareOf !== undefined && !(c > 0) ? spot.foldShareOf(i, P + c, s) : null;
+      const baseMdf =
+        fitted !== null && Number.isFinite(fitted) ? clamp(fitted, 0.02, 0.92) : mdfFold(P + c, s, m);
       const singleFold = clamp(
         baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
         0.02,
