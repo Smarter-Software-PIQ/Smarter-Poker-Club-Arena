@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 
 const FILE = '20261119052600_a_hand_has_one_certification_status.sql';
 const sql = readFileSync(join(resolve(__dirname, '../..'), 'supabase/migrations', FILE), 'utf8');
+const view = sql.slice(sql.indexOf('CREATE OR REPLACE VIEW'));
 
 describe('smarter_private.cash_hand_certification', () => {
   it('is one transaction', () => {
@@ -35,7 +36,7 @@ describe('smarter_private.cash_hand_certification', () => {
 
   it('orders the basis dealt manifest, Lightning pool, explained gap, uncertified', () => {
     const order = ["'dealt_manifest'", "'lightning_pool'", "'explained_gap'", "'uncertified'"].map((s) =>
-      sql.indexOf(s)
+      view.indexOf(s)
     );
     order.forEach((i) => expect(i).toBeGreaterThan(0));
     expect([...order].sort((a, b) => a - b)).toEqual(order);
