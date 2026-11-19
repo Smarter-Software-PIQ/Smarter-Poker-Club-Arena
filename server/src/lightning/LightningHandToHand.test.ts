@@ -248,6 +248,34 @@ describe('start(): the host rules ride alongside begin_dealing', () => {
     }
   });
 
+  it('reads blind-off status as soon as participants resolve, before begin_dealing and bind have answered', async () => {
+    const formed = { ...formedHand(3, 9410), hostTableHint: HOST_TABLE };
+    let answerBegin!: () => void;
+    const blindOffPlayers = vi.fn(async () => new Set<string>());
+    const t = buildHost(formed, [100, 100, 100], { deps: { blindOffPlayers } });
+    const begin = t.backend.beginDealing as ReturnType<typeof vi.fn>;
+    begin.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          answerBegin = () => r({ ok: true, value: { handId: formed.handId } });
+        })
+    );
+    try {
+      const starting = t.host.start();
+      await flush();
+      // participantsP resolved in Wave 1 while beginDealing is still pending:
+      // blindOffPlayers must already be in flight, overlapping bindHandNumber.
+      expect(blindOffPlayers).toHaveBeenCalledTimes(1);
+      expect(t.backend.bindHandNumber).not.toHaveBeenCalled();
+      answerBegin();
+      await starting;
+      expect(t.host.lifecycle).toBe('dealing');
+      expect(blindOffPlayers).toHaveBeenCalledTimes(1);
+    } finally {
+      await t.host.abort('test_cleanup');
+    }
+  });
+
   it('a hint the bind does not confirm is discarded, and the bound table is read', async () => {
     const stale = uid(9999);
     const formed = { ...formedHand(2, 9500), hostTableHint: stale };
