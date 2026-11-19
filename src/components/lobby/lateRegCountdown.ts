@@ -40,6 +40,7 @@
  * A scheduled start that has not happened never supplies an estimate.
  */
 import { tournamentEntryWindow } from '../../utils/tournamentEntryWindow';
+import { levelClockNow } from '../../utils/maintenanceLevelClock';
 import { blindLevelMinutes, parseBlindStructure } from './tournamentFigures';
 import { mayTakeSynchronizedBreak } from '../../../server/src/tournament/breakEligibility';
 import type { LobbyTournamentRow } from './lobbyEntries';
@@ -100,14 +101,13 @@ export function shiftPastPauses(
   let end = startMs + workMs;
   let hour = Math.floor(fromMs / HOUR_MS) * HOUR_MS;
   for (let scanned = 0; scanned < MAX_PAUSE_SCAN_HOURS && hour < end; scanned++) {
-    const breakStart = hour + SYNC_BREAK_START_MINUTE * 60_000;
-    if (syncBreaks && breakStart >= fromMs && breakStart < end) end += SYNC_BREAK_PAUSE_MS;
-    const nextHour = hour + HOUR_MS;
     // An event that takes the 03:55 break is already stopped through the
     // freeze; only one that does not take breaks loses the freeze on top.
-    if (!syncBreaks && nextHour >= fromMs && nextHour < end && isChicagoMaintenanceHour(nextHour))
+    if (!syncBreaks && hour >= fromMs && hour < end && isChicagoMaintenanceHour(hour))
       end += MAINTENANCE_MS;
-    hour = nextHour;
+    const breakStart = hour + SYNC_BREAK_START_MINUTE * 60_000;
+    if (syncBreaks && breakStart >= fromMs && breakStart < end) end += SYNC_BREAK_PAUSE_MS;
+    hour += HOUR_MS;
   }
   return end;
 }
@@ -167,7 +167,7 @@ export function estimatedLevelWindowEndMs(
     );
     return shiftPastPauses(resume, work - played, resume + 1, syncBreaks);
   }
-  return shiftPastPauses(anchor, work, now, syncBreaks);
+  return shiftPastPauses(anchor, work, levelClockNow(t, now), syncBreaks);
 }
 
 /**
