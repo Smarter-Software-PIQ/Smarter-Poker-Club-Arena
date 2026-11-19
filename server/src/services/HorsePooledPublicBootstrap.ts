@@ -3,8 +3,10 @@ import { supabase } from './supabase.js';
 import {
   copyLongCounters,
   copyShownRiver,
+  copyFlopShownRecord,
   copyReraiseResponseRecord,
   copyStreetCounters,
+  copyStreetPriceRecord,
   validOpponentProfile,
   type DurableOpponentProfile,
 } from '../engine/HorseOpponentMemory.js';
@@ -120,6 +122,10 @@ export async function readHorsePooledPublicBootstrap(
           ...copyStreetCounters(row),
           // 2026-11-18 the answers to a raise of his own re-raise (reraise_response), kept when well formed.
           ...copyReraiseResponseRecord(row),
+          // 2026-11-19 what his flop bets showed and what calling them returned (flop_shown), kept when well formed.
+          ...copyFlopShownRecord(row),
+          // 2026-11-19 the price behind his fold-to-raise cells (street_counters_price), kept when well formed.
+          ...copyStreetPriceRecord(row),
         });
         kept++;
       }

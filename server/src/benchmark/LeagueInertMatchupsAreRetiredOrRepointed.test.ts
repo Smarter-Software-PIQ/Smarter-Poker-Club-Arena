@@ -50,6 +50,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo4_lightning_cheap_entry_omaha',
         // 2026-11-18 (PLO lane): the league deals no Lightning domain (omahaPricedInLightning).
         'plo5_omaha_priced_in_lightning',
+        // 2026-11-19 (PLO lane): the same, for the slowplay mix's and the public bet size's Lightning scopes.
+        'plo5_omaha_slowplay_mix_in_lightning',
+        'plo5_omaha_public_bet_size_in_lightning',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',
@@ -85,6 +88,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'plo4_vpip_floor_limp_only',
         'plo5_vpip_floor_limp_only',
         'plo6_vpip_floor_limp_only',
+        // 2026-11-19: vpipFloorLimpOnlyTenHandWindow, the same reason.
+        'nlh_vpip_floor_limp_only_ten_hand_window',
+        'plo4_vpip_floor_limp_only_ten_hand_window',
+        'plo5_vpip_floor_limp_only_ten_hand_window',
+        'plo6_vpip_floor_limp_only_ten_hand_window',
         // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
         // record no league hand has (no pooled public rows, no worker); its reason states it.
         'nlh_long_shown_river_memory',

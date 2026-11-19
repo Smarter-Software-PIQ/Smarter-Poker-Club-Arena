@@ -1,0 +1,15 @@
+{
+  "_owner": "agent/plo-flopshown-01TLQer7J/feat/omaha-opponent-read-keeps-what-his-flop-bets-showed",
+  "_comment": "Declared by migration 20261119192551 (the exact opponent profile keeps what a flop bet showed and what calling it returned, and the price behind a fold-to-raise cell); source declaration only, not installation proof.",
+  "functions": [
+    "fn_horse_flop_shown_straight",
+    "fn_horse_flop_shown_class",
+    "fn_horse_flop_shown_public_class",
+    "fn_horse_flop_shown_increments",
+    "fn_horse_flop_shown_whole",
+    "fn_horse_flop_shown_add",
+    "fn_horse_street_price_increments",
+    "fn_horse_street_price_add"
+  ],
+  "columns": { "horse_exact_profiles": ["flop_shown", "street_counters_price"] }
+}

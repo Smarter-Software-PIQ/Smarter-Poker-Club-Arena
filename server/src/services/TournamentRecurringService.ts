@@ -413,6 +413,10 @@ import {
 } from '../config/headsUpSpec.js';
 import { secureRandomInt } from '../engine/CryptoRandom.js';
 import { HorseEntryRefusalBackoff, databaseDidNotAnswer } from './horseEntryRefusalBackoff.js';
+import {
+  HorseReservationBudget,
+  HORSE_RESERVATION_BUDGET_REASON,
+} from './horseReservationBudget.js';
 import { horseEntryCapRefusalContext } from './horseEntryCapRefusalContext.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
 import { isRestDayFor, tagBook } from './StableHandTags.js';
@@ -3236,6 +3240,8 @@ export class TournamentRecurringService {
   private lifecycleGeneration = 0;
   /** Horse entries that came back as an error wait before they are offered again. */
   private readonly horseEntryBackoff = new HorseEntryRefusalBackoff();
+  /** The seat door's reservation budget, shared with the picker (incident eaafbbfb). */
+  private readonly horseReservationBudget = new HorseReservationBudget();
   private stopOperation: Promise<void> | null = null;
 
   // RETIRED 2026-08-19. Scheduled tournaments are created BY the union, not
@@ -6160,6 +6166,19 @@ export class TournamentRecurringService {
           .filter(([id]) => TournamentRecurringService.atCapacity(load, id))
           .map(([id]) => id)
       );
+      /* THE DOOR'S BUDGET IS THE PICKER'S BUDGET (incident eaafbbfb,
+         2026-11-19). A horse holding four unresolved tournament promises is
+         refused by fn_seat_horse_in_seat_first_game whatever its seat load,
+         so offering it only buys a refusal and leaves the board short until
+         the rung overruns its envelope. One read per pass. See
+         horseReservationBudget.ts. */
+      const atBudget = await viaTopUpPass(
+        pass,
+        'horse-reservation-budget',
+        () => this.horseReservationBudget.atBudget(),
+        () => true
+      );
+      for (const id of atBudget) busy.add(id);
 
       /**
        * TWO BUGS FIXED HERE (2026-08-23).
@@ -7271,6 +7290,10 @@ export class TournamentRecurringService {
             }
             tally.rpcOtherNoop++;
             const why = String(outcome?.reason ?? 'no_reason');
+            // The read was a pass old: remember the door's answer so this
+            // horse is not offered again before the next read knows it.
+            if (why === HORSE_RESERVATION_BUDGET_REASON)
+              this.horseReservationBudget.noteRefused(horse);
             otherReasons.set(why, (otherReasons.get(why) ?? 0) + 1);
           }
 

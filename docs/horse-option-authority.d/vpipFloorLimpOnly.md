@@ -65,3 +65,9 @@ server/src/engine/HorseVpipFloorLimpOnly.test.ts (the priced mechanism on the fo
 ## Limits
 
 The price the floor pays per needed hand (the limp price times the share of the buffer still needed) is a builder's derivation, not measured; the raise sizes assumed behind a limp (a pot raise in pot limit, four big blinds plus one per caller in no limit) are a model; the raise-first-in rate stands for the raise over a limp. The spot mix was measured at the 50% PLO5 table and applied to the other variants; PLO8, FLO8, fixed-limit hold'em, short deck and pineapple were not measured at all. The eviction evaluation is offline (one Horse on that mix, and six Horses with no reads and no human), not a live table.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

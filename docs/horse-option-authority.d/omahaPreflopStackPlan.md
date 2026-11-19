@@ -37,3 +37,9 @@ Default OFF in source (read `=== true`). Registered in the live switch OFF-ONLY 
 ## Limits
 
 Heads-up against the raiser only; players still to act behind are not modelled. The stack-off model assumes the stacks go in (at a ratio under 3 they mostly do); a hand that folds a flop cheaply is under-credited. The charges are readings of the owner's order, not fitted.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

@@ -101,7 +101,9 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 51 since 2026-11-17: HorseMind carries the postflop read by street and flop texture (HorseOmahaStreetRead).
     // 52 since 2026-11-18: HorseMind reads the per-decision mode of omahaReadIsByStreetAndTexture (HorseOmahaReadByStreetMode).
     // 53 since 2026-11-18: HorseMind carries how a re-raiser answers being re-raised (HorseOmahaReraiseResponse).
-    expect(closure).toHaveLength(53);
+    // 55 since 2026-11-19: HorseMind carries what a flop bet showed (HorseOmahaFlopShown) and the price behind a
+    // fold-to-raise cell (HorseOmahaStreetReadPrice).
+    expect(closure).toHaveLength(55);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');

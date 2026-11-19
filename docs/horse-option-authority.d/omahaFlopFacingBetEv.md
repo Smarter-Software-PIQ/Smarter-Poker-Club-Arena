@@ -159,3 +159,9 @@ Stated limits from review R3 of flopev2 5191ed09f6f (non-blocking):
 - N2: OMAHA_FLOP_EV_BEHIND_CONTINUE is pooled over persons and Horses.
 - N3: when a field holding cannot be drawn from the remaining cards the sample is skewed slightly toward the holdings that can.
 - N4: the PLO4 and PLO5 realization cells are pooled.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 prose only. The latest run by the committed scorer, before arms declared their option sets: WooWoo 48-hour audit, 563 journaled flop decisions, verdict-only, arm omahaFlopFacingBetEv against the recorded options, changed 98, fixed 31, newly wrong 54, unjudged 13, unchanged 465; newly wrong exceeds fixed. Archive plo-handoff-review-01a1cbbd/flopread-01TLQer7J/replay/rec-vs-all.report.json, arm ev. A row needs a new run)

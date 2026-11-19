@@ -34,3 +34,9 @@ HorseOmahaFacingBetEv.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on
 ## Limits
 
 The callerShown parameter is never passed (audit item 8, NOT done); the size-bucket best/second shown-down reads are optional and have no learner yet. PLO5 turn cost 177 ms measured by the builder. Its validator admission admits any fold -> call of the exact chips in its spot (cannot re-run the memory-reading verdict from the request).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

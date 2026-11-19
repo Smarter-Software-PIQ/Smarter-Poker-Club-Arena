@@ -34,3 +34,9 @@ HorseOmahaVpipFloorByLimp.test.ts (all pass on the PLO strategy head; server tsc
 ## Limits
 
 The buffer is three hands, simulated only on a modelled spot mix (5 seeds). The league seats no VPIP-floor table (refused league card). The ledger and league laws were run on the integrated head (pass). The intent swap is not recorded as its own authority layer (audit item 4, second half, NOT done).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

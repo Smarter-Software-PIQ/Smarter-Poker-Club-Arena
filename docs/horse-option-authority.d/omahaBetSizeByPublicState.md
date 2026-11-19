@@ -35,3 +35,9 @@ HorseBetSizeByPublicState.test.ts (all pass; 200 private hands on two recorded p
 ## Limits
 
 Every size constant is a builder's choice, NOT MEASURED. The engine's own all-ins, preflop, hi-lo, PLO6 outside the PLO6 scope, tournaments and multi-board hands keep today's sizes. The bet-or-check decision itself still depends on the private hand (by design): how often a Horse bets in a spot still carries information, only the size no longer does.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

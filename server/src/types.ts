@@ -1093,6 +1093,9 @@ export interface HorseDecision {
     | import('./engine/HorseOmahaStreetPlan.js').OmahaStreetPlanRecord
     | import('./engine/HorseOmahaStreetPlan.js').OmahaFlopPlanRecord
     | import('./engine/HorseOmahaStreetPlan.js').OmahaThreeWayPlanRecord;
+  /** omahaReraisedCallVsRaisePriced (default OFF): every number of the priced call-or-raise facing a re-raise, on
+   *  the decision it priced, whichever way the verdict went. Absent with the option off. */
+  omahaReraisedRaise?: import('./engine/HorseOmahaReraisedRaisePriced.js').OmahaReraisedRaiseReceipt;
   remainingVariantPolicy?: import('./engine/remainingVariants/RemainingVariantLivePolicy.js').RemainingVariantReceipt;
   jointPolicy?: import('./engine/multiway/JointLivePolicy.js').JointPolicyReceipt;
   tournamentPostflop?: import('./engine/HorseTournamentPostflop.js').HorseTournamentPostflopLedger;

@@ -2,7 +2,15 @@
  * Captures the lookup actually performed; does not certify causal influence. */
 import type { HorseDecision, SeatPlayer } from '../types.js';
 import { isDeepStrictEqual as samePhase6Provenance } from 'node:util';
-import { vpipFloorCallDown, SHORT_STACK_NO_FLAT_BB, type HorseGameStateV2 } from './HorseLogic.js';
+import {
+  lightningVpipFloorLimpOnlyInputs,
+  vpipFloorCallDown,
+  vpipFloorLimpOnlyApplies,
+  vpipFloorLimpOnlyStep,
+  SHORT_STACK_NO_FLAT_BB,
+  type HorseDecideOpts,
+  type HorseGameStateV2,
+} from './HorseLogic.js';
 import {
   horseTournamentProvenanceIsValid,
   horseTournamentProvenanceMatchesSnapshot,
@@ -89,6 +97,8 @@ type Phase6Snapshot = {
     v53Pressure?: boolean;
     nashCallVsJam?: boolean;
     mind?: boolean;
+    vpipFloorLimpOnly?: boolean;
+    lightningVpipFloorLimpOnly?: boolean;
   };
 };
 export interface Phase6ReferenceObservation {
@@ -660,6 +670,59 @@ function v58ShortStackJamShape(snapshot: Phase6Snapshot): boolean {
         (a.action === 'all_in' && a.isFullRaise !== undefined))
   );
 }
+/** THE FLOOR'S LIMP IS A REFERENCE RETURN ON EVERY ROUTE (2026-11-19).
+ * With vpipFloorLimpOnly (a floored cash table) or lightningVpipFloorLimpOnly
+ * (a floored fast-table pool) the reference node turns a preflop fold in an
+ * unraised pot into the limp or the small blind's completion AFTER the named
+ * source route has returned (HorseLogic, reference node, vpipFloorLimpOnlyStep).
+ * The shape check knew only the older floor call-down, which a pool never
+ * arms (a pool snapshot carries no table vpipFloor) and which a table arms on
+ * another line and only for a call of at most 15% of the stack. So the limp
+ * of a hold'em stack of 15 big blinds or less, folded to on the chart_open_jam
+ * route (jam, check or fold only), was refused as reference_shape and the
+ * engine folded the seat on the liveness fallback: build dfaa9717, Lightning
+ * NLH 0.50/1.00, 2026-11-19 18:37-18:38Z, hands 60140196, 60140303 and
+ * 60140317, one Horse on 6.92 to 8.92 big blinds, 8 refusals in the 28
+ * minutes the pool option was on.
+ *
+ * This asks the one bounded owner of that limp whether a fold could become
+ * exactly this call, in the reference node's own order (the table option
+ * first, else the pool option). Selection 'every' tests that the limp is
+ * possible without pricing it: no equity draw, no RNG, no chart replay.
+ * Public facts and the request's own options only; with both options off it
+ * is false and every decision is checked exactly as before. */
+function vpipFloorLimpOnlyShape(amount: number | null, snapshot: Phase6Snapshot): boolean {
+  if (typeof amount !== 'number') return false;
+  const s = snapshot.gameState,
+    p = snapshot.player,
+    o: HorseDecideOpts = snapshot.opts ?? {};
+  const tournament = s.gameMode
+    ? s.gameMode === 'tournament'
+    : s.tournament != null || (s.bigBlind ?? 0) >= 10;
+  const fold: HorseDecision = { action: 'fold', thinkTime: 0 };
+  let limp: HorseDecision;
+  if (vpipFloorLimpOnlyApplies(s, o, tournament)) {
+    limp = vpipFloorLimpOnlyStep(fold, p, s, () => 0, 'every').decision;
+  } else {
+    const pool = lightningVpipFloorLimpOnlyInputs(s, o, tournament);
+    if (pool === null || !(pool.shortfallHands > 0 || pool.preempt)) return false;
+    limp = vpipFloorLimpOnlyStep(
+      fold,
+      p,
+      {
+        stage: s.stage,
+        currentBet: s.currentBet,
+        bigBlind: s.bigBlind,
+        straddleActive: s.straddleActive,
+        actionHistory: s.actionHistory,
+      },
+      () => 0,
+      'every',
+      pool.shortfallHands > 0 ? pool.shortfallHands : 1
+    ).decision;
+  }
+  return limp.action === 'call' && amount === limp.amount;
+}
 export function referenceReturnShape(r: HorsePhase6Attribution, snapshot: Phase6Snapshot): boolean {
   if (r.route === 'intent_engine' || r.route === 'legacy_preflop') return true;
   const s = snapshot.gameState,
@@ -676,6 +739,8 @@ export function referenceReturnShape(r: HorsePhase6Attribution, snapshot: Phase6
   if (action === 'call') {
     const floorCall = vpipFloorCallDown({ action: 'fold', thinkTime: 0 }, p, s, () => 0);
     if (floorCall.action === 'call' && amount === floorCall.amount) return true;
+    // The limp-only floors act at the same place (see vpipFloorLimpOnlyShape).
+    if (vpipFloorLimpOnlyShape(amount, snapshot)) return true;
   }
   if (action === 'all_in' && amount === null && v58ShortStackJamShape(snapshot)) return true;
   // The reference's maniac call-down answers a call that is the whole stack

@@ -10,6 +10,17 @@
  * See LIGHTNING-PAIRED-EVAL-README.md beside this file.
  */
 import { createHash } from 'node:crypto';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 /**
  * v2 (2026-11-15): the guards are reported (G7 dry-streak entry rate, Q3, Q4,
@@ -711,6 +722,12 @@ export interface LightningEvalHandRecord {
    * contributed) is not the dealt stack. Must be 0: the stacks reached the engine.
    */
   engineStackMismatches: number;
+  /**
+   * The hand's length on the harness clock, ms: every think time and every
+   * fold reaction of the hand, in 400 ms steps. A function of the pinned
+   * streams alone, so two runs of one arm agree on it. Not in the report.
+   */
+  clockMs: number;
 }
 
 /**
@@ -1833,7 +1850,7 @@ export async function runLightningPairedEval(input: {
   config: LightningEvalConfig;
   candidate: LightningEvalArmSpec;
   playArm: LightningEvalArmPlayer;
-  /** Half-open cell index range, to bound one process's memory. */
+  /** Half-open cell index range, to share a configuration between processes. */
   cellRange?: readonly [number, number];
   onCell?: (report: LightningEvalCellReport, index: number) => void;
   /** The per-hand paired rows of each cell (the side file; not in the report). */
@@ -2531,4 +2548,294 @@ export class LightningEvalPoolLedger {
     };
     return out;
   }
+}
+
+// ── The files one runner process owns, and what the merge accepts (2026-11-19) ──
+
+/**
+ * A runner process that died (out of memory, a kill, a failed check) used to
+ * leave `<stem>.pairs.jsonl` holding the cells it had finished: a file the
+ * merge could not tell from a result. Now the side files carry `.partial`
+ * until the whole cell range has been played and checked, a `.running.json`
+ * names the process that owns them, and `<stem>.complete.json` (written last)
+ * records what the range must contain. The merge pools completed ranges only,
+ * and only when together they are the whole (seed, cell) set.
+ */
+export const LIGHTNING_EVAL_COMPLETE_SCHEMA = 'lightning-paired-eval-complete/v1';
+
+export interface LightningEvalCompletedFile {
+  name: string;
+  sha256: string;
+  /** Lines, the header included. */
+  lines: number;
+}
+
+export interface LightningEvalCompletion {
+  schema: typeof LIGHTNING_EVAL_COMPLETE_SCHEMA;
+  config: string;
+  seedClass: string;
+  candidate: string;
+  candidateDecideOpts: Record<string, unknown>;
+  deadlineMode: 'measure' | 'apply';
+  seeds: number[];
+  handsPerCell: number;
+  /** The cells of the whole configuration. */
+  configCells: number;
+  /** The half-open cell range this process played. */
+  cellRange: [number, number];
+  /** Every (seed, cell) unit played, in order, with the paired rows it wrote. */
+  units: Array<{ seed: number; cell: number; pairs: number }>;
+  reportDigest: string;
+  files: { pairs: LightningEvalCompletedFile; latency: LightningEvalCompletedFile };
+}
+
+export interface LightningEvalRunFiles {
+  /** Where the rows go until `complete` (the `.partial` names). */
+  pairsFile: string;
+  latencyFile: string;
+  appendPairs: (seed: number, cell: number, rows: readonly LightningEvalPairRow[]) => void;
+  appendLatency: (row: LightningEvalLatencyRow) => void;
+  /** The range is played and checked: give the side files their names and write the marker. */
+  complete: (
+    played: Omit<LightningEvalCompletion, 'schema' | 'units' | 'files'>
+  ) => LightningEvalCompletion;
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: the process exists and is someone else's.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function completedFile(path: string): LightningEvalCompletedFile {
+  const bytes = readFileSync(path);
+  return {
+    name: basename(path),
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    lines: bytes.toString('utf8').split('\n').filter(Boolean).length,
+  };
+}
+
+/**
+ * Claims `<stem>` for this process and opens its side files under `.partial`.
+ * Refuses, before anything is written: a stem another live process is writing,
+ * a stem that already holds a result, and a directory in which ANOTHER range
+ * was left unfinished by a process that is gone. The last is what stops a
+ * queue: after a crash the next slice fails at once instead of playing on
+ * beside a hole.
+ */
+export function openLightningEvalRunFiles(input: {
+  stem: string;
+  pairsHeader: Record<string, unknown>;
+  latencyHeader: Record<string, unknown>;
+  /** Tests only. */
+  pid?: number;
+  isAlive?: (pid: number) => boolean;
+  log?: (message: string) => void;
+}): LightningEvalRunFiles {
+  const { stem } = input;
+  const dir = dirname(stem);
+  const pid = input.pid ?? process.pid;
+  const isAlive = input.isAlive ?? processIsAlive;
+  const log = input.log ?? ((message: string) => console.warn(message));
+  mkdirSync(dir, { recursive: true });
+  const runningFile = `${stem}.running.json`;
+  const completeFile = `${stem}.complete.json`;
+  const pairsFinal = `${stem}.pairs.jsonl`;
+  const latencyFinal = `${stem}.latency.jsonl`;
+  const pairsFile = `${pairsFinal}.partial`;
+  const latencyFile = `${latencyFinal}.partial`;
+  for (const done of [completeFile, pairsFinal, latencyFinal])
+    if (existsSync(done))
+      throw new Error(
+        `Lightning paired evaluation: ${done} already holds a result. Move it away before playing this range again.`
+      );
+  for (const name of readdirSync(dir).sort()) {
+    if (!name.endsWith('.running.json')) continue;
+    const path = join(dir, name);
+    let owner: number;
+    try {
+      owner = Number((JSON.parse(readFileSync(path, 'utf8')) as { pid?: unknown }).pid);
+    } catch {
+      owner = Number.NaN;
+    }
+    const alive = Number.isInteger(owner) && owner !== pid && isAlive(owner);
+    if (path === runningFile) {
+      if (alive)
+        throw new Error(
+          `Lightning paired evaluation: process ${owner} is already playing ${stem}. Two processes on one range would write into each other's rows.`
+        );
+      log(
+        `[lightning-eval] ${stem}: replacing the unfinished rows of a run that is gone (process ${owner})`
+      );
+      for (const stale of [runningFile, pairsFile, latencyFile]) rmSync(stale, { force: true });
+    } else if (!alive)
+      throw new Error(
+        `Lightning paired evaluation: STOP. ${name} was left by process ${owner}, which is gone: that range crashed or failed and its rows are incomplete. Play it again (it replaces its own .partial files) or delete its .running.json and .partial files; no further range starts in ${dir} until then.`
+      );
+  }
+  try {
+    writeFileSync(runningFile, JSON.stringify({ pid, stem: basename(stem) }) + '\n', {
+      flag: 'wx',
+    });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST')
+      throw new Error(`Lightning paired evaluation: another process just claimed ${stem}.`);
+    throw err;
+  }
+  writeFileSync(latencyFile, JSON.stringify(input.latencyHeader) + '\n');
+  writeFileSync(pairsFile, JSON.stringify(input.pairsHeader) + '\n');
+  const units: LightningEvalCompletion['units'] = [];
+  return {
+    pairsFile,
+    latencyFile,
+    appendPairs(seed, cell, rows) {
+      units.push({ seed, cell, pairs: rows.length });
+      if (rows.length)
+        appendFileSync(pairsFile, rows.map((row) => JSON.stringify(row)).join('\n') + '\n');
+    },
+    appendLatency(row) {
+      appendFileSync(latencyFile, JSON.stringify(row) + '\n');
+    },
+    complete(played) {
+      // Checked before any rename: a range that is not whole keeps .partial.
+      lightningEvalCheckCompletion(
+        { schema: LIGHTNING_EVAL_COMPLETE_SCHEMA, ...played, units },
+        basename(stem)
+      );
+      renameSync(pairsFile, pairsFinal);
+      renameSync(latencyFile, latencyFinal);
+      const completion: LightningEvalCompletion = {
+        schema: LIGHTNING_EVAL_COMPLETE_SCHEMA,
+        ...played,
+        units,
+        files: { pairs: completedFile(pairsFinal), latency: completedFile(latencyFinal) },
+      };
+      writeFileSync(`${completeFile}.tmp`, JSON.stringify(completion, null, 1) + '\n');
+      renameSync(`${completeFile}.tmp`, completeFile);
+      rmSync(runningFile, { force: true });
+      return completion;
+    },
+  };
+}
+
+/** A marker names every (seed, cell) of its range, once, in the order played. */
+function lightningEvalCheckCompletion(
+  c: Omit<LightningEvalCompletion, 'files'>,
+  name: string
+): void {
+  if (c.schema !== LIGHTNING_EVAL_COMPLETE_SCHEMA)
+    throw new Error(
+      `${name}: schema ${String(c.schema)}, expected ${LIGHTNING_EVAL_COMPLETE_SCHEMA}`
+    );
+  const [from, to] = c.cellRange;
+  if (!(Number.isInteger(from) && Number.isInteger(to) && from >= 0 && from < to))
+    throw new Error(`${name}: cell range ${from}:${to} holds no cell`);
+  if (to > c.configCells)
+    throw new Error(`${name}: cell range ${from}:${to} is outside the ${c.configCells} cells`);
+  const expected: string[] = [];
+  for (const seed of c.seeds)
+    for (let cell = from; cell < to; cell++) expected.push(`${seed}/${cell}`);
+  const played = c.units.map((u) => `${u.seed}/${u.cell}`);
+  const missing = expected.filter((unit) => !played.includes(unit));
+  if (missing.length)
+    throw new Error(
+      `${name}: incomplete, ${missing.length} of ${expected.length} (seed/cell) units were not played: ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? ', ...' : ''}`
+    );
+  if (played.join(' ') !== expected.join(' '))
+    throw new Error(`${name}: its (seed/cell) units are not the declared range, once each`);
+}
+
+/**
+ * The completed ranges of a directory, or an error naming what is missing.
+ * Refused: an unfinished range (`.partial`, `.running.json`), side files with
+ * no marker (a run that never finished, or one older than the marker), side
+ * files whose bytes are not the ones the marker recorded, ranges of different
+ * runs, a cell played twice, and any (seed, cell) of the configuration that no
+ * range holds.
+ */
+export function lightningEvalCompletedRuns(dir: string): {
+  completions: LightningEvalCompletion[];
+  pairsFiles: string[];
+  latencyFiles: string[];
+} {
+  const names = readdirSync(dir).sort();
+  const unfinished = names.filter((n) => n.endsWith('.partial') || n.endsWith('.running.json'));
+  if (unfinished.length)
+    throw new Error(
+      `${dir} holds an unfinished range (still running, crashed or failed): ${unfinished.join(', ')}. Nothing is merged until every range is complete.`
+    );
+  const markers = names.filter((n) => n.endsWith('.complete.json'));
+  const stems = new Set(markers.map((n) => n.slice(0, -'.complete.json'.length)));
+  for (const n of names) {
+    const side = ['.pairs.jsonl', '.latency.jsonl'].find((suffix) => n.endsWith(suffix));
+    if (side && !stems.has(n.slice(0, -side.length)))
+      throw new Error(
+        `${dir}/${n} has no ${n.slice(0, -side.length)}.complete.json: the run that wrote it did not finish (or predates the completion marker), so its rows are not a result.`
+      );
+  }
+  if (!markers.length) throw new Error(`no completed range (*.complete.json) in ${dir}`);
+  const completions = markers.map((name) => {
+    const c = JSON.parse(readFileSync(join(dir, name), 'utf8')) as LightningEvalCompletion;
+    lightningEvalCheckCompletion(c, name);
+    for (const file of [c.files.pairs, c.files.latency]) {
+      if (!names.includes(file.name)) throw new Error(`${name}: ${file.name} is missing`);
+      const now = completedFile(join(dir, file.name));
+      if (now.sha256 !== file.sha256 || now.lines !== file.lines)
+        throw new Error(
+          `${name}: ${file.name} is not the file the run completed (${now.lines} lines, ${file.lines} recorded): it was truncated or written to afterwards.`
+        );
+    }
+    const rows = c.units.reduce((n, u) => n + u.pairs, 0);
+    if (c.files.pairs.lines !== rows + 1)
+      throw new Error(
+        `${name}: ${c.files.pairs.name} has ${c.files.pairs.lines - 1} rows, its units wrote ${rows}`
+      );
+    return c;
+  });
+  const run = (c: LightningEvalCompletion) =>
+    JSON.stringify([
+      c.config,
+      c.seedClass,
+      c.candidate,
+      c.candidateDecideOpts,
+      c.deadlineMode,
+      c.seeds,
+      c.handsPerCell,
+      c.configCells,
+    ]);
+  const first = completions[0]!;
+  for (const c of completions)
+    if (run(c) !== run(first))
+      throw new Error(
+        `${dir} holds ranges of more than one run (configuration, candidate, deadline mode, seeds, hands per cell or cell count differ): ${first.files.pairs.name} and ${c.files.pairs.name}`
+      );
+  const ordered = [...completions].sort((a, b) => a.cellRange[0] - b.cellRange[0]);
+  const absent: string[] = [];
+  let next = 0;
+  for (const c of ordered) {
+    const [from, to] = c.cellRange;
+    if (from < next)
+      throw new Error(
+        `${dir}: cell ${from} was played by more than one range (${c.files.pairs.name})`
+      );
+    if (from > next) absent.push(from - next === 1 ? `${next}` : `${next} to ${from - 1}`);
+    next = to;
+  }
+  if (next < first.configCells)
+    absent.push(first.configCells - next === 1 ? `${next}` : `${next} to ${first.configCells - 1}`);
+  if (absent.length)
+    throw new Error(
+      `${dir} is incomplete: cells ${absent.join(', ')} of ${first.configCells} are missing for seeds ${first.seeds.join(', ')}. The merge needs every (seed, cell) of the configuration.`
+    );
+  return {
+    completions: ordered,
+    // By name, the order the merge has always read them in.
+    pairsFiles: ordered.map((c) => c.files.pairs.name).sort(),
+    latencyFiles: ordered.map((c) => c.files.latency.name).sort(),
+  };
 }

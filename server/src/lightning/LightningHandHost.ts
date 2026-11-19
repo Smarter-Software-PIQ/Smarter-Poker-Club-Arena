@@ -734,6 +734,14 @@ export class LightningHandHost {
       const participantsP = this.deps.backend.loadParticipants(this.handId, this.formed.players);
       handNumberP.catch(() => undefined);
       participantsP.catch(() => undefined);
+      // HIT AND RUN: who of these is being blinded off. Chain directly off
+      // participantsP so fn_lightning_blind_off_players runs in parallel with
+      // beginDealing / bindHandNumber instead of adding a third sequential DB
+      // round-trip to every Lightning hand's match_to_hand.
+      const blindOffP = participantsP.then((ps) =>
+        this.fetchBlindOff(ps.map((p) => p.poolSessionId))
+      );
+      blindOffP.catch(() => undefined);
       const hint = isUuidLike(this.formed.hostTableHint) ? this.formed.hostTableHint : null;
       const hintedRulesP = hint ? this.deps.backend.loadHostRules(hint) : null;
       hintedRulesP?.catch(() => undefined);
@@ -789,11 +797,6 @@ export class LightningHandHost {
         this.participants.set(p.playerId, p);
         this.watching.set(p.playerId, p.poolSessionId);
       }
-      // HIT AND RUN: who of these is being blinded off. Read beside the deal,
-      // in parallel with the existing rule/bank reads. The deal must know
-      // who needs automatic actions before it can publish the first turn.
-      const blindOffP = this.loadBlindOff(participants.map((p) => p.poolSessionId));
-      blindOffP.catch(() => undefined);
       this.rules = await rulesP;
       timing.mark('rules');
       const variantRefusal = this.checkVariant(this.rules);
@@ -830,12 +833,13 @@ export class LightningHandHost {
       }
       // Asked above for the matcher's list, which the formation check has
       // just proved is exactly these participants.
-      await Promise.all([banksP, blindOffP]);
+      const [, blindOffIds] = await Promise.all([banksP, blindOffP]);
       timing.mark('time_banks');
       if (this.state !== 'starting') {
         outcome = 'aborted_while_reading';
         return; // aborted while reading
       }
+      for (const id of blindOffIds) if (this.participants.has(id)) this.blindOff.add(id);
 
       this.configureClocks(this.rules);
       const btn = participants.find((p) => p.position === 'btn')!;
@@ -2111,12 +2115,10 @@ export class LightningHandHost {
   /** HIT AND RUN: players whose seats this hand blinds off. */
   private readonly blindOff = new Set<string>();
 
-  private async loadBlindOff(poolSessionIds: readonly string[]): Promise<void> {
+  private async fetchBlindOff(poolSessionIds: readonly string[]): Promise<ReadonlySet<string>> {
     const read = this.deps.blindOffPlayers;
-    if (!read || poolSessionIds.length === 0) return;
-    const ids = await read(poolSessionIds);
-    if (this.isTerminal()) return;
-    for (const id of ids) if (this.participants.has(id)) this.blindOff.add(id);
+    if (!read || poolSessionIds.length === 0) return new Set();
+    return await read(poolSessionIds);
   }
 
   /** Check if free, fold otherwise. True when the action landed. */

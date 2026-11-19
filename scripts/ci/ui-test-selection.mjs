@@ -268,10 +268,66 @@ export function selectionInputs(root, base, head, isolatedStyles = false, toolin
 // sources, fixtures, lockfiles and workflow inputs are unchanged. Isolated agent
 // tools are disjoint from both simulation runners. Browser/asset admissions
 // retain their original proof; unknown and mixed executable inputs stay broad.
+// A complete diff confined to paths neither simulation reads is the same proof.
 export function isolatedSimulationsUnchanged(root, base, head) {
   return selectionInputs(root, base, head).focused ||
     selectionInputs(root, base, head, true).focused ||
-    selectionInputs(root, base, head, false, true).focused;
+    selectionInputs(root, base, head, false, true).focused ||
+    simulationInputsUntouched(root, base, head);
+}
+
+// Owner order 2026-11-19: an ordinary client pull request paid about eleven
+// minutes of SQL replay and alert-rule simulation that it cannot affect. The
+// chip journal replay reads scripts/**, supabase/** and tests/fixtures/**; the
+// fleet throughput evaluation reads tests/monitoring/** and infra/monitoring/**.
+// Neither opens client source, static assets, documentation or any other test.
+// This list is positive: a path it does not name keeps both simulations.
+export function outsideSimulationInputs(path) {
+  if (typeof path !== 'string' || !path || /[\0\\]/.test(path)) return false;
+  if (path.split('/').some((part) => !part || part === '.' || part === '..')) return false;
+  if (/^(?:src|public|docs)\/./.test(path)) return true;
+  return /^tests\/./.test(path) && !/^tests\/(?:fixtures|monitoring|sql)(?:\/|$)/.test(path);
+}
+
+// A complete immutable diff whose every path is a regular file outside the
+// simulation inputs. Added, modified and deleted files are judged alike, and
+// a move is judged as both of its paths. A wrong checkout, dirty or untracked
+// input, ambiguous ancestry, empty, oversized, incomplete or unreadable diff,
+// link, submodule or type change keeps both simulations.
+export function simulationInputsUntouched(root, base, head) {
+  const git = (...args) =>
+    execFileSync('git', args, {
+      cwd: root,
+      env: gitEnvironmentForCwd(),
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  try {
+    if (![base, head].every((s) => /^[0-9a-f]{40}$/.test(s || ''))) return false;
+    const current = git('rev-parse', 'HEAD').trim();
+    if (current !== head) {
+      const parents = git('show', '-s', '--format=%P', current).trim().split(' ');
+      if (parents.length !== 2 || !parents.includes(base) || !parents.includes(head)) return false;
+    }
+    git('diff', '--quiet', 'HEAD', '--');
+    if (git('ls-files', '--others', '--exclude-standard', '-z').length) return false;
+    const ancestor = git('merge-base', '--all', base, head).trim();
+    if (!/^[0-9a-f]{40}$/.test(ancestor)) return false;
+    const names = git('diff', '--name-status', '--no-renames', '-z', ancestor, head).split('\0');
+    if (names.pop() !== '' || !names.length || names.length % 2 || names.length > 800) return false;
+    for (let i = 0; i < names.length; i += 2) {
+      const [status, path] = names.slice(i, i + 2);
+      if (!/^[AMD]$/.test(status) || !outsideSimulationInputs(path)) return false;
+      const revisions = status === 'A' ? [head] : status === 'D' ? [ancestor] : [ancestor, head];
+      for (const revision of revisions)
+        if (!/^100(?:644|755) blob /.test(git('ls-tree', revision, '--', path)))
+          return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function files(root, dir) {

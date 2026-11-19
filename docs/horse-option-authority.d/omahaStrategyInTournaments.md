@@ -34,3 +34,9 @@ HorseOmahaStrategyInTournaments.test.ts (scope, one tournament spot per extended
 ## Limits
 
 The 14 big blind line is the commitment zone's unopened gate, not a measurement. The premium is the engine's per-call survival premium; rules priced in chips on several streets (the street plan, card impact) carry it only on the bet they price, not a full future-street ICM tree. The option is registered in the live switch by follow-up migration 20261115230000_horse_option_switch_plo_followup_options; it can be switched on only after that migration is installed.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

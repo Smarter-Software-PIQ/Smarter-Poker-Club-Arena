@@ -35,6 +35,14 @@
  *   node scripts/ci/main-freeze.mjs thaw --apply
  *   [--repo owner/name] [--windows-file path] [--ruleset-id n] [--now ISO]
  *
+ * SCOPE (owner, 2026-11-19: "WE NEED TO STOP REQUIRING AN ENGINE CUT OVER FOR
+ * ANY AND ALL UPGRADES AND IMPROVEMENTS AND FIXES"; owner, 2026-09-11: no
+ * merge freeze, ever). `freeze` NEVER blocks main and never writes a ruleset.
+ * It publishes the window in MAIN_RELEASE_FREEZE with scope "release-controls";
+ * scripts/ci/release-freeze-scope.mjs then marks only pull requests touching a
+ * release input, as information. Everything keeps merging and shipping. `thaw`
+ * lifts the variable and disables any whole-main ruleset somebody made by hand.
+ *
  * It never bypasses a ruleset, never touches the engine or the database freeze,
  * and refuses to freeze for a window that is not booked or has already ended.
  */
@@ -141,9 +149,10 @@ export function freezeRulesetBody(window, enforcement = 'active') {
   };
 }
 
-export function freezeVariableValue(window, { rulesetId, now, state = 'frozen' }) {
+export function freezeVariableValue(window, { rulesetId, now, state = 'frozen', scope = 'release-controls' }) {
   return JSON.stringify({
     state,
+    scope,
     windowId: window ? window.id : null,
     notBefore: window ? window.notBefore : null,
     notAfter: window ? window.notAfter : null,
@@ -193,9 +202,15 @@ export function describeStatus({ rulesets, variable, windows, now }) {
   if (rulesets === null) return { ...base, frozen: null, rulesets: [], source: 'unreadable' };
 
   const freezes = mainFreezeRulesets(rulesets);
-  if (!freezes.length) return { ...base, frozen: false, rulesets: [] };
-
   const v = parseVariable(variable);
+  if (!freezes.length) {
+    if (v && v.state === 'frozen' && v.scope === 'release-controls' && v.notAfter && +new Date(v.notAfter) > +t) {
+      const until = new Date(v.notAfter).toISOString();
+      return { ...base, frozen: true, scoped: true, rulesets: [], windowId: v.windowId, until, release: v.release || null, source: 'variable', overdue: false };
+    }
+    return { ...base, frozen: false, rulesets: [] };
+  }
+
   let windowId = null;
   let until = null;
   let release = null;
@@ -285,26 +300,23 @@ function writeVariable(gh, repo, value) {
   return call(gh, 'POST', `repos/${repo}/actions/variables`, { name: VARIABLE_NAME, value });
 }
 
-export function freezeMain({ gh, repo = REPO, windows, windowId, now, rulesetId }) {
+export function freezeMain({ gh, repo = REPO, windows, windowId, now }) {
   const w = windows.find((x) => x.id === windowId);
   if (!w) throw new Error(`window ${windowId} is not booked in ${WINDOWS_FILE}`);
   if (+new Date(w.notAfter) <= +new Date(now)) {
-    throw new Error(`window ${w.id} ended at ${w.notAfter}; a freeze must not outlive its booking`);
+    throw new Error(`window ${w.id} ended at ${w.notAfter}; a hold must not outlive its booking`);
   }
-  const id = locateFreezeRuleset(gh, repo, rulesetId);
-  const body = freezeRulesetBody(w, 'active');
-  const rs = id
-    ? call(gh, 'PUT', `repos/${repo}/rulesets/${id}`, body)
-    : call(gh, 'POST', `repos/${repo}/rulesets`, body);
-  if (!rs.ok) throw new Error(`ruleset write refused: ${rs.stderr.trim()}`);
-  const finalId = (rs.json && rs.json.id) || id;
-  const v = writeVariable(gh, repo, freezeVariableValue(w, { rulesetId: finalId, now }));
-  return { rulesetId: finalId, name: body.name, variableWritten: v.ok, variableError: v.ok ? null : v.stderr.trim() };
+  const v = writeVariable(gh, repo, freezeVariableValue(w, { rulesetId: null, now, scope: 'release-controls' }));
+  if (!v.ok) throw new Error(`${VARIABLE_NAME} write refused: ${v.stderr.trim()}`);
+  return { scoped: true, rulesetId: null, name: null, variableWritten: true, variableError: null };
 }
 
 export function thawMain({ gh, repo = REPO, windows, now, rulesetId }) {
   const id = locateFreezeRuleset(gh, repo, rulesetId);
-  if (!id) throw new Error('no freeze ruleset found to thaw');
+  if (!id) {
+    const v = writeVariable(gh, repo, freezeVariableValue(null, { rulesetId: null, now, state: 'lifted', scope: 'release-controls' }));
+    return { rulesetId: null, variableWritten: v.ok, variableError: v.ok ? null : v.stderr.trim() };
+  }
   const cur = call(gh, 'GET', `repos/${repo}/rulesets/${id}`);
   const prev = cur.ok ? parseFreezeRulesetName(cur.json && cur.json.name) : null;
   const w = prev ? findWindow(windows, prev.windowId) : null;
@@ -346,14 +358,12 @@ function main(argv) {
     const w = windows.find((x) => x.id === args.window);
     if (!w) throw new Error(`--window ${args.window || '(missing)'} is not booked in ${WINDOWS_FILE}`);
     if (!args.apply) {
-      console.log(`DRY RUN (add --apply). Would freeze main for ${w.id}:`);
-      console.log(`  ruleset name: ${freezeRulesetName(w)}`);
-      console.log(`  ${VARIABLE_NAME} = ${freezeVariableValue(w, { rulesetId: args['ruleset-id'] || KNOWN_RULESET_ID, now })}`);
+      console.log(`DRY RUN (add --apply). Would publish the engine window ${w.id}; main stays open and only release inputs are marked:`);
+      console.log(`  ${VARIABLE_NAME} = ${freezeVariableValue(w, { rulesetId: null, now, scope: 'release-controls' })}`);
       return 0;
     }
-    const r = freezeMain({ gh: ghCli, repo, windows, windowId: w.id, now, rulesetId: args['ruleset-id'] });
-    console.log(`main frozen: ruleset ${r.rulesetId} "${r.name}"`);
-    if (!r.variableWritten) console.log(`WARNING: ${VARIABLE_NAME} not written (${r.variableError}); the ruleset name still carries the window`);
+    freezeMain({ gh: ghCli, repo, windows, windowId: w.id, now });
+    console.log(`engine window ${w.id} published until ${w.notAfter}; main stays open, release inputs are marked`);
     return 0;
   }
   if (cmd === 'thaw') {
