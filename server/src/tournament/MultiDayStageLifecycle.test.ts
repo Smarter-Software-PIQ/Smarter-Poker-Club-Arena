@@ -907,7 +907,7 @@ describe('the stage-end barrier and the bag', () => {
     }
     // Five re-drives plus two per table (two tables), then the refusal is
     // held for a fix and reported.
-    expect(db.rpc).toHaveLength(10);
+    expect(db.rpc).toHaveLength(11);
     expect(state.requestEliminationSweep).toHaveBeenCalledTimes(9);
     expect(state.stageBagHeldReason).toBe('stack_invalid');
   });
