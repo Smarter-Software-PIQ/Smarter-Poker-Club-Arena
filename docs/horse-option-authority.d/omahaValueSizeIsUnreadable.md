@@ -46,6 +46,20 @@ omahaNutClassValueSize, riverNutsRaise, omahaCurrentNutsRaise and fullPotNearPot
 
 server/src/engine/HorseOmahaValueSizeBand.test.ts: on the recorded complaint nodes (hands 59414191 and 59401453) a nut bet is the full pot or 80-95% of it, both occur, never anything else, on the flop, turn and river; off (unset, false, a truthy non-boolean) identical draw for draw with every nut bet the full pot; a hand that is not nut class keeps its size; PLO6 and tournaments unchanged; legal bounds (maximum, minimum, a stack the pot covers, raise increments); the commit guard; the river value alarm.
 
+## Evaluation (declared before the run; the verdict stands as recorded)
+
+Declaration: audit archive `repairs/NUT-SIZE/EVAL-DECLARATION.md` (sha256 9c5e7188defa65c28d49a2d9db7885ad7e7fed054328de3bd019f83c1b3c134a). Results: `repairs/NUT-SIZE/EVAL-RESULTS.md`. Replay of the 5,344 journaled decisions of journal-4 (PLO4/PLO5 cash, 2026-11-18 19:31Z to 2026-11-19 01:18Z) through the production worker runtime, arms BASE (origin/main), OFF and ON. Declared verdict: FAIL / INSUFFICIENT.
+
+- B1 off-arm byte-identical: FAIL as declared. Action and amount with the option off equal main's on 5,240 of 5,240 compared decisions (100%). Instrument note: think time and receipt digest are not reproducible by the replay itself (main replayed twice: 4 of 1,500 equal), so that part of the bar cannot pass on any code; 4 PLO4 decisions error `phase10:identity_authorityKey` on this build only, because the Phase 10 policy digest hashes the bytes of HorseLogic.ts (any HorseLogic.ts change does this; not a decision difference).
+- B2 sizes in band: FAIL as declared. 23 of 23 changed decisions are PLO5 postflop nut-class full-pot bets resized to 0.802-0.946 of the pot increment, marked `unreadable_band`, nothing else changed; the declared receipt clause was unobservable because the replayed production requests run with telemetry off (no receipt of any option fired in any arm).
+- B3 zero illegal amounts: PASS (0 illegal actions or amounts, 0 new errors).
+- B4 value against measured calling: INSUFFICIENT. WooWoo: +0.093 pot per nut wager at the band, 95% CI -0.011 to +0.198 (folds 47.9% at 80-95% n 96 vs 63.7% at the full pot n 273, Horse nuts or near-nuts, heads-up; 1.456 vs 1.363 pot units). All persons pooled: +0.040, CI -0.025 to +0.104.
+- Nut-class share by size on journal-4: off, 80-95% 14.3% and full pot 59.0%; on, 39.2% and 43.3%.
+
+## Switch-on
+
+Switch-on: authorized on the owner's direct order of 2026-11-18 23:00 America/Chicago, verbatim: "HORSES NEED TO VARY THERE BETS WITH THE NUTS, NOT FULL PUT EVERY TIME, BUT LIKE 80-95% POT, HE'S FOLDING TO FULL POT SIZE BETS CAUSE HE SAID WHEN THEY DO THAT, THEY 100% ALWAYS HAVE THE NUTS!" Activation delegated to the WooWoo programme lane (owner 2026-11-18: "YOU OWN THE CODEBASE, YOU DECIDE WHAT TURNS ON AND IF ITS READY", relayed by the integrator, session 013U37bYh22). Integrator decision 2026-11-19: the declared verdict stays FAIL / INSUFFICIENT on the record; the switch-on rests on the owner's order, the safety bars that hold (off-arm action and amount identical 5,240 / 5,240; B3 PASS; 23 / 23 changes in band) and the measured direction (WooWoo folds more to the full pot than to 80-95% with Horse nuts or near-nuts).
+
 ## Limits
 
 The fold rates by size were measured while the full pot was readable; what an unreadable size earns against a player who folds to it by read cannot be measured before it is live. The keep shares come from 14 days of today's policy and would move if other sizing options change the mix. The nut-class test is the engine's own (omahaNutClassNow); near-nut hands outside it are not resized.
