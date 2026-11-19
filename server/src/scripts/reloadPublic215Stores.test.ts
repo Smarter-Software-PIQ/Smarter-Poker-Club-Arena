@@ -97,7 +97,7 @@ describe('a revoked activation proves every worker empty', () => {
     );
     const gate = runtime.indexOf('requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);');
     expect(gate).toBeGreaterThan(0);
-    expect(runtime.indexOf('return loadGtoPostflopV31();', gate)).toBeGreaterThan(gate);
-    expect(runtime.slice(0, gate)).not.toMatch(/\bloadGtoPostflopV31\(\)/);
+    expect(runtime.indexOf('return loadGtoPostflopV31ForBoot();', gate)).toBeGreaterThan(gate);
+    expect(runtime.slice(0, gate)).not.toMatch(/\bloadGtoPostflopV31(ForBoot)?\(\)/);
   });
 });

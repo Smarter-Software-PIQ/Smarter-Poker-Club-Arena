@@ -18,17 +18,17 @@ vi.mock('../../services/BrainTelemetryFlush.js', () => ({
   stopBrainTelemetryFlush: vi.fn(async () => {}),
 }));
 vi.mock('../../services/GtoChartLoader.js', () => ({
-  loadGtoCharts: vi.fn(async () => {}),
+  loadGtoChartsForBoot: vi.fn(async () => {}),
   startGtoChartLoader: vi.fn(),
   stopGtoChartLoader: vi.fn(),
 }));
 vi.mock('../../services/GtoPostflopLoader.js', () => ({
-  loadGtoPostflop: vi.fn(async () => {}),
+  loadGtoPostflopForBoot: vi.fn(async () => {}),
   startGtoPostflopLoader: vi.fn(),
   stopGtoPostflopLoader: vi.fn(),
 }));
 vi.mock('../../services/GtoPostflopV31Loader.js', () => ({
-  loadGtoPostflopV31: vi.fn(async () => {}),
+  loadGtoPostflopV31ForBoot: vi.fn(async () => {}),
   requireGtoV31ServingBinding: vi.fn(),
   startGtoPostflopV31Loader: vi.fn(),
   stopGtoPostflopV31Loader: vi.fn(),
@@ -47,9 +47,9 @@ import {
   hydrateHorseMindFromDb,
   stopHorseMindPersistence,
 } from '../../services/HorseMindPersistence.js';
-import { loadGtoCharts } from '../../services/GtoChartLoader.js';
-import { loadGtoPostflop } from '../../services/GtoPostflopLoader.js';
-import { loadGtoPostflopV31 } from '../../services/GtoPostflopV31Loader.js';
+import { loadGtoChartsForBoot } from '../../services/GtoChartLoader.js';
+import { loadGtoPostflopForBoot } from '../../services/GtoPostflopLoader.js';
+import { loadGtoPostflopV31ForBoot } from '../../services/GtoPostflopV31Loader.js';
 import { hydrateHorseMind } from '../../services/HorseMindHydrator.js';
 import { hydrateHorseExploitReads } from '../../services/HorseExploitHydrator.js';
 import { gtoChartStoreIdentity } from '../GtoCharts.js';
@@ -75,7 +75,7 @@ describe('real worker-owned startup preparation', () => {
       prepared = false,
       ready = false;
     let release!: () => void;
-    vi.mocked(loadGtoCharts).mockImplementationOnce(
+    vi.mocked(loadGtoChartsForBoot).mockImplementationOnce(
       () =>
         new Promise<number>((resolve) => {
           release = () => {
@@ -93,7 +93,7 @@ describe('real worker-owned startup preparation', () => {
       expect(prepared).toBe(true);
       ready = true;
     });
-    await vi.waitFor(() => expect(loadGtoCharts).toHaveBeenCalled());
+    await vi.waitFor(() => expect(loadGtoChartsForBoot).toHaveBeenCalled());
     expect(prepare).not.toHaveBeenCalled();
     expect(ready).toBe(false);
     release();
@@ -121,9 +121,9 @@ describe('real worker-owned startup preparation', () => {
     // Every independent load has begun while the mind read is still pending.
     await vi.waitFor(() => {
       expect(hydrateHorseMindFromDb).toHaveBeenCalledTimes(1);
-      expect(loadGtoCharts).toHaveBeenCalledTimes(1);
-      expect(loadGtoPostflop).toHaveBeenCalledTimes(1);
-      expect(loadGtoPostflopV31).toHaveBeenCalledTimes(1);
+      expect(loadGtoChartsForBoot).toHaveBeenCalledTimes(1);
+      expect(loadGtoPostflopForBoot).toHaveBeenCalledTimes(1);
+      expect(loadGtoPostflopV31ForBoot).toHaveBeenCalledTimes(1);
       expect(hydrateHorseExploitReads).toHaveBeenCalledTimes(1);
     });
     // The replay needs the flush mark, so it has not started, and READY waits.
@@ -159,7 +159,7 @@ describe('real worker-owned startup preparation', () => {
         })
     );
     const failure = new Error('chart load failed');
-    vi.mocked(loadGtoCharts).mockRejectedValueOnce(failure);
+    vi.mocked(loadGtoChartsForBoot).mockRejectedValueOnce(failure);
     let finished = false;
     const startup = worker.startServices().then(
       () => {
@@ -170,7 +170,7 @@ describe('real worker-owned startup preparation', () => {
         return error;
       }
     );
-    await vi.waitFor(() => expect(loadGtoCharts).toHaveBeenCalled());
+    await vi.waitFor(() => expect(loadGtoChartsForBoot).toHaveBeenCalled());
     try {
       expect(finished).toBe(false);
       expect(stopHorseMindPersistence).not.toHaveBeenCalled();
