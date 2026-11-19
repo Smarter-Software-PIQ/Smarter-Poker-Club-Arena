@@ -824,3 +824,12 @@ export function unionStatementPayLine(
     ? `${clubSide} Pays ${unionName}`
     : `${unionName} Pays ${clubSide}`;
 }
+
+/**
+ * One statement row in the board's own shape, checked by the same rules the
+ * board applies to each of its rows (identity, direction, reconciliation).
+ * The statement document reader returns exactly this shape for one invoice.
+ */
+export function parseUnionStatementRow(value: unknown, unionId: string): UnionStatementClub {
+  return parseClub(value, unionId).club;
+}
