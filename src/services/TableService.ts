@@ -275,7 +275,8 @@ class TableService {
     const { error } = await supabase
       .from('tables')
       .update({ current_players: count })
-      .eq('id', tableId);
+      .eq('id', tableId)
+      .or(`current_players.is.null,current_players.neq.${count}`);
 
     if (error) {
       reportError(error, 'TableService.updatePlayerCount');
