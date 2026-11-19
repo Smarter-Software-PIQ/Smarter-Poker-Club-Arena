@@ -452,6 +452,46 @@
   cursor: default;
 }
 
+/* Leaving the app (2026-11-18): Share Video and Download side by side under
+   the post button, on the painted plate the Copy and Share buttons of this
+   sheet already wear, so the pair reads as part of the same console. */
+.share-hand__video-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.share-hand-modal .share-hand__video-btn--plate,
+.share-hand__video-btn--plate {
+  min-width: 0;
+  color: #ffffff;
+  background: #101721 url('/assets/results/session-button.webp') center / 100% 100%;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 3px 8px rgba(0, 0, 0, 0.45);
+}
+
+.share-hand__video-btn--plate:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.share-hand__video-btn:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 2px;
+}
+
+.share-hand__video-leave {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-hand__video-leave:empty {
+  display: none;
+}
+
 .share-hand__video-status {
   margin: 0;
   font-size: 0.9375rem;
@@ -475,11 +515,20 @@
   text-align: center;
 }
 
+/* The clip is rendered portrait (1080 by 1350): the frame is that shape, so
+   the preview is the clip and not a strip of it between two black bars. */
 .share-hand__video-preview {
-  width: 100%;
-  aspect-ratio: 16 / 9;
+  align-self: center;
+  width: auto;
+  max-width: 100%;
+  height: min(340px, 42dvh);
+  aspect-ratio: 4 / 5;
+  object-fit: contain;
   border-radius: 12px;
   background: #000;
+  box-shadow:
+    0 0 0 1px rgba(158, 175, 188, 0.35),
+    0 6px 16px rgba(0, 0, 0, 0.5);
 }
 
 .share-hand__video-caption {

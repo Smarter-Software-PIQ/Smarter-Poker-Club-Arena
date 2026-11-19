@@ -672,7 +672,14 @@ test('the published table explains controlled seat moves without moving a player
     expect(forwardedSyntheticUpstream).toBe(0);
     expect(heroDiagnostics).toEqual([]);
     const afterSynthetic = await readBuild();
-    expect(afterSynthetic).toEqual(evidence.before);
+    // A protected publish during the proof leaves no single build it could
+    // certify. Name that case exactly; the workflow step classifies it as a
+    // NON-VERDICT only when the release window confirms a forward publish.
+    if (JSON.stringify(afterSynthetic) !== JSON.stringify(evidence.before)) {
+      throw new Error(
+        `PRODUCTION_ADVANCED_DURING_PROOF ${JSON.stringify(evidence.before)} -> ${JSON.stringify(afterSynthetic)}`
+      );
+    }
     evidence.heroDiagnostic = {
       source: 'synthetic-reserved-row-browser-input',
       actualServedParserMapperAndEffect: true,
