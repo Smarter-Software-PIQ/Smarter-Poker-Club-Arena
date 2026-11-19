@@ -20,6 +20,7 @@ import {
   thawMain,
 } from '../../scripts/ci/main-freeze.mjs';
 import { formatStatus, run } from '../../scripts/ci/main-freeze-status.mjs';
+import { decide, isGuarded } from '../../scripts/ci/release-freeze-scope.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const helper = path.join(root, 'scripts/ci/main-freeze-status.mjs');
@@ -200,33 +201,17 @@ function fakeGh(existing) {
   return { gh, writes };
 }
 
-test('freezing publishes the window in the ruleset name and the variable', () => {
+test('freezing never writes a ruleset; unbooked or ended windows are refused', () => {
   const { gh, writes } = fakeGh(true);
   const r = freezeMain({ gh, windows, windowId: W1510.id, now: '2026-11-19T15:10:00Z' });
-  assert.equal(r.rulesetId, KNOWN_RULESET_ID);
-  const put = writes.find((w) => w.method === 'PUT');
-  assert.equal(put.route, `repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/rulesets/${KNOWN_RULESET_ID}`);
-  assert.equal(put.body.name, freezeRulesetName(W1510));
-  assert.equal(put.body.enforcement, 'active');
-  assert.deepEqual(put.body.bypass_actors, []);
-  assert.deepEqual(put.body.conditions.ref_name.include, ['refs/heads/main']);
-  const post = writes.find((w) => w.route.endsWith('/actions/variables'));
-  assert.equal(post.body.name, VARIABLE_NAME, 'a missing variable is created');
-  const v = JSON.parse(post.body.value);
+  assert.equal(r.scoped, true);
+  assert.ok(!writes.some((w) => w.route.includes('/rulesets')), 'main is never blocked');
+  const v = JSON.parse(writes.find((w) => w.route.endsWith('/actions/variables')).body.value);
   assert.equal(v.state, 'frozen');
+  assert.equal(v.scope, 'release-controls');
   assert.equal(v.windowId, W1510.id);
   assert.equal(v.notAfter, '2026-11-19T21:00:00.000Z');
   assert.equal(v.release, W1510.contains);
-  // And what was published reads back as the same answer.
-  const st = describeStatus({ rulesets: [ruleset(put.body.name)], variable: post.body.value, windows, now: '2026-11-19T15:11:00Z' });
-  assert.equal(st.windowId, W1510.id);
-  assert.equal(st.until, '2026-11-19T21:00:00.000Z');
-});
-
-test('a freeze with no ruleset yet creates one; unbooked or ended windows are refused', () => {
-  const { gh, writes } = fakeGh(false);
-  assert.equal(freezeMain({ gh, windows, windowId: W1510.id, now: '2026-11-19T15:10:00Z' }).rulesetId, 999);
-  assert.ok(writes.some((w) => w.method === 'POST' && w.route.endsWith('/rulesets')));
   assert.throws(() => freezeMain({ gh, windows, windowId: 'not-booked', now: '2026-11-19T15:10:00Z' }), /not booked/);
   assert.throws(() => freezeMain({ gh, windows, windowId: W1030.id, now: '2026-11-19T16:20:00Z' }), /must not outlive/);
 });
@@ -240,4 +225,30 @@ test('thawing disables the same ruleset id, resets its name and marks the variab
   const v = JSON.parse(writes.find((w) => w.route.endsWith('/actions/variables')).body.value);
   assert.equal(v.state, 'lifted');
   assert.equal(v.windowId, W1510.id);
+});
+
+// ── Scoped freeze: only release inputs wait (owner, 2026-11-19) ─────────────
+
+test('a published engine window reads back as open main with release inputs held, and ends on its own', () => {
+  const variable = JSON.stringify({ state: 'frozen', scope: 'release-controls', windowId: W1510.id, notBefore: W1510.notBefore, notAfter: W1510.notAfter });
+  const st = describeStatus({ rulesets: [], variable, windows, now: '2026-11-19T15:11:00Z' });
+  assert.equal(st.frozen, true);
+  assert.equal(st.scoped, true);
+  assert.match(formatStatus(st), /^main: OPEN/);
+  assert.equal(describeStatus({ rulesets: [], variable, windows, now: '2026-11-19T21:01:00Z' }).frozen, false);
+});
+
+test('a live release freeze admits client, docs, tests and engine source and holds release inputs', () => {
+  const freezeRaw = JSON.stringify({ state: 'frozen', scope: 'release-controls', windowId: W1510.id, notBefore: W1510.notBefore, notAfter: W1510.notAfter });
+  const now = '2026-11-19T16:00:00Z';
+  for (const f of ['src/components/Table.tsx', 'public/x.png', 'docs/a.md', 'tests/a.test.ts', 'server/src/engine/Hand.ts', 'supabase/migrations/20261119_x.sql']) {
+    assert.equal(isGuarded(f), false, f);
+    assert.equal(decide({ freezeRaw, files: [f], now }).admitted, true, f);
+  }
+  for (const f of ['server/release/owner-maintenance-windows.json', 'server/standby/standby-engine.sh', 'server/scripts/engine-release-transaction.sh', '.github/workflows/auto-deploy-hetzner.yml']) {
+    assert.equal(decide({ freezeRaw, files: ['src/a.tsx', f], now }).admitted, false, f);
+  }
+  assert.equal(decide({ freezeRaw, files: null, now }).admitted, false, 'an unreadable diff fails closed while frozen');
+  assert.equal(decide({ freezeRaw: '', files: null, now }).admitted, true, 'no freeze admits everything');
+  assert.equal(decide({ freezeRaw, files: ['server/release/x.json'], now: '2026-11-19T21:00:01Z' }).admitted, true, 'an ended window admits');
 });
