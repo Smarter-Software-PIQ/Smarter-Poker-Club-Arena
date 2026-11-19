@@ -55,6 +55,7 @@ import type { LeagueSeatSpot } from '../benchmark/HorseLeague.js';
 import * as kit from '../testing/lightningHostTestKit.js';
 import { horsePreflopStrength } from './LightningHorseEarlyFold.js';
 import { buildLightningHorseSnapshot } from './LightningHorse.js';
+import type { LightningParticipant } from './LightningHandBackend.js';
 import {
   LIGHTNING_EVAL_BIG_BLIND,
   LIGHTNING_EVAL_CONSERVATION_TOLERANCE,
@@ -69,7 +70,9 @@ import {
   lightningEvalConservationGap,
   lightningEvalDeadlineMiss,
   lightningEvalEffectiveStackBB,
+  lightningEvalFloorRules,
   lightningEvalIsPreflopRaise,
+  LightningEvalPoolLedger,
   lightningEvalMix,
   lightningEvalPosition,
   lightningEvalStacksBB,
@@ -265,6 +268,28 @@ export async function playLightningEvalArm(input: {
   let subjectRake = 0;
   let subjectRakeShare = 0;
   let subjectFeeShare = 0;
+  // E2: a floored cell keeps one pool session per player for the whole cell
+  // and its own pool ledgers (this call plays one arm, so they are per arm).
+  const floor = cell.floor;
+  const judge = floor ? new LightningEvalPoolLedger(floor) : null;
+  const feed = floor?.feedSnapshot
+    ? floor.restartEveryHands
+      ? new LightningEvalPoolLedger(floor)
+      : judge
+    : null;
+  let feedClears = 0;
+  const sessionByPlayer = new Map<string, string>();
+  const playerBySession = new Map<string, string>();
+  const sessionOf = (playerId: string): string => {
+    let id = sessionByPlayer.get(playerId);
+    if (!id) {
+      id = kit.uid(5_200_000 + sessionByPlayer.size);
+      sessionByPlayer.set(playerId, id);
+      playerBySession.set(id, playerId);
+    }
+    return id;
+  };
+  const poolSubjects = new Set<string>();
   try {
     vi.setSystemTime(Date.UTC(2026, 9, 24));
     HorseMind.reset();
@@ -284,6 +309,16 @@ export async function playLightningEvalArm(input: {
       // Horse decision draws from its own stream (seat, decision index): a
       // subject that draws more or fewer numbers does not re-roll another seat.
       input.setDeckState(lightningEvalMix(cellKey, h, 1));
+      if (
+        feed &&
+        feed !== judge &&
+        floor?.restartEveryHands &&
+        h > 0 &&
+        h % floor.restartEveryHands === 0
+      ) {
+        feed.clear();
+        feedClears++;
+      }
       const horseStream = lightningEvalMix(cellKey, h, 2);
       seedFastRandom(horseStream);
       const horseStep = new Map<string, number>();
@@ -319,6 +354,7 @@ export async function playLightningEvalArm(input: {
       };
       const horseIds = new Set(players.filter((p) => !villainIds.includes(p)));
       const subjectIds = scope === 'all_horses' ? horseIds : new Set([HERO]);
+      if (floor) for (const id of subjectIds) poolSubjects.add(id);
       // One starting stack per table slot: the cell's depth (uniform), or a
       // draw from its own stream (mixed), the same in both arms.
       const stacksBB = lightningEvalStacksBB(cell, cellKey, h);
@@ -339,7 +375,15 @@ export async function playLightningEvalArm(input: {
             // No override: the engine computes the published rake for the stake.
             rake_percent: null,
             rake_cap_bb: null,
+            // E2: the floored pool's rules, both arms (nothing on an unfloored cell).
+            ...lightningEvalFloorRules(floor),
           },
+          ...(floor
+            ? {
+                participantsOverride: (ps: LightningParticipant[]) =>
+                  ps.map((p) => ({ ...p, poolSessionId: sessionOf(p.playerId) })),
+              }
+            : {}),
           deps: applyDeadline
             ? { random: hostRandom, logger: applyModeLogger }
             : { random: hostRandom },
@@ -354,7 +398,22 @@ export async function playLightningEvalArm(input: {
         lane.decideFast.mockImplementation(async (snap: any, _s?: unknown, req?: LaneRequest) => {
           const uid: string = snap.player.user_id;
           const isSubject = subjectIds.has(uid);
-          const used = isSubject && arm.snapshotPatch ? arm.snapshotPatch(snap) : snap;
+          // E2 feedSnapshot: the table's floor and this Horse's own figure, as a
+          // physical table hands them (host side, so before any arm patch);
+          // every Horse alike, in both arms.
+          const hosted =
+            feed && floor
+              ? {
+                  ...snap,
+                  gameState: {
+                    ...snap.gameState,
+                    vpipFloor: floor.vpipPct,
+                    vpipWindowHands: floor.windowHands,
+                    ownVpip: feed.figure(sessionOf(uid)),
+                  },
+                }
+              : snap;
+          const used = isSubject && arm.snapshotPatch ? arm.snapshotPatch(hosted) : hosted;
           const gs = used.gameState;
           if (rakeConfig === null) rakeConfig = structuredClone(gs.rakeConfig ?? null);
           if (gs.dealerSeat !== n) counters.buttonMismatch++;
@@ -577,6 +636,15 @@ export async function playLightningEvalArm(input: {
             LIGHTNING_EVAL_CONSERVATION_TOLERANCE
           )
             counters.conservationViolations++;
+          if (judge)
+            for (const p of players) {
+              const entered = pre.some(
+                (a) =>
+                  a.userId === p && ['call', 'bet', 'raise', 'all_in'].includes(String(a.action))
+              );
+              judge.record(sessionOf(p), entered);
+              if (feed && feed !== judge) feed.record(sessionOf(p), entered);
+            }
           const wonTotal = settled.results.reduce((s: number, r: any) => s + (r.won || 0), 0);
           const contributedTotal = settled.results.reduce(
             (s: number, r: any) => s + (r.contributed || 0),
@@ -714,6 +782,15 @@ export async function playLightningEvalArm(input: {
       subjectJackpotFeeShareBBPer100: total.hands ? (subjectFeeShare / bb / total.hands) * 100 : 0,
       dryStreak: dryStreak.counts,
       counters,
+      ...(judge
+        ? {
+            pool: judge.report(
+              poolSubjects,
+              (session) => playerBySession.get(session) ?? session,
+              feedClears
+            ),
+          }
+        : {}),
       latencyMs: {
         n: sorted.length,
         p50: percentile(sorted, 0.5),

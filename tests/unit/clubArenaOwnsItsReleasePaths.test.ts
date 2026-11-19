@@ -53,7 +53,12 @@ describe('Club Arena owns every Club Arena release path', () => {
     );
     // The read-only event runs the read job alone: it never deploys or records a verdict.
     expect(monitoringDeploy).toContain(
-      "if: ${{ (github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}"
+      // The deploy runs on push, its deploy dispatch, or a successful Engine
+      // Release / Withdrawal of the default-branch engine publisher (a
+      // workflow_run always executes the default branch's definition; the
+      // re-ask is bound to that one file, this repository and its dispatch).
+      'if: ' +
+        "${{ (((github.event_name == 'push' || github.event.action == 'deploy-club-arena-monitoring') && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]'))) || (github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/auto-deploy-hetzner.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (startsWith(github.event.workflow_run.display_title, 'Engine Release ') || startsWith(github.event.workflow_run.display_title, 'Engine Withdrawal ')))) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}"
     );
     expect(monitoringDeploy).toContain(
       "if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'read-club-arena-monitoring' && !((github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch') && (github.actor == 'github-actions[bot]' || github.triggering_actor == 'github-actions[bot]')) && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]') }}"

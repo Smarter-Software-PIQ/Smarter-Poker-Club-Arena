@@ -1061,6 +1061,15 @@ export interface HorseDecision {
   tournamentPreflopAttribution?: import('./engine/HorsePhase6Attribution.js').HorsePhase6Attribution;
   /** Finite private provenance for the brain's last-resort liveness action. */
   policyFallback?: 'brain_exception';
+  /** omahaValueSizeIsUnreadable (default off, HorseOmahaValueSizeBand.ts): this bet or raise is a nut-class
+   *  wager sized in the owner's 80-95% pot band; the table's commit guards keep it while it is still legal and
+   *  in the band (omahaValueSizeBandHolds) instead of rounding it back up to the full pot. */
+  valueSize?: {
+    readonly kind: 'unreadable_band';
+    /** The wager the cell sized: a decision whose action or amount no longer equals this is not a band wager. */
+    readonly action: 'bet' | 'raise';
+    readonly amount: number;
+  };
   /** Private request-to-executor witness, attached at the live response boundary. */
   executionWitness?: import('./engine/HorseExecutionWitness.js').HorseExecutionWitness;
   /** Bounded outer policy-order trace; contains actions only, never cards or seeds. */

@@ -46,6 +46,16 @@ export const NINE_SEAT_PHONE_RAIL_BUST = 1.7;
 /** Rendered `.seat__avatar-img` heights, in layout px at the 600px phone
  * layout, that a phone table must reach with the fixture's character art.
  * Measured on the real-component fixture (tests/e2e/table-proportions.spec.ts). */
+/** A watched six-max table takes SIX_SEAT_SPECTATOR_PHONE_BUST_SCALE only where
+ * the phone is tall enough for it. Dan's binding rule is "as large as they can
+ * be without overlapping anything": on a height-bound phone (layout viewport
+ * shorter than this, in layout px at the 600px phone layout) the fit keeps the
+ * spectator portraits clear of the dealer button below 2.3, so the spectator
+ * floor does not apply there and the six-seat floor does - still absolute,
+ * never lower. Measured 2026-11-19 on production: 320x568 is 1065 layout px tall
+ * and painted 176.6-189.2px; 375x852, 393x852 and 430x852 (>= 1189) reach 191. */
+export const SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX = 1120;
+
 export const PHONE_AVATAR_MIN_HEIGHT_PX = {
   sixSeat: 175,
   sixSeatSpectator: 191,

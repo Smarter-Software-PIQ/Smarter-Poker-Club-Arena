@@ -35,22 +35,6 @@
       "date": "2026-11-18"
     },
     {
-      "function": "fn_apply_union_ladder",
-      "kind": "write",
-      "target": "unions",
-      "owner": "club-arena hand path lane H1 (incident 075013fd): remove after 20261118161703 installs",
-      "reason": "Reached only through a clubs.chip_treasury write (the deleted-wallet and horse-split bank returns, NOWAIT since 20261118161644, and fn_ca_burn) firing trg_union_totals_follow_club_counts, a STATEMENT trigger on every clubs UPDATE whose body recomputes the union ladder only when member/admin/super-agent/agent counts changed, which a bank write never does. 20261118161703 (daily-window install: it replaces a trigger on clubs) makes it a row trigger on UPDATE OF the four count columns WHEN one changed. Remove this entry once 20261118161703 is installed.",
-      "date": "2026-11-18"
-    },
-    {
-      "function": "fn_ca_deleted_wallet_bank_return",
-      "kind": "row_lock",
-      "target": "clubs",
-      "owner": "club-arena hand path lane H1 (incident 075013fd): remove after 20261118161703 installs",
-      "reason": "Since 20261118161644 the hand's member-credit trigger takes the club bank NOWAIT (fn_ca_deleted_wallet_bank_return_nowait); this entry is only the NAME edge left: fn_ca_deleted_wallet_credit also serves account deletion (profiles), whose branch calls the blocking fn_ca_deleted_wallet_bank_return (4 s wait, right for deletion). 20261118161703 (daily-window install: it repoints the profiles trigger) moves that branch to fn_ca_deleted_profile_bank_return. Remove this entry once 20261118161703 is installed.",
-      "date": "2026-11-18"
-    },
-    {
       "function": "fn_spin_book_entry",
       "kind": "row_lock",
       "target": "spin_bonus_pools",

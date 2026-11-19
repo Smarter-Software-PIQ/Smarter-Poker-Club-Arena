@@ -243,7 +243,10 @@ export type PreflopLayerReceipt =
   | 'holdem_persona_squeeze_bluff_eligible_seen'
   | 'holdem_persona_squeeze_bluff_changed_seen'
   | 'holdem_persona_squeeze_bluff_capped_seen'
-  | 'holdem_persona_scale_held_by_style_seen';
+  | 'holdem_persona_scale_held_by_style_seen'
+  // 2026-11-18, count only (never read by a decision):
+  | 'v70_facing_open_zone_changed_seen'
+  | 'facing_closed_all_in_call_seen';
 
 /**
  * PERSONA RE-RAISE MIX, OFFLINE MEASUREMENT TAP. One event per persona
@@ -2377,6 +2380,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       : fullRingFacing
         ? facingZone84
         : legacyPushFold) && !v70Open;
+  // Receipt only (v70FacingOpenZone, 2026-11-18): the short-handed zone put this hold'em spot on the other side of
+  // jam-or-fold from the zone it reads with the option off (the legacy zone: the full-ring zone never applies two-
+  // or three-handed). Reads the booleans above and changes nothing.
+  if (v70HoldemShortHanded && pushFoldNlh !== (legacyPushFold && !v70Open))
+    ctx.noteLayer?.('v70_facing_open_zone_changed_seen');
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
@@ -4416,6 +4424,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // The 30% stack cap stops a call that more betting can follow; a call
       // that closes an all-in risks only what is priced (facingClosedAllIn).
       if (strength >= t5(0.88 + deepT, 'call') && (toCall <= stack * 0.3 || closedAllInCall)) {
+        // Receipt only (facingClosedAllIn, 2026-11-18): the call the stack cap refuses and the closed all-in lets in.
+        if (!(toCall <= stack * 0.3)) ctx.noteLayer?.('facing_closed_all_in_call_seen');
         return { a: 'call' };
       }
       if (toCall === 0) return { a: 'check' };
@@ -4469,7 +4479,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // 2026-11-08-horse-opener-facing-an-all-in-3-bet.md).
     const capOK3 =
       toCall <= stack * 0.35 || (investedShare >= 0.1 && guardOdds <= 0.45) || closedAllInCall;
-    if (callStrength >= pricedCallThresh && capOK3) return v76Done({ a: 'call' });
+    if (callStrength >= pricedCallThresh && capOK3) {
+      // Receipt only (facingClosedAllIn, 2026-11-18): the call the stack cap refuses and the closed all-in lets in.
+      if (!(toCall <= stack * 0.35 || (investedShare >= 0.1 && guardOdds <= 0.45)))
+        ctx.noteLayer?.('facing_closed_all_in_call_seen');
+      return v76Done({ a: 'call' });
+    }
     // SHORT-STACK 3-BET DEFENCE (2026-11-07, default off): a hand the V73
     // read continues with, whose call the stack cap refuses because it IS
     // the stack (12-25bb effective), goes in instead of folding.

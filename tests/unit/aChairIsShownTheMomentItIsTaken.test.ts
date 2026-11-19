@@ -51,6 +51,35 @@ describe('mapEngineSnapshot seat arrivals', () => {
     expect(mapped.players[5]?.stackPending).toBeUndefined();
   });
 
+  /* Dan 2026-11-18: "WHEN A PLAYER JOINS A TABLE IN BETWEEN THE BLINDS OR ANY
+     OTHER REASON, THEIR STACK SHOULD SHOW, IT SHOULD NEVER SAY ZERO." A
+     tournament arrival (move, table break, late registration, re-entry) is
+     the same `seated` arrival with the committed stack. */
+  it('draws a tournament arrival with its real stack, for the hero too', () => {
+    const mapped = mapEngineSnapshot(
+      snapshot([chair('mover', 4, 'seated', 23500), chair('hero', 2, 'seated', 18000)]),
+      'hero',
+      6
+    );
+    expect(mapped.players[3]).toMatchObject({ id: 'mover', stack: 23500, seatArrival: 'seated' });
+    expect(mapped.players[3]?.stackPending).toBeUndefined();
+    expect(mapped.players[1]).toMatchObject({
+      id: 'hero',
+      stack: 18000,
+      seatArrival: 'seated',
+      isHero: true,
+    });
+  });
+
+  it('never draws a committed arrival as zero: chips not on the row yet read as pending', () => {
+    const mapped = mapEngineSnapshot(snapshot([chair('mover', 4, 'seated', 0)]), 'hero', 6);
+    expect(mapped.players[3]).toMatchObject({
+      id: 'mover',
+      seatArrival: 'seated',
+      stackPending: true,
+    });
+  });
+
   it("never reads the hero's own buying-in echo as a seat", () => {
     const mapped = mapEngineSnapshot(snapshot([chair('hero', 3, 'buying_in')]), 'hero', 6);
     expect(mapped.players[2]).toBeNull();

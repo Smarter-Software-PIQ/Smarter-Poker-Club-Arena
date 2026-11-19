@@ -73,13 +73,29 @@ const production = JSON.parse(
 );
 /** Production 2026-11-18 ~15:55 UTC, after #11270/#11266, read with the SET-target rule. */
 const productionSet = JSON.parse(
-  read('scripts', 'ci', 'fixtures', 'hand-path-shared-writes', 'production-2026-11-18-set-list-targets.json')
+  read(
+    'scripts',
+    'ci',
+    'fixtures',
+    'hand-path-shared-writes',
+    'production-2026-11-18-set-list-targets.json'
+  )
 );
 
 /**
  * Taken off the path by 20261118161644 (lane H1, installs on merge), proved on
  * production's own texts by scripts/ci/test-hand-path-cash-lane.py.
  */
+const productionAfterWindow = JSON.parse(
+  read('scripts', 'ci', 'fixtures', 'hand-path-shared-writes', 'production-2026-11-19.json')
+);
+
+/** Taken off the path by 20261118161703 (lane H1, daily window 2026-11-19 10:00 UTC). */
+const FIXED_BY_20261118161703 = [
+  'fn_apply_union_ladder|write|unions',
+  'fn_ca_deleted_wallet_bank_return|row_lock|clubs',
+];
+
 const FIXED_BY_20261118161644 = [
   'fn_ca_deleted_wallet_bank_return|write|clubs',
   'fn_ca_horse_split_return_late_credit|row_lock|clubs',
@@ -125,11 +141,17 @@ describe("a hand's money path never writes a shared row", () => {
     // change to the block moves this pin with a migration of its own.
     const definers = readdirSync(join(ROOT, 'supabase', 'migrations'))
       .filter((f) => /^\d{14}_.*\.sql$/.test(f))
-      .filter((f) => read('supabase', 'migrations', f).includes('FUNCTION public.fn_ca_hand_path_shared_writes()\n'))
+      .filter((f) =>
+        read('supabase', 'migrations', f).includes(
+          'FUNCTION public.fn_ca_hand_path_shared_writes()\n'
+        )
+      )
       .sort();
     expect(definers[definers.length - 1]).toBe(READER);
     // Lane H2's earlier SET-target reader (#11311) is superseded by this stricter one.
-    expect(definers).toContain('20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql');
+    expect(definers).toContain(
+      '20261118155729_an_update_of_trigger_fires_on_a_set_target_never_a_where_col.sql'
+    );
     for (const m of [migration, reader]) {
       expect(m).toMatch(/^BEGIN;$/m);
       expect(m).toMatch(/^COMMIT;\s*$/m);
@@ -144,7 +166,9 @@ describe("a hand's money path never writes a shared row", () => {
     expect(reader).toContain(handPathFunctionSQL() + ';');
     // The SET-target rule: a trigger column is matched against what the statement SETs.
     expect(handPathFunctionSQL()).toContain('AND pa.attname::text = ANY (CASE WHEN w.stmt ~');
-    expect(handPathFunctionSQL()).not.toContain("ANY (pg_catalog.regexp_split_to_array(w.stmt, '[^a-z0-9_]+'))))))");
+    expect(handPathFunctionSQL()).not.toContain(
+      "ANY (pg_catalog.regexp_split_to_array(w.stmt, '[^a-z0-9_]+'))))))"
+    );
     // A reader: it writes nothing and runs on no timer.
     const body = handPathFunctionSQL();
     expect(body).not.toMatch(/\b(insert\s+into|delete\s+from)\b/i);
@@ -188,7 +212,8 @@ describe("a hand's money path never writes a shared row", () => {
     expect(isHandPathChecked(MIGRATION)).toBe(true);
     expect(isHandPathChecked('supabase/migrations/20261117000000_x.sql')).toBe(false);
     expect(isHandPathChecked(later)).toBe(true);
-    const ddl = 'BEGIN;\nCREATE OR REPLACE FUNCTION public.f() RETURNS void LANGUAGE sql AS $$ $$;\nCOMMIT;\n';
+    const ddl =
+      'BEGIN;\nCREATE OR REPLACE FUNCTION public.f() RETURNS void LANGUAGE sql AS $$ $$;\nCOMMIT;\n';
     const data = 'BEGIN;\nUPDATE public.clubs SET name = name WHERE false;\nCOMMIT;\n';
     expect(canChangeHandPath(ddl)).toBe(true);
     expect(canChangeHandPath(data)).toBe(false);
@@ -209,9 +234,9 @@ describe("a hand's money path never writes a shared row", () => {
         '-- @hand-path-shared-write-ok: fn_x write union_wallets because the owner said so\n'
       )
     ).toEqual(['fn_x|write|union_wallets']);
-    expect(declaredHandPathWrites('-- @hand-path-shared-write-ok: fn_x write union_wallets\n')).toEqual(
-      []
-    );
+    expect(
+      declaredHandPathWrites('-- @hand-path-shared-write-ok: fn_x write union_wallets\n')
+    ).toEqual([]);
   });
 
   it('the allowlist is reasoned and excuses none of the writes #11270/#11266 remove', () => {
@@ -220,7 +245,9 @@ describe("a hand's money path never writes a shared row", () => {
     for (const k of REMOVED_BY_11270_11266) expect(keys.has(k), k).toBe(false);
     // Nobody waves the class itself through.
     for (const e of allowlist.entries) {
-      expect(e.function).not.toMatch(/^(atomic_distribute_rake|bbj_record_contribution|record_insurance_transaction|fn_ca_process_hand_post_commit_obligations)$/);
+      expect(e.function).not.toMatch(
+        /^(atomic_distribute_rake|bbj_record_contribution|record_insurance_transaction|fn_ca_process_hand_post_commit_obligations)$/
+      );
     }
   });
 
@@ -228,7 +255,12 @@ describe("a hand's money path never writes a shared row", () => {
     const verdict = judge(production, allowlist)!;
     expect(verdict.unknown).toBeUndefined();
     expect(verdict.unexpected!.map(violationKey).sort()).toEqual(
-      [...REMOVED_BY_11270_11266, ...SET_TARGET_FALSE_POSITIVES, ...FIXED_BY_20261118161644].sort()
+      [
+        ...REMOVED_BY_11270_11266,
+        ...SET_TARGET_FALSE_POSITIVES,
+        ...FIXED_BY_20261118161644,
+        ...FIXED_BY_20261118161703,
+      ].sort()
     );
     expect(verdict.stale).toEqual([]);
     expect(production.violations.length).toBe(37);
@@ -240,7 +272,9 @@ describe("a hand's money path never writes a shared row", () => {
     // As measured: only what 20261118161644 removes is not excused.
     const measured = judge(productionSet, allowlist)!;
     expect(measured.unknown).toBeUndefined();
-    expect(measured.unexpected!.map(violationKey).sort()).toEqual([...FIXED_BY_20261118161644].sort());
+    expect(measured.unexpected!.map(violationKey).sort()).toEqual(
+      [...FIXED_BY_20261118161644, ...FIXED_BY_20261118161703].sort()
+    );
     expect(measured.stale).toEqual([]);
     // With 20261118161644 installed, exactly as the PostgreSQL proof shows it.
     const proof = read('scripts', 'ci', 'test-hand-path-cash-lane.py');
@@ -248,9 +282,18 @@ describe("a hand's money path never writes a shared row", () => {
     const afterPart1 = {
       ...productionSet,
       violations: productionSet.violations.filter(
-        (v: any) => !FIXED_BY_20261118161644.includes(violationKey(v))
+        (v: any) =>
+          !FIXED_BY_20261118161644.includes(violationKey(v)) &&
+          !FIXED_BY_20261118161703.includes(violationKey(v))
       ),
     };
+    // Production's own answer once both parts installed is exactly that.
+    expect(productionAfterWindow.violations.map(violationKey).sort()).toEqual(
+      afterPart1.violations.map(violationKey).sort()
+    );
+    const live = judge(productionAfterWindow, allowlist)!;
+    expect(live.unexpected).toEqual([]);
+    expect(live.stale).toEqual([]);
     const verdict = judge(afterPart1, allowlist)!;
     expect(verdict.unexpected).toEqual([]);
     // An allowlisted entry whose write is gone is a failure here, not a note:
@@ -272,19 +315,23 @@ describe("a hand's money path never writes a shared row", () => {
 
   it('a stale entry (its write gone) and an unexcused violation are both named by judge', () => {
     const one = allowlist.entries[0];
-    const now = productionSet.violations.filter(
-      (v: any) => !FIXED_BY_20261118161644.includes(violationKey(v))
-    );
-    const gone = { ...productionSet, violations: now.filter((v: any) => violationKey(v) !== violationKey(one)) };
+    const now = productionAfterWindow.violations;
+    const gone = {
+      ...productionSet,
+      violations: now.filter((v: any) => violationKey(v) !== violationKey(one)),
+    };
     expect(judge(gone, allowlist)!.stale!.map(violationKey)).toEqual([violationKey(one)]);
-    const extra = { ...productionSet, violations: [...now, { function: 'fn_x', kind: 'write', target: 'clubs' }] };
+    const extra = {
+      ...productionSet,
+      violations: [...now, { function: 'fn_x', kind: 'write', target: 'clubs' }],
+    };
     expect(judge(extra, allowlist)!.unexpected!.map(violationKey)).toEqual(['fn_x|write|clubs']);
   });
 
   it('an answer without its doors, or a malformed one, is never green', () => {
-    expect(judge({ roots: ['fn_ca_commit_hand_settlement'], violations: [] }, allowlist)!.unknown).toMatch(
-      /hand doors not found/
-    );
+    expect(
+      judge({ roots: ['fn_ca_commit_hand_settlement'], violations: [] }, allowlist)!.unknown
+    ).toMatch(/hand doors not found/);
     expect(judge(null, allowlist)).toBeNull();
     expect(judge({ roots: [...HAND_PATH_ROOTS] }, allowlist)).toBeNull();
   });

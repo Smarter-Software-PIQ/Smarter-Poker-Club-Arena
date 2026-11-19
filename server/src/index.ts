@@ -81,6 +81,7 @@ import { HorseSessionRotator } from './services/HorseSessionRotator.js';
 import { StableHandExecutor } from './services/StableHandExecutor.js';
 import { registerLeadershipShutdownHandler } from './services/leadership.js';
 import { persistEngineAlertsBeforeExit } from './services/engineAlerts.js';
+import { eventDatabaseBulkhead } from './services/supabase/eventDatabaseBulkhead.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -487,6 +488,8 @@ function closeHttpServer(): Promise<void> {
 
 async function performShutdown(): Promise<void> {
   console.log('\n[GameServer] Received shutdown signal...');
+  // A stopping engine's final writes are never parked behind an event's bound.
+  eventDatabaseBulkhead.openForShutdown();
 
   // One deadline owns the entire shutdown. The old 18-second pre-drain raced
   // a second 30-second timer that unconditionally exited 0 even when
