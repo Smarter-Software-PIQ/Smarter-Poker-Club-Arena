@@ -28,7 +28,7 @@ import {
   gtoPostflopCount,
   type GtoPostflopRow,
 } from '../engine/GtoPostflop.js';
-import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import { createAdaptiveRefreshLoop, type BootRetryOptions } from './AdaptiveRefreshLoop.js';
 
 const REFRESH_MS = 6 * 60 * 60_000;
 const RETRY_MS = 30_000;
@@ -149,6 +149,13 @@ const refreshLoop = createAdaptiveRefreshLoop({
 
 export async function loadGtoPostflop(): Promise<number> {
   return (await refreshLoop.runNow()).count;
+}
+
+/** First authoritative load of a live decision worker: retried in-budget
+ * (AdaptiveRefreshLoop BOOT_RETRY_DELAYS_MS) so one transient read failure
+ * cannot leave this worker on a different corpus than its siblings. */
+export async function loadGtoPostflopForBoot(options?: BootRetryOptions): Promise<number> {
+  return (await refreshLoop.runBoot(options)).count;
 }
 
 export function startGtoPostflopLoader(): void {
