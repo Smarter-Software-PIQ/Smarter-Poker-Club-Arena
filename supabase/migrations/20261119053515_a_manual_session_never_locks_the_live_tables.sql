@@ -316,7 +316,7 @@ BEGIN
   LOOP
     v_m := regexp_match(v_src, '\$([A-Za-z_][A-Za-z_0-9]*)?\$');
     EXIT WHEN v_m IS NULL;
-    v_tag := '$' || coalesce(v_m[1], '') || '$';
+    v_tag := chr(36) || coalesce(v_m[1], '') || chr(36);
     v_at := strpos(v_src, v_tag);
     v_out := v_out || left(v_src, v_at - 1) || ' ';
     v_src := substr(v_src, v_at + length(v_tag));
@@ -348,9 +348,9 @@ DECLARE
 BEGIN
   FOR r IN SELECT h.relname FROM smarter_private.ca_live_tables h ORDER BY h.relname LOOP
     IF v_code ~* (
-         CASE WHEN p_prefix IS NULL THEN '(^|[^a-z0-9_$."])'
-              ELSE '(^|[^a-z0-9_$."])(' || p_prefix || ')[[:space:]]*' END
-         || '("?public"?[[:space:]]*\.[[:space:]]*)?"?' || r.relname || '"?([^a-z0-9_$]|$)') THEN
+         CASE WHEN p_prefix IS NULL THEN '(^|[^a-z0-9_\$."])'
+              ELSE '(^|[^a-z0-9_\$."])(' || p_prefix || ')[[:space:]]*' END
+         || '("?public"?[[:space:]]*\.[[:space:]]*)?"?' || r.relname || '"?([^a-z0-9_\$]|\Z)') THEN
       v_out := v_out || ('public.' || r.relname);
     END IF;
   END LOOP;
@@ -379,7 +379,7 @@ BEGIN
   FOREACH v_stmt IN ARRAY string_to_array(smarter_private.fn_ca_ddl_code(p_query, false), ';') LOOP
     v_rel := regexp_match(v_stmt,
       '^[[:space:]]*alter[[:space:]]+table[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?(only[[:space:]]+)?'
-      || '(("?[a-z_][a-z0-9_$]*"?)[[:space:]]*\.[[:space:]]*)?("?[a-z_][a-z0-9_$]*"?)[[:space:]]', 'i');
+      || '(("?[a-z_][a-z0-9_\$]*"?)[[:space:]]*\.[[:space:]]*)?("?[a-z_][a-z0-9_\$]*"?)[[:space:]]', 'i');
     CONTINUE WHEN v_rel IS NULL;
     CONTINUE WHEN lower(btrim(coalesce(v_rel[4], 'public'), '"')) <> 'public';
     v_tbl := lower(btrim(v_rel[5], '"'));
@@ -388,7 +388,7 @@ BEGIN
     CONTINUE WHEN v_oid IS NULL;
     FOR v_col IN
       SELECT regexp_matches(v_stmt,
-        'add[[:space:]]+(column[[:space:]]+)?if[[:space:]]+not[[:space:]]+exists[[:space:]]+("?[a-z_][a-z0-9_$]*"?)', 'gi')
+        'add[[:space:]]+(column[[:space:]]+)?if[[:space:]]+not[[:space:]]+exists[[:space:]]+("?[a-z_][a-z0-9_\$]*"?)', 'gi')
     LOOP
       IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
                   WHERE a.attrelid = v_oid AND a.attnum > 0 AND NOT a.attisdropped

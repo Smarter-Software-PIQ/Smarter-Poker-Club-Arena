@@ -168,6 +168,34 @@ def main():
               su("SELECT count(*) FROM pg_event_trigger WHERE evtname LIKE 'ca_live_tables_refuse_manual_ddl%' AND evtenabled='O'") == '2',
               'two enabled event triggers')
 
+        # What counts as naming a live table, and as a no-op clause.
+        named = {
+            'ALTER TABLE tables': '{public.tables}',
+            # Case-insensitive on purpose: a quoted "Tables" is refused too (conservative).
+            'alter table "public"."Tables" add x int': '{public.tables}',
+            'ALTER TABLE "public" . "tables" ADD x int': '{public.tables}',
+            'CREATE INDEX i ON public.hand_history(id)': '{public.hand_history}',
+            'SELECT * FROM information_schema.tables; ALTER TABLE scratch ADD y int': '{}',
+            'ALTER TABLE club_tables ADD x int; ALTER TABLE tables_x ADD y int': '{}',
+            '-- tournaments\nALTER TABLE scratch /* clubs */ ADD y int': '{}',
+            'ALTER TABLE x ADD c$tables int': '{}',
+        }
+        got = {q: su("SELECT smarter_private.fn_ca_live_tables_named($q$" + q + "$q$)::text") for q in named}
+        check('a live table is named only as itself, in public, outside comments', got == named, got)
+        refs = su("SELECT smarter_private.fn_ca_live_tables_named($q$CREATE TABLE b (t uuid REFERENCES tournaments(id), c uuid)$q$, "
+                  "'references|partition[[:space:]]+of|inherits[[:space:]]*\\(')::text || ' ' || "
+                  "smarter_private.fn_ca_live_tables_named($q$CREATE TABLE b (tournaments_id uuid, note text DEFAULT 'tournaments')$q$, "
+                  "'references|partition[[:space:]]+of|inherits[[:space:]]*\\(')::text")
+        check('CREATE TABLE names a live table only through REFERENCES / PARTITION OF / INHERITS', refs == '{public.tournaments} {}', refs)
+        noop = su("SELECT smarter_private.fn_ca_live_table_noop_add_columns($q$"
+                  "ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS is_pko boolean, ADD IF NOT EXISTS brand_new int;\n"
+                  "ALTER TABLE ONLY public.tournaments ADD COLUMN IF NOT EXISTS \"bounty_amount\" numeric;\n"
+                  "ALTER TABLE scratch ADD COLUMN IF NOT EXISTS is_pko boolean;\n"
+                  "DO $d$ BEGIN ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS addon_cost numeric; END $d$;"
+                  "$q$)::text")
+        check('a no-op clause is an existing column of a live table, outside dollar-quoted bodies',
+              noop == '{public.tournaments.is_pko,public.tournaments.bounty_amount}', noop)
+
         # 1. A manual session is refused, before its lock.
         with Holder():
             refused('manual ALTER TABLE on a live table is refused before its lock (reader holds ACCESS SHARE, lock_timeout 30s)',
