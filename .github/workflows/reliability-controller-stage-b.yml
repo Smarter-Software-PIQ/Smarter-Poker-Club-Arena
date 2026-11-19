@@ -21,6 +21,8 @@ on:
       - supabase/migrations/20261116153859_engine_alert_episodes_resolve_through_their_original_identit.sql
       - scripts/ci/test-reliability-controller-stage-b.py
       - scripts/ci/qualify-alert-review-outcomes.py
+      - scripts/ci/qualify-reliability-incident-claims.py
+      - supabase/migrations/*_an_incident_is_claimed_before_it_is_worked.sql
       - tests/fixtures/alert-review-outcomes/**
       - supabase/migrations/*_verified_alert_outcomes_follow_original_source_identity.sql
       - supabase/migrations/*_proved_owner_source_resolution_survives_stale_incident_class.sql
