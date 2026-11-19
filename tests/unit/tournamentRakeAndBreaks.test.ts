@@ -588,13 +588,7 @@ describe('a paused table parks whatever it was doing', () => {
     const dealAt = loop.indexOf('await this.dealHand(');
     const displayPause = loop.indexOf('await this.awaitHandCompletionDisplay(', dealAt);
     const cleanState = loop.indexOf('this.broadcastCurrentState();', displayPause);
-    // A deal refused at the end of the rest dealt nothing and goes round
-    // through its own gate (`dealAbandonedAtRestEnd ... continue`); the park
-    // pinned here is the one on the path where a hand actually landed.
-    const abandoned = loop.indexOf('if (this.dealAbandonedAtRestEnd)', dealAt);
-    const landedPath = abandoned < 0 ? dealAt : loop.indexOf('continue;', abandoned);
-    expect(landedPath).toBeLessThan(displayPause);
-    const postDealGate = loop.indexOf('await this.awaitPauseGate()', landedPath);
+    const postDealGate = loop.indexOf('await this.awaitPauseGate()', dealAt);
     expect(displayPause).toBeGreaterThan(dealAt);
     expect(cleanState).toBeGreaterThan(displayPause);
     expect(postDealGate).toBeGreaterThan(cleanState);

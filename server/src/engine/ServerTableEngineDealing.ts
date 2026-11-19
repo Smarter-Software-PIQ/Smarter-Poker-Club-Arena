@@ -1377,21 +1377,13 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         this.consecutiveErrors = 0;
         // The last look after a rest finished inside dealHand refused the
         // deal; its reserved permit was released there. Nothing was dealt,
-        // so there is no hand to present: go round, through the same pause
-        // handling the post-rest check above uses.
+        // so there is no hand to present: go round. The next iteration's
+        // pre-deal checks park the table through the owner's gate, so nothing
+        // parks here, between dealHand and the hand-free broadcast (law:
+        // a-break-never-starts-in-the-middle-of-a-hand).
         if (this.dealAbandonedAtRestEnd) {
           this.dealAbandonedAtRestEnd = false;
           this.endCompletionPresentation();
-          if (this.isNextHandPaused()) {
-            if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
-            if (
-              !this.adminPauseLock &&
-              !this.maintenanceLock &&
-              !this.dealingHaltLock &&
-              !this.operatorFloorPaused
-            )
-              await this.awaitPauseGate();
-          }
           if (!this.running) break;
           continue;
         }
