@@ -5,7 +5,9 @@ other tournaments or cash games" (2026-11-17); "I don't want any unintended
 delays".
 
 Migration `20261119053909_a_move_break_or_cancel_fences_only_its_own_event.sql`.
-It requires `20261119011750` (lane R2) and refuses to install without it.
+It requires `20261119011750` (lane R2) and rebases on `20261119052513` (lane L,
+which also edits the doctrine: its post-image is this file's pre-image); it
+refuses to install without them.
 
 ## What was left after lanes T, R and R2
 
@@ -43,7 +45,7 @@ anywhere held B, it was refused.
 | `smarter_private.cancellation_lane`                                                                     | A plain event with a bank scope takes **its own finish lane** (G shared, F shared, F(scope) exclusive, T(id) exclusive: the 2026-09-17 wallet order of every finish). A satellite (two events) or an id that is not a plain event keeps the platform try. The held-lane branch accepts the event's own finish lane                                                                                                                                                                                                                                            |
 | `smarter_private.cancellation_lane_for_events(ids)`                                                     | New. One id: `cancellation_lane`. Several: the original platform try (G then B exclusive, never queued, 55P03 before any write)                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `fn_ca_request_tournament_abort`                                                                        | Goes through `cancellation_lane_for_events(ids)`: G only for a request naming several events                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `fn_ca_settlement_lane_doctrine`                                                                        | Rule 7 `an_event_change_fences_only_its_own_tables`; rule 2's pin on `cancellation_lane` moves to its new body                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `fn_ca_settlement_lane_doctrine`                                                                        | Rule 8 `an_event_change_fences_only_its_own_tables` (lane L took rule 7); rule 2's pin on `cancellation_lane` moves to its new body                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 Lock order: R(id), then lane T's G, F, B, T(id), then rows: launch receipt,
 event row, tables in id order, roster, seats (lanes R and R2's order). Only
@@ -70,10 +72,10 @@ production-order hand commit in the native proof would deadlock against it).
 `scripts/ci/test-rebuy-never-pauses-the-tournament.py`, section LANE E2,
 PostgreSQL 16 locally (CI 17), exact production pre-images
 (`scripts/ci/fixtures/event-scoped-field-lane/preimages.json`, 21 md5s, the
-production launch-proof trigger included) on top of lanes T, R, R2 and B7
+production launch-proof trigger included) on top of lanes T, R, R2, B7 and L
 installed natively, hand commits in production's lock order (B7's `w_commit`). Now wired into
 `.github/workflows/tournament-event-lane.yml` (lanes R and R2 had no workflow).
-All 269 checks pass:
+All 270 checks pass:
 
 - **Before:** a balancing move, a park, the break scan, the entry close and a
   bounty sweep each hold T(id) exclusive; a card write, an F06 share and a hand
@@ -106,7 +108,7 @@ All 269 checks pass:
   balancer does, was taken first is refused by its own 23505 check and writes
   nothing; 0-1 per run). Hand commit p100 0.22-0.25 s, move p100 0.28-0.31 s
   on the test runner.
-- Doctrine rule 7 names an unreviewed caller; the migration refuses without lane
+- Doctrine rule 8 names an unreviewed caller; the migration refuses without lane
   R2 and refuses to run twice.
 
 Install-time probes (the probe law): `fn_collect_bounty`,

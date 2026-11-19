@@ -202,7 +202,7 @@ describe('A move, a break, the entry close, a bounty sweep and a cancel fence on
     );
   });
 
-  it('doctrine rule 7 names the callers and moves rule 2 pin to the new cancellation lane', () => {
+  it('doctrine rule 8 names the callers and moves rule 2 pin to the new cancellation lane', () => {
     const doctrine = postImage('public.fn_ca_settlement_lane_doctrine()');
     const cancel = substitutions().find(
       (s) => s.signature === 'smarter_private.cancellation_lane(uuid)'

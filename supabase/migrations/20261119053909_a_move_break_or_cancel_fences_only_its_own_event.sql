@@ -7,8 +7,10 @@
 -- THEY TOUCH (incident 075013fd, lane E2). Owner rulings: "a tournament issue
 -- must always be isolated and never affect other tournaments or cash games"
 -- (2026-11-17); "I don't want any unintended delays". Requires 20261119011750
--- (lane R2: the shared change lane covers rebuys and busts); refuses to run if
--- its post-images are not installed. Full account:
+-- (lane R2: the shared change lane covers rebuys and busts) and rebases on
+-- 20261119052513 (lane L: late registration shares the lane; its doctrine
+-- post-image is this file's pre-image); refuses to run if its post-images
+-- are not installed. Full account:
 -- docs/changelog/2026-11-19-a-move-break-or-cancel-fences-only-its-own-event.md.
 --
 -- WHAT WAS LEFT AFTER LANES T, R AND R2.
@@ -67,7 +69,7 @@
 --    the platform try. The held-lane branch accepts the event's own finish
 --    lane. fn_ca_request_tournament_abort keeps the platform try only for a
 --    request naming several events (smarter_private.cancellation_lane_for_events).
--- 6. Doctrine rule 7 names the lane's callers, its shared T, the scan's
+-- 6. Doctrine rule 8 names the lane's callers, its shared T, the scan's
 --    absence of any lane and the cancellation's scoping; rule 2's pin on
 --    cancellation_lane moves to its new body.
 --
@@ -465,13 +467,13 @@ $o13$],
  PERFORM smarter_private.cancellation_lane_for_events(ids);
 $n13$]),
     ('public.fn_ca_settlement_lane_doctrine()',
-     'be8d765b7d03821ef9a4c9ea730a8f30', '6bff50ed291b921b947d7f141a28f41d',
+     'd1c13960687824de74bf3836e7b54259', 'dba20d4f19dd94eab19506582ffb04f3',
      ARRAY[$o14$       AND md5(pg_get_functiondef(p.oid))='d66f767af93b4c9e93c42bcc9472005e'
 $o14$, $o15$  RETURN jsonb_build_object(
     'ok', jsonb_array_length(v_violations) = 0,
 $o15$],
      ARRAY[$n14$       AND md5(pg_get_functiondef(p.oid))='2e0ee1b699d2b368490e796e1195a090'
-$n14$, $n15$  -- 7. An event's moves, breaks, entry close and bounty payouts share its
+$n14$, $n15$  -- 8. An event's moves, breaks, entry close and bounty payouts share its
   --    lane, and one event's cancellation takes only that event's lane
   --    (20261119053909, incident 075013fd lane E2; 2026-11-17: "a tournament
   --    issue must always be isolated and never affect other tournaments or

@@ -70,13 +70,16 @@ FIX_T = ROOT / 'scripts/ci/fixtures/tournament-lane-isolation/preimages.json'
 # single-event cancel fence only their own event and tables.
 MIG_E2 = ROOT / 'supabase/migrations/20261119053909_a_move_break_or_cancel_fences_only_its_own_event.sql'
 FIX_E2 = ROOT / 'scripts/ci/fixtures/event-scoped-field-lane/preimages.json'
+# Lane L (20261119052513) changes the doctrine first; E2 rebases on its post-image.
+MIG_L = ROOT / 'supabase/migrations/20261119052513_a_late_registration_never_pauses_the_tournament.sql'
+FIX_L = ROOT / 'scripts/ci/fixtures/late-registration-never-pauses/preimages.json'
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/rebuy-never-pauses')
 parser.add_argument('--print-post-images', action='store_true')
 parser.add_argument('--print-e2-post-images', action='store_true')
 args = parser.parse_args()
-for p in (MIG, MIG2, MIG_T1, MIG_T2, FIX, FIX_T, MIG_E2, FIX_E2):
+for p in (MIG, MIG2, MIG_T1, MIG_T2, FIX, FIX_T, MIG_E2, FIX_E2, MIG_L, FIX_L):
     if not p.exists():
         sys.exit(f'missing {p.relative_to(ROOT)} (lane T, PR #11310, must be in this tree)')
 out = args.output.resolve()
@@ -715,6 +718,23 @@ def e2_seed(db='w'):
     psql('\n'.join(sql), db)
 
 
+def apply_lane_l(db='w'):
+    """Lane L's migration as installed on production before E2: the
+    pre-images of the bodies it substitutes (its fixture, md5-checked), then the
+    unmodified file without its install-time probe blocks, which execute the
+    registration chain this harness does not build (lane L's own native proof,
+    scripts/ci/test-late-registration-never-pauses-the-tournament.py, runs them)."""
+    text = MIG_L.read_text()
+    subs = set(re.findall(r"\('((?:public|smarter_private)\.[^']+)',\s*'[0-9a-f]{32}',\s*'[0-9a-f]{32}',", text))
+    for f in json.loads(FIX_L.read_text())['functions']:
+        if f['signature'] in subs and 'doctrine' not in f['signature']:
+            assert hashlib.md5(f['definition'].encode()).hexdigest() == f['md5'], f['signature']
+            psql(f['definition'], db)
+    native = re.sub(r'-- @probe-for: [^\n]+\nDO \$probe\$.*?END \$probe\$;\n', '', text, flags=re.S)
+    assert '@probe-for' not in native and native.count('BEGIN;') == text.count('BEGIN;')
+    psql(native, db)
+
+
 def e2_install(db='w'):
     psql(E2_SCHEMA, db)
     for f in fix_e2:
@@ -780,6 +800,7 @@ try:
         psql(mig_t2_native)
         psql(migration)
         psql(migration2)
+        apply_lane_l('w')
         e2_install('w')
         if os.environ.get('E2_DUMP'):
             pathlib.Path(os.environ['E2_DUMP']).write_text(json.dumps([
@@ -1446,11 +1467,13 @@ INSERT INTO public.b7_knockers VALUES ('{uu}','{knocker}');""")
     # ══ LANE E2 (20261119053909): a move, a break step, the entry close, a
     #    bounty sweep and a single-event cancel fence only their own event
     #    and the tables they touch ══════════════════════════════════════════
+    apply_lane_l('w')
+    check('E2: lane L (20261119052513) installs natively first, as on production', True)
     for sig, want in (('smarter_private.cancellation_lane(uuid)', 'd66f767af93b4c9e93c42bcc9472005e'),
-                      ('public.fn_ca_settlement_lane_doctrine()', 'be8d765b7d03821ef9a4c9ea730a8f30'),
+                      ('public.fn_ca_settlement_lane_doctrine()', 'd1c13960687824de74bf3836e7b54259'),
                       ('public.fn_ca_lock_settlement_lane_for_event(uuid,boolean)', 'a85d48e2b4bd0420520fa9697df6a147')):
         got = q(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure))")
-        check(f'E2: {sig} as installed natively by lanes T and R2 is the production text', got == want, got)
+        check(f'E2: {sig} as installed natively by lanes T, R2 and L is the production text', got == want, got)
     e2_install('w')
     check(f'E2: pre-images are byte-identical to production ({len(fix_e2)} md5s), the second event and a cash table seeded',
           True)
@@ -1673,13 +1696,13 @@ COMMIT;""")
     check('migration 20261119053909 installs (pre-image pins, anchors, post-image pins, doctrine ok)',
           p.returncode == 0, p.stderr.strip()[-600:])
     doctrine = q("SELECT public.fn_ca_settlement_lane_doctrine()")
-    check('E2: doctrine holds, rule 7 included', json.loads(doctrine)['ok'] is True, doctrine)
+    check('E2: doctrine holds, rule 8 included', json.loads(doctrine)['ok'] is True, doctrine)
     again = psql(migration_e2, check=False)
     check('E2: the migration refuses to run twice', again.returncode != 0, again.stderr.strip()[-160:])
     psql("CREATE FUNCTION public.e2_drift() RETURNS void LANGUAGE plpgsql AS $$ BEGIN "
          f"PERFORM public.fn_ca_share_tournament_lane_for_tables('{TR}',NULL,NULL); END $$;")
     drift = json.loads(q("SELECT public.fn_ca_settlement_lane_doctrine()"))
-    check('E2: doctrine rule 7 names an unreviewed caller of the event lane',
+    check('E2: doctrine rule 8 names an unreviewed caller of the event lane',
           drift['ok'] is False and any(v['rule'] == 'an_event_change_fences_only_its_own_tables' for v in drift['violations']),
           drift['violations'])
     psql("DROP FUNCTION public.e2_drift();")
