@@ -19,6 +19,10 @@
 -- audit row), the answer shapes of both reads, every grant. No table, column or row is touched.
 --
 -- COST: four CREATE OR REPLACE FUNCTION in one transaction; no table is locked.
+-- THE SERVING-REGISTRY GUARD STAYS IN BOTH WRITERS. 20261119053236 (the reset-trap guard) put
+-- fn_ca_horse_option_registry_refusal into fn_ca_horse_option_switch_set and _record_evidence. This file is later and
+-- replaces the same two functions, so both bodies below carry that guard call unchanged, and the read back refuses
+-- to commit without it.
 BEGIN;
 
 SET LOCAL lock_timeout = '3s';
@@ -63,8 +67,9 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
 DECLARE
-  v_states text[] := public.fn_ca_horse_option_switch_states(p_option);
-  v_id     bigint;
+  v_states  text[] := public.fn_ca_horse_option_switch_states(p_option);
+  v_id      bigint;
+  v_refusal text;
 BEGIN
   IF v_states IS NULL THEN
     RAISE EXCEPTION 'not a switchable option: %', coalesce(p_option, '(null)');
@@ -90,6 +95,11 @@ BEGIN
   IF p_actor IS NULL OR length(p_actor) NOT BETWEEN 1 AND 200 THEN
     RAISE EXCEPTION 'an actor is required';
   END IF;
+  -- the serving engine must register the option, with 'on' (registry guard, reset trap)
+  v_refusal := public.fn_ca_horse_option_registry_refusal(p_option, 'on');
+  IF v_refusal IS NOT NULL THEN
+    RAISE EXCEPTION '%', v_refusal;
+  END IF;
 
   INSERT INTO public.ca_horse_option_switch_evidence
     (option, evidence_path, evidence_sha256, kind, reference, reviewed_head, recorded_by)
@@ -103,6 +113,8 @@ BEGIN
 END
 $function$;
 
+-- The write: style options told by canary, plus the serving-registry guard of 20261119053236 (the serving engine
+-- must register the option and the state).
 CREATE OR REPLACE FUNCTION public.fn_ca_horse_option_switch_set(p_option text, p_state text, p_actor text, p_note text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -110,9 +122,10 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $function$
 DECLARE
-  v_states text[] := public.fn_ca_horse_option_switch_states(p_option);
-  v_old    text;
-  v_at     timestamptz := now();
+  v_states  text[] := public.fn_ca_horse_option_switch_states(p_option);
+  v_old     text;
+  v_at      timestamptz := now();
+  v_refusal text;
 BEGIN
   IF v_states IS NULL THEN
     RAISE EXCEPTION 'not a switchable option: %', coalesce(p_option, '(null)');
@@ -142,6 +155,11 @@ BEGIN
          AND e.evidence_sha256 = substring(p_note FROM 'sha256 ([0-9a-f]{64})')) THEN
     RAISE EXCEPTION 'option % may be set on only after its evidence is recorded: the sha256 its note cites has no row in ca_horse_option_switch_evidence (fn_ca_horse_option_switch_record_evidence)',
       p_option;
+  END IF;
+  -- the serving engine must register the option and this state, or the row resets that engine (reset trap)
+  v_refusal := public.fn_ca_horse_option_registry_refusal(p_option, p_state);
+  IF v_refusal IS NOT NULL THEN
+    RAISE EXCEPTION '%', v_refusal;
   END IF;
 
   -- the same lock key as fn_ca_horse_style_switch_set, so the two writers of one option never interleave
@@ -222,6 +240,10 @@ BEGIN
      OR position('''shadow'' = ANY' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) > 0
      OR position('''shadow'' = ANY' IN pg_get_functiondef('public.fn_ca_horse_option_switch_record_evidence(text, text, text, text, text, text, text)'::regprocedure)) > 0 THEN
     RAISE EXCEPTION 'a switch function still tells the style options by their shadow state';
+  END IF;
+  IF position('fn_ca_horse_option_registry_refusal' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) = 0
+     OR position('fn_ca_horse_option_registry_refusal' IN pg_get_functiondef('public.fn_ca_horse_option_switch_record_evidence(text, text, text, text, text, text, text)'::regprocedure)) = 0 THEN
+    RAISE EXCEPTION 'an installed writer does not consult the serving registry (the reset-trap guard of 20261119053236)';
   END IF;
   IF position('ca_horse_option_switch_evidence' IN pg_get_functiondef('public.fn_ca_horse_option_switch_set(text, text, text, text)'::regprocedure)) = 0 THEN
     RAISE EXCEPTION 'the installed set function does not consult the evidence record';

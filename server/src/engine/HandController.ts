@@ -71,6 +71,7 @@ import type {
 import { reportError } from '../services/errorReporter.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import { createHandStateMachine, type HandFSMState } from './StateMachine.js';
+import { retainRaiseLadder } from './RaiseLadderStamp.js';
 import { bigBlindAnteTotal } from './AnteMath.js';
 import { HAND_COMPLETION } from '../config/handCompletionSpec.js';
 import {
@@ -132,6 +133,12 @@ export class HandController {
    * see what called him. A checked-down loser may still muck.
    */
   private readonly riverCalled = new Map<number, boolean>();
+  /**
+   * RaiseLadderAlarm.ts (2026-11-18, MEASUREMENT ONLY): the run of consecutive minimum raises on one street, its
+   * raisers in order. Read by nothing in this class: it only stamps accepted records for the engine's receipt. Not
+   * snapshotted: a recovered hand restarts the count, which can only under-report.
+   */
+  private minimumRaiseRun: { stage: string; raisers: string[] } = { stage: '', raisers: [] };
   private eventHandlers: ((event: HandEvent) => void)[] = [];
   /** FIX 120: Crazy Pineapple — tracks seats that still need to discard after flop */
   private pineappleDiscardsRemaining: Set<number> = new Set();
@@ -1332,6 +1339,9 @@ export class HandController {
 
     let actualAmount = 0;
     let isFullRaiseFlag: boolean | undefined;
+    // RaiseLadderAlarm.ts, measurement only: set by the wager cases below, read once after the record exists.
+    let minimumRaise = false;
+    let raisedTheBet = false;
     /* Read BEFORE the switch moves any chips: an all-in is a call when the
        whole stack is no more than what this seat had to call. */
     const callsTheBet =
@@ -1361,6 +1371,9 @@ export class HandController {
         // Correct: raiseSize = newBetLevel - previousBetLevel
         const raiseSize = actualAmount - this.state.currentBet;
         isFullRaiseFlag = raiseSize >= bettingState.minRaise - 0.005;
+        minimumRaise =
+          action === 'raise' && isFullRaiseFlag && raiseSize <= bettingState.minRaise + 0.005;
+        raisedTheBet = true;
         if (raiseSize > this.state.lastRaise) this.state.lastRaise = raiseSize;
         // Bible V8 §4.14: Keep minRaise in sync — must be at least lastRaise or BB
         this.state.minRaise = Math.max(this.wagerUnit(), this.state.lastRaise);
@@ -1389,6 +1402,9 @@ export class HandController {
         if (player.bet > this.state.currentBet) {
           const rs = player.bet - this.state.currentBet;
           isFullRaiseFlag = rs >= bettingState.minRaise - 0.005;
+          minimumRaise =
+            this.state.currentBet > 0 && isFullRaiseFlag && rs <= bettingState.minRaise + 0.005;
+          raisedTheBet = true;
           if (isFullRaiseFlag) {
             this.state.lastRaise = rs;
             // Bible V8 §4.14: Keep minRaise in sync for full-raise all-ins
@@ -1427,6 +1443,24 @@ export class HandController {
     this.state.actionHistory.push(
       action === 'fold' || origin === 'forced' ? Object.freeze({ ...record, origin }) : record
     );
+
+    // RaiseLadderAlarm.ts (measurement only): a larger raise, a short all in or a new street ends the run of
+    // minimum raises; a minimum raise extends it and stamps this record. Fixed limit is not counted (every raise is
+    // the minimum there, and the street is capped). Nothing here reads back into play.
+    if (raisedTheBet && !isFixedLimitVariant(this.config.gameVariant)) {
+      const run =
+        this.minimumRaiseRun.stage === this.state.stage
+          ? this.minimumRaiseRun
+          : (this.minimumRaiseRun = { stage: this.state.stage, raisers: [] });
+      if (minimumRaise) {
+        run.raisers.push(player.user_id);
+        retainRaiseLadder(record, {
+          run: run.raisers.length,
+          raisers: run.raisers,
+          variant: String(this.config.gameVariant ?? ''),
+        });
+      } else run.raisers = [];
+    }
 
     // Observe the exact clamped, validated and cent-snapped action before
     // broadcasts/advanceGame can change the current street or turn. A receipt
