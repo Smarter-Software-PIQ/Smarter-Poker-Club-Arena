@@ -18,7 +18,6 @@ import {
   missingFixtureError,
   proveClassicCashSourceAbsence,
   proveSeatMoveDestinationAbsence,
-  selectSeatMoveDestinations,
 } from './support/productionFixture';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
@@ -312,8 +311,12 @@ test('the published table explains controlled seat moves without moving a player
     // generated names change, so the main destination is a table whose
     // recorded role is 'main', and the seat change goes to one that is not a
     // main, whose own name the announcement must then read out.
-    const destinations = selectSeatMoveDestinations(catalogue, source.id, isMainTable);
-    if (!destinations)
+    const main = catalogue.find((table) => table.id !== source.id && isMainTable(table));
+    const other = catalogue.find(
+      (table) =>
+        table.id !== source.id && table.id !== main?.id && !isMainTable(table) && table.name.trim()
+    );
+    if (!main || !other)
       throw missingFixtureError(
         proveSeatMoveDestinationAbsence(catalogue, source.id, isMainTable),
         {
@@ -321,7 +324,6 @@ test('the published table explains controlled seat moves without moving a player
             'The readable catalogue needs a role=main destination and a distinct non-main destination.',
         }
       );
-    const { main, other } = destinations;
 
     const row = page.locator(`[data-testid="lobby-game-row"][data-id="${source.id}"]`);
     if (await row.isVisible()) {
