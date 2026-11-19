@@ -2624,6 +2624,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemRiverFullHouseValue: true },
     b: {},
   },
+  // 2026-11-18 ROWFIX (holdemRiverFullHouseValueIsPriced, default OFF, unevaluated): both arms lead
+  // qualifying river boats (holdemRiverFullHouseValue, live); a prices the lead against the check by EV from
+  // the aggressor's measured river call and checked-to bet shares, b keeps the fixed 70%. Declared, not run.
+  {
+    name: 'nlh_river_full_house_value_is_priced',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemRiverFullHouseValue: true, holdemRiverFullHouseValueIsPriced: true },
+    b: { holdemRiverFullHouseValue: true },
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
@@ -3594,6 +3604,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: day,
     };
   }),
+  // 2026-11-18 ROWFIX (omahaTournamentsExcludeCategoricalRules, default OFF, unevaluated): both arms carry
+  // production's live Omaha set (OMAHA_LIVE_OPTIONS_20261118, the tournament extension on); a also keeps the
+  // categorical rules cash-only, so the card measures the categorical rules' tournament reach alone. 6-max
+  // MTT, 40 BB (deeper than the 14 BB push/fold line). Declared, not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_mtt_6max_omaha_tournaments_exclude_categorical_rules_40bb`,
+    variant,
+    seats: 6,
+    stackBB: 40,
+    context: bigBlindAnteMttContext(6, 40),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaTournamentsExcludeCategoricalRules: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and

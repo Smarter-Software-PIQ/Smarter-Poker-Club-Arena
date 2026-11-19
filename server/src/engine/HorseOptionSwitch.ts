@@ -301,6 +301,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'fixedLimitBetsAreNeverProbes',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
+  'omahaTournamentsExcludeCategoricalRules',
+  'holdemRiverFullHouseValueIsPriced',
   'omahaTurnRiverRaiseIsPriced',
   'omahaDrawRaiseIsPriced',
   'omahaOopTurnBarrelIsPriced',
