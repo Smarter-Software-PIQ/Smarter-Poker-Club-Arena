@@ -5092,8 +5092,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'horsePublicBetSize.horseBetSizeRandom is seeded from the operating system at load, never from the run seed ' +
       'or the deal, so the two deals of a duplicate pair draw different sizes. With that stream held constant ' +
       '(horseBetSizeRandom mocked to 0.5; 1,676 size draws taken) the same matchup diverged in 0 of 300 pairs, as ' +
-      'did its identical-arm control. So the league card of this option would not report 0.00 +/- 0.00: it would ' +
-      'report unpaired size noise that is no measurement of the option, which is the reason it stays refused. ' +
+      'did its identical-arm control. That noise is closed: playHand now pins the size and timing streams per ' +
+      'decision from the deal, the seat and the decision index (leaguePinPublicStreams, law ' +
+      'aPairedLeagueEvaluationRepeatsItself). Re-measured 2026-11-19 on the pinned league (300 pairs, run seed ' +
+      '20261119, one niced process): 0 of 300 pairs diverged (status inert, 0.00 +/- 0.00 bb/100), and its ' +
+      'identical-arm controls (both arms the b set; both arms the a set) 0 of 300 each. The matchup is inert as ' +
+      'constructed, which is the reason it stays refused. ' +
       'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
       'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
       'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +

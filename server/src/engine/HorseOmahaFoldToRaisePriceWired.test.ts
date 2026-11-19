@@ -280,7 +280,9 @@ describe('through HorseLogic.decide on recorded PLO decisions', () => {
     ) => {
       HorseMind.reset();
       const now = pricedSpot(s);
-      const variant = String(now.gs.gameVariant ?? 'plo5');
+      // pricedSpot deals heads-up PLO5 cash
+      const variant = 'plo5' as const;
+      expect(now.gs.gameVariant).toBe(variant);
       const sandbox = HorseMind.createSandbox();
       sandbox.pooledStreetRead = new Map();
       if (price) sandbox.pooledStreetPrice = new Map();
