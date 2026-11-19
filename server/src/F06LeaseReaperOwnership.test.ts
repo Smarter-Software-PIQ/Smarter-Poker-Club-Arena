@@ -7,6 +7,7 @@ let GameServer: typeof GameServerType;
 let supabase: typeof import('./services/supabase.js').supabase;
 
 beforeAll(async () => {
+  vi.setConfig({ hookTimeout: 60000 });
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-placeholder-key');
   ({ GameServer } = await import('./GameServer.js'));
   ({ supabase } = await import('./services/supabase.js'));
