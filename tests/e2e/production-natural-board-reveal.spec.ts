@@ -9,6 +9,7 @@ import {
   selectClassicCashCandidate,
 } from './support/cashTableCandidates';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
+import { missingFixtureError, proveClassicCashSourceAbsence } from './support/productionFixture';
 import { openLobbyGameSection } from './support/lobbyGameSections';
 import { EngineSocketJournal } from './support/liveTableRealtime';
 import {
@@ -293,7 +294,10 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     if (!catalogue.rows) throw new Error(catalogue.error || 'Public catalogue unavailable');
     expect(observedViewer, 'The browser must use the reserved identity').toBe(account.id);
     const selected = selectClassicCashCandidate(candidates, catalogue.rows);
-    if (!selected) throw new Error('UNKNOWN: no occupied classic public cash subject');
+    if (!selected)
+      throw missingFixtureError(proveClassicCashSourceAbsence(candidates, catalogue.rows), {
+        selector: 'no occupied classic public cash subject',
+      });
     subject = selected.id;
     await page.evaluate(installCardArtworkFrames, {
       deadline: started + 435_000,

@@ -51,14 +51,30 @@ export const PINEAPPLE_CLASSIC_NOTE =
  */
 export const CASH_TABLE_MIN_BB = 50;
 
-export const LIGHTNING_RULES_SUMMARY = 'Big Blind Ante, 40% Minimum VPIP';
+/**
+ * Dan 2026-11-19: "LOWER THE VPIP IN LIGHTNING GAMES TO 25% ACROSS THE BOARD FOR
+ * ALL LIGHTNING GAMES, NO LIMIT OR PLO". The database is the authority
+ * (fn_cash_template_defaults, migration 20261119195413); this prints its answer.
+ */
+export const LIGHTNING_VPIP_FLOOR = 25;
+
+export const LIGHTNING_RULES_SUMMARY = `Big Blind Ante, ${LIGHTNING_VPIP_FLOOR}% Minimum VPIP`;
+
+/**
+ * The Classic PLO5 and PLO6 floor. Owner 2026-11-17 lowered it from 50 to 40
+ * (migration 20261118004324_the_classic_plo_vpip_floor_is_forty). The database
+ * is the authority (fn_cash_template_defaults('classic', 'plo5' | 'plo6'));
+ * this prints its answer before a template is loaded, and
+ * tests/the-format-card-prints-the-template-floor.law.test.ts fails the build
+ * the moment the newest migration answers another number.
+ */
+export const CLASSIC_PLO5_PLO6_VPIP_FLOOR = 40;
 
 export const CASH_TEMPLATES: ReadonlyArray<{ id: CashTemplate; label: string; blurb: string }> = [
   {
     id: 'classic',
     label: 'Classic',
-    blurb:
-      'Standard Ring Game. No Bombs. PLO5 And PLO6 Play A Big Blind Ante And 50% Minimum VPIP; Every Other Game Has No Ante And No Minimum VPIP.',
+    blurb: `Standard Ring Game. No Bombs. PLO5 And PLO6 Play A Big Blind Ante And ${CLASSIC_PLO5_PLO6_VPIP_FLOOR}% Minimum VPIP; Every Other Game Has No Ante And No Minimum VPIP.`,
   },
   {
     id: 'madness',
@@ -68,32 +84,50 @@ export const CASH_TEMPLATES: ReadonlyArray<{ id: CashTemplate; label: string; bl
 ];
 
 /**
- * The Classic variants that play a big blind ante and a 50% minimum VPIP
- * (owner 2026-10-24, migration 20261024213131): "MAKE THIS ADJUSTMENT NOW TO
- * ALL PLO5 AND PLO6 CLASSIC GAMES. 50% VPIP AND BB ANTE FOR ALL STAKES."
- * Mirrors fn_cash_template_defaults('classic', v), which is the authority.
+ * The Classic variants that play a big blind ante and a minimum VPIP
+ * (owner 2026-10-24, migration 20261024213131, at 50; lowered to 40 on
+ * 2026-11-17, migration 20261118004324). Mirrors
+ * fn_cash_template_defaults('classic', v), which is the authority.
  */
 export const CLASSIC_ANTE_AND_FLOOR_VARIANTS: readonly string[] = ['plo5', 'plo6'];
 
-export const CLASSIC_PLO5_PLO6_BLURB =
-  'Standard Ring Game. Big Blind Ante, 50% Minimum VPIP, No Bombs.';
+const classicAnteFloorBlurb = (floor: number) =>
+  `Standard Ring Game. Big Blind Ante, ${floor}% Minimum VPIP, No Bombs.`;
+
+export const CLASSIC_PLO5_PLO6_BLURB = classicAnteFloorBlurb(CLASSIC_PLO5_PLO6_VPIP_FLOOR);
 
 /**
  * The template card's promise for the variant being created. The card is a
  * promise, so a Classic PLO5 or PLO6 game never reads "No Antes".
+ *
+ * `loaded` is what fn_cash_template_defaults answered for the selected
+ * template and variant. When it belongs to this card, the card prints the
+ * floor the database will enforce rather than the client constant, so the card
+ * and the game it creates can never disagree.
  */
 export function cashTemplateBlurb(
   template: CashTemplate | string,
-  variant: string | null | undefined
+  variant: string | null | undefined,
+  loaded?: Pick<CashRulesetSnapshot, 'template' | 'variant' | 'vpip_floor'> | null
 ): string {
   const id = cashTemplateKey(String(template));
-  if (
-    id === 'classic' &&
-    CLASSIC_ANTE_AND_FLOOR_VARIANTS.includes(String(variant ?? '').toLowerCase())
-  ) {
-    return CLASSIC_PLO5_PLO6_BLURB;
+  const v = String(variant ?? '').toLowerCase();
+  const live =
+    loaded &&
+    cashTemplateKey(String(loaded.template)) === id &&
+    String(loaded.variant ?? '').toLowerCase() === v &&
+    Number.isFinite(Number(loaded.vpip_floor)) &&
+    Number(loaded.vpip_floor) > 0
+      ? Number(loaded.vpip_floor)
+      : null;
+  if (id === 'classic' && CLASSIC_ANTE_AND_FLOOR_VARIANTS.includes(v)) {
+    return live === null ? CLASSIC_PLO5_PLO6_BLURB : classicAnteFloorBlurb(live);
   }
-  return CASH_TEMPLATES.find((t) => t.id === id)?.blurb ?? '';
+  const blurb = CASH_TEMPLATES.find((t) => t.id === id)?.blurb ?? '';
+  if (id === 'madness' && live !== null) {
+    return blurb.replace(LIGHTNING_RULES_SUMMARY, `Big Blind Ante, ${live}% Minimum VPIP`);
+  }
+  return blurb;
 }
 
 /**
@@ -124,7 +158,7 @@ export function bombCadenceLabel(
  * SHOULD BE A DESCRIPTION NEXT TO THEM FOR ACTION AND MADNESS EXPLAINING WHAT
  * CHANGES THE VARIATION OF THE GAME."
  *
- * Classic prints no additional note. Lightning uses the same 40% VPIP,
+ * Classic prints no additional note. Lightning uses the same 25% VPIP,
  * big blind ante and five/six-player promise in the picker and on each card.
  * Historical Action identifiers resolve to that one offered format.
  */
@@ -209,7 +243,7 @@ export interface CashRulesetSnapshot {
  * docs/changelog/2026-09-09-a-classic-game-has-no-antes-and-no-bombs.md).
  *
  * The template blurb is a promise: Classic has no antes, bombs or minimum
- * VPIP; Lightning has a big blind ante and 40% minimum VPIP. Since
+ * VPIP; Lightning has a big blind ante and 25% minimum VPIP. Since
  * that date fn_cash_game_create resolves every one of these from
  * fn_cash_template_defaults and reads NOTHING the caller sends for them. So
  * the overrides payload does not carry them, the rules step prints them as

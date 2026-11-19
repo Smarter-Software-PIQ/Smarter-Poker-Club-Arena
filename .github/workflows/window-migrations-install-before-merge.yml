@@ -95,7 +95,9 @@ jobs:
             .github/actions/install-postgres-17
             scripts/ci/build_pg17_isolationtester.py
             scripts/dr
+            scripts/ci/ubuntu-apt.sh
             scripts/ci/ubuntu-apt-mirror.py
+            scripts/ci/ubuntu-apt-mirrors.txt
             scripts/verification-harness/leaderboard-native-function-batch.mjs
           sparse-checkout-cone-mode: false
       - name: Build the Backup engine's batched read-only export client

@@ -156,7 +156,9 @@ describe('the Phase 1 customization cutover certificate', () => {
     for (const contract of contracts) {
       expect(WORKFLOW).toContain(`e2e-report/${contract.report}`);
     }
-    const seal = WORKFLOW.slice(WORKFLOW.indexOf('  phase1-customization-cutover-seal:'));
+    const sealStart = WORKFLOW.indexOf('  phase1-customization-cutover-seal:');
+    const nextJob = WORKFLOW.indexOf('\n  post-deploy-verdict:', sealStart);
+    const seal = WORKFLOW.slice(sealStart, nextJob > sealStart ? nextJob : undefined);
     expect(seal).toContain("needs.production-e2e.outputs.phase1_certified == 'true'");
     // The whole-job window is reported, never required: the seal's client
     // evidence is the bracket around its own three journeys (2026-10-07).

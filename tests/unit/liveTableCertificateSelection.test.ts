@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { transpileModule } from 'typescript';
 import { openLobbyGameSection } from '../e2e/support/lobbyGameSections';
 import { admitsForCoverage, coverageComplete } from '../e2e/support/cashTableCandidates';
+import { missingFixtureError } from '../e2e/support/productionFixture';
 import {
   scopedStalledTables,
   classifyMissingTournamentSubject,
@@ -414,6 +415,9 @@ describe('the actual cash selector scans across lobby tabs', () => {
       'CASH_SPECTATOR_ACTION',
       'admitsForCoverage',
       'coverageComplete',
+      'CASH_FIXTURE',
+      'proveMissingFixture',
+      'missingFixtureError',
       transpileModule(body, {}).outputText +
         transpileModule(
           `async function openWinner(page, selected) {
@@ -454,7 +458,18 @@ describe('the actual cash selector scans across lobby tabs', () => {
           : null,
       /View|Watch/,
       admitsForCoverage,
-      coverageComplete
+      coverageComplete,
+      { format: 'cash', minSeated: 2, clubIds: ['club'] },
+      async () => ({
+        proof: {
+          verdict: 'absent',
+          kind: 'cash/2+seated/running',
+          detail: 'no occupied cash table in fixture scope',
+          catalogueMatches: [],
+        },
+        dealing: [],
+      }),
+      missingFixtureError
     );
     return {
       result: await selector.select(page, {}),

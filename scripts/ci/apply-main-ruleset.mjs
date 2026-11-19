@@ -45,20 +45,27 @@
  * deliberate, and this script tells you plainly which of the two is missing.
  */
 
-const OWNER = 'Smarter-Poker';
+const OWNER = 'Smarter-Software-PIQ';
 const REPO = 'Smarter-Poker-Club-Arena';
 const NAME = 'main protection';
 
-/** The checks that must pass. Job display names from .github/workflows/ci.yml. */
+/** The checks that must pass, matching live ruleset 21163380 (`main protection`). */
 const REQUIRED_CHECKS = [
-  'TypeScript Check',
-  'Client Unit Tests (vitest)',
-  'Server Engine (typecheck + tests)',
-  'Production Build',
-  'CSS Beat E2E (multi-table + animations)',
+  { context: 'TypeScript Check' },
+  { context: 'Client Unit Tests (vitest)' },
+  { context: 'Server Engine (typecheck + tests)' },
+  { context: 'Production Build' },
+  { context: 'CSS Beat E2E (multi-table + animations)' },
+  // money-trigger-recovery.yml via dedicated GitHub App (scripts/ci/money-trigger-check-report.mjs).
+  { context: 'Money trigger declaration authority', integration_id: 4962039 },
+  // weekly-refusal-cover.yml, pinned to GitHub Actions (integration 15368).
+  { context: 'Weekly refusal receipt cover', integration_id: 15368 },
   // window-migrations-install-before-merge.yml: every PR reports it; a PR with
-  // no migration passes in seconds (2026-11-18, incident d2d79c4f).
-  "Window migrations install against production's schema",
+  // no migration passes in seconds (2026-11-18, incident d2d79c4f), pinned to GitHub Actions.
+  { context: "Window migrations install against production's schema", integration_id: 15368 },
+  // window-migrations-install-before-merge.yml (guards job): every PR reports it;
+  // a PR with no migration passes in seconds, pinned to GitHub Actions.
+  { context: "Production's DDL guards pass before merge", integration_id: 15368 },
 ];
 
 const args = process.argv.slice(2);
@@ -113,13 +120,14 @@ function rules() {
         require_code_owner_review: false,
         require_last_push_approval: false,
         required_review_thread_resolution: false,
+        allowed_merge_methods: ['squash'],
       },
     },
     {
       type: 'required_status_checks',
       parameters: {
         strict_required_status_checks_policy: false, // do not force a rebase per push; main moves too fast
-        required_status_checks: REQUIRED_CHECKS.map((context) => ({ context })),
+        required_status_checks: REQUIRED_CHECKS,
       },
     },
   ];
@@ -150,7 +158,7 @@ const explain = (status, body) => {
 const run = async () => {
   console.log(`Ruleset "${NAME}" on ${OWNER}/${REPO}, stage ${stage}:`);
   for (const r of payload.rules) console.log(`  - ${r.type}`);
-  if (stage === 2) console.log(`  required checks: ${REQUIRED_CHECKS.join(', ')}`);
+  if (stage === 2) console.log(`  required checks: ${REQUIRED_CHECKS.map((c) => c.context).join(', ')}`);
   if (dryRun) {
     console.log('\n--dry-run: nothing sent.\n');
     console.log(JSON.stringify(payload, null, 2));
