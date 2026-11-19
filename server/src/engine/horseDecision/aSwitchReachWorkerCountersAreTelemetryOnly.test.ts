@@ -20,7 +20,11 @@ import { drainFires, enableBrainTelemetry, noteFire } from '../BrainTelemetry.js
 import { liveHorsePhase8Safety } from '../HorsePhase8Safety.js';
 import { prepareTournamentFutureHandFacts } from '../HorseTournamentFutureHand.js';
 import { solverPolicyArtifactStatus } from '../../gto/SolverPolicyArtifactLoader.js';
-import { noteStyleOptionApplied, type StyleActionReceiptOption } from '../HorseStyleShadow.js';
+import {
+  noteStyleOptionApplied,
+  styleReceiptFormat,
+  type StyleActionReceiptOption,
+} from '../HorseStyleShadow.js';
 import type { HorseDecision } from '../../types.js';
 import type {
   FastHorseDecisionRequest,
@@ -92,11 +96,13 @@ interface Run {
   calls: Opts[];
   features: string[];
   fires: Record<string, number>;
+  messages: HorseDecisionWorkerResponse[];
 }
 
 async function run(
   script: Script,
-  shape: (r: FastHorseDecisionRequest) => FastHorseDecisionRequest = (r) => r
+  shape: (r: FastHorseDecisionRequest) => FastHorseDecisionRequest = (r) => r,
+  throwsOn: (feature: string) => boolean = () => false
 ): Promise<Run> {
   HorseMind.reset();
   restoreFastRandom(SEED);
@@ -146,6 +152,7 @@ async function run(
     observeCompletedHand: () => {},
     noteDecision: () => {},
     noteFeature: (k: string) => {
+      if (throwsOn(k)) throw new Error(`sink refused ${k}`);
       features.push(k);
     },
     now: () => performance.now(),
@@ -175,7 +182,7 @@ async function run(
   if (!deep) throw new Error(`no DEEP result: ${JSON.stringify(messages.at(-1))}`);
   const deepFires = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
   for (const [k, n] of Object.entries(deepFires)) fastFires[`deep:${k}`] = n;
-  return { fast, deep: deep.decision, calls, features, fires: fastFires };
+  return { fast, deep: deep.decision, calls, features, fires: fastFires, messages };
 }
 
 const CALL: HorseDecision = { action: 'call', amount: 40, thinkTime: 0 };
@@ -314,5 +321,29 @@ describe('receipts by format (2026-11-19): fmt_<c|t|l>_<key>_seen and holdem_opt
     expect(byFormat(r.features)).toContain('fmt_l_holdem_persona_open_shift_seen');
     expect(byFormat(r.features)).toContain('fmt_l_style_fold_bluff_seen');
     expect(byFormat(r.features).some((k) => k.startsWith('fmt_c_'))).toBe(false);
+  });
+  it('one format decides every series: a game state carrying only the tournament object is a tournament', () => {
+    // The worker derives holdem_option_decision_* and fmt_* from this one call (workerRuntime
+    // executeFastWithUpgradeEvidence), so no decision is cash in one series and a tournament in another.
+    expect(styleReceiptFormat({ tournament: { id: 'fixture' } })).toBe('tournament');
+    expect(styleReceiptFormat({ gameMode: 'tournament' })).toBe('tournament');
+    expect(
+      styleReceiptFormat({ gameMode: 'cash', publicMemoryDomain: { speed: 'lightning' } })
+    ).toBe('lightning');
+    expect(styleReceiptFormat({ gameMode: 'cash' })).toBe('cash');
+  });
+  it('a counter sink that throws after the answer is contained: the request keeps its FAST answer and no ERROR is sent', async () => {
+    const reads = ['holdem_persona_open_shift_seen'];
+    const clean = await run({ applies: [], on: CALL, off: {}, reads });
+    const broken = await run(
+      { applies: [], on: CALL, off: {}, reads },
+      undefined,
+      (k) => k.startsWith('fmt_') || k.startsWith('holdem_option_decision_')
+    );
+    expect(broken.fast.decision).toEqual(clean.fast.decision);
+    expect(broken.deep).toEqual(clean.deep);
+    expect(broken.messages.some((m) => m.type === 'ERROR')).toBe(false);
+    expect(broken.features).toContain('receipt_format_split_failed_seen');
+    expect(byFormat(broken.features)).toEqual([]);
   });
 });
