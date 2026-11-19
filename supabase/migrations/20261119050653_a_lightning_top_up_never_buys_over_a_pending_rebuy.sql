@@ -38,6 +38,8 @@
 -- proconfig and SECURITY DEFINER are kept by CREATE OR REPLACE. This is a
 -- database migration: it is live when Apply Merged Migration installs it after
 -- merge, not at the engine cutover.
+-- @live-proof: strpos(pg_get_functiondef('public.fn_lightning_top_up_request'::regproc), 'A Rebuy Is Already Pending For This Seat') > 0
+
 BEGIN;
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '30s';
