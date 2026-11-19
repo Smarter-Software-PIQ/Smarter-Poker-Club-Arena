@@ -125,7 +125,7 @@ describe('only the real clubs exist', () => {
 
 describe('the certification cleans up after itself', () => {
   it('observes welcome reset under the canonical lanes and can never commit it', () => {
-    const globalLane = CERT.indexOf('SELECT public.fn_ca_lock_settlement_lane_global()');
+    const globalLane = CERT.indexOf('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)');
     const clubLock = CERT.indexOf(
       'SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE',
       globalLane

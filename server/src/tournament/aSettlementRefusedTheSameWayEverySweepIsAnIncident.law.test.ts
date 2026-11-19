@@ -88,4 +88,39 @@ describe('a settlement refused the same way every sweep is an incident', () => {
     await m.recordSatelliteSettlementRefusal(new SatelliteSettlementRefusedError('two'), 3);
     expect(m.satelliteRefusals).toMatchObject({ count: 1 });
   });
+  // Production 2026-11-18 19:22Z, satellite 3f9f1ff2 (incident a30d27f9): two
+  // 57014 cancellations ten seconds apart paged critical, and the third sweep
+  // settled all 20 qualifiers eleven seconds later.
+  it('a busy-database refusal pages only once it has persisted for the grace period', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-18T19:22:17Z'));
+    const m = manager();
+    const busy = new SatelliteSettlementRefusedError('canceling statement due to statement timeout');
+    await m.recordSatelliteSettlementRefusal(busy, 20);
+    vi.setSystemTime(new Date(Date.now() + 10_000));
+    await m.recordSatelliteSettlementRefusal(busy, 20);
+    expect(alerts.raise).not.toHaveBeenCalled();
+    m.satelliteRefusals = null; // the next sweep settled
+    for (let i = 0; i < 4; i += 1) {
+      await m.recordSatelliteSettlementRefusal(busy, 20);
+      vi.setSystemTime(new Date(Date.now() + 60_000));
+    }
+    expect(alerts.raise).not.toHaveBeenCalled();
+    vi.setSystemTime(
+      new Date(Date.now() + TournamentManagerEliminations.SATELLITE_CONTENTION_GRACE_MS)
+    );
+    await m.recordSatelliteSettlementRefusal(busy, 20);
+    expect(alerts.raise).toHaveBeenCalledTimes(1);
+    expect(alerts.raise.mock.calls[0][1]).toBe('Tournament.satellite_qualifiers_refused_repeatedly');
+  });
+
+  it('classifies only busy-database refusals as contention', () => {
+    const busy = TournamentManagerEliminations.isContentionRefusal;
+    expect(busy('canceling statement due to statement timeout')).toBe(true);
+    expect(busy('canceling statement due to lock timeout (55P03)')).toBe(true);
+    expect(busy('deadlock detected (40P01)')).toBe(true);
+    expect(busy('could not serialize access due to concurrent update')).toBe(true);
+    expect(busy(`satellite ${EVENT} has missing or extra obligation evidence`)).toBe(false);
+    expect(busy('IDEMPOTENCY_RECEIPT_UNBOUND (55000)')).toBe(false);
+  });
 });

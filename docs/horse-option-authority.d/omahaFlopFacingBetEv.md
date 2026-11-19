@@ -1,6 +1,6 @@
 # omahaFlopFacingBetEv: authority for the live switch
 
-Built 2026-11-17 by the PLO Strategy lane on the owner's ruling of 2026-11-16; reworked 2026-11-18 (the field counted together, realization measured by hand class and position, a larger and balanced sample; section "The rework of 2026-11-18"). Declared evaluation of this build (2026-11-18, `PASS-BAR-v2.md`): WIN, human-like field +6.55 +/- 1.14 bb/100 (z 5.7), Horse-only +0.89 +/- 0.44 (z 2.0). This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
+Built 2026-11-17 by the PLO Strategy lane on the owner's ruling of 2026-11-16; reworked 2026-11-18 (the field counted together, realization measured by hand class and position, a larger and balanced sample; section "The rework of 2026-11-18"). Declared evaluation of this build (2026-11-18, `PASS-BAR-v2.md`): WIN, human-like field +6.55 +/- 1.14 bb/100 (z 5.7), Horse-only +0.89 +/- 0.44 (z 2.0). Verdict at this evidence: MET on the league; MIXED on the audit replays (the 53 audited decisions: right on 27 of the 43 with a math verdict, 3 newly wrong; the 48-hour audit's 563 decisions: 37 audited-bad folds fixed, 30 audited-ok folds became calls, 33 audited-ok calls became folds). This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
 
 ## What it does
 
@@ -136,7 +136,8 @@ Of the spec's named lists (its section (e)): made hands multiway that must becom
 - Mechanism, scope, visibility (flag and receipts in `HorseDataLedger.ts`), tests: MET.
 - Option unset or false: every decision byte-identical to the base at the recorded nodes, with and without the production option list (`HorseOmahaFlopFacingBetEv.test.ts`; with the list every byte but `thinkTime`, which `horseActionTimeIsPublicOnly` draws from the timing stream).
 - Speed: MET against the 80 ms mark at p99 (table above; 2 of 800 PLO5 decisions over it, one of them a state that is over it without the option), measured under load on the development machine, not on the engine host.
-- Value: MET (declared evaluation of this build: WIN; table above).
+- Value: MET (declared evaluation of this build, `flopev2-013U37/eval2/RESULT.txt`: WIN, human-like field +6.55 +/- 1.14 bb/100, Horse-only +0.89 +/- 0.44; table above).
+- Audit replays: MIXED. The 53 audited decisions the first cut changed: right on 27 of the 43 with a math verdict (first cut 20), fixed 10, newly wrong 3, unchanged wrong 13 (`flopev2-013U37/replay/TABLE-c.txt`). The 48-hour audit's 563 journaled flop decisions: 37 audited-bad folds become a call or raise, 30 audited-ok folds become a call or raise, 33 audited-ok calls become folds (4 of them strong draws or strong made hands), 1 audited-bad call becomes a fold (`flopev2-013U37/w8/XTAB-c.txt`); on that audit's flat-realization verdicts this build is not better than the first cut.
 - Continuation, reach: PARTLY MEASURED, NOT MET. What flop calls returned on the later streets is now measured from production and is in the verdict (CONSTANTS file), on the later-street play of 2026-11-06 to 2026-11-17 and on the calls the brain of those days made, not on the calls this option adds. Not counted in production with the option on.
 
 ## Limits
