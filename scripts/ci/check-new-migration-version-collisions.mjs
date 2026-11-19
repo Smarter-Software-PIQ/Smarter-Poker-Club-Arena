@@ -66,6 +66,56 @@ export function namingProblems(file) {
 }
 
 /**
+ * A NEW MIGRATION'S NAME IS NOT ANOTHER FILE'S NAME (2026-11-19).
+ *
+ * The production applier (scripts/ci/apply-recorded-migration.mjs) answers
+ * ALREADY-APPLIED when schema_migrations holds this file's VERSION or its
+ * NAME (or the name cut at 55). The name key is deliberate: it is how a change
+ * applied through another door under another stamp is recognised. But it also
+ * means that of two executable files sharing one name, the second is never
+ * sent, and its run reports success.
+ *
+ * Measured 2026-11-19: #11433 added
+ * 20261119180000_chicago_cash_windows_add_partial_days_instead_of_subtracting
+ * and #11428, six minutes later, added 20261119183700 with the same name and a
+ * different body. 180000 installed. The 183700 run (44617650995) logged
+ * "ALREADY-APPLIED ... recorded as version=20261119180000" and changed
+ * nothing; migration-install-watch paged MergedMigrationNotInstalled
+ * (operational_alert_events 445897) an hour later. Unique versions did not
+ * protect it, because the applier does not key on the version alone.
+ *
+ * So a NEW executable migration may not share its name, or the applier's
+ * 55-character name prefix, with another executable file already on the base.
+ * A verified recording carries the name production wrote and is exempt; an
+ * inert tombstone can never be applied and neither collides nor is collided.
+ */
+export const APPLIER_NAME_PREFIX = 55;
+
+export function migrationName(file) {
+  const base = file.slice(file.lastIndexOf('/') + 1);
+  const m = /^\d+[A-Za-z]*[_-](.*)\.sql$/.exec(base);
+  return m ? m[1] : base.replace(/\.sql$/, '');
+}
+
+/** True when the applier would read a ledger row named for one file as the other. */
+export function namesCollide(a, b) {
+  const x = migrationName(a);
+  const y = migrationName(b);
+  return x === y || x.slice(0, APPLIER_NAME_PREFIX) === y || y.slice(0, APPLIER_NAME_PREFIX) === x;
+}
+
+/**
+ * Other executable files whose name the applier would mistake for this one's.
+ * `others` are base filenames; `inert(file)` says whether one has no SQL.
+ */
+export function nameOwners(file, others, inert = () => false) {
+  const self = file.slice(file.lastIndexOf('/') + 1);
+  return others
+    .filter((other) => other !== self && !inert(other) && namesCollide(self, other))
+    .sort();
+}
+
+/**
  * A FILE WITH NO EXECUTABLE SQL CANNOT ADD TO THE BACKLOG (2026-09-23).
  *
  * The gate above says it plainly: historical collisions remain visible history,
@@ -139,6 +189,7 @@ function main() {
     const all = readdirSync(migrationDir).filter((file) => file.endsWith('.sql'));
     const collisions = [];
     const misnamed = [];
+    const nameClashes = [];
 
     for (const path of added) {
       if (isInert(path)) continue;
@@ -146,6 +197,10 @@ function main() {
       const version = file.split('_', 1)[0];
       const owners = all.filter((candidate) => candidate.split('_', 1)[0] === version).sort();
       if (owners.length > 1) collisions.push({ version, owners });
+      if (classifyMigration(path).state !== 'recorded') {
+        const sharing = nameOwners(path, all, (other) => isInert(`${migrationDir}/${other}`));
+        if (sharing.length > 0) nameClashes.push({ file, sharing });
+      }
       const problems = namingProblems(path);
       if (problems.length > 0 && classifyMigration(path).state !== 'recorded') {
         misnamed.push({ path, problems });
@@ -171,10 +226,22 @@ function main() {
       }
       console.error('Assign a new, unique migration version before publishing.');
     }
-    if (collisions.length > 0 || misnamed.length > 0) process.exit(1);
+    if (nameClashes.length > 0) {
+      console.error(
+        '[migration-version-collisions] newly added migration shares its name with another migration:'
+      );
+      for (const { file, sharing } of nameClashes) {
+        console.error(`  ${file}: ${sharing.join(', ')}`);
+      }
+      console.error(
+        'The applier answers ALREADY-APPLIED by name, so this file would never be sent. ' +
+          'Give it a distinct name (scripts/new-migration.mjs "<what it does>").'
+      );
+    }
+    if (collisions.length > 0 || nameClashes.length > 0 || misnamed.length > 0) process.exit(1);
 
     console.log(
-      `[migration-version-collisions] ${added.length} new migration(s) against ${base}; all versions are unique.`
+      `[migration-version-collisions] ${added.length} new migration(s) against ${base}; all versions and names are unique.`
     );
   } catch (error) {
     console.error('[migration-version-collisions] script error:', error?.message || error);
