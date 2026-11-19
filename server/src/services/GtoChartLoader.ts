@@ -28,6 +28,7 @@ import {
 } from '../gto/SolverPolicyArtifactLoader.js';
 import { assertCompleteGtoChartCorpus } from '../gto/GtoChartCorpus.js';
 import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import { loadSolverStoreForBoot } from './solverBootLoad.js';
 
 const REFRESH_MS = 60 * 60_000;
 const RETRY_MS = 30_000;
@@ -78,6 +79,11 @@ const refreshLoop = createAdaptiveRefreshLoop({
 
 export async function loadGtoCharts(): Promise<number> {
   return (await refreshLoop.runNow()).count;
+}
+
+/** First load on a live decision worker: complete or refused, never empty (solverBootLoad.ts). */
+export function loadGtoChartsForBoot(): Promise<number> {
+  return loadSolverStoreForBoot('gto_charts', () => refreshLoop.runNow());
 }
 
 export function startGtoChartLoader(): void {

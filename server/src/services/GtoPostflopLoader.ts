@@ -29,6 +29,7 @@ import {
   type GtoPostflopRow,
 } from '../engine/GtoPostflop.js';
 import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import { loadSolverStoreForBoot } from './solverBootLoad.js';
 
 const REFRESH_MS = 6 * 60 * 60_000;
 const RETRY_MS = 30_000;
@@ -149,6 +150,11 @@ const refreshLoop = createAdaptiveRefreshLoop({
 
 export async function loadGtoPostflop(): Promise<number> {
   return (await refreshLoop.runNow()).count;
+}
+
+/** First load on a live decision worker: complete or refused, never empty (solverBootLoad.ts). */
+export function loadGtoPostflopForBoot(): Promise<number> {
+  return loadSolverStoreForBoot('gto_postflop', () => refreshLoop.runNow());
 }
 
 export function startGtoPostflopLoader(): void {

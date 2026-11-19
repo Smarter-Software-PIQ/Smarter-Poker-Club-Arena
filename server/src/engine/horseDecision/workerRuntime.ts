@@ -235,12 +235,12 @@ import {
   stopHorseUpgradeEvidenceFlush,
 } from '../../services/HorseUpgradeEvidenceFlush.js';
 import {
-  loadGtoCharts,
+  loadGtoChartsForBoot,
   startGtoChartLoader,
   stopGtoChartLoader,
 } from '../../services/GtoChartLoader.js';
 import {
-  loadGtoPostflop,
+  loadGtoPostflopForBoot,
   startGtoPostflopLoader,
   stopGtoPostflopLoader,
 } from '../../services/GtoPostflopLoader.js';
@@ -581,8 +581,8 @@ export async function startOwnedServices(shard?: {
         exploitFloorBootstrap = await hydrateHorseExploitReads();
         return exploitFloorBootstrap;
       }),
-      step('gto_charts', () => loadGtoCharts()),
-      step('gto_postflop', () => loadGtoPostflop()),
+      step('gto_charts', () => loadGtoChartsForBoot()),
+      step('gto_postflop', () => loadGtoPostflopForBoot()),
       step('gto_postflop_v31', () => {
         // Live workers serve a promoted V31 dataset only on a bound engine commit.
         requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);
