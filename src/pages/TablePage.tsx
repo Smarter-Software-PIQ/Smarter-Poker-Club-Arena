@@ -10913,8 +10913,7 @@ function LiveTablePage({
           handHistoryRowsRef.current = next;
           return next;
         });
-        if (!alreadyPaged || page.length === 0)
-          setHasOlderHands(!lightningRoom?.poolSessionId && page.length === HAND_HISTORY_PAGE);
+        if (!alreadyPaged || page.length === 0) setHasOlderHands(page.length === HAND_HISTORY_PAGE);
         loadedHandHistoryScopeRef.current = readScope;
         handHistoryFetchedAtRef.current = Date.now();
         handHistoryTableRef.current = tableId ?? null;
@@ -10950,7 +10949,6 @@ function LiveTablePage({
       !userId ||
       userId === 'guest' ||
       !tableId ||
-      lightningRoom?.poolSessionId ||
       !hasOlderHands ||
       olderHandRequestRef.current ||
       handHistoryStateRef.current !== 'ready'
@@ -10970,6 +10968,7 @@ function LiveTablePage({
         gameMode: tableHistoryGameMode,
         includeObserved: true,
         beforeHandNumber: oldest.handNumber,
+        lightningPoolSessionId: lightningRoom?.poolSessionId,
         throwOnError: true,
       });
       if (handHistoryScopeRef.current !== readScope || olderHandRequestRef.current !== request)
@@ -32736,6 +32735,7 @@ function LiveTablePage({
           heroSeatRef.current > 0 ||
           Boolean(lightningRoom && !lightningObserver)
         }
+        tableNameFallback={lightningRoom ? tableState.tableName || null : null}
         pendingLightningDeal={
           reviewRoom && pinnedLightningDeal?.scope === JSON.stringify([reviewRoom, userId])
             ? {
