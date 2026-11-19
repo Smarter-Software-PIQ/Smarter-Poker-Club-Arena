@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HandController } from '../engine/HandController.js';
-import { shapeLightningHorseAction } from './LightningHorse.js';
+import { decideLightningHorse, shapeLightningHorseAction } from './LightningHorse.js';
 import type { Card, GameState, SeatPlayer } from '../types.js';
 
 const cards = (text: string): Card[] =>
@@ -100,5 +100,54 @@ describe('a fast-table river nut bet sized in the band keeps its size at the doo
       action: 'bet',
       amount: 17.26,
     });
+  });
+});
+
+describe('the live fast-table path carries the band stamp from the worker answer to the door', () => {
+  async function throughTheLane(decision: Record<string, unknown>) {
+    const { hc, hero } = incident();
+    const fast = { decision: { thinkTime: 0, ...decision } };
+    const lane = { decideFast: async () => fast } as never;
+    const answer = await decideLightningHorse(
+      {
+        hc,
+        userId: hero.user_id,
+        seat: hero.seat,
+        horseProfile: null,
+        variant: 'plo5',
+        bigBlind: 0.5,
+        smallBlind: 0.25,
+        ante: 0,
+        bigBlindAnte: false,
+        allInOrFold: false,
+        actionTimeSeconds: 15,
+        actions: [],
+        generation: 1,
+        fence: 'nut-band-fixture',
+        turnStartMs: Date.now(),
+        now: Date.now(),
+        earlyLook: true,
+      } as never,
+      new AbortController().signal,
+      () => lane
+    );
+    expect(answer.workerFallback).toBe(false);
+    return { answer, shaped: shapeLightningHorseAction(hc, hero.user_id, answer, false) };
+  }
+
+  it('on: the worker band bet reaches the table as sized (decideLightningHorse -> shapeLightningHorseAction)', async () => {
+    const { answer, shaped } = await throughTheLane({
+      action: 'bet',
+      amount: 15.1,
+      valueSize: { kind: 'unreadable_band', action: 'bet', amount: 15.1 },
+    });
+    expect(answer.valueSize).toEqual({ kind: 'unreadable_band', action: 'bet', amount: 15.1 });
+    expect(shaped).toEqual({ action: 'bet', amount: 15.1 });
+  });
+
+  it('off: the answer carries no stamp and the door is as before', async () => {
+    const { answer, shaped } = await throughTheLane({ action: 'bet', amount: 15.1 });
+    expect('valueSize' in answer).toBe(false);
+    expect(shaped).toEqual({ action: 'bet', amount: 17.26 });
   });
 });

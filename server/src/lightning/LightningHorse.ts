@@ -101,6 +101,9 @@ export interface LightningHorseDecision {
   workerFallback: boolean;
   /** The lane's result, for committing plan effects once the wager lands. */
   fast: FastHorseDecisionResult | null;
+  /** omahaValueSizeIsUnreadable (default off): the band stamp of the worker's decision, carried to the
+   *  door (shapeLightningHorseAction); absent unless the option sized this wager. */
+  valueSize?: HorseDecision['valueSize'];
 }
 
 /** The physical engine's snapshot of this turn, for this horse. */
@@ -240,6 +243,7 @@ export async function decideLightningHorse(
       thinkTime: Number(fast.decision.thinkTime) || 0,
       workerFallback: false,
       fast,
+      ...(fast.decision.valueSize !== undefined ? { valueSize: fast.decision.valueSize } : {}),
     });
   } catch (err) {
     if (signal.aborted) throw err;
