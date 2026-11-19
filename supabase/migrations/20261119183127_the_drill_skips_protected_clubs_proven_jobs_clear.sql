@@ -1,4 +1,4 @@
--- 20261119183127_the_drill_skips_protected_clubs_and_a_proven_job_clears_its_failure.sql
+-- 20261119183127_the_drill_skips_protected_clubs_proven_jobs_clear.sql
 --
 -- WHAT THIS CHANGES, AND WHY (incident 316ed735, drift incident 28e0b04d):
 --
@@ -580,7 +580,7 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
 
 -- fn_ca_cron_failure_watch is a watched guard: the redefinition is declared,
 -- so the guard-def watch records it instead of raising a notice.
-SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119183127_the_drill_skips_protected_clubs_and_a_proven_job_clears_its_failure');
+SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119183127_the_drill_skips_protected_clubs_proven_jobs_clear');
 
 -- @probe-for: public.fn_ca_cron_failure_watch
 DO $probe$
