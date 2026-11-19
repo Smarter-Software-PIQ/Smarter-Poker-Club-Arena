@@ -2913,6 +2913,10 @@ export abstract class ServerTableEngineBase {
       throw new Error('f06_admission_install_too_late');
     this.f06PermitFactory = factory;
   }
+  /** This table reserves an F06 hand permit before every deal (tournament custody). */
+  protected hasF06HandAdmission(): boolean {
+    return this.f06PermitFactory !== null;
+  }
   protected async reserveF06Hand(handNumber: number): Promise<void> {
     if (this.f06MovementAdmission) throw new Error('f06_movement_only_no_hand');
     if (!this.f06PermitFactory) return; // Unactivated overlay; SQL activation must require installation.

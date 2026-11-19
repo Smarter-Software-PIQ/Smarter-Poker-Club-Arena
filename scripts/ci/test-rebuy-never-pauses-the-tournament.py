@@ -49,6 +49,7 @@ import random
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261118191946_a_rebuy_never_pauses_the_tournament.sql'
+MIG2 = ROOT / 'supabase/migrations/20261119011750_bounty_rebuys_and_eliminations_share_the_event_lane.sql'
 MIG_T1 = ROOT / 'supabase/migrations/20261118160405_tournament_table_writers_never_wait_on_the_platform_lane.sql'
 MIG_T2 = ROOT / 'supabase/migrations/20261118171613_tournament_and_club_lanes_fence_only_their_own_tables.sql'
 FIX = ROOT / 'scripts/ci/fixtures/rebuy-never-pauses/preimages.json'
@@ -58,13 +59,14 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'artifacts/rebuy-never-pauses')
 parser.add_argument('--print-post-images', action='store_true')
 args = parser.parse_args()
-for p in (MIG, MIG_T1, MIG_T2, FIX, FIX_T):
+for p in (MIG, MIG2, MIG_T1, MIG_T2, FIX, FIX_T):
     if not p.exists():
         sys.exit(f'missing {p.relative_to(ROOT)} (lane T, PR #11310, must be in this tree)')
 out = args.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
 
 migration = MIG.read_text()
+migration2 = MIG2.read_text()
 mig_t2_native = re.sub(r'-- @begin caller substitutions.*?-- @end caller substitutions\n', '',
                        MIG_T2.read_text(), flags=re.S)
 fix = json.loads(FIX.read_text())['functions'] + json.loads(FIX_T.read_text())['functions']
@@ -195,7 +197,8 @@ CREATE TABLE public.tournament_players(id uuid PRIMARY KEY DEFAULT gen_random_uu
   current_bounty numeric DEFAULT 0, eliminated_at timestamptz, position int, UNIQUE (tournament_id, user_id));
 CREATE TABLE public.tournament_knockout_candidates(id uuid PRIMARY KEY, tournament_id uuid,
   eliminated_user_id uuid, hand_number int, hand_id uuid, state text, rebuy_prompt_until timestamptz,
-  table_id uuid, seat_id uuid, seat_joined_at timestamptz, resolved_at timestamptz, stack_after numeric);
+  table_id uuid, seat_id uuid, seat_joined_at timestamptz, resolved_at timestamptz, stack_after numeric,
+  stack_before numeric DEFAULT 0, created_at timestamptz DEFAULT now());
 CREATE TABLE public.entry_purchase_idempotency_receipts(key_domain text, idempotency_key text, request jsonb,
   response jsonb, PRIMARY KEY (key_domain, idempotency_key));
 CREATE TABLE public.wallet_credit_idempotency(key text PRIMARY KEY, user_id uuid, amount numeric);
@@ -203,8 +206,25 @@ CREATE TABLE public.ca_operator_floor_hold(operation_id uuid, mode text);
 CREATE TABLE public.ca_launch_operator_scopes(operation_id uuid, club_ids uuid[]);
 CREATE TABLE public.tournament_obligations(tournament_id uuid, user_id uuid, kind text, amount_paid numeric,
   amount_owed numeric, settled_at timestamptz);
-CREATE TABLE public.tournament_bounty_obligations(id uuid, tournament_id uuid, eliminated_user_id uuid,
-  hand_number int, hand_id uuid, state text);
+CREATE TABLE public.tournament_bounty_obligations(id uuid PRIMARY KEY, tournament_id uuid, eliminated_user_id uuid,
+  hand_number int, hand_id uuid, state text, table_id uuid, seat_joined_at timestamptz, mode text,
+  claimants jsonb, head_amount numeric, knocker_user_id uuid);
+CREATE TABLE public.bounty_paid(obligation_id uuid, user_id uuid, amount numeric);
+CREATE TABLE public.hand_atomic_commits(table_id uuid, hand_number bigint, hand_id uuid, stack_result jsonb,
+  committed_at timestamptz);
+CREATE TABLE public.settlement_idempotency_keys(table_id uuid, hand_id uuid, status text, completed_at timestamptz,
+  result jsonb);
+CREATE TABLE public.poker_diamond_tournament_ledger(user_id uuid, tournament_id uuid, kind text, amount numeric,
+  created_at timestamptz);
+CREATE TABLE public.chip_ledger(from_entity_id uuid, tournament_id uuid, category text, from_type text, to_type text,
+  status text, amount numeric, created_at timestamptz);
+CREATE TABLE public.hand_history(tournament_id uuid, hand_number bigint, players jsonb);
+CREATE TABLE public.financial_alerts(severity text, source text, message text, context jsonb, resolved boolean DEFAULT false);
+CREATE TABLE smarter_private.f06_elimination_dispatch(xid bigint, relation_name text, row_id uuid, candidate_id uuid,
+  old_record jsonb, new_record jsonb);
+CREATE TABLE public.tournament_bounty_awards(id uuid, tournament_id uuid, eliminated_user_id uuid,
+  bounty_obligation_id uuid, status text, chest_id uuid, revealed_at timestamptz);
+CREATE TABLE public.tournament_bounty_chests(id uuid, status text);
 CREATE TABLE public.profiles(id uuid PRIMARY KEY, is_horse boolean DEFAULT false);
 CREATE TABLE public.club_members(user_id uuid, club_id uuid, chip_balance numeric, updated_at timestamptz,
   PRIMARY KEY (user_id, club_id));
@@ -218,7 +238,7 @@ CREATE TABLE public.tournament_paid_stack_custody_receipts(transaction_id xid8, 
   live_chips_before numeric, funded_supply numeric, candidate_id uuid);
 CREATE TABLE public.ca_promo_play_through_settings(id boolean, enforced_from timestamptz);
 CREATE TABLE public.tournament_stage_resume_receipts(tournament_id uuid, resume_id uuid, completed_at timestamptz);
-CREATE TABLE public.tournament_seat_exit_authorizations(tournament_id uuid, operation text, token uuid);
+CREATE TABLE public.tournament_seat_exit_authorizations(tournament_id uuid, operation text, token uuid, seat_id uuid, user_id uuid);
 CREATE TABLE public.table_hole_cards(table_id uuid, hand_number int, cards text);
 CREATE TABLE smarter_private.f06_operations(source_table_id uuid, state text, tournament_id uuid, manifest jsonb,
   close_receipt jsonb, cleanup_kind text, abort_receipt_id uuid, break_id uuid, lifecycle bigint);
@@ -278,6 +298,32 @@ CREATE FUNCTION public.fn_daily_window_entry_refusal(uuid) RETURNS text LANGUAGE
 CREATE FUNCTION public.fn_ca_new_tournament_starts_blocked() RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
 CREATE FUNCTION public.fn_lock_daily_mission_user(uuid) RETURNS void LANGUAGE sql AS $$ SELECT $$;
 CREATE FUNCTION public.fn_bounty_obligation_has_complete_marker(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
+CREATE FUNCTION public.fn_sync_seat_first_player_count(uuid) RETURNS void LANGUAGE sql AS $$ SELECT $$;
+CREATE FUNCTION public.fn_exact_tournament_knockout_claimants(uuid,uuid,uuid) RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT NULL::jsonb $$;
+-- The bounty collection's lock shape (rolling lane, tournament, obligation,
+-- eliminated roster row, then the knocker's roster row and wallet), paying the
+-- head from the bounty pool to the knocker; stubbed, its money moves are the
+-- ones fn_collect_bounty makes for a regular bounty.
+CREATE FUNCTION public.fn_collect_bounty_obligation(p_obligation_id uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE o public.tournament_bounty_obligations%ROWTYPE; k uuid;
+BEGIN
+  SELECT * INTO o FROM public.tournament_bounty_obligations WHERE id=p_obligation_id;
+  PERFORM public.fn_ca_lock_settlement_lane_for_tournament(o.tournament_id);
+  PERFORM 1 FROM public.tournaments WHERE id=o.tournament_id FOR UPDATE;
+  SELECT * INTO o FROM public.tournament_bounty_obligations WHERE id=p_obligation_id FOR UPDATE;
+  IF o.state<>'pending' THEN RETURN jsonb_build_object('ok',false,'reason','already_collected'); END IF;
+  PERFORM 1 FROM public.tournament_players WHERE tournament_id=o.tournament_id AND user_id=o.eliminated_user_id FOR UPDATE;
+  k := (o.claimants->0->>'user_id')::uuid;
+  UPDATE public.tournament_players SET current_bounty=current_bounty WHERE tournament_id=o.tournament_id AND user_id=k;
+  UPDATE public.club_members SET chip_balance=chip_balance+o.head_amount WHERE user_id=k;
+  UPDATE public.tournaments SET bounty_pool=bounty_pool-o.head_amount WHERE id=o.tournament_id;
+  INSERT INTO public.bounty_paid VALUES (o.id, k, o.head_amount);
+  UPDATE public.tournament_players SET current_bounty=0 WHERE tournament_id=o.tournament_id AND user_id=o.eliminated_user_id;
+  UPDATE public.tournament_bounty_obligations SET state='settled' WHERE id=o.id;
+  RETURN jsonb_build_object('ok',true);
+END $$;
+CREATE FUNCTION public.fn_claim_bounty_legacy_candidate_20260907(uuid,uuid,integer,numeric,uuid,uuid,bigint,timestamptz,uuid,jsonb,numeric,boolean)
+ RETURNS jsonb LANGUAGE sql AS $$ SELECT '{{"ok":false,"reason":"not in this harness"}}'::jsonb $$;
 INSERT INTO public.clubs VALUES ('{CLUB}', NULL);
 INSERT INTO public.tournaments(id, club_id, name, variant, tournament_type) VALUES ('{TR}','{CLUB}','Morning Free Buy','regular','MTT');
 INSERT INTO public.tournament_launch_receipts VALUES ('{TR}', now(), gen_random_uuid(), gen_random_uuid());
@@ -369,6 +415,54 @@ UPDATE public.tables tb SET current_players=(SELECT count(*) FROM public.table_s
     return u
 
 
+def bust_closed(table, db='w'):
+    """A bust whose rebuy window has closed, with the accepted hand's evidence
+    the elimination door proves (atomic commit and settlement receipt)."""
+    u = bust('pending', table, db)
+    psql(f"""
+UPDATE public.tournament_players SET rebuy_prompt_until=now()-interval '1 minute' WHERE user_id='{u}';
+UPDATE public.tournament_knockout_candidates SET rebuy_prompt_until=now()-interval '1 minute' WHERE eliminated_user_id='{u}';
+INSERT INTO public.hand_atomic_commits(table_id,hand_number,hand_id,stack_result,committed_at)
+SELECT c.table_id,c.hand_number,c.hand_id,jsonb_build_object('hand_id',md5(c.hand_id::text)::uuid,
+  'table_id',c.table_id,'hand_number',c.hand_number::text,'written',jsonb_build_object('{u}',0)),now()-interval '2 minutes'
+  FROM public.tournament_knockout_candidates c WHERE c.eliminated_user_id='{u}';
+INSERT INTO public.settlement_idempotency_keys(table_id,hand_id,status,completed_at,result)
+SELECT c.table_id,md5(c.hand_id::text)::uuid,'succeeded',now(),jsonb_build_object('table_id',c.table_id,
+  'hand_number',c.hand_number::text,'written',jsonb_build_object('{u}',0))
+  FROM public.tournament_knockout_candidates c WHERE c.eliminated_user_id='{u}';
+""", db)
+    return u
+
+
+def bust_bounty(table, knocker, head=4, db='w'):
+    """A player out of a bounty event: an eliminated generation whose head
+    (funded from its wallet into the bounty pool) is owed to `knocker` by a
+    pending obligation, as the bounty claim leaves it."""
+    u = bust('eliminated', table, db)
+    psql(f"""
+UPDATE public.club_members SET chip_balance=chip_balance-{head} WHERE user_id='{u}';
+INSERT INTO public.wallet_transactions(user_id,wallet_type,type,amount,category,related_entity_id)
+  VALUES ('{u}','PLAYER','debit',{head},'bounty_head','{TR}');
+UPDATE public.tournaments SET bounty_pool=bounty_pool+{head} WHERE id='{TR}';
+UPDATE public.tournament_players SET current_bounty={head} WHERE user_id='{u}';
+INSERT INTO public.tournament_bounty_obligations(id,tournament_id,eliminated_user_id,hand_number,hand_id,state,
+  table_id,seat_joined_at,mode,claimants,head_amount,knocker_user_id)
+SELECT gen_random_uuid(),c.tournament_id,c.eliminated_user_id,c.hand_number,c.hand_id,'pending',c.table_id,
+  c.seat_joined_at,'regular',jsonb_build_array(jsonb_build_object('user_id','{knocker}')),{head},'{knocker}'
+  FROM public.tournament_knockout_candidates c WHERE c.eliminated_user_id='{u}';
+""", db)
+    return u
+
+
+POSITION = [900]
+
+
+def elim_sql(u, hold=0.0, app='elim'):
+    POSITION[0] -= 1
+    return (f"SET application_name='{app}'; BEGIN; SELECT public.fn_eliminate_tournament_player_atomic('{TR}','{u}',"
+            f"{POSITION[0]},0,0)->>'ok'; " + (f"SELECT pg_sleep({hold}); " if hold else '') + "COMMIT;")
+
+
 def rebuy_sql(u, kind, hold=0.0, app='rebuy'):
     typ = 'rebuy' if kind == 'pending' else 'reentry'
     return (f"SET application_name='{app}'; BEGIN; SELECT public.process_tournament_rebuy('{TR}','{u}','{typ}',10,1000,NULL,NULL)->>'success'; "
@@ -397,7 +491,7 @@ def w_settle(table, amount=7, hold=0.0, app='hand'):
             f"  FROM two WHERE s.id=two.id AND (SELECT count(*) FROM two)=2; "
             f"UPDATE public.tournament_players tp SET chips=s.stack FROM public.table_seats s "
             f"  WHERE s.table_id='{table}' AND s.left_at IS NULL AND s.user_id=tp.user_id "
-            f"  AND tp.tournament_id='{TR}' AND tp.chips IS DISTINCT FROM s.stack::int; "
+            f"  AND tp.tournament_id='{TR}'; "
             + (f"SELECT pg_sleep({hold}); " if hold else '') + "COMMIT;")
 
 
@@ -433,7 +527,8 @@ def invariants(label, db='w'):
  'supply', (SELECT count(*)*1000 + COALESCE(sum(rebuys),0)*1000 FROM public.tournament_players WHERE tournament_id='{TR}'),
  'mirror', (SELECT COALESCE(sum(chips),0) FROM public.tournament_players WHERE tournament_id='{TR}' AND status='playing'),
  'ledger', (SELECT COALESCE(sum(amount),0) FROM public.wallet_transactions WHERE related_entity_id='{TR}' AND type='debit'),
- 'pool', (SELECT prize_pool FROM public.tournaments WHERE id='{TR}'),
+ 'pool', (SELECT prize_pool + bounty_pool FROM public.tournaments WHERE id='{TR}')
+     + (SELECT COALESCE(sum(amount),0) FROM public.bounty_paid),
  'rebuys', (SELECT COALESCE(sum(rebuys),0) FROM public.tournament_players WHERE tournament_id='{TR}'),
  'dup_chairs', (SELECT count(*) FROM (SELECT table_id, seat_number FROM public.table_seats WHERE left_at IS NULL
                 GROUP BY 1,2 HAVING count(*)>1) d),
@@ -446,7 +541,7 @@ def invariants(label, db='w'):
  'count_mismatch', (SELECT count(*) FROM public.tables tb WHERE tb.current_players <>
                 (SELECT count(*) FROM public.table_seats s WHERE s.table_id=tb.id AND s.left_at IS NULL)))""", db))
     ok = (r['wallets_plus_pool'] == r['members'] * 1000 and r['felt'] == r['supply'] == r['mirror']
-          and r['ledger'] == r['pool'] == r['rebuys'] * 10 and r['dup_chairs'] == 0
+          and r['ledger'] == r['pool'] and r['dup_chairs'] == 0
           and r['multi_seated'] == 0 and r['roster_mismatch'] == 0 and r['count_mismatch'] == 0)
     check(f'{label}: chips conserved (wallets+pool, felt=supply=roster, ledger=pool) and every chair unique', ok, r)
     return r
@@ -463,9 +558,9 @@ def install(db):
     psql('\n'.join(SEED) + SEED_SEATS, db)
 
 
-def subs_post_images(db):
-    """The migration's substitutions applied to the live pre-images (print mode)."""
-    blk = re.search(r'DO \$subs\$(.*?)END \$subs\$;', migration, re.S).group(1)
+def subs_post_images(db, text):
+    """A migration's substitutions applied to the live pre-images (print mode)."""
+    blk = re.search(r'DO \$subs\$(.*?)END \$subs\$;', text, re.S).group(1)
     rows = re.findall(r"\('((?:public|smarter_private)\.[^']+)',\s*'([0-9a-f]{32})',\s*'([^']*)',\s*"
                       r"ARRAY\[(.*?)\],\s*ARRAY\[(.*?)\]\)", blk, re.S)
     res = {}
@@ -494,14 +589,9 @@ try:
         install('w')
         psql(MIG_T1.read_text())
         psql(mig_t2_native)
-        for sig, h in subs_post_images('w').items():
+        psql(migration)
+        for sig, h in subs_post_images('w', migration2).items():
             print(sig, h)
-        news = re.findall(r'^(CREATE FUNCTION .*?\$function\$;)', migration, re.S | re.M)
-        psql('\n'.join(news))
-        for sig in ('smarter_private.tournament_rebuy_lane_held(uuid,uuid)',
-                    'public.fn_ca_share_tournament_lane_for_rebuy(uuid,uuid)',
-                    'public.fn_ca_lock_tournament_rebuy_acquisition(uuid,uuid,uuid)'):
-            print(sig, q(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure))"))
         raise SystemExit(0)
 
     install('w')
@@ -739,7 +829,195 @@ try:
     landed = q(f"SELECT count(*) FROM public.tournament_knockout_candidates WHERE state='rebought' "
                f"AND eliminated_user_id IN ({','.join(repr(u) for u, _ in rebuys)})")
     check('mixed run: all 20 rebuys re-seated their players', landed == '20', landed)
-    final = invariants('after: mixed run')
+    invariants('after: mixed run')
+
+    # ══ LANE R2 (20261119011750): bounty rebuys and busts share the lane ══
+    # Four empty tables join the event so the field has chairs to fill.
+    extra = [uid('a1a1a1a1', i) for i in range(4)]
+    psql("INSERT INTO public.tables(id, tournament_id, club_id) VALUES "
+         + ', '.join(f"('{t}','{TR}','{CLUB}')" for t in extra) + ';')
+    TBL.extend(extra)
+
+    def t_mode(app):
+        return q(f"SELECT COALESCE(string_agg(l.mode, ',' ORDER BY l.mode),'none') FROM pg_locks l "
+                 f"JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='{app}' AND l.locktype='advisory' "
+                 f"AND l.granted AND (l.classid::bigint<<32 | l.objid::bigint) = ({TKEY} & x'ffffffffffffffff'::bigint)")
+
+    def probe(label, holder_sql, app, busy, waits):
+        """Hold `holder_sql` in flight; time a card write, an F06 share and a
+        hand commit on the tables in `busy`. Before the fix they wait for it
+        (waits=True), after it they do not."""
+        hold = bg(holder_sql)
+        wait_until_holding(app, hold)
+        mode = t_mode(app)
+        res = {}
+        jobs = {f'wait_lane_{busy[0][-2:]}': w_wait(busy[0]), f'share_lane_{busy[1][-2:]}': w_share(busy[1]),
+                f'hand_commit_{busy[2][-2:]}': w_settle(busy[2])}
+        ths = [threading.Thread(target=lambda k, sq: res.__setitem__(k, timed(sq)), args=kv) for kv in jobs.items()]
+        [t.start() for t in ths]
+        [t.join() for t in ths]
+        done = finish(hold)
+        check(f'{label}: it completes', done[1] == 0 and 't' in done[2], done[2][-300:])
+        if waits:
+            check(f'{label}: it holds its event lane T(id) EXCLUSIVE (the defect)', 'ExclusiveLock' in mode, mode)
+            for k, (dt, rc, o) in res.items():
+                check(f'{label}: {k} on another table WAITS for it (the defect)', dt >= 1.2, f'{dt:.2f}s rc={rc}')
+        else:
+            check(f'{label}: it holds its event lane T(id) SHARED only', mode == 'ShareLock', mode)
+            for k, (dt, rc, o) in res.items():
+                check(f'{label}: {k} on another table proceeds at once', rc == 0 and dt < 0.5,
+                      f'{dt:.3f}s rc={rc} {o[-120:]}')
+        return {k: round(v[0], 3) for k, v in res.items()}
+
+    def far_tables(*near):
+        return [t for t in TBL if t not in near][:3]
+
+    def seat_of(u):
+        return q(f"SELECT table_id FROM public.table_seats WHERE user_id='{u}' AND left_at IS NULL")
+
+    def live_player_at(table):
+        return q(f"SELECT user_id FROM public.table_seats WHERE table_id='{table}' AND left_at IS NULL AND stack>0 "
+                 f"ORDER BY id LIMIT 1")
+
+    def emptiest():
+        return q(f"SELECT tb.id FROM public.tables tb WHERE tb.tournament_id='{TR}' ORDER BY (SELECT count(*) "
+                 f"FROM public.table_seats s WHERE s.table_id=tb.id AND s.left_at IS NULL), tb.created_at, tb.id LIMIT 1")
+
+    def set_bounty(on):
+        psql(f"UPDATE public.tournaments SET is_bounty={'true' if on else 'false'}, bounty_amount={4 if on else 0} "
+             f"WHERE id='{TR}';")
+
+    # ── BEFORE R2 (20261118191946 only): a bust and a bounty rebuy pause the event ──
+    u = bust_closed(TBL[0])
+    results['r2_before_elimination'] = probe('before R2: a bust being recorded', elim_sql(u, hold=2.0), 'elim',
+                                             far_tables(TBL[0]), True)
+    set_bounty(True)
+    k = live_player_at(TBL[1])
+    u = bust_bounty(TBL[1], k)
+    results['r2_before_bounty_rebuy'] = probe('before R2: a bounty rebuy', rebuy_sql(u, 'eliminated', hold=2.0),
+                                              'rebuy', far_tables(TBL[1], seat_of(k), emptiest()), True)
+    set_bounty(False)
+    invariants('before R2')
+
+    p = psql(migration2, check=False)
+    check('migration 20261119011750 installs (pre-image pins, anchors, post-image pins, doctrine ok)',
+          p.returncode == 0, p.stderr.strip()[-600:])
+    doctrine = q("SELECT public.fn_ca_settlement_lane_doctrine()")
+    check('doctrine holds after R2, rule 6 naming the three callers and four proofs', json.loads(doctrine)['ok'] is True,
+          doctrine)
+    body = q("SELECT prosrc FROM pg_proc WHERE proname='process_tournament_rebuy'")
+    check('after R2: the rebuy takes no exclusive event lane in any format',
+          'fn_ca_lock_settlement_lane_for_tournament(' not in body and 'fn_ca_lock_tournament_seat_acquisition(' not in body)
+
+    # ── AFTER R2 1: a bust never pauses the event ─────────────────────────
+    u = bust_closed(TBL[0])
+    results['r2_after_elimination'] = probe('after R2: a bust being recorded', elim_sql(u, hold=2.0), 'elim',
+                                            far_tables(TBL[0]), False)
+    check('after R2: the bust is recorded (eliminated, chair left, table count)',
+          q(f"SELECT status FROM public.tournament_players WHERE user_id='{u}'") == 'eliminated' and seat_of(u) == '')
+    invariants('after R2: bust beside hands')
+    for order in ('bust-first', 'hand-first'):
+        table = TBL[2]
+        u = bust_closed(table)
+        if order == 'bust-first':
+            first = bg(elim_sql(u, hold=1.2))
+            wait_until_holding('elim', first)
+            second = bg(w_settle(table))
+        else:
+            first = bg(w_settle(table, hold=1.2))
+            wait_until_holding('hand', first)
+            second = bg(elim_sql(u))
+        a, b = finish(first), finish(second)
+        check(f'after R2: a bust vs a hand of its own table ({order}) serialise on the table row',
+              a[1] == 0 and b[1] == 0 and b[0] >= 0.8 and seat_of(u) == '', f'second {b[0]:.2f}s {a[2][-120:]} {b[2][-120:]}')
+        invariants(f'after R2: bust vs hand ({order})')
+
+    # ── AFTER R2 2: a bounty rebuy never pauses the event ─────────────────
+    set_bounty(True)
+    k = live_player_at(TBL[1])
+    u = bust_bounty(TBL[1], k)
+    results['r2_after_bounty_rebuy'] = probe('after R2: a bounty rebuy', rebuy_sql(u, 'eliminated', hold=2.0), 'rebuy',
+                                             far_tables(TBL[1], seat_of(k), emptiest()), False)
+    check('after R2: the bounty rebuy paid the old head to its knocker and re-seated the player',
+          q(f"SELECT count(*) FROM public.bounty_paid b JOIN public.tournament_bounty_obligations o ON o.id=b.obligation_id "
+            f"WHERE o.eliminated_user_id='{u}' AND b.user_id='{k}'") == '1' and seat_of(u) != ''
+          and float(q(f"SELECT current_bounty FROM public.tournament_players WHERE user_id='{u}'")) == 4.0,
+          q(f"SELECT current_bounty FROM public.tournament_players WHERE user_id='{u}'"))
+    invariants('after R2: bounty rebuy beside hands')
+    # The knocker sits at the emptiest table, which the re-entry then chooses:
+    # the bounty settlement writes the knocker's roster row and the hand of that
+    # table writes it too. They serialise on the table row, in both orders.
+    for order in ('rebuy-first', 'hand-first'):
+        y = emptiest()
+        k = live_player_at(y) or live_player_at(TBL[3])
+        if seat_of(k) != y:
+            psql(w_move(k, y))
+        u = bust_bounty(TBL[3], k)
+        if order == 'rebuy-first':
+            first = bg(rebuy_sql(u, 'eliminated', hold=1.2))
+            wait_until_holding('rebuy', first)
+            second = bg(w_settle(y))
+        else:
+            first = bg(w_settle(y, hold=1.2))
+            wait_until_holding('hand', first)
+            second = bg(rebuy_sql(u, 'eliminated'))
+        a, b = finish(first), finish(second)
+        check(f"after R2: a bounty rebuy vs a hand of its knocker's table ({order}) serialise, no deadlock",
+              a[1] == 0 and b[1] == 0 and b[0] >= 0.8 and seat_of(k) == y,
+              f'second {b[0]:.2f}s dest={seat_of(u) == y} {a[2][-150:]} {b[2][-150:]}')
+        invariants(f'after R2: bounty rebuy vs knocker hand ({order})')
+
+    # ── AFTER R2 3: mixed concurrent runs, zero deadlocks ─────────────────
+    def mixed(label, field_jobs, n_hands=30):
+        log0 = LOG.read_text().count('deadlock detected')
+        outcomes.clear()
+        outcomes.update({'field': [], 'hand': [], 'move': [], 'wait': []})
+        hj = [[w_settle(TBL[rng.randrange(len(TBL))], amount=rng.randrange(1, 9)) for _ in range(n_hands)] for _ in range(6)]
+        wj = [[w_wait(TBL[rng.randrange(len(TBL))]) for _ in range(n_hands)] for _ in range(2)]
+        mv = [pu for (pu, t, s2) in PLAYERS if seat_of(pu)][::7]
+        mj = [[w_move(m, TBL[rng.randrange(len(TBL))]) for m in mv[i::2]] for i in range(2)]
+        ths = ([threading.Thread(target=worker, args=('hand', j)) for j in hj]
+               + [threading.Thread(target=worker, args=('wait', j)) for j in wj]
+               + [threading.Thread(target=worker, args=('move', j)) for j in mj]
+               + [threading.Thread(target=worker, args=('field', j)) for j in field_jobs])
+        t0 = time.monotonic()
+        [t.start() for t in ths]
+        [t.join() for t in ths]
+        total = sum(len(v) for v in outcomes.values())
+        dl = LOG.read_text().count('deadlock detected') - log0
+        failed = {kk: [x for x in v if x[0] != 0] for kk, v in outcomes.items()}
+        res = {'transactions': total, 'seconds': round(time.monotonic() - t0, 2), 'deadlocks': dl,
+               'failures': {kk: len(v) for kk, v in failed.items()}}
+        check(f'{label}: {total} transactions, 0 deadlocks', dl == 0, res)
+        check(f'{label}: every transaction committed', all(not v for v in failed.values()),
+              {kk: v[:2] for kk, v in failed.items() if v})
+        return res
+
+    set_bounty(False)
+    busts = [bust_closed(TBL[rng.randrange(len(TBL))]) for _ in range(8)]
+    reb = [(bust('pending', TBL[rng.randrange(len(TBL))]), 'pending') for _ in range(4)] + \
+          [(bust('eliminated', TBL[rng.randrange(len(TBL))]), 'eliminated') for _ in range(4)]
+    field = [elim_sql(b) for b in busts] + [rebuy_sql(uu, kk) for (uu, kk) in reb]
+    rng.shuffle(field)
+    results['r2_mixed_busts'] = mixed('R2 mixed run (8 busts, 8 rebuys, hands, card writes, moves)',
+                                      [field[i::4] for i in range(4)])
+    check('R2 mixed run: all 8 busts recorded',
+          q(f"SELECT count(*) FROM public.tournament_players WHERE status='eliminated' AND user_id IN "
+            f"({','.join(repr(b) for b in busts)})") == '8')
+    invariants('after R2: mixed busts')
+    set_bounty(True)
+    bb = []
+    for _ in range(10):
+        kk = live_player_at(TBL[rng.randrange(len(TBL))])
+        if kk:
+            bb.append(bust_bounty(TBL[rng.randrange(len(TBL))], kk))
+    results['r2_mixed_bounty'] = mixed(f'R2 mixed bounty run ({len(bb)} bounty rebuys, hands, card writes, moves)',
+                                       [[rebuy_sql(uu, 'eliminated') for uu in bb[i::3]] for i in range(3)])
+    check('R2 mixed bounty run: every old head paid once and every player re-seated',
+          q(f"SELECT count(*) FROM public.tournament_bounty_obligations WHERE state='settled' AND eliminated_user_id IN "
+            f"({','.join(repr(b) for b in bb)})") == str(len(bb))
+          and all(seat_of(b) for b in bb))
+    final = invariants('after R2: mixed bounty run')
     results['final'] = final
     results['ok'] = True
 finally:
