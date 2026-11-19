@@ -177,7 +177,9 @@ export function validatedHorsePolicySamplingKey(
       : { ...input.gameState, tournament: project(tournament, captureKeys) };
   // Exact SB is admission/read context, newly captured without resampling the
   // existing baseline strategy. The full request key still binds its bytes.
-  const gameState = project(capturedState, ['smallBlind'])!;
+  // lightningVpipFloor (2026-11-18) is likewise newly captured: a pool's floor and the Horse's own
+  // count are read only with lightningVpipFloorLimpOnly on, so carrying them resamples nothing.
+  const gameState = project(capturedState, ['smallBlind', 'lightningVpipFloor'])!;
   return mods === input.mods &&
     opts === input.opts &&
     gameState === input.gameState &&
