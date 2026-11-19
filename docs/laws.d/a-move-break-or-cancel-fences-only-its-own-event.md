@@ -1,0 +1,3 @@
+# tests/a-move-break-or-cancel-fences-only-its-own-event.law.test.ts
+
+Owner ruling 2026-11-17 ("a tournament issue must always be isolated and never affect other tournaments or cash games"): a balancing move and every table-break step take the event's shared change lane plus only the rows of the tables they touch (never T(id) exclusive), the entry close and bounty payers share the lane, the break scan takes no lane, and one event's cancel takes that event's own finish lane (the platform try stays only for a cancel of several events). Pins migration 20261119053909, doctrine rule 7 and the native PostgreSQL proof (scripts/ci/test-rebuy-never-pauses-the-tournament.py, workflow tournament-event-lane.yml).
