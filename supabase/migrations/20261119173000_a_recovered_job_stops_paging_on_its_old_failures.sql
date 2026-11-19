@@ -86,13 +86,16 @@ END $h$;
 
 SELECT pg_temp.cfw_subst(
   'public.fn_ca_cron_failure_watch()',
-  '527df2af34fa21e074e6a27a46e08cbd', 'a12fa874f03893621417846c56500c99',
+  'd8de9c61e621578f080b8a6e7342b602', '01de978319d5cb5a2946c6509530b877',
   ARRAY[
 $o1$    ),
     day AS (
       SELECT j.jobid, j.jobname,$o1$,
-$o2$        OR (day.fails >= 5 AND day.fails > day.successes)
-     ORDER BY day.fails DESC, day.jobname$o2$],
+$o2$       GROUP BY j.jobid, j.jobname$o2$,
+$o3$        OR (day.fails >= 5 AND day.fails > day.successes)
+        -- a weekly/infrequent job is heard immediately on its own last run, not
+        -- after 24 hours or three weeks (daily/hourly/minute jobs have runs_7d >= 2)
+        OR ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed)$o3$],
   ARRAY[
 $n1$    ),
     -- A RECOVERED JOB STOPS PAGING ON ITS OLD FAILURES (20261119173000).
@@ -126,10 +129,25 @@ $n1$    ),
                                                  AND q.day_len > 0)), 0)
     ),
     day AS (
-      SELECT j.jobid, j.jobname,$n1$,
-$n2$        OR (day.fails >= 5 AND day.fails > day.successes
+      SELECT j.jobid, j.jobname, j.command,$n1$,
+$n2$       GROUP BY j.jobid, j.jobname, j.command$n2$,
+$n3$        OR (day.fails >= 5 AND day.fails > day.successes
             AND NOT EXISTS (SELECT 1 FROM recovered rc WHERE rc.jobid = day.jobid))
-     ORDER BY day.fails DESC, day.jobname$n2$]);
+        -- a weekly/infrequent job is heard immediately on its own last run, not
+        -- after 24 hours or three weeks (daily/hourly/minute jobs have runs_7d >= 2)
+        OR ((day.runs_24h = 0 OR day.runs_7d = 1) AND day.last_finished_failed
+            -- 20261119183127 (preserved across 20261119180800): A FIXED JOB IS NOT FAILING.
+            -- A job whose command is one call of one function is proven healthy by a completed
+            -- run of that function recorded in ca_detector_runs after the failed run.
+            AND NOT EXISTS (
+              SELECT 1 FROM public.ca_detector_runs pr
+               WHERE day.command ~* '^\s*select\s+(public\.)?fn_[a-z0-9_]+\(\s*\)\s*;?\s*$'
+                 AND pr.detector = substring(day.command from '(fn_[A-Za-z0-9_]+)\(')
+                 AND pr.ran_at > day.last_finished_at))$n3$]);
+
+-- fn_ca_cron_failure_watch is a watched guard: declare the redefinition so the
+-- guard-def watch records it instead of raising a notice.
+SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119173000_a_recovered_job_stops_paging_on_its_old_failures');
 
 -- @probe-for: public.fn_ca_cron_failure_watch
 DO $probe$
