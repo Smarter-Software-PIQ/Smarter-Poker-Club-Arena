@@ -89,9 +89,21 @@
  *                  existed and bumped more than once). Recorded as kind
  *                  could-not-tell; the episode stays open (CLAUDE.md 10.86).
  *
+ * A GREEN LANE THAT CERTIFIED NOTHING IS A NON-VERDICT (2026-11-19).
+ *
+ * A production check that needs a table of a kind production is not running
+ * (a dealing nine-seat cash table, a running SPIN, a second seat-move
+ * destination) now says "could not test" and its job ends green with
+ * `certified` false, instead of red. A green job result alone would then
+ * read as a pass here and close an open episode on a run that verified
+ * nothing. NON_VERDICT_LANES names those lanes: such a lane is neither a
+ * failure (it fires nothing) nor a pass (it closes nothing), exactly like a
+ * replaced lane. A lane that did NOT end green is never excused by it.
+ *
  * Run:  DATABASE_URL=... WORKFLOW_LABEL=... ALERT_SOURCE=... ALERT_NAME=... RUN_ID=...
  *       GATE_RESULT=... LANES=$'success|Lane A\nskipped|Lane B' \
- *       [UNOWED_LANES=$'Lane B'] [GH_TOKEN=... GITHUB_REPOSITORY=owner/repo] \
+ *       [UNOWED_LANES=$'Lane B'] [NON_VERDICT_LANES=$'Lane A'] \
+ *       [GH_TOKEN=... GITHUB_REPOSITORY=owner/repo] \
  *       node scripts/ci/record-post-deploy-verdict.mjs
  */
 import { createHash } from 'node:crypto';
@@ -137,10 +149,15 @@ export function decide(verdict, previous, history = {}) {
   const replaced = [];
   const notOwed = [];
   const couldNotTell = [];
+  const nonVerdict = [];
   if (gate && gate.result !== SUCCESS) failed.push(gate.name);
   if (!gateStoodDown) {
     for (const lane of lanes) {
-      if (lane.result === SUCCESS) continue;
+      if (lane.result === SUCCESS) {
+        // Green, but certified nothing: never a pass (see the header).
+        if (lane.nonVerdict === true) nonVerdict.push(lane.name);
+        continue;
+      }
       // Only a skip can be "not owed": a lane that ran and failed, or was
       // cancelled, failed whatever its precondition says.
       if (lane.result === 'skipped' && lane.owed === false) notOwed.push(lane.name);
@@ -212,6 +229,15 @@ export function decide(verdict, previous, history = {}) {
       action: 'none',
       exitCode: 0,
       reason: `replaced before it started (${replaced.slice().sort().join(', ')}); the run that replaced it carries the verdict`,
+    };
+  }
+
+  // Green but uncertified: it could not tell, so it closes nothing.
+  if (nonVerdict.length > 0) {
+    return {
+      action: 'none',
+      exitCode: 0,
+      reason: `non-verdict (${nonVerdict.slice().sort().join(', ')}): the lane certified no release, so it closes nothing`,
     };
   }
 
@@ -453,6 +479,11 @@ export function readVerdict(env) {
     if (!lanes.some((lane) => lane.name === name)) throw new Error(`UNOWED_LANES names no lane: ${name}`);
   }
   for (const lane of lanes) if (unowed.has(lane.name)) lane.owed = false;
+  const nonVerdict = new Set((env.NON_VERDICT_LANES || '').split('\n').map((line) => line.trim()).filter(Boolean));
+  for (const name of nonVerdict) {
+    if (!lanes.some((lane) => lane.name === name)) throw new Error(`NON_VERDICT_LANES names no lane: ${name}`);
+  }
+  for (const lane of lanes) if (nonVerdict.has(lane.name)) lane.nonVerdict = true;
   const gateResult = (env.GATE_RESULT || '').trim();
   return {
     workflow: need('WORKFLOW_LABEL'),

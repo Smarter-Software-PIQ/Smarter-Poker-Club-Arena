@@ -16,34 +16,27 @@ import { inviteShareText, parseInviteFigures } from '../../src/services/ClubInvi
 const ROOT = resolve(__dirname, '../..');
 
 describe('copied club invitation', () => {
-  it('carries the two disclosed Kings Club totals above the measured union line', () => {
+  it('formats the referral copy cleanly with only headline and member/active counts', () => {
     const figures = parseInviteFigures({
-      members: 152,
-      players_playing: 314,
-      members_line: '1,652 KINGS CLUB Member Display Total (+1,500 Configured)',
-      club_active_display_line: '146 KINGS CLUB Active Display Total (+145 Configured)',
-      activity_line: '314 Players Across Midway Union Now · Includes Horses',
+      members: 165,
+      players_playing: 162,
+      members_line: '1,665 KINGS CLUB Member Display Total (+1,500 Configured)',
+      club_active_display_line: '145 KINGS CLUB Active Display Total (+145 Configured)',
+      activity_line: '162 Players Across Midway Union Now · Includes Horses',
     });
     expect(inviteShareText('KingFish', 'KINGS CLUB', 25450, figures)).toBe(
-      [
-        'KingFish Invited You To Join KINGS CLUB On Smarter.Poker!',
-        'Club ID: 25450',
-        '1,652 KINGS CLUB Member Display Total (+1,500 Configured)',
-        '146 KINGS CLUB Active Display Total (+145 Configured)',
-        '314 Players Across Midway Union Now · Includes Horses',
-      ].join('\n')
+      'KingFish Invited You To Join KINGS CLUB On Smarter.Poker! Currently 1665 Members 145 Active'
     );
   });
 
-  it('a club with no union carries its own club-scoped line', () => {
+  it('a club with no union formats its own member and active counts cleanly', () => {
     const figures = parseInviteFigures({
       members_line: '9 Members In Solo Room',
       activity_line: '2 Playing In Solo Room Now',
     });
-    expect(inviteShareText('Ana', 'Solo Room', 1, figures).split('\n').slice(2)).toEqual([
-      '9 Members In Solo Room',
-      '2 Playing In Solo Room Now',
-    ]);
+    expect(inviteShareText('Ana', 'Solo Room', 1, figures)).toBe(
+      'Ana Invited You To Join Solo Room On Smarter.Poker! Currently 9 Members 2 Active'
+    );
   });
 
   it('leaves out an unavailable figure instead of printing a zero', () => {
@@ -52,12 +45,15 @@ describe('copied club invitation', () => {
       activity_line: null,
     });
     const text = inviteShareText('KingFish', 'KINGS CLUB', 25450, figures);
-    expect(text).not.toMatch(/Playing/);
+    expect(text).toBe(
+      'KingFish Invited You To Join KINGS CLUB On Smarter.Poker! Currently 152 Members'
+    );
+    expect(text).not.toMatch(/Active|Club ID|Configured|Includes Horses/);
     expect(text).not.toMatch(/\b0\b/);
     expect(parseInviteFigures(null)).toBeNull();
     expect(parseInviteFigures({ members_line: '', activity_line: 5 })).toBeNull();
     expect(inviteShareText('KingFish', 'KINGS CLUB', 25450, null)).toBe(
-      'KingFish Invited You To Join KINGS CLUB On Smarter.Poker!\nClub ID: 25450'
+      'KingFish Invited You To Join KINGS CLUB On Smarter.Poker!'
     );
   });
 

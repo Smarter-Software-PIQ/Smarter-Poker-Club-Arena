@@ -418,5 +418,7 @@ it('runs browser installation on the supported Ubuntu image', () => {
       }
     }
   }
-  expect(browserJobs).toBe(11);
+  // 12 since 2026-11-19: playwright_browser_cache installs the browsers the
+  // other eleven restore, on the same image so its cache key matches theirs.
+  expect(browserJobs).toBe(12);
 });
