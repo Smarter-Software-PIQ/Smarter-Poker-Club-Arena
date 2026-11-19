@@ -156,4 +156,22 @@ BEGIN
   RAISE EXCEPTION 'Messenger inbox changed beyond the unanswered-welcome predicate';
  END IF;
 END $postflight$;
+-- Executed before COMMIT (tests/a-migration-proves-its-functions-before-commit).
+-- A migration session with no request claims is a trusted caller
+-- (fn_caller_is_engine) and an unknown user's inbox is empty, so the body runs
+-- end to end and writes nothing. A session that carries claims is refused by
+-- the function's own caller check, which is the one refusal accepted here.
+-- @probe-for: public.fn_get_user_conversations
+DO $probe$
+BEGIN
+  BEGIN
+    PERFORM * FROM public.fn_get_user_conversations(gen_random_uuid(), NULL);
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'fn_get_user_conversations: not authorized to read another user''s inbox' THEN RAISE; END IF;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
