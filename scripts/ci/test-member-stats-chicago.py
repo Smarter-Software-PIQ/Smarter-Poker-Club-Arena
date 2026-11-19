@@ -130,6 +130,12 @@ def main():
   yes(f"SET test.access='none'; SELECT ca_club_member_detail({args('2026-11-02')}) IS NULL AND NOT(ca_club_member_statistics({c},{u},NULL,'2026-11-02','2026-11-02')->>'authorized')::boolean")
   yes("SELECT NOT has_function_privilege('authenticated','ca_member_record_chicago_facts(uuid,uuid,date,date)','EXECUTE') AND NOT has_function_privilege('anon','ca_club_member_chicago_fee_totals(uuid,date,date,uuid)','EXECUTE')")
   print('PASS Overall, open bounds and access/internal helper grants preserved')
+  # Regression: post-commit club attribution lag in [00:00 UTC, 06:00 UTC) must
+  # never produce negative hands or phantom winnings on the following Chicago day.
+  q(f"INSERT INTO ca_hand_facts VALUES(md5('late-attr')::uuid,{u},{c},md5('table')::uuid,NULL,'2026-11-19 02:48:29.857Z','plo6',-5,0.5,true,true,false,false,false,false,false);")
+  yes(f"SELECT (ca_club_member_detail({c},{u},'2026-11-19','2026-11-19')#>>'{{stats,hands}}')::bigint=0 AND (ca_club_member_detail({c},{u},'2026-11-19','2026-11-19')#>>'{{stats,total_winnings}}')::numeric=0")
+  yes(f"SELECT (ca_club_member_detail({c},{u},'2026-11-18','2026-11-18')#>>'{{stats,hands}}')::bigint=1 AND (ca_club_member_detail({c},{u},'2026-11-18','2026-11-18')#>>'{{stats,total_winnings}}')::numeric=-5")
+  print('PASS additive partial-day slices never produce negative hands under attribution lag')
  finally:
   if started:run([pg/'pg_ctl','-D',data,'-m','immediate','-w','stop'])
   shutil.rmtree(w)
