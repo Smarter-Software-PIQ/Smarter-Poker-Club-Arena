@@ -437,6 +437,64 @@ export function fixedBoardRowFor(club: FixedBoardClub, event: FixedBoardEvent): 
   };
 }
 
+/**
+ * THE OWNER SHEET OWNS THE MIDWAY ROWS IT LISTS (2026-11-18).
+ *
+ * Since migration 20261107175806 the database trigger
+ * a01_tournament_schedule_board_is_hard_coded rewrites every write to a Midway
+ * Union schedule from the owner weekly sheet (fn_ca_midway_weekly_catalog):
+ * NEW := jsonb_populate_record(NEW, <the sheet's row>) for an id the sheet
+ * lists, and active := false for an id the sheet retired. The sheet is the
+ * authority for those rows ("No engine replacement" in that migration), and
+ * its config carries midwayWeeklyRevision and none of this file's time-change
+ * keys.
+ *
+ * The board sync did not know. Every ten minutes it found the 21 sheet rows
+ * "stale" (no previousStartTimes / startTimesEffectiveFrom) and the retired
+ * Prime Time Main Event row inactive, sent 22 PATCHes, got 22 times 204, and
+ * the trigger put every row back exactly as it was. The plan never emptied.
+ * A write that cannot land is not a write the plan may ask for.
+ *
+ * theOwnerSheetOwnsItsRows.law.test.ts replays the production rows and reads
+ * the trigger's own source, so the two cannot drift apart silently.
+ */
+export const OWNER_SHEET_CLUB_ID = MIDWAY_FREE_BUY_UNION_ID;
+
+/**
+ * Midway schedule ids the trigger pins inactive (its `NEW.id IN (...)` list).
+ * ccb6164a is the pre-sheet Prime Time Main Event (NLH) row.
+ */
+export const OWNER_SHEET_RETIRED_SCHEDULE_IDS: readonly string[] = [
+  'ccb6164a-2db4-400a-8ee0-b6607e880f4e',
+];
+
+/** True for a row the owner sheet lists: the database rewrites it on every write. */
+export function isOwnerSheetRow(row: {
+  club_id: string;
+  config: Record<string, unknown> | null;
+}): boolean {
+  return (
+    row.club_id === OWNER_SHEET_CLUB_ID &&
+    typeof row.config?.midwayWeeklyRevision === 'string' &&
+    row.config.midwayWeeklyRevision.length > 0
+  );
+}
+
+/** True for a row the database decides alone: a sheet row, or one the sheet retired. */
+export function isDatabaseOwnedBoardRow(row: {
+  id: string;
+  club_id: string;
+  active: boolean;
+  config: Record<string, unknown> | null;
+}): boolean {
+  return (
+    isOwnerSheetRow(row) ||
+    (row.club_id === OWNER_SHEET_CLUB_ID &&
+      !row.active &&
+      OWNER_SHEET_RETIRED_SCHEDULE_IDS.includes(row.id))
+  );
+}
+
 /** A tournament_schedules row that carries a fixed-board config, as read. */
 export interface ExistingFixedBoardRow {
   id: string;
@@ -490,12 +548,15 @@ export function planFixedBoardSync(
       const mine = existing.filter(
         (r) => r.club_id === club.clubId && r.config?.fixedBoard === event.name
       );
-      const anchor = mine.find((r) => r.active) ?? mine[0];
+      // The sheet's row is the event's row; the database decides it alone
+      // (isDatabaseOwnedBoardRow), so it is kept and never written.
+      const anchor = mine.find(isOwnerSheetRow) ?? mine.find((r) => r.active) ?? mine[0];
       if (!anchor) {
         plan.inserts.push(want);
         continue;
       }
       kept.add(anchor.id);
+      if (isDatabaseOwnedBoardRow(anchor)) continue;
       const current =
         anchor.active &&
         anchor.time_zone === want.time_zone &&
@@ -514,7 +575,9 @@ export function planFixedBoardSync(
     }
   }
   for (const r of existing) {
-    if (r.active && !kept.has(r.id)) plan.deactivate.push(r.id);
+    // An active sheet row cannot be switched off from here either: the
+    // trigger sets active from the sheet.
+    if (r.active && !kept.has(r.id) && !isOwnerSheetRow(r)) plan.deactivate.push(r.id);
   }
   return plan;
 }
