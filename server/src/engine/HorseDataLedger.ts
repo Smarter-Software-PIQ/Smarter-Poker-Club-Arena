@@ -5913,6 +5913,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_priced_draw_raise_mixed_kept',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaPricedMix)',
+    'the same decision with omahaPricedMix on: NOT priced above the call by the margin, within the noise of it and taken by the mix, and kept at the size given (with omahaSampledRaiseIsPricedAtEverySize on, the size given is the size of highest value)',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_mixed_called',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaPricedMix)',
+    'the same decision with omahaPricedMix on: priced above the call by the margin but within the noise of it, and the mix took the call: the raise became the call',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_draw_raise_resized',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaSampledRaiseIsPricedAtEverySize)',
     'the same decision with omahaSampledRaiseIsPricedAtEverySize on: priced above the call by the margin, and made to the legal size of highest value in place of the size given',
@@ -5993,7 +6005,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_pressure_raise_resized',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced with omahaSampledRaiseIsPricedAtEverySize)',
-    'a raise facing the wager, in a decision whose pressure raise the sampled comparison admitted at a priced size, priced above the call by the margin: made to the legal size of highest value in place of the size the brain gave',
+    'a raise facing the wager, in a decision whose pressure raise the sampled comparison admitted at a priced size, priced above the call by the margin: made to the legal size of highest value in place of the size the brain gave (where it cannot be priced again or no longer stands above the call, made at the size its admission priced above the call)',
     'V94'
   ),
   receipt(

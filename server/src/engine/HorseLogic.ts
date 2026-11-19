@@ -10014,6 +10014,8 @@ function omahaDrawRules(
         omahaPressureAdmittedAtPriceMemo !== null &&
           omahaPressureAdmittedAtPriceMemo.gs === gs &&
           omahaPressureAdmittedAtPriceMemo.seat === player.seat
+          ? { sampledAtPrice: true, sampledTo: omahaPressureAdmittedAtPriceMemo.to }
+          : null
       ),
       player,
       gs,
@@ -12473,12 +12475,13 @@ let omahaStreetPlanRiverMemo: {
 /**
  * omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced (both default off): the brain
  * priced the pressure raise of the decision in progress and the sampled comparison admitted it at a
- * priced size. Written only by the brain's V53 pressure block, for the state object and seat it
- * priced; read by omahaDrawRules on the same state object, which then makes the raise at that
- * size. Null in every other decision: cleared with the other per-decision memos when a decision
+ * priced size (`to`, the raise-to it priced above the call). Written only by the brain's V53
+ * pressure block, for the state object and seat it priced; read by omahaDrawRules on the same state
+ * object, which then makes the raise at a priced size (never the brain's own unpriced size). Null in every other decision: cleared with the other per-decision memos when a decision
  * starts and when it ends, so a later decision on the same public spot inherits nothing.
  */
-let omahaPressureAdmittedAtPriceMemo: { gs: HorseGameStateV2; seat: number } | null = null;
+let omahaPressureAdmittedAtPriceMemo: { gs: HorseGameStateV2; seat: number; to: number } | null =
+  null;
 
 /**
  * The per-decision memos above are keyed by the identity of the player and
@@ -26277,8 +26280,12 @@ export class HorseLogic {
         }
         // omahaSampledRaiseIsPricedAtEverySize: the pressure raise stands because a priced size
         // beats the call; the raise this decision makes is made at that size (omahaDrawRules).
-        if (pressure53 !== null && admission53.sampledAtPrice === true)
-          omahaPressureAdmittedAtPriceMemo = { gs, seat: player.seat };
+        if (
+          pressure53 !== null &&
+          admission53.sampledAtPrice === true &&
+          typeof admission53.sampledTo === 'number'
+        )
+          omahaPressureAdmittedAtPriceMemo = { gs, seat: player.seat, to: admission53.sampledTo };
       } catch {
         pressure53 = null;
       }
