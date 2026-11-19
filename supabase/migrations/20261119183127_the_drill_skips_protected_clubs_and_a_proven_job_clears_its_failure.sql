@@ -1,27 +1,34 @@
--- 20261119183127_the_drill_skips_delete_protected_clubs.sql
+-- 20261119183127_the_drill_skips_protected_clubs_and_a_proven_job_clears_its_failure.sql
 --
--- WHAT THIS CHANGES, AND WHY:
+-- WHAT THIS CHANGES, AND WHY (incident 316ed735, drift incident 28e0b04d):
 --
--- 20261119171234 let the weekly alarm drill choose its club, KINGS CLUB first,
--- then by id. KINGS CLUB has no eligible house horse, so the first club by id
--- is Deep Stack Society (2a1132b9), whose club_members rows carry
--- trg_deep_stack_members_are_protected. The live run after that install
--- (ca_alarm_drills id 12, 2026-11-19 18:05 UTC) chose it, and arm 7
--- (delete_journals_burn) threw DEEP_STACK_PROTECTED before its detector was
--- asked: drift incident alarm-drill-unarmed:2026-11-19.
+-- 20261119171234 let the weekly alarm drill choose its club and taught
+-- fn_ca_cron_failure_watch to raise a job whose newest finished run failed and
+-- that has not run in 24 hours. Minutes after install the watch raised
+-- ca-alarm-drill-weekly's 2026-11-16 failure (the old KINGS CLUB pin), and it
+-- re-raises it every 30 minutes: the only thing that clears it is a new cron
+-- run, next Monday. Meanwhile the live run after that install (ca_alarm_drills
+-- id 12, 18:05 UTC) showed the drill still could not arm every arm.
 --
--- fn_ca_alarm_drill now skips any club whose club_members rows an enabled
--- BEFORE DELETE trigger names, so the subject is always one every arm can
--- arm against (today The Felt Society). Nothing else in the body changes: it
--- is production's own (prosrc md5 0fe7f657585040877e39ae54bc7bb44e, equal to
--- 20261119171234) with one anchored insertion. Grants mirror production:
--- service_role only.
+-- 1. fn_ca_alarm_drill skips any club whose club_members rows an enabled
+--    BEFORE DELETE trigger names. KINGS CLUB has no eligible house horse, so
+--    the first club by id was Deep Stack Society (2a1132b9), whose
+--    trg_deep_stack_members_are_protected made arm 7 (delete_journals_burn)
+--    throw DEEP_STACK_PROTECTED before its detector ran
+--    (alarm-drill-unarmed:2026-11-19). Today the subject is in The Felt Society.
+--    A drill that had a subject and ran every arm now records its completed
+--    run in ca_detector_runs (detector fn_ca_alarm_drill).
+-- 2. fn_ca_cron_failure_watch's weekly rule no longer raises a failed run when
+--    the job's command is one call of one function and that function recorded
+--    a completed run in ca_detector_runs after the failed run. The cause is
+--    proven fixed, so the incident is resolved by fn_ca_resolve_cleared_incidents
+--    through its existing two-clean-runs rule. Every other rule is unchanged.
 --
--- After install the real cron job ca-alarm-drill-weekly is run once, so its
--- newest finished run is a success and fn_ca_cron_failure_watch stops raising
--- the 2026-11-16 failure (incident 28e0b04d).
+-- Both bodies are production's own (prosrc md5 0fe7f657585040877e39ae54bc7bb44e
+-- and ebc3284e93aea4e833484a17994da5c9, equal to 20261119171234), edited by
+-- anchors that each matched once. Grants mirror production: service_role only.
 --
--- @probe-exempt: public.fn_ca_alarm_drill the drill locks live money rows and runs every watcher, which an install transaction under the 12 s budget must not hold; it is run once live after install through its own cron job, and weekly by that cron
+-- @probe-exempt: public.fn_ca_alarm_drill the drill locks live money rows and runs every watcher, which an install transaction under the 12 s budget must not hold; it is run once live after install, and weekly by its cron
 
 BEGIN;
 
@@ -397,11 +404,191 @@ BEGIN
       true, jsonb_build_object('unarmed', v_unarmed, 'results', v_results));
   END IF;
 
+  -- A COMPLETED DRILL IS A RUN OF ITS JOB (20261119183127): fn_ca_cron_failure_watch
+  -- reads this row as proof that a failed ca-alarm-drill-weekly run's cause no
+  -- longer holds, so a fixed drill clears without waiting a week for its cron.
+  -- Only a drill that had a subject and ran every arm records it.
+  INSERT INTO public.ca_detector_runs (detector, detail)
+  VALUES ('fn_ca_alarm_drill', jsonb_build_object('pass', cardinality(v_failing) = 0,
+                                                  'failing', v_failing,
+                                                  'club_id', c_midway_club));
+
   RETURN jsonb_build_object('pass', cardinality(v_failing) = 0,
                             'failing', v_failing, 'results', v_results);
 END $function$;
 
 REVOKE ALL ON FUNCTION public.fn_ca_alarm_drill() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_alarm_drill() TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_ca_cron_failure_watch()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE r record; n integer := 0; v_is_guard boolean; v_raised text[] := '{}';
+BEGIN
+  FOR r IN
+    -- ONE pass over a bounded window. cron.job_run_details is indexed only by
+    -- runid, so a per-job "last 3 runs" lookup with no time bound is a full
+    -- scan per active job. Here a single scan of the last 7 days ranks each
+    -- job's finished runs newest first; the 24 hour counts and the last three
+    -- finished runs both come from that one pass. A job that appears in the
+    -- 24 hour window runs at least daily, so its last three finished runs fall
+    -- inside 7 days.
+    WITH runs AS (
+      SELECT d.jobid, d.status, d.start_time, d.return_message,
+             d.start_time > now() - interval '24 hours' AS in_day,
+             CASE WHEN d.status IN ('failed', 'succeeded')
+                  THEN row_number() OVER (PARTITION BY d.jobid, d.status IN ('failed', 'succeeded')
+                                          ORDER BY d.start_time DESC)
+             END AS finished_rank
+        FROM cron.job_run_details d
+       WHERE d.start_time > now() - interval '7 days'
+    ),
+    day AS (
+      SELECT j.jobid, j.jobname, j.command,
+             count(*) FILTER (WHERE x.in_day AND x.status = 'failed')    AS fails,
+             count(*) FILTER (WHERE x.in_day AND x.status = 'succeeded') AS successes,
+             max(x.start_time) FILTER (WHERE x.in_day AND x.status = 'succeeded') AS last_success,
+             max(left(x.return_message, 200)) FILTER (WHERE x.in_day AND x.status = 'failed') AS sample_error,
+             count(*) FILTER (WHERE x.finished_rank <= 3) AS finished,
+             count(*) FILTER (WHERE x.finished_rank <= 3 AND x.status = 'failed') AS failed_in_a_row,
+             -- 20261119171234: the newest finished run in the same 7-day pass,
+             -- so a job that runs less than daily is still seen.
+             count(*) FILTER (WHERE x.in_day) AS runs_24h,
+             bool_or(x.finished_rank = 1 AND x.status = 'failed') AS last_finished_failed,
+             max(x.start_time) FILTER (WHERE x.finished_rank = 1) AS last_finished_at,
+             max(left(x.return_message, 200)) FILTER (WHERE x.finished_rank = 1) AS last_finished_error
+        FROM cron.job j
+        JOIN runs x ON x.jobid = j.jobid
+       WHERE j.active
+       GROUP BY j.jobid, j.jobname, j.command
+      HAVING count(*) FILTER (WHERE x.in_day) > 0
+          OR bool_or(x.finished_rank = 1 AND x.status = 'failed')
+    )
+    SELECT day.*
+      FROM day
+     WHERE (day.finished = 3 AND day.failed_in_a_row = 3
+            AND (day.last_success IS NULL OR day.last_success <= now() - interval '2 hours'))
+        OR (day.fails >= 5 AND day.fails > day.successes)
+        -- a weekly job is heard on its own last run, not after three weeks
+        OR (day.runs_24h = 0 AND day.last_finished_failed
+            -- 20261119183127: A FIXED JOB IS NOT FAILING. A job whose command is one
+            -- call of one function is proven healthy by a completed run of that
+            -- function recorded in ca_detector_runs after the failed run; a
+            -- failed weekly run whose cause was fixed and run live then clears
+            -- instead of paging for up to a week until its next cron run.
+            AND NOT EXISTS (
+              SELECT 1 FROM public.ca_detector_runs pr
+               WHERE day.command ~* '^\s*select\s+(public\.)?fn_[a-z0-9_]+\(\s*\)\s*;?\s*$'
+                 AND pr.detector = substring(day.command from '(fn_[A-Za-z0-9_]+)\(')
+                 AND pr.ran_at > day.last_finished_at))
+     ORDER BY day.fails DESC, day.jobname
+     LIMIT 20
+  LOOP
+    SELECT EXISTS (SELECT 1 FROM public.ca_guard_inventory g
+                    WHERE g.kind = 'cron' AND g.object_a = r.jobname AND g.active)
+      INTO v_is_guard;
+    PERFORM public.fn_ca_raise_drift_incident(
+      'fn_ca_cron_failure_watch', 'unknown',
+      CASE WHEN v_is_guard THEN 'critical' ELSE 'warning' END,
+      CASE WHEN r.runs_24h = 0
+           THEN 'cron-failing:' || r.jobname || ':run:' || to_char(r.last_finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI')
+           ELSE 'cron-failing:' || r.jobname || ':' || CURRENT_DATE::text END,
+      0, NULL, NULL, 'reporting', 'cron.job_run_details',
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      CASE WHEN r.runs_24h = 0
+           THEN 'scheduled job ' || r.jobname || ' has not run in 24h and its last run, at '
+                || r.last_finished_at::text || ', failed with no success since. Last error: '
+                || COALESCE(r.last_finished_error, '?')
+      ELSE
+      'scheduled job ' || r.jobname || ' failed ' || r.fails || ' of '
+        || (r.fails + r.successes) || ' runs in 24h (last '
+        || r.failed_in_a_row || ' of its last 3 failed; last success '
+        || COALESCE(r.last_success::text, 'none in 24h') || '). Last error: '
+        || COALESCE(r.sample_error, '?') END,
+      NULL, jsonb_build_object('jobname', r.jobname, 'fails_24h', r.fails,
+                               'successes_24h', r.successes,
+                               'failed_in_a_row', r.failed_in_a_row,
+                               'last_success', r.last_success));
+    v_raised := v_raised || r.jobname::text;
+    n := n + 1;
+  END LOOP;
+
+  /* 2026-11-07: a job failing run after run is raised by its streak, not
+     only after two hours with no success at all. Isolated like the ledger
+     watch below, so a fault here never stops the rules above, and a failure
+     of its own is a critical incident rather than a silent zero. */
+  BEGIN
+    FOR r IN SELECT f.* FROM public.fn_cron_failing_jobs() f
+              WHERE NOT (f.jobname = ANY (v_raised))
+    LOOP
+      PERFORM public.fn_ca_raise_drift_incident(
+        'fn_ca_cron_failure_watch', 'unknown',
+        CASE WHEN r.is_guard THEN 'critical' ELSE 'warning' END,
+        'cron-failing:' || r.jobname || ':' || CURRENT_DATE::text,
+        0, NULL, NULL, 'reporting', 'cron.job_run_details',
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+        'scheduled job ' || r.jobname || ' is failing repeatedly: '
+          || r.failed_in_a_row || ' failed runs in a row'
+          || COALESCE(' since ' || r.failing_since::text, '')
+          || ', ' || r.failed_of_last_20 || ' of its last 20 runs failed (last success '
+          || COALESCE(r.last_success::text, 'not in the last ~7 hours') || '). Last error: '
+          || COALESCE(r.last_error, '?'),
+        NULL, jsonb_build_object('jobname', r.jobname,
+                                 'failed_in_a_row', r.failed_in_a_row,
+                                 'failing_since', r.failing_since,
+                                 'failed_of_last_20', r.failed_of_last_20,
+                                 'last_success', r.last_success,
+                                 'rule', 'streak'));
+      n := n + 1;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.fn_ca_raise_drift_incident(
+      'fn_ca_cron_failure_watch', 'unknown', 'critical',
+      'cron-failing-streak-read-failed:' || CURRENT_DATE::text,
+      NULL, NULL, NULL, 'reporting', 'cron.job_run_details',
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      'fn_cron_failing_jobs failed, so a job failing run after run cannot be told from a healthy one: ' || SQLERRM,
+      NULL, NULL);
+  END;
+
+  /* 20261002135708: a ledger refusal the counter saw and no record reached
+     becomes an explicit row and a critical incident here. Isolated, so it can
+     never stop the cron watch above from reporting, and a failure of its own
+     is itself a critical incident rather than a silent zero. */
+  BEGIN
+    n := n + public.fn_ca_ledger_invariant_refusal_watch();
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.fn_ca_raise_drift_incident(
+      'ledger_invariant.refused', 'unknown', 'critical',
+      'ledger-invariant-refusal-watch-failed',
+      NULL, NULL, NULL, 'ledger', 'chip_store',
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      'fn_ca_ledger_invariant_refusal_watch failed, so a ledger refusal whose record was lost cannot be told from no refusal: ' || SQLERRM,
+      NULL, NULL);
+  END;
+  -- A completed run is a re-measurement fn_ca_resolve_cleared_incidents reads.
+  INSERT INTO public.ca_detector_runs (detector, detail)
+  VALUES ('fn_ca_cron_failure_watch', jsonb_build_object('raised', n));
+  RETURN n;
+END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_ca_cron_failure_watch() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
+
+-- fn_ca_cron_failure_watch is a watched guard: the redefinition is declared,
+-- so the guard-def watch records it instead of raising a notice.
+SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261119183127_the_drill_skips_protected_clubs_and_a_proven_job_clears_its_failure');
+
+-- @probe-for: public.fn_ca_cron_failure_watch
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_cron_failure_watch();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;
