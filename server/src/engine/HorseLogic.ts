@@ -127,6 +127,7 @@ import {
 import {
   OMAHA_TOURNAMENT_SCOPE_OFF,
   omahaCashOnlyExcludes,
+  omahaCategoricalCashOnlyExcludes,
   omahaTournamentExtensionSpot,
   omahaTournamentIcmPremium,
   omahaTournamentIcmRisk,
@@ -3758,6 +3759,14 @@ export interface HorseDecideOpts {
    * spots fall CLOSED to the categorical rule). Off: every priced family is byte-identical to #11212.
    * Default OFF; its league evidence measured the fall-closed version. */
   omahaPricedPriorsByOpponentKind?: boolean;
+  /** ROWFIX 2026-11-18 (Horse Switch lane; owner 2026-11-17 11:49: no blanket rules): opt-in (`=== true`),
+   * default OFF, unevaluated. With omahaStrategyInTournaments on, the rules HorseOmahaRuleSites classes
+   * 'categorical' (the nut-raise scope, the draw-raise bar, the out-of-position checks, the pressure label,
+   * the bluff-catcher fold against a value leader, the underpair multiway fold, the value-leader made-hand
+   * defence, the reachable river blocker bluff) stay cash-only (HorseOmahaTournamentScope
+   * omahaCategoricalCashOnlyExcludes); the priced rules and the survival premium keep the extension. Off
+   * (absent or false): byte-identical. */
+  omahaTournamentsExcludeCategoricalRules?: boolean;
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
    * (1 - q) units of their region). Off: the #11212 formula verbatim. OFF-ONLY: its provisional league
@@ -8154,7 +8163,7 @@ function omahaPostflopPressureWithheld(
   if (opts.omahaPressureNeedsPostflopAggression !== true || opts.mind === false) return false;
   try {
     if (!omahaStrategyGameInScope(OMAHA_PRESSURE_OPTION_VARIANTS, gs, opts)) return false;
-    if (player ? omahaCashOnlyExcludes(player, gs) : isTournamentMode(gs)) return false;
+    if (player ? omahaCategoricalCashOnlyExcludes(player, gs) : isTournamentMode(gs)) return false;
     const stage = String(gs.stage ?? '');
     if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return false;
     // omahaPressureIsPriced (default off): the play is withheld or made by its price, not his label.
@@ -9039,7 +9048,7 @@ function omahaUnderpairFlopFold(
         : variantInfo(gs.gameVariant).isHiLo,
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
-      tournament: omahaCashOnlyExcludes(player, gs),
+      tournament: omahaCategoricalCashOnlyExcludes(player, gs),
       allInOrFold: gs.allInOrFold === true,
     });
     if (verdict === null) return decision;
@@ -9444,7 +9453,7 @@ function omahaBigBetCallFoldCells(
       faced.bettorSeat !== player.seat &&
       // Cash only (audit 2026-11-15): the read and its evidence are cash play;
       // omahaStrategyInTournaments opens its public tournament scope.
-      !omahaCashOnlyExcludes(player, gs) &&
+      !omahaCategoricalCashOnlyExcludes(player, gs) &&
       // The facing-bet expected value, when it answers this spot, is the single decider.
       omahaFacingBetEvOf(player, gs, opts) === null;
     const bluffCatcherCell =
@@ -9457,7 +9466,7 @@ function omahaBigBetCallFoldCells(
             ...shared,
             // omahaStrategyInTournaments: the vs-value-leader folds reach the turn cells too.
             tournament: bluffCatcherVsLeader
-              ? omahaCashOnlyExcludes(player, gs)
+              ? omahaCategoricalCashOnlyExcludes(player, gs)
               : shared.tournament,
             heroHasStreetChips: heroBet > 0.005,
             callPrice,
@@ -9977,7 +9986,7 @@ function omahaValueLeaderDefenseInScope(
   return (
     omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&
     gs.bombPot !== true &&
-    !omahaCashOnlyExcludes(player, gs)
+    !omahaCategoricalCashOnlyExcludes(player, gs)
   );
 }
 
@@ -13240,7 +13249,12 @@ export class HorseLogic {
             risk = 0;
           }
           return withOmahaStrategyGameScope(gameScope, () =>
-            withOmahaTournamentScope({ extension: true, icmRisk: risk }, decideIt)
+            withOmahaTournamentScope(
+              opts.omahaTournamentsExcludeCategoricalRules === true
+                ? { extension: true, icmRisk: risk, excludeCategorical: true }
+                : { extension: true, icmRisk: risk },
+              decideIt
+            )
           );
         } finally {
           applyPlo6OmahaStrategyCalibration(plo6CalibrationHeldBefore);
@@ -16148,7 +16162,7 @@ export class HorseLogic {
             vi.isOmaha &&
             !vi.isHiLo &&
             (vi.holeCount === 4 || vi.holeCount === 5) &&
-            !omahaCashOnlyExcludes(player, gs) &&
+            !omahaCategoricalCashOnlyExcludes(player, gs) &&
             (() => {
               try {
                 const read53 = HorseMind.opponentRead(raiser38.user_id);
@@ -22077,7 +22091,7 @@ export class HorseLogic {
           // PLO4/PLO5 only. PLO6 never, omahaStrategyInPlo6 on or not (PLO6
           // lane SPEC-B 3.19, skip: no PLO6 equity window, adds bluff chips).
           (vi.holeCount === 4 || vi.holeCount === 5) &&
-          !omahaCashOnlyExcludes(player, gs)
+          !omahaCategoricalCashOnlyExcludes(player, gs)
             ? 2
             : 1) &&
         // omahaBlockerBluffIsPriced (default off): admitted by the price of the exact bet it places
@@ -25214,7 +25228,7 @@ export class HorseLogic {
         if (
           opts.omahaPressureNeedsPostflopAggression === true &&
           omahaStrategyGameInScope(OMAHA_PRESSURE_OPTION_VARIANTS, gs, opts) &&
-          !omahaCashOnlyExcludes(player, gs) &&
+          !omahaCategoricalCashOnlyExcludes(player, gs) &&
           !vi.isHiLo &&
           !multiBoard36 &&
           (street === 'turn' || isRiver) &&

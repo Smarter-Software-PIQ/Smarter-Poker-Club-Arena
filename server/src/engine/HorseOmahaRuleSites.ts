@@ -465,6 +465,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTightOpponentSteal: outside(PREFLOP),
   omahaEvFoldModel: outside('a model switch'),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
+  omahaTournamentsExcludeCategoricalRules: outside(
+    'a scope gate (tournaments): with it on the categorical rules here stay cash-only'
+  ),
   omahaStrategyInPlo6: outside('a scope gate (PLO6)'),
   omahaTournamentFirstIn: outside('tournaments'),
   omahaHiLoTournamentFirstIn: outside('hi-lo tournaments'),
