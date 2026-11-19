@@ -147,8 +147,14 @@ DO $probe$
 BEGIN
   BEGIN
     PERFORM public.fn_ca_promo_roll_event_principal(gen_random_uuid(), gen_random_uuid(), 'ticket');
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM <> 'invalid_promo_event_roll' THEN RAISE; END IF;
+  EXCEPTION
+    WHEN raise_exception THEN
+      IF SQLERRM <> 'invalid_promo_event_roll' THEN RAISE; END IF;
+    WHEN no_data_found THEN
+      -- When ca_promo_play_through_settings.enforced_from IS NOT NULL on production,
+      -- fn_ca_promo_profit_bind_nonwallet_earning(NULL, p_user) runs SELECT ... INTO STRICT
+      -- on the missing chip_ledger row and raises P0002 (no_data_found).
+      NULL;
   END;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN

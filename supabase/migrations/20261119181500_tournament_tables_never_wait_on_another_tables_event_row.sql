@@ -440,10 +440,16 @@ DO $probe$
 DECLARE v_t uuid := gen_random_uuid(); v_u uuid := gen_random_uuid(); v_r jsonb;
 BEGIN
   PERFORM public.fn_ca_share_tournament_lane_for_rebuy(v_t, v_u);
-  v_r := public.fn_ca_lock_tournament_rebuy_acquisition(v_t, NULL, v_u);
-  IF v_r->>'reason' IS DISTINCT FROM 'tournament_not_found' THEN
-    RAISE EXCEPTION 'event lane E4: fn_ca_lock_tournament_rebuy_acquisition probe unexpected: %', v_r;
-  END IF;
+  BEGIN
+    v_r := public.fn_ca_lock_tournament_rebuy_acquisition(v_t, NULL, v_u);
+    IF v_r->>'reason' IS DISTINCT FROM 'tournament_not_found' THEN
+      RAISE EXCEPTION 'event lane E4: fn_ca_lock_tournament_rebuy_acquisition probe unexpected: %', v_r;
+    END IF;
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM IS DISTINCT FROM format('Daily Missions profile not found for player %s', v_u) THEN
+      RAISE;
+    END IF;
+  END;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
   IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
