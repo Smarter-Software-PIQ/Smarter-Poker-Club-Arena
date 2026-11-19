@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { migrationNames, migrationText } from './helpers/migrationCorpus';
 
 const NAME = migrationNames()
-  .filter((n) => n.endsWith('_a_lightning_wait_is_judged_against_the_pool_that_could_end_it.sql'))
+  .filter((n) => n.endsWith('_lightning_wait_is_judged_against_the_pool_that_could_end_it.sql'))
   .at(-1);
 if (!NAME) throw new Error('the pool-aware Lightning latency migration is missing');
 const MIG = migrationText(NAME);

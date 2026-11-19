@@ -1,4 +1,4 @@
--- 20261119174500_a_lightning_wait_is_judged_against_the_pool_that_could_end_it.sql
+-- 20261119174500_lightning_wait_is_judged_against_the_pool_that_could_end_it.sql
 --
 -- A LIGHTNING WAIT IS JUDGED AGAINST THE POOL THAT COULD END IT
 -- (fn_lightning_latency_regression, 2026-11-19)
