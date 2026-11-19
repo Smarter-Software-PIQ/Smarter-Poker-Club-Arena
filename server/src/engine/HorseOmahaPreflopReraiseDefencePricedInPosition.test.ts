@@ -126,7 +126,11 @@ function spot(hole: string, o: SpotOpts): { hero: SeatPlayer; gs: HorseGameState
   );
   const heroBet = bet[o.heroSeat]!;
   const pot = seats.reduce((a, n) => a + bet[n]!, 0);
-  const humanUserIds = players.filter((p) => p.is_horse !== true).map((p) => p.user_id);
+  // the persons of this fixture, by seat: everyone but the deciding Horse and (horse3) the 3-bettor
+  const personSeats = seats.filter(
+    (n) => n !== o.heroSeat && !(n === o.raiserSeat && o.horse3 === true)
+  );
+  const humanUserIds = personSeats.map((n) => (n === o.raiserSeat ? VILLAIN : OTHER(n)));
   const gs = {
     players,
     communityCards: [],
