@@ -69,9 +69,13 @@
 -- fn_ca_commit_hand_settlement_exact_before_obligations and
 -- fn_ca_commit_hand_settlement_before_lease_generation in its 26-function list;
 -- it already answers false on production (read 2026-11-19 in 20261119053909),
--- so its outcome does not change.
+-- so its outcome does not change. public.fn_ca_guard_mtt_admission_contract()
+-- pins fn_ca_process_tournament_chip_purchase_money_v1 in its activation
+-- manifest, read only on the legacy-capacity-v1 -> unlimited-mtt-v2 transition,
+-- which production completed (abi = unlimited-mtt-v2, immutable).
 -- @stale-pin-ok: c555fb7b83c889312995bc0038c1b275 original_hand_correction_sources_match already answers false on production; moving one of its pins would not revive it
 -- @stale-pin-ok: b49192e78f472d7a931bcf20de46a702 original_hand_correction_sources_match already answers false on production; moving one of its pins would not revive it
+-- @stale-pin-ok: 5ae262f9a0cffeb1908172c756ca5bf8 fn_ca_guard_mtt_admission_contract activation manifest; the transition it guards is complete and immutable
 --
 -- @live-proof: (SELECT md5(pg_get_functiondef('public.fn_ca_commit_hand_settlement_exact_before_obligations(uuid,bigint,jsonb,numeric,numeric,text,numeric,jsonb,jsonb,text,uuid)'::regprocedure)) = '95863075b8d44c6177dd893c946cd1b4' AND md5(pg_get_functiondef('public.fn_ca_share_tournament_lane_for_tables(uuid,uuid,uuid[],boolean)'::regprocedure)) = 'da69a271d8cbcf56efdf61740fb4dcca' AND md5(pg_get_functiondef('public.fn_lock_tournament_launch_proof_parents(uuid[])'::regprocedure)) = 'c5cd3f9bd38ad283df7cdff0c572cf17' AND md5(pg_get_functiondef('public.fn_ca_settlement_lane_doctrine()'::regprocedure)) = 'e4ccdf257e371123a198e8a132889fab')
 

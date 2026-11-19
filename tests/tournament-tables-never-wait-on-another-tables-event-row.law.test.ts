@@ -59,6 +59,7 @@ describe('Tournament tables never wait on another table event row (lane E4)', ()
     ).toEqual([
       'c555fb7b83c889312995bc0038c1b275',
       'b49192e78f472d7a931bcf20de46a702',
+      '5ae262f9a0cffeb1908172c756ca5bf8',
     ]);
     expect(migration).toContain(
       '20261119053909 (lane E2) and 20261119054539 (lane E3) must be installed first'
