@@ -289,6 +289,17 @@ REVOKE ALL ON FUNCTION public.fn_ca_hand_gap_watch(timestamptz) FROM PUBLIC, ano
 COMMENT ON FUNCTION public.fn_ca_hand_gap_watch(timestamptz) IS
   'Detector (not a repair): records the 5-minute unintended-delay grade per kind x shape into ca_hand_gap_watch_history and raises one critical financial_alerts row per kind x shape whose p95 is over the engine budget in two consecutive windows (>= 5 graded hands each); auto-resolving. Incident 075013fd lane E5.';
 
+-- Runs the new body once against the live window (the 56 ms grade plus its
+-- own writes) and undoes it, so a body that cannot run never commits.
+-- @probe-for: public.fn_ca_hand_gap_watch
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_hand_gap_watch();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 SELECT cron.schedule('hand-gap-unintended-delay-watch-5m', '1-59/5 * * * *', 'select public.fn_ca_hand_gap_watch()');
 
 COMMIT;
