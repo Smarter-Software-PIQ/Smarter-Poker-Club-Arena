@@ -114,7 +114,7 @@ import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardI
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
-import { omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
+import { omahaSmallBetComparesSize, omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   omahaBetVsCheckEv,
   omahaBetVsCheckOpponents,
@@ -10330,6 +10330,8 @@ function omahaLimpedPotMinBetFloor(
   opts: HorseDecideOpts
 ): HorseDecision {
   if (opts.omahaBigBetIsPotShare !== true || decision.action !== 'bet') return decision;
+  // omahaSmallBetIsPriced owns the size of the bet it placed: this floor was priced against it there (omahaSmallBetRule).
+  if (omahaSmallBetOwns(decision)) return decision;
   const stage = String(gs.stage ?? '');
   if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return decision;
   if (gs.bettingStructure === 'fixed_limit' || gs.allInOrFold === true || gs.wagersCapped === true)
@@ -10364,6 +10366,64 @@ function omahaLimpedPotMinBetFloor(
 }
 
 /**
+ * omahaSmallBetIsPriced, one owner of the size (independent verifier D1/D2/D11, 2026-11-19; owner 2026-11-17 11:49: no blanket
+ * rules, the size of the bet must not make or break the decision). The bet omahaSmallBetRule placed in this decision, with the
+ * read it priced it on: a later size rule (the limped-pot floor, the checked-to undersized-value bet) does not replace it except
+ * through omahaSmallBetComparesSize. `press` is the card-impact press the paired-board value-leader guard (conflict sweep S4)
+ * handed to the small-bet price instead of withholding it by the label. Both are per decision (omahaClearDecisionMemos) and are
+ * only ever set with omahaSmallBetIsPriced on.
+ */
+let omahaSmallBetOwned: { wager: HorseDecision; read: OmahaReadConditional | null } | null = null;
+let omahaSmallBetPress: number | null = null;
+
+/** Is this the bet omahaSmallBetIsPriced placed in this decision (same action and chips)? */
+function omahaSmallBetOwns(decision: HorseDecision): boolean {
+  return (
+    omahaSmallBetOwned !== null &&
+    decision.action === 'bet' &&
+    omahaSameWager(decision, omahaSmallBetOwned.wager)
+  );
+}
+
+/**
+ * A later size rule wants `other` chips where omahaSmallBetIsPriced placed `wager`: it acts only when its size is priced above
+ * the placed bet by the margin on the same model (and no owner-ruled check would check it). True when the rule may act: the wager
+ * is not the owned bet, or the priced comparison takes the other size (the owned wager then becomes that size, so the small-bet
+ * receipt names the final action). Quiet with telemetry off; never throws.
+ */
+function omahaSmallBetYieldsToSize(
+  wager: HorseDecision,
+  other: number,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  taken: () => void,
+  kept: () => void
+): boolean {
+  const owned = omahaSmallBetOwned;
+  if (owned === null || !omahaSmallBetOwns(wager)) return true;
+  let take = false;
+  try {
+    const cmp = omahaSmallBetComparesSize(
+      typeof wager.amount === 'number' ? wager.amount : 0,
+      other,
+      player,
+      gs,
+      owned.read
+    );
+    take =
+      cmp !== null &&
+      cmp.takeOther &&
+      !omahaWagerIsChecked({ ...wager, amount: other }, player, gs, opts);
+  } catch {
+    take = false;
+  }
+  if (telemetryOn(opts)) (take ? taken : kept)();
+  if (take) owned.wager = { ...owned.wager, amount: other };
+  return take;
+}
+
+/**
  * omahaSmallBetIsPriced (PLO Strategy lane 2026-11-18, HorseOmahaSmallBet.ts, default OFF): the owner's check or bet on a
  * PLO4/PLO5 cash heads-up turn or river is priced beside the small bets on the card-impact model with his measured response by
  * pot share; the best small bet replaces it when it is worth more by the margin. An owner-ruled check (the out-of-position and
@@ -10377,6 +10437,8 @@ function omahaSmallBetRule(
   opts: HorseDecideOpts
 ): HorseDecision {
   if (opts.omahaSmallBetIsPriced !== true) return decision;
+  // A bet this rule placed earlier in the decision no longer owns anything once it is asked again.
+  omahaSmallBetOwned = null;
   if (decision.action !== 'check' && decision.action !== 'bet') return decision;
   try {
     const scope = omahaCardImpactScope(player, gs);
@@ -10388,7 +10450,10 @@ function omahaSmallBetRule(
         read = null;
       }
     }
-    const verdict = omahaSmallBetVerdict(decision, player, gs, read);
+    // The press the paired-board guard handed over (omahaCardImpactRule) is priced here beside the small bets.
+    const press = omahaSmallBetPress;
+    omahaSmallBetPress = null;
+    const verdict = omahaSmallBetVerdict(decision, player, gs, read, press);
     if (verdict.changed === null) {
       if (telemetryOn(opts) && scope) {
         if (verdict.kept === 'priced') noteFire('omaha_small_bet_kept');
@@ -10400,20 +10465,50 @@ function omahaSmallBetRule(
       if (telemetryOn(opts)) noteFire('omaha_small_bet_owner_check_kept');
       return decision;
     }
-    // The receipt describes the final action (blockbet review N2): proposed against the bet as the limped-pot
-    // floor will leave it (that floor runs right after this rule), fired when HorseLogic.decide settles.
-    const placed = omahaLimpedPotMinBetFloor(verdict.decision, player, gs, opts);
-    if (telemetryOn(opts)) {
-      const small = verdict.changed === 'small_bet';
-      const made = small
-        ? () => noteFire('omaha_small_bet_priced_bet')
-        : () => noteFire('omaha_small_bet_resized');
-      const vetoed = small
-        ? () => noteFire('omaha_small_bet_priced_bet_vetoed')
-        : () => noteFire('omaha_small_bet_resized_vetoed');
-      omahaProposeReceipt((f) => omahaSameWager(f, placed), made, vetoed);
+    // One owner of the size (verifier D1): the limped-pot floor that runs right after this rule is priced against the bet
+    // placed here, on the same model and curve. Its size replaces the priced bet only when worth more by the margin and no
+    // owner-ruled check would check it (the floored size being checked was how the floor vetoed a priced small bet in
+    // production: hands 60003529, 60007359, 60008585, 60009050, 60028017). The floor then stands aside for the owned bet.
+    let placed = verdict.decision;
+    const floored = omahaLimpedPotMinBetFloor(verdict.decision, player, gs, opts);
+    if (floored !== verdict.decision) {
+      const cmp = omahaSmallBetComparesSize(
+        typeof verdict.decision.amount === 'number' ? verdict.decision.amount : 0,
+        typeof floored.amount === 'number' ? floored.amount : 0,
+        player,
+        gs,
+        read
+      );
+      const take = cmp !== null && cmp.takeOther && !omahaWagerIsChecked(floored, player, gs, opts);
+      if (take) placed = floored;
+      if (telemetryOn(opts))
+        noteFire(
+          take
+            ? 'omaha_small_bet_floor_size_priced_taken'
+            : 'omaha_small_bet_floor_size_priced_kept'
+        );
     }
-    return verdict.decision;
+    const owned = { wager: placed, read };
+    omahaSmallBetOwned = owned;
+    // The receipt describes the final action (blockbet review N2), fired when HorseLogic.decide settles: the owned wager as
+    // it stands then (a later size rule that won its priced comparison moves it).
+    if (telemetryOn(opts)) {
+      const kind = verdict.changed;
+      const made =
+        kind === 'small_bet'
+          ? () => noteFire('omaha_small_bet_priced_bet')
+          : kind === 'press_bet'
+            ? () => noteFire('omaha_small_bet_paired_board_press_bet')
+            : () => noteFire('omaha_small_bet_resized');
+      const vetoed =
+        kind === 'small_bet'
+          ? () => noteFire('omaha_small_bet_priced_bet_vetoed')
+          : kind === 'press_bet'
+            ? () => noteFire('omaha_small_bet_paired_board_press_bet_vetoed')
+            : () => noteFire('omaha_small_bet_resized_vetoed');
+      omahaProposeReceipt((f) => omahaSameWager(f, owned.wager), made, vetoed);
+    }
+    return placed;
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;
@@ -11396,6 +11491,19 @@ function omahaCardImpactRule(
       !omahaPricedOwnsPairedBoardBet(player, gs, opts) &&
       omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader)
     ) {
+      // omahaSmallBetIsPriced (verifier D2/D11): the label does not decide here. The press is handed to the small-bet price,
+      // which runs next on this decision and prices it beside the check and the small bets (one owner, by price). The
+      // decision given stands until then. An all-in press cannot be priced there and is withheld as before.
+      if (
+        opts.omahaSmallBetIsPriced === true &&
+        result.decision.action === 'bet' &&
+        typeof result.decision.amount === 'number' &&
+        result.decision.amount < player.stack - 0.005
+      ) {
+        omahaSmallBetPress = result.decision.amount;
+        if (telemetryOn(opts)) noteFire('omaha_card_impact_paired_board_press_to_small_bet');
+        return decision;
+      }
       if (telemetryOn(opts)) noteFire('omaha_card_impact_paired_board_press_withheld');
       return decision;
     }
@@ -11490,6 +11598,8 @@ let omahaStreetPlanRiverMemo: {
  * keyed by card strings) is cross-decision by design and is not touched.
  */
 function omahaClearDecisionMemos(): void {
+  omahaSmallBetOwned = null;
+  omahaSmallBetPress = null;
   omahaFacingBetEvMemo = null;
   omahaBareOverpairContMemo = null;
   omahaFacingBetEvCountMemo = null;
@@ -11503,6 +11613,8 @@ function omahaClearDecisionMemos(): void {
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
 export function omahaDecisionMemosHeld(): string[] {
   const held: string[] = [];
+  if (omahaSmallBetOwned !== null) held.push('omahaSmallBetOwned');
+  if (omahaSmallBetPress !== null) held.push('omahaSmallBetPress');
   if (omahaFacingBetEvMemo !== null) held.push('omahaFacingBetEvMemo');
   if (omahaBareOverpairContMemo !== null) held.push('omahaBareOverpairContMemo');
   if (omahaFacingBetEvCountMemo !== null) held.push('omahaFacingBetEvCountMemo');
@@ -14831,7 +14943,17 @@ export class HorseLogic {
             !p.is_all_in &&
             p.stack > 0
         ) &&
-        (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs))
+        (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs)) &&
+        // omahaSmallBetIsPriced owns the size of the bet it placed (verifier D1): the half-pot bet replaces it only by price.
+        omahaSmallBetYieldsToSize(
+          finalWager,
+          Math.min(gs.maxRaiseTo!, Math.max(gs.minRaiseTo!, Math.round(gs.pot * 50) / 100)),
+          player,
+          gs,
+          opts,
+          () => noteFire('omaha_small_bet_checked_to_size_priced_taken'),
+          () => noteFire('omaha_small_bet_checked_to_size_priced_kept')
+        )
       ) {
         const amount = Math.min(
           gs.maxRaiseTo!,

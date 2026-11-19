@@ -5017,6 +5017,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_card_impact_paired_board_press_to_small_bet',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact; omahaSmallBetIsPriced on)',
+    'the same paired-board press (paired turn or river, less than a full house, every opponent a measured value leader) is not withheld by the label: with omahaSmallBetIsPriced on it is handed to the small-bet price, which prices it beside the check and the small bets (one owner, by price)',
+    'V94'
+  ),
+  receipt(
     'omaha_card_impact_changed',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
@@ -5061,13 +5067,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_small_bet_priced_bet_vetoed',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
-    'the small bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'the small bet the pricing placed (the limped-pot floor size only where that size won its priced comparison) was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
     'omaha_small_bet_resized_vetoed',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
-    'the resized bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'the resized bet the pricing placed (the limped-pot floor size only where that size won its priced comparison) was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
@@ -5086,6 +5092,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_small_bet_owner_check_kept',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
     "the priced small bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's decision stands",
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_paired_board_press_bet',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
+    "on a paired turn or river with less than a full house against a measured value leader, the card-impact press the label guard (conflict sweep S4) would have withheld was priced beside the check and the small bets and beat the owner's decision by the margin; it is the final action",
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_paired_board_press_bet_vetoed',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
+    'the paired-board press the small-bet price chose was replaced by a later rule before the decision was final',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_floor_size_priced_taken',
+    'HorseLogic omahaSmallBetRule (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced; omahaBigBetIsPotShare limped-pot floor)',
+    'the limped-pot minimum bet would lift the priced small bet: its size was priced beside the small bet on the same model, was worth more by the margin and no owner-ruled check checks it, so the floor size is placed',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_floor_size_priced_kept',
+    'HorseLogic omahaSmallBetRule (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced; omahaBigBetIsPotShare limped-pot floor)',
+    'the limped-pot minimum bet would lift the priced small bet, but its size was not worth more by the margin on the same model (or an owner-ruled check checks it, or it could not be priced): the priced small bet stands and the floor stands aside',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_checked_to_size_priced_taken',
+    'HorseLogic wager_rules checked-to undersized-value bet (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced)',
+    'the checked-to boat / one-pair-above-flush half-pot bet would replace the priced small bet: the half-pot size was priced beside it on the same model, was worth more by the margin and no owner-ruled check checks it, so it is bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_checked_to_size_priced_kept',
+    'HorseLogic wager_rules checked-to undersized-value bet (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced)',
+    'the checked-to half-pot bet would replace the priced small bet, but its size was not worth more by the margin on the same model (or an owner-ruled check checks it, or it could not be priced): the priced small bet stands',
     'V94'
   ),
   receipt(

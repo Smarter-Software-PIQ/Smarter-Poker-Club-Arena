@@ -15,6 +15,12 @@
  *
  * Unpriced spots (the flop, multiway, the model returns nothing) keep the owner's decision (reason 'unpriced'). Pure: no fires,
  * no writes, no random draws (the card-impact sample is seeded by the cards and seats).
+ *
+ * One owner of the size (independent verifier D1/D2/D11, 2026-11-19): when this rule has placed a bet, it is the one owner of that
+ * bet's size. A later size rule (the limped-pot minimum bet, the checked-to undersized-value bet) replaces it only through
+ * omahaSmallBetComparesSize: its size priced beside the placed bet on this same model and curve, taken only when worth more by
+ * the margin. The card-impact press that the paired-board value-leader guard (conflict sweep S4) would withhold by an opponent
+ * label is handed here instead (`press`) and priced beside the check and the small bets: a price, not the label, decides it.
  */
 import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
@@ -105,8 +111,9 @@ export function omahaSmallBetAmounts(hero: SeatPlayer, gs: HorseGameStateV2): nu
 export interface OmahaSmallBetVerdict {
   /** the decision to play: the owner's, or the small bet */
   decision: HorseDecision;
-  /** 'small_bet': a check became a small bet; 'resized': a bet became a smaller one; null: the owner's decision stands */
-  changed: 'small_bet' | 'resized' | null;
+  /** 'small_bet': a check became a small bet; 'resized': a bet became a smaller one; 'press_bet': the card-impact press handed
+   *  over by the paired-board guard (`press`) was priced best; null: the owner's decision stands */
+  changed: 'small_bet' | 'resized' | 'press_bet' | null;
   /** why the owner's decision stands: priced and not beaten, nut class, all-in, or not priceable here */
   kept: 'priced' | 'nut_class' | 'all_in' | 'unpriced' | null;
   evOwner: number | null;
@@ -114,14 +121,43 @@ export interface OmahaSmallBetVerdict {
   margin: number;
 }
 
+/** One run of the card-impact model with the small-bet response curve, pricing `amounts` (shared by the verdict and the size
+ *  comparison so both read the same sample and the same curve). */
+function omahaSmallBetImpact(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  scope: NonNullable<ReturnType<typeof omahaCardImpactScope>>,
+  impactRead: OmahaCardImpactRead,
+  curve: OmahaCardImpactResponseCurve,
+  amounts: number[]
+) {
+  return omahaCardImpact({
+    hole: hero.cards,
+    board: gs.communityCards ?? [],
+    dead: hero.knownDeadCards ?? [],
+    pot: gs.pot,
+    heroStack: hero.stack,
+    oppStack: scope.opponent.stack,
+    heroCloses: scope.heroCloses,
+    line: omahaCardImpactLine(hero, scope.opponent, gs),
+    read: impactRead,
+    amounts,
+    seedSalt: scope.opponent.seat * 16 + hero.seat,
+    responseAt: curve,
+  });
+}
+
 /**
- * The verdict. `read` is the pooled read of the opponent as the card-impact rule takes it (null: the model's priors).
+ * The verdict. `read` is the pooled read of the opponent as the card-impact rule takes it (null: the model's priors). `press`
+ * (default null) is the card-impact press bet the paired-board guard handed to this rule: priced as one more candidate beside the
+ * small bets, whatever its size. With `press` null the verdict is exactly the small-bet verdict.
  */
 export function omahaSmallBetVerdict(
   decision: HorseDecision,
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  read: OmahaReadConditional | null
+  read: OmahaReadConditional | null,
+  press: number | null = null
 ): OmahaSmallBetVerdict {
   const keep = (kept: OmahaSmallBetVerdict['kept'], evOwner: number | null = null) => ({
     decision,
@@ -144,7 +180,15 @@ export function omahaSmallBetVerdict(
   const small = omahaSmallBetAmounts(hero, gs).filter(
     (a) => decision.action === 'check' || a < ownerAmount - 0.005
   );
-  if (small.length === 0) return keep('unpriced');
+  const pressAmount =
+    press !== null &&
+    fin(press) &&
+    press > 0 &&
+    press < hero.stack - 0.005 &&
+    Math.abs(press - ownerAmount) >= 0.006
+      ? round2(press)
+      : null;
+  if (small.length === 0 && pressAmount === null) return keep('unpriced');
   const variant = String(gs.gameVariant ?? '').toLowerCase();
   const impactRead = omahaCardImpactRead(read);
   const curve = omahaSmallBetCurve(
@@ -157,20 +201,9 @@ export function omahaSmallBetVerdict(
   const base = omahaCardImpactAmounts(hero, scope.opponent, gs);
   const amounts = [...(ownerAmount > 0 ? [ownerAmount] : []), ...base];
   for (const a of small) if (!amounts.some((x) => Math.abs(x - a) < 0.006)) amounts.push(a);
-  const impact = omahaCardImpact({
-    hole: hero.cards,
-    board: gs.communityCards ?? [],
-    dead: hero.knownDeadCards ?? [],
-    pot: gs.pot,
-    heroStack: hero.stack,
-    oppStack: scope.opponent.stack,
-    heroCloses: scope.heroCloses,
-    line: omahaCardImpactLine(hero, scope.opponent, gs),
-    read: impactRead,
-    amounts,
-    seedSalt: scope.opponent.seat * 16 + hero.seat,
-    responseAt: curve,
-  });
+  if (pressAmount !== null && !amounts.some((x) => Math.abs(x - pressAmount) < 0.006))
+    amounts.push(pressAmount);
+  const impact = omahaSmallBetImpact(hero, gs, scope, impactRead, curve, amounts);
   if (!impact) return keep('unpriced');
   const owner =
     decision.action === 'check'
@@ -180,8 +213,13 @@ export function omahaSmallBetVerdict(
         );
   if (!owner) return keep('unpriced');
   let best: OmahaCardImpactOption | null = null;
+  const isSmall = (amount: number): boolean => small.some((a) => Math.abs(a - amount) < 0.006);
   for (const o of impact.options) {
-    if (o.action !== 'bet' || !small.some((a) => Math.abs(a - o.amount) < 0.006)) continue;
+    if (
+      o.action !== 'bet' ||
+      !(isSmall(o.amount) || (pressAmount !== null && Math.abs(pressAmount - o.amount) < 0.006))
+    )
+      continue;
     if (!best || o.ev > best.ev) best = o;
   }
   const margin = round2(OMAHA_PRICED_SAMPLED_MARGIN * gs.pot);
@@ -189,10 +227,60 @@ export function omahaSmallBetVerdict(
     return { decision, changed: null, kept: 'priced', evOwner: owner.ev, best, margin };
   return {
     decision: { ...decision, action: 'bet', amount: best.amount },
-    changed: decision.action === 'check' ? 'small_bet' : 'resized',
+    changed: !isSmall(best.amount)
+      ? 'press_bet'
+      : decision.action === 'check'
+        ? 'small_bet'
+        : 'resized',
     kept: null,
     evOwner: owner.ev,
     best,
     margin,
   };
+}
+
+/** The comparison a later size rule must win to replace the bet this rule placed. */
+export interface OmahaSmallBetSizeComparison {
+  evPlaced: number;
+  evOther: number;
+  margin: number;
+  /** the other size is worth more than the placed bet by the margin */
+  takeOther: boolean;
+}
+
+/**
+ * A later size rule (the limped-pot minimum bet, the checked-to undersized-value bet) proposes `other` chips where this rule placed
+ * a bet of `placed` chips: both are priced on the same card-impact sample with the same measured response curve, and the other size
+ * replaces the placed bet only when it is worth more by OMAHA_PRICED_SAMPLED_MARGIN of the pot. Null when the spot cannot be
+ * priced (out of the card-impact scope, no curve, the model returns nothing): the placed bet then stands. Pure.
+ */
+export function omahaSmallBetComparesSize(
+  placed: number,
+  other: number,
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  read: OmahaReadConditional | null
+): OmahaSmallBetSizeComparison | null {
+  if (!fin(placed) || !(placed > 0) || !fin(other) || !(other > 0)) return null;
+  const scope = omahaCardImpactScope(hero, gs);
+  if (!scope) return null;
+  const impactRead = omahaCardImpactRead(read);
+  const curve = omahaSmallBetCurve(
+    String(gs.gameVariant ?? '').toLowerCase(),
+    scope.street,
+    scope.opponent.is_horse === true,
+    impactRead
+  );
+  if (!curve) return null;
+  const a = round2(Math.min(placed, hero.stack));
+  const b = round2(Math.min(other, hero.stack));
+  const impact = omahaSmallBetImpact(hero, gs, scope, impactRead, curve, [a, b]);
+  if (!impact) return null;
+  const at = (x: number) =>
+    impact.options.find((o) => o.action !== 'check' && Math.abs(o.amount - x) < 0.006);
+  const p = at(a);
+  const o = at(b);
+  if (!p || !o) return null;
+  const margin = round2(OMAHA_PRICED_SAMPLED_MARGIN * gs.pot);
+  return { evPlaced: p.ev, evOther: o.ev, margin, takeOther: o.ev >= p.ev + margin };
 }
