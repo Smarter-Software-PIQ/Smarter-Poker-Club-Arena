@@ -2663,6 +2663,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNutClassValueSize: true },
     b: {},
   })),
+  // 2026-11-19 (WooWoo audit NUT-SIZE): omahaValueSizeIsUnreadable, default OFF: a nut-class full-pot
+  // wager stays the full pot at the measured street share, else is sized in the owner's 80-95% band.
+  // Both arms carry omahaNutClassValueSize (on in production by release default); arm a adds the option.
+  // Same league state caveat as the card above. Declared; not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_value_size_is_unreadable`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaNutClassValueSize: true, omahaValueSizeIsUnreadable: true },
+    b: { omahaNutClassValueSize: true },
+  })),
   // 2026-11-15 HV31 FLOP-5 D1 HEADS-UP POSTFLOP BALANCE
   // (holdemHeadsUpPostflopBalance, default OFF): a switches on the heads-up
   // in-position hold'em c-bet, check-raise defence and turn balance
@@ -2973,6 +2985,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 (THREEBET-2): omahaPreflopReraiseDefencePricedInPosition, default OFF: the same priced
+  // decision, only for a Horse that opened and is heads-up in position against one 3-bet. Both arms carry
+  // production's live set, arm a adds the option. Declared; not run.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_preflop_reraise_defence_priced_in_position`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaPreflopReraiseDefencePricedInPosition: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
   // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):

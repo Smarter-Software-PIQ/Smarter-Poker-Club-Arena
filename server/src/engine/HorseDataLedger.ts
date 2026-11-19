@@ -960,6 +960,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPreflopReraiseDefencePricedInPosition',
+    "THREEBET-2 lane 2026-11-19 (WooWoo audit THREEBET-DEFENCE, measured 2026-11-11..19: a Horse that opened and is in position against one player's 3-bet, heads-up, folded hands with 0.484 mean equity against that player's recorded 3-bet range at a 0.31 price; 148 of 149 of those folds were +EV calls at the lower end of the measured in-position realization 0.82, +4.1 bb each). The companion scope of omahaPreflopReraiseDefencePriced, which stays off-only under the owner preflop hold: only where the Horse opened, faces exactly one PERSON's 3-bet (gs.humanUserIds, else the seat's is_horse) with everyone else folded and acts after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition; one seat-order definition on table cash and fast-table cash; never a tournament), and only when the decision with this option off is a FOLD, the fold becomes a CALL when that option's priced verdict is a call (equity against the 3-bettor's measured re-raise width, measured realization, price after rake; one owner per cell: where the re-raised-pot call cell judges, the fold stands). It never makes a fold, never changes a call, a 4-bet or any other decision, and never invents a raise. Every out-of-position decision, every multiway one, a 4-bet, a cold 3-bet and a Horse's 3-bet are exactly as with this off. Default OFF (read === true) until its declared evaluation passes; switchable on and off (preflop hold lifted for this name alone, HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).",
+    'V94'
+  ),
+  flag(
     'omahaReraiseRangeOutOfPosition',
     'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges out of position must be capped): a PLO4/PLO5 cash preflop raise that would be the 3-bet or the 4-bet stands, when the Horse will be out of position against the player it re-raises or against a caller in the pot who acts again, only with suited aces, any aces when the re-raise commits (stack-to-pot ratio once it is called at or under 1), or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better). Every other hand calls instead; the call of a 3-bet is judged by the calling rule of omahaOopReraisedPotStrongRange, the call of a single raise stands for a coordinated hand, aces, or equity clearing the price plus the realization margin, and otherwise folds. Blind against blind keeps the ranges of today. Applied outermost, after the VPIP floor and the maniac-pressure paths. Switched separately from omahaReraiseRangeEarlyPosition. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -1257,6 +1262,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
+    'V94'
+  ),
+  flag(
+    'omahaValueSizeIsUnreadable',
+    'WooWoo audit NUT-SIZE lane 2026-11-19 (owner 2026-11-18 23:00 Chicago: "HORSES NEED TO VARY THERE BETS WITH THE NUTS, NOT FULL PUT EVERY TIME, BUT LIKE 80-95% POT"; measured 2026-11-05..19, PLO4/PLO5 cash, 11,741 Horse postflop wagers: a full-pot wager was the exact nuts 55.0% (n 1,280) against 11.9% at 80-95% of the pot (n 2,091), river 57.5% against 2.2%). PLO4/PLO5 cash (table and fast-table cash, never a tournament), pot limit, high only, one board, no bomb pot, postflop (HorseOmahaValueSizeBand.ts): a bet or raise that is already the full pot (95% of the pot-limit increment or more) with a nut-class hand (omahaNutClassNow or the exact river nuts), when the pot-limit maximum is not the whole stack, stays the full pot with the measured street share (flop 0.094, turn 0.509, river 0.469: the share that makes the nut share of the full pot equal that of the 80-95% band) and otherwise is sized uniformly in 80-95% of the pot increment, never under the legal minimum, never over the pot-limit maximum, never the whole stack and never larger than before; two draws from the decision derived stream (read, never advanced). Every non-nut wager, check, call, fold and all-in is unchanged. The last step of the wager_rules node; the table commit guards (riverNutsRaise, fullPotNearPotWager) and the river value alarm keep an accepted band wager. Default OFF (read === true) until its declared evaluation passes',
     'V94'
   ),
   flag(
@@ -4674,6 +4684,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_beaten_river_no_value_bet',
     'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
     'a river bet with a made hand a possible straight or flush beats, into a player who bet or raised a street on which it was already possible: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_size_band_applied',
+    'HorseLogic wager_rules (HorseOmahaValueSizeBand, omahaValueSizeIsUnreadable)',
+    'a PLO4/PLO5 cash full-pot bet or raise with a nut-class hand was sized in the owner 80-95% pot band',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_size_full_pot_kept',
+    'HorseLogic wager_rules (HorseOmahaValueSizeBand, omahaValueSizeIsUnreadable)',
+    'a PLO4/PLO5 cash full-pot bet or raise with a nut-class hand stayed the full pot at the measured street share (valid no-change)',
     'V94'
   ),
   receipt(
