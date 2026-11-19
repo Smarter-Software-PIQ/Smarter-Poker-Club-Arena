@@ -87,11 +87,11 @@ SET LOCAL statement_timeout = '60s';
 
 DO $requires$
 BEGIN
-  IF md5(pg_get_functiondef('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'::regprocedure)) <> 'b76daaf8587cca4eeac91ec39e9e7ce3'
-     OR md5(pg_get_functiondef('smarter_private.f06_try_lane(uuid)'::regprocedure)) <> '96ce828d6019c6c18fe660222bbd9feb'
-     OR md5(pg_get_functiondef('smarter_private.tournament_rebuy_lane_held(uuid,uuid)'::regprocedure)) <> 'd32dad9b538f214bdeb224e1596d5416'
-     OR md5(pg_get_functiondef('public.fn_ca_share_tournament_lane_for_rebuy(uuid,uuid)'::regprocedure)) <> '004125787ce2db12d8f3e8d68ab6da94'
-     OR md5(pg_get_functiondef('public.fn_ca_lock_tournament_seat_acquisition(uuid,uuid,uuid)'::regprocedure)) <> '651ddfe7bd5fa4884edae4df0050268a' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'))) IS DISTINCT FROM 'b76daaf8587cca4eeac91ec39e9e7ce3'
+     OR md5(pg_get_functiondef(to_regprocedure('smarter_private.f06_try_lane(uuid)'))) IS DISTINCT FROM '96ce828d6019c6c18fe660222bbd9feb'
+     OR md5(pg_get_functiondef(to_regprocedure('smarter_private.tournament_rebuy_lane_held(uuid,uuid)'))) IS DISTINCT FROM 'd32dad9b538f214bdeb224e1596d5416'
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_ca_share_tournament_lane_for_rebuy(uuid,uuid)'))) IS DISTINCT FROM '004125787ce2db12d8f3e8d68ab6da94'
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_ca_lock_tournament_seat_acquisition(uuid,uuid,uuid)'))) IS DISTINCT FROM '651ddfe7bd5fa4884edae4df0050268a' THEN
     RAISE EXCEPTION 'late registration lane: 20261119011750 (lane R2) must be installed first';
   END IF;
 END $requires$;
@@ -372,7 +372,7 @@ DO $post$
 DECLARE
   v_doctrine jsonb;
 BEGIN
-  IF md5(pg_get_functiondef('public.fn_ca_lock_tournament_registration_acquisition(uuid,uuid)'::regprocedure)) IS DISTINCT FROM '7770f83129207c3a73f534cb5b2aecdc' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_ca_lock_tournament_registration_acquisition(uuid,uuid)'))) IS DISTINCT FROM '7770f83129207c3a73f534cb5b2aecdc' THEN
     RAISE EXCEPTION 'late registration lane: the registration seat root is not its reviewed text';
   END IF;
   v_doctrine := public.fn_ca_settlement_lane_doctrine();
@@ -380,5 +380,76 @@ BEGIN
     RAISE EXCEPTION 'late registration lane: the lane doctrine fails after the change: %', v_doctrine;
   END IF;
 END $post$;
+
+
+-- Each changed body runs once before COMMIT, in a subtransaction it always
+-- undoes (tests/a-migration-proves-its-functions-before-commit.law.test.ts).
+-- An unknown event takes the unchanged seat gate and answers by reason, so
+-- every substituted door executes its new call without touching a live row.
+
+-- @probe-for: public.fn_ca_lock_tournament_registration_acquisition
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_lock_tournament_registration_acquisition(gen_random_uuid(),gen_random_uuid());
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_register_horse_for_tournament
+DO $probe$
+BEGIN
+  PERFORM public.fn_register_horse_for_tournament(gen_random_uuid(),gen_random_uuid(),false);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_register_horse_for_tournament_to_target
+DO $probe$
+BEGIN
+  PERFORM public.fn_register_horse_for_tournament_to_target(gen_random_uuid(),gen_random_uuid(),false,0);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_register_for_tournament
+DO $probe$
+BEGIN
+  PERFORM public.fn_register_for_tournament(gen_random_uuid(),false);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_register_for_tournament_with_ticket
+DO $probe$
+BEGIN
+  PERFORM public.fn_register_for_tournament_with_ticket(gen_random_uuid(),gen_random_uuid());
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_seat_late_registrant
+DO $probe$
+BEGIN
+  PERFORM public.fn_seat_late_registrant(gen_random_uuid(),gen_random_uuid());
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_ca_settlement_lane_doctrine
+DO $probe$
+BEGIN
+  PERFORM public.fn_ca_settlement_lane_doctrine();
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-exempt: public.fn_satellite_target_player_provenance_is_immutable trigger function: not callable directly; the native proof fires it on every late admission
 
 COMMIT;
