@@ -151,6 +151,24 @@ END $m$;
       mod.missingProbes(rewrite(`'fn_bare(uuid)'::regprocedure`) + 'COMMIT;').map((p) => p.fn)
     ).toEqual(['public.fn_bare']);
     expect(
+      mod
+        .missingProbes(rewrite(`to_regprocedure('public.fn_toregproc_args(uuid)')`) + 'COMMIT;')
+        .map((p) => p.fn)
+    ).toEqual(['public.fn_toregproc_args']);
+    expect(
+      mod
+        .missingProbes(rewrite(`to_regproc('smarter_private.fn_toregproc')`) + 'COMMIT;')
+        .map((p) => p.fn)
+    ).toEqual(['smarter_private.fn_toregproc']);
+    expect(
+      mod
+        .missingProbes(rewrite(`CAST('public.fn_cast_proc(uuid)' AS regprocedure)`) + 'COMMIT;')
+        .map((p) => p.fn)
+    ).toEqual(['public.fn_cast_proc']);
+    expect(
+      mod.missingProbes(rewrite(`CAST('fn_cast_bare' AS regproc)`) + 'COMMIT;').map((p) => p.fn)
+    ).toEqual(['public.fn_cast_bare']);
+    expect(
       mod.missingProbes(
         rewrite(`'public.fn_ok(uuid)'::regprocedure`) + probe('public.fn_ok') + 'COMMIT;'
       )

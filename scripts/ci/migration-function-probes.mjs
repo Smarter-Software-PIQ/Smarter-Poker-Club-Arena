@@ -202,19 +202,29 @@ const READ_ONLY_CALLS = new Set(['md5', 'position', 'strpos', 'length']);
 
 /**
  * Functions a migration rewrites from their live text:
- * pg_get_functiondef('schema.fn(args)'::regprocedure | 'schema.fn'::regproc)
+ * pg_get_functiondef('schema.fn(args)'::regprocedure | 'schema.fn'::regproc),
+ * pg_get_functiondef(to_regprocedure('...') | to_regproc('...')), or
+ * pg_get_functiondef(CAST('...' AS regprocedure | regproc))
  * in a file that EXECUTEs dynamic SQL. Unqualified names resolve to public.
  */
 export function rewrittenFunctions(sql) {
-  const code = stripLineComments(sql);
+  const code = stripSqlComments(sql);
   if (!/\bexecute\b/i.test(code)) return [];
-  const re = /pg_get_functiondef\s*\(\s*'\s*(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?\s*(?:\([^']*\))?\s*'\s*::\s*regproc(?:edure)?\b/gi;
+  const fnLit = String.raw`'\s*(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?\s*(?:\([^']*\))?\s*'`;
+  const re = new RegExp(
+    `pg_get_functiondef\\s*\\(\\s*(?:` +
+      `${fnLit}\\s*::\\s*(?:pg_catalog\\.)?regproc(?:edure)?\\b` +
+      `|(?:pg_catalog\\.)?to_regproc(?:edure)?\\s*\\(\\s*${fnLit}\\s*\\)` +
+      `|cast\\s*\\(\\s*${fnLit}\\s+as\\s+(?:pg_catalog\\.)?regproc(?:edure)?\\s*\\)` +
+      `)`,
+    'gi'
+  );
   const out = new Map();
   let m;
   while ((m = re.exec(code))) {
     if (enclosingCalls(code, m.index).some((n) => READ_ONLY_CALLS.has(n))) continue;
-    const schema = (m[1] || 'public').toLowerCase();
-    const name = m[2].toLowerCase();
+    const schema = (m[1] || m[3] || m[5] || 'public').toLowerCase();
+    const name = (m[2] || m[4] || m[6]).toLowerCase();
     const qualified = `${schema}.${name}`;
     const prev = out.get(qualified);
     out.set(qualified, { schema, name, qualified, definedAt: prev ? prev.definedAt : m.index, endsAt: m.index });

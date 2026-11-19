@@ -86,9 +86,11 @@ function declaredRequiredChecks(): string[] {
   const src = readFileSync(resolve(root, 'scripts/ci/apply-main-ruleset.mjs'), 'utf8');
   const m = /const\s+REQUIRED_CHECKS\s*=\s*\[([^\]]*)\]/.exec(src);
   if (!m) throw new Error('apply-main-ruleset.mjs no longer declares REQUIRED_CHECKS');
+  // Strip line comments so quoted words in explanatory comments are not read as check names.
   // Each quote kind closes only itself: "Window migrations install against
   // production's schema" carries an apostrophe inside double quotes.
-  return [...m[1].matchAll(/'([^']*)'|"([^"]*)"|`([^`]*)`/g)].map((x) => x[1] ?? x[2] ?? x[3]);
+  const body = m[1].replace(/\/\/[^\n]*/g, '');
+  return [...body.matchAll(/'([^']*)'|"([^"]*)"|`([^`]*)`/g)].map((x) => x[1] ?? x[2] ?? x[3]);
 }
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -122,6 +124,7 @@ describe('no merge gate without a producer, and no release freeze', () => {
     expect(declared).toContain('Weekly refusal receipt cover');
     // 2026-11-18, incident d2d79c4f: no migration merges unrehearsed against production's schema.
     expect(declared).toContain("Window migrations install against production's schema");
+    expect(declared).toContain("Production's DDL guards pass before merge");
     for (const check of declared) expect(jobs, `required check "${check}"`).toContain(check);
   });
 

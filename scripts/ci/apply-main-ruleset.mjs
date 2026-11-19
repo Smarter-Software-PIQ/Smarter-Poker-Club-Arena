@@ -63,6 +63,9 @@ const REQUIRED_CHECKS = [
   // window-migrations-install-before-merge.yml: every PR reports it; a PR with
   // no migration passes in seconds (2026-11-18, incident d2d79c4f), pinned to GitHub Actions.
   { context: "Window migrations install against production's schema", integration_id: 15368 },
+  // window-migrations-install-before-merge.yml (guards job): every PR reports it;
+  // a PR with no migration passes in seconds, pinned to GitHub Actions.
+  { context: "Production's DDL guards pass before merge", integration_id: 15368 },
 ];
 
 const args = process.argv.slice(2);
