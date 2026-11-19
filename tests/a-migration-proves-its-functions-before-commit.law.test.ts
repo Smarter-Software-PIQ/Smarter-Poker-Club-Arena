@@ -25,6 +25,7 @@ let mod: {
   missingProbes: (sql: string) => Array<{ fn: string; reason: string }>;
   functionsNeedingProbe: (sql: string) => Array<{ qualified: string }>;
   bound: (file: string) => boolean;
+  GRANDFATHERED: Set<string>;
 };
 
 beforeAll(async () => {
@@ -102,6 +103,24 @@ COMMIT;`;
     expect(mod.missingProbes(sql).map((p) => p.fn)).toEqual(['public.fn_late']);
   });
 
+  it('sees a redefinition by rewriting the live text (EXECUTE replace(pg_get_functiondef(...)))', () => {
+    const rewrite = (lit: string) => `BEGIN;
+DO $m$ DECLARE d text;
+BEGIN
+  d := replace(pg_get_functiondef(${lit}), 'a', 'b');
+  EXECUTE d;
+END $m$;
+`;
+    expect(mod.missingProbes(rewrite(`'public.fn_lightning_top_up_request(uuid,uuid,text,numeric)'::regprocedure`) + 'COMMIT;').map((p) => p.fn))
+      .toEqual(['public.fn_lightning_top_up_request']);
+    expect(mod.missingProbes(rewrite(`'smarter_private.fn_r'::regproc`) + 'COMMIT;').map((p) => p.fn)).toEqual(['smarter_private.fn_r']);
+    expect(mod.missingProbes(rewrite(`'fn_bare(uuid)'::regprocedure`) + 'COMMIT;').map((p) => p.fn)).toEqual(['public.fn_bare']);
+    expect(mod.missingProbes(rewrite(`'public.fn_ok(uuid)'::regprocedure`) + probe('public.fn_ok') + 'COMMIT;')).toEqual([]);
+    expect(mod.missingProbes(rewrite(`'auth.fn_other()'::regprocedure`) + 'COMMIT;')).toEqual([]);
+    // Reading a definition without executing anything is not a redefinition.
+    expect(mod.missingProbes(`BEGIN; SELECT md5(pg_get_functiondef('public.fn_read(uuid)'::regprocedure)); COMMIT;`)).toEqual([]);
+  });
+
   it('accepts a named exemption only with a real reason', () => {
     const base = definer('public.fn_ext');
     expect(mod.missingProbes(`BEGIN;${base}\n-- @probe-exempt: public.fn_ext calls dblink to another database\nCOMMIT;`)).toEqual([]);
@@ -110,9 +129,20 @@ COMMIT;`;
 });
 
 describe('every bound migration on this branch proves what it redefines', () => {
-  it('binds forward only, from its own cutoff', () => {
+  it('binds every new file whatever its version; only the frozen pre-law files are exempt', () => {
     expect(mod.bound(`${mod.PROBE_LAW_FROM}_x.sql`)).toBe(true);
+    // A late file carrying an old version is bound (94 open PRs did on 2026-11-19).
+    expect(mod.bound('20261001000000_a_late_file_with_an_old_version.sql')).toBe(true);
     expect(mod.bound('20261118164000_a_deferred_cash_rake_proves_its_club_from_the_dealt_chair.sql')).toBe(false);
+  });
+
+  it('the grandfathered list is frozen: never grows, holds only pre-cutoff files that exist', () => {
+    expect(mod.GRANDFATHERED.size).toBe(6992);
+    const onDisk = new Set(readdirSync(DIR));
+    for (const f of mod.GRANDFATHERED) {
+      expect(f < mod.PROBE_LAW_FROM, f).toBe(true);
+      expect(onDisk.has(f), f).toBe(true);
+    }
   });
 
   it('no bound migration redefines a definer function without a probe', () => {

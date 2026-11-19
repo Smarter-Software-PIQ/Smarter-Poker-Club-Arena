@@ -33,7 +33,7 @@ import {
   potLimitBettingPot,
   isFixedLimitCapped,
 } from './BettingStructure.js';
-import type { GameState } from '../types.js';
+import type { GameState, SeatedPlayer } from '../types.js';
 import { loadSeatedPlayers, loadSeatHoldIdentity } from '../services/supabase.js';
 import type { SeatArrival } from './SeatArrivalDisplay.js';
 import {
@@ -93,12 +93,15 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     for (const p of this.seatedPlayers ?? []) {
       // The hand owns its players until settlement, including a pending exit.
       if (userIds.has(p.user_id) || seats.has(p.seat_number)) continue;
+      // A committed tournament arrival owns the chair of a rostered
+      // nonparticipant the database has already replaced.
+      if (this.committedArrivalReplaces(p)) continue;
       players.push({
         seat: p.seat_number,
         user_id: p.user_id,
         ...this.seatIdentity(p),
         ...this.seatBountyFields(p.user_id),
-        stack: p.stack,
+        stack: this.shownSeatStack(p),
         bet: 0,
         totalInvested: 0,
         cards: [],
@@ -692,12 +695,12 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
       posting_bb_user_ids: Array.from(this.postingBBToEnter),
       pots: [],
       action_history: [],
-      players: (this.seatedPlayers ?? []).map((p) => ({
+      players: this.rosterNotReplacedByArrivals().map((p) => ({
         seat: p.seat_number,
         user_id: p.user_id,
         ...this.seatIdentity(p),
         ...this.seatBountyFields(p.user_id),
-        stack: p.stack,
+        stack: this.shownSeatStack(p),
         bet: 0,
         totalInvested: 0,
         cards: [],
@@ -856,5 +859,155 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     );
     if (verdict.ok || changed) this.publishSeatArrivals();
     return verdict.ok ? { ok: true, expires_at_ms: verdict.expires_at_ms } : verdict;
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // A TOURNAMENT CHAIR IS SHOWN THE MOMENT IT IS TAKEN (Dan 2026-11-18)
+  // ═════════════════════════════════════════════════════════════════════════════
+  //
+  // "WHEN A PLAYER JOINS A TABLE IN BETWEEN THE BLINDS OR ANY OTHER REASON,
+  //  THEIR STACK SHOULD SHOW, IT SHOULD NEVER SAY ZERO."
+  //
+  // A tournament seat is committed by the manager (a balancing move, a table
+  // break) or by the database (late registration, re-entry, a rebuy). This
+  // engine read its roster only at the hand boundary, so for the rest of the
+  // hand in the air, and for the whole of a break, the chair was drawn empty,
+  // or as the busted player who used to sit there, or as its own occupant
+  // with the zero the roster read before the rebuy. The tournament manager
+  // calls showCommittedTournamentSeats() when it knows a row changed; the
+  // browser never does (noteSeatArrival above still refuses a tournament
+  // table). DISPLAY ONLY, exactly as SeatArrivalDisplay: no hand, pot, button,
+  // blind, elimination, bounty or money path reads anything written here, and
+  // seatedPlayers is still replaced only by adoptSeatRoster at the boundary.
+
+  private tournamentSeatShow: Promise<void> | null = null;
+  private tournamentSeatShowAgain = false;
+
+  private handUserIdsNow(): string[] {
+    return (this.handController?.getState().players ?? []).map((p) => p.user_id);
+  }
+
+  private committedArrivalReplaces(p: { user_id: string; seat_number: number }): boolean {
+    return (
+      this.isTournamentTable() && this.seatArrivals.seatedArrivalClaims(p.user_id, p.seat_number)
+    );
+  }
+
+  private rosterNotReplacedByArrivals(): SeatedPlayer[] {
+    const roster = this.seatedPlayers ?? [];
+    if (!this.isTournamentTable()) return roster;
+    return roster.filter((p) => !this.seatArrivals.seatedArrivalClaims(p.user_id, p.seat_number));
+  }
+
+  /** The roster's stack, or the committed chips of a seat the roster still reads as zero. */
+  private shownSeatStack(p: { user_id: string; stack: number }): number {
+    if (p.stack > 0) return p.stack;
+    return this.seatArrivals.committedStack(p.user_id) ?? p.stack;
+  }
+
+  /**
+   * No reads. Would reading this table's committed rows change what it shows?
+   * The manager asks every table with one light read of the whole field, so a
+   * late registration or a rebuy costs one roster read at the table it
+   * touched and none at the others.
+   */
+  public tournamentSeatsNeedShowing(
+    rows: ReadonlyArray<{
+      user_id: string;
+      occupancy_id?: string | null;
+      seat_number: number;
+      stack: number;
+    }>
+  ): boolean {
+    if (!this.tableInfo || !this.running || !this.isTournamentTable()) return false;
+    const roster = new Map((this.seatedPlayers ?? []).map((p) => [p.user_id, p]));
+    for (const row of rows) {
+      const seated = roster.get(row.user_id);
+      if (!seated || seated.occupancy_id !== row.occupancy_id) {
+        if (!this.seatArrivals.holdsCommitted(row)) return true;
+        continue;
+      }
+      if (
+        !(seated.stack > 0) &&
+        row.stack > 0 &&
+        this.seatArrivals.committedStack(row.user_id) !== row.stack
+      ) {
+        return true;
+      }
+    }
+    const held = new Set(rows.map((r) => `${r.user_id}:${r.seat_number}`));
+    return this.seatArrivals
+      .live(Date.now())
+      .some((a) => a.kind === 'seated' && !held.has(`${a.user_id}:${a.seat_number}`));
+  }
+
+  /**
+   * Read this table's committed seat rows and show every one the adopted
+   * roster does not: a new occupant in their chair with their real stack, and
+   * the chips of a seated player the roster still reads as broke. One read in
+   * flight; a request that arrives during it is answered by one more.
+   */
+  public showCommittedTournamentSeats(): Promise<void> {
+    if (!this.tableInfo || !this.running || !this.isTournamentTable()) return Promise.resolve();
+    if (this.tournamentSeatShow) {
+      this.tournamentSeatShowAgain = true;
+      return this.tournamentSeatShow;
+    }
+    const run = (async () => {
+      do {
+        this.tournamentSeatShowAgain = false;
+        await this.showCommittedTournamentSeatsOnce();
+      } while (this.tournamentSeatShowAgain && this.running);
+    })()
+      .catch((err) =>
+        reportError(err, 'ServerTableEngine.' + this.tableId + '.tournament_seat_show_failed')
+      )
+      .finally(() => {
+        if (this.tournamentSeatShow === run) this.tournamentSeatShow = null;
+        this.tournamentSeatShowAgain = false;
+      });
+    this.tournamentSeatShow = run;
+    return run;
+  }
+
+  private async showCommittedTournamentSeatsOnce(): Promise<void> {
+    const rosterAtRead = this.seatedPlayers;
+    const inHandAtRead = this.handUserIdsNow();
+    const settlingAtRead = this.hasSettlementInFlight();
+    const committed = await loadSeatedPlayers(this.tableId);
+    if (!this.tableInfo || !this.running || !this.isTournamentTable()) return;
+    // A stack is only ever shown over a roster zero that this read can speak
+    // for: the same roster, no settlement writing chips, the player in no hand.
+    const rosterIsTheOneRead =
+      this.seatedPlayers === rosterAtRead && !settlingAtRead && !this.hasSettlementInFlight();
+    const inHand = new Set([...inHandAtRead, ...this.handUserIdsNow()]);
+    const roster = new Map((this.seatedPlayers ?? []).map((p) => [p.user_id, p]));
+    let changed = this.seatArrivals.retainCommitted(committed);
+    for (const row of committed) {
+      const seated = roster.get(row.user_id);
+      if (!seated || seated.occupancy_id !== row.occupancy_id) {
+        if (!this.seatArrivals.holdsCommitted(row)) changed = true;
+        this.seatArrivals.confirm({
+          user_id: row.user_id,
+          seat_number: row.seat_number,
+          stack: row.stack,
+          username: row.username,
+          avatar_url: row.avatar_url,
+          equipped_frame: row.equipped_frame,
+          equipped_aura: row.equipped_aura,
+        });
+        continue;
+      }
+      if (
+        rosterIsTheOneRead &&
+        !inHand.has(row.user_id) &&
+        seated.seat_number === row.seat_number &&
+        !(seated.stack > 0) &&
+        this.seatArrivals.showCommittedStack(row.user_id, row.stack)
+      ) {
+        changed = true;
+      }
+    }
+    if (changed) this.publishSeatArrivals();
   }
 }
