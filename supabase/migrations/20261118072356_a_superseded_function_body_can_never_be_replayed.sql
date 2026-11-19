@@ -16,6 +16,9 @@
 -- VERIFIED LIVE 07:24 UTC (rolled-back probe): new body allowed; old body with different
 -- comments/spacing refused (55000); idempotent re-apply allowed; deliberate rollback with the
 -- GUC allowed; re-creating a dropped function's old body refused (55000).
+
+BEGIN;
+
 SET LOCAL statement_timeout = '300s';
 SET LOCAL lock_timeout = '5s';
 
@@ -176,3 +179,5 @@ DO $assert$ BEGIN
              WHERE n.nspname IN ('public','smarter_private') AND l.state <> 'live') THEN
     RAISE EXCEPTION 'ASSERT FAILED: a live body is marked superseded'; END IF;
 END $assert$;
+
+COMMIT;

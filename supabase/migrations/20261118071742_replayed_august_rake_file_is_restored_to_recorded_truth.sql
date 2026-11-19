@@ -14,6 +14,9 @@
 -- 20260909215641), 20260909165629 (unregister wrapper), 20261103064259 (cancel).
 -- REPLAY-SAFE: refuses unless every target is in the stale (replayed) or restored state.
 -- @live-proof: position('fn_recognize_accounting_tournament_fees' in pg_get_functiondef('public.fn_settle_tournament_rake(uuid,text)'::regprocedure)) > 0 AND NOT has_function_privilege('authenticated', 'public.atomic_cancel_tournament(uuid,uuid)', 'EXECUTE') AND NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'process_tournament_rebuy' AND pronamespace = 'public'::regnamespace AND pronargs = 6)
+
+BEGIN;
+
 SET LOCAL lock_timeout='5s';
 
 DO $restore$
@@ -90,3 +93,5 @@ BEGIN
    OR has_function_privilege('anon','public.fn_unregister_from_tournament(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'ASSERT FAILED: restored ACLs are wider than the recorded grants'; END IF;
 END $assert$;
+
+COMMIT;
