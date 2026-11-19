@@ -1,6 +1,6 @@
 # omahaReadIsByStreetAndTexture: authority for the live switch
 
-Built 2026-11-18 by the PLO Strategy lane (readwire). Evidence NOT MET: the declared league evaluation is EQUAL (below), not WIN; the replay bar is MET. This file does not authorize switching the option on: no owner order to switch it on is recorded here. It records what the option is, what was measured and what must pass first.
+Built 2026-11-18 by the PLO Strategy lane (readwire). Evidence MET, thin (2026-11-18): the league on the fixed card at source aff6e088a0c is a WIN (section "League evaluation of the fixed card"); the earlier EQUAL (fb900cf162f) and INVALID (eb30ce7a6f9) runs are superseded; the replay bar is MET (reconstructed read). Production reach needs the stored street record (migration 20261117175407, installed). Any switch-on is the PLO lane lead's decision (owner 2026-11-17 18:01 America/Chicago), and only once the engine serving production (`/health` releaseSha) is a build that contains this option and this file; until then no option-switch row may name it (the 2026-11-18T15:37Z hazard: a row for an option the serving build does not know invalidates the whole switch set); this file records the evidence for that decision. It records what the option is, what was measured and what must pass first.
 
 ## What it does
 
@@ -45,6 +45,10 @@ omaha_read_by_street_carried (a postflop decision with the mode on in which a li
 
 ## Evaluation
 
+### The first league (fb900cf162f): EQUAL, superseded
+
+Superseded by the league of the fixed card below: this run was on the source before the review R2 B1 fix (section "Batch integration").
+
 Declared before it ran: archive `readwire-013U37/PASS-BAR.md` (written 2026-11-18T02:05Z; launched 03:07:52Z on commit fb900cf162f in a detached worktree, `RUN-SOURCE.txt`; engine file sha256 unchanged at the end). Arm A: the 2026-11-16 production list (activation-0106z/ON-LIST.txt) + omahaTurnRiverRaiseIsPriced + this option; arm B the same without it. runMatchup, duplicate deals, six seats, 100 big blinds, cash, EQUITY_GOVERNOR=off; the league learns the street read in each session's sandbox (`HorseLeagueStreetRead.ts`). Result (archive `readwire-013U37/RESULT.json`, per-session lines in `eval/`):
 
 | cell | table                                          | sessions x pairs | A minus B, bb/100 | SE   | z     | divergent pairs |
@@ -58,11 +62,29 @@ Pooled: human-like -0.23 bb/100, SE 0.18; Horse-only +0.22 bb/100, SE 0.11. Vali
 
 ## League card (fixed 2026-11-18)
 
-League cards (HorseLeague.ts, declared): plo4_omaha_read_is_by_street_and_texture and plo5_omaha_read_is_by_street_and_texture: both arms carry the live production set (the 2026-11-16 live options, `OMAHA_LIVE_OPTIONS_20261116`, plus omahaTurnRiverRaiseIsPriced, on since 2026-11-18 11:54Z), arm A adds omahaReadIsByStreetAndTexture. This is the base the replay and the first (fb900cf162f) league above used. The card as merged in #11277 (86ab7637d9e) was arm A `{ omahaReadIsByStreetAndTexture: true }` against `{}`: the option only re-routes reads other options consume, all off in that base, so its evaluation on eb30ce7a6f9 (archive `evals-013U37/omahaReadIsByStreetAndTexture/`, 1,000 sessions) measured 0 divergent pairs in every cell and is INVALID (inert card), not a result about the option. `ADefaultOffFlagHasALeagueCard.law.test.ts` now refuses a card for this option (and the other read-only options) unless a consumer of its read is on in both arms. No league has run on the fixed card or on the B1-fixed source.
+League cards (HorseLeague.ts, declared): plo4_omaha_read_is_by_street_and_texture and plo5_omaha_read_is_by_street_and_texture: both arms carry the live production set (the 2026-11-16 live options, `OMAHA_LIVE_OPTIONS_20261116`, plus omahaTurnRiverRaiseIsPriced, on since 2026-11-18 11:54Z), arm A adds omahaReadIsByStreetAndTexture. This is the base the replay and the first (fb900cf162f) league above used. The card as merged in #11277 (86ab7637d9e) was arm A `{ omahaReadIsByStreetAndTexture: true }` against `{}`: the option only re-routes reads other options consume, all off in that base, so its evaluation on eb30ce7a6f9 (archive `evals-013U37/omahaReadIsByStreetAndTexture/`, 1,000 sessions) measured 0 divergent pairs in every cell and is INVALID (inert card), not a result about the option. `ADefaultOffFlagHasALeagueCard.law.test.ts` now refuses a card for this option (and the other read-only options) unless a consumer of its read is on in both arms. The league of the fixed card on the B1-fixed source is below.
+
+## League evaluation of the fixed card (source aff6e088a0c, 2026-11-18)
+
+Declared before it ran: archive `plo-handoff-review-01a1cbbd/evals-013U37/omahaReadIsByStreetAndTexture-aff6e088a0c/PASS-BAR.md` (WIN: no cell and neither pooled z below -2, and F4 or F5 z above +2). Launched 2026-11-18T14:02:56Z, finished 14:23:36Z, on a detached checkout of aff6e088a0cf083618a130133ca7e504da47e071 (0 dirty files; sha256 equal at start and end). Arms from the fixed cards plo4/plo5_omaha_read_is_by_street_and_texture: B = `OMAHA_LIVE_OPTIONS_20261118`, A = B + omahaReadIsByStreetAndTexture. Seeds field mix(6320000 + i), mirror mix(6325000 + i). Results: `RESULTS.md` in that folder. A minus B, bb/100:
+
+| cell | table                                          | sessions x pairs | A - B, bb/100 | SE    | z     | divergent pairs | inert sessions |
+| ---- | ---------------------------------------------- | ---------------- | ------------- | ----- | ----- | --------------- | -------------- |
+| F4   | PLO4, one Horse vs five human-calibrated seats | 400 x 500        | +0.635        | 0.275 | +2.30 | 72              | 346            |
+| F5   | PLO5, the same                                 | 400 x 500        | +0.086        | 0.239 | +0.36 | 72              | 342            |
+| M4   | PLO4, Horse-only, production styles            | 100 x 500        | +0.484        | 0.264 | +1.84 | 972             | 8              |
+| M5   | PLO5, the same                                 | 100 x 500        | +0.131        | 0.255 | +0.51 | 736             | 16             |
+
+Pooled: human-like +0.360 bb/100, SE 0.182 (z +1.98); Horse-only +0.307 bb/100, SE 0.184 (z +1.68). Valid: every session present, 0 illegal, 0 truncated, 0 fallbacks, 8 processes exit 0. Verdict under the bar: WIN. It is thin: only F4 is above +2 SE, on 72 divergent pairs (346 of its 400 sessions inert); no cell and no pooled figure is negative. The human-like field does not change its play by street, so the option rarely moves a decision there.
+
+Main since that source: the option's files (`HorseOmahaReadByStreet.ts`, `HorseOmahaReadByStreetMode.ts`, `HorseOmahaReadByStreetRule.ts`, `HorseLeagueStreetRead.ts`) are byte-identical to the evaluated source; `HorseLogic.ts`, `HorseMind.ts` and `HorseLeague.ts` changed after it (#11287, #11290; see omahaSmallBetIsPriced.md). Not re-measured on that base.
 
 ## Evidence rows
 
-Value row: NOT MET (league EQUAL, not WIN). Replay row: MET (above). Reach row: NOT MET in production (migration 20261117175407 not installed; no stored street record exists). Recommendation of the lane at this evidence: do not switch on until the stored street record exists in production and a measurement against live opponents is possible; it is byte-identical until then.
+- Value (league): MET, thin (WIN on the fixed card at aff6e088a0c, above). The EQUAL run (fb900cf162f, before the B1 fix) and the INVALID run (eb30ce7a6f9, inert card) are superseded.
+- Replay row: MET (above; reconstructed read, not the production read at decision time).
+- Reach row: migration 20261117175407 (the stored street record) is installed. Production reach begins when a build that writes and reads the street record serves and its cells fill; not yet counted in production. With the option on and no street record every decision is byte-identical.
+- Overall: evidence MET (thin). Switch-on is the PLO lane lead's decision, and only once the engine serving production (`/health` releaseSha) is a build that contains this option and this file; until then no option-switch row may name it (the 2026-11-18T15:37Z hazard: a row for an option the serving build does not know invalidates the whole switch set). Rollback: the switch row off.
 
 ## Limits
 
@@ -70,5 +92,9 @@ The league's human-like field does not change its play by street the way the mea
 
 ## Batch integration 2026-11-18 (PLO option batch, agent/plo-batch-013U37/feat/omaha-option-batch)
 
-Review R2 B1 of readwire 6f5d5ff8dcf, fixed in the batch: the street bet and fold-to-bet cells were tested against ALL-STREET means and shrunk toward all-street posteriors, and a street bet rate was divided by the all-street mean, so an exactly average player flipped label and bluff share by street. Each mean and each shrink prior is now carried to the street by the population's street-to-pooled ratio (`omahaStreetScale`, from priced2's measured Horse kind prior; the envelope means are the Horse population's), in `omahaStreetValueLeader` and `omahaStreetBetRate`. Test: HorseOmahaReadByStreet.test.ts ("a population-average player reads the same on every street"). **The EQUAL league above was measured on fb900cf162f, before this fix.** No league yet on the fixed source; do not switch on without a WIN.
+Review R2 B1 of readwire 6f5d5ff8dcf, fixed in the batch: the street bet and fold-to-bet cells were tested against ALL-STREET means and shrunk toward all-street posteriors, and a street bet rate was divided by the all-street mean, so an exactly average player flipped label and bluff share by street. Each mean and each shrink prior is now carried to the street by the population's street-to-pooled ratio (`omahaStreetScale`, from priced2's measured Horse kind prior; the envelope means are the Horse population's), in `omahaStreetValueLeader` and `omahaStreetBetRate`. Test: HorseOmahaReadByStreet.test.ts ("a population-average player reads the same on every street"). **The EQUAL league above was measured on fb900cf162f, before this fix.** The league on the fixed source (aff6e088a0c) is a WIN, thin (section "League evaluation of the fixed card").
 Note N3: OMAHA_PRICED_SHRINK and priced2's OMAHA_PRICED_READ_PRIOR_STRENGTH are two shrink constants for related reads (not merged here).
+
+## Switch-on hold: minimum-raise ladder (2026-11-19, plo-truncation-013U37)
+
+With omahaSmallBetIsPriced and omahaTurnRiverRaiseIsPriced on (both live), this option at f3e99378ccbb produced a Horse-vs-Horse minimum-raise ladder (BLANKET-LOO-1 Horse-only cells; HORSE SWITCH lane inbox 2026-11-19T00:32:26Z). The defect was in the consumer (omahaTurnRiverRaiseIsPriced read the fold-to-raise cell as the fold to every raise size; see that file, same date). The league WIN above was measured without omahaSmallBetIsPriced in the base and before that fix: switch-on needs a build carrying the fix and a Horse-only mirror cell on the full live base with truncated 0.

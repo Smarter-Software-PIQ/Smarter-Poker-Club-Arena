@@ -25,6 +25,12 @@
 #             sends only to that throwaway database.
 # The archive lives one day as a private artifact of this run.
 #
+#   guards    no environment, no secret: the same restore with production's
+#             event triggers and the rows they read put back, then every
+#             migration the branch adds or changes through them and the
+#             applier's own stale-pin guard, with a static fallback on
+#             production's own classifiers (2026-11-18, incident 075013fd).
+#
 # NOT A SCHEDULE, NOT A WATCHER: one answer per pull-request event. It repairs
 # and installs nothing in production.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -126,6 +132,51 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # What production's DDL guards read, in its OWN job: a failure here makes
+  # only the `guards` verdict UNKNOWN and never touches `rehearse`. Constant SQL
+  # from the default branch (migration-guards-capture.mjs), read-only, about
+  # 0.5 s on production 2026-11-18. The repository is public and so are this
+  # run's artifacts: nothing is captured but function md5s, (pinner, current
+  # md5) pairs, the event-trigger list, the two guard tables the triggers read
+  # and the recorded migration names.
+  capture-guards:
+    name: Capture what production's DDL guards read (read-only)
+    needs: scope
+    if: needs.scope.outputs.rehearse == 'true' && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the default branch (never the pull request head)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/migration-guards-capture.mjs
+          sparse-checkout-cone-mode: false
+      - name: Read what production's DDL guards read (read-only, short reads)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/guards"
+          node scripts/ci/migration-guards-capture.mjs list | while read -r name file; do
+            node scripts/ci/migration-guards-capture.mjs sql "$name" \
+              | PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=15s' \
+                psql "$DATABASE_URL" -X -q -A -t -F $'\t' -v ON_ERROR_STOP=1 \
+                > "$RUNNER_TEMP/guards/$file"
+          done
+          [ "$(wc -l < "$RUNNER_TEMP/guards/guards-catalog.tsv")" -gt 100 ]
+          [ -s "$RUNNER_TEMP/guards/guards-event-triggers.tsv" ]
+          [ "$(grep -cE '^[0-9]{14}' "$RUNNER_TEMP/guards/installed-names.tsv")" -gt 100 ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ddl-guards-capture
+          path: ${{ runner.temp }}/guards
+          if-no-files-found: error
+          retention-days: 1
+
   rehearse:
     name: Window migrations install against production's schema
     needs: [scope, capture]
@@ -149,11 +200,17 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      # By exact name: window-rehearsal-* also matches the evidence artifact,
+      # which holds SQL from the pull request.
       - uses: actions/download-artifact@v4
         if: needs.scope.outputs.rehearse == 'true'
         with:
-          pattern: window-rehearsal-*
-          merge-multiple: true
+          name: window-rehearsal-schema
+          path: ${{ runner.temp }}/in
+      - uses: actions/download-artifact@v4
+        if: needs.scope.outputs.rehearse == 'true'
+        with:
+          name: window-rehearsal-changed
           path: ${{ runner.temp }}/in
       - name: Overlay the pull request's migration files (data only)
         if: needs.scope.outputs.rehearse == 'true'
@@ -169,6 +226,12 @@ jobs:
             [[ "$path" =~ ^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$ ]] || continue
             gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/$path?ref=$HEAD_SHA" > "$RUNNER_TEMP/mig/${path#supabase/migrations/}"
           done < "$RUNNER_TEMP/in/changed.txt"
+      # Which uninstalled files are pending rather than history: the git half
+      # of window-queue-rehearsal.mjs isPending (a late merge with an old stamp
+      # is pending however old the stamp).
+      - name: Which migrations reached main recently
+        if: needs.scope.outputs.rehearse == 'true'
+        run: bash scripts/ci/migrations-added-recently.sh 14 > "$RUNNER_TEMP/recently-added.txt"
       - name: Restore production's schema into a throwaway database
         if: needs.scope.outputs.rehearse == 'true'
         run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" window-rehearsal-db
@@ -179,12 +242,124 @@ jobs:
           MIG_DIR: ${{ runner.temp }}/mig
           INSTALLED: ${{ runner.temp }}/in/installed.txt
           CHANGED: ${{ runner.temp }}/in/changed.txt
+          RECENTLY_ADDED: ${{ runner.temp }}/recently-added.txt
           EVIDENCE: ${{ runner.temp }}/evidence
         run: bash scripts/ci/rehearse-window-queue.sh
+      # Every PL/pgSQL function the pull request's migrations define, checked
+      # statically against the copy it just installed into (incident d2d79c4f:
+      # a body that installs is not a body that runs).
+      - name: plpgsql_check passes every function this pull request defines
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
+          MIG_DIR: ${{ runner.temp }}/mig
+          CHANGED: ${{ runner.temp }}/in/changed.txt
+        run: bash scripts/ci/plpgsql-check-changed.sh
       - uses: actions/upload-artifact@v4
         if: always() && needs.scope.outputs.rehearse == 'true'
         with:
           name: window-rehearsal-evidence
           path: ${{ runner.temp }}/evidence
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # A MIGRATION PASSES PRODUCTION'S DDL GUARDS BEFORE IT MERGES (2026-11-18,
+  # incident 075013fd). Two merged files passed every check and were refused at
+  # install by guards that exist only on production: #11256's 20261118034950
+  # by the applier's stale-pin guard (55000) and #11266's 20261118071728 by
+  # the event trigger ab_ca_money_rpc_registered (42501). A schema-only
+  # archive taken with -n carries neither the event triggers nor the rows they
+  # read, so the window rehearsal could not see them. This job restores its own
+  # copy, loads the guards' rows, re-creates production's event triggers
+  # (except the wall-clock break-window guard), and installs every migration
+  # the branch adds or changes through the applier's own stale-pin guard; a
+  # file that cannot install on an empty schema is judged by production's own
+  # classifiers instead (scripts/ci/migration-guards-before-merge.mjs). Same
+  # trust shape as `rehearse`: no environment, no secret; the branch's files
+  # are data sent only to the throwaway database.
+  # ───────────────────────────────────────────────────────────────────────────
+  guards:
+    name: Production's DDL guards pass before merge
+    needs: [scope, capture, capture-guards]
+    if: always() && needs.scope.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Nothing to check
+        if: needs.scope.outputs.rehearse != 'true'
+        run: echo "This pull request adds or changes no migration; nothing for production's DDL guards to judge."
+      - name: Both captures must have succeeded
+        if: needs.scope.outputs.rehearse == 'true' && (needs.capture.result != 'success' || needs.capture-guards.result != 'success')
+        run: |
+          echo "::error::Production's schema (${{ needs.capture.result }}) or what its DDL guards read (${{ needs.capture-guards.result }}) could not be captured; the guard check is UNKNOWN, not passed. Re-run this workflow."
+          exit 1
+      - name: Checkout the default branch (check tooling only)
+        if: needs.scope.outputs.rehearse == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      # By exact name: window-rehearsal-* also matches the evidence artifact,
+      # which holds SQL from the pull request.
+      - uses: actions/download-artifact@v4
+        if: needs.scope.outputs.rehearse == 'true'
+        with:
+          name: window-rehearsal-schema
+          path: ${{ runner.temp }}/in
+      - uses: actions/download-artifact@v4
+        if: needs.scope.outputs.rehearse == 'true'
+        with:
+          name: window-rehearsal-changed
+          path: ${{ runner.temp }}/in
+      - uses: actions/download-artifact@v4
+        if: needs.scope.outputs.rehearse == 'true'
+        with:
+          name: ddl-guards-capture
+          path: ${{ runner.temp }}/in
+      - name: Overlay the pull request's migration files (data only)
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mig"
+          cp supabase/migrations/*.sql "$RUNNER_TEMP/mig/"
+          while IFS= read -r path; do
+            [[ "$path" =~ ^supabase/migrations/[0-9]{14}_[a-z0-9_]+\.sql$ ]] || continue
+            gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/$path?ref=$HEAD_SHA" > "$RUNNER_TEMP/mig/${path#supabase/migrations/}"
+          done < "$RUNNER_TEMP/in/changed.txt"
+      # Which uninstalled files are pending rather than history: the git half
+      # of window-queue-rehearsal.mjs isPending (a late merge with an old stamp
+      # is pending however old the stamp).
+      - name: Which migrations reached main recently
+        if: needs.scope.outputs.rehearse == 'true'
+        run: bash scripts/ci/migrations-added-recently.sh 14 > "$RUNNER_TEMP/recently-added.txt"
+      - name: Restore production's schema into a throwaway database
+        if: needs.scope.outputs.rehearse == 'true'
+        run: bash scripts/ci/restore-schema-for-rehearsal.sh "$RUNNER_TEMP/in/schema.dump" guard-rehearsal-db
+      - name: Every changed migration passes production's DDL guards
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          REHEARSAL_PSQL: docker exec -i guard-rehearsal-db psql -U postgres -d postgres
+          # supabase_admin answers on the socket only with the copy's password (restore-schema-for-rehearsal.sh).
+          REHEARSAL_ADMIN_PSQL: docker exec -i -e PGPASSWORD=rehearsal-only guard-rehearsal-db psql -U supabase_admin -d postgres
+          MIG_DIR: ${{ runner.temp }}/mig
+          INSTALLED: ${{ runner.temp }}/in/installed.txt
+          CHANGED: ${{ runner.temp }}/in/changed.txt
+          CAPTURE_DIR: ${{ runner.temp }}/in
+          RECORDED_NAMES: ${{ runner.temp }}/in/installed-names.tsv
+          RECENTLY_ADDED: ${{ runner.temp }}/recently-added.txt
+          EVIDENCE: ${{ runner.temp }}/guard-evidence
+        run: node scripts/ci/migration-guards-before-merge.mjs rehearse
+      - uses: actions/upload-artifact@v4
+        if: always() && needs.scope.outputs.rehearse == 'true'
+        with:
+          name: migration-guards-evidence
+          path: ${{ runner.temp }}/guard-evidence
           if-no-files-found: ignore
           retention-days: 7

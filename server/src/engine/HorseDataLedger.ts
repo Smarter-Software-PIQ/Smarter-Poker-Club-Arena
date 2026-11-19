@@ -1080,6 +1080,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'lightningVpipFloorLimpOnly',
+    'Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses must always follow"): every Lightning Games row carries a 40% VPIP floor in the ten-hand mode (migration 20261023230001, "Lightning uses 40% minimum VPIP and a BB ante") and the Lightning decision snapshot carried neither the floor nor the Horse own figure (production 2026-11-18, PLO5 1/2 pool: 49 Horses, 19,842 dealt hands, VPIP 24.6%, 48 of 48 with ten or more hands under 40%). The Lightning snapshot now carries the floor, the window and the Horse own last hands this pool sitting in deal order in lightningVpipFloor (LightningHorseVpipLedger; never in vpipFloor, so vpipFloorMul and vpipFloorCallDown still cannot fire in a pool), and with this on the floor has the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep): judged over the window of the game, rolling and projected with this hand (2026-11-19), when folding would leave the window under ceil(floor x window) entered hands (a new sitting seen from its first hand: every prefix at the floor; a count carried over a restart: nothing until it holds window - 1 hands), and one hand early only when priced, a preflop fold in a pot nobody has raised, for at most the big blind and less than the stack, becomes the limp or the small blind completion; never a raise, never a call of a raise, nothing postflop; no All-In-Or-Fold hand, no tournament. Independent of vpipFloorLimpOnly, which never governs a pool. No pool session is ended by the floor today, for a person or a Horse (the parked anchor runs the sit-out clock alone). Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPositionInLightning',
+    'Lightning parity lane 2026-11-18 (owner 10:51 Chicago: the same fixes are to be active in the Lightning PLO5 game): the re-raised-pot pricing of #11287 (finding F-02, position by seat order = acts after the re-raiser; the measured realization: players who called the price read by their bands or charged as dilution, a raiser or caller still to act carries no charge) excluded Lightning (omahaReraisedLaneUntouched). With this on a Lightning PLO4/PLO5 cash call of a re-raise is priced as a table call is (omahaReraisedCallPricingOf); off, Lightning keeps the reading it had (after every player in for the price, a raiser still to act counted, 0.35 each on heads-up equity). The measurements are Classic-table hands (12,473 calls, 2026-10-15..11-17), none from a pool. Tournaments unchanged. Default off (opt-in) until its declared evaluation on Lightning hands passes.',
+    'V94'
+  ),
+  flag(
     'omahaManiacReRaiseWidthMeasured',
     'Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and called his re-raises; the decisions replay as v53_pressure_four_bet and the maniac price call, priced against a range the read sets at his whole raising width (0.69) for his 3-bet and 0.58 for his 5-bet. With this on (PLO4/PLO5 cash) a measured maniac whose re-raises rest on 12 or more decayed opportunities is read on a re-raising line at his own re-raise rate (never wider than today); the price arithmetic and its margins are unchanged. HorseMind.bandFor. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -2750,6 +2760,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.vpipFloorMul'
   ),
   state(
+    'lightningVpipFloor',
+    "a floored Lightning pool only (built by LightningHorse.buildLightningHorseSnapshot, never by a table): the game's floor in percent, its window and this Horse's last window - 1 hands this pool sitting, how many entered and whether the oldest was entered (LightningHorseVpipLedger.readWindow); read only with lightningVpipFloorLimpOnly on and outside the policy sampling key",
+    'HorseLogic.lightningVpipFloorLimpOnlyInputs'
+  ),
+  state(
     'tournament',
     'Phase 6 context: tournament facts and actual dealt-hand blinds/census/M; immutable successful cache provenance is bound by the worker and v2 attribution through the accepted execution witness/journal. Provenance is observational and excluded from policy sampling; legacy v1 evidence remains unqualified for this new source join.',
     'HorseDecisionWorkerRuntime.assertPhase6TournamentSnapshot; HorseLogic.icmRisk / decidePreflopV7 / endgameAdjust / satelliteRead / evaluateTournamentUtility'
@@ -3345,6 +3360,33 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'under its line but the price is not a one big blind limp (a raised pot, a straddle, the whole stack or a priced refusal): the floor took no action and the fold stands',
     'VPIP',
     'vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_seen',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'a preflop decision of a floored Lightning pool under lightningVpipFloorLimpOnly: the floor may only limp (owner 2026-11-18)',
+    'VPIP'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_limp',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'under its line in a Lightning pool, a preflop fold in an unraised pot for at most the big blind became the limp or the small blind completion',
+    'VPIP',
+    'lightning_vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_fold_kept',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'under its line in an unraised Lightning pot, the limp of this hand was priced below what the floor pays at this distance from the line (vpipFloorLimpOnlySelects): the fold stands',
+    'VPIP',
+    'lightning_vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_priced_out',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'under its line in a Lightning pool but the price is not a one big blind limp (a raised pot, the whole stack or a priced refusal): the floor took no action and the fold stands',
+    'VPIP',
+    'lightning_vpip_floor_limp_only_seen'
   ),
   receipt(
     'v15_nut_status',
@@ -5017,6 +5059,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_card_impact_paired_board_press_to_small_bet',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact; omahaSmallBetIsPriced on)',
+    'the same paired-board press (paired turn or river, less than a full house, every opponent a measured value leader) is not withheld by the label: with omahaSmallBetIsPriced on it is handed to the small-bet price, which prices it beside the check and the small bets (one owner, by price)',
+    'V94'
+  ),
+  receipt(
     'omaha_card_impact_changed',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
@@ -5061,13 +5109,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_small_bet_priced_bet_vetoed',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
-    'the small bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'the small bet the pricing placed (the limped-pot floor size only where that size won its priced comparison) was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
     'omaha_small_bet_resized_vetoed',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
-    'the resized bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'the resized bet the pricing placed (the limped-pot floor size only where that size won its priced comparison) was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
@@ -5086,6 +5134,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_small_bet_owner_check_kept',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
     "the priced small bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's decision stands",
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_paired_board_press_bet',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
+    "on a paired turn or river with less than a full house against a measured value leader, the card-impact press the label guard (conflict sweep S4) would have withheld was priced beside the check and the small bets and beat the owner's decision by the margin; it is the final action",
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_paired_board_press_bet_vetoed',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
+    'the paired-board press the small-bet price chose was replaced by a later rule before the decision was final',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_floor_size_priced_taken',
+    'HorseLogic omahaSmallBetRule (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced; omahaBigBetIsPotShare limped-pot floor)',
+    'the limped-pot minimum bet would lift the priced small bet: its size was priced beside the small bet on the same model, was worth more by the margin and no owner-ruled check checks it, so the floor size is placed',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_floor_size_priced_kept',
+    'HorseLogic omahaSmallBetRule (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced; omahaBigBetIsPotShare limped-pot floor)',
+    'the limped-pot minimum bet would lift the priced small bet, but its size was not worth more by the margin on the same model (or an owner-ruled check checks it, or it could not be priced): the priced small bet stands and the floor stands aside',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_checked_to_size_priced_taken',
+    'HorseLogic wager_rules checked-to undersized-value bet (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced)',
+    'the checked-to boat / one-pair-above-flush half-pot bet would replace the priced small bet: the half-pot size was priced beside it on the same model, was worth more by the margin and no owner-ruled check checks it, so it is bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_checked_to_size_priced_kept',
+    'HorseLogic wager_rules checked-to undersized-value bet (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced)',
+    'the checked-to half-pot bet would replace the priced small bet, but its size was not worth more by the margin on the same model (or an owner-ruled check checks it, or it could not be priced): the priced small bet stands',
     'V94'
   ),
   receipt(

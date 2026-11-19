@@ -208,6 +208,7 @@ for (const boundary of awaits) {
       };
       engine.retainOriginalBatch = settle;
       engine.awaitPauseGate = settle;
+      engine.awaitNextHandRest = settle; // the rest a hand saved under it finishes
       engine.weeklyHandPause = { checkpoint: settle };
       engine.captureContinuationEngine = () => ({});
       engine.fetchTimeBankExtras = settle;

@@ -1,0 +1,3 @@
+# tests/a-rebuy-never-pauses-the-tournament.law.test.ts
+
+Owner rule 2026-08-30 ("REBUYS IN A TOURNAMENT SHOULD NOT PAUSE THE ACTION"): process_tournament_rebuy never takes its event's lane T(id) exclusively, except for a bounty, PKO or mystery generation; it takes the shared rebuy lane (R(id) exclusive, G and T(id) shared) and a seat root with no field-wide row locks, and a chair is accepted only on exclusive authority or that lane's transaction-bound proof plus the destination table row. Pins migration 20261118191946 to the production pre-images, its post-images and the native PostgreSQL proof (scripts/ci/test-rebuy-never-pauses-the-tournament.py).

@@ -54,6 +54,7 @@ import {
   shouldCancelEmptyPastStartEvent,
 } from './tournament/emptyPastStartEvent.js';
 import { throughCancellationLane } from './tournament/cancellationLane.js';
+import { wakeCommitsASeat } from './tournament/committedSeatShow.js';
 import { projectTournamentAdmission } from './tournament/tournamentAdmission.js';
 import {
   isFixedSngSatellite,
@@ -11860,6 +11861,9 @@ export class GameServer {
     // manager finishes a full reason-aware sweep; a crash, lifecycle abort or
     // cooperative budget yield must be replayed by the next manager.
     const accepted = manager.requestEliminationSweep(String(row.reason ?? ''), id, generation);
+    // A chair or a stack the database committed is shown now, not at each
+    // table's next hand boundary (committedSeatShow.ts). Display only.
+    if (wakeCommitsASeat(row.reason)) manager.showCommittedSeats?.();
     if (row.reason === 'late_registration') {
       await this.admitCapacityTablesOnLateRegistrationWake(tournamentId, manager);
     }

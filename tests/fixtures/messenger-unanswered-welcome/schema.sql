@@ -1,0 +1,20 @@
+-- Stand-in relations for every object production's fn_get_user_conversations reads.
+CREATE ROLE service_role; CREATE ROLE authenticated; CREATE ROLE anon;
+CREATE SCHEMA auth;
+CREATE SCHEMA smarter_private;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('test.actor',true),'')::uuid $$;
+CREATE TABLE auth.users(id uuid primary key,deleted_at timestamptz);
+CREATE FUNCTION public.fn_caller_is_engine() RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
+CREATE TABLE profiles(id uuid primary key,display_name text,username text,alias text,player_number text,avatar_url text);
+CREATE FUNCTION public.fn_ca_is_cert_account(p uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
+CREATE TABLE social_conversations(id uuid primary key,group_name text,is_group boolean,last_message_at timestamptz);
+CREATE TABLE social_conversation_participants(conversation_id uuid,user_id uuid,last_read_at timestamptz,context_entity_id uuid,context_entity_type text);
+CREATE TABLE social_messages(id uuid primary key default gen_random_uuid(),conversation_id uuid,sender_id uuid,is_deleted boolean,created_at timestamptz default now(),media_metadata jsonb);
+CREATE INDEX idx_messages_conversation ON social_messages(conversation_id,created_at DESC);
+CREATE TABLE messenger_hidden_messages(user_id uuid,message_id uuid);
+CREATE TABLE accounting_invoice_deliveries(message_id uuid,invoice_id uuid,recipient_id uuid);
+CREATE TABLE settlement_invoices(id uuid,invoice_type text,club_id uuid,source_credit_invoice_id uuid,from_entity_type text,from_entity_id text,to_entity_type text,to_entity_id text,breakdown jsonb);
+CREATE TABLE smarter_private.weekly_club_rakeback_documents(invoice_id uuid,audience uuid[]);
+CREATE TABLE credit_invoices(id uuid,agent_id uuid,period_start timestamptz,period_end timestamptz);
+CREATE TABLE agents(id uuid,club_id uuid,user_id uuid);
+CREATE TABLE agent_credit_weekly_basis(agent_id uuid,club_id uuid,period_start timestamptz,period_end timestamptz,credit_line numeric);
