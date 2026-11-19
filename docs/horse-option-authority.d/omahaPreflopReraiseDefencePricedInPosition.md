@@ -4,8 +4,9 @@ THREEBET-2 lane (WooWoo audit programme), 2026-11-19. Default OFF in source (rea
 owner preflop range hold is lifted for this name alone, in source (HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).
 Its parent omahaPreflopReraiseDefencePriced stays off-only under that hold, as does every other held name.
 Evaluation: declared before any run (audit archive `repairs/THREEBET-DEFENCE/EVAL-DECLARATION-2.md`, sha256
-b9f1c147c1dc922a15ea63350358e6eaeb4670cfdae73ee508e2853110c081ff); results in that folder. Evidence NOT MET for
-activation until that evaluation passes.
+b9f1c147c1dc922a15ea63350358e6eaeb4670cfdae73ee508e2853110c081ff). Evidence MET (2026-11-19): the declared evaluation
+PASSED on all four bars (`repairs/THREEBET-DEFENCE/EVAL-RESULTS-2.md`; section "Evaluation result" below), and the
+independent review confirmed the code (01ddd45b4df CONFIRMED WITH NOTES; delta b276b064c11..afe3cda17cb MERGE CONFIRMED).
 
 ## What it does
 
@@ -71,12 +72,39 @@ alone; the parent stays off-only.
 ## Evidence rows (docs/HORSE-DECISION-CHANGE-EVIDENCE.md)
 
 1. Mechanism: MET (tests above).
-2. Input fidelity / 3. Value / 5. Reach: per EVAL-DECLARATION-2 (journal replay of recorded decisions, values against his
-   recorded 3-bet holdings at the lower realization bound); results in the audit archive.
-3. Scope: PLO4/PLO5 cash only; out of position, multiway, 4-bets, cold 3-bets, tournaments, PLO6, Hi-Lo, bomb pots
+2. Input fidelity: MET, replay of the journaled decisions reproduces 797 of 801 replayable records of the serving builds
+   (fc86566676b4, f3e99378ccbb) = 99.5%.
+3. Value: MET, 45 of 46 changed in-position folds against his 3-bets are +EV calls at R 0.82 (97.8%, mean +1.79 bb)
+   against his 848 recorded 3-bet holdings.
+4. Reach: MET, 46 of 53 eligible recorded folds become calls; 0 out-of-position or out-of-spot decisions change.
+5. Scope: PLO4/PLO5 cash only; out of position, multiway, 4-bets, cold 3-bets, tournaments, PLO6, Hi-Lo, bomb pots
    unchanged (tests).
-4. Visibility: the parent's receipts.
-5. Limits: the realization is the parent's fit; later streets are played by the existing brain.
+6. Visibility: the parent's receipts.
+7. Limits: the realization is the parent's fit; later streets are played by the existing brain.
+
+## Evaluation result
+
+Declared before any run: `repairs/THREEBET-DEFENCE/EVAL-DECLARATION-2.md` (sha256
+b9f1c147c1dc922a15ea63350358e6eaeb4670cfdae73ee508e2853110c081ff, hashed 2026-11-19T01:23:58Z). Replayed 2026-11-19
+01:31Z on 01ddd45b4df through the worker runtime with the recorded switch states (1,672 journaled decisions: corpus C 966,
+safety set X 706). Results `repairs/THREEBET-DEFENCE/EVAL-RESULTS-2.md`:
+
+| Bar                                                                             | Result | Numbers                                        |
+| ------------------------------------------------------------------------------- | ------ | ---------------------------------------------- |
+| B1 replay fidelity, records of fc86566676b4 / f3e99378ccbb (>= 97%)             | PASS   | 797 of 801 = 99.5%                             |
+| B2 out-of-position or out-of-spot decisions changed (= 0)                       | PASS   | 0; all 48 changes are fold -> call in the spot |
+| B3 illegal actions, new errors or refusals (= 0)                                | PASS   | 0                                              |
+| B4 changed in-position folds vs his 3-bets, EV > 0 at R 0.82 (>= 30 and >= 80%) | PASS   | 45 of 46 = 97.8%, mean +1.79 bb                |
+
+Re-replay at the review fixes (afe3cda17cb: fold -> call only, a person's 3-bet only): 0 of the 1,672 decisions differ
+from the evaluated run in either arm; the same 48 fold -> call changes. Review: `repairs/REVIEW-THREEBET-01ddd45b4df.md`
+(CONFIRMED WITH NOTES; delta MERGE CONFIRMED).
+
+- Mechanism, scope, tests: MET (above).
+- Fidelity: MET (B1). Value: MET (B4). No harm outside the claim: MET (B2, B3).
+- Overall: MET. Switch-on: authorized by the WooWoo audit programme lane (owner delegation of activation, 2026-11-18)
+  once the engine serving production (`/health` releaseSha) is a build that contains this option and this file and the
+  switch-list migration 20261119012343 is installed; until then no option-switch row may name it.
 
 ## League card
 
