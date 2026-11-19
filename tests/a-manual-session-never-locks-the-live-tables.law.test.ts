@@ -135,7 +135,9 @@ describe('a manual session never locks the live tables', () => {
   });
 
   it('is proved natively on PostgreSQL 16 and 17, and not re-armed on the plain-psql rehearsal', () => {
-    expect(WORKFLOW).toContain('scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin "$pg16"');
+    expect(WORKFLOW).toContain(
+      'scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin /usr/lib/postgresql/16/bin'
+    );
     expect(WORKFLOW).toContain(
       'scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin /usr/lib/postgresql/17/bin'
     );

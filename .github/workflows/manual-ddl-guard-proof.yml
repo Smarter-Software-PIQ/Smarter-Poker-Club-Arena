@@ -45,20 +45,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      # ubuntu-latest carries no PostgreSQL 16 of its own; both majors come
+      # from the one signed PGDG install every workflow uses.
+      - name: Install PostgreSQL 16 and 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+        with:
+          packages: postgresql-17 postgresql-16
       - name: Prove the guard on PostgreSQL 16
         run: |
           set -euo pipefail
-          pg16="$(ls -d /usr/lib/postgresql/16/bin 2>/dev/null || true)"
-          if [ -z "$pg16" ]; then
-            sudo apt-get update -q && sudo apt-get install -y -q postgresql-16
-            pg16=/usr/lib/postgresql/16/bin
-          fi
           mkdir -p artifacts/manual-ddl-guard
-          python3 -B scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin "$pg16" \
+          python3 -B scripts/ci/test-manual-ddl-guard-postgres.py --pg-bin /usr/lib/postgresql/16/bin \
             --out artifacts/manual-ddl-guard/pg16.json | tee artifacts/manual-ddl-guard/pg16.log
           grep -q '^PASS  every manual-DDL guard assertion held$' artifacts/manual-ddl-guard/pg16.log
-      - name: Install PostgreSQL 17 from the signed PGDG source only
-        uses: ./.github/actions/install-postgres-17
       - name: Prove the guard on PostgreSQL 17
         run: |
           set -euo pipefail
