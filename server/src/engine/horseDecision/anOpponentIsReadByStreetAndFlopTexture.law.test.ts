@@ -432,6 +432,8 @@ describe('an opponent is read by street and by flop texture', () => {
     expect(naming(/street_counters|copyStreetCounters/)).toEqual([
       'engine/HorseMind.ts',
       'engine/HorseOmahaStreetRead.ts',
+      // the price behind the fold-to-raise cells (2026-11-19, street_counters_price), its own record and law
+      'engine/HorseOmahaStreetReadPrice.ts',
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
       'engine/horseDecision/pooledPublicProfiles.ts',
@@ -442,10 +444,14 @@ describe('an opponent is read by street and by flop texture', () => {
       'benchmark/HorseLeagueStreetRead.ts',
       'engine/HorseDecisionReadFrame.ts',
       'engine/HorseMind.ts',
+      // the flop-shown record (2026-11-19) takes the flop texture and the public flop from it
+      'engine/HorseOmahaFlopShown.ts',
       // omahaReadIsByStreetAndTexture's pure read (2026-11-18)
       'engine/HorseOmahaReadByStreet.ts',
       // its per-decision mode (types only), the one part HorseMind imports
       'engine/HorseOmahaReadByStreetMode.ts',
+      // the price behind the fold-to-raise cells (2026-11-19) takes the streets and the decay from it
+      'engine/HorseOmahaStreetReadPrice.ts',
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
     ]);
