@@ -61,6 +61,7 @@ import {
   type DurableHandCommit,
   type DurableThaw,
 } from './BustRebuyWindow.js';
+import { showdownSweepOwed } from './ShowdownSweepOwed.js';
 import {
   atRebuyStopLoss,
   horseRebuyAmount,
@@ -1450,6 +1451,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // Dan 2026-10-24: an all-in showdown keeps the tabled hands and
             // the announced winner up two seconds longer.
             allInShowdown: this.currentHandAllInShowdown,
+            // Hand delay 2026-11-18: the 500 ms bets sweep is held only when
+            // the felt plays it. A single-board showdown whose river carried
+            // no chips (an all-in run out, a river checked through) has
+            // nothing left to sweep, and TablePage ships its pot at once.
+            betsSweepOwed: showdownSweepOwed({
+              wentToShowdown,
+              ritRuns: this.currentHandRitBoards,
+              boardCardCount: this.currentHandCommunityCards.length,
+              actions: this.currentHandActions,
+            }),
           });
 
           // Phase 1: the completion sequence actually plays out. When this
