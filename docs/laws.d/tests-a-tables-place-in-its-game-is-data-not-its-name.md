@@ -1,0 +1,3 @@
+# tests/a-tables-place-in-its-game-is-data-not-its-name.law.test.ts
+
+A table's place in its game is data, never its name: main vs feeder is tables.role (with main_index), Cluster membership is tables.cluster_id and the mode is cash_games.cluster_mode; no src/, server/src or tests/e2e code may classify a table by matching "main" or "feeder" in text, the seat-move announcement reads the destination's role, and the production seat-move proof picks its destinations by role (2026-11-19: cluster tables stopped carrying "Main" in their names at 02:37 UTC and Main 1 had always worn the bare game name, which silently broke the announcement and its proof).
