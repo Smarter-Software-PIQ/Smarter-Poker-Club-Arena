@@ -296,7 +296,7 @@ describe('Create Club production certification contract', () => {
     expect(script).toContain('SET LOCAL ROLE authenticated');
     expect(script).toContain("set_config('request.jwt.claims',$1::text,true)");
     expect(script).toContain("set_config('request.jwt.claim.sub',$2::text,true)");
-    expect(script).toContain('SELECT public.fn_ca_lock_settlement_lane_global()');
+    expect(script).toContain('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)');
     expect(script).not.toContain('SELECT pg_advisory_xact_lock(530090,1)');
     expect(script).toContain('SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE');
     expect(script).toContain('ORDER BY slot_key FOR UPDATE');
@@ -348,7 +348,7 @@ describe('Create Club production certification contract', () => {
   it('fails closed around independent reset preimages and exact residue cleanup', () => {
     const script = read('scripts/ci/certify-club-create.mjs');
 
-    const globalLane = script.indexOf('SELECT public.fn_ca_lock_settlement_lane_global()');
+    const globalLane = script.indexOf('SELECT public.fn_ca_lock_settlement_lane_for_club($1::uuid)');
     const serviceRole = script.indexOf('SET LOCAL ROLE service_role', globalLane);
     const clubLock = script.indexOf('SELECT 1 FROM public.clubs WHERE id=$1::uuid FOR UPDATE');
     const packageItemLocks = script.indexOf('ORDER BY slot_key FOR UPDATE');

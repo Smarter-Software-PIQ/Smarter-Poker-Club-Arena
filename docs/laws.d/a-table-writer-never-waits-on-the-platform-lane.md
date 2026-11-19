@@ -1,0 +1,3 @@
+# tests/a-table-writer-never-waits-on-the-platform-lane.law.test.ts
+
+Owner ruling 2026-11-17 ("a tournament issue must always be isolated and never affect other tournaments or cash games"): no tournament table writer or cash hand commit takes the platform settlement key G; they take the hand barrier B (which a global authority requests only once it holds G) and their own T(id), so an authority of one event never pauses another event's tables. Pins migration 20261118160405 to the exact production pre-images, its post-images, doctrine rule 5 and the native PostgreSQL proof (scripts/ci/test-tournament-lane-isolation.py).
