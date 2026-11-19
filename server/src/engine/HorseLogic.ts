@@ -6835,6 +6835,11 @@ function phase7PlayersBehind(gs: HorseGameStateV2, hero: SeatPlayer): Set<string
  * players still able to act. Older offline callers supply their whole dealt
  * list; live callers supply the validated census including folded/away seats.
  */
+/** Receipt only (2026-11-18): handed to withIcmBustPaysPlace by a live decision (a module function, no closure). */
+function noteIcmBustPaysPlaceFactorChanged(): void {
+  noteFire('icm_bust_pays_place_factor_changed_seen');
+}
+
 function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
   return gs.dealtSeatIds === undefined
     ? gs.players.length
@@ -7505,6 +7510,8 @@ function pairedBoardFold(
   if (pairedBoardFoldYieldsToShortAllIn(player, gs)) return decision;
   if (telemetryOn(opts)) {
     noteFire('plo_paired_board_fold');
+    // 2026-11-18: the shared key counts PLO4/PLO5/PLO6 together; this parallel counts the six-card share.
+    if (String(gs.gameVariant) === 'plo6') noteFire('plo_paired_board_fold_plo6');
     noteHorseActionClamped(
       String(gs.gameVariant ?? 'plo4'),
       isTournamentMode(gs) ? 'tournament' : 'cash',
@@ -9542,6 +9549,9 @@ function omahaBigBetCallFoldCells(
             ? 'v84_omaha_river_reraise_call_fold'
             : 'v87_deep_dive_discipline'
       );
+      // 2026-11-18: six-card share of the shared V84 key.
+      if (v81 === null && v84 !== null && String(gs.gameVariant) === 'plo6')
+        noteFire('v84_omaha_river_reraise_call_fold_plo6');
       noteHorseActionClamped(
         String(gs.gameVariant ?? 'plo4'),
         tournament ? 'tournament' : 'cash',
@@ -9598,7 +9608,11 @@ function pairedBoardRiverCheck(
     const priced = omahaPricedPairedBoardBetRule(decision, player, gs, opts);
     if (priced !== null) return priced;
   }
-  if (telemetryOn(opts)) noteFire('plo_paired_board_river_check');
+  if (telemetryOn(opts)) {
+    noteFire('plo_paired_board_river_check');
+    // 2026-11-18: six-card share of the shared key.
+    if (String(gs.gameVariant) === 'plo6') noteFire('plo_paired_board_river_check_plo6');
+  }
   const checked: HorseDecision = { ...decision, action: 'check' };
   delete checked.amount;
   return checked;
@@ -13167,6 +13181,8 @@ export class HorseLogic {
     // icmBustPaysPlace (2026-11-15, default OFF): the paid-bust ICM valuation for
     // this decision only. It also covers the survival premium read below.
     // nashPushFoldIcm implies it (Hand Analysis D1): its payout read prices through the same bubble factor.
+    // Receipt only (2026-11-18): the third argument fires icm_bust_pays_place_factor_changed_seen once per live
+    // decision in which the paid-bust valuation moved a bubble factor (IcmModel counts; nothing decides on it).
     return withIcmBustPaysPlace(
       opts.icmBustPaysPlace === true || opts.nashPushFoldIcm === true,
       () => {
@@ -13246,7 +13262,8 @@ export class HorseLogic {
         } finally {
           applyPlo6OmahaStrategyCalibration(plo6CalibrationHeldBefore);
         }
-      }
+      },
+      telemetryOn(opts) ? noteIcmBustPaysPlaceFactorChanged : undefined
     );
   }
 
@@ -13645,6 +13662,14 @@ export class HorseLogic {
     if (tele) {
       noteFire('decide');
       noteFire(`decide_${vi.isOmaha ? 'omaha' : vi.isShortDeck ? 'short_deck' : 'nlh'}`);
+      // 2026-11-18 denominators, BESIDE the family count above (kept unchanged so its history holds): fixed-limit
+      // hold'em (inside decide_nlh) and fixed-limit Omaha hi-lo (inside decide_omaha) apart, and Lightning
+      // decisions (public memory domain speed 'lightning'), parallel to decide_tournament.
+      if (vi.isFixedLimit) {
+        if (!vi.isOmaha) noteFire('decide_flh');
+        else if (vi.isHiLo) noteFire('decide_flo8');
+      }
+      if (gs.publicMemoryDomain?.speed === 'lightning') noteFire('decide_lightning');
       if (isTournamentMode(gs)) {
         noteFire('decide_tournament');
         if (gs.stage === 'preflop') noteFire('decide_tournament_preflop');
@@ -14085,8 +14110,13 @@ export class HorseLogic {
                 decision = { ...selected, tournamentUtility: result.ledger };
                 if (tele) {
                   noteFire('phase7_tournament_utility');
-                  if (phase8UtilityInput.stackScaledMargin === true)
+                  if (phase8UtilityInput.stackScaledMargin === true) {
                     noteFire('tournament_utility_stack_scaled_margin_seen');
+                    // 2026-11-18: the margin CHANGED the chosen action (the whole-pool margin would have kept
+                    // the baseline). The _seen key above counts every utility run with the option on.
+                    if (evaluation.stackScaledMarginChangedDecision === true)
+                      noteFire('tournament_utility_stack_scaled_margin_changed_seen');
+                  }
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
@@ -14680,6 +14710,8 @@ export class HorseLogic {
       );
       if (tele && nutRaise.changed === 'flatted') {
         noteFire('omaha_river_non_nut_raise_flatted');
+        // 2026-11-18: six-card share of the shared key.
+        if (String(gs.gameVariant) === 'plo6') noteFire('omaha_river_non_nut_raise_flatted_plo6');
         noteDecisionRuleReceipt('omaha_river_non_nut_raise_flatted', wagered, nutRaise.decision);
       }
       if (tele && nutRaise.changed === 'fold_restored') {
@@ -17735,6 +17767,10 @@ export class HorseLogic {
               noteFire('holdem_persona_squeeze_bluff_changed_seen');
             else if (layer === 'holdem_persona_scale_held_by_style_seen')
               noteFire('holdem_persona_scale_held_by_style_seen');
+            else if (layer === 'v70_facing_open_zone_changed_seen')
+              noteFire('v70_facing_open_zone_changed_seen');
+            else if (layer === 'facing_closed_all_in_call_seen')
+              noteFire('facing_closed_all_in_call_seen');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,
@@ -18273,7 +18309,13 @@ export class HorseLogic {
       ...intentCtx7,
       noteAuthority: (event) => authorityEvents.push(event),
       noteLayer: (layer) => {
-        if (!layers15.includes(layer)) layers15.push(layer);
+        // The two count-only receipts (2026-11-18) stay out of the journaled read receipt, as before them.
+        if (
+          layer !== 'v70_facing_open_zone_changed_seen' &&
+          layer !== 'facing_closed_all_in_call_seen' &&
+          !layers15.includes(layer)
+        )
+          layers15.push(layer);
         intentCtx7.noteLayer?.(layer);
       },
       noteThresholds: (seen) => {

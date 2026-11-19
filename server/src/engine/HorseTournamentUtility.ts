@@ -217,6 +217,12 @@ export interface TournamentUtilityEvaluation {
     ledger: HorseTournamentUtilityLedger;
   } | null;
   unavailableReason: TournamentUtilityUnavailableReason | null;
+  /**
+   * Receipt only (2026-11-18): true when stackScaledMargin was on and the whole-pool margin would have kept the
+   * baseline this result overrode (HorseLogic fires tournament_utility_stack_scaled_margin_changed_seen). Not part
+   * of the ledger, so no receipt hash or journal field changes.
+   */
+  stackScaledMarginChangedDecision?: boolean;
   /** Decision-local workspace reuse. Never attached to a serialized receipt. */
   continuePostflop?: TournamentContinuationRunner;
 }
@@ -311,6 +317,12 @@ interface CandidateEvaluationSuccess {
   ledger: HorseTournamentUtilityCandidateLedger;
   icmError: number;
   methods: Set<IcmMethod>;
+  /**
+   * Receipt only (tournamentUtilityStackScaledMargin, 2026-11-18): the confidence half width this candidate carries
+   * with the whole-pool margin, i.e. with the option off. Equal to the ledger's half width whenever the option is off
+   * or did not narrow it. The selection never reads it and it is never serialized.
+   */
+  unscaledHalfWidth: number;
   unavailableReason: null;
 }
 
@@ -1804,6 +1816,23 @@ function evaluateCandidate(args: {
     icmError +
     preflopNonTerminalSlack +
     CONFIDENCE_Z_999 * Math.max(standardError, equityUncertainty);
+  // Receipt only (tournament_utility_stack_scaled_margin_changed_seen, 2026-11-18): the same half width with the
+  // whole-pool margin, written exactly as the lines above evaluate it with the option off. Arithmetic on values
+  // already computed; nothing above reads it.
+  let unscaledHalfWidth = confidenceHalfWidth;
+  if (stackScaled && args.candidate.kind !== 'fold' && equityUncertainty !== wholePoolUncertainty) {
+    const unscaledSlack =
+      args.input.v86AsymmetricIcmAndPreflop !== false &&
+      args.input.street === 'preflop' &&
+      !isTerminal &&
+      !args.input.continuation
+        ? Math.max(0, 1 - args.candidate.investment / Math.max(1, args.input.hero.stack)) *
+          0.22 *
+          Math.max(standardError, wholePoolUncertainty, icmError)
+        : 0;
+    unscaledHalfWidth =
+      icmError + unscaledSlack + CONFIDENCE_Z_999 * Math.max(standardError, wholePoolUncertainty);
+  }
   const ledger: HorseTournamentUtilityCandidateLedger = {
     id: args.candidate.id,
     action: args.candidate.action,
@@ -1839,7 +1868,7 @@ function evaluateCandidate(args: {
         }
       : {}),
   };
-  return { ledger, icmError, methods, unavailableReason: null };
+  return { ledger, icmError, methods, unscaledHalfWidth, unavailableReason: null };
 }
 
 function strongestMethod(methods: Set<IcmMethod>): IcmMethod {
@@ -2124,6 +2153,27 @@ function evaluateWithWorkspace(
       baselineRetainedForUncertainty = true;
     }
   }
+  // Receipt only (tournamentUtilityStackScaledMargin, 2026-11-18): would the whole-pool margin (the option off)
+  // have kept the baseline? The ranking and the continuation gate do not read any half width, and the scaled margin
+  // is never wider than the whole-pool one, so the option changed this decision exactly when a non-baseline
+  // candidate passed the uncertainty gate above and the same gate with the unscaled widths refuses it. An indexed
+  // loop over the candidates already evaluated: no allocation, nothing above reads the result.
+  let stackScaledMarginChangedDecision = false;
+  if (input.stackScaledMargin === true && !sameDecision(selected, input.baseline)) {
+    let selectedUnscaled = selected.utilityConfidenceHalfWidth;
+    let alternativeUpperUnscaled = -Infinity;
+    for (let index = 0; index < evaluated.length; index++) {
+      const item = evaluated[index]!;
+      if (item.ledger.id === selected.id) selectedUnscaled = item.unscaledHalfWidth;
+      else
+        alternativeUpperUnscaled = Math.max(
+          alternativeUpperUnscaled,
+          item.ledger.combinedUtility + item.unscaledHalfWidth
+        );
+    }
+    stackScaledMarginChangedDecision =
+      selected.combinedUtility - selectedUnscaled <= alternativeUpperUnscaled;
+  }
 
   const methods = new Set<IcmMethod>();
   let icmErrorBound = 0;
@@ -2202,6 +2252,7 @@ function evaluateWithWorkspace(
   return {
     result: { decision, ledger },
     unavailableReason: null,
+    stackScaledMarginChangedDecision,
     continuePostflop: (baseline, continuation, maxSamples) =>
       evaluateWithWorkspace(
         {

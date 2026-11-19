@@ -1601,6 +1601,60 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   receipt(
+    'style_value_bettor_not_maniac_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueBettorNotManiac)',
+    'the R1 receipt re-decided this FAST decision without styleValueBettorNotManiac and got a comparable answer at the committed governor scale: the denominator of style_value_bettor_not_maniac_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_big_bet_honesty_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleBigBetHonesty)',
+    'the R1 receipt re-decided this FAST decision without styleBigBetHonesty and got a comparable answer at the committed governor scale: the denominator of style_big_bet_honesty_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_raise_respect_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleRaiseRespect)',
+    'the R1 receipt re-decided this FAST decision without styleRaiseRespect and got a comparable answer at the committed governor scale: the denominator of style_raise_respect_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_tight_reraiser_respect_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightReRaiserRespect)',
+    'the R1 receipt re-decided this FAST decision without styleTightReRaiserRespect and got a comparable answer at the committed governor scale: the denominator of style_tight_reraiser_respect_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_fold_rate_pre_repair_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldRatePreRepair)',
+    'the R1 receipt re-decided this FAST decision without styleFoldRatePreRepair and got a comparable answer at the committed governor scale: the denominator of style_fold_rate_pre_repair_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_value_extraction_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueExtraction)',
+    'the R1 receipt re-decided this FAST decision without styleValueExtraction and got a comparable answer at the committed governor scale: the denominator of style_value_extraction_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_fold_bluff_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldBluff)',
+    'the R1 receipt re-decided this FAST decision without styleFoldBluff and got a comparable answer at the committed governor scale: the denominator of style_fold_bluff_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_tight_player_exploit_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightPlayerExploit)',
+    'the R1 receipt re-decided this FAST decision without styleTightPlayerExploit and got a comparable answer at the committed governor scale: the denominator of style_tight_player_exploit_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_steal_tight_blinds_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
+    'the R1 receipt re-decided this FAST decision without styleStealTightBlinds and got a comparable answer at the committed governor scale: the denominator of style_steal_tight_blinds_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
     'style_tight_limper_isolation_seen',
     'HorseLogic (styleTightPlayerExploit, preflop)',
     'every limper credibly tight and not aggressive: the isolation bar move was handed to the preflop engine; occurrence counter; named *_seen',
@@ -3224,6 +3278,86 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide',
     'short deck decisions; needs short-deck tables',
     'V15'
+  ),
+  // SWITCH REACH COUNTERS (2026-11-18, Horse Switch lane): measurement only, no decision reads any of them. They
+  // let the lane state how many decisions an option switch changes and in which game or format.
+  receipt(
+    'decide_flh',
+    'HorseLogic.decide',
+    "fixed-limit hold'em decisions; a parallel denominator, the same decisions stay inside decide_nlh",
+    '2026-11-18'
+  ),
+  receipt(
+    'decide_flo8',
+    'HorseLogic.decide',
+    'fixed-limit Omaha hi-lo decisions; a parallel denominator, the same decisions stay inside decide_omaha',
+    '2026-11-18'
+  ),
+  receipt(
+    'decide_lightning',
+    'HorseLogic.decide',
+    "Lightning decisions (public memory domain speed 'lightning'), parallel to decide_tournament",
+    '2026-11-18'
+  ),
+  receipt(
+    'holdem_option_decision_cash',
+    'workerRuntime executeFastWithUpgradeEvidence (fire scope)',
+    'a cash FAST decision in which at least one holdem_* receipt fired: the cash share of the holdem_* receipts',
+    '2026-11-18'
+  ),
+  receipt(
+    'holdem_option_decision_tournament',
+    'workerRuntime executeFastWithUpgradeEvidence (fire scope)',
+    'a tournament FAST decision in which at least one holdem_* receipt fired: the tournament share of the holdem_* receipts',
+    '2026-11-18'
+  ),
+  receipt(
+    'tournament_utility_stack_scaled_margin_changed_seen',
+    'HorseLogic phase 7 utility (HorseTournamentUtility, tournamentUtilityStackScaledMargin)',
+    'the stack-scaled margin changed the chosen action: the utility overrode the baseline and the whole-pool margin (the option off) would have kept it',
+    '2026-11-18'
+  ),
+  receipt(
+    'icm_bust_pays_place_factor_changed_seen',
+    'HorseLogic.decide (IcmModel bubbleFactor / pairwiseBubbleFactor, icmBustPaysPlace)',
+    'a live decision in which the paid-bust valuation moved at least one bubble factor off the factor a 0 bust value gives',
+    '2026-11-18'
+  ),
+  receipt(
+    'plo_paired_board_fold_plo6',
+    'HorseLogic pairedBoardFold (ploPairedBoardFold)',
+    'the PLO6 share of plo_paired_board_fold, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'plo_paired_board_river_check_plo6',
+    'HorseLogic pairedBoardRiverCheck (ploPairedBoardRiverCheck)',
+    'the PLO6 share of plo_paired_board_river_check, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'omaha_river_non_nut_raise_flatted_plo6',
+    'HorseLogic wager_rules (omahaRiverNutRaiseOnly)',
+    'the PLO6 share of omaha_river_non_nut_raise_flatted, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'v84_omaha_river_reraise_call_fold_plo6',
+    'HorseLogic omahaBigBetCallFold (v84OmahaRiverReraiseCalls)',
+    'the PLO6 share of v84_omaha_river_reraise_call_fold, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'v70_facing_open_zone_changed_seen',
+    'HorsePreflop (noteLayer; v70FacingOpenZone)',
+    "two- or three-handed no-limit hold'em preflop: the short-handed zone put the spot on the other side of jam-or-fold from the zone read with the option off",
+    '2026-11-18'
+  ),
+  receipt(
+    'facing_closed_all_in_call_seen',
+    'HorsePreflop (noteLayer; facingClosedAllIn)',
+    'a preflop call facing a closed all-in re-raise that the stack cap refuses and the closed all-in exception lets through',
+    '2026-11-18'
   ),
   receipt(
     'preflop_v7',
