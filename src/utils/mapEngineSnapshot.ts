@@ -520,7 +520,13 @@ export function mapEngineSnapshot(
       waitingForButton: p.is_waiting_for_button === true,
       isMucked: p.is_mucked === true,
       ...(seatArrival ? { seatArrival } : {}),
-      ...(seatArrival === 'buying_in' ? { stackPending: true } : {}),
+      /* Dan 2026-11-18: "THEIR STACK SHOULD SHOW, IT SHOULD NEVER SAY ZERO."
+         A committed arrival carries its real stack (cash buy-in, tournament
+         move, late registration). One whose chips are not on the row yet is
+         drawn as pending, never as 0. */
+      ...(seatArrival === 'buying_in' || (seatArrival === 'seated' && !(p.stack > 0))
+        ? { stackPending: true }
+        : {}),
     };
     positions[idx] = p.position ?? null;
   }

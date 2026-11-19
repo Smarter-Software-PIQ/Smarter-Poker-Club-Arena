@@ -73,6 +73,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // PLO Strategy (2026-11-15): the league seats no VPIP-floor table.
         'plo4_omaha_vpip_floor_by_limp',
         'plo5_omaha_vpip_floor_by_limp',
+        // Lightning parity (2026-11-18): the league deals no Lightning hand.
+        'plo4_lightning_vpip_floor_limp_only',
+        'plo5_lightning_vpip_floor_limp_only',
+        'plo4_omaha_reraised_position_in_lightning',
+        'plo5_omaha_reraised_position_in_lightning',
         // F-10 (2026-11-17): vpipFloorLimpOnly, the same reason.
         'nlh_vpip_floor_limp_only',
         'plo4_vpip_floor_limp_only',

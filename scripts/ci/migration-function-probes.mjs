@@ -33,10 +33,31 @@
 // plpgsql_check gate (scripts/ci/plpgsql-check-changed.sh) covers them and
 // every path a probe does not reach.
 //
-// Binding from version PROBE_LAW_FROM. Pinned by
-// tests/a-migration-proves-its-functions-before-commit.law.test.ts.
+// A function redefined by rewriting its live text (the anchored-edit pattern:
+// EXECUTE replace(pg_get_functiondef('schema.fn(...)'::regprocedure), ...))
+// is a redefinition too, and needs the same probe. Its attributes are not in
+// the file, so every such rewrite of a public/smarter_private function is
+// covered; a trigger function rewritten this way names itself with
+// -- @probe-exempt (2026-11-19, PR #11352 escaped the first version).
+//
+// Binding on every migration file except the ones on main before the law
+// existed (scripts/ci/probe-law-grandfathered-migrations.txt, frozen and
+// already installed). A NEW file is bound whatever its version: on 2026-11-19
+// 94 open PRs carried migrations versioned before the original cutoff, and a
+// version-number cutoff would have let every one of them through.
+// Pinned by tests/a-migration-proves-its-functions-before-commit.law.test.ts.
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 export const PROBE_LAW_FROM = '20261119030000';
+export const GRANDFATHERED = new Set(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'probe-law-grandfathered-migrations.txt'), 'utf8')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+);
 export const PROBE_SENTINEL = 'probe-unwind';
 const SCHEMAS = new Set(['public', 'smarter_private']);
 const MIN_EXEMPT_REASON = 20;
@@ -92,11 +113,64 @@ export function redefinedFunctions(sql) {
   return out;
 }
 
+// The names of the calls that enclose position `at` in its statement,
+// innermost first: for md5(replace(pg_get_functiondef(...))) at the inner
+// call, ['replace', 'md5'].
+function enclosingCalls(code, at) {
+  const names = [];
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    const c = code[i];
+    if (c === ';') break;
+    if (c === ')') depth += 1;
+    else if (c === '(') {
+      if (depth === 0) {
+        const m = /([a-z_][a-z0-9_]*)\s*$/i.exec(code.slice(Math.max(0, i - 64), i));
+        names.push(m ? m[1].toLowerCase() : '');
+      } else depth -= 1;
+    }
+  }
+  return names;
+}
+
+// A definition read only to be compared - md5(...) of it, position(... IN it)
+// - cannot be EXECUTEd: what leaves the call is a hash or an offset. Such reads
+// are the md5 preconditions and post-image pins anchored-edit migrations carry
+// for functions they do NOT redefine (2026-11-19: 20261119013430 and
+// 20261119015312 were refused for their read-only pins, which turned Client
+// Unit Tests red on main for every pull request).
+const READ_ONLY_CALLS = new Set(['md5', 'position', 'strpos', 'length']);
+
+/**
+ * Functions a migration rewrites from their live text:
+ * pg_get_functiondef('schema.fn(args)'::regprocedure | 'schema.fn'::regproc)
+ * in a file that EXECUTEs dynamic SQL. Unqualified names resolve to public.
+ */
+export function rewrittenFunctions(sql) {
+  const code = stripLineComments(sql);
+  if (!/\bexecute\b/i.test(code)) return [];
+  const re = /pg_get_functiondef\s*\(\s*'\s*(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?\s*(?:\([^']*\))?\s*'\s*::\s*regproc(?:edure)?\b/gi;
+  const out = new Map();
+  let m;
+  while ((m = re.exec(code))) {
+    if (enclosingCalls(code, m.index).some((n) => READ_ONLY_CALLS.has(n))) continue;
+    const schema = (m[1] || 'public').toLowerCase();
+    const name = m[2].toLowerCase();
+    const qualified = `${schema}.${name}`;
+    const prev = out.get(qualified);
+    out.set(qualified, { schema, name, qualified, definedAt: prev ? prev.definedAt : m.index, endsAt: m.index });
+  }
+  return [...out.values()];
+}
+
 /** The functions this law requires a probe for. */
 export function functionsNeedingProbe(sql) {
-  return redefinedFunctions(sql).filter(
+  const created = redefinedFunctions(sql).filter(
     (f) => SCHEMAS.has(f.schema) && f.definer && f.plpgsql && !f.trigger
   );
+  const seen = new Set(created.map((f) => f.qualified));
+  const rewritten = rewrittenFunctions(sql).filter((f) => SCHEMAS.has(f.schema) && !seen.has(f.qualified));
+  return [...created, ...rewritten];
 }
 
 function probeBlocks(sql) {
@@ -161,8 +235,7 @@ export function missingProbes(sql) {
   return problems;
 }
 
-/** True when the law binds this migration file name. */
+/** True when the law binds this migration file name: every file not grandfathered. */
 export function bound(file) {
-  const v = /^(\d{14})_/.exec(file);
-  return Boolean(v && v[1] >= PROBE_LAW_FROM);
+  return /^\d{14}_.*\.sql$/.test(file) && !GRANDFATHERED.has(file);
 }

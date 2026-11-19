@@ -93,8 +93,58 @@ function holeOf(input: RiverValueAuditInput, userId: string | undefined): Card[]
   return parsed;
 }
 
-/** Pure audit of one committed hand. Exported for tests and offline replays. */
-export function auditHorseRiverValue(input: RiverValueAuditInput): {
+// ── omahaValueSizeIsUnreadable (default off, HorseOmahaValueSizeBand.ts) ───
+// A nut-class wager the option sized in the owner's 80-95% pot band is, by the
+// owner's 2026-11-18 ruling, not a leak: the table registers each such wager it
+// ACCEPTED (only ever with the option on), and the audit excuses exactly that
+// action from the two size findings (near-pot not full pot, nut wager under the
+// full pot). Nothing is registered with the option off, so the audit is as before.
+const VALUE_SIZE_BAND_TTL_MS = 30 * 60 * 1000;
+const VALUE_SIZE_BAND_MAX = 2048;
+const valueSizeBandWagers = new Map<string, number>();
+const valueSizeBandKey = (userId: string, street: string, amount: number): string =>
+  `${userId}|${street}|${round2(amount)}`;
+
+/** The table accepted a wager sized by omahaValueSizeIsUnreadable (main thread, after acceptance). */
+export function noteValueSizeBandWager(
+  userId: string | undefined,
+  street: string,
+  amount: number,
+  now = Date.now()
+): void {
+  if (typeof userId !== 'string' || !userId || !Number.isFinite(amount)) return;
+  for (const [key, expires] of valueSizeBandWagers)
+    if (expires <= now || valueSizeBandWagers.size >= VALUE_SIZE_BAND_MAX)
+      valueSizeBandWagers.delete(key);
+    else break;
+  valueSizeBandWagers.set(valueSizeBandKey(userId, street, amount), now + VALUE_SIZE_BAND_TTL_MS);
+}
+
+/** Consumes the registration of one accepted band wager (true once per registration). */
+function takeValueSizeBandWager(
+  userId: string | undefined,
+  street: string,
+  amount: number | null,
+  now: number
+): boolean {
+  if (!userId || amount === null) return false;
+  const key = valueSizeBandKey(userId, street, amount);
+  const expires = valueSizeBandWagers.get(key);
+  if (expires === undefined) return false;
+  valueSizeBandWagers.delete(key);
+  return expires > now;
+}
+
+export function __resetValueSizeBandWagers(): void {
+  valueSizeBandWagers.clear();
+}
+
+/** Pure audit of one committed hand. Exported for tests and offline replays.
+ * `bandWager` (default: none) says an action is an accepted omahaValueSizeIsUnreadable band wager. */
+export function auditHorseRiverValue(
+  input: RiverValueAuditInput,
+  bandWager: (a: RiverValueAuditInput['actions'][number], street: string) => boolean = () => false
+): {
   findings: RiverValueFinding[];
   riverActionsAudited: number;
 } {
@@ -104,6 +154,7 @@ export function auditHorseRiverValue(input: RiverValueAuditInput): {
     const node = a.publicNode;
     if (a.origin !== 'horse_policy' || !node || node.status !== 'captured') continue;
     if (node.wagersCapped || node.actorSeat !== a.seat) continue;
+    const banded = (a.action === 'bet' || a.action === 'raise') && bandWager(a, node.street);
     const self = node.seats.find((s) => s[0] === a.seat);
     if (!self) continue;
     const [, behind, streetWager, invested] = self;
@@ -125,7 +176,8 @@ export function auditHorseRiverValue(input: RiverValueAuditInput): {
       node.pot > 0 &&
       node.minRaiseTo !== null &&
       maxTo !== null &&
-      (a.action === 'raise' || node.currentBet === 0)
+      (a.action === 'raise' || node.currentBet === 0) &&
+      !banded
     ) {
       const base = a.action === 'bet' ? 0 : node.currentBet;
       const increment = node.pot + (a.action === 'raise' ? node.toCall : 0);
@@ -190,6 +242,8 @@ export function auditHorseRiverValue(input: RiverValueAuditInput): {
           kind = 'nut_wager_undersized';
       }
     }
+    // A band wager of omahaValueSizeIsUnreadable is the owner's size, not an under-size.
+    if (kind === 'nut_wager_undersized' && banded) kind = null;
     // Match the value rule: an unbeatable shared board does not create private value.
     if (kind && hasRiverNuts(hero, state, true))
       findings.push(finding(kind, a, 'river', amount, target));
@@ -249,7 +303,14 @@ export function observeCommittedHandRiverValue(
   now = Date.now()
 ): RiverValueFinding[] {
   try {
-    const { findings, riverActionsAudited } = auditHorseRiverValue(input);
+    const { findings, riverActionsAudited } = auditHorseRiverValue(input, (a, street) =>
+      takeValueSizeBandWager(
+        a.userId,
+        street,
+        Number.isFinite(a.amount) ? (a.amount as number) : null,
+        now
+      )
+    );
     alarm.handsAudited++;
     alarm.riverActionsAudited += riverActionsAudited;
     if (findings.length > 0) {

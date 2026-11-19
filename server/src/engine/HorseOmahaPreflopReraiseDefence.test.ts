@@ -21,7 +21,7 @@
  *    off, the pooled read when he is known;
  *  - the receipt admission: only the exact chips of the call, only in the spot.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
@@ -41,8 +41,12 @@ import {
   REALIZATION_SHAPE_MIN,
   type OmahaPreflopDefenceSpot,
 } from './HorseOmahaPreflopReraiseDefence.js';
+import { emptyReraiseResponse, type ReraiseResponseCounters } from './HorseOmahaReraiseResponse.js';
 import {
   PREFLOP_DEFENCE_FALLBACK_RERAISE_RATE,
+  PREFLOP_DEFENCE_RERAISE_RESPONSE_MEASURED,
+  preflopDefenceReraiseResponsePrior,
+  omahaPreflopReraiseDefenceAnswer,
   omahaPreflopReraiseDefenceAdmitsCall,
   omahaPreflopReraiseDefenceRule,
   omahaPreflopReraiseDefenceSpot,
@@ -329,6 +333,8 @@ describe('the verdict', () => {
 
 const HERO = '86000001-0000-4000-8000-000000000001';
 const VILLAIN = '40000000-0000-4000-8000-0000000000c3';
+/** The re-raise proposed against a person's 3-bet: a 4-bet. */
+const FACED_4BET = { preflopRaises: 2, kind: 'person' } as const;
 /** Six-handed PLO5 cash, blinds 1/2: hero on the button opens to 7, the big blind 3-bets to 22. */
 function threeBet(hole: string, variant = 'plo5'): { hero: SeatPlayer; gs: HorseGameStateV2 } {
   const bet: Record<number, number> = { 1: 1, 2: 22, 3: 0, 4: 0, 5: 0, 6: 7 };
@@ -467,8 +473,8 @@ describe('the rule', () => {
   });
 
   it('one read interface: the population mean with the mind off or no row, his pooled read when known', () => {
-    const none = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true);
-    const off = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, false);
+    const none = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET);
+    const off = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, false, FACED_4BET);
     expect(none).toEqual(off);
     expect(none.opportunities).toBe(0);
     expect(Number.isFinite(none.rate)).toBe(true);
@@ -477,10 +483,10 @@ describe('the rule', () => {
       wideRow()
     );
     HorseMind.setDecisionScope(readScopeOf('plo5', 6), 'plo5', 'cash');
-    const known = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true);
+    const known = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET);
     expect(known.rate).toBeGreaterThan(none.rate);
     expect(known.opportunities).toBeGreaterThan(0);
-    expect(omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, false)).toEqual(off);
+    expect(omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, false, FACED_4BET)).toEqual(off);
     expect(PREFLOP_DEFENCE_FALLBACK_RERAISE_RATE).toBeGreaterThan(0);
   });
 
@@ -523,5 +529,124 @@ describe('the rule', () => {
     expect(
       omahaPreflopReraiseDefenceAdmitsCall(hero, { ...gs, gameVariant: 'nlh' } as never, 15)
     ).toBe(false);
+  });
+});
+
+// ─── the fold share of a proposed re-raise: his answer to that re-raise ─────
+
+/** A record of his answers: `fold`, `call`, `raise` of `opp` at one node, nothing at the other. */
+function answers(
+  node: keyof ReraiseResponseCounters,
+  fold: number,
+  call: number,
+  raise: number
+): ReraiseResponseCounters {
+  const r = emptyReraiseResponse();
+  r[node] = { opp: fold + call + raise, fold, call, raise };
+  return r;
+}
+
+describe('omahaPreflopReraiseDefencePriced: a 4-bet is credited the folds he shows to 4-bets, nothing else', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('the prior is the measurement: persons 0 of 196 folds to a Horse 4-bet, Horses 53 of 88 (Jeffreys)', () => {
+    const p = preflopDefenceReraiseResponsePrior('person', 'threeBetFacesFourBet');
+    expect(PREFLOP_DEFENCE_RERAISE_RESPONSE_MEASURED.person.threeBetFacesFourBet).toEqual({
+      fold: 0,
+      call: 149,
+      raise: 47,
+    });
+    expect(p.mass).toBeCloseTo(197.5, 12);
+    expect(p.prior.fold).toBeCloseTo(0.5 / 197.5, 12);
+    expect(p.prior.fold + p.prior.call + p.prior.raise).toBeCloseTo(1, 12);
+    const h = preflopDefenceReraiseResponsePrior('horse', 'threeBetFacesFourBet');
+    expect(h.prior.fold).toBeCloseTo(53.5 / 89.5, 12);
+    // an unknown kind is never credited a fold the measurement did not show
+    expect(preflopDefenceReraiseResponsePrior(null, 'threeBetFacesFourBet')).toEqual(p);
+  });
+
+  it('(1) no 4-bet history: a person is credited the measured prior (about 0.25%), never 45% and never his fold to a 3-bet', () => {
+    const none = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET);
+    expect(none.foldToReraise).toBeCloseTo(0.5 / 197.5, 12);
+    expect(none.foldToReraise).toBeLessThan(0.01);
+    expect(omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, false, FACED_4BET).foldToReraise).toBe(
+      none.foldToReraise
+    );
+    expect(
+      omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, { preflopRaises: 2, kind: null })
+        .foldToReraise
+    ).toBe(none.foldToReraise);
+    // He folds to every 3-bet as an opener (foldTo3Bet 8 of 8): a different node, it does not enter.
+    const folder = freshExploitCounters();
+    Object.assign(folder, { hands: 40, vpip: 20, pfr: 12, foldTo3BetOpp: 8, foldTo3Bet: 8 });
+    (HorseMind as unknown as { exploitCounters: Map<string, ExploitCounters> }).exploitCounters.set(
+      `${readScopeOf('plo5', 6)}|${VILLAIN}`,
+      folder
+    );
+    HorseMind.setDecisionScope(readScopeOf('plo5', 6), 'plo5', 'cash');
+    expect(HorseMind.opponentRead(VILLAIN)?.stats.foldTo3Bet.mean ?? 0).toBeGreaterThan(0.3);
+    expect(omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET).foldToReraise).toBe(
+      none.foldToReraise
+    );
+  });
+
+  it('(1) in the rule: a proposed 4-bet against a person without a record is priced at the prior fold share', () => {
+    const { hero, gs } = threeBet('AsAhKsKhQd');
+    const risk = 60;
+    const ans = omahaPreflopReraiseDefenceAnswer(hero, gs, { mind: true }, risk)!;
+    const atPrior = omahaPreflopDefenceVerdict(
+      ans.found.spot,
+      hero.cards!,
+      [],
+      { ...omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET) },
+      { risk }
+    )!;
+    expect(ans.verdict.evRaise).toBe(atPrior.evRaise);
+    const at45 = omahaPreflopDefenceVerdict(
+      ans.found.spot,
+      hero.cards!,
+      [],
+      { ...omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET), foldToReraise: 0.45 },
+      { risk }
+    )!;
+    expect(ans.verdict.evRaise!).toBeLessThan(at45.evRaise!);
+  });
+
+  it('(2) a player with measured folds to 4-bets is credited them, at the node of the re-raise proposed', () => {
+    const asked = vi
+      .spyOn(HorseMind, 'omahaReraiseResponseOf')
+      .mockReturnValue(answers('threeBetFacesFourBet', 24, 5, 1));
+    const r = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, FACED_4BET);
+    const { prior, mass } = preflopDefenceReraiseResponsePrior('person', 'threeBetFacesFourBet');
+    expect(r.foldToReraise).toBeCloseTo((24 + mass * prior.fold) / (30 + mass), 12);
+    expect(r.foldToReraise).toBeGreaterThan(prior.fold * 10);
+    expect(asked).toHaveBeenCalledWith(VILLAIN);
+    // a 5-bet proposal reads his answer to a 5-bet (none recorded here): the 5-bet prior
+    const five = omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, true, {
+      preflopRaises: 3,
+      kind: 'person',
+    });
+    expect(five.foldToReraise).toBeCloseTo(
+      preflopDefenceReraiseResponsePrior('person', 'fourBetFacesFiveBet').prior.fold,
+      12
+    );
+    // the mind off: his record is not read, the prior alone
+    asked.mockClear();
+    expect(omahaPreflopReraiserReadOf(VILLAIN, 'plo5', 6, false, FACED_4BET).foldToReraise).toBe(
+      prior.fold
+    );
+    expect(asked).not.toHaveBeenCalled();
+  });
+
+  it('(2) in the rule: his measured folds raise the price of the 4-bet over the prior alone', () => {
+    const { hero, gs } = threeBet('AsAhKsKhQd');
+    const risk = 60;
+    const bare = omahaPreflopReraiseDefenceAnswer(hero, gs, { mind: true }, risk)!;
+    vi.spyOn(HorseMind, 'omahaReraiseResponseOf').mockReturnValue(
+      answers('threeBetFacesFourBet', 24, 5, 1)
+    );
+    const folder = omahaPreflopReraiseDefenceAnswer(hero, gs, { mind: true }, risk)!;
+    expect(folder.verdict.evRaise!).toBeGreaterThan(bare.verdict.evRaise!);
+    expect(folder.verdict.evCall).toBe(bare.verdict.evCall);
   });
 });
