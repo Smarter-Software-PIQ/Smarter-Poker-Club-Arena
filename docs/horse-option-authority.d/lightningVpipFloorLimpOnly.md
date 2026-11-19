@@ -43,7 +43,10 @@ No pool session is ended by the floor today, for a person or for a Horse. The ru
 
 - No fixed chair: the count follows the pool session, not a seat.
 - The early look. A Horse first asks its policy before its turn; a fold there is pressed at once. Under its line in an unraised pot the answer is now the limp, so the Horse waits for its turn and decides again on what happened in between (a raise in front: the unfloored decision, usually a fold on the ordinary clock). Horses under their line therefore fast-fold less; the pool's hands-per-hour effect is NOT MEASURED.
-- The count is in engine memory. A process restart starts it again, and so does a new sitting: the Horse takes no floor action until the count holds `windowHands - 1` hands (nine in a ten-hand game), which bounds a restart at nine unfloored hands per sitting. When a pool judge exists, the count must be replaced by the judge's own figure, as at a table.
+- The count is in engine memory, in deal order. A hand is counted when it is over for the player: at its fold, or at settlement for everyone still in. That way the next hand a fast fold deals already sees it (review F1).
+- A new sitting this process met from its first hand is judged from that hand: every prefix must hold the floor, ceil(floor x (hands + 1)), so a tight Horse reaches its first full window at the floor (review F3). A sitting carried over an engine restart (first seen within 120 s of the ledger's first activity; measured p99.9 gap between a Horse's dealt hands is 101 s) takes no floor action until the count holds `windowHands - 1` hands. That bounds a restart at nine unfloored hands per sitting.
+- The window is the game's `vpip_window` when the rules carry it, else `tables.maintain_hands`, in fn_nit_policy's order (both are ten in every fast-table game today).
+- When a pool judge exists, the count must be replaced by the judge's own figure, as at a table, and the line must follow the judge's mode. fn_nit_policy judges the whole sitting unless `vpip_rolling` is set; this line is rolling, so a Horse whose early sitting was tight could read under a whole-sitting judge (review F2).
 
 ## Receipts
 
