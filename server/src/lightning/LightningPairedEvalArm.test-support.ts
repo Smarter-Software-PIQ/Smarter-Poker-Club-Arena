@@ -55,6 +55,7 @@ import type { LeagueSeatSpot } from '../benchmark/HorseLeague.js';
 import * as kit from '../testing/lightningHostTestKit.js';
 import { horsePreflopStrength } from './LightningHorseEarlyFold.js';
 import { buildLightningHorseSnapshot } from './LightningHorse.js';
+import { openLightningEvalFixtureScope } from './LightningPairedEvalRelease.test-support.js';
 import type { LightningParticipant } from './LightningHandBackend.js';
 import {
   LIGHTNING_EVAL_BIG_BLIND,
@@ -233,6 +234,9 @@ export async function playLightningEvalArm(input: {
       over: overCaller || miss.overExecution,
     };
   };
+  // D10: every hand builds its host on vi.fn fixtures that vitest registers
+  // for the life of the process; released after each hand and at the end.
+  const fixtures = openLightningEvalFixtureScope();
   const previousRng = saveFastRandom();
   equityGovernor.__setScaleForTest(1);
   vi.useFakeTimers({
@@ -763,6 +767,7 @@ export async function playLightningEvalArm(input: {
         });
       } finally {
         await t.host.abort('lightning_eval_done');
+        fixtures.release();
       }
     }
     const sorted = [...latency].sort((a, b) => a - b);
@@ -807,5 +812,6 @@ export async function playLightningEvalArm(input: {
     equityGovernor.__setScaleForTest(null);
     HorseMind.reset();
     resetWinnerReads();
+    fixtures.release();
   }
 }
