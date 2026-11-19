@@ -31,6 +31,17 @@ import {
   type TournamentFlagVariant,
   type TournamentFlagAdmission,
 } from './HorseTournamentFlagContract.js';
+import {
+  resolveTournamentSwitchCard,
+  summarizeTournamentSwitchPairs,
+  tournamentSwitchStartingStacks,
+  type ResolvedTournamentSwitchCard,
+  type TournamentSwitchCard,
+  type TournamentSwitchPair,
+  type TournamentSwitchStacks,
+  type TournamentSwitchSummary,
+  type TournamentSwitchVariant,
+} from './HorseTournamentSwitchCard.js';
 
 export const TOURNAMENT_LEAGUE_OBJECTIVES = [
   'mtt',
@@ -130,6 +141,8 @@ export function tournamentPolicyWorkKind(family: TournamentPolicyFamily) {
 
 export interface TournamentLeagueRequest {
   flagCard?: string;
+  /** A whole-tournament switch card (HorseTournamentSwitchCard.ts): any registered option, production's base for every Horse. */
+  switchCard?: TournamentSwitchCard;
   firstPair?: number;
   flagQualification?: TournamentFlagAdmission;
   objective: TournamentLeagueObjective;
@@ -323,6 +336,11 @@ export interface TournamentLeagueResult extends TournamentCompletionCounts {
   cardDecisions?: number;
   cardChanged?: number;
   cardPairs?: Array<{ index: number; candidate: number; reference: number }>;
+  /** Switch card results only (HorseTournamentSwitchCard.ts). */
+  switchCard?: ResolvedTournamentSwitchCard;
+  switchFirstPair?: number;
+  switchPairs?: TournamentSwitchPair[];
+  switchSummary?: TournamentSwitchSummary;
 
   version: ReturnType<typeof tournamentPolicyVersion>;
   phase8PolicyFamily?: TournamentPolicyFamily;
@@ -403,6 +421,10 @@ function seat(index: number, stack: number): SeatPlayer {
 }
 interface Receipt extends TournamentCompletionCounts {
   returned: number;
+  /** Payout percent the hero realized (satellite: 50 per seat). */
+  prizePct: number;
+  bountyPool: number;
+  heroStartStack: number;
   chips: number;
   bounty: number;
   finish: number;
@@ -469,19 +491,26 @@ async function playTournament(
   opponentPopulation: typeof HUMAN_CALIBRATED_POPULATION_ID | null = null,
   family: TournamentPolicyFamily = 'continuation_v2',
   flag: {
-    variant: TournamentFlagVariant;
+    variant: TournamentFlagVariant | TournamentSwitchVariant;
     hero: HorseDecideOpts;
     counterfactual: HorseDecideOpts | null;
+    /** Switch cards: the options every non-hero Horse plays (absent: {} as the flag cards). */
+    field?: HorseDecideOpts;
+    /** Switch cards: NLH keeps the entrant hole assignment (false); Omaha deals table slots (true, the flag-card rule). */
+    slotDeal?: boolean;
+    startingStacks?: TournamentSwitchStacks;
   } | null = null
 ): Promise<Receipt> {
-  const variant: TournamentFlagVariant | 'nlh' = flag?.variant ?? 'nlh';
+  const variant: TournamentFlagVariant | TournamentSwitchVariant | 'nlh' = flag?.variant ?? 'nlh';
   const holeCount = holeCardCount(variant);
   const count = tournamentLeagueEntrants(objective);
   const startStack = 2000;
+  const starts = tournamentSwitchStartingStacks(seed, count, flag?.startingStacks ?? 'equal');
+  const slotDeal = flag ? (flag.slotDeal ?? true) : false;
   const players = Array.from({ length: count }, (_, i) =>
     opponentPopulation && i !== heroSeat
-      ? { ...seat(i, startStack), username: `Human ${i + 1}`, is_horse: false }
-      : seat(i, startStack)
+      ? { ...seat(i, starts[i]!), username: `Human ${i + 1}`, is_horse: false }
+      : seat(i, starts[i]!)
   );
   const heroId = players[heroSeat].user_id;
   const originalIds = players.map((p) => p.user_id);
@@ -499,6 +528,9 @@ async function playTournament(
   const receipt: Receipt = {
     ...emptyTournamentCompletionCounts(),
     returned: 0,
+    prizePct: 0,
+    bountyPool,
+    heroStartStack: starts[heroSeat]!,
     chips: 0,
     bounty: 0,
     finish: count,
@@ -557,11 +589,11 @@ async function playTournament(
     const full = cardsFor((seed ^ Math.imul(hand + 1, 2654435761)) >>> 0);
     // Preserve the NLH entrant assignment exactly. Omaha uses six table slots:
     // eighteen PLO6 entrants cannot each reserve six cards from one deck.
-    const boardStart = flag ? 6 * holeCount : count * 2;
+    const boardStart = slotDeal ? 6 * holeCount : count * 2;
     const fixedBoard = full.slice(boardStart, boardStart + 5);
     const deck = tablePlayers
       .flatMap((p, slot) => {
-        const i = flag ? slot : originalIds.indexOf(p.user_id);
+        const i = slotDeal ? slot : originalIds.indexOf(p.user_id);
         return full.slice(i * holeCount, i * holeCount + holeCount);
       })
       .concat(fixedBoard, full.slice(boardStart + 5));
@@ -729,7 +761,7 @@ async function playTournament(
       let decision: HorseDecision =
         opponentPopulation !== null && hero.user_id !== heroId
           ? humanCalibratedEntrantDecision(hero, state, menu, receipt, variant)
-          : decideWith(hero.user_id === heroId && flag ? flag.hero : {});
+          : decideWith(hero.user_id === heroId && flag ? flag.hero : (flag?.field ?? {}));
       if (flag?.counterfactual && hero.user_id === heroId) {
         const live = saveFastRandom();
         seedFastRandom(
@@ -856,7 +888,8 @@ async function playTournament(
     }
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
-  receipt.chips = (alive.find((p) => p.user_id === heroId)?.stack ?? 0) - startStack;
+  receipt.chips = (alive.find((p) => p.user_id === heroId)?.stack ?? 0) - receipt.heroStartStack;
+  receipt.prizePct = heroPrize;
   receipt.returned = realizedTournamentReturn(
     objective,
     heroPrize,
@@ -880,7 +913,8 @@ export async function runTournamentLeague(
     request.seed <= 0
   )
     throw new Error('Invalid tournament league request');
-  const card = validateTournamentFlagRequest(request);
+  const switchCard = resolveTournamentSwitchCard(request);
+  const card = switchCard ? undefined : validateTournamentFlagRequest(request);
   if (request.flagQualification) {
     const { authenticateTournamentFlagExecution } =
       await import('./HorseTournamentFlagQualification.js');
@@ -900,6 +934,13 @@ export async function runTournamentLeague(
           cardDecisions: 0,
           cardChanged: 0,
           cardPairs: [],
+        }
+      : {}),
+    ...(switchCard
+      ? {
+          switchCard,
+          switchFirstPair: firstPair,
+          switchPairs: [],
         }
       : {}),
     version: tournamentPolicyVersion(family),
@@ -947,6 +988,8 @@ export async function runTournamentLeague(
   };
   const differences: number[] = [];
   const latencies: number[] = [];
+  let switchDecisions = 0;
+  let switchChanged = 0;
   try {
     for (let pair = 0; pair < request.pairs; pair++) {
       if (!shouldContinue()) break;
@@ -960,7 +1003,18 @@ export async function runTournamentLeague(
         shouldContinue,
         request.opponentPopulation ?? null,
         family,
-        card ? { variant: card.variant, hero: card.a, counterfactual: card.b } : null
+        card
+          ? { variant: card.variant, hero: card.a, counterfactual: card.b }
+          : switchCard
+            ? {
+                variant: switchCard.variant,
+                hero: switchCard.a,
+                counterfactual: switchCard.b,
+                field: switchCard.b,
+                slotDeal: switchCard.variant !== 'nlh',
+                startingStacks: switchCard.startingStacks,
+              }
+            : null
       );
       const b = await playTournament(
         seed,
@@ -970,7 +1024,18 @@ export async function runTournamentLeague(
         shouldContinue,
         request.opponentPopulation ?? null,
         family,
-        card ? { variant: card.variant, hero: card.b, counterfactual: null } : null
+        card
+          ? { variant: card.variant, hero: card.b, counterfactual: null }
+          : switchCard
+            ? {
+                variant: switchCard.variant,
+                hero: switchCard.b,
+                counterfactual: null,
+                field: switchCard.b,
+                slotDeal: switchCard.variant !== 'nlh',
+                startingStacks: switchCard.startingStacks,
+              }
+            : null
       );
       for (const arm of [a, b])
         for (const [node, counts] of Object.entries(arm.humanResponses))
@@ -990,6 +1055,20 @@ export async function runTournamentLeague(
           index: firstPair + pair,
           candidate: a.returned,
           reference: b.returned,
+        });
+      }
+      if (switchCard) {
+        switchDecisions += a.cardDecisions ?? 0;
+        switchChanged += a.cardChanged ?? 0;
+        result.switchPairs!.push({
+          index: firstPair + pair,
+          candidate: a.returned,
+          reference: b.returned,
+          candidatePrize: request.objective === 'satellite' ? a.prizePct / 50 : a.prizePct / 100,
+          referencePrize: request.objective === 'satellite' ? b.prizePct / 50 : b.prizePct / 100,
+          candidateBounty: a.bountyPool ? a.bounty / a.bountyPool : 0,
+          referenceBounty: b.bountyPool ? b.bounty / b.bountyPool : 0,
+          heroStartStack: a.heroStartStack,
         });
       }
       differences.push(a.returned - b.returned);
@@ -1052,6 +1131,13 @@ export async function runTournamentLeague(
     p99: quantile(0.99),
     max: quantile(1),
   };
+  if (switchCard)
+    result.switchSummary = summarizeTournamentSwitchPairs(
+      result.switchPairs!,
+      request.objective === 'pko' || request.objective === 'mystery',
+      switchChanged,
+      switchDecisions
+    );
   result.durationMs = performance.now() - started;
   result.complete = n === request.pairs;
   result.promotionEligible = tournamentRunCanPromote(result);
@@ -1126,6 +1212,7 @@ export function tournamentGuardCountsAreValid(r: {
 
 export function tournamentRunCanPromote(r: TournamentLeagueResult): boolean {
   if (r.flagCard !== undefined) return false; // separate immutable flag-card qualification only
+  if (r.switchCard !== undefined) return false; // a switch card measures; it never promotes
   if (!tournamentGuardCountsAreValid(r)) return false;
   if (
     r.phase8PolicyFamily !== undefined &&

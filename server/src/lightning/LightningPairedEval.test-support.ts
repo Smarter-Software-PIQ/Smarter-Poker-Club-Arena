@@ -107,6 +107,15 @@ export interface LightningEvalCell {
    * nominal depth only (it names the uniform twin whose deals it shares).
    */
   stackMix?: LightningEvalStackMix;
+  /**
+   * E2 (2026-11-19): a floored pool. Absent: no VPIP rule, every cell as
+   * before. Present: the rules carry nit_game / maintain_percent_min /
+   * maintain_hands for BOTH arms, every player keeps one pool session for the
+   * whole cell, and each arm keeps its own pool ledger (LightningEvalPoolLedger).
+   * Not part of the cell key: a floored cell deals the cards, seats and dice of
+   * its unfloored twin.
+   */
+  floor?: LightningEvalFloor;
 }
 
 export interface LightningEvalArmSpec {
@@ -125,13 +134,19 @@ export interface LightningEvalArmSpec {
 
 export interface LightningEvalConfig {
   name: string;
-  /** development | selection | final: see the protocol's contamination rule. */
-  seedClass: 'development' | 'selection' | 'final';
+  /**
+   * development | selection | final: see the protocol's contamination rule.
+   * switch (E1, 2026-11-19): a leave-one-out switch card on production's live
+   * base; its seeds come from LIGHTNING_EVAL_SWITCH_SEED_RANGE only.
+   */
+  seedClass: 'development' | 'selection' | 'final' | 'switch';
   seeds: readonly number[];
   handsPerCell: number;
   cells: readonly LightningEvalCell[];
   /** Decide options both arms run on (the served configuration under test). */
   baselineDecideOpts: Record<string, unknown>;
+  /** E1 switch cards only: what the card declared (recorded in the report). */
+  switchCard?: LightningEvalSwitchCardRecord;
 }
 
 /**
@@ -315,9 +330,15 @@ export const LIGHTNING_EVAL_DEV_MIXED_SMOKE: LightningEvalConfig = Object.freeze
 
 export function lightningEvalSeedClassOf(
   seed: number
-): 'development' | 'selection' | 'final' | null {
+): 'development' | 'selection' | 'final' | 'switch' | null {
   for (const cls of ['development', 'selection', 'final'] as const)
     if ((LIGHTNING_EVAL_SEEDS[cls] as readonly number[]).includes(seed)) return cls;
+  if (
+    Number.isSafeInteger(seed) &&
+    seed >= LIGHTNING_EVAL_SWITCH_SEED_RANGE.min &&
+    seed <= LIGHTNING_EVAL_SWITCH_SEED_RANGE.max
+  )
+    return 'switch';
   return null;
 }
 
@@ -864,6 +885,8 @@ export interface LightningEvalArmResult {
     subjectDecideOptionKeys: string[];
     nonSubjectDecideOptionKeys: string[];
   };
+  /** E2: a floored cell only, this arm's own pool ledger. */
+  pool?: LightningEvalPoolArmReport;
   /** Wall-clock: NOT part of the deterministic digest. */
   latencyMs: {
     n: number;
@@ -1033,6 +1056,8 @@ export interface LightningEvalCellReport {
   q4: LightningEvalQ4;
   /** A mixed cell only: the stacks it dealt (absent on a uniform cell). */
   stacks?: LightningEvalStacksSummary;
+  /** E2: a floored cell only, each arm's pool ledger. */
+  pool?: { baseline: LightningEvalPoolArmReport; candidate: LightningEvalPoolArmReport };
   /** Wall-clock, excluded from the digest. */
   latencyMs: {
     baseline: LightningEvalArmResult['latencyMs'];
@@ -1046,6 +1071,8 @@ export interface LightningEvalReport {
   seedClass: LightningEvalConfig['seedClass'];
   seeds: number[];
   handsPerCell: number;
+  /** E1 switch cards only. */
+  switchCard?: LightningEvalSwitchCardRecord;
   /** Present only when the run applied the production deadline (machine dependent). */
   deadlineMode?: 'apply';
   contract: {
@@ -1105,6 +1132,13 @@ export interface LightningEvalReport {
 /** The definition a report carries only when one of its cells deals mixed stacks. */
 export const LIGHTNING_EVAL_STACK_MIX_DEFINITION =
   'stackMix mixed: every seat of the cell draws its own starting stack each hand from contract.mixedStacks (whole big blinds, uniform on [50, 200]; a declared development prior, not fitted to production), from its own stream: identical in both arms, and the cards, seats and dice are those of the uniform twin named by stackBB. cells[].stacks: the seats dealt, the subjects effective stacks (min of own and deepest other starting stack, before blinds and antes) and engineStackMismatches (seats whose settled start differs from the dealt stack; must be 0). The paired side file carries heroStackBB and effectiveStackBB per hand.';
+
+/** E2: the definition a report carries only when one of its cells is floored. */
+export const LIGHTNING_EVAL_POOL_DEFINITION =
+  'cell.floor: the table rules carry nit_game, maintain_percent_min (vpipPct) and maintain_hands (windowHands) in BOTH arms; every player keeps one pool session for the whole cell (not one per formation slot); each arm keeps its own pool ledger. cells[].pool.{baseline,candidate}: per subject pool session hands, entries, cumulative VPIP after 10/30/100 hands and at the end, hands judged under the floor (rolling: the last windowHands hands; else the whole sitting), warnings, recoveries and evictions (graceHands dealt hands to recover; 0 boots on the spot; a booted session starts a new sitting), and the table totals over every player. A model of the game rule for measurement, not fn_nit_check. feedSnapshot hands every Horse the floor and its own judged figure (gs.vpipFloor, vpipWindowHands, ownVpip) from a feed ledger cleared every restartEveryHands hands; without it the Horse snapshot is production Lightning snapshot, which carries no floor.';
+/** E1: the definition a report carries only for a switch card. */
+export const LIGHTNING_EVAL_SWITCH_DEFINITION =
+  'switchCard: a leave-one-out card on production live switch set. baselineArm.decideOpts is that set (validated: registered switches only, booleans, no off-only option on), both arms run on it; the candidate arm sets only switchCard.flag to switchCard.candidateValue. Seeds come from the switch seed class (LIGHTNING_EVAL_SWITCH_SEED_RANGE), never from the development, selection or final sets.';
 
 export const LIGHTNING_EVAL_DEFINITIONS: Readonly<Record<string, string>> = Object.freeze({
   subject:
@@ -1854,6 +1888,9 @@ export async function runLightningPairedEval(input: {
         paired: pairLightningEvalArms(cell.players, a, b),
         q4: lightningEvalQ4(a.total, b.total),
         ...(cell.stackMix === 'mixed' ? { stacks: lightningEvalStacksSummary(a, b) } : {}),
+        ...(cell.floor && a.pool && b.pool
+          ? { pool: { baseline: a.pool, candidate: b.pool } }
+          : {}),
         latencyMs: { baseline: a.latencyMs, candidate: b.latencyMs },
       };
       cells.push(report);
@@ -1880,6 +1917,7 @@ export async function runLightningPairedEval(input: {
     seedClass: config.seedClass,
     seeds: [...config.seeds],
     handsPerCell: config.handsPerCell,
+    ...(config.switchCard ? { switchCard: config.switchCard } : {}),
     ...(apply ? { deadlineMode: 'apply' as const } : {}),
     contract: {
       smallBlind: LIGHTNING_EVAL_SMALL_BLIND,
@@ -1897,6 +1935,8 @@ export async function runLightningPairedEval(input: {
     definitions: {
       ...LIGHTNING_EVAL_DEFINITIONS,
       ...(mixed ? { stackMix: LIGHTNING_EVAL_STACK_MIX_DEFINITION } : {}),
+      ...(cells.some((c) => c.cell.floor) ? { pool: LIGHTNING_EVAL_POOL_DEFINITION } : {}),
+      ...(config.switchCard ? { switchCard: LIGHTNING_EVAL_SWITCH_DEFINITION } : {}),
     },
     baselineArm: { name: 'baseline', decideOpts: { ...config.baselineDecideOpts } },
     candidateArm: {
@@ -2190,4 +2230,305 @@ export function lightningEvalMarkdown(report: LightningEvalReport): string {
       );
   out.push('');
   return out.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// E1 (2026-11-19): switch cards on production's live base, their own seed class.
+// ---------------------------------------------------------------------------
+
+/**
+ * The seeds a switch card may deal: 41,900,000 to 41,999,999 (0 hits in the
+ * Lightning helper's seed scan of 2026-11-18, swarm/lightning seedscan.txt; the
+ * lead re-scans before declaring). Disjoint from the development, selection
+ * and final sets, which a switch card can never deal.
+ */
+export const LIGHTNING_EVAL_SWITCH_SEED_RANGE = Object.freeze({ min: 41_900_000, max: 41_999_999 });
+
+/** What a switch card declared, as its report records it. */
+export interface LightningEvalSwitchCardRecord {
+  name: string;
+  flag: string;
+  candidateValue: boolean;
+  /** The flag in the base (null: no row, release default). */
+  baseValue: boolean | null;
+  /** Plumbing keys dropped from the base input (telemetry, mind, observeMind). */
+  ignored: readonly string[];
+  /** sha256 of the canonical {flag, candidateValue, a, b} (HorseSwitchArms). */
+  digest: string;
+  scope: 'hero' | 'all_horses';
+}
+
+/**
+ * A switch card's configuration. `baseline` is production's live switch set,
+ * already validated (HorseSwitchArms.horseSwitchArms); both arms run on it,
+ * and the candidate arm differs only in `flag` (lightningEvalSwitchCandidate).
+ * Replaces the frozen seven style options of 2026-11-14 for this card only;
+ * every declared configuration above is unchanged.
+ */
+export function lightningEvalSwitchConfig(input: {
+  record: LightningEvalSwitchCardRecord;
+  baseline: Readonly<Record<string, boolean>>;
+  seeds: readonly number[];
+  handsPerCell: number;
+  cells: readonly LightningEvalCell[];
+}): LightningEvalConfig {
+  if (!input.seeds.length) throw new Error('switch card: no seed');
+  for (const seed of input.seeds)
+    if (lightningEvalSeedClassOf(seed) !== 'switch')
+      throw new Error(
+        `switch card: seed ${seed} is outside the switch seed range ${LIGHTNING_EVAL_SWITCH_SEED_RANGE.min}-${LIGHTNING_EVAL_SWITCH_SEED_RANGE.max}`
+      );
+  if (new Set(input.seeds).size !== input.seeds.length)
+    throw new Error('switch card: repeated seed');
+  if (!Number.isSafeInteger(input.handsPerCell) || input.handsPerCell < 1)
+    throw new Error('switch card: handsPerCell must be a positive integer');
+  if (!input.cells.length) throw new Error('switch card: no cell');
+  for (const cell of input.cells) {
+    if (!(LIGHTNING_EVAL_VARIANTS as readonly string[]).includes(cell.variant))
+      throw new Error(`switch card: variant ${cell.variant}`);
+    if (!(LIGHTNING_EVAL_PLAYERS as readonly number[]).includes(cell.players))
+      throw new Error(`switch card: players ${cell.players}`);
+    if (!(LIGHTNING_EVAL_STACKS_BB as readonly number[]).includes(cell.stackBB))
+      throw new Error(`switch card: stackBB ${cell.stackBB}`);
+    if (!(LIGHTNING_EVAL_FIELDS as readonly string[]).includes(cell.field))
+      throw new Error(`switch card: field ${cell.field}`);
+    if (cell.floor) lightningEvalFloorValid(cell.floor);
+  }
+  const { flag } = input.record;
+  if (input.record.baseValue !== null && input.baseline[flag] !== input.record.baseValue)
+    throw new Error('switch card: the recorded base value is not the baseline value');
+  return {
+    name: `switch_${input.record.name}`,
+    seedClass: 'switch',
+    seeds: [...input.seeds],
+    handsPerCell: input.handsPerCell,
+    cells: input.cells.map((c) => ({ ...c })),
+    baselineDecideOpts: { ...input.baseline },
+    switchCard: { ...input.record, ignored: [...input.record.ignored] },
+  };
+}
+
+/** The candidate arm of a switch card: the baseline with `flag` at `value`. */
+export function lightningEvalSwitchCandidate(
+  record: Pick<LightningEvalSwitchCardRecord, 'flag' | 'candidateValue' | 'scope'>
+): LightningEvalArmSpec {
+  return {
+    name: `${record.flag}=${record.candidateValue ? 'on' : 'off'}`,
+    decideOpts: { [record.flag]: record.candidateValue },
+    scope: record.scope,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// E2 (2026-11-19): floored pools, one pool session per player, a ledger per arm.
+// ---------------------------------------------------------------------------
+
+/** A floored pool's rules, as the game carries them (tables / fn_nit_status). */
+export interface LightningEvalFloor {
+  /** maintain_percent_min: the VPIP floor, percent (> 0). */
+  vpipPct: number;
+  /** maintain_hands: hands before the rule may judge (>= 1). */
+  windowHands: number;
+  /** Dealt hands a warned seat gets to recover in; 0 = booted on the spot (Action / Madness). */
+  graceHands: number;
+  /** true: the judged figure is the last windowHands hands (Classic); false: the whole sitting. */
+  rolling: boolean;
+  /**
+   * Decision side. false (default): the Horse snapshot is left as production's
+   * Lightning host builds it (it carries no floor). true: every Horse decision
+   * is handed the table's floor and its own figure from this arm's feed ledger
+   * (gs.vpipFloor, gs.vpipWindowHands, gs.ownVpip), as a physical table hands
+   * them (ServerTableEngineBase.horseVpipDecisionInputs). Same in both arms.
+   */
+  feedSnapshot?: boolean;
+  /**
+   * With feedSnapshot: the feed ledger is cleared every N hands (an in-memory
+   * ledger lost at the hourly engine restart). The judge ledger never clears.
+   */
+  restartEveryHands?: number;
+}
+
+export function lightningEvalFloorValid(f: LightningEvalFloor): LightningEvalFloor {
+  if (!(Number.isFinite(f.vpipPct) && f.vpipPct > 0 && f.vpipPct <= 100))
+    throw new Error('floor: vpipPct must be in (0, 100]');
+  if (!Number.isSafeInteger(f.windowHands) || f.windowHands < 1)
+    throw new Error('floor: windowHands must be a positive integer');
+  if (!Number.isSafeInteger(f.graceHands) || f.graceHands < 0)
+    throw new Error('floor: graceHands must be a non-negative integer');
+  if (typeof f.rolling !== 'boolean') throw new Error('floor: rolling must be a boolean');
+  if (
+    f.restartEveryHands !== undefined &&
+    (!Number.isSafeInteger(f.restartEveryHands) || f.restartEveryHands < 1)
+  )
+    throw new Error('floor: restartEveryHands must be a positive integer');
+  return f;
+}
+
+/** The rules a floored cell adds to the host's table rules (both arms). */
+export function lightningEvalFloorRules(
+  f: LightningEvalFloor | undefined
+): Record<string, unknown> {
+  return f
+    ? { nit_game: true, maintain_percent_min: f.vpipPct, maintain_hands: f.windowHands }
+    : {};
+}
+
+/** VPIP milestones reported per pool session. */
+export const LIGHTNING_EVAL_POOL_MILESTONES = [10, 30, 100] as const;
+
+export interface LightningEvalPoolSessionReport {
+  /** The pool session's player, last six characters (as the hand records). */
+  id: string;
+  subject: boolean;
+  hands: number;
+  entered: number;
+  /** Cumulative VPIP of the session after 10 / 30 / 100 hands, percent (null: not reached). */
+  vpipAtPct: Record<string, number | null>;
+  vpipEndPct: number | null;
+  /** Hands after which the judged figure was under the floor. */
+  handsJudgedBelow: number;
+  warnings: number;
+  recoveries: number;
+  /** Seats the judge would have booted (the session then starts a new sitting). */
+  evictions: number;
+  sittings: number;
+}
+
+export interface LightningEvalPoolArmReport {
+  floor: LightningEvalFloor;
+  /** Pool sessions seen (one per player). */
+  sessions: number;
+  subjects: LightningEvalPoolSessionReport[];
+  table: { hands: number; warnings: number; evictions: number; handsJudgedBelow: number };
+  /** Times the feed ledger was cleared (restartEveryHands). */
+  feedClears: number;
+}
+
+interface PoolSession {
+  hist: boolean[];
+  warned: boolean;
+  graceLeft: number;
+  total: number;
+  entered: number;
+  at: Record<string, number | null>;
+  below: number;
+  warnings: number;
+  recoveries: number;
+  evictions: number;
+  sittings: number;
+}
+
+/**
+ * One arm's pool ledger: per pool session, the dealt hands (walks included, as
+ * ca_hand_facts counts them) and voluntary entries, the figure the rule judges
+ * (rolling window or whole sitting), and the warn / grace / boot verdicts a
+ * floored game would reach. A booted session starts a new sitting (its judged
+ * history is emptied); the totals and milestones run on. This models the
+ * game's rule for measurement; it is not fn_nit_check.
+ */
+export class LightningEvalPoolLedger {
+  private readonly sessions = new Map<string, PoolSession>();
+  constructor(readonly floor: LightningEvalFloor) {
+    lightningEvalFloorValid(floor);
+  }
+  private session(id: string): PoolSession {
+    let s = this.sessions.get(id);
+    if (!s) {
+      s = {
+        hist: [],
+        warned: false,
+        graceLeft: 0,
+        total: 0,
+        entered: 0,
+        at: Object.fromEntries(LIGHTNING_EVAL_POOL_MILESTONES.map((m) => [String(m), null])),
+        below: 0,
+        warnings: 0,
+        recoveries: 0,
+        evictions: 0,
+        sittings: 1,
+      };
+      this.sessions.set(id, s);
+    }
+    return s;
+  }
+  /** The judged figure the session would read now (null VPIP before any hand). */
+  figure(id: string): { hands: number; vpip: number | null } {
+    const s = this.sessions.get(id);
+    if (!s || !s.hist.length) return { hands: 0, vpip: null };
+    const judged = this.floor.rolling ? s.hist.slice(-this.floor.windowHands) : s.hist;
+    return {
+      hands: s.hist.length,
+      vpip: (judged.filter(Boolean).length / judged.length) * 100,
+    };
+  }
+  record(id: string, entered: boolean): void {
+    const s = this.session(id);
+    s.hist.push(entered);
+    if (this.floor.rolling && s.hist.length > this.floor.windowHands * 4)
+      s.hist.splice(0, s.hist.length - this.floor.windowHands);
+    s.total++;
+    if (entered) s.entered++;
+    for (const m of LIGHTNING_EVAL_POOL_MILESTONES)
+      if (s.total === m) s.at[String(m)] = (s.entered / s.total) * 100;
+    if (s.hist.length < this.floor.windowHands && !s.warned) return;
+    const below = (this.figure(id).vpip ?? 0) < this.floor.vpipPct;
+    if (below) s.below++;
+    const evict = () => {
+      s.evictions++;
+      s.sittings++;
+      s.hist = [];
+      s.warned = false;
+      s.graceLeft = 0;
+    };
+    if (s.warned) {
+      if (!below) {
+        s.warned = false;
+        s.recoveries++;
+      } else if (--s.graceLeft <= 0) evict();
+      return;
+    }
+    if (!below) return;
+    s.warnings++;
+    if (this.floor.graceHands === 0) evict();
+    else {
+      s.warned = true;
+      s.graceLeft = this.floor.graceHands;
+    }
+  }
+  clear(): void {
+    this.sessions.clear();
+  }
+  report(subjectIds: ReadonlySet<string>, idOf: (session: string) => string, feedClears: number) {
+    const rows: LightningEvalPoolSessionReport[] = [];
+    const table = { hands: 0, warnings: 0, evictions: 0, handsJudgedBelow: 0 };
+    for (const [session, s] of [...this.sessions].sort(([a], [b]) => a.localeCompare(b))) {
+      table.hands += s.total;
+      table.warnings += s.warnings;
+      table.evictions += s.evictions;
+      table.handsJudgedBelow += s.below;
+      const player = idOf(session);
+      if (!subjectIds.has(player)) continue;
+      rows.push({
+        id: player.slice(-6),
+        subject: true,
+        hands: s.total,
+        entered: s.entered,
+        vpipAtPct: { ...s.at },
+        vpipEndPct: s.total ? (s.entered / s.total) * 100 : null,
+        handsJudgedBelow: s.below,
+        warnings: s.warnings,
+        recoveries: s.recoveries,
+        evictions: s.evictions,
+        sittings: s.sittings,
+      });
+    }
+    const out: LightningEvalPoolArmReport = {
+      floor: { ...this.floor },
+      sessions: this.sessions.size,
+      subjects: rows,
+      table,
+      feedClears,
+    };
+    return out;
+  }
 }
