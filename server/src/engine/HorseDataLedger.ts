@@ -1220,6 +1220,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaSampledRaiseIsPricedAtEverySize',
+    "PLO lane 2026-11-19 (verifier defect: omahaPricedSampledRaise read the fold to a raise size-blind and priced one size; owner 2026-11-17: the size of the bet may only feed the range and the price). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). An input of omahaDrawRaiseIsPriced and omahaPressureIsPriced, acting only where one of them is on: the sampled comparison prices the fold, the call and a raise to each legal size (the minimum, the middle, the maximum and the one proposed), each raise's fold share at the price that raise lays (HorseOmahaPricedRules.omahaPricedSampledFoldAtPrice; reference prices measured, OMAHA_PRICED_SAMPLED_REFERENCE_FOLD), and the draw raise is made to the size of highest value. Off: one size, its fold share size-blind (#11212, byte-identical). No league yet; do not switch on without a WIN.",
+    'V94'
+  ),
+  flag(
     'omahaMadeHandBetIsPriced',
     'Owner 2026-11-17 11:49 ("there should not be any blanket rules ... they must all be done by math, gto, players hand or preceived range of hands as well as the opponents range of hand, equity, EV etc."). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). In the spot where the made-hand defence (omahaBeatenMadeHandDefense, or omahaMadeHandDefenseVsValueLeader against measured value leaders) turns a turn bet into the fresh card out of position or a thin river value bet into a check, the wager is priced beside the check against every live opponent whatever his label (HorseOmahaPricedRules.omahaPricedBet, the card-impact model, the Horse cards removed from every range): it stands when it is priced at least at the check, else it is checked. Unpriceable spots keep the wager. With it on the defence bet half does not decide in this scope.',
     'V94'
@@ -5746,6 +5751,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_priced_draw_raise_resized',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaSampledRaiseIsPricedAtEverySize)',
+    'the same decision with omahaSampledRaiseIsPricedAtEverySize on: priced above the call by the margin, and made to the legal size of highest value in place of the size given',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_draw_raise_mixed_resized',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced with omahaSampledRaiseIsPricedAtEverySize and omahaPricedMix)',
+    'the same decision with omahaSampledRaiseIsPricedAtEverySize on: NOT priced above the call by the margin, within the noise of it and taken by the mix, and made to the legal size of highest value in place of the size given',
+    'V94'
+  ),
+  receipt(
     'omaha_priced_draw_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
     'the same decision, no sample could be drawn (three or more opponents, one all in): the raise is kept; the bar does not decide it (fires with omahaPricedPriorsByOpponentKind on)',
@@ -5809,6 +5826,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_priced_pressure_raise_admitted',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
     'the pressure raise against this bettor is priced above the call: the play is not withheld',
+    'V94'
+  ),
+  receipt(
+    'omaha_priced_pressure_raise_resized',
+    'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced with omahaSampledRaiseIsPricedAtEverySize)',
+    'a raise facing the wager, in a decision whose pressure raise the sampled comparison admitted at a priced size, priced above the call by the margin: made to the legal size of highest value in place of the size the brain gave',
     'V94'
   ),
   receipt(

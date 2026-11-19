@@ -2428,6 +2428,8 @@ export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
 > = [
   ['omahaPricedPriorsByOpponentKind', 'priced_priors_by_opponent_kind'],
   ['omahaRaiseEvCountsLossesOnce', 'raise_ev_counts_losses_once'],
+  // 2026-11-19: the sampled raise (omahaDrawRaiseIsPriced, omahaPressureIsPriced) priced at every legal size
+  ['omahaSampledRaiseIsPricedAtEverySize', 'sampled_raise_is_priced_at_every_size'],
 ];
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
