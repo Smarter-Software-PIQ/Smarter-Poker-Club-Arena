@@ -700,7 +700,9 @@ export function boardClearMs(wentToShowdown: boolean): number {
  */
 export const ENGINE_BETWEEN_HANDS_BUDGET_MS = 250;
 
-export function owedBetweenHandsMs(opts: HandCompletionOpts & { rebuyPauseMs?: number }): number {
+export function owedBetweenHandsMs(
+  opts: HandCompletionOpts & { rebuyPauseMs?: number }
+): number {
   const rest = Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(opts.wentToShowdown));
   return handCompletionHoldMs(opts) + Math.max(rest, Math.max(0, opts.rebuyPauseMs ?? 0));
 }
