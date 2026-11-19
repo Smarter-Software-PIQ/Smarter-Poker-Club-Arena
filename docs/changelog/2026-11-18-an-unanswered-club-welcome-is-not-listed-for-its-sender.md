@@ -31,7 +31,7 @@ This rule reads who wrote the messages in a thread and nothing about who the mem
 
 ## What changed
 
-- `supabase/migrations/20261119015312_an_unanswered_club_welcome_is_not_listed_in_its_senders_inbox.sql` replaces `fn_get_user_conversations` with the installed definition plus one predicate in the WHERE clause. A preflight refuses unless the installed definition is the one read on production (md5 `30f13b0dd7777dd94fb9f363aa8c846f`). A postflight proves that the new definition with the predicate removed is that same definition, byte for byte. Signature, return columns, ordering, SECURITY DEFINER, search_path, the caller check and the grants are unchanged.
+- `supabase/migrations/20261119015312_an_unanswered_club_welcome_is_unlisted_for_its_sender.sql` replaces `fn_get_user_conversations` with the installed definition plus one predicate in the WHERE clause. A preflight refuses unless the installed definition is the one read on production (md5 `30f13b0dd7777dd94fb9f363aa8c846f`). A postflight proves that the new definition with the predicate removed is that same definition, byte for byte. Signature, return columns, ordering, SECURITY DEFINER, search_path, the caller check and the grants are unchanged.
 - No row is written, changed or deleted. The threads and messages remain, and removing the predicate lists them again.
 - Cost: one more probe of `idx_messages_conversation` per candidate thread, ending at the first message that is not the viewer's own welcome. Production's plan for the predicate is an index scan on that index.
 
