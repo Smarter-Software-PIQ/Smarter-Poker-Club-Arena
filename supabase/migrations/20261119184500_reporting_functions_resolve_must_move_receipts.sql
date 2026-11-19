@@ -2755,11 +2755,14 @@ END $probe$;
 DO $probe$
 BEGIN
   IF to_regclass('public.ca_club_data_fact') IS NOT NULL THEN
+    -- An empty 2099 window is refused by the seed's own guard (it must end
+    -- after it starts and before live_from); reaching that guard is the proof
+    -- the redefined body runs (production apply 2026-11-19 23:31 UTC).
     PERFORM public.fn_ca_club_data_fact_seed('2099-01-01 00:00:00+00'::timestamptz, '2099-01-01 00:00:00+00'::timestamptz);
   END IF;
   RAISE EXCEPTION 'probe-unwind';
 EXCEPTION WHEN raise_exception THEN
-  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+  IF SQLERRM <> 'probe-unwind' AND SQLERRM NOT LIKE 'seed needs a window that ends after it starts and before live_from%' THEN RAISE; END IF;
 END $probe$;
 -- @probe-for: public.fn_ca_reporting_rollups_from_facts
 DO $probe$
