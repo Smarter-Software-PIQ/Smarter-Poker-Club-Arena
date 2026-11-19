@@ -401,6 +401,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaFacingBetEvShownField: priced(
     'a turn or river call with another player in the hand priced on the joint field (players behind continue on a measured rate, their calls in the pot), the measured turn realization and a close-call mix on a public-state draw (default OFF)'
   ),
+  omahaMultiwayCheckedToBetIsPriced: priced(
+    'the multiway check with nothing to call priced against the candidate bets on the measured multiway response and the measured cost of the check (default OFF)'
+  ),
   omahaSmallBetIsPriced: priced(
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
   ),

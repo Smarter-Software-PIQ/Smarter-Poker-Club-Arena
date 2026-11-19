@@ -122,6 +122,8 @@ import { omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   omahaBetVsCheckEv,
   omahaBetVsCheckOpponents,
+  omahaMultiwayCheckedToBetSpot,
+  omahaMultiwayCheckedToBetVerdict,
   omahaMultiwayRiverCallSpot,
   omahaMultiwayRiverCallVerdict,
   omahaMultiwayWeakHandSpot,
@@ -3424,6 +3426,16 @@ export interface HorseDecideOpts {
    * until its declared evaluation passes; league cards plo4/plo5
    * _omaha_small_bet_is_priced. */
   omahaSmallBetIsPriced?: boolean;
+  /** Lane MULTIWAY-BET 2026-11-19 (HorseOmahaMultiwayDiscipline.ts section 4): PLO4/PLO5
+   * cash, a pot not re-raised before the flop, the flop or the turn, nothing to
+   * call, two or more live opponents. The owner's check is priced against bets of the
+   * card-impact candidate sizes: the Horse's share against each opponent's range, his kind's
+   * measured multiway response by pot share, and the measured cost of the check (the
+   * players still to act bet at their kind's measured rate when checked to). The best bet
+   * replaces the check when it is worth more by 2% of the pot; an owner-ruled check is
+   * never turned into a bet. Default OFF (read `=== true`); league cards plo4/plo5
+   * _omaha_multiway_checked_to_bet_is_priced. */
+  omahaMultiwayCheckedToBetIsPriced?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -10306,11 +10318,15 @@ function omahaWagerIsChecked(
  * same state, so a bet they let through is not touched here.
  */
 function omahaOwnerRuledFinal(
-  decision: HorseDecision,
+  given: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaMultiwayCheckedToBetIsPriced (default off): priced here, after every rule that can bet a check (the
+  // strong-hand value bet, the draw rules, the slowplay mix), so it only ever turns the chain's final check into a
+  // bet and never resizes a bet a later rule chose; the owner-ruled checks below still stand over its bet.
+  const decision = omahaMultiwayCheckedToBetRule(given, player, gs, opts);
   const faced = omahaOopTurnFacingBetRule(decision, player, gs, opts);
   if (faced !== null) return faced;
   const flopFaced = omahaBareOverpairFlopFacingBetRule(decision, player, gs, opts);
@@ -10670,6 +10686,51 @@ function omahaSmallBetRule(
       omahaProposeReceipt((f) => omahaSameWager(f, placed), made, vetoed);
     }
     return verdict.decision;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/**
+ * omahaMultiwayCheckedToBetIsPriced (lane MULTIWAY-BET 2026-11-19, HorseOmahaMultiwayDiscipline.ts section 4, default
+ * OFF): the owner's multiway check with nothing to call is priced against the candidate bets
+ * (omahaMultiwayCheckedToBetVerdict, the one owner of the multiway bet-against-check price); the best bet replaces it
+ * when it is worth more by the margin. It runs first inside omahaOwnerRuledFinal, after every rule that can bet a
+ * check, so it changes only a final check (review B7: run inside omahaOwnBetRules it once re-sized a later rule's
+ * bet). A bet omahaWagerIsChecked would check is dropped, and the owner-ruled rules of omahaOwnerRuledFinal still
+ * act on its bet. Heads-up spots are the small-bet rule's and are not in this scope; the river is not in scope
+ * (section 4). Unset or false it returns the decision it was given.
+ */
+function omahaMultiwayCheckedToBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaMultiwayCheckedToBetIsPriced !== true) return decision;
+  if (decision.action !== 'check') return decision;
+  try {
+    const spot = omahaMultiwayCheckedToBetSpot(player, gs);
+    if (!spot) return decision;
+    const verdict = omahaMultiwayCheckedToBetVerdict(player, gs, spot);
+    if (!verdict || verdict.amount === null) {
+      if (telemetryOn(opts)) noteFire('omaha_multiway_checked_to_bet_kept');
+      return decision;
+    }
+    const bet: HorseDecision = { ...decision, action: 'bet', amount: verdict.amount };
+    if (omahaWagerIsChecked(bet, player, gs, opts)) {
+      if (telemetryOn(opts)) noteFire('omaha_multiway_checked_to_bet_owner_check_kept');
+      return decision;
+    }
+    if (telemetryOn(opts))
+      omahaProposeReceipt(
+        (f) => omahaSameWager(f, bet),
+        () => noteFire('omaha_multiway_checked_to_bet_priced_bet'),
+        () => noteFire('omaha_multiway_checked_to_bet_priced_bet_vetoed'),
+        'omaha_multiway_checked_to_bet'
+      );
+    return bet;
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;

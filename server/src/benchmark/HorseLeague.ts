@@ -2648,6 +2648,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaReadIsByStreetAndTexture: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
   })),
+  // 2026-11-19 OMAHA MULTIWAY CHECK PRICED AGAINST THE BET (lane MULTIWAY-BET,
+  // HorseOmahaMultiwayDiscipline section 4, default OFF): a multiway check with
+  // nothing to call in a pot not re-raised before the flop is priced against the
+  // candidate bets. Both arms carry production's live set; a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_multiway_checked_to_bet_is_priced`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaMultiwayCheckedToBetIsPriced: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is
   // priced beside bets of 10/20/25% of the pot with the opponent's measured

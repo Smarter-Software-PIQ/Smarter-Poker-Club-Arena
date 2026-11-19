@@ -482,7 +482,8 @@ export function omahaFlopEvCounts(
   dead: Card[],
   valueShare: number,
   field: OmahaFlopEvField = NO_FIELD,
-  salt = 0
+  salt = 0,
+  riversPerTurn?: number
 ): OmahaFlopEvCounts | null {
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
   if ((hole.length !== 4 && hole.length !== 5) || board.length !== 3) return null;
@@ -506,7 +507,9 @@ export function omahaFlopEvCounts(
     .join(',')}`;
   const countsKey = `${Math.round(share * 10000)}|${always
     .map((s) => Math.round(s * 10000))
-    .join(',')}|${B}|${Math.round(behindShare * 10000)}|${salt >>> 0}`;
+    .join(',')}|${B}|${Math.round(behindShare * 10000)}|${salt >>> 0}${
+    riversPerTurn === undefined ? '' : `|r${riversPerTurn}`
+  }`;
   let entry = FLOP_SAMPLES.find((s) => s.id === id);
   if (entry) {
     const hit = entry.counts.get(countsKey);
@@ -584,7 +587,13 @@ export function omahaFlopEvCounts(
   }
   const half = Math.floor((m - 1) / 2);
   const others = A + B;
-  const R = Math.min(OMAHA_FLOP_EV_RIVERS[Math.min(3, others)], half);
+  // riversPerTurn (a caller's smaller sample; absent for every facing-bet caller): fewer rivers per turn card.
+  const R = Math.min(
+    riversPerTurn !== undefined && Number.isFinite(riversPerTurn) && riversPerTurn >= 1
+      ? Math.floor(riversPerTurn)
+      : OMAHA_FLOP_EV_RIVERS[Math.min(3, others)],
+    half
+  );
 
   const start = rnd();
   const steps = new Int16Array(R);
