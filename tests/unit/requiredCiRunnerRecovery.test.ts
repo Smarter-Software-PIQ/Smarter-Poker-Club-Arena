@@ -1279,12 +1279,16 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       server: '9bf2f5c85eea2ea8609a857f7ea7f33cedeb035f076b1768a36e64f9abd71c14',
       verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',
       // Moved 2026-11-19: browser installs route through scripts/ci/ubuntu-apt.sh.
-      build: 'cd42cbbec5d4b57b11fda5105aca130d731e138742bff8601d30414595e38dba',
-      'live-e2e': 'd54d3d14d52059d1ee3d29dfdc2c15de31410e64ac7ca7dae892157625b1e48d',
+      build: 'c5d7a24f2cf5699273b3aa6cb0f6314202a47bd0bf7c45106293dbc54b7d8890',
+      'live-e2e': '507be6a583b15b98f631644534cb71419537dfeaea290a3a0d77bf7a747b666d',
       'post-deploy-check': '86936192ff526aab46d57a6e263e27475c3e60da754b0f04f4948ec40b8b4fcd',
-      'css-beats-e2e': '41b6f7eb3e542e0c401182a0014d8b5b7e684805ced5ca506bb0f19bf9ffc03a',
-      'diamond-playfield-e2e': 'ed5aed5f3b2f83c8c98beb4860b8554ccc2494cce17bb9bed8e7e7f4a3651607',
+      'css-beats-e2e': '68635e4d7547c07faefd1660556ff844a62452b0f1b1de4e9800885f8ee75b19',
+      'diamond-playfield-e2e': '64bf4d44870ecc46a7cd8de9b62346fd28f0cbebe928c835a404a6e45823a393',
       'css-beats-gate': '79747df21d67d09db6eaee0451c2e2cb8befbfdac82fc45c497760bb4d8521f2',
+      // 2026-11-19 (browser cache): build, live-e2e, css-beats-e2e and
+      // diamond-playfield-e2e restore the Playwright browsers and Ubuntu
+      // packages this scheduled job saves on main; install commands unchanged.
+      playwright_browser_cache: '18e4a67d0e711b4cb053c922af47c49d0a84b63190b81b48945016626dcae727',
     };
     expect(Object.keys(normalized.jobs)).toEqual(Object.keys(expectedJobs));
     expect(
