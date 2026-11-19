@@ -100,9 +100,9 @@ SET LOCAL statement_timeout = '60s';
 
 DO $requires$
 BEGIN
-  IF md5(pg_get_functiondef('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'::regprocedure)) <> 'b76daaf8587cca4eeac91ec39e9e7ce3'
-     OR md5(pg_get_functiondef('smarter_private.f06_try_lane(uuid)'::regprocedure)) <> '96ce828d6019c6c18fe660222bbd9feb'
-     OR md5(pg_get_functiondef('smarter_private.tournament_rebuy_lane_held(uuid,uuid)'::regprocedure)) <> 'd32dad9b538f214bdeb224e1596d5416' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'))) IS DISTINCT FROM 'b76daaf8587cca4eeac91ec39e9e7ce3'
+     OR md5(pg_get_functiondef(to_regprocedure('smarter_private.f06_try_lane(uuid)'))) IS DISTINCT FROM '96ce828d6019c6c18fe660222bbd9feb'
+     OR md5(pg_get_functiondef(to_regprocedure('smarter_private.tournament_rebuy_lane_held(uuid,uuid)'))) IS DISTINCT FROM 'd32dad9b538f214bdeb224e1596d5416' THEN
     RAISE EXCEPTION 'event lane E2: 20261119011750 (lane R2) must be installed first';
   END IF;
 END $requires$;
@@ -552,6 +552,62 @@ $n15$])
     END IF;
   END LOOP;
 END $subs$;
+
+-- Probes (scripts/ci/templates/function-probe.sql): each new body runs once in
+-- a subtransaction that is always undone. They use an event id that does not
+-- exist, so they reach the changed lane code and take no lock any live event
+-- or table holds. The full behaviour runs natively in
+-- scripts/ci/test-rebuy-never-pauses-the-tournament.py (section LANE E2).
+
+-- @probe-for: public.fn_collect_bounty
+DO $probe$
+BEGIN
+  PERFORM public.fn_collect_bounty(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), '[]'::jsonb);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_sweep_pending_tournament_bounties
+DO $probe$
+BEGIN
+  PERFORM public.fn_sweep_pending_tournament_bounties(gen_random_uuid(), 1);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_close_tournament_entry_window
+DO $probe$
+BEGIN
+  PERFORM public.fn_close_tournament_entry_window(gen_random_uuid(), 'migration.probe');
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_ca_share_tournament_lane_for_tables
+DO $probe$
+DECLARE v_id uuid := gen_random_uuid();
+BEGIN
+  IF NOT public.fn_ca_share_tournament_lane_for_tables(v_id, NULL, ARRAY[gen_random_uuid()])
+     OR NOT smarter_private.tournament_rebuy_lane_held(v_id, NULL)
+     OR smarter_private.tournament_bounty_claimant_tables(v_id, NULL, '[]'::jsonb) <> '{}'::uuid[] THEN
+    RAISE EXCEPTION 'event lane E2: the new lane does not prove itself held';
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-exempt: public.fn_move_tournament_player requires the engine's service authority (fn_caller_is_engine); executed natively by the harness
+-- @probe-exempt: smarter_private.f06_lock_break requires a live protocol-2 engine lease (f06_authority); executed natively by the harness
+-- @probe-exempt: public.fn_f06_begin_break requires a live protocol-2 engine lease (f06_authority); executed natively by the harness
+-- @probe-exempt: smarter_private.f06_prefix requires a live protocol-2 engine lease (f06_authority); executed natively by the harness
+-- @probe-exempt: public.fn_f06_request_park requires a live protocol-2 engine lease (f06_authority); executed natively by the harness
+-- @probe-exempt: public.fn_f06_discover_breaks requires a live protocol-2 engine lease (f06_authority); executed natively by the harness
+-- @probe-exempt: public.fn_ca_request_tournament_abort requires service_role and writes operator abort state; pinned by the law test
+-- @probe-exempt: smarter_private.cancellation_lane would take a live event's finish lane or the platform try; executed natively by the harness
 
 DO $post$
 DECLARE

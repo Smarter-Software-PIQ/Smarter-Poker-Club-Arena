@@ -109,6 +109,14 @@ All 269 checks pass:
 - Doctrine rule 7 names an unreviewed caller; the migration refuses without lane
   R2 and refuses to run twice.
 
+Install-time probes (the probe law): `fn_collect_bounty`,
+`fn_sweep_pending_tournament_bounties`, `fn_close_tournament_entry_window` and the
+new lane run once on an event id that does not exist, inside an undone
+subtransaction, so they reach the changed lane code and hold nothing a live event
+holds. The engine-authority bodies (move, break steps, scan, abort request) and
+the cancellation lane are declared `@probe-exempt` with the reason; the harness
+executes them.
+
 Not executed natively, pinned by the law test only: `fn_collect_bounty`'s body
 (the harness pays through the lane-shaped collection stub lane R2 uses) and
 `fn_ca_request_tournament_abort`.
