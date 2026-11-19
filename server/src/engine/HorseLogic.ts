@@ -8673,13 +8673,15 @@ function omahaReraiseRangeRules(
       action: 'call',
       amount: Math.round(Math.min(toCall, stack) * 100) / 100,
     };
-    // The call it leaves answers to the calling rule, whether or not that option is on.
+    // The call it leaves answers to the calling rule's own row (ROWFIX 2026-11-18, REVIEW-97de6c23913 N8):
+    // with omahaOopReraisedPotStrongRange off the call stands; on (production's rows) it is judged by that
+    // rule exactly as before. Each row switches only its own behaviour.
     let stands: boolean;
     if (preflopRaises >= 2) {
       stands =
         omahaOopReraisedPotStrongRange(called, player, gs, {
           ...opts,
-          omahaOopReraisedPotStrongRange: true,
+          omahaOopReraisedPotStrongRange: opts.omahaOopReraisedPotStrongRange === true,
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
