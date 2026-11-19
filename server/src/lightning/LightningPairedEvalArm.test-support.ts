@@ -40,6 +40,8 @@ import { vi } from 'vitest';
 import { HorseLogic } from '../engine/HorseLogic.js';
 import { restoreFastRandom, saveFastRandom, seedFastRandom } from '../engine/HorseEval.js';
 import { equityGovernor } from '../engine/EquityLoadGovernor.js';
+import { seedHorseTimingRandom } from '../engine/horsePublicActionTime.js';
+import { seedHorseBetSizeRandom } from '../engine/horsePublicBetSize.js';
 import { HorseMind } from '../engine/HorseMind.js';
 import { completedHandActionsForMind } from '../engine/horseDecision/completedHandActions.js';
 import { horseMindHandFromCompletion } from '../engine/HorseMindHandIdentity.js';
@@ -160,6 +162,25 @@ function xorshift(seed: number): () => number {
     s ^= s << 5;
     return (s >>> 0) / 0x100000000;
   };
+}
+
+/**
+ * THE BRAIN'S TWO PUBLIC STREAMS ARE PINNED PER DECISION (2026-11-19).
+ * horsePublicActionTime (every think time, with horseActionTimeIsPublicOnly)
+ * and horsePublicBetSize (every public bet size, with
+ * omahaBetSizeByPublicState) each draw from a stream of their own that
+ * production seeds from the operating system when the module loads, so no
+ * player can predict it. Every arm loads a fresh module graph, so every arm
+ * and every run drew another seed: think times differed, with them the action
+ * timestamps the brain reads (the tempo read, the hand key of the per-hand
+ * draws), and an unmodified arm did not repeat itself. Here both streams are
+ * seeded before every decide from the decision's own key (seed, cell, hand,
+ * seat, decision index), as the strategy stream is. Production is untouched:
+ * these are the modules' own seeding hooks, called by the harness only.
+ */
+export function lightningEvalPinPublicStreams(decisionKey: number): void {
+  seedHorseTimingRandom(lightningEvalMix(decisionKey, 6, 0));
+  seedHorseBetSizeRandom(lightningEvalMix(decisionKey, 7, 0));
 }
 
 function percentile(sorted: number[], q: number): number {
@@ -395,6 +416,7 @@ export async function playLightningEvalArm(input: {
       );
       vi.mocked(t.backend.nextHandNumber).mockResolvedValue(1_000_001 + h);
       const decisionLog: string[] = [];
+      const handStartedAt = Date.now();
       const bbFirstPriced = new Map<string, { price: number; action: string; early: boolean }>();
       let villainStep = 0;
       try {
@@ -427,7 +449,9 @@ export async function playLightningEvalArm(input: {
           const step = horseStep.get(uid) ?? 0;
           horseStep.set(uid, step + 1);
           const ambient = saveFastRandom();
-          seedFastRandom(lightningEvalMix(horseStream, Number(gs.heroSeat) || 0, step));
+          const decisionKey = lightningEvalMix(horseStream, Number(gs.heroSeat) || 0, step);
+          seedFastRandom(decisionKey);
+          lightningEvalPinPublicStreams(decisionKey);
           const t0 = performance.now();
           let decision: any;
           try {
@@ -589,7 +613,9 @@ export async function playLightningEvalArm(input: {
               // The opponent's dice are its own stream, a function of the hand
               // and its decision index: it never moves the Horses' jitter.
               const saved = saveFastRandom();
-              seedFastRandom(lightningEvalMix(cellKey, h, 1000 + villainStep++));
+              const villainKey = lightningEvalMix(cellKey, h, 1000 + villainStep++);
+              seedFastRandom(villainKey);
+              lightningEvalPinPublicStreams(villainKey);
               let d: Decision;
               try {
                 d = policy ? policy(spot, horse) : horse();
@@ -764,6 +790,7 @@ export async function playLightningEvalArm(input: {
           ),
           stacksBB: [...stacksBB],
           engineStackMismatches,
+          clockMs: Date.now() - handStartedAt,
         });
       } finally {
         await t.host.abort('lightning_eval_done');

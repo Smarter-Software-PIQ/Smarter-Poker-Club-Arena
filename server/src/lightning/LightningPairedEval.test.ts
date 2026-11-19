@@ -1372,6 +1372,85 @@ describe('Lightning harness E1 and E2', () => {
 });
 
 /**
+ * A PAIRED EVALUATION REPEATS ITSELF (law, 2026-11-19). Two runs of unmodified
+ * origin/main on one small switch card differed by one hand in 800, and the
+ * divergent-decision count of one cell read 22, 17 and 13 on three runs. The
+ * cause was not load: the brain's think times (horseActionTimeIsPublicOnly)
+ * and public bet sizes (omahaBetSizeByPublicState) come from two streams that
+ * production seeds from the operating system at load, and each arm loads its
+ * own module graph. Think times set the action timestamps, which the brain
+ * reads, so the arms differed by more than the option under test. The arm
+ * now pins both streams per decision (lightningEvalPinPublicStreams). These
+ * laws hold it: an arm is a function of (seed, cell, hands, options) alone,
+ * down to the length of every hand on the harness clock.
+ */
+describe('Lightning harness: an arm is a function of its seeds (law)', () => {
+  /** Both public streams in use: every think time and every public bet size. */
+  const PUBLIC_STREAMS_ON = {
+    horseActionTimeIsPublicOnly: true,
+    omahaBetSizeByPublicState: true,
+  };
+  const cell: LightningEvalCell = { variant: 'plo4', players: 5, stackBB: 100, field: 'unknown' };
+
+  it('the same arm played twice on the same seeds is byte-identical, think times included', async () => {
+    const input = {
+      cell,
+      hands: 40,
+      seed: 41990911,
+      baselineDecideOpts: PUBLIC_STREAMS_ON,
+      arm: { name: 'baseline' },
+    };
+    const first = await playArm(input);
+    const second = await playArm(input);
+    expect(first.hands).toHaveLength(40);
+    expect(first.counters.decisions).toBeGreaterThan(100);
+    // The harness clock moved with the think times: the public timing is in play.
+    expect(new Set(first.hands.map((h) => h.clockMs)).size).toBeGreaterThan(5);
+    expect(JSON.stringify(second.hands)).toBe(JSON.stringify(first.hands));
+    expect(second.total).toEqual(first.total);
+    expect(second.counters).toEqual(first.counters);
+    // Another seed is another set of draws: nothing is frozen.
+    const other = await playArm({ ...input, seed: 41990912, hands: 12 });
+    expect(other.hands.map((h) => h.clockMs)).not.toEqual(
+      first.hands.slice(0, 12).map((h) => h.clockMs)
+    );
+  }, 600_000);
+
+  it('a null candidate on the public streams: zero divergent decisions, and the same pairs and digest on a second run', async () => {
+    const config: LightningEvalConfig = {
+      name: 'repeat-pin',
+      seedClass: 'development',
+      seeds: [LIGHTNING_EVAL_SEEDS.development[0]!],
+      handsPerCell: 30,
+      cells: [cell, { variant: 'plo5', players: 6, stackBB: 100, field: 'all_horse' }],
+      baselineDecideOpts: PUBLIC_STREAMS_ON,
+    };
+    const run = async () => {
+      const pairs: LightningEvalPairRow[] = [];
+      const report = await runLightningPairedEval({
+        config,
+        candidate: NULL_CANDIDATE,
+        playArm,
+        onPairs: (rows) => void pairs.push(...rows),
+      });
+      return { report, pairs };
+    };
+    const first = await run();
+    const second = await run();
+    expect(first.pairs).toHaveLength(60);
+    for (const c of first.report.cells) {
+      expect(c.paired.divergentDecisions).toBe(0);
+      expect(c.paired.divergentHands).toBe(0);
+      expect(c.paired.divergentAcceptedHands).toBe(0);
+      expect(c.paired.diffBB100).toBe(0);
+    }
+    for (const row of first.pairs) expect(row.c).toBe(row.b);
+    expect(JSON.stringify(second.pairs)).toBe(JSON.stringify(first.pairs));
+    expect(second.report.digest).toBe(first.report.digest);
+  }, 900_000);
+});
+
+/**
  * D10 and the files of a runner process (2026-11-19): an arm releases what it
  * built, a range in play is not a result, a crashed range stops the queue, and
  * the merge takes a whole (seed, cell) set or nothing.

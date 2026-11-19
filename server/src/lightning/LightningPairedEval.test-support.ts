@@ -722,6 +722,12 @@ export interface LightningEvalHandRecord {
    * contributed) is not the dealt stack. Must be 0: the stacks reached the engine.
    */
   engineStackMismatches: number;
+  /**
+   * The hand's length on the harness clock, ms: every think time and every
+   * fold reaction of the hand, in 400 ms steps. A function of the pinned
+   * streams alone, so two runs of one arm agree on it. Not in the report.
+   */
+  clockMs: number;
 }
 
 /**
