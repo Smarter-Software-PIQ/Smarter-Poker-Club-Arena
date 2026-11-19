@@ -457,6 +457,8 @@ def main():
   lock_test=ROOT/'scripts/ci/test-promo-profit-cash-fee-lock.py';track(lock_test)
   import runpy
   runpy.run_path(str(lock_test))['verify'](db,C,T,ROOT/'supabase/migrations/20261118001328_cash_fee_settlement_never_waits_on_a_cashout_grant.sql',runfile,check)
+  snapshot_test=ROOT/'scripts/ci/test-promo-profit-fee-state-snapshot.py';track(snapshot_test)
+  runpy.run_path(str(snapshot_test))['verify'](db,C,T,B,ROOT/'supabase/migrations/20261119002019_promo_fee_state_is_read_from_an_hourly_snapshot.sql',runfile,check)
   for source,digest in input_hashes.items():
    if hashlib.sha256(Path(source).read_bytes()).hexdigest()!=digest:raise RuntimeError('source changed during qualification: '+source)
   report={'status':'passed','checks':checks,'production_mutations':False,'source_sha256':input_hashes,'qualification_limits':['Typed original funded gifts, H cases, W earning positions and cash fee openings; these checks qualify allocation/custody/authorization, not original earning producers, financial member departure or eventual jackpot payer. Notification callback uses an explicit invocation sink; actual notice delivery is separately qualified.']}
