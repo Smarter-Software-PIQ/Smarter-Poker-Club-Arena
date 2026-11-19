@@ -1,0 +1,3 @@
+# server/src/lightning/aLightningRunoutCarriesItsEquity.law.test.ts
+
+StatsAllInEquityCoverageLow stayed escalated because every owed Lightning all-in runout seat (581 in one day; Classic cash and tournaments had none missing) was written with no all-in equity: the Lightning host ran the board out on ALL_IN_RUNOUT and never priced it, and the facts writer only read the Classic table's equity broadcast. This law pins that the host prices the first all-in point on the shared equity worker pool with Classic's rules, keeps the price for that hand only (a late result for a hand that moved on is dropped), never makes the runout or the settlement wait for it, and passes it explicitly into the stats facts, which prefer it over the table capture.

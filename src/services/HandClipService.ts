@@ -152,6 +152,63 @@ export async function publishHandClipToFeed(
   };
 }
 
+/** How long a tap waits for the clip's bytes before it is told it failed. */
+export const HAND_CLIP_FETCH_LIMIT_MS = 60 * 1000;
+
+/**
+ * The name a clip carries when it leaves the app:
+ * hand-clip-<hand number, else the first 8 characters of the hand id>.mp4.
+ */
+export function handClipFileName(
+  handNumber: number | string | null | undefined,
+  handId: string
+): string {
+  const clean = (v: string) => v.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const number = handNumber == null ? '' : clean(String(handNumber)).slice(0, 24);
+  const short = clean(handId).slice(0, 8);
+  return `hand-clip-${number || short || 'video'}.mp4`;
+}
+
+/**
+ * The rendered clip's bytes, for the share sheet and for Download. The mp4 is
+ * a public storage object on another origin, so it is read to a Blob: a
+ * cross-origin `<a download>` is ignored by every browser, and a share sheet
+ * takes a File, not an address. Throws on a refusal, an empty body or the
+ * limit; the caller says so.
+ */
+export async function fetchHandClipFile(
+  videoUrl: string,
+  limitMs: number = HAND_CLIP_FETCH_LIMIT_MS
+): Promise<Blob> {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), limitMs) : null;
+  try {
+    const res = await fetch(videoUrl, { credentials: 'omit', signal: ctl?.signal });
+    if (!res.ok) throw new Error(`the clip answered ${res.status}`);
+    const blob = await res.blob();
+    if (blob.size === 0) throw new Error('the clip came back empty');
+    return /^video\//.test(blob.type) ? blob : new Blob([blob], { type: 'video/mp4' });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * The clip's own address, asked to arrive as a named download: storage
+ * answers `?download=<name>` with Content-Disposition: attachment. Used only
+ * when the bytes could not be read here, as a link the player opens.
+ */
+export function handClipDownloadUrl(videoUrl: string, filename: string): string {
+  if (!/\/storage\/v1\/object\/public\//.test(videoUrl)) return videoUrl;
+  try {
+    const u = new URL(videoUrl);
+    u.searchParams.set('download', filename);
+    return u.toString();
+  } catch {
+    return videoUrl;
+  }
+}
+
 /** Where a posted clip lives on the World Hub. */
 export function handClipReelUrl(reelId: string): string {
   return `${WEB_ORIGIN}/hub/reels?id=${encodeURIComponent(reelId)}`;

@@ -690,9 +690,11 @@ async function main() {
     console.error('  the rule evaluates to an empty vector for ever. Prometheus reports it as');
     console.error('  health=ok, state=inactive, which is the same thing it reports for an alarm');
     console.error('  that is genuinely quiet.');
-    console.error('  Deploy the engine (auto-deploy-hetzner.yml, at the :55 break) so the half');
-    console.error('  that publishes the metric is the same generation as the half that reads');
-    console.error('  it. Do NOT delete or silence the rule to clear this.');
+    console.error('  The engine releases once a day, in the 04:00 America/Chicago window');
+    console.error('  (auto-deploy-hetzner.yml). When that release succeeds, deploy-monitoring.yml');
+    console.error('  runs again by itself and this check is asked again, so the half that');
+    console.error('  publishes the metric and the half that reads it meet without anybody');
+    console.error('  pushing. Do NOT delete or silence the rule to clear this.');
   }
 
   if (notYetEmitted.length) {

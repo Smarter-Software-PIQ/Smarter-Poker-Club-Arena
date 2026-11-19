@@ -1,0 +1,386 @@
+-- 20261119052731_the_drill_rehearses_the_rake_and_manifest_guarantees.sql
+--
+-- WHAT THIS CHANGES, AND WHY:
+--
+-- Incident d2d79c4f (2026-11-18) left three guarantees that had never fired
+-- in production. The weekly alarm drill (fn_ca_alarm_drill, cron
+-- ca-alarm-drill-weekly) now rehearses the two that can be rehearsed without
+-- DDL, each in a subtransaction it unwinds like every other arm:
+--
+--   10 rake_terminal_refusal_releases_its_table: a stored rake refused by a
+--      rule no retry can change (20261118192000) is answered terminal, names
+--      itself in exactly one bank_obligation_terminal_refusal alert, and is
+--      not asked again under the same money law, which is what lets its hand's
+--      outbox row and its table's later hands move on.
+--   11 manifest_refusal_is_named: a dealt manifest capture that fails on a
+--      defect (20261119005831) returns refused instead of raising, and names
+--      the defect in one open critical financial_alerts row.
+--
+-- The third, the DDL law ca_cash_rake_provenance_law, takes DDL to prove, and
+-- production DDL probes are forbidden (CLAUDE.md section 2, rule 3). It is
+-- proven instead on every migration pull request by
+-- .github/workflows/the-provenance-law-refuses-a-dropped-fallback.yml.
+--
+-- Both new arms keep the drill's existing reading of a failure: an arm that
+-- threw before its condition existed carries the error in note (could not
+-- arm, warning); an arm whose detector stayed quiet leaves note empty (silent,
+-- critical) and puts the reason in detail.
+--
+-- The body is production's own definition (md5 c3c7f8eec35d95e37dcdabcdd29af59d,
+-- read with pg_get_functiondef on 2026-11-19; the 2026-10-06 subject change on
+-- production never reached a migration file), with the two arms inserted
+-- before the record step and five variables declared. Grants mirror
+-- production: service_role only.
+--
+-- @probe-exempt: public.fn_ca_alarm_drill the drill locks live money rows and runs every watcher, which an install transaction under the 12 s budget must not hold; it is run once live after install, and weekly by its cron
+
+BEGIN;
+
+SET LOCAL lock_timeout = '4s';
+
+CREATE OR REPLACE FUNCTION public.fn_ca_alarm_drill()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_results jsonb := '[]'::jsonb;
+  v_failing text[] := '{}';
+  v_ok boolean; v_note text; v_n int; v_sev text;
+  v_unarmed text[] := '{}'; v_silent text[] := '{}';
+  c_midway_club constant uuid := 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
+  c_cert_user  uuid;
+  c_other_club constant uuid := 'd08cf7f1-d50b-4e44-851c-8369ebbb706f';
+  v_res jsonb; v_detail text; v_drill_hand uuid;
+  v_lease_table uuid; v_lease_instance text; v_lease_gen uuid;
+BEGIN
+  SET LOCAL statement_timeout = '110s';
+  -- THE SUBJECT IS CHOSEN, NOT PINNED (2026-10-06): a balance-holding
+  -- member of the drill club that is an available random-id house horse,
+  -- not closed and not seated. Every arm below still unwinds.
+  SELECT cm.user_id INTO c_cert_user
+    FROM public.club_members cm
+    JOIN public.profiles p ON p.id = cm.user_id
+   WHERE cm.club_id = c_midway_club
+     AND cm.chip_balance > 3
+     AND p.is_horse IS TRUE
+     AND p.horse_status = 'available'
+     AND p.status IS DISTINCT FROM 'deleted'
+     AND p.id::text !~ '^(00000000|face0000)-'
+     AND NOT EXISTS (SELECT 1 FROM public.table_seats ts
+                      WHERE ts.user_id = cm.user_id AND ts.left_at IS NULL)
+   ORDER BY cm.user_id
+   LIMIT 1;
+  IF c_cert_user IS NULL THEN
+    RAISE EXCEPTION 'ALARM_DRILL_NO_SUBJECT: no balance-holding drill member in %', c_midway_club;
+  END IF;
+  SET LOCAL lock_timeout = '4s';
+  -- THE DRILL ARMS ITSELF EVEN DURING THE MAINTENANCE BREAK. Transaction
+  -- local, and every arm below unwinds; nothing outside this transaction
+  -- can see it.
+  PERFORM set_config('app.freeze_bypass', 'on', true);
+
+  -- 1. negative balance fires
+  v_ok := false; v_note := '';
+  BEGIN
+    PERFORM set_config('app.ledger_autoskip_club_members','1',true);
+    BEGIN
+      UPDATE club_members SET chip_balance = -3
+       WHERE club_id = c_midway_club AND user_id = c_cert_user;
+      -- the write stood, so the watcher is the only guard there is
+      v_ok := public.fn_ca_negative_balance_watch() > 0;
+    EXCEPTION WHEN check_violation THEN
+      -- the store cannot go below zero at all, which is more than a
+      -- detector could ever promise
+      v_ok := true;
+      v_note := 'refused by a check constraint before any detector was asked';
+    END;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','negative_balance','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'negative_balance'); END IF;
+
+  -- 2. suspense regression fires
+  v_ok := false; v_note := '';
+  BEGIN
+    INSERT INTO chip_ledger (performed_by, from_type, to_type, amount, category, description)
+    VALUES ('2d1cd6c3-5700-4af9-a271-d4863fdab20d','settlement_suspense','club_treasury',
+            60.00,'adjustment','alarm drill synthetic suspense');
+    -- the check returns what it filed; an incident that was already open
+    -- must not be able to make this arm pass
+    v_ok := public.fn_ca_suspense_regression_check() > 0;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','suspense_regression','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'suspense_regression'); END IF;
+
+  -- 3. mint velocity fires
+  v_ok := false; v_note := '';
+  BEGIN
+    PERFORM set_config('app.ledger_category','mint',true);
+    INSERT INTO chip_ledger (performed_by, from_type, to_type, to_entity_id, amount, category, description)
+    VALUES ('2d1cd6c3-5700-4af9-a271-d4863fdab20d','issuance_reserve','club_treasury',
+            c_other_club, 300000.00, 'mint', 'alarm drill synthetic mint');
+    PERFORM public.fn_ca_mint_velocity_watch();
+    SELECT count(*) INTO v_n FROM ca_drift_incidents
+     WHERE dedupe_key LIKE 'mint-velocity:%' AND status <> 'resolved';
+    v_ok := v_n > 0;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','mint_velocity','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'mint_velocity'); END IF;
+
+  -- 4. a raise in Midway scope files critical AND notifies; out of scope stays out
+  v_ok := false; v_note := '';
+  BEGIN
+    PERFORM public.fn_ca_raise_drift_incident(
+      'fn_ca_alarm_drill','unknown','critical','alarm-drill-raise-probe', 1.00,
+      NULL, NULL, 'ledger', 'drill', NULL, c_midway_club);
+    SELECT count(*) INTO v_n FROM ca_drift_incidents
+     WHERE dedupe_key = 'alarm-drill-raise-probe' AND severity = 'critical' AND status <> 'resolved';
+    IF v_n = 1 THEN
+      SELECT count(*) INTO v_n FROM notifications
+       WHERE type='financial_incident' AND created_at > now() - interval '5 seconds';
+      IF v_n > 0 THEN
+        PERFORM public.fn_ca_raise_drift_incident(
+          'fn_ca_alarm_drill','unknown','critical','alarm-drill-scope-probe', 1.00,
+          NULL, NULL, 'ledger', 'drill', NULL, c_other_club);
+        SELECT count(*) INTO v_n FROM ca_drift_incidents
+         WHERE dedupe_key = 'alarm-drill-scope-probe';
+        v_ok := v_n = 0;  -- the other-club raise must be filtered
+        IF NOT v_ok THEN v_note := 'scope filter did not filter'; END IF;
+      ELSE v_note := 'raise did not notify'; END IF;
+    ELSE v_note := 'raise did not file critical'; END IF;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','raise_scope_and_notify','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'raise_scope_and_notify'); END IF;
+
+  -- 5. conservation alerts map to info (quarantine intact)
+  v_ok := false; v_note := '';
+  BEGIN
+    INSERT INTO financial_alerts (source, severity, message, context)
+    VALUES ('fn_spin_chip_conservation_check','critical',
+            'alarm drill conservation probe ' || clock_timestamp()::text, '{"minted_games":1}'::jsonb);
+    SELECT severity INTO v_sev FROM ca_drift_incidents
+     WHERE source = 'financial_alerts:fn_spin_chip_conservation_check'
+     ORDER BY detected_at DESC LIMIT 1;
+    v_ok := v_sev = 'info';
+    IF NOT v_ok THEN v_note := 'mapped severity=' || COALESCE(v_sev,'NONE'); END IF;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','conservation_quarantine','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'conservation_quarantine'); END IF;
+
+  -- 6. journals are append-only (chip + diamond)
+  v_ok := false; v_note := '';
+  BEGIN
+    UPDATE chip_ledger SET amount = amount + 1
+     WHERE id = (SELECT id FROM chip_ledger ORDER BY created_at DESC LIMIT 1);
+    v_note := 'chip_ledger accepted a rewrite';
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM ILIKE '%append-only%' THEN
+      BEGIN
+        DELETE FROM diamond_transactions
+         WHERE id = (SELECT id FROM diamond_transactions LIMIT 1);
+        v_note := 'diamond_transactions accepted a delete';
+        RAISE EXCEPTION 'CA_DRILL_UNWIND';
+      EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM ILIKE '%append-only%' THEN v_ok := true;
+        ELSIF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_note := left(SQLERRM, 120); END IF;
+      END;
+    ELSIF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','journals_append_only','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'journals_append_only'); END IF;
+
+  -- 7. deleting a balance-holding row journals its burn
+  v_ok := false; v_note := '';
+  BEGIN
+    DELETE FROM club_members WHERE club_id = c_midway_club AND user_id = c_cert_user;
+    SELECT count(*) INTO v_n FROM chip_ledger
+     WHERE created_at > now() - interval '5 seconds'
+       AND to_type = 'chip_retirement' AND category = 'burn' AND from_type = 'player_wallet';
+    v_ok := v_n > 0;
+    IF NOT v_ok THEN v_note := 'delete journaled no burn'; END IF;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','delete_journals_burn','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'delete_journals_burn'); END IF;
+
+  -- 8. settlement state machine refuses an illegal jump
+  v_ok := false; v_note := '';
+  BEGIN
+    INSERT INTO ca_settlements (id, settlement_type, external_ref, state, totals)
+    VALUES (gen_random_uuid(), 'union_rakeback_close',
+            'alarm-drill:' || clock_timestamp()::text, 'open', '{}'::jsonb);
+    UPDATE ca_settlements SET state = 'final'
+     WHERE external_ref LIKE 'alarm-drill:%' AND state = 'open';
+    v_note := 'an illegal open to final jump was accepted';
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM ILIKE '%invalid settlement transition%' THEN v_ok := true;
+    ELSIF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','settlement_guard','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'settlement_guard'); END IF;
+
+  -- 9. corrections refuse to post without linkage
+  v_ok := false; v_note := '';
+  BEGIN
+    PERFORM set_config('request.jwt.claims', '{"role":"service_role"}', true);
+    v_ok := (public.fn_ca_post_correction('club_treasury', NULL, 'player_wallet', NULL,
+             1.00, 'alarm drill probing the linkage requirement') ->> 'reason')
+            = 'linkage_required_incident_or_write_failure';
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','correction_linkage','pass',v_ok,'note',v_note);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'correction_linkage'); END IF;
+
+  -- 10. a stored rake refused by a rule no retry can change is held terminal,
+  --     named once, not asked again under the same law, and so no longer holds
+  --     its hand or table (20261118192000, incident d2d79c4f). The refusal is a
+  --     hand number past the integer the banker passes on: deterministic 22003,
+  --     raised before atomic_distribute_rake moves anything. A detector that
+  --     stays quiet leaves the note empty (silent, critical); why it failed is
+  --     in detail.
+  v_ok := false; v_note := ''; v_detail := '';
+  BEGIN
+    v_drill_hand := gen_random_uuid();
+    INSERT INTO public.cash_rake_pending (hand_id, table_id, hand_number, amount, rake)
+    VALUES (v_drill_hand, gen_random_uuid(), 9999999999999, 0.01,
+            jsonb_build_object('amount', 0.01, 'club_id', c_midway_club::text,
+                               'num_players', 2, 'contributions', '{}'::jsonb));
+    v_res := public.fn_ca_bank_pending_cash_rake(v_drill_hand);
+    IF v_res->>'status' IS DISTINCT FROM 'terminal' THEN
+      v_detail := 'a deterministic refusal was answered ' || COALESCE(v_res->>'status', 'NULL');
+    ELSE
+      SELECT count(*) INTO v_n FROM public.financial_alerts
+       WHERE source = 'bank_obligation_terminal_refusal'
+         AND context->>'hand_id' = v_drill_hand::text;
+      IF v_n <> 1 THEN
+        v_detail := 'the terminal refusal raised ' || v_n || ' alerts, not one';
+      ELSE
+        SELECT attempts INTO v_n FROM public.cash_rake_pending WHERE hand_id = v_drill_hand;
+        v_res := public.fn_ca_bank_pending_cash_rake(v_drill_hand);
+        IF v_res->>'status' IS DISTINCT FROM 'terminal'
+           OR (SELECT attempts FROM public.cash_rake_pending WHERE hand_id = v_drill_hand) <> v_n THEN
+          v_detail := 'a terminal refusal was asked again under the same law';
+        ELSE
+          v_ok := true;
+        END IF;
+      END IF;
+    END IF;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','rake_terminal_refusal_releases_its_table',
+                                               'pass',v_ok,'note',v_note,'detail',v_detail);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'rake_terminal_refusal_releases_its_table'); END IF;
+
+  -- 11. a dealt manifest capture that fails on a defect returns refused and
+  --     names it once, critical, at its source (20261119005831). The defect
+  --     is a participant id that is not a uuid: 22P02, which is neither one
+  --     of the function's own refusals nor a transient state. It needs a live
+  --     cash table lease to get that far; with none, the arm cannot arm.
+  v_ok := false; v_note := ''; v_detail := '';
+  BEGIN
+    SELECT l.table_id, l.instance_id, l.lease_generation
+      INTO v_lease_table, v_lease_instance, v_lease_gen
+      FROM public.engine_table_leases l JOIN public.tables t ON t.id = l.table_id
+     WHERE l.protocol_version = 2 AND t.tournament_id IS NULL
+       AND l.heartbeat_at >= clock_timestamp() - make_interval(secs => public.fn_engine_lease_stale_seconds())
+     ORDER BY l.heartbeat_at DESC LIMIT 1;
+    IF v_lease_table IS NULL THEN
+      RAISE EXCEPTION 'no live cash table lease to arm the manifest refusal';
+    END IF;
+    v_res := public.fn_cash_capture_hand_manifest(v_lease_table, 9000000000000000000,
+      '[{"user_id":"alarm-drill-not-a-uuid"},{"user_id":"alarm-drill-not-a-uuid-2"}]'::jsonb,
+      v_lease_instance, v_lease_gen);
+    IF v_res->>'refused' IS DISTINCT FROM 'true' OR v_res->>'sqlstate' IS DISTINCT FROM '22P02' THEN
+      v_detail := 'the defect was answered ' || COALESCE(v_res::text, 'NULL');
+    ELSE
+      SELECT count(*) INTO v_n FROM public.financial_alerts
+       WHERE source = 'fn_cash_capture_hand_manifest' AND NOT resolved AND severity = 'critical'
+         AND context->>'sqlstate' = '22P02' AND context->>'error' = v_res->>'error';
+      IF v_n <> 1 THEN
+        v_detail := 'the refusal is named by ' || v_n || ' open critical alerts, not one';
+      ELSE
+        v_ok := true;
+      END IF;
+    END IF;
+    RAISE EXCEPTION 'CA_DRILL_UNWIND';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'CA_DRILL_UNWIND' THEN v_ok := false; v_note := left(SQLERRM, 120); END IF;
+  END;
+  v_results := v_results || jsonb_build_object('check','manifest_refusal_is_named',
+                                               'pass',v_ok,'note',v_note,'detail',v_detail);
+  IF NOT v_ok THEN v_failing := array_append(v_failing, 'manifest_refusal_is_named'); END IF;
+
+  -- record; page ONLY if an alarm stayed silent
+  INSERT INTO public.ca_alarm_drills (pass, failing, results)
+  VALUES (cardinality(v_failing) = 0, NULLIF(v_failing, '{}'), v_results);
+
+  /* A DRILL THAT COULD NOT ARM IS NOT A SILENT DETECTOR. An arm that
+     threw carries the error in its note and never reached its assertion;
+     an arm that ran and found nothing has an empty note. Those are two
+     different findings and only the second one is about a detector. */
+  SELECT COALESCE(array_agg(r->>'check' ORDER BY r->>'check'), '{}')
+    INTO v_unarmed
+    FROM jsonb_array_elements(v_results) r
+   WHERE COALESCE((r->>'pass')::boolean, false) IS NOT TRUE
+     AND COALESCE(r->>'note', '') <> '';
+
+  SELECT COALESCE(array_agg(r->>'check' ORDER BY r->>'check'), '{}')
+    INTO v_silent
+    FROM jsonb_array_elements(v_results) r
+   WHERE COALESCE((r->>'pass')::boolean, false) IS NOT TRUE
+     AND COALESCE(r->>'note', '') = '';
+
+  IF cardinality(v_silent) > 0 THEN
+    PERFORM public.fn_ca_raise_drift_incident(
+      'fn_ca_alarm_drill', 'unknown', 'critical',
+      'alarm-drill-failed:' || to_char(now(), 'YYYY-MM-DD'),
+      cardinality(v_silent), NULL, NULL, 'reporting', 'ca_alarm_drills',
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      'THE ALARM DRILL FAILED: ' || array_to_string(v_silent, ', ')
+        || ' stayed silent when their drift condition was created. The detectors need repair before anything else.',
+      true, jsonb_build_object('failing', v_silent, 'results', v_results));
+  END IF;
+
+  IF cardinality(v_unarmed) > 0 THEN
+    PERFORM public.fn_ca_raise_drift_incident(
+      'fn_ca_alarm_drill', 'unknown', 'warning',
+      'alarm-drill-unarmed:' || to_char(now(), 'YYYY-MM-DD'),
+      cardinality(v_unarmed), NULL, NULL, 'reporting', 'ca_alarm_drills',
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      'THE ALARM DRILL COULD NOT ARM: ' || array_to_string(v_unarmed, ', ')
+        || ' threw before their drift condition existed, so their detectors were never called and nothing was proven either way. Read the note on each arm in ca_alarm_drills. This is a defect in the drill, not evidence about the detectors.',
+      true, jsonb_build_object('unarmed', v_unarmed, 'results', v_results));
+  END IF;
+
+  RETURN jsonb_build_object('pass', cardinality(v_failing) = 0,
+                            'failing', v_failing, 'results', v_results);
+END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_ca_alarm_drill() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_alarm_drill() TO service_role;
+
+COMMIT;
