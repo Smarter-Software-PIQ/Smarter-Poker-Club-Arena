@@ -1230,6 +1230,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaMultiwayCheckedToBetIsPriced',
+    "Lane MULTIWAY-BET 2026-11-19 (owner: no blanket rules, every decision from ranges, equity, price and EV; the human's largest winning bucket was multiway pots the Horses checked through and he took with a bet every Horse correctly folded to: 109 of 215 multiway turn folders had checked first, 56 with two pair, 14 with the best hand of the field). In PLO4/PLO5 cash, one board, high only, a pot not re-raised before the flop, on the flop, turn or river with nothing to call and two or more live opponents, the owner's check is priced against bets of the card-impact candidate sizes (HorseOmahaMultiwayDiscipline.ts section 4, the one owner of the multiway bet-against-check price): the Horse's showdown share against each opponent's range (exact counts on the turn and river, the sampled flop counts on the flop), each opponent kind's measured multiway response by pot share (continue and raise) and the measured cost of the check (players still to act bet at their kind's measured rate when checked to), fit window 2026-11-01..15 (6,814 hands). The best bet replaces the check only when it is worth more by 2% of the pot; never turns a bet into a check, never overrides an owner-ruled check, never bets all in; heads-up spots stay with the small-bet rule; tournaments and PLO6 unchanged. Default OFF (opt-in, read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_multiway_checked_to_bet_is_priced",
+    'V94'
+  ),
+  flag(
     'horsePlayStyles',
     "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop open and limp bars by 0.75, the value re-raise bars by 0.75, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and (2026-11-16) biases the EV engine's own in-position inputs: each opponent's fold-equity prior x1.25 on the bet candidates (the check priced as today), the indifference band x2 (0.24 BB) for a candidate more aggressive than the best, and before the flop keeps the call bars at today's width (cold call, call of a re-raise, call-off) while the raise bars (first-in open, isolation, value 3-bet) take a credit of 0.04 (the bound) and the value re-raise tightness x0.75 (the bound), so its added entries are re-raises, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
     'V94'
@@ -5086,6 +5091,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_small_bet_owner_check_kept',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
     "the priced small bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's decision stands",
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_checked_to_bet_priced_bet',
+    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    'a PLO4/PLO5 cash multiway check with nothing to call became a bet: the priced bet beat the check by the margin',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_checked_to_bet_priced_bet_vetoed',
+    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    'the multiway bet the pricing proposed was replaced by a later rule before the decision was final',
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_checked_to_bet_kept',
+    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    "the multiway check was priced and no candidate bet beat it by the margin (or none could be priced); the owner's check stands",
+    'V94'
+  ),
+  receipt(
+    'omaha_multiway_checked_to_bet_owner_check_kept',
+    'HorseLogic omahaOwnBetRules (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
+    "the priced multiway bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's check stands",
     'V94'
   ),
   receipt(

@@ -118,6 +118,8 @@ import { omahaSmallBetVerdict } from './HorseOmahaSmallBet.js';
 import {
   omahaBetVsCheckEv,
   omahaBetVsCheckOpponents,
+  omahaMultiwayCheckedToBetSpot,
+  omahaMultiwayCheckedToBetVerdict,
   omahaMultiwayRiverCallSpot,
   omahaMultiwayRiverCallVerdict,
   omahaMultiwayWeakHandSpot,
@@ -3399,6 +3401,16 @@ export interface HorseDecideOpts {
    * until its declared evaluation passes; league cards plo4/plo5
    * _omaha_small_bet_is_priced. */
   omahaSmallBetIsPriced?: boolean;
+  /** Lane MULTIWAY-BET 2026-11-19 (HorseOmahaMultiwayDiscipline.ts section 4): PLO4/PLO5
+   * cash, a pot not re-raised before the flop, the flop, the turn or the river, nothing to
+   * call, two or more live opponents. The owner's check is priced against bets of the
+   * card-impact candidate sizes: the Horse's share against each opponent's range, his kind's
+   * measured multiway response by pot share, and the measured cost of the check (the
+   * players still to act bet at their kind's measured rate when checked to). The best bet
+   * replaces the check when it is worth more by 2% of the pot; an owner-ruled check is
+   * never turned into a bet. Default OFF (read `=== true`); league cards plo4/plo5
+   * _omaha_multiway_checked_to_bet_is_priced. */
+  omahaMultiwayCheckedToBetIsPriced?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
    * a check when, on more than 35% of the river cards, the Horse's own river
@@ -10420,6 +10432,48 @@ function omahaSmallBetRule(
   }
 }
 
+/**
+ * omahaMultiwayCheckedToBetIsPriced (lane MULTIWAY-BET 2026-11-19, HorseOmahaMultiwayDiscipline.ts section 4, default
+ * OFF): the owner's multiway check with nothing to call is priced against the candidate bets
+ * (omahaMultiwayCheckedToBetVerdict, the one owner of the multiway bet-against-check price); the best bet replaces it
+ * when it is worth more by the margin. A check an owner-ruled check rule makes is never turned into a bet (those
+ * return before this rule, and a bet omahaWagerIsChecked would check is dropped). Heads-up spots are the small-bet
+ * rule's and are not in this scope. Unset or false it returns the decision it was given.
+ */
+function omahaMultiwayCheckedToBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaMultiwayCheckedToBetIsPriced !== true) return decision;
+  if (decision.action !== 'check') return decision;
+  try {
+    const spot = omahaMultiwayCheckedToBetSpot(player, gs);
+    if (!spot) return decision;
+    const verdict = omahaMultiwayCheckedToBetVerdict(player, gs, spot);
+    if (!verdict || verdict.amount === null) {
+      if (telemetryOn(opts)) noteFire('omaha_multiway_checked_to_bet_kept');
+      return decision;
+    }
+    const bet: HorseDecision = { ...decision, action: 'bet', amount: verdict.amount };
+    if (omahaWagerIsChecked(bet, player, gs, opts)) {
+      if (telemetryOn(opts)) noteFire('omaha_multiway_checked_to_bet_owner_check_kept');
+      return decision;
+    }
+    if (telemetryOn(opts))
+      omahaProposeReceipt(
+        (f) => omahaSameWager(f, bet),
+        () => noteFire('omaha_multiway_checked_to_bet_priced_bet'),
+        () => noteFire('omaha_multiway_checked_to_bet_priced_bet_vetoed')
+      );
+    return bet;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
 function omahaOwnBetRules(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -10435,7 +10489,9 @@ function omahaOwnBetRulesCore(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  const priceSmall = (d: HorseDecision): HorseDecision => omahaSmallBetRule(d, player, gs, opts);
+  // The small-bet rule prices heads-up spots and the multiway checked-to rule multiway ones: never both.
+  const priceSmall = (d: HorseDecision): HorseDecision =>
+    omahaMultiwayCheckedToBetRule(omahaSmallBetRule(d, player, gs, opts), player, gs, opts);
   const ruled = omahaOopCheckRules(
     plo6MultiwayWeakBetRule(decision, player, gs, opts),
     player,

@@ -134,6 +134,8 @@ import {
   type OmahaFacingBetEvSpot,
 } from './HorseOmahaFacingBetEv.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
+import { OMAHA_CARD_IMPACT_SIZES } from './HorseOmahaCardImpact.js';
+import { omahaFlopEvCounts, type OmahaFlopEvCounts } from './HorseOmahaFlopFacingBetEv.js';
 import {
   ONE_PAIR_MIN_NUT_OUTS,
   omahaNutClassOuts,
@@ -667,5 +669,419 @@ export function omahaMultiwayRiverCallVerdict(
     shares,
     price: round4(hu.price),
     valueShare: round4(valueShare),
+  };
+}
+
+// ───────────── 4. the multiway check that is priced against the bet ─────────────
+
+/**
+ * omahaMultiwayCheckedToBetIsPriced (lane MULTIWAY-BET 2026-11-19, default OFF, read `=== true` by HorseLogic).
+ *
+ * THE LEAK (archive woowoo-48h-audit-01BNteGYgf, repairs/VALUE-REGION and repairs/MULTIWAY-BET/MEASUREMENT.md):
+ * the human's largest winning bucket is single-raised multiway pots where the Horses check their made hands and
+ * then fold correctly to his turn or river bet; 109 of 215 multiway turn folders had checked first (56 with two pair,
+ * 14 with the best hand of the field). In the fit window (2026-11-01..15, 10,233 Horse multiway decisions with
+ * nothing to call) the Horses checked two pair 86-99% of the time and someone bet behind 37-48% of their flop and
+ * turn checks.
+ *
+ * THE DECISION. This module owns the multiway bet-against-check price (omahaBetVsCheckEv above prices a bet the
+ * Horse chose; this prices a check it chose). PLO4/PLO5 cash, one board, high only, pot limit, no bomb pot, a pot not
+ * re-raised before the flop, the flop, the turn or the river, nothing to call, two or more live opponents: the
+ * owner's check is compared with a bet of each candidate size (OMAHA_CARD_IMPACT_SIZES of the pot, a candidate set
+ * and not a threshold), and the best bet replaces the check only when it is worth more than the check by
+ * OMAHA_DISCIPLINE_BET_MARGIN of the pot. No hand class, position or size decides; the inputs are:
+ *  - the Horse's showdown share against the strongest share V_j of all holdings for each opponent (V_j as
+ *    omahaShownRangeShare: 1 on the flop and with no strength shown; exact counts on the turn and the river, the
+ *    sampled flop counts of HorseOmahaFlopFacingBetEv on the flop), ranges independent as in omahaBetVsCheckEv;
+ *  - the MEASURED response of each opponent's kind (a person or a Horse), as a function of his own strength, to a first bet into a multiway pot on this
+ *    street, by the bet's share of the pot (OMAHA_MW_CHECKED_TO_RESPONSE): he continues with the strongest c(s) of his
+ *    range, and of what continues the measured share r raises;
+ *  - the MEASURED cost of the check: each opponent still to act on this street bets with his kind's measured rate
+ *    when checked to, at his kind's measured share of the pot, and the Horse then continues only when the call is
+ *    worth it against that betting range (the strongest rate x V_j of his range) and the other ranges.
+ *
+ *   EV(check)  = P(no bet behind) x pot x prod_j s_j + sum_j P(j first to bet) x max(0, h_j (pot + 2b_j) - b_j)
+ *   EV(bet B)  = F x W x pot + (prod_j t_j - F) x (W x pot + B) - (1 - prod_j t_j) x B,
+ *   t_j        = (1 - c_j) + c_j (1 - r_j) x share vs his continuing range
+ *                + c_j r_j x (share vs his raising range, only when it is above one half: else the Horse folds its bet)
+ * with F the chance everyone with chips folds, W the share against every all-in player's range.
+ *
+ * LIMITS. A one-street model: equity is credited as showdown equity (no later betting is priced on the flop or the
+ * turn), a winning bet is credited the pot and one caller's bet, rake is not deducted, the measured curves pool every
+ * texture and every bettor, and a player who checked before the Horse is not credited a check-raise. Pure: no random
+ * draw (the flop sample is seeded by the cards), no telemetry, no opponent memory.
+ */
+
+/**
+ * MEASURED (repairs/MULTIWAY-BET/MEASUREMENT.md section D; fit window 2026-11-01 00:00Z..2026-11-16 00:00Z, 6,814
+ * PLO4/PLO5 cash hands with a person seated, pots not re-raised before the flop, three or more players live), by street
+ * and kind, as functions of the player's own strength u (the share of all holdings that beat his current hand on this
+ * board, ties half; x = ln(u + 0.01)):
+ *   continue facing the first bet of a street  = sigmoid(ca + cu x + cs ln(share of pot))   (n responses)
+ *   raise, of the hands that continue          = sigmoid(ra + ru x)                         (nr continues)
+ *   bet when checked to with nothing to call   = sigmoid(qa + qu x)                         (nq decisions)
+ *   betShare: the median share of the pot of that kind's first bets on that street.
+ * Conditioning on his strength matters: the unconditional fold rate is measured where bettors are strong and
+ * responders weak, and applied to a bet from any hand it credited bluffs with folds they do not get (in-sample:
+ * river -12.2 bb per change, MEASUREMENT.md section D).
+ */
+export const OMAHA_MW_CHECKED_TO_RESPONSE: Readonly<
+  Record<
+    string,
+    {
+      ca: number;
+      cu: number;
+      cs: number;
+      ra: number;
+      ru: number;
+      qa: number;
+      qu: number;
+      betShare: number;
+      n: number;
+      nr: number;
+      nq: number;
+    }
+  >
+> = {
+  'flop|person': {
+    ca: -1.4283,
+    cu: -1.4343,
+    cs: -0.791,
+    ra: -3.9861,
+    ru: -1.0431,
+    qa: -2.079,
+    qu: -1.116,
+    betShare: 0.7667,
+    n: 866,
+    nr: 482,
+    nq: 1280,
+  },
+  'flop|horse': {
+    ca: -3.1194,
+    cu: -1.3479,
+    cs: -1.6894,
+    ra: -3.7557,
+    ru: -0.9164,
+    qa: -2.5132,
+    qu: -0.9355,
+    betShare: 0.5043,
+    n: 3431,
+    nr: 1083,
+    nq: 4125,
+  },
+  'turn|person': {
+    ca: -2.1993,
+    cu: -1.6579,
+    cs: -1.2273,
+    ra: -3.6699,
+    ru: -1.0029,
+    qa: -1.731,
+    qu: -1.1542,
+    betShare: 0.766,
+    n: 600,
+    nr: 271,
+    nq: 468,
+  },
+  'turn|horse': {
+    ca: -3.2257,
+    cu: -2.0687,
+    cs: -1.5233,
+    ra: -4.132,
+    ru: -1.143,
+    qa: -2.7813,
+    qu: -1.5501,
+    betShare: 0.5667,
+    n: 2012,
+    nr: 737,
+    nq: 1628,
+  },
+  'river|person': {
+    ca: -5.0134,
+    cu: -2.5997,
+    cs: -1.0041,
+    ra: -3.2907,
+    ru: -1.0852,
+    qa: -2.403,
+    qu: -1.2741,
+    betShare: 0.5476,
+    n: 177,
+    nr: 24,
+    nq: 266,
+  },
+  'river|horse': {
+    ca: -4.4815,
+    cu: -2.6649,
+    cs: -1.216,
+    ra: -6.9031,
+    ru: -2.7363,
+    qa: -5.3391,
+    qu: -2.8665,
+    betShare: 0.8148,
+    n: 632,
+    nr: 162,
+    nq: 885,
+  },
+};
+
+/** STATED (a quadrature, not a threshold): the edges, as shares of his range from its strongest end, over which his range is integrated. */
+export const OMAHA_MW_RANGE_EDGES: readonly number[] = [
+  0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1,
+];
+
+/** The variants of the option: four- and five-card Omaha only (PLO6 is untouched). */
+export const OMAHA_MW_CHECKED_TO_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+
+const MW_BOARD: Record<string, number> = { flop: 3, turn: 4, river: 5 };
+
+export interface OmahaMwCheckedToOpponent {
+  seat: number;
+  horse: boolean;
+  allIn: boolean;
+  /** still to act on this street */
+  behind: boolean;
+  /** share of all holdings he holds (1: any) */
+  range: number;
+}
+
+export interface OmahaMwCheckedToSpot {
+  street: 'flop' | 'turn' | 'river';
+  opponents: OmahaMwCheckedToOpponent[];
+}
+
+/** The option's public spot (no hole card is read except for the hand's own shape). Null outside it. */
+export function omahaMultiwayCheckedToBetSpot(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): OmahaMwCheckedToSpot | null {
+  try {
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    if (!OMAHA_MW_CHECKED_TO_VARIANTS.has(variant)) return null;
+    const stage = String(gs.stage ?? '');
+    if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return null;
+    const vi = variantInfo(variant);
+    if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return null;
+    if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
+    if (
+      (gs.boardCount ?? 1) > 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0
+    )
+      return null;
+    if (gs.allInOrFold === true || gs.wagersCapped === true || gs.bombPot === true) return null;
+    if (omahaIsTournamentMode(gs)) return null;
+    if ((gs.communityCards ?? []).length !== MW_BOARD[stage]) return null;
+    if (!Array.isArray(hero.cards) || hero.cards.length !== vi.holeCount) return null;
+    if (hero.is_folded || hero.is_all_in || hero.is_sitting_out) return null;
+    if (!fin(hero.stack) || !(hero.stack > 0) || !fin(gs.pot) || !(gs.pot > 0)) return null;
+    if (!nothingToCall(hero, gs)) return null;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('bet')) return null;
+    const history = gs.actionHistory ?? [];
+    let preflopRaises = 0;
+    for (const a of history) {
+      if (String(a.stage) !== 'preflop') continue;
+      const act = String(a.action);
+      if (act === 'raise' || act === 'bet' || act === 'all_in') preflopRaises++;
+    }
+    if (preflopRaises > 1) return null;
+    const live = liveOpponents(hero, gs);
+    if (live.length < 2 || !live.some((p) => p.is_all_in !== true)) return null;
+    const actedThisStreet = new Set<number>();
+    for (const a of history)
+      if (String(a.stage) === stage && fin(a.seat)) actedThisStreet.add(a.seat);
+    const seatCount = Math.max(
+      10,
+      ...(gs.players ?? []).map((p) => (fin(p.seat) ? p.seat + 1 : 0))
+    );
+    const order = (seat: number): number => (seat - hero.seat + seatCount) % seatCount;
+    const opponents = live
+      .map((p) => ({
+        seat: p.seat,
+        horse: p.is_horse === true,
+        allIn: p.is_all_in === true,
+        behind: p.is_all_in !== true && !actedThisStreet.has(p.seat),
+        range:
+          stage === 'flop'
+            ? 1
+            : omahaShownRangeShare(omahaShownLine(p.seat, gs, stage as 'turn' | 'river')),
+      }))
+      .sort((x, y) => order(x.seat) - order(y.seat));
+    return { street: stage, opponents };
+  } catch {
+    return null;
+  }
+}
+
+type MwCounts =
+  | { kind: 'exact'; counts: OmahaEvHandCounts }
+  | { kind: 'flop'; counts: OmahaFlopEvCounts };
+
+function mwCountsOf(hero: SeatPlayer, gs: HorseGameStateV2, street: string): MwCounts | null {
+  try {
+    if (street === 'flop') {
+      const c = omahaFlopEvCounts(
+        hero.cards ?? [],
+        gs.communityCards ?? [],
+        hero.knownDeadCards ?? [],
+        0.3
+      );
+      return c ? { kind: 'flop', counts: c } : null;
+    }
+    const c = countsOf(hero, gs);
+    return c ? { kind: 'exact', counts: c } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The Horse's win-plus-half-tie share against the strongest `share` of all holdings. */
+function mwHolds(c: MwCounts, share: number): number {
+  if (c.kind === 'exact') return holdsVs(c.counts, share);
+  const s = c.counts.top(clamp(share, 0.02, 1));
+  return s.win + s.tie * 0.5;
+}
+
+const sigmoid = (z: number): number => 1 / (1 + Math.exp(-z));
+const strengthX = (u: number): number => Math.log(clamp(u, 0, 1) + 0.01);
+
+/** His kind's measured response row on this street. */
+export function omahaMwCheckedToResponse(street: string, horse: boolean) {
+  return OMAHA_MW_CHECKED_TO_RESPONSE[`${street}|${horse ? 'horse' : 'person'}`] ?? null;
+}
+
+/** The chance a hand of strength u continues facing a bet of `share` of the pot (measured curve). */
+export function omahaMwContinueShare(
+  street: string,
+  horse: boolean,
+  share: number,
+  u: number
+): number {
+  const r = omahaMwCheckedToResponse(street, horse);
+  if (!r || !(share > 0)) return 1;
+  return clamp(sigmoid(r.ca + r.cu * strengthX(u) + r.cs * Math.log(Math.max(0.05, share))), 0, 1);
+}
+
+/** His range of strongest share `range`, cut into OMAHA_MW_RANGE_EDGES: weight, mid strength, and the Horse's share against the slice. */
+function mwRangeSlices(c: MwCounts, range: number): { w: number; u: number; h: number }[] {
+  const V = clamp(range, 0.02, 1);
+  const H = (x: number): number => (x <= 0 ? 0 : mwHolds(c, x));
+  const out: { w: number; u: number; h: number }[] = [];
+  for (let i = 1; i < OMAHA_MW_RANGE_EDGES.length; i++) {
+    const lo = OMAHA_MW_RANGE_EDGES[i - 1] * V;
+    const hi = OMAHA_MW_RANGE_EDGES[i] * V;
+    const h = clamp((hi * H(hi) - lo * H(lo)) / (hi - lo), 0, 1);
+    out.push({ w: OMAHA_MW_RANGE_EDGES[i] - OMAHA_MW_RANGE_EDGES[i - 1], u: (lo + hi) / 2, h });
+  }
+  return out;
+}
+
+/** The candidate bets: OMAHA_CARD_IMPACT_SIZES of the pot, legal, short of all in. */
+export function omahaMwCheckedToAmounts(hero: SeatPlayer, gs: HorseGameStateV2): number[] {
+  const pot = gs.pot;
+  const min =
+    fin(gs.minRaiseTo) && (gs.minRaiseTo as number) > 0
+      ? (gs.minRaiseTo as number)
+      : (gs.bigBlind ?? 1);
+  const max = Math.min(
+    fin(gs.maxRaiseTo) && (gs.maxRaiseTo as number) > 0 ? (gs.maxRaiseTo as number) : pot,
+    hero.stack
+  );
+  const whole = (gs.bigBlind ?? 1) >= 1;
+  const out: number[] = [];
+  for (const f of OMAHA_CARD_IMPACT_SIZES) {
+    let a = f * pot;
+    a = whole ? Math.round(a) : Math.round(a * 100) / 100;
+    a = Math.round(clamp(a, Math.min(min, max), max) * 100) / 100;
+    if (!(a > 0) || a >= hero.stack - 0.005) continue;
+    if (!out.includes(a)) out.push(a);
+  }
+  return out;
+}
+
+export interface OmahaMwCheckedToVerdict {
+  /** the bet to make, or null: the check stands */
+  amount: number | null;
+  evCheck: number;
+  /** EV of each candidate bet */
+  bets: { amount: number; ev: number; allFold: number }[];
+  margin: number;
+  /** chance nobody behind bets after the check */
+  noBetBehind: number;
+}
+
+/** The verdict at `spot` (formula in the section comment). Null when the hand cannot be counted or nothing can be bet. */
+export function omahaMultiwayCheckedToBetVerdict(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  spot: OmahaMwCheckedToSpot
+): OmahaMwCheckedToVerdict | null {
+  const amounts = omahaMwCheckedToAmounts(hero, gs);
+  if (amounts.length === 0) return null;
+  const counts = mwCountsOf(hero, gs, spot.street);
+  if (!counts) return null;
+  const pot = gs.pot;
+  const street = spot.street;
+  const slices = spot.opponents.map((o) => mwRangeSlices(counts, o.range));
+  const holdsRange = slices.map((sl) => sl.reduce((x, k) => x + k.w * k.h, 0));
+  const whole = holdsRange.reduce((x, y) => x * y, 1);
+  // The check: the players still to act, in turn, bet from the strong end of their range at their measured rate.
+  let noBet = 1;
+  let face = 0;
+  spot.opponents.forEach((o, j) => {
+    if (!o.behind) return;
+    const r = omahaMwCheckedToResponse(street, o.horse);
+    if (!r) return;
+    let q = 0;
+    let qh = 0;
+    for (const k of slices[j]) {
+      const qk = sigmoid(r.qa + r.qu * strengthX(k.u));
+      q += k.w * qk;
+      qh += k.w * qk * k.h;
+    }
+    if (!(q > 0)) return;
+    const b = r.betShare * pot;
+    const others = holdsRange.reduce((x, y, i) => (i === j ? x : x * y), 1);
+    const h = (qh / q) * others;
+    face += noBet * q * Math.max(0, h * (pot + 2 * b) - b);
+    noBet *= 1 - q;
+  });
+  const evCheck = noBet * pot * whole + face;
+  const bets: OmahaMwCheckedToVerdict['bets'] = [];
+  for (const B of amounts) {
+    const share = B / pot;
+    let allFold = 1;
+    let take = 1;
+    let beatsAllIn = 1;
+    spot.opponents.forEach((o, j) => {
+      if (o.allIn) {
+        beatsAllIn *= holdsRange[j];
+        return;
+      }
+      const r = omahaMwCheckedToResponse(street, o.horse);
+      let fold = 0;
+      let t = 0;
+      for (const k of slices[j]) {
+        const c = omahaMwContinueShare(street, o.horse, share, k.u);
+        const raise = r ? clamp(sigmoid(r.ra + r.ru * strengthX(k.u)), 0, 1) : 0;
+        fold += k.w * (1 - c);
+        t += k.w * (1 - c + c * (1 - raise) * k.h + c * raise * (k.h > 0.5 ? k.h : 0));
+      }
+      allFold *= fold;
+      take *= t;
+    });
+    const pWin = Math.max(0, take - allFold);
+    const pLose = Math.max(0, 1 - take);
+    const ev = allFold * beatsAllIn * pot + pWin * (beatsAllIn * pot + B) - pLose * B;
+    bets.push({ amount: B, ev: Math.round(ev * 100) / 100, allFold: round4(allFold) });
+  }
+  const margin = OMAHA_DISCIPLINE_BET_MARGIN * pot;
+  let best: { amount: number; ev: number } | null = null;
+  for (const b of bets) if (best === null || b.ev > best.ev + 1e-9) best = b;
+  const amount = best !== null && best.ev > evCheck + margin ? best.amount : null;
+  return {
+    amount,
+    evCheck: Math.round(evCheck * 100) / 100,
+    bets,
+    margin: Math.round(margin * 100) / 100,
+    noBetBehind: round4(noBet),
   };
 }
