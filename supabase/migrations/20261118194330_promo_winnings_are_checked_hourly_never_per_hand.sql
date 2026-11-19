@@ -28,6 +28,8 @@
 -- Installed on production by hand at 2026-11-18 19:43 UTC during the lag
 -- incident; this file is that installation, idempotent.
 
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS public.ca_promo_profit_sweep_state (
   club_id       uuid        NOT NULL,
   user_id       uuid        NOT NULL,
@@ -126,3 +128,5 @@ SELECT cron.schedule(
   '*/2 * * * *',
   'CALL public.sp_ca_promo_profit_hourly_sweep(60)'
 );
+
+COMMIT;
