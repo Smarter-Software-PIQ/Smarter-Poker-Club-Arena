@@ -27,7 +27,7 @@ import {
   solverPolicyArtifactStatus,
 } from '../gto/SolverPolicyArtifactLoader.js';
 import { assertCompleteGtoChartCorpus } from '../gto/GtoChartCorpus.js';
-import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import { createAdaptiveRefreshLoop, type BootRetryOptions } from './AdaptiveRefreshLoop.js';
 
 const REFRESH_MS = 60 * 60_000;
 const RETRY_MS = 30_000;
@@ -78,6 +78,13 @@ const refreshLoop = createAdaptiveRefreshLoop({
 
 export async function loadGtoCharts(): Promise<number> {
   return (await refreshLoop.runNow()).count;
+}
+
+/** First authoritative load of a live decision worker: retried in-budget
+ * (AdaptiveRefreshLoop BOOT_RETRY_DELAYS_MS) so one transient read failure
+ * cannot leave this worker on a different corpus than its siblings. */
+export async function loadGtoChartsForBoot(options?: BootRetryOptions): Promise<number> {
+  return (await refreshLoop.runBoot(options)).count;
 }
 
 export function startGtoChartLoader(): void {

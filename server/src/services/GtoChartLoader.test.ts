@@ -137,17 +137,17 @@ describe('GTO chart corpus refresh guard', () => {
     );
     const stores = [
       {
-        load: 'loadGtoCharts',
+        load: 'loadGtoChartsForBoot',
         start: 'startGtoChartLoader',
         source: './GtoChartLoader.ts',
       },
       {
-        load: 'loadGtoPostflop',
+        load: 'loadGtoPostflopForBoot',
         start: 'startGtoPostflopLoader',
         source: './GtoPostflopLoader.ts',
       },
       {
-        load: 'loadGtoPostflopV31',
+        load: 'loadGtoPostflopV31ForBoot',
         start: 'startGtoPostflopV31Loader',
         source: './GtoPostflopV31Loader.ts',
       },
@@ -167,6 +167,9 @@ describe('GTO chart corpus refresh guard', () => {
         workerSource.indexOf(`${store.start}()`)
       );
       expect(loaderSource).toContain('createAdaptiveRefreshLoop({');
+      expect(loaderSource, `${store.load} must retry its boot read in-budget`).toContain(
+        'refreshLoop.runBoot('
+      );
       expect(loaderSource).toContain('retryMs: RETRY_MS');
       expect(loaderSource).toContain('maxRetryMs: MAX_RETRY_MS');
       expect(loaderSource).not.toContain('setTimeout(');

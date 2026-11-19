@@ -507,7 +507,11 @@ export function MustMoveLobbyModal({
                               {s?.user_id ? (s.alias ?? 'Player') : 'Open'}
                             </span>
                             <span className="mml-seat-stack">
-                              {s?.user_id ? formatAmount(Number(s.stack ?? 0)) : ''}
+                              {s?.user_id
+                                ? s.stack == null
+                                  ? '...'
+                                  : formatAmount(Number(s.stack))
+                                : ''}
                             </span>
                           </li>
                         );
