@@ -1,0 +1,3 @@
+# tests/no-npm-cache-is-ever-committed.law.test.ts
+
+On 2026-11-18, #11275 committed eleven npm debug logs under the repository's root `.npm-cache/_logs/`, because `.gitignore` ignored only `server/.npm-cache/`. npm rotates its debug logs by deleting the oldest, so every npm or npx run in any worktree afterwards showed tracked files as deleted, and the pre-push gate (which requires clean tracked files) refused every push until the agent restored them by hand. This law pins that no file under any `.npm-cache` directory is tracked and that `.gitignore` ignores every such directory (`**/.npm-cache/`).
