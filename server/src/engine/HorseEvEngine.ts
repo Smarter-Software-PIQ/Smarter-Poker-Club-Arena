@@ -411,9 +411,12 @@ export function evaluateSpot(spot: EvSpot): EvVerdict {
         break;
       }
       const m = models[i]?.foldMul ?? 1;
-      const fitted = spot.foldShareOf !== undefined && !(c > 0) ? spot.foldShareOf(i, P + c, s) : null;
+      const fitted =
+        spot.foldShareOf !== undefined && !(c > 0) ? spot.foldShareOf(i, P + c, s) : null;
       const baseMdf =
-        fitted !== null && Number.isFinite(fitted) ? clamp(fitted, 0.02, 0.92) : mdfFold(P + c, s, m);
+        fitted !== null && Number.isFinite(fitted)
+          ? clamp(fitted, 0.02, 0.92)
+          : mdfFold(P + c, s, m);
       const singleFold = clamp(
         baseMdf + foldCardRemovalDelta * (0.35 + 0.65 * baseMdf),
         0.02,

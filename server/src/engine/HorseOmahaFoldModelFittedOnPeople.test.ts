@@ -44,7 +44,9 @@ const SIZES: ReadonlyArray<[string, number]> = [
 ];
 
 describe('the engine hook: absent, declining, or the old fold share prices exactly as before', () => {
-  const baseSpot = (o: Partial<EvSpot> & { pot: number; stack: number; equity: number }): EvSpot => ({
+  const baseSpot = (
+    o: Partial<EvSpot> & { pot: number; stack: number; equity: number }
+  ): EvSpot => ({
     toCall: 0,
     effectiveStack: o.stack,
     street: 'flop',
@@ -69,7 +71,9 @@ describe('the engine hook: absent, declining, or the old fold share prices exact
       ]) {
         const s = baseSpot({ pot, stack, equity });
         const plain = evaluateSpot(s);
-        expect(evaluateSpot({ ...s, foldShareOf: () => null }).candidates).toEqual(plain.candidates);
+        expect(evaluateSpot({ ...s, foldShareOf: () => null }).candidates).toEqual(
+          plain.candidates
+        );
         expect(
           evaluateSpot({ ...s, foldShareOf: (_i, p, w) => mdfFold(p, w, 1.4) }).candidates
         ).toEqual(plain.candidates);
@@ -102,7 +106,10 @@ describe('the fitted lookup', () => {
     expect(FIT.personalPriorStrength).toBe(OMAHA_EV_FOLD_PRIOR_STRENGTH);
     for (const variant of VARIANTS) {
       expect(omahaPersonFoldFactor(spotOf({ variant }))).toBeCloseTo(1, 12);
-      expect(omahaPersonFoldFactor(spotOf({ variant, counters: { hit: 0, opp: 0 } }))).toBeCloseTo(1, 12);
+      expect(omahaPersonFoldFactor(spotOf({ variant, counters: { hit: 0, opp: 0 } }))).toBeCloseTo(
+        1,
+        12
+      );
     }
   });
   it('every cell selects its own measured counts (closed form), an empty cell is the old model exactly', () => {
@@ -195,7 +202,13 @@ const flop = () => pricedSpot({ hole: 'AdAhKdJd4h', board: '8s6c9s', bet: 0, inP
 type Gs = {
   stage?: string;
   humanUserIds?: string[];
-  players: Array<{ seat: number; user_id: string; is_horse?: boolean; stack: number; is_folded?: boolean }>;
+  players: Array<{
+    seat: number;
+    user_id: string;
+    is_horse?: boolean;
+    stack: number;
+    is_folded?: boolean;
+  }>;
 };
 const oppsOf = (st: ReturnType<typeof flop>, gs: Gs) =>
   gs.players.filter((p) => p.seat !== (st.hero as { seat: number }).seat && !p.is_folded);
@@ -219,9 +232,9 @@ describe('the option gate', () => {
   it('off: off', () => {
     const st = flop();
     expect(build(st, asPerson(st), {} as HorseDecideOpts).kind).toBe('off');
-    expect(build(st, asPerson(st), { omahaFoldModelFittedOnPeople: false } as HorseDecideOpts).kind).toBe(
-      'off'
-    );
+    expect(
+      build(st, asPerson(st), { omahaFoldModelFittedOnPeople: false } as HorseDecideOpts).kind
+    ).toBe('off');
   });
   it('on, heads-up against a person facing no bet (flop and turn): priced with his read', () => {
     for (const board of ['8s6c9s', '8s6c9s2h']) {
@@ -276,7 +289,11 @@ describe('the option gate', () => {
       drainFires();
       const off = decideAt(
         st,
-        { ...LIVE_OPTIONS, telemetry: true, omahaFoldModelFittedOnPeople: false } as HorseDecideOpts,
+        {
+          ...LIVE_OPTIONS,
+          telemetry: true,
+          omahaFoldModelFittedOnPeople: false,
+        } as HorseDecideOpts,
         seed
       );
       const offFires = drainFires().map((f) => f.feature);
