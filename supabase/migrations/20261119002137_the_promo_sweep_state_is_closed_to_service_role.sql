@@ -6,6 +6,8 @@
 -- the new table and EXECUTE on the new procedure. Only the sweep's owner
 -- (the cron job, as postgres) reads or writes the table or calls the
 -- procedure, so both are closed to service_role here. Idempotent.
+--
+-- @live-proof: NOT has_table_privilege('service_role', 'public.ca_promo_profit_sweep_state', 'SELECT')
 
 BEGIN;
 
