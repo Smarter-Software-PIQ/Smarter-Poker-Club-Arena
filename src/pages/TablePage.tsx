@@ -1652,7 +1652,7 @@ function warmSeatToPlayer(seat: WarmSeat, heroUserId: string): SeatPlayer {
   return {
     id: seat.user_id,
     name: playerDisplayName(profiles),
-    stack: seat.stack || 0,
+    ...standInStack({ rowStack: seat.stack }),
     avatar: profiles?.avatar_url || undefined,
     isHero: seat.user_id === heroUserId,
     status: 'active',
@@ -2850,7 +2850,7 @@ function LiveTablePage({
             p[idx] = {
               id: seat.user_id,
               name: playerDisplayName(seat.profiles),
-              stack: seat.stack || 0,
+              ...standInStack({ rowStack: seat.stack }),
               avatar: seat.profiles?.avatar_url || undefined,
               isHero: seat.user_id === userId,
               status: 'active',
@@ -18561,7 +18561,7 @@ function LiveTablePage({
                 id: seat.user_id,
                 name: playerDisplayName(profile),
                 avatar: profile?.avatar_url || '',
-                stack: seat.stack || 0,
+                ...standInStack({ rowStack: seat.stack }),
                 status:
                   seat.is_sitting_out && !heroFreshJoin
                     ? ('sitting_out' as const)
@@ -25343,10 +25343,12 @@ function LiveTablePage({
              * The moment real chips exist this stops applying — `playHasBegun`
              * latches on the first dealer, hand, or non-zero stack.
              */
-            stack:
-              Number(seat.stack || 0) > 0 || playHasBegun
-                ? Number(seat.stack || 0)
-                : Number(seatFirstBuyIn?.startingChips || 0),
+            ...(Number(seat.stack || 0) > 0 || playHasBegun
+              ? standInStack({ rowStack: seat.stack })
+              : standInStack({
+                  rowStack: null,
+                  paidBuyIn: seatFirstBuyIn?.startingChips ?? null,
+                })),
             status: 'active' as const,
             isHero,
             showCards: isHero,
