@@ -326,4 +326,82 @@ BEGIN
 END
 $readback$;
 
+-- Probes (tests/a-migration-proves-its-functions-before-commit.law.test.ts): each executes a new body before COMMIT
+-- inside a subtransaction that is always undone. The fixture is one published registry for a release sha no engine
+-- has (forty zeros) that registers only probeFixtureOption, so the two writers are refused by the guard before
+-- they reach any switch or evidence row: no switch row is written, even inside the probe.
+
+-- @probe-for: public.fn_ca_horse_option_registry_publish
+DO $probe$
+DECLARE
+  v_reg    jsonb := '{"probeFixtureOption": ["off"]}';
+  v_digest text  := encode(sha256(convert_to('[["probeFixtureOption",["off"]]]', 'UTF8')), 'hex');
+  v_out    jsonb;
+BEGIN
+  v_out := public.fn_ca_horse_option_registry_publish(repeat('0', 40), v_reg, v_digest);
+  IF (v_out ->> 'options')::integer <> 1
+     OR NOT EXISTS (SELECT 1 FROM public.ca_horse_option_registry_serving
+                    WHERE release_sha = repeat('0', 40) AND registry_digest = v_digest) THEN
+    RAISE EXCEPTION 'probe: the publish did not store the fixture registry (%)', v_out;
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_ca_horse_option_registry_refusal
+DO $probe$
+DECLARE
+  v_digest text := encode(sha256(convert_to('[["probeFixtureOption",["off"]]]', 'UTF8')), 'hex');
+  v_refusal text;
+BEGIN
+  PERFORM public.fn_ca_horse_option_registry_publish(repeat('0', 40), '{"probeFixtureOption": ["off"]}', v_digest);
+  v_refusal := public.fn_ca_horse_option_registry_refusal('probeUnregisteredOption', NULL);
+  IF v_refusal IS NULL OR v_refusal NOT LIKE 'the serving engine release % does not register option probeUnregisteredOption:%' THEN
+    RAISE EXCEPTION 'probe: an unregistered option was not refused (%)', coalesce(v_refusal, '(null)');
+  END IF;
+  v_refusal := public.fn_ca_horse_option_registry_refusal('probeFixtureOption', 'on');
+  IF v_refusal IS NULL OR v_refusal NOT LIKE '% does not support state on for option probeFixtureOption %' THEN
+    RAISE EXCEPTION 'probe: an unsupported state was not refused (%)', coalesce(v_refusal, '(null)');
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_ca_horse_option_switch_record_evidence
+DO $probe$
+DECLARE
+  v_digest text := encode(sha256(convert_to('[["probeFixtureOption",["off"]]]', 'UTF8')), 'hex');
+BEGIN
+  PERFORM public.fn_ca_horse_option_registry_publish(repeat('0', 40), '{"probeFixtureOption": ["off"]}', v_digest);
+  BEGIN
+    PERFORM public.fn_ca_horse_option_switch_record_evidence(
+      'streetIQ', 'probe/evidence.json', repeat('0', 64), 'evidence', 'migration probe', NULL, 'migration-probe');
+    RAISE EXCEPTION 'probe: the evidence record was not refused for an option the serving registry does not list';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'the serving engine release % does not register option streetIQ:%' THEN RAISE; END IF;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
+-- @probe-for: public.fn_ca_horse_option_switch_set
+DO $probe$
+DECLARE
+  v_digest text := encode(sha256(convert_to('[["probeFixtureOption",["off"]]]', 'UTF8')), 'hex');
+BEGIN
+  PERFORM public.fn_ca_horse_option_registry_publish(repeat('0', 40), '{"probeFixtureOption": ["off"]}', v_digest);
+  BEGIN
+    PERFORM public.fn_ca_horse_option_switch_set('v16Hu', 'off', 'migration-probe', 'migration probe');
+    RAISE EXCEPTION 'probe: the switch write was not refused for an option the serving registry does not list';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'the serving engine release % does not register option v16Hu:%' THEN RAISE; END IF;
+  END;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
