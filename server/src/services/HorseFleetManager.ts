@@ -85,9 +85,11 @@ import { stakeForBand } from './StableHandController.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { gamesFedByTheirList, listFeedsTable } from './HorseListFeedsTable.js';
 import {
+  clearVarietyHolds,
   compareVarietyFirst,
   publishVarietyHolds,
   varietyFirstPlan,
+  varietyHoldsThisCycle,
   VarietyStartMemory,
 } from './HorseVarietyFirst.js';
 import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
@@ -2730,8 +2732,6 @@ export class HorseFleetManager {
             ploDemand
           ),
       });
-      this.varietyHeldStarts = variety.heldStarts;
-      publishVarietyHolds(variety.heldStarts, horseIdSet, varietyNowMs);
       const orderedTables = [...tables, ...diamondTables].sort(
         (a, b) =>
           Number(humanShort(b)) - Number(humanShort(a)) ||
@@ -2968,8 +2968,20 @@ export class HorseFleetManager {
          hold belongs to fn_offer_open_seat's own sweep, which expires it and
          passes the seat to the next player in line. A draining table is still
          never answered, whatever the policy says. */
+      /* Nothing is held until this cycle has shown it can make an owed start
+         (HorseVarietyFirst.varietyHoldsThisCycle): not while the hourly read
+         is outstanding or failed, not in a withheld cycle, not when the cap
+         admits no owed table. */
+      this.varietyHeldStarts = new Set();
+      clearVarietyHolds();
       const hourlyAdmissions = await readHourlyCashAdmissions();
       if (!readIsCurrent()) return;
+      const varietyHeld = varietyHoldsThisCycle(variety, {
+        withheld: !!cycleWithheld,
+        admitted: (tableId) => hourlyAdmissions.has(tableId),
+      });
+      this.varietyHeldStarts = varietyHeld;
+      publishVarietyHolds(varietyHeld, horseIdSet, Date.now());
       let hourlyAutonomousStarted = false;
       const claimed = cycleWithheld
         ? 0
@@ -3252,7 +3264,7 @@ export class HorseFleetManager {
           }
           /* AN EXTRA TABLE WAITS FOR A GAME THAT HAS NONE (2026-11-18). Only
              a start: the database says this table is empty (`startsGame`). */
-          if (hourly.startsGame && variety.heldStarts.has(table.id)) {
+          if (hourly.startsGame && varietyHeld.has(table.id)) {
             beat.withheldTables++;
             if (diag) diag.withheld = 'variety_first';
             continue;
@@ -4341,6 +4353,14 @@ export class HorseFleetManager {
               (reason) => {
                 buyInRefused.set(reason, (buyInRefused.get(reason) ?? 0) + 1);
                 noteSkip(diag, `buyin_${reason}`);
+                /* The floor's answer, not this game's: it rests nothing. */
+                if (
+                  reason === 'hourly_cap' ||
+                  reason === 'lightning_paced' ||
+                  reason === 'frozen'
+                ) {
+                  varietyFloorStop = true;
+                }
                 /* The horse is at the platform's game limit as the DATABASE
                    counts it (seats plus bookings). No later table in this
                    cycle can be different, so it is not offered one. */

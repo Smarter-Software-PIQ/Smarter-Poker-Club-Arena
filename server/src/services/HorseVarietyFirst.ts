@@ -137,6 +137,27 @@ export function varietyFirstPlan<T extends VarietyTable>(
   return { owedStarts, heldStarts };
 }
 
+/**
+ * THE HOLD IS ONLY AS GOOD AS THE CYCLE THAT CAN PAY THE DEBT (review of
+ * 02de6de4e2f, finding 1). An extra table waits for an owed start only in a
+ * cycle that can actually make that start: the walk is not withheld (fleet
+ * disabled, seating paused, brain behind, fleet-wide cap, outside the
+ * schedule) and the hourly cap admits at least one owed table this cycle. In
+ * every other cycle nothing is held by any door: the owed game cannot start
+ * anyway, and a feeder-start move, which adds no Horse to the floor, must not
+ * wait on a fleet that is not seating.
+ */
+export function varietyHoldsThisCycle(
+  plan: VarietyFirstPlan,
+  cycle: { withheld: boolean; admitted: (tableId: string) => boolean }
+): ReadonlySet<string> {
+  if (cycle.withheld) return NO_VARIETY_PLAN.heldStarts;
+  for (const tableId of plan.owedStarts.keys()) {
+    if (cycle.admitted(tableId)) return plan.heldStarts;
+  }
+  return NO_VARIETY_PLAN.heldStarts;
+}
+
 /** The walk's rank: an owed start before everything but a short-handed person. */
 export function compareVarietyFirst(
   a: { id: string },
@@ -226,6 +247,11 @@ export function feederStartWaitsForVariety(move: {
     move.swap_move_id == null &&
     moveWaitsForVariety(move.to_table_id, move.player_id)
   );
+}
+
+/** A cycle that cannot make an owed start holds nothing, at once. */
+export function clearVarietyHolds(): void {
+  published = null;
 }
 
 /** Test seam. */

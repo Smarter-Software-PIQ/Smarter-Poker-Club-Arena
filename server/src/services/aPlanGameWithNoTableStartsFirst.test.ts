@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetVarietyHolds,
+  clearVarietyHolds,
   compareVarietyFirst,
   feederStartWaitsForVariety,
   moveWaitsForVariety,
@@ -11,11 +12,13 @@ import {
   VARIETY_HOLD_FRESH_MS,
   VARIETY_START_REST_MS,
   varietyFirstPlan,
+  varietyHoldsThisCycle,
   VarietyStartMemory,
   type VarietyTable,
 } from './HorseVarietyFirst.js';
 import { HORSE_STARTED_CASH_GAMES, LIGHTNING_HORSE_SEEDED } from './HorseUnionCashPlan.js';
 import { seatMoveIsDue } from './supabase/seatMoves.js';
+import { classifyBuyInRefusal } from './HorseBuyInRefusal.js';
 
 /* 2026-11-18: PLO5 1/2 Madness, PLO5 .50/1 Classic and six other Main tables
    had no Horses from the 08:45Z night walk-down until the evening. The hourly
@@ -262,6 +265,89 @@ describe("a plan game with no table starts before another game's extra table", (
   });
 });
 
+describe('nothing is held in a cycle that cannot make the owed start', () => {
+  /* Review of 02de6de4e2f, finding 1: a paused or behind fleet republished its
+     holds every cycle, so a full game's feeder-start move (which adds no Horse)
+     waited for as long as the pause lasted, behind a start nobody was making. */
+  beforeEach(() => __resetVarietyHolds());
+  const bump = {
+    reason: 'balance',
+    swap_move_id: null,
+    to_table_id: 'nlh-f-opening',
+    player_id: 'h1',
+  };
+  const cycle = (withheld: boolean, admittedIds: string[]) => {
+    const plan = planFor(todaysFloor());
+    const held = varietyHoldsThisCycle(plan, {
+      withheld,
+      admitted: (id) => admittedIds.includes(id),
+    });
+    publishVarietyHolds(held, new Set(['h1']), Date.now());
+    return held;
+  };
+
+  it('a withheld cycle (paused, disabled, brain behind, outside the schedule) holds nothing', () => {
+    expect(cycle(true, ['madness-m1', 'nlh-f-opening']).size).toBe(0);
+    expect(feederStartWaitsForVariety(bump)).toBe(false);
+  });
+
+  it('a cycle whose hourly cap admits no owed table holds nothing', () => {
+    expect(cycle(false, []).size).toBe(0);
+    expect(cycle(false, ['nlh-f-opening', 'flh-f-opening']).size).toBe(0);
+    expect(feederStartWaitsForVariety(bump)).toBe(false);
+  });
+
+  it('a cycle that can make an owed start holds the extra tables', () => {
+    expect([...cycle(false, ['madness-m1'])].sort()).toEqual(['flh-f-opening', 'nlh-f-opening']);
+    expect(feederStartWaitsForVariety(bump)).toBe(true);
+    /* ...and the next cycle, withheld, lets the same move go at once. */
+    cycle(true, ['madness-m1']);
+    expect(feederStartWaitsForVariety(bump)).toBe(false);
+  });
+
+  it('a hold is dropped the moment a cycle begins its hourly read', () => {
+    cycle(false, ['madness-m1']);
+    clearVarietyHolds();
+    expect(feederStartWaitsForVariety(bump)).toBe(false);
+  });
+
+  it('the fleet clears before the hourly read and publishes only what the cycle can pay', () => {
+    const fleet = source('./HorseFleetManager.ts');
+    const clear = fleet.indexOf('clearVarietyHolds();');
+    const read = fleet.indexOf('const hourlyAdmissions = await readHourlyCashAdmissions();');
+    const decide = fleet.indexOf('const varietyHeld = varietyHoldsThisCycle(variety, {');
+    const publish = fleet.indexOf('publishVarietyHolds(varietyHeld, horseIdSet, Date.now());');
+    const claim = fleet.indexOf(': await this.claimOfferedSeats(');
+    expect(clear).toBeGreaterThan(-1);
+    expect(read).toBeGreaterThan(clear);
+    expect(decide).toBeGreaterThan(read);
+    expect(publish).toBeGreaterThan(decide);
+    expect(claim).toBeGreaterThan(publish);
+    expect(fleet.slice(decide, publish)).toContain('withheld: !!cycleWithheld,');
+    expect(fleet.slice(decide, publish)).toContain(
+      'admitted: (tableId) => hourlyAdmissions.has(tableId),'
+    );
+    /* No publication anywhere else, and none of the raw plan. */
+    expect(fleet.split('publishVarietyHolds(').length - 1).toBe(1);
+    expect(fleet).not.toContain('variety.heldStarts');
+  });
+
+  it('the hourly door refusing a start is the floor, and rests no game', () => {
+    for (const m of [
+      'cash_hourly_table_cap_reached:16',
+      'cash_hourly_table_start_paced',
+      'cash_hourly_horse_arrival_paced',
+      'cash_hourly_table_capacity_busy',
+    ]) {
+      expect(classifyBuyInRefusal(m)).toBe('hourly_cap');
+    }
+    const fleet = source('./HorseFleetManager.ts');
+    expect(fleet).toMatch(
+      /reason === 'hourly_cap' \|\|\s*reason === 'lightning_paced' \|\|\s*reason === 'frozen'\s*\) \{\s*varietyFloorStop = true;/
+    );
+  });
+});
+
 describe('a full schedule day still respects the hourly cap', () => {
   /* The owner's caps by Chicago hour, read from the migration that enforces them. */
   const caps = (() => {
@@ -363,7 +449,7 @@ describe('the three doors a start is taken through all ask the one rule', () => 
   });
 
   it('the walk does not start a held table, and only a start is withheld', () => {
-    expect(fleet).toContain('if (hourly.startsGame && variety.heldStarts.has(table.id)) {');
+    expect(fleet).toContain('if (hourly.startsGame && varietyHeld.has(table.id)) {');
     expect(fleet).toContain("if (diag) diag.withheld = 'variety_first';");
     /* Never a Lightning game's next ring, seeded or started by a person. */
     expect(fleet).toContain(
@@ -372,7 +458,7 @@ describe('the three doors a start is taken through all ask the one rule', () => 
   });
 
   it('a seat call does not start a held table', () => {
-    expect(fleet).toContain('this.varietyHeldStarts = variety.heldStarts;');
+    expect(fleet).toContain('this.varietyHeldStarts = varietyHeld;');
     const claim = fleet.slice(fleet.indexOf('private async claimOfferedSeats('));
     const held = claim.indexOf('this.varietyHeldStarts.has(String(table.id)) &&');
     expect(held).toBeGreaterThan(-1);
@@ -381,7 +467,7 @@ describe('the three doors a start is taken through all ask the one rule', () => 
   });
 
   it("the table engine does not execute a Horse's feeder-start move onto a held table", () => {
-    expect(fleet).toContain('publishVarietyHolds(variety.heldStarts, horseIdSet, varietyNowMs);');
+    expect(fleet).toContain('publishVarietyHolds(varietyHeld, horseIdSet, Date.now());');
     const at = engine.indexOf('protected async executePendingSeatMoves(');
     const waits = engine.indexOf('opts = { ...opts, waits: feederStartWaitsForVariety };', at);
     expect(waits).toBeGreaterThan(at);
