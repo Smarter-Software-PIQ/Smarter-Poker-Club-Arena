@@ -253,6 +253,8 @@ BEGIN
  END LOOP;
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_settle(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+
 -- A principal release is decided on the live fee history only, the same way.
 CREATE OR REPLACE FUNCTION public.fn_ca_promo_play_through_settle(p_club_id uuid, p_user_id uuid)
  RETURNS integer
@@ -304,6 +306,10 @@ BEGIN
   RETURN v_closed;
 END;
 $function$;
+
+-- Unchanged from production: the engine role keeps it, a browser never had it.
+REVOKE ALL ON FUNCTION public.fn_ca_promo_play_through_settle(uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_promo_play_through_settle(uuid,uuid) TO service_role;
 
 -- A cash-out is always answered from the live fee history: the wallet exit
 -- trigger and the cashier's ticket sale switch the whole transaction to live
