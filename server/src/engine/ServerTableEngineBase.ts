@@ -179,6 +179,7 @@ import {
   type SeatMoveOutcome,
 } from '../services/supabase/seatMoves.js';
 import { isMaintenanceFrozen, onMaintenanceThaw } from '../maintenance/freezeState.js';
+import { feederStartWaitsForVariety } from '../services/HorseVarietyFirst.js';
 import { wakeCluster } from '../cluster/ClusterController.js';
 import {
   movesPlannedGeneration,
@@ -2912,6 +2913,10 @@ export abstract class ServerTableEngineBase {
     if (this.running || this.f06PermitFactory || this.f06MovementAdmission)
       throw new Error('f06_admission_install_too_late');
     this.f06PermitFactory = factory;
+  }
+  /** This table reserves an F06 hand permit before every deal (tournament custody). */
+  protected hasF06HandAdmission(): boolean {
+    return this.f06PermitFactory !== null;
   }
   protected async reserveF06Hand(handNumber: number): Promise<void> {
     if (this.f06MovementAdmission) throw new Error('f06_movement_only_no_hand');
@@ -6003,6 +6008,10 @@ export abstract class ServerTableEngineBase {
     diagnostic?: LeavePendingAttempt
   ): Promise<string[]> {
     if (this.isTournamentTable() || !this.tableInfo?.cluster_id) return [];
+    // 2026-11-18: a Horse's feeder-start move onto an EMPTY extra table waits
+    // while a plan game has no table at all (HorseVarietyFirst). It is simply
+    // not due at this boundary: it stays pending and expires by its own clock.
+    opts = { ...opts, waits: feederStartWaitsForVariety };
     /* ONE READ, USED TWICE (2026-09-09). The list is what the service would
        have fetched anyway, so this costs the same single round trip - and
        having it HERE is what lets a table that cannot deal still release a

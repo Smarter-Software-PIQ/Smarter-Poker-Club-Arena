@@ -43,6 +43,7 @@ import {
   useLightningLeaveAfterHand,
 } from '../lightning/lightningLeaveNextHand';
 import { useSeatArrivals } from '../components/table/seatArrival';
+import { standInStack } from '../lib/standInStack';
 import {
   usePreActionBoundary,
   acceptedActionSpendsPreAction,
@@ -23744,7 +23745,11 @@ function LiveTablePage({
                 // FIX: Preserve existing avatar from DB — don't overwrite with empty presence avatar
                 avatar:
                   p.avatar || existing?.avatar || (p.userId === userId ? heroAvatarUrl : '') || '',
-                stack: existing?.stack ?? 0,
+                // Presence knows who sat down, not what they hold, and
+                // `existing` here is always somebody else (or nobody), whose
+                // chips are not this player's. Unknown is pending, never 0
+                // and never the last occupant's stack (Dan 2026-11-18).
+                ...standInStack({ rowStack: null }),
                 status: existing?.status ?? 'active',
                 isHero: p.userId === userId,
                 showCards: existing?.showCards ?? false,
@@ -30548,9 +30553,13 @@ function LiveTablePage({
                 ...(standIn?.aura ? { aura: standIn.aura } : {}),
                 // A confirmed seat balance supersedes the original buy-in,
                 // including zero. The buy-in is only a pre-row placeholder.
-                stack:
-                  lightningWaitingSeat?.stack ?? heroRowStack ?? pendingSeatStackRef.current ?? 0,
-                stackPending: lightningWaitingSeat?.stack === null,
+                // A balance nobody has confirmed yet is pending, never 0
+                // (Dan 2026-11-18, lib/standInStack).
+                ...standInStack({
+                  lightningStack: lightningWaitingSeat ? lightningWaitingSeat.stack : undefined,
+                  rowStack: heroRowStack,
+                  paidBuyIn: pendingSeatStackRef.current,
+                }),
                 /* A Lightning player between hands is in the pool, not sitting
                    out, unless they asked to be (Dan 2026-10-24). */
                 status: lightningWaitingSeat

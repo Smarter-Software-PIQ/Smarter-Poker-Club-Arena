@@ -81,6 +81,14 @@ describe('the welcome-back promo has one guard', () => {
         /fn_ca_duplicate_promo_audit/i.test(sql),
         `${name} adds a scheduled duplicate-promo audit; CLAUDE.md 10.12 forbids a monitor or back-fill as the fix`,
       ).toBe(false);
+      // OWNER RULING 2026-11-18 (Dan): promo progress "CAN NO AND SHOULD NOT BE
+      // CHECKED AFTER EVERY HAND, IT SHOULD BE AN UPDATED ONCE PER HOUR, AND
+      // ONLY FOR ACCOUNTS WITH ACTIVE PROMO CHIPS." That hourly evaluation is
+      // the product, not a repair: it moves no chips and repairs no payout, it
+      // stamps the same winnings gate the same function used to stamp inside
+      // the hand. It is the one promo schedule this law lets through, by
+      // exact file name; any other still fails below.
+      if (name === '20261118194330_promo_winnings_are_checked_hourly_never_per_hand.sql') continue;
       const schedulesPromoRepair =
         /cron\.schedule\s*\([^)]*promo[^)]*(audit|repair|sweep|backfill|back_pay|heal|redrive)/i.test(sql);
       expect(
