@@ -98,3 +98,9 @@ Note N3: OMAHA_PRICED_SHRINK and priced2's OMAHA_PRICED_READ_PRIOR_STRENGTH are 
 ## Switch-on hold: minimum-raise ladder (2026-11-19, plo-truncation-013U37)
 
 With omahaSmallBetIsPriced and omahaTurnRiverRaiseIsPriced on (both live), this option at f3e99378ccbb produced a Horse-vs-Horse minimum-raise ladder (BLANKET-LOO-1 Horse-only cells; HORSE SWITCH lane inbox 2026-11-19T00:32:26Z). The defect was in the consumer (omahaTurnRiverRaiseIsPriced read the fold-to-raise cell as the fold to every raise size; see that file, same date). The league WIN above was measured without omahaSmallBetIsPriced in the base and before that fix: switch-on needs a build carrying the fix and a Horse-only mirror cell on the full live base with truncated 0.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)
