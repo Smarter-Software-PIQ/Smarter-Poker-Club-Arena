@@ -3415,6 +3415,24 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_flop_facing_bet_ev. */
   omahaFlopFacingBetEv?: boolean;
+  /** PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision from the
+   * hand and its equity against the opponent's perceived range for that
+   * action, line and board and his measured tendencies; how far the Horse
+   * moves toward one player's tendency grows smoothly with the sample):
+   * opt-in (`=== true`), and it acts only where omahaFlopFacingBetEv decides
+   * (PLO4/PLO5 cash, the FLOP facing a bet or a raise). The flop verdict also
+   * reads THIS bettor's durable record of his play by street and flop
+   * texture (public actions and board cards; HorseOmahaFlopBettorRead.ts): how often he bets this flop texture on this line moves the value share
+   * and the non-value share of his bet by one measured factor, and how often
+   * he bets the turn and the river moves the share of later streets a
+   * non-value holding bets in the realization model; each rate beside players
+   * of his kind (a person against persons, a Horse against Horses) and moved
+   * from the kind's figure in proportion to his sample, with no threshold
+   * (HorseOmahaFlopBettorRead.ts). With no record for the bettor, the mind
+   * off or a kind the decision does not know, the verdict is exactly
+   * omahaFlopFacingBetEv's. Needs the mind on. Default OFF, not evaluated;
+   * league cards plo4/plo5 _omaha_flop_verdict_reads_the_bettor. */
+  omahaFlopVerdictReadsTheBettor?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -11362,6 +11380,7 @@ function omahaFacingBetEvRule(
         : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
       inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
       bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
+      readsTheBettor: opts.omahaFlopVerdictReadsTheBettor === true,
     });
   if (opts.omahaFacingBetEv !== true) return decision;
   try {
