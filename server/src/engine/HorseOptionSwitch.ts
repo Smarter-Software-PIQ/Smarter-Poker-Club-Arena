@@ -27,8 +27,17 @@
  * writer. Lifting a hold is a reviewed source change to that map, never a note. Every other registered non-style
  * option supports `on`: the engine accepts it, and the database writes it only when the note is the option's OWN
  * citation (`authority: <option> <file> sha256 <64 hex>`, optionSwitchOnNote), at the set function and at the
- * table; the audit row keeps the note, the actor and the time. `shadow` and `canary` exist only for an option
- * that has a shadow arm in the brain (the seven style options, HorseStyleShadow.ts); they keep their own controls.
+ * table; the audit row keeps the note, the actor and the time. `canary` exists only for an option that has a
+ * shadow arm in the brain (the seven style options, HorseStyleShadow.ts); they keep their own controls.
+ *
+ * SHADOW FOR A NON-STYLE OPTION (2026-11-18, Horse Switch lane; OPTION_SWITCH_SHADOW_NAMES). A registered on/off
+ * option whose release default is plainly 'on' or 'off' (not 'code'), that is not off-only and whose read is per
+ * decision (not OPTION_SWITCH_SHADOW_REFUSED) also supports `shadow`. Shadow passes NOTHING to the brain (exactly
+ * like no row: the release default decides the acted decision), and the decision worker re-decides the committed
+ * decision ONCE with the option flipped, from the same RNG position, at a per-minute budget, recording a
+ * counterfactual receipt it never acts on (workerRuntime.optionShadowReceipt, the style action-receipt mechanism).
+ * The database accepts `shadow` for exactly these names (registry:shadow-options markers); the style options keep
+ * their own four states.
  *
  * RELEASE DEFAULT is informational: 'on' or 'off' where the code's reads say so plainly, 'code' where the code
  * decides (a parent option, a variant, a mixed read; see the ledger note) and for any option not classified yet.
@@ -87,6 +96,11 @@ export interface OptionSwitchEntry {
   readonly releaseDefault: OptionSwitchReleaseDefault;
   /** True only where the brain has a shadow arm for the option (HorseStyleShadow.ts). */
   readonly shadowArm: boolean;
+  /**
+   * True where a non-style option supports `shadow` by a worker re-decision with the option flipped
+   * (OPTION_SWITCH_SHADOW_NAMES). Never with a shadow arm, never for an off-only option or a 'code' release default.
+   */
+  readonly shadowRedecide?: boolean;
   readonly description: string;
   /** Set when the option is off-only (OPTION_SWITCH_OFF_ONLY): its status, reason and source. Enforced. */
   readonly offOnly?: OptionSwitchOffOnly;
@@ -100,6 +114,7 @@ export interface OptionSwitchOffOnly {
 }
 
 const ON_OFF = Object.freeze(['off', 'on'] as const);
+const OFF_SHADOW_ON = Object.freeze(['off', 'shadow', 'on'] as const);
 const OFF_ONLY = Object.freeze(['off'] as const);
 const HOLDEM = "Hold'em Strategy" as const;
 
@@ -647,6 +662,31 @@ export function optionSwitchOffOnly(name: string): OptionSwitchOffOnly | null {
   return null;
 }
 
+/**
+ * Registered on/off options that never take `shadow`, by reason: their read is not per decision, so a re-decision
+ * with the option flipped in the decision options would not flip what they read and the receipt would lie.
+ */
+export const OPTION_SWITCH_SHADOW_REFUSED: Readonly<Record<string, string>> = Object.freeze({
+  fixedLimitBetsAreNeverProbes:
+    'a process switch: HorseMind.applyFixedLimitBetsAreNeverProbesOption applies it before every job, not per decision',
+  gtoV31CellContractV3Serving:
+    'the V31 loader follows the switched value process-wide (noteGtoV31CellContractV3ServingSwitch), not per decision',
+  styleLongShownMemory:
+    'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+  holdemProfileCompletenessCap:
+    'the observer reads carry its evidence into the decision state only when it is on (workerRuntime.readViewOpts)',
+});
+
+/** Why `name` cannot take `shadow`, or null when it can (the registry entry decides, this is the rule). */
+export function optionSwitchShadowRefusal(name: string): string | null {
+  if (Object.hasOwn(OPTION_SWITCH_SHADOW_REFUSED, name)) return OPTION_SWITCH_SHADOW_REFUSED[name]!;
+  const off = optionSwitchOffOnly(name);
+  if (off) return `off-only (${off.status}: ${off.source})`;
+  if (releaseDefaultOf(name) === 'code')
+    return "its release default is decided by code ('code'), so the flipped value is not known: classify it first";
+  return null;
+}
+
 /** Owner, scope and description where the activation inventory records them; else 'Programme' and the ledger. */
 type Override = readonly [owner: OptionSwitchOwner, scope: string, description?: string];
 const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Override>>> = {
@@ -819,17 +859,22 @@ const oneLine = (text: string): string => {
   return flat.length > 160 ? `${flat.slice(0, 157)}...` : flat;
 };
 
-/** One registered non-style option, from its ledger row: off (and on unless it is off-only), no shadow arm. */
+/**
+ * One registered non-style option, from its ledger row: off (and on unless it is off-only), no shadow arm; shadow
+ * by re-decision where optionSwitchShadowRefusal allows it.
+ */
 function plainEntry(name: string, note: string, tag: string): OptionSwitchEntry {
   const override = (OVERRIDES as Readonly<Record<string, Override | undefined>>)[name];
   const offOnly = optionSwitchOffOnly(name);
+  const shadow = optionSwitchShadowRefusal(name) === null;
   return Object.freeze({
     name,
     owner: override?.[0] ?? ('Programme' as const),
     scope: override?.[1] ?? tag,
-    states: offOnly ? OFF_ONLY : ON_OFF,
+    states: offOnly ? OFF_ONLY : shadow ? OFF_SHADOW_ON : ON_OFF,
     releaseDefault: releaseDefaultOf(name),
     shadowArm: false,
+    ...(shadow ? { shadowRedecide: true } : {}),
     description: override?.[2] ?? oneLine(note),
     ...(offOnly ? { offOnly } : {}),
   });
@@ -884,6 +929,10 @@ const PLAIN_BY_NAME: ReadonlyMap<string, OptionSwitchEntry> = new Map(
 export const OPTION_SWITCH_OFF_ONLY_NAMES: readonly string[] = Object.freeze(
   OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.offOnly !== undefined).map((e) => e.name)
 );
+/** The registered non-style options that take `shadow` (a worker re-decision with the option flipped). */
+export const OPTION_SWITCH_SHADOW_NAMES: readonly string[] = Object.freeze(
+  OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.shadowRedecide === true).map((e) => e.name)
+);
 /** The registered non-style options that may be switched on (with their own citation). */
 export const OPTION_SWITCH_ON_OFF_NAMES: readonly string[] = Object.freeze(
   OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.offOnly === undefined).map((e) => e.name)
@@ -912,11 +961,22 @@ export function assertOptionSwitchRegistry(entries: readonly OptionSwitchEntry[]
       );
     if (!offOnly && !e.states.includes('on'))
       throw new Error(`option switch: ${e.name} must support off and on`);
-    const split = e.states.includes('shadow') || e.states.includes('canary');
-    if (split && !e.shadowArm)
-      throw new Error(`option switch: ${e.name} has no shadow arm, so no shadow or canary state`);
-    if (split !== style)
-      throw new Error(`option switch: only the style options carry shadow and canary (${e.name})`);
+    if (e.states.includes('canary') && !e.shadowArm)
+      throw new Error(`option switch: ${e.name} has no shadow arm, so no canary state`);
+    if (e.states.includes('canary') !== style || e.shadowArm !== style)
+      throw new Error(
+        `option switch: only the style options carry a shadow arm and canary (${e.name})`
+      );
+    if (!style && e.states.includes('shadow') !== (e.shadowRedecide === true))
+      throw new Error(
+        `option switch: ${e.name} takes shadow exactly when it is re-decided in shadow`
+      );
+    if (!style && e.shadowRedecide === true) {
+      const refusal = optionSwitchShadowRefusal(e.name);
+      if (refusal) throw new Error(`option switch: ${e.name} cannot take shadow (${refusal})`);
+    }
+    if (style && e.shadowRedecide === true)
+      throw new Error(`option switch: ${e.name} is a style option: its shadow is its own arm`);
   }
 }
 assertOptionSwitchRegistry(OPTION_SWITCH_REGISTRY);
@@ -930,7 +990,7 @@ export function optionSwitchStatesOf(name: string): readonly OptionSwitchAnyStat
 // The switched values of the non-style options.
 // ---------------------------------------------------------------------------------------------------------------
 
-export type OptionSwitchValue = 'off' | 'on';
+export type OptionSwitchValue = 'off' | 'on' | 'shadow';
 /**
  * What is switched right now: only the options that have a row, in registry order. An option not named runs at its
  * release default. {} = nothing switched.
@@ -966,7 +1026,7 @@ export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | nul
 
 /**
  * The configuration as fn_ca_horse_option_switch_effective answers:
- *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on', ... } }
+ *   { version: 2, style: { version: 1, options: {...} }, options: { <option>: 'off' | 'on' | 'shadow', ... } }
  * `style` belongs to StyleSwitchHolder and is not judged here. `options` may name registered non-style options
  * only, each in a state it supports; anything else is invalid.
  *
@@ -1026,7 +1086,7 @@ const RECEIPT = 'option_switch';
  * the next refresh). THE DIFFERENCE: every failure (unreadable, invalid, stale) leaves NOTHING SWITCHED, which is
  * every option at its release default, not every option off. Never throws.
  *
- * Receipts: option_switch_<option>_<on|off|default>_seen when an option's switched value changes (`default`: its
+ * Receipts: option_switch_<option>_<on|off|shadow|default>_seen when an option's switched value changes (`default`: its
  * row went away or the configuration failed), and option_switch_config_unreadable_seen / _invalid_seen /
  * _stale_seen.
  */
@@ -1107,4 +1167,30 @@ export function optionSwitchDecisionOpts(
       if (states[name] === 'on' && PLAIN_BY_NAME.get(name)?.offOnly === undefined) out[name] = true;
       else if (states[name] === 'off') out[name] = false;
   return out;
+}
+
+/** The options in shadow, in registry order (only options that take shadow; anything else is ignored). */
+export function optionSwitchShadowOptions(
+  states: OptionSwitchStates | null | undefined
+): readonly string[] {
+  if (!states) return [];
+  const out: string[] = [];
+  for (const name of OPTION_SWITCH_SHADOW_NAMES) if (states[name] === 'shadow') out.push(name);
+  return out;
+}
+
+/**
+ * The value the shadow re-decision passes for `option`: the opposite of what the acted decision ran with. The acted
+ * value is the boolean the decision options carried (a feature flag or the caller), else the release default.
+ * Null for an option that does not take shadow.
+ */
+export function optionSwitchShadowFlip(
+  option: string,
+  acted: Readonly<Record<string, unknown>>
+): boolean | null {
+  const entry = PLAIN_BY_NAME.get(option);
+  if (entry?.shadowRedecide !== true) return null;
+  const v = acted[option];
+  const live = typeof v === 'boolean' ? v : entry.releaseDefault === 'on';
+  return !live;
 }
