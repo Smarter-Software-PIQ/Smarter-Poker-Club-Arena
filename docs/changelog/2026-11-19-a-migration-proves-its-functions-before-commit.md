@@ -13,7 +13,7 @@ could not restore that afternoon, and the freeze kept anyone from running it.
 
 ## What changes
 
-1. **Install-time proof.** From `20261119000000`, a migration that creates or
+1. **Install-time proof.** From `20261119030000`, a migration that creates or
    replaces a SECURITY DEFINER PL/pgSQL function in `public` or
    `smarter_private` runs it before COMMIT in a `-- @probe-for: schema.fn`
    DO block that always unwinds with `'probe-unwind'`. Any other error, the

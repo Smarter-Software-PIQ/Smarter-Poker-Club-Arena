@@ -36,7 +36,7 @@
 // Binding from version PROBE_LAW_FROM. Pinned by
 // tests/a-migration-proves-its-functions-before-commit.law.test.ts.
 
-export const PROBE_LAW_FROM = '20261119000000';
+export const PROBE_LAW_FROM = '20261119030000';
 export const PROBE_SENTINEL = 'probe-unwind';
 const SCHEMAS = new Set(['public', 'smarter_private']);
 const MIN_EXEMPT_REASON = 20;
