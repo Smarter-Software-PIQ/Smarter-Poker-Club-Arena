@@ -1,0 +1,4 @@
+{
+  "_owner": "agent/smarter.poker/must-move-sweep-20261119 — ca_club_members_cash_window already exists in production (public.ca_club_members_cash_window(uuid,uuid[],date,date)); updated by 20261119184500_reporting_functions_resolve_must_move_receipts.sql to also resolve cash_seat_move_receipts.",
+  "functions": ["ca_club_members_cash_window"]
+}
