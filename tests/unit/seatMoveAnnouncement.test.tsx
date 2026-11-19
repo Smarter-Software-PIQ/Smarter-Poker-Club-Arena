@@ -113,6 +113,18 @@ describe('source-table seat move announcements', () => {
     await Promise.resolve();
     expect(p.announce).not.toHaveBeenCalled();
   });
+  it('announces a must-move as the main game when the main table carries no "Main" in its name', async () => {
+    read.mockResolvedValue({ data: { name: 'NLH 0.50/1 Classic' }, error: null });
+    const p = props(move({ reason: 'must_move' }));
+    renderHook(useSeatMoveAnnouncement, { initialProps: p });
+    await waitFor(() =>
+      expect(p.announce).toHaveBeenCalledWith(
+        'VeryPainful Was Moved To The Main Game',
+        expect.any(String)
+      )
+    );
+  });
+
   it('uses truthful fallback copy when the destination read fails', async () => {
     read.mockRejectedValue(new Error('offline'));
     const p = props(move({ reason: 'must_move' }));
