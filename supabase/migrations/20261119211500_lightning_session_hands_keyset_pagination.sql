@@ -11,6 +11,8 @@
 --
 -- @live-proof: (SELECT p.prosecdef AND p.proconfig::text ~ 'search_path' AND has_function_privilege('authenticated', p.oid, 'EXECUTE') AND has_function_privilege('service_role', p.oid, 'EXECUTE') AND NOT has_function_privilege('anon', p.oid, 'EXECUTE') AND pg_get_functiondef(p.oid) ~ 'auth\.uid\(\)' AND regexp_replace(pg_get_functiondef(p.oid), '--[^' || chr(10) || ']*', '', 'g') !~ 'is_horse|horse_id|lightning_instance_id|INSERT INTO|UPDATE public|DELETE FROM' FROM pg_proc p WHERE p.oid = 'public.fn_lightning_session_hands_page(uuid,integer,bigint)'::regprocedure)
 
+BEGIN;
+
 CREATE OR REPLACE FUNCTION public.fn_lightning_session_hands_page(
   p_pool_session_id uuid,
   p_limit integer DEFAULT 50,
@@ -95,3 +97,5 @@ BEGIN
   END IF;
 END
 $$;
+
+COMMIT;
