@@ -465,15 +465,25 @@ const sameOptionalList = (a: unknown, b: readonly unknown[] | undefined) =>
  * hard-coded board: one active row per (club, event) carrying this file's
  * times, a new row for an event the table lacks, and every other fixed-board
  * row inactive. An empty plan is the steady state.
+ *
+ * A CLOSED ARENA IS NOT ON THE BOARD (2026-11-18). A club its owner has closed
+ * (ca_diamond_arena_owner_closure) is passed in closedClubIds: nothing is
+ * inserted or rewritten for it and any row of its that is still active is
+ * retired. The database refuses active=true for such a club
+ * (a02_closed_diamond_schedule), so asking for it could never succeed: the
+ * sync failed every poll from 2026-10-31, rewrote the whole board once a
+ * minute and never reached its steady state.
  */
 export function planFixedBoardSync(
   existing: readonly ExistingFixedBoardRow[],
   clubs: readonly FixedBoardClub[] = FIXED_BOARD_CLUBS,
-  board: readonly FixedBoardEvent[] = FIXED_BOARD
+  board: readonly FixedBoardEvent[] = FIXED_BOARD,
+  closedClubIds: ReadonlySet<string> = new Set<string>()
 ): FixedBoardSyncPlan {
   const plan: FixedBoardSyncPlan = { inserts: [], updates: [], deactivate: [] };
   const kept = new Set<string>();
   for (const club of clubs) {
+    if (closedClubIds.has(club.clubId)) continue;
     for (const event of board) {
       if (isRetiredMidwayBoardEvent(club.clubId, event.name)) continue;
       const want = fixedBoardRowFor(club, event);

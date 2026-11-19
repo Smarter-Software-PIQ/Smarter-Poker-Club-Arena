@@ -245,6 +245,16 @@ jobs:
           RECENTLY_ADDED: ${{ runner.temp }}/recently-added.txt
           EVIDENCE: ${{ runner.temp }}/evidence
         run: bash scripts/ci/rehearse-window-queue.sh
+      # Every PL/pgSQL function the pull request's migrations define, checked
+      # statically against the copy it just installed into (incident d2d79c4f:
+      # a body that installs is not a body that runs).
+      - name: plpgsql_check passes every function this pull request defines
+        if: needs.scope.outputs.rehearse == 'true'
+        env:
+          REHEARSAL_PSQL: docker exec -i window-rehearsal-db psql -U postgres -d postgres
+          MIG_DIR: ${{ runner.temp }}/mig
+          CHANGED: ${{ runner.temp }}/in/changed.txt
+        run: bash scripts/ci/plpgsql-check-changed.sh
       - uses: actions/upload-artifact@v4
         if: always() && needs.scope.outputs.rehearse == 'true'
         with:
