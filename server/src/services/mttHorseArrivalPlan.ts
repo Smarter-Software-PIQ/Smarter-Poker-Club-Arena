@@ -51,25 +51,46 @@ export function mttGuaranteeEntryAmount(row: {
 export const FREE_ENTRY_FIELD_MIN = 400;
 export const FREE_ENTRY_FIELD_MAX = 600;
 
+/**
+ * Owner November 17, 2026 (Nightly 20K, 37 entrants at T-7 against a 572-entry
+ * funded plan): "WHY ISN'T THERE LIKE 100-200 HORSES REGISTERED FOR THIS WITHIN
+ * 10 MINUTES OF STARTING?!" A paid event's prestart field now SCALES WITH ITS
+ * PLANNED FIELD: a random 20-35% of it, never under the old 32-48 opening draw
+ * and never over 200. A small event is unchanged; a big guarantee shows a big
+ * field before the clock starts. The rest of the plan still arrives in late
+ * registration.
+ */
+export const REGULAR_PRESTART_SHARE_MIN = 0.2;
+export const REGULAR_PRESTART_SHARE_SPREAD = 0.15;
+export const REGULAR_PRESTART_FIELD_MAX = 200;
+
 export function mttPrestartPlan(
-  _field: number,
+  field: number,
   maxPlayers: number | null,
   tournamentId: string,
   free = false
 ): number {
-  // A regular event builds a small opening field, regardless of guarantee.
-  // The funded complete-field plan belongs to late registration.
   // Owner November 8, 2026: every free-entry event (Midway Free Buys and any
   // other freeroll) is the biggest field on the platform - at least 400 and at
   // most 600 Horses. The event's own random draw picks where in that range.
-  const desired = free
-    ? FREE_ENTRY_FIELD_MIN +
+  let desired: number;
+  if (free) {
+    desired =
+      FREE_ENTRY_FIELD_MIN +
       Math.floor(
         arrivalUnit(tournamentId, 'free-prestart-field') *
           (FREE_ENTRY_FIELD_MAX - FREE_ENTRY_FIELD_MIN + 1)
-      )
-    : 32 + Math.floor(arrivalUnit(tournamentId, 'regular-prestart-field') * 17);
-  // Prestart attendance is independent of the guarantee; finite capacity still bounds it.
+      );
+  } else {
+    const opening = 32 + Math.floor(arrivalUnit(tournamentId, 'regular-prestart-field') * 17);
+    const planned = Number.isFinite(field) && field > 0 ? field : 0;
+    const share =
+      REGULAR_PRESTART_SHARE_MIN +
+      arrivalUnit(tournamentId, 'regular-prestart-share') * REGULAR_PRESTART_SHARE_SPREAD;
+    const scaled = Math.min(REGULAR_PRESTART_FIELD_MAX, Math.floor(planned * share));
+    desired = Math.max(opening, scaled);
+  }
+  // Finite capacity still bounds it, always one seat short of full.
   const goal = desired;
   return maxPlayers === null ? goal : Math.max(0, Math.min(maxPlayers - 1, goal));
 }

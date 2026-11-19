@@ -72,8 +72,8 @@ describe('varied prestart fields and arrivals throughout late registration', () 
       const expected = mttPrestartPlan(field, null, id, share === 0);
       expect(beforeStart(guarantee, share, null, id)).toBe(expected);
       if (share > 0) {
-        expect(expected).toBeGreaterThanOrEqual(32);
-        expect(expected).toBeLessThanOrEqual(48);
+        expect(expected).toBeGreaterThanOrEqual(Math.max(32, Math.min(200, Math.floor(field * 0.2))));
+        expect(expected).toBeLessThanOrEqual(Math.max(48, Math.min(200, Math.floor(field * 0.35))));
       } else {
         expect(expected).toBeGreaterThanOrEqual(400);
         expect(expected).toBeLessThanOrEqual(600);
@@ -90,7 +90,7 @@ describe('varied prestart fields and arrivals throughout late registration', () 
     }
     expect(mttPrestartPlan(48, 1, 'capped')).toBe(0);
   });
-  it('shows only a handful an hour ahead and no hundred-player regular opening field', () => {
+  it('shows only a handful an hour ahead and never more than 200 before a regular start', () => {
     const base = {
       tournamentId: 'regular-billion-guarantee',
       maxPlayers: null,
@@ -103,7 +103,7 @@ describe('varied prestart fields and arrivals throughout late registration', () 
     const opening = mttPrestartHorseTarget({ ...base, msUntilStart: 60 * MIN });
     expect(opening).toBeGreaterThanOrEqual(3);
     expect(opening).toBeLessThanOrEqual(7);
-    expect(beforeStart(1_000_000, 2.5)).toBeLessThanOrEqual(48);
+    expect(beforeStart(1_000_000, 2.5)).toBe(200);
     expect(
       mttPrestartHorseTarget({
         ...base,

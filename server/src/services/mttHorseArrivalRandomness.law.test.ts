@@ -21,13 +21,17 @@ describe('event-specific Horse registration choices', () => {
     expect(new Set(ids.map((id) => mttPlannedField(250, 0, id))).size).toBeGreaterThan(8);
   });
 
-  it('keeps regular prestart fields small regardless of guarantee and varies free fields', () => {
-    expect(new Set(ids.map((id) => mttPrestartPlan(200, null, id))).size).toBeGreaterThan(8);
+  it('scales regular prestart fields with the planned field (20-35%, 32-48 floor, 200 cap) and varies free fields', () => {
+    expect(new Set(ids.map((id) => mttPrestartPlan(100, null, id))).size).toBeGreaterThan(8);
     for (const id of ids) {
-      const prestart = mttPrestartPlan(200, null, id);
+      const prestart = mttPrestartPlan(100, null, id);
       expect(prestart).toBeGreaterThanOrEqual(32);
       expect(prestart).toBeLessThanOrEqual(48);
-      expect(mttPrestartPlan(2000, null, id)).toBe(prestart);
+      // Owner 2026-11-17: the night's biggest event (572-entry plan) shows 100-200 before the gun.
+      const big = mttPrestartPlan(572, null, id);
+      expect(big).toBeGreaterThanOrEqual(114);
+      expect(big).toBeLessThanOrEqual(200);
+      expect(mttPrestartPlan(20_000, null, id)).toBe(200);
       expect(mttPrestartPlan(200, 9, id)).toBeLessThan(9);
       expect(mttPrestartPlan(200, 1, id)).toBe(0);
       const free = mttPrestartPlan(200, null, id, true);
