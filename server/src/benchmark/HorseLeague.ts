@@ -4678,6 +4678,26 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'window; until it is built, HorseVpipFloorLimpOnly.test.ts and the sitting evaluation of ' +
       'HorseVpipFloorLimpOnly.test-support.ts are the evidence.',
   })),
+  // 2026-11-19: vpipFloorLimpOnlyTenHandWindow, default off. Refused, not dealt:
+  // this league seats no VPIP-floor table, and none judged at ten hands.
+  ...(['nlh', 'plo4', 'plo5', 'plo6'] as const).map((variant) => ({
+    name: `${variant}_vpip_floor_limp_only_ten_hand_window`,
+    variant,
+    a: { vpipFloorLimpOnly: true, vpipFloorLimpOnlyTenHandWindow: true },
+    b: { vpipFloorLimpOnly: true },
+    reason:
+      'Unanswerable by this league: the option only brings a table KNOWN to be judged at ten hands ' +
+      'under vpipFloorLimpOnly (vpipFloorLimpOnlyGovernsTenHandTable needs vpipFloor > 0, a window ' +
+      "of ten or fewer and the Horse's own judged row), and playHand builds its decision state with " +
+      'no vpipFloor, vpipWindowHands or ownVpip, so the two arms play identical poker. The option is ' +
+      'DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-19 by running this refused matchup through runMatchup (seed 20261119, 300 pairs): ' +
+      '0 of 300 pairs diverged. ' +
+      'What would change this: a league table that carries a VPIP floor, the ten-hand sitting window ' +
+      "and each seat's judged VPIP; until it is built, HorseVpipFloorLimpOnlyTenHandWindow.test.ts " +
+      'and the sitting evaluation of HorseVpipFloorLimpOnly.test-support.ts (audit archive ' +
+      'repairs/TENHAND) are the evidence.',
+  })),
   // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
   // dealt: the evidence it reads does not exist in a league hand.
   {

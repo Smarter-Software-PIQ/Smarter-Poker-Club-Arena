@@ -3521,6 +3521,25 @@ export interface HorseDecideOpts {
    * read `=== true`); the league seats no floored table (refused matchups
    * <variant>_vpip_floor_limp_only). */
   vpipFloorLimpOnly?: boolean;
+  /** Owner 2026-11-17 14:34 and 18:38 Chicago, applied to the one kind of
+   * floored cash table vpipFloorLimpOnly left on the old floor (the
+   * integrator's exception of 2026-11-18, vpipFloorLimpOnlyTenHandTable): a
+   * table KNOWN to be judged at ten hands or fewer, the sitting with no
+   * warning and no grace. With this on TOGETHER WITH vpipFloorLimpOnly, such
+   * a table is governed by the same one action (vpipFloorLimpOnlyApplies is
+   * true there): the floor widens no bar, calls no raise and raises nothing;
+   * under its line (vpipLimpTargetFor of the floor and window the table
+   * carries) a preflop fold in an unraised pot for at most the big blind
+   * becomes the limp or the small blind's completion, by the variant's own
+   * selection (VPIP_FLOOR_LIMP_ONLY_VARIANTS); raised, the unfloored decision
+   * stands. A Horse the limp cannot keep over the floor is evicted and
+   * replaced (the owner's ruling), which this mode does on the spot. Alone
+   * (vpipFloorLimpOnly off) it does nothing. Same scope as
+   * vpipFloorLimpOnlyInScope: no tournament, All-In-Or-Fold, bomb pot or
+   * Lightning. Default OFF (opt-in, read `=== true`); the league seats no
+   * floored table (refused matchups
+   * <variant>_vpip_floor_limp_only_ten_hand_window). */
+  vpipFloorLimpOnlyTenHandWindow?: boolean;
   /** Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses
    * must always follow"): a Lightning pool whose game carries a VPIP floor
    * binds its Horses. The Lightning snapshot carries the game's floor, its
@@ -5614,6 +5633,10 @@ function vpipFloorLimpOnlyInScope(
  * limping tops out near 51% VPIP, so every Horse would be stood up every
  * sitting; there the floor still widens and still calls. Receipt
  * vpip_floor_limp_only_not_governed_ten_hand_window marks every such decision.
+ * The separate option vpipFloorLimpOnlyTenHandWindow (default OFF) ends the
+ * exception: with it on these tables are governed like every other (receipt
+ * vpip_floor_limp_only_governed_ten_hand_window), and this function still
+ * says which tables they are.
  *
  * "Known" means the window came with the Horse's own judged row: the engine
  * hands the POLICY window (fn_nit_status) together with ownVpip, and without
@@ -5640,8 +5663,26 @@ export function vpipFloorLimpOnlyTenHandTable(
   );
 }
 
+/**
+ * vpipFloorLimpOnlyTenHandWindow: true when this decision is at a table known
+ * to be judged at ten hands (vpipFloorLimpOnlyTenHandTable) AND that option
+ * brings it under the limp-only floor. False with the option unset, false or
+ * a non-boolean, and whenever vpipFloorLimpOnly itself is out of scope.
+ */
+export function vpipFloorLimpOnlyGovernsTenHandTable(
+  gs: VpipFloorLimpOnlyScopeState,
+  opts: HorseDecideOpts,
+  tournament: boolean
+): boolean {
+  return (
+    opts.vpipFloorLimpOnlyTenHandWindow === true &&
+    vpipFloorLimpOnlyTenHandTable(gs, opts, tournament)
+  );
+}
+
 /** True when vpipFloorLimpOnly governs this decision's floor: every floored
- *  cash decision in scope except a table known to be judged at ten hands. */
+ *  cash decision in scope except a table known to be judged at ten hands,
+ *  which is governed only with vpipFloorLimpOnlyTenHandWindow on as well. */
 export function vpipFloorLimpOnlyApplies(
   gs: VpipFloorLimpOnlyScopeState,
   opts: HorseDecideOpts,
@@ -5649,7 +5690,8 @@ export function vpipFloorLimpOnlyApplies(
 ): boolean {
   return (
     vpipFloorLimpOnlyInScope(gs, opts, tournament) &&
-    !vpipFloorLimpOnlyTenHandTable(gs, opts, tournament)
+    (opts.vpipFloorLimpOnlyTenHandWindow === true ||
+      !vpipFloorLimpOnlyTenHandTable(gs, opts, tournament))
   );
 }
 
@@ -14008,6 +14050,9 @@ export class HorseLogic {
         if (telemetryOn(opts)) {
           noteFire('vpip_floor');
           noteFire('vpip_floor_limp_only_seen');
+          // vpipFloorLimpOnlyTenHandWindow: a table judged at ten hands, governed by that option.
+          if (vpipFloorLimpOnlyGovernsTenHandTable(gs, opts, isTournamentMode(gs)))
+            noteFire('vpip_floor_limp_only_governed_ten_hand_window');
         }
       } else {
         // vpipFloorLimpOnly on, at a table known to be judged at ten hands: today's floor, on purpose.
