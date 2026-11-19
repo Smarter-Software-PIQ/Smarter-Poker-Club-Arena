@@ -1,6 +1,7 @@
 import type { HandEvent } from '../types.js';
 import type { TimeBankEvent } from './TimeBankEngine.js';
 import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
+import { carryRaiseLadder } from './RaiseLadderStamp.js';
 export type ContinuationEvent =
   | HandEvent
   | { type: 'CONTINUATION_TIME_BANK'; event: TimeBankEvent };
@@ -10,8 +11,10 @@ function cloneContinuationEvent(event: ContinuationEvent): ContinuationEvent {
   // Retention and dispatch each detach the public event. Carry live private
   // metadata by identity without adding it to the durable or public payload.
   // A deserialized original has no receipt and deliberately stays unknown.
-  if (event.type === 'PLAYER_ACTION' && copy.type === 'PLAYER_ACTION' && copy.record)
+  if (event.type === 'PLAYER_ACTION' && copy.type === 'PLAYER_ACTION' && copy.record) {
     carryHorseTurnClock(event.record, copy.record);
+    carryRaiseLadder(event.record, copy.record);
+  }
   return copy;
 }
 export interface ContinuationEventIdentity {
