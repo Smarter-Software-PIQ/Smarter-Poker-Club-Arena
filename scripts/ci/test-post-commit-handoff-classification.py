@@ -111,6 +111,79 @@ try:
     reclassified = sql("SELECT count(*) FROM public.financial_alerts WHERE context ? 'reclassified' AND source='%s'" % LIGHT)
     assert reclassified == '1', reclassified
     checks.append('only-the-durable-lightning-handoff-is-reclassified')
+    # Run the real original watchdog and successor against its existing open alert.
+    sql("""TRUNCATE public.financial_alerts, public.hand_atomic_commits;
+        ALTER TABLE public.hand_atomic_commits ADD table_id uuid, ADD hand_number bigint,
+          ADD committed_at timestamptz, ADD post_commit_completed_at timestamptz;
+        CREATE INDEX pending_receipts ON public.hand_atomic_commits(table_id,hand_number)
+          WHERE post_commit_payload IS NOT NULL AND post_commit_completed_at IS NULL;
+        CREATE TABLE public.lightning_hand(hand_history_id uuid UNIQUE);
+        ALTER TABLE public.financial_alerts ADD message text, ADD created_at timestamptz DEFAULT now(),
+          ADD resolved boolean NOT NULL DEFAULT false, ADD resolved_at timestamptz, ADD resolution text;
+        ALTER TABLE cron.job ADD jobid bigint DEFAULT 552, ADD schedule text DEFAULT '*/5 * * * *',
+          ADD command text DEFAULT 'select public.fn_post_commit_stranded_watchdog()';
+        CREATE FUNCTION cron.alter_job(job_id bigint, schedule text) RETURNS void LANGUAGE sql AS
+          'UPDATE cron.job SET schedule=$2 WHERE jobid=$1';""")
+    old_watchdog = section(trg_src, 'create or replace function public.fn_post_commit_stranded_watchdog()', 'end $f$;')
+    sql(old_watchdog)
+    sql("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;")
+    sql("REVOKE ALL ON FUNCTION public.fn_post_commit_stranded_watchdog() FROM PUBLIC, anon, authenticated; "
+        "GRANT EXECUTE ON FUNCTION public.fn_post_commit_stranded_watchdog() TO service_role;")
+    watchdog = "SELECT public.fn_post_commit_stranded_watchdog()"
+    signature = "'public.fn_post_commit_stranded_watchdog()'::regprocedure"
+    settings = sql(f"SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid={signature}")
+    sql("""INSERT INTO public.hand_atomic_commits(hand_id,table_id,hand_number,committed_at,post_commit_payload)
+        VALUES ('00000000-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000000',1,now()-interval '13 minutes','{}'),
+               ('00000000-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-000000000000',2,now()-interval '35 seconds','{"pending_addons":{}}');
+        INSERT INTO public.lightning_hand VALUES ('00000000-0000-0000-0000-000000000002')""")
+    import json
+    assert json.loads(sql(watchdog))['stranded'] == 1
+    sql("UPDATE hand_atomic_commits SET post_commit_completed_at=now() WHERE hand_number=1")
+    assert json.loads(sql(watchdog))['stranded'] == 0
+    # Start another genuine ten-minute incident, then introduce newer cash work.
+    sql("UPDATE hand_atomic_commits SET committed_at=now()-interval '12 minutes' WHERE hand_number=2")
+    assert json.loads(sql(watchdog))['stranded'] == 1
+    active_id = sql("SELECT id FROM financial_alerts WHERE NOT resolved")
+    sql("""INSERT INTO hand_atomic_commits(hand_id,table_id,hand_number,committed_at,post_commit_payload)
+        SELECT md5(n::text)::uuid,'aaaaaaaa-0000-0000-0000-000000000000'::uuid,n,
+               now()-interval '45 seconds', '{"pending_addons":{}}'::jsonb FROM generate_series(3,15)n;
+        INSERT INTO hand_atomic_commits(hand_id,hand_number,committed_at,post_commit_payload)
+        VALUES (md5('tournament')::uuid,16,now()-interval '9 minutes','{"pending_addons":null}'),
+               (md5('young')::uuid,17,now()-interval '1 second','{"pending_addons":{}}'),
+               (md5('archive')::uuid,18,now()-interval '1 hour',NULL);
+        INSERT INTO financial_alerts(severity,source,context)
+        VALUES ('critical','fn_post_commit_stranded_watchdog','{"finding":"separate_case"}');""")
+    assert json.loads(sql(watchdog))['stranded'] == 1
+    assert sql(f"SELECT context->>'stranded' FROM financial_alerts WHERE id={active_id}") == '1'
+    current = (MIG / '20261118013305_cash_settlement_alert_tracks_the_oldest_pending_receipt.sql').read_text()
+    sql(current)
+    fingerprint = sql(f"SELECT md5(pg_get_functiondef({signature}))")
+    assert fingerprint == '03e6c9ebf4d1f86b58e90f923cbe5fc8', fingerprint
+    assert fingerprint in current.splitlines()[3]
+    assert sql(f"SELECT has_function_privilege('authenticated',{signature},'EXECUTE') OR "
+               f"has_function_privilege('anon',{signature},'EXECUTE')") == 'f'
+    assert sql(f"SELECT has_function_privilege('service_role',{signature},'EXECUTE')") == 't'
+    print('receipt watchdog postimage:', fingerprint)
+    assert sql(f"SELECT proowner,proacl,proconfig,prosecdef FROM pg_proc WHERE oid={signature}") == settings
+    assert sql("SELECT count(*) FROM cron.job WHERE active AND schedule='* * * * *'") == '1'
+    result = json.loads(sql(watchdog))
+    assert result['stranded'] == 14 and len(result['sample']) == 10
+    assert result['oldest_cash']['mode'] == 'lightning' and result['oldest_cash']['hand_number'] == 2
+    assert result['sample'][0]['hand_id'] == result['oldest_cash']['hand_id']
+    assert sql(f"SELECT context->>'stranded' FROM financial_alerts WHERE id={active_id}") == '14'
+    revision = sql(f"SELECT xmin FROM financial_alerts WHERE id={active_id}")
+    assert json.loads(sql(watchdog)) == result
+    assert sql(f"SELECT xmin FROM financial_alerts WHERE id={active_id}") == revision
+    sql("UPDATE hand_atomic_commits SET post_commit_completed_at=now() WHERE hand_number=2")
+    assert json.loads(sql(watchdog))['oldest_cash']['mode'] == 'cash'
+    sql("UPDATE hand_atomic_commits SET post_commit_completed_at=now() WHERE hand_number BETWEEN 3 AND 15")
+    assert json.loads(sql(watchdog))['stranded'] == 0
+    assert sql(f"SELECT resolved FROM financial_alerts WHERE id={active_id}") == 't'
+    assert sql("SELECT resolved FROM financial_alerts WHERE context->>'finding'='separate_case'") == 'f'
+    sql("UPDATE hand_atomic_commits SET committed_at=now()-interval '11 minutes' WHERE hand_number=16")
+    legacy = json.loads(sql(watchdog))
+    assert legacy['stranded'] == 1 and legacy['oldest_cash'] is None and legacy['sample'][0]['hand_number'] == 16
+    checks.append('original-id-count-age-sample-cash-lightning-and-legacy-tournament-watchdog')
     print('post-commit handoff classification: %d checks passed' % len(checks))
     for c in checks: print('  ok ' + c)
 finally:
