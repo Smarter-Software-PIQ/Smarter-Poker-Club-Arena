@@ -267,7 +267,7 @@ describe.skipIf(!bin)('fn_member_record_fact_club must-move funding attribution 
          '99999999-9999-9999-9999-999999999999',
          '2026-11-19T02:10:00Z');
     `);
-  });
+  }, 60_000);
 
   afterAll(() => {
     if (started) {
@@ -277,7 +277,7 @@ describe.skipIf(!bin)('fn_member_record_fact_club must-move funding attribution 
       });
     }
     if (scratch) rmSync(scratch, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   it('reproduces the drift on the preimage and fixes every case after applying the migration', () => {
     const UNION = 'fade0000-0000-0000-0000-000000000001';
