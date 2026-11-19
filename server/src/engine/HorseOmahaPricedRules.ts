@@ -120,8 +120,10 @@ export interface OmahaPricedCell {
   opp: number;
   /**
    * The mean minimum-defence price of the raises behind a fold-to-raise cell (the mean of
-   * increment / (pot + call + increment) over its opportunities). NO STORED CELL CARRIES ONE TODAY
-   * (HorseOmahaStreetRead cells are exactly {hit, opp}); read only by omahaPricedSampledFoldAtPrice
+   * increment / (pot + call + increment) over its opportunities). The street read's cells are exactly
+   * {hit, opp}; the price comes from the opponent's separate price record (set on the cell by
+   * HorseOmahaReadByStreetRule only with omahaSampledRaiseIsPricedAtEverySize on, horse decisions
+   * stack 2); read only by omahaPricedSampledFoldAtPrice
    * (omahaSampledRaiseIsPricedAtEverySize). Absent: the cell is taken as measured at the frozen
    * reference price (OMAHA_PRICED_SAMPLED_REFERENCE_FOLD), which holds only for raises made through
    * OMAHA_PRICED_SAMPLED_REFERENCE_MEASURED_THROUGH.

@@ -897,7 +897,9 @@ export interface HorseMindSandbox {
   /** THE PRICE BEHIND A FOLD-TO-RAISE CELL (2026-11-19, HorseOmahaStreetReadPrice): for each pooled EXACT row in
    *  `exploit` of an Omaha game that carries a well-formed record (horse_exact_profiles.street_counters_price), a
    *  detached copy of it. Travels with the decision's own state and its read frame (v20). Answered by
-   *  HorseMind.omahaFoldToRaisePriceOf; NO DECISION READS IT YET. Absent when the read carried none. */
+   *  HorseMind.omahaFoldToRaisePriceOf; read only through omahaReadIsByStreetAndTexture's street cells and only with
+   *  the default-off omahaSampledRaiseIsPricedAtEverySize on (HorseOmahaReadByStreetRule). Absent when the read
+   *  carried none. */
   pooledStreetPrice?: Map<string, StreetPriceCounters>;
 }
 
@@ -3008,7 +3010,9 @@ export class HorseMind {
    * row (horse_exact_profiles.street_counters_price, HorseMindSandbox.pooledStreetPrice). A street with no priced
    * raise answers null. This is the number a consumer sets as the `price` of that street's fold-to-raise cell.
    * Null outside an Omaha decision and when the decision carried no record for him. Public actions and the public
-   * pot size only. Pure. NOTHING CALLS IT YET: no decision is changed by it.
+   * pot size only. Pure. ONE CALLER (horse decisions stack 2): HorseOmahaReadByStreetRule's street-cell source,
+   * only with omahaReadIsByStreetAndTexture and omahaSampledRaiseIsPricedAtEverySize both on (both default off) and
+   * only for a fold-to-raise cell that exists; with either off no decision is changed by it.
    */
   static omahaFoldToRaisePriceOf(
     userId: string

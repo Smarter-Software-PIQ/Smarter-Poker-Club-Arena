@@ -156,7 +156,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseOmahaFlopShown.ts':
       "what a flop bet showed and what calling it returned (2026-11-19): the class of a shown hand on a flop, the cells of the opponent's durable flop-shown record, its validation and wire row, and the readers HorseMind.omahaFlopShownOf serves; carried into Omaha decisions and read by none",
     'src/engine/HorseOmahaStreetReadPrice.ts':
-      'the price behind a fold-to-raise cell (2026-11-19): per street, the sum of the prices of the raises an opponent faced after betting or raising and how many had one, its validation and wire row, and the mean HorseMind.omahaFoldToRaisePriceOf answers; carried into Omaha decisions and read by none',
+      'the price behind a fold-to-raise cell (2026-11-19): per street, the sum of the prices of the raises an opponent faced after betting or raising and how many had one, its validation and wire row, and the mean HorseMind.omahaFoldToRaisePriceOf answers; carried into Omaha decisions and read only as the price of the street fold-to-raise cell with the default-off omahaReadIsByStreetAndTexture and omahaSampledRaiseIsPricedAtEverySize both on',
     'src/engine/HorseOmahaStreetRead.ts':
       "the postflop read by street and flop texture (2026-11-17): the cells of the opponent's durable street record, its validation and wire row, and the per-street label HorseMind.omahaStreetReadOf answers; carried into Omaha decisions and read by none yet",
     'src/engine/HorseLongShownMemory.ts':

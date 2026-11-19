@@ -412,7 +412,7 @@ describe('what a flop bet showed, what calling it returned and the price of a ra
       ).not.toThrow();
   });
 
-  it('8. NO DECISION READS THEM: outside their owners and their transport, no engine source names the records', () => {
+  it('8. ONE GATED READER: outside their owners and their transport, no engine source names the records but the street cells', () => {
     const root = resolve(process.cwd(), 'src');
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -430,11 +430,24 @@ describe('what a flop bet showed, what calling it returned and the price of a ra
         .filter((f) => needle.test(readFileSync(f, 'utf8')))
         .map((f) => f.slice(root.length + 1))
         .sort();
-    // each accessor is defined in HorseMind and called by nothing
-    expect(naming(/omahaFlopShownOf\(|omahaFoldToRaisePriceOf\(/)).toEqual(['engine/HorseMind.ts']);
+    // the flop-shown accessor is defined in HorseMind and called by nothing
+    expect(naming(/omahaFlopShownOf\(/)).toEqual(['engine/HorseMind.ts']);
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
     expect(mind.match(/omahaFlopShownOf\(/g)).toHaveLength(1);
     expect(mind.match(/omahaFoldToRaisePriceOf\(/g)).toHaveLength(1);
+    // the price accessor has ONE caller (horse decisions stack 2): the street-cell source of
+    // omahaReadIsByStreetAndTexture, which asks it once, only with omahaSampledRaiseIsPricedAtEverySize === true
+    // and only for a fold-to-raise cell that exists (the decisions it can move are proved in
+    // HorseOmahaFoldToRaisePriceWired.test.ts)
+    expect(naming(/omahaFoldToRaisePriceOf\(/)).toEqual([
+      'engine/HorseMind.ts',
+      'engine/HorseOmahaReadByStreetRule.ts',
+    ]);
+    const rule = readFileSync(join(root, 'engine/HorseOmahaReadByStreetRule.ts'), 'utf8');
+    expect(rule.match(/omahaFoldToRaisePriceOf\(/g)).toHaveLength(1);
+    expect(rule).toContain('const priced = opts.omahaSampledRaiseIsPricedAtEverySize === true;');
+    expect(rule).toContain('if (!priced || !rates?.foldToRaise || !mode.street) return rates;');
+    expect(rule.indexOf('if (!priced')).toBeLessThan(rule.indexOf('omahaFoldToRaisePriceOf('));
     // the readers of the records are called by nothing but HorseMind's price accessor
     expect(naming(/flopShownBetRead\(|flopShownCallRead\(|flopShownShare\(/)).toEqual([
       'engine/HorseOmahaFlopShown.ts',

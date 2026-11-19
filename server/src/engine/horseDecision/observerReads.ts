@@ -723,8 +723,8 @@ export class HorseObserverReads {
             copyFlopShown(row.flop_shown)
           );
     // THE PRICE BEHIND A FOLD-TO-RAISE CELL (2026-11-19). The same rows bring a detached copy of a well-formed
-    // price record (horse_exact_profiles.street_counters_price) under the same rule. No decision reads it yet
-    // (HorseMind.omahaFoldToRaisePriceOf has no caller).
+    // price record (horse_exact_profiles.street_counters_price) under the same rule. Read only with the default-off
+    // omahaReadIsByStreetAndTexture and omahaSampledRaiseIsPricedAtEverySize both on (HorseOmahaReadByStreetRule).
     const pooledStreetPrice = new Map<string, StreetPriceCounters>();
     if (pooled)
       for (const row of pooled.rows)

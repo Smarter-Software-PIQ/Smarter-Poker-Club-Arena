@@ -2,7 +2,9 @@
  * THE FLOP-SHOWN RECORD AND THE FOLD-TO-RAISE PRICE CHANGE NO DECISION (2026-11-19). What an opponent showed after
  * betting a flop and what calls of his flop bets returned (HorseOmahaFlopShown, horse_exact_profiles.flop_shown),
  * and the price behind his fold-to-raise cells (HorseOmahaStreetReadPrice,
- * horse_exact_profiles.street_counters_price), are carried into an Omaha decision's own state and read by nothing.
+ * horse_exact_profiles.street_counters_price), are carried into an Omaha decision's own state and, with the options
+ * here, read by nothing (the price's one gated reader, omahaSampledRaiseIsPricedAtEverySize with
+ * omahaReadIsByStreetAndTexture, is off here; it is proved in HorseOmahaFoldToRaisePriceWired.test.ts).
  * This file proves it on recorded decisions: the recorded PLO4 / PLO5 turn and river decisions behind
  * HorseOmahaFacingBetEv.test.ts and the recorded flop decisions behind HorseOmahaFlopFacingBetEv.test.ts (the
  * decisions a later reader of these records would be pointed at), each decided from the same random state with

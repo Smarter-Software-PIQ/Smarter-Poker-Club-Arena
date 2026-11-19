@@ -25,7 +25,9 @@
  * migration 20261119192551; public.fn_horse_street_price_increments and fn_horse_street_price_add are the SQL
  * twins) so the street read's validation and its 34-number wire row are untouched. Carried into an Omaha
  * decision's own state (HorseMindSandbox.pooledStreetPrice, read frame v20) and answered by
- * HorseMind.omahaFoldToRaisePriceOf. NO DECISION READS IT.
+ * HorseMind.omahaFoldToRaisePriceOf. Read by one consumer only (horse decisions stack 2): with the default-off
+ * omahaReadIsByStreetAndTexture and omahaSampledRaiseIsPricedAtEverySize both on, the street read's fold-to-raise
+ * cell carries this mean as its price (HorseOmahaReadByStreetRule, OmahaPricedCell.price); otherwise nothing reads it.
  */
 import { learnablePublicAction, type ExploitHandAction } from './HorseOpponentExploit.js';
 import {
