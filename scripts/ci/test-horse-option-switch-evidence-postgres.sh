@@ -263,24 +263,20 @@ if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
   # the two recorded here, and one per option switched on in the loop above (the evidence record was installed then)
   check "the evidence rows are the ones recorded" "$((2 + on_count))" "$(q "SELECT count(*) FROM public.ca_horse_option_switch_evidence")"
 
-  # THE SERVING-REGISTRY GUARD (migration *_the_horse_option_switch_refuses_what_the_serving_engine_does.sql): a
-  # switch row for a name or state the SERVING engine does not register makes that engine drop every switched option
-  # to its release default, so the two writers refuse it when a fresh published registry exists, and behave as before
-  # (with a NOTICE) when none does. REGISTRY_GUARD_MIGRATION names another file to prove the assertions fail without
-  # the guard.
-  guard_migration="${REGISTRY_GUARD_MIGRATION:-$(ls "$repo"/supabase/migrations/*_the_horse_option_switch_refuses_what_the_serving_engine_does.sql)}"
+  # THE SERVING-REGISTRY GUARD (migration *_the_horse_option_switch_refuses_what_the_serving_engine_does.sql, installed
+  # above in version order): a switch row for a name or state the SERVING engine does not register makes that engine
+  # drop every switched option to its release default, so the two writers refuse it when a fresh published registry
+  # exists, and behave as before (with a NOTICE) when none does. The writers production ends with are the ones of the
+  # LATER by-name migration (*_the_horse_option_switch_tells_style_options_by_name.sql: style options told by canary,
+  # so a non-style option can take shadow), which carries the guard call in both bodies; it is installed twice more
+  # here and every assertion below runs against it. (The guard migration itself is never installed after a list that
+  # names shadow options: its own writers tell a style option by shadow, and production installed it before them.)
+  # REGISTRY_GUARD_MIGRATION names another file to prove the assertions fail without the guard.
+  guard_migration="${REGISTRY_GUARD_MIGRATION:-$(ls "$repo"/supabase/migrations/*_the_horse_option_switch_tells_style_options_by_name.sql)}"
   q "SELECT public.fn_ca_horse_option_switch_set('readShrinkResponse', 'off', 'fixture', 'a row before the guard')" >/dev/null
   "${psql[@]}" -f "$guard_migration"
   "${psql[@]}" -f "$guard_migration"
-  echo "ok    registry guard $(basename "$guard_migration") installed (twice)"
-  # The by-name migration is later than the guard and replaces the same two writers (style options told by canary,
-  # so a non-style option can take shadow) WITH the guard in them: installed again here, as production ends, so every
-  # assertion below runs against the writers production runs.
-  for f in "$repo"/supabase/migrations/*_the_horse_option_switch_tells_style_options_by_name.sql; do
-    [ -f "$f" ] || continue
-    "${psql[@]}" -f "$f"
-    echo "ok    $(basename "$f") installed again after the registry guard"
-  done
+  echo "ok    registry-guarded writers $(basename "$guard_migration") installed (twice)"
   check "a switch row written before the guard survives it" "off" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'readShrinkResponse'")"
   # the engine's canonical digest, computed independently: sha256 of [[name,[states...]],...] sorted by name
   digest() { python3 -c 'import hashlib,json,sys; r=json.loads(sys.argv[1]); print(hashlib.sha256(json.dumps([[k,r[k]] for k in sorted(r)],separators=(",",":")).encode()).hexdigest())' "$1"; }
