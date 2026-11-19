@@ -28,6 +28,7 @@ import {
   parseOptionSwitchConfig,
   styleConfigOf,
   type OptionSwitchReading,
+  optionSwitchShadowRefusal,
 } from './HorseOptionSwitch.js';
 
 const v2 = (options: Record<string, unknown>, style: Record<string, unknown> = {}) => ({
@@ -68,8 +69,16 @@ describe('the registry', () => {
     for (const e of OPTION_SWITCH_PLAIN_REGISTRY) {
       // owner order 2026-11-14 22:01: every registered option has an on/off switch
       // owner 23:10: an off-only option (hold, harm, superseded) offers off alone
-      expect(e.states, e.name).toEqual(optionSwitchOffOnly(e.name) ? ['off'] : ['off', 'on']);
+      // 2026-11-18: an option that is re-decided in shadow (optionSwitchShadowRefusal null) offers shadow too
+      expect(e.states, e.name).toEqual(
+        optionSwitchOffOnly(e.name)
+          ? ['off']
+          : optionSwitchShadowRefusal(e.name) === null
+            ? ['off', 'shadow', 'on']
+            : ['off', 'on']
+      );
       expect(e.shadowArm, e.name).toBe(false);
+      expect(e.shadowRedecide === true, e.name).toBe(optionSwitchShadowRefusal(e.name) === null);
       expect(['off', 'on', 'code'], e.name).toContain(e.releaseDefault);
       expect(e.owner.length, e.name).toBeGreaterThan(0);
       expect(e.scope.length, e.name).toBeGreaterThan(0);
@@ -90,7 +99,8 @@ describe('the registry', () => {
     expect(note).toBe(`authority: readScopedShrink FILE.md sha256 ${'a'.repeat(64)}`);
     expect(optionSwitchOnNoteCites('readScopedShrink', note)).toBe(true);
     expect(optionSwitchOnNoteCites('readShrinkResponse', note)).toBe(false);
-    expect(optionSwitchStatesOf('omahaHiLoTournamentFirstIn')).toEqual(['off', 'on']);
+    // 2026-11-18: an on/off option with a plain release default also takes shadow (a worker re-decision)
+    expect(optionSwitchStatesOf('omahaHiLoTournamentFirstIn')).toEqual(['off', 'shadow', 'on']);
     expect(optionSwitchStatesOf('decisionTimeMs')).toBeNull();
     expect(optionSwitchStatesOf('styleFoldBluff')).toEqual(['off', 'shadow', 'canary', 'on']);
     expect(optionSwitchStatesOf('v54RiverBluff')).toBeNull();

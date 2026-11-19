@@ -67,6 +67,65 @@ function stripLineComments(sql) {
   return sql.replace(/--[^\n]*/g, (m) => ' '.repeat(m.length));
 }
 
+function stripSqlComments(sql) {
+  // Strip SQL line comments (-- ...) and block comments (/* ... */, nested)
+  // while leaving single-quoted string literals intact.
+  let out = '';
+  let i = 0;
+  let blockDepth = 0;
+  while (i < sql.length) {
+    if (blockDepth > 0) {
+      if (sql[i] === '/' && sql[i + 1] === '*') {
+        blockDepth += 1;
+        out += '  ';
+        i += 2;
+      } else if (sql[i] === '*' && sql[i + 1] === '/') {
+        blockDepth -= 1;
+        out += '  ';
+        i += 2;
+      } else {
+        out += sql[i] === '\n' ? '\n' : ' ';
+        i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === "'") {
+      out += sql[i];
+      i += 1;
+      while (i < sql.length) {
+        out += sql[i];
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") {
+            out += sql[i + 1];
+            i += 2;
+            continue;
+          }
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === '-' && sql[i + 1] === '-') {
+      while (i < sql.length && sql[i] !== '\n') {
+        out += ' ';
+        i += 1;
+      }
+      continue;
+    }
+    if (sql[i] === '/' && sql[i + 1] === '*') {
+      blockDepth = 1;
+      out += '  ';
+      i += 2;
+      continue;
+    }
+    out += sql[i];
+    i += 1;
+  }
+  return out;
+}
+
 function dollarBodyEnd(sql, from) {
   const open = /\$([A-Za-z_][A-Za-z0-9_]*)?\$/g;
   open.lastIndex = from;
@@ -143,19 +202,29 @@ const READ_ONLY_CALLS = new Set(['md5', 'position', 'strpos', 'length']);
 
 /**
  * Functions a migration rewrites from their live text:
- * pg_get_functiondef('schema.fn(args)'::regprocedure | 'schema.fn'::regproc)
+ * pg_get_functiondef('schema.fn(args)'::regprocedure | 'schema.fn'::regproc),
+ * pg_get_functiondef(to_regprocedure('...') | to_regproc('...')), or
+ * pg_get_functiondef(CAST('...' AS regprocedure | regproc))
  * in a file that EXECUTEs dynamic SQL. Unqualified names resolve to public.
  */
 export function rewrittenFunctions(sql) {
-  const code = stripLineComments(sql);
+  const code = stripSqlComments(sql);
   if (!/\bexecute\b/i.test(code)) return [];
-  const re = /pg_get_functiondef\s*\(\s*'\s*(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?\s*(?:\([^']*\))?\s*'\s*::\s*regproc(?:edure)?\b/gi;
+  const fnLit = String.raw`'\s*(?:"?([a-z_][a-z0-9_]*)"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?\s*(?:\([^']*\))?\s*'`;
+  const re = new RegExp(
+    `pg_get_functiondef\\s*\\(\\s*(?:` +
+      `${fnLit}\\s*::\\s*(?:pg_catalog\\.)?regproc(?:edure)?\\b` +
+      `|(?:pg_catalog\\.)?to_regproc(?:edure)?\\s*\\(\\s*${fnLit}\\s*\\)` +
+      `|cast\\s*\\(\\s*${fnLit}\\s+as\\s+(?:pg_catalog\\.)?regproc(?:edure)?\\s*\\)` +
+      `)`,
+    'gi'
+  );
   const out = new Map();
   let m;
   while ((m = re.exec(code))) {
     if (enclosingCalls(code, m.index).some((n) => READ_ONLY_CALLS.has(n))) continue;
-    const schema = (m[1] || 'public').toLowerCase();
-    const name = m[2].toLowerCase();
+    const schema = (m[1] || m[3] || m[5] || 'public').toLowerCase();
+    const name = (m[2] || m[4] || m[6]).toLowerCase();
     const qualified = `${schema}.${name}`;
     const prev = out.get(qualified);
     out.set(qualified, { schema, name, qualified, definedAt: prev ? prev.definedAt : m.index, endsAt: m.index });
@@ -222,9 +291,11 @@ export function missingProbes(sql) {
       continue;
     }
     const call = new RegExp(`\\b${f.schema}\\.${f.name}\\s*\\(`, 'i');
-    const valid = mine.find(
-      (p) => p.at > f.endsAt && p.body && call.test(p.body) && p.body.includes(`'${PROBE_SENTINEL}'`)
-    );
+    const valid = mine.find((p) => {
+      if (p.at <= f.endsAt || !p.body) return false;
+      const code = stripSqlComments(p.body);
+      return call.test(code) && code.includes(`'${PROBE_SENTINEL}'`);
+    });
     if (!valid) {
       problems.push({
         fn: f.qualified,

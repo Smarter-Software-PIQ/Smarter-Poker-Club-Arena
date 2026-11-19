@@ -77,7 +77,7 @@ describe('Classic and Lightning Games are the only offered formats', () => {
   it('offers two formats while retaining readable historical identifiers', () => {
     expect(CASH_TEMPLATES.map((t) => t.id)).toEqual(['classic', 'madness']);
     expect(CASH_TEMPLATES.map((t) => t.label)).toEqual(['Classic', 'Lightning Games']);
-    expect(CASH_TEMPLATES[1].blurb).toContain('40% Minimum VPIP');
+    expect(CASH_TEMPLATES[1].blurb).toContain('25% Minimum VPIP');
     expect(SQL).toMatch(
       /template_name\s+text NOT NULL CHECK \(template_name IN \('classic', 'action', 'madness'\)\)/
     );

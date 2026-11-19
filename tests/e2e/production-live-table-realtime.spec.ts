@@ -97,6 +97,16 @@ import {
 } from './support/certifiableSubject';
 import { recordNonVerdict } from './support/nonVerdict';
 import {
+  matchesFixture,
+  missingFixtureError,
+  proveFixtureAbsence,
+  ProductionLacksFixture,
+  readFixtureCatalogue,
+  type CatalogueReader,
+  type FixtureProof,
+  type FixtureRequirement,
+} from './support/productionFixture';
+import {
   classifySpectatorAdmission,
   notObservedRecord,
   occupiedCashTableForBreak,
@@ -452,6 +462,95 @@ async function visibleRunningCashCandidates(page: Page): Promise<RunningTableCan
   return candidates.map((candidate) => ({ ...candidate, gameFormat: 'cash' }));
 }
 
+/** Catalogue tables of a kind that the ENGINE also reports dealing right now. */
+async function engineDealingIds(
+  request: APIRequestContext,
+  ids: readonly string[],
+  requirement: FixtureRequirement
+): Promise<Set<string>> {
+  const dealing = new Set<string>();
+  for (let offset = 0; offset < ids.length; offset += 32) {
+    const batch = ids.slice(offset, offset + 32);
+    const health = await readEngineHealth(request, { candidateTableIds: batch });
+    for (const id of batch) {
+      const table = healthyRunningTable(health, id, requirement.format);
+      if (table && table.seated >= requirement.minSeated && table.dealable >= requirement.minSeated)
+        dealing.add(id);
+    }
+  }
+  return dealing;
+}
+
+/**
+ * PROVE THE ABSENCE BEFORE CALLING IT ONE (2026-11-19). The selector read the
+ * lobby and the engine; this reads the tables catalogue through the service
+ * role, then asks the engine about exactly those tables. Only "no table of the
+ * kind is dealing" is a non-verdict (support/productionFixture.ts); a dealing
+ * table the selector never considered is a selector defect and stays red.
+ */
+async function proveMissingFixture(
+  request: APIRequestContext,
+  requirement: FixtureRequirement,
+  considered: Iterable<string>
+): Promise<{ proof: FixtureProof; dealing: string[] }> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key)
+    return {
+      proof: proveFixtureAbsence({
+        requirement,
+        catalogue: null,
+        catalogueError: 'service-role catalogue access is not configured',
+        considered: new Set(),
+      }),
+      dealing: [],
+    };
+  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const read = await readFixtureCatalogue(db as unknown as CatalogueReader, requirement);
+  const matches = (read.catalogue ?? [])
+    .filter((row) => matchesFixture(row, requirement))
+    .map((row) => row.id);
+  const dealing = matches.length
+    ? await engineDealingIds(request, matches, requirement)
+    : new Set<string>();
+  return {
+    proof: proveFixtureAbsence({
+      requirement,
+      catalogue: read.catalogue,
+      catalogueError: read.error,
+      certifiable: dealing,
+      considered: new Set(considered),
+    }),
+    dealing: [...dealing],
+  };
+}
+
+/** A proved missing fixture is a named non-verdict here, never a pass or a red. */
+async function nonVerdictWhenProductionLacks<T>(
+  testInfo: TestInfo,
+  work: () => Promise<T>
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (!(error instanceof ProductionLacksFixture)) throw error;
+    const description = await recordNonVerdict(testInfo, {
+      title: `${testInfo.title} could not be tested`,
+      detail: error.message,
+      evidence: error.evidence,
+      tag: 'production-lacks-fixture',
+    });
+    test.skip(true, description);
+    throw error;
+  }
+}
+
+const CASH_FIXTURE: FixtureRequirement = {
+  format: 'cash',
+  minSeated: 2,
+  clubIds: [CLUB_ID, UNION_ID],
+};
+
 interface OccupiedCashTable {
   tabName: string;
   candidate: RunningTableCandidate;
@@ -507,7 +606,7 @@ async function selectOccupiedRunningCashTables(
     admitLastHand?: boolean;
     coverCapacities?: readonly string[];
   } = {}
-): Promise<{ tables: OccupiedCashTable[]; health: EngineHealth }> {
+): Promise<{ tables: OccupiedCashTable[]; health: EngineHealth; considered: Set<string> }> {
   const admit = { admitLastHand: options.admitLastHand === true };
   // After the announcement every table parks at its hand boundary, so the
   // running-table test selects nothing. An admitted spectator then takes an
@@ -544,12 +643,15 @@ async function selectOccupiedRunningCashTables(
     : CASH_PROGRESS_CANDIDATES;
   const tables: OccupiedCashTable[] = [];
   const seen = new Set<string>();
+  // Every lobby table the selector looked at: the absence proof's "considered".
+  const considered = new Set<string>();
   const hints = new Set<string>();
   const cover = options.coverCapacities;
   for (const tabName of tabs) {
     await selectCashLobbyTab(page, tabName);
     let variantCount = 0;
     const candidates = (await visibleRunningCashCandidates(page)).filter((c) => !seen.has(c.id));
+    for (const candidate of candidates) considered.add(candidate.id);
     if (candidates.length === 0) continue;
     for (let offset = 0; offset < candidates.length; offset += 32) {
       const batch = candidates.slice(offset, offset + 32);
@@ -597,12 +699,17 @@ async function selectOccupiedRunningCashTables(
       const table = selectable(health, candidate);
       return table ? [{ candidate, table, tabName }] : [];
     });
-    if (fresh.length > 0) return { tables: fresh, health };
+    if (fresh.length > 0) return { tables: fresh, health, considered };
   }
 
-  throw new Error(
-    'The fixture club exposed no occupied (2+ players), running cash table with a read-only View/Watch Table or Game action'
-  );
+  // The lobby offered no occupied, dealing cash table. Production may simply
+  // not be running one; the catalogue and the engine, read independently, say.
+  const { proof } = await proveMissingFixture(request, CASH_FIXTURE, considered);
+  throw missingFixtureError(proof, {
+    selector:
+      'The fixture club exposed no occupied (2+ players), running cash table with a read-only View/Watch Table or Game action',
+    considered: [...considered],
+  });
 }
 
 async function proveTableProgressedBeforeNavigation(
@@ -2509,11 +2616,16 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         });
         const journal = phoneWidth === 393 ? new EngineSocketJournal(page) : null;
         let lobbyDocumentSince = Date.now();
-        const selected = await selectOccupiedRunningCashTables(page, request, {
-          perVariantLimit: 3,
-          coverCapacities: ['6', '9'],
-        });
+        const selected = await nonVerdictWhenProductionLacks(testInfo, () =>
+          selectOccupiedRunningCashTables(page, request, {
+            perVariantLimit: 3,
+            coverCapacities: ['6', '9'],
+          })
+        );
         const capacities = new Set<string>();
+        const opened = new Set<string>();
+        // A layout the lobby pass did not reach, proved absent from the catalogue.
+        const lacking = new Map<string, FixtureProof>();
         // Keep the reported 393px navigation in coverage while that table is
         // still dealing. The lobby rotates its cluster representative, so the
         // first full nine-seat card can otherwise exercise a different URL.
@@ -2530,128 +2642,152 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
             remaining.unshift({ candidate: { id: reportedId, capacityHint: '9' } });
           }
         }
-        while (remaining.length) {
-          const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
-          const table = page.locator('.table-page:visible').first();
-          const lobbySource = selected.tables.find((t) => t.candidate.id === candidate.id);
-          const useClick =
-            phoneWidth === 393 && candidate.id !== reportedId && !measuredClick && lobbySource;
-          let view: Locator | undefined;
-          if (useClick) {
-            if (!new URL(page.url()).pathname.endsWith('/' + CLUB_LOBBY)) {
-              lobbyDocumentSince = Date.now();
-              await page.goto(CLUB_LOBBY, { waitUntil: 'domcontentloaded' });
+        /* SELECT BY CAPACITY, NOT BY BUSYNESS (2026-11-19). A cluster card's
+           hint can be wrong and a representative can rotate, so when the lobby
+           pass leaves a layout unproved, the tables catalogue names the dealing
+           tables of exactly that capacity and the proof opens them directly.
+           If the catalogue and the engine have none, production lacks it. */
+        for (let pass = 0; pass < 2 && capacities.size < 2; pass++) {
+          if (pass === 1) {
+            for (const capacity of ['6', '9'].filter((c) => !capacities.has(c))) {
+              const { proof, dealing } = await proveMissingFixture(
+                request,
+                { ...CASH_FIXTURE, capacity: Number(capacity) },
+                selected.considered
+              );
+              const unopened = dealing.filter((id) => !opened.has(id)).slice(0, 3);
+              if (unopened.length === 0) lacking.set(capacity, proof);
+              for (const id of unopened)
+                remaining.push({ candidate: { id, capacityHint: capacity } });
             }
-            await prepareCashLobbyActions(page);
-            await openLobbyGameSection(page, 'ALL');
-            await selectCashLobbyTab(page, useClick.tabName);
-            view = await cashSpectatorAction(page, candidate.id);
-            await expect(view).toBeVisible();
-            await view.click({ trial: true });
-            await view.evaluate(
-              (button, id) =>
-                button.addEventListener(
-                  'click',
-                  (event) => {
-                    if (event.isTrusted) console.debug('spectator-click-' + id + ':' + Date.now());
-                  },
-                  { capture: true, once: true }
-                ),
-              candidate.id
-            );
           }
-          const trace =
-            journal && traceTableNavigation(page, candidate.id, view ? 'click' : 'document');
-          try {
-            await test.step(`Open occupied table ${candidate.id} at ${phoneWidth}px and render its connected view`, async () => {
-              if (view) {
-                await Promise.all([
-                  page.waitForURL((url) => url.pathname.endsWith('/table/' + candidate.id)),
-                  view.click(),
-                ]);
-                measuredClick = true;
-              } else {
-                const document = await page.goto(`table/${candidate.id}`, {
-                  waitUntil: trace ? 'commit' : 'domcontentloaded',
-                });
-                expect(
-                  document?.ok(),
-                  'the selected table document must respond successfully'
-                ).toBe(true);
+          while (remaining.length) {
+            const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
+            opened.add(candidate.id);
+            const table = page.locator('.table-page:visible').first();
+            const lobbySource = selected.tables.find((t) => t.candidate.id === candidate.id);
+            const useClick =
+              phoneWidth === 393 && candidate.id !== reportedId && !measuredClick && lobbySource;
+            let view: Locator | undefined;
+            if (useClick) {
+              if (!new URL(page.url()).pathname.endsWith('/' + CLUB_LOBBY)) {
+                lobbyDocumentSince = Date.now();
+                await page.goto(CLUB_LOBBY, { waitUntil: 'domcontentloaded' });
               }
-              trace?.mark('table-route-observed');
-              expect(new URL(page.url()).pathname).toMatch(new RegExp(`/table/${candidate.id}/?$`));
-              await expect(table).toBeVisible({ timeout: 30_000 });
-              if (trace && journal) {
-                await expect(table.locator('.table-surface')).toBeVisible({ timeout: 30_000 });
-                trace.mark('felt-visible');
-                await expect(table.locator('.seat__avatar-img').first()).toBeVisible({
+              await prepareCashLobbyActions(page);
+              await openLobbyGameSection(page, 'ALL');
+              await selectCashLobbyTab(page, useClick.tabName);
+              view = await cashSpectatorAction(page, candidate.id);
+              await expect(view).toBeVisible();
+              await view.click({ trial: true });
+              await view.evaluate(
+                (button, id) =>
+                  button.addEventListener(
+                    'click',
+                    (event) => {
+                      if (event.isTrusted)
+                        console.debug('spectator-click-' + id + ':' + Date.now());
+                    },
+                    { capture: true, once: true }
+                  ),
+                candidate.id
+              );
+            }
+            const trace =
+              journal && traceTableNavigation(page, candidate.id, view ? 'click' : 'document');
+            try {
+              await test.step(`Open occupied table ${candidate.id} at ${phoneWidth}px and render its connected view`, async () => {
+                if (view) {
+                  await Promise.all([
+                    page.waitForURL((url) => url.pathname.endsWith('/table/' + candidate.id)),
+                    view.click(),
+                  ]);
+                  measuredClick = true;
+                } else {
+                  const document = await page.goto(`table/${candidate.id}`, {
+                    waitUntil: trace ? 'commit' : 'domcontentloaded',
+                  });
+                  expect(
+                    document?.ok(),
+                    'the selected table document must respond successfully'
+                  ).toBe(true);
+                }
+                trace?.mark('table-route-observed');
+                expect(new URL(page.url()).pathname).toMatch(
+                  new RegExp(`/table/${candidate.id}/?$`)
+                );
+                await expect(table).toBeVisible({ timeout: 30_000 });
+                if (trace && journal) {
+                  await expect(table.locator('.table-surface')).toBeVisible({ timeout: 30_000 });
+                  trace.mark('felt-visible');
+                  await expect(table.locator('.seat__avatar-img').first()).toBeVisible({
+                    timeout: 30_000,
+                  });
+                  await expect(table.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+                  trace.mark('occupied-felt-uncovered');
+                  const query = {
+                    direction: 'received' as const,
+                    tableId: candidate.id,
+                    type: 'SNAPSHOT',
+                  };
+                  const snapshot =
+                    journal.matchingFrames({ ...query, since: trace.start })[0] ??
+                    (view
+                      ? journal.matchingFrames({ ...query, since: lobbyDocumentSince }).at(-1)
+                      : undefined) ??
+                    (await journal.waitForFrame(
+                      { ...query, since: trace.start },
+                      CONNECT_DEADLINE_MS,
+                      'No authoritative table snapshot'
+                    ));
+                  console.log(
+                    '[393px-snapshot]',
+                    JSON.stringify({
+                      tableId: candidate.id,
+                      entry: view ? 'click' : 'document',
+                      at: snapshot.at,
+                      elapsedMs: snapshot.at - trace.start,
+                    })
+                  );
+                }
+                await expect(page.getByTestId('table-connection-banner')).toBeHidden({
                   timeout: 30_000,
                 });
-                await expect(table.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
-                trace.mark('occupied-felt-uncovered');
-                const query = {
-                  direction: 'received' as const,
-                  tableId: candidate.id,
-                  type: 'SNAPSHOT',
-                };
-                const snapshot =
-                  journal.matchingFrames({ ...query, since: trace.start })[0] ??
-                  (view
-                    ? journal.matchingFrames({ ...query, since: lobbyDocumentSince }).at(-1)
-                    : undefined) ??
-                  (await journal.waitForFrame(
-                    { ...query, since: trace.start },
-                    CONNECT_DEADLINE_MS,
-                    'No authoritative table snapshot'
-                  ));
+                trace?.mark('connected-table-visible');
+              });
+              const capacity = await table.getAttribute('data-seats');
+              if (phoneWidth === 393) {
+                await testInfo.attach(`393px-navigation-${candidate.id}`, {
+                  contentType: 'application/json',
+                  body: JSON.stringify({ tableId: candidate.id, capacity, committed: true }),
+                });
+              }
+              if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
+              await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
+              await certifyMobileLiveTableLayout(page, testInfo, {
+                requireAvatarGrowth: true,
+                spectator: true,
+              });
+              capacities.add(capacity);
+              if (capacities.size === 2) break;
+            } finally {
+              trace?.stop();
+              if (trace)
                 console.log(
-                  '[393px-snapshot]',
+                  '[393px-timing]',
                   JSON.stringify({
                     tableId: candidate.id,
                     entry: view ? 'click' : 'document',
-                    at: snapshot.at,
-                    elapsedMs: snapshot.at - trace.start,
+                    start: trace.start,
+                    events: trace.events,
                   })
                 );
-              }
-              await expect(page.getByTestId('table-connection-banner')).toBeHidden({
-                timeout: 30_000,
-              });
-              trace?.mark('connected-table-visible');
-            });
-            const capacity = await table.getAttribute('data-seats');
-            if (phoneWidth === 393) {
-              await testInfo.attach(`393px-navigation-${candidate.id}`, {
-                contentType: 'application/json',
-                body: JSON.stringify({ tableId: candidate.id, capacity, committed: true }),
-              });
+              if (trace)
+                await testInfo.attach(`393px-timing-${candidate.id}`, {
+                  contentType: 'application/json',
+                  body: JSON.stringify(trace.events),
+                });
             }
-            if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
-            await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
-            await certifyMobileLiveTableLayout(page, testInfo, {
-              requireAvatarGrowth: true,
-              spectator: true,
-            });
-            capacities.add(capacity);
-            if (capacities.size === 2) break;
-          } finally {
-            trace?.stop();
-            if (trace)
-              console.log(
-                '[393px-timing]',
-                JSON.stringify({
-                  tableId: candidate.id,
-                  entry: view ? 'click' : 'document',
-                  start: trace.start,
-                  events: trace.events,
-                })
-              );
-            if (trace)
-              await testInfo.attach(`393px-timing-${candidate.id}`, {
-                contentType: 'application/json',
-                body: JSON.stringify(trace.events),
-              });
           }
         }
         if (journal) {
@@ -2701,9 +2837,32 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           }
         }
         expect(mutations, 'Layout observation must never participate in a live game').toEqual([]);
+        const unproved = ['6', '9'].filter((capacity) => !capacities.has(capacity));
+        if (
+          unproved.length > 0 &&
+          unproved.every((capacity) => lacking.get(capacity)?.verdict === 'absent')
+        ) {
+          // The layouts production does deal were proved above; the rest
+          // could not be tested. That certifies nothing for them.
+          const description = await recordNonVerdict(testInfo, {
+            title: `${testInfo.title} could not be tested`,
+            detail: unproved
+              .map((capacity) => {
+                const proof = lacking.get(capacity)!;
+                return `PRODUCTION_LACKS_FIXTURE ${proof.kind}: ${proof.detail}`;
+              })
+              .join('; '),
+            evidence: { proved: [...capacities], lacking: Object.fromEntries(lacking) },
+            tag: 'production-lacks-fixture',
+          });
+          test.skip(true, description);
+        }
         expect(
           [...capacities].sort(),
-          'Both occupied table layouts require live screenshot proof'
+          'Both occupied table layouts require live screenshot proof' +
+            (lacking.size
+              ? ` (${[...lacking.values()].map((proof) => `${proof.verdict}: ${proof.detail}`).join('; ')})`
+              : '')
         ).toEqual(['6', '9']);
       });
     });
@@ -2720,6 +2879,24 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         await certifyReadOnlyTournamentFormat(page, request, testInfo, gameFormat);
       } catch (error) {
         if (!(error instanceof AbsentCertifiableSubject)) throw error;
+        /* AN EMPTY CANDIDATE LIST IS NOT YET AN ABSENCE (2026-11-19). The
+           selector read the engine; the tables catalogue, read independently,
+           must agree that no table of this format is dealing in fixture scope,
+           or that every dealing one was considered and refused by this case's
+           own rules. A dealing table the selector never saw stays red. */
+        const minimumStableSeats = gameFormat === 'sng' ? 2 : 3;
+        const scopedRows = (key: string) => {
+          const health = error.evidence[key] as EngineHealth | null | undefined;
+          return Array.isArray(health?.tableLiveness)
+            ? health.tableLiveness.map((row) => row.tableId)
+            : [];
+        };
+        const { proof } = await proveMissingFixture(
+          request,
+          { format: gameFormat, minSeated: minimumStableSeats, clubIds: [CLUB_ID, UNION_ID] },
+          [...scopedRows('lastScopedHealth'), ...scopedRows('lastCandidateHealth')]
+        );
+        if (proof.verdict !== 'absent') throw missingFixtureError(proof, error.evidence);
         /* Nothing was observed, so nothing is certified AND nothing is
            condemned. Recorded as a named non-verdict, never as a defect on the
            live site and never silently as a pass. The required-coverage gate refuses
@@ -2728,8 +2905,8 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
            the run: a file that verified nothing must not report success. */
         const description = await recordNonVerdict(testInfo, {
           title: `The ${gameFormat.toUpperCase()} live-table certificate had no subject`,
-          detail: error.message,
-          evidence: error.evidence,
+          detail: `PRODUCTION_LACKS_FIXTURE ${proof.kind}: ${proof.detail}. ${error.message}`,
+          evidence: { ...error.evidence, proof },
           tag: `${gameFormat}-absent-subject`,
         });
         test.skip(true, description);
@@ -2753,7 +2930,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
     const journal = new EngineSocketJournal(page);
     const walletRequests = observeTableWalletRequests(page);
     try {
-      const selected = await selectOccupiedRunningCashTables(page, request);
+      const selected = await nonVerdictWhenProductionLacks(testInfo, () =>
+        selectOccupiedRunningCashTables(page, request)
+      );
       // Keep the exact table identities even when the next-hand proof times out.
       await testInfo.attach('cash-selected-before-progress', {
         body: Buffer.from(

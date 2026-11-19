@@ -35,7 +35,13 @@ describe('browser qualification parallel delivery', () => {
       for (const [name, job] of hosted) {
         const supportedBrowser =
           (file === 'ci.yml' &&
-            ['build', 'live-e2e', 'css-beats-e2e', 'diamond-playfield-e2e'].includes(name)) ||
+            [
+              'build',
+              'live-e2e',
+              'css-beats-e2e',
+              'diamond-playfield-e2e',
+              'playwright_browser_cache',
+            ].includes(name)) ||
           (file === 'post-deploy-e2e.yml' &&
             [
               'private-record-client-proof',

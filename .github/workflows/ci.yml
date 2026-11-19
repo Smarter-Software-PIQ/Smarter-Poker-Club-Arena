@@ -4369,6 +4369,30 @@ jobs:
       # file-count step that was labelled Lighthouse but never opened a page.
       #
       # BRANCHED ON THE RUNNER 2026-09-07, and this was the last unguarded
+      # BROWSERS COME FROM MAIN (2026-11-19): restore the Playwright browsers and
+      # the Ubuntu packages they need from the entry the scheduled
+      # playwright_browser_cache job saves on main, so the install below finds
+      # them present (scripts/ci/playwright-browser-cache.sh). Restore only:
+      # a pull request never writes its own copy.
+      - name: Key the Playwright browser cache
+        id: pw-key
+        if: success()
+        run: bash scripts/ci/playwright-browser-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and Ubuntu packages from main
+        if: success()
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/ca-browser-debs
+          key: ${{ steps.pw-key.outputs.key }}
+          restore-keys: ${{ steps.pw-key.outputs.prefix }}
+
+      - name: Seed the cached Ubuntu packages
+        if: success()
+        run: bash scripts/ci/playwright-browser-cache.sh seed
+
       - name: Install Performance Browser
         if: success()
         run: |
@@ -4437,6 +4461,27 @@ jobs:
 
       - name: Install Dependencies
         run: npm ci
+
+      # BROWSERS COME FROM MAIN (2026-11-19): restore the Playwright browsers and
+      # the Ubuntu packages they need from the entry the scheduled
+      # playwright_browser_cache job saves on main, so the install below finds
+      # them present (scripts/ci/playwright-browser-cache.sh). Restore only:
+      # a pull request never writes its own copy.
+      - name: Key the Playwright browser cache
+        id: pw-key
+        run: bash scripts/ci/playwright-browser-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and Ubuntu packages from main
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/ca-browser-debs
+          key: ${{ steps.pw-key.outputs.key }}
+          restore-keys: ${{ steps.pw-key.outputs.prefix }}
+
+      - name: Seed the cached Ubuntu packages
+        run: bash scripts/ci/playwright-browser-cache.sh seed
 
       - name: Install Playwright Browsers
         run: |
@@ -4926,6 +4971,27 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
+      # BROWSERS COME FROM MAIN (2026-11-19): restore the Playwright browsers and
+      # the Ubuntu packages they need from the entry the scheduled
+      # playwright_browser_cache job saves on main, so the install below finds
+      # them present (scripts/ci/playwright-browser-cache.sh). Restore only:
+      # a pull request never writes its own copy.
+      - name: Key the Playwright browser cache
+        id: pw-key
+        run: bash scripts/ci/playwright-browser-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and Ubuntu packages from main
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/ca-browser-debs
+          key: ${{ steps.pw-key.outputs.key }}
+          restore-keys: ${{ steps.pw-key.outputs.prefix }}
+
+      - name: Seed the cached Ubuntu packages
+        run: bash scripts/ci/playwright-browser-cache.sh seed
+
       # Azure's Ubuntu mirror exhausted this job's budget before tests began.
       # Keep the signed Ubuntu archive and exact browser dependencies unchanged;
       # the one entry point selects the shared mirror list, bounds each attempt
@@ -5329,6 +5395,27 @@ jobs:
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
+      # BROWSERS COME FROM MAIN (2026-11-19): restore the Playwright browsers and
+      # the Ubuntu packages they need from the entry the scheduled
+      # playwright_browser_cache job saves on main, so the install below finds
+      # them present (scripts/ci/playwright-browser-cache.sh). Restore only:
+      # a pull request never writes its own copy.
+      - name: Key the Playwright browser cache
+        id: pw-key
+        run: bash scripts/ci/playwright-browser-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers and Ubuntu packages from main
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/ca-browser-debs
+          key: ${{ steps.pw-key.outputs.key }}
+          restore-keys: ${{ steps.pw-key.outputs.prefix }}
+
+      - name: Seed the cached Ubuntu packages
+        run: bash scripts/ci/playwright-browser-cache.sh seed
+
       - name: Install Chromium
         run: |
           bash scripts/ci/ubuntu-apt.sh run npx playwright install chromium --with-deps
@@ -5406,3 +5493,73 @@ jobs:
             echo "::error title=CSS Beat E2E::both halves must pass (CSS Beat suites: $BEATS_RESULT, Diamond playfield: $PLAYFIELD_RESULT)"
             exit 1
           fi
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  #  PLAYWRIGHT BROWSERS ARE INSTALLED ONCE A WEEK, ON MAIN (2026-11-19)
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # Every browser job restores what this job saves. A pull request can only
+  # read caches saved on its own ref or on main, and this workflow runs on
+  # main only on its schedules, so the shared entry is written here: once per
+  # week and Playwright release (scripts/ci/playwright-browser-cache.sh key),
+  # through the same Ubuntu entry point every other install uses. The browser
+  # jobs restore it and never save, so no pull request writes its own copy.
+  # On 2026-11-18 one CSS Beat shard spent 19 min 58 s fetching 125 MB of
+  # Ubuntu packages at 104 kB/s, and that one shard set the pull request's
+  # finish time; with this entry restored those packages are already local.
+  playwright_browser_cache:
+    if: github.event_name == 'schedule'
+    name: Playwright browser cache on main
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Key the Playwright browser cache
+        id: pw-key
+        run: bash scripts/ci/playwright-browser-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Look for this week's browser cache
+        id: pw-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/ca-browser-debs
+          key: ${{ steps.pw-key.outputs.key }}
+          lookup-only: true
+
+      # Only a miss pays for an install, and it restores no node_modules: the
+      # CSS Beat tree is saved by the jobs that build it, never replaced here.
+      - name: Install Dependencies
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Chromium and WebKit for the cache
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 12
+        run: bash scripts/ci/ubuntu-apt.sh run npx playwright install chromium webkit --with-deps
+
+      - name: Keep the Ubuntu packages apt fetched
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: bash scripts/ci/playwright-browser-cache.sh harvest
+
+      - name: Save the browser cache for pull requests
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/.cache/ca-browser-debs
+          key: ${{ steps.pw-key.outputs.key }}

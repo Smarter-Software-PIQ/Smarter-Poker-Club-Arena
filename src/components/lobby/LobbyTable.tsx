@@ -1080,7 +1080,8 @@ function CashStyleLine({ text, title = text }: { text: string; title?: string })
 /* Dan 2026-11-08: "FOR 'LIGHTNING GAMES' PUT JUST 'LIGHTNING' (LIKE CLASSIC
    IS) BUT THEN PUT UNDER THE TITLE ... THE SECOND LINE SHOULD SAY 'BIG BLIND
    ANTE - 40% MIN VPIP'." A Lightning card's style bay prints one word, and its
-   rules move to a second line under the title (lightningTitleRules). */
+   rules move to a second line under the title (lightningTitleRules). The floor
+   on that line is 25% since 2026-11-19 (LIGHTNING_RULES_SUMMARY). */
 function lightningTitleRules(entry: LobbyEntry): string | null {
   if (!isLightningCashRow(entry)) return null;
   const note = cashStyleNote(entry);

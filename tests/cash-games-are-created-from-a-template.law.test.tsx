@@ -120,7 +120,8 @@ const defaults = (template: string, variant: string) => {
     max_buyin_bb: 200,
     // Classic PLO5 and PLO6 play a BB ante and a 50% floor (20261024213131).
     regular_ante: classic && variant !== 'plo5' && variant !== 'plo6' ? 'none' : 'bb',
-    vpip_floor: classic ? (variant === 'plo5' || variant === 'plo6' ? 50 : 0) : 40,
+    // Lightning Games keep 25 (owner 2026-11-19, migration 20261119195413).
+    vpip_floor: classic ? (variant === 'plo5' || variant === 'plo6' ? 50 : 0) : 25,
     vpip_window: 10,
     bombs: classic
       ? { enabled: false, trigger: null, ante_bb: null, boards: null }
@@ -319,7 +320,7 @@ describe('the flow shows the card the lobby will paint', () => {
     const card = document.querySelector('.cash-create__preview-card') as HTMLElement;
     expect(card.textContent).toContain('Lightning Games');
     expect(card.textContent).not.toMatch(/MADNESS|ACTION/);
-    expect(card.textContent).toContain('40%');
+    expect(card.textContent).toContain('25%');
     expect(card.querySelector('[data-zone="players"]')?.textContent).toBe('0');
     expect(
       (card.querySelector('button[data-zone="primaryAction"]') as HTMLButtonElement).disabled
@@ -451,7 +452,7 @@ describe("I1 - the template's promise is printed, never offered (2026-09-09)", (
     }));
     expect(rows.map((r) => r.key)).toEqual(['ante', 'vpip', 'bombs']);
     expect(rows[0].value).toBe('One Big Blind, Paid By The Player In The Big Blind');
-    expect(rows[1].value).toBe('40% Over 10 Hands');
+    expect(rows[1].value).toBe('25% Over 10 Hands');
     expect(rows[2].value).toBe('Double Board, 3 BB Ante, Every 10 Minutes');
     for (const r of rows) expect(r.note).toContain('Set By The Lightning Games Template');
     // Nothing in the group is a control.

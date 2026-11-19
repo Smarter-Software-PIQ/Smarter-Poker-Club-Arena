@@ -385,3 +385,64 @@ test('actual CLI requires a valid on-main public witness and fails closed on unk
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ONE PASS, SAME ANSWER (2026-11-19). The after-merge backstop used to run one
+// `git log -S<id>` per window (about 85 s per pull request); it now reads the
+// file's first-parent history once. The single pass must name the same merge
+// instant as the per-id form for every id: added, removed, re-added, an id
+// that is a substring of another, a merge commit that brings one in through
+// its second parent, an id written twice, and an id main never held.
+test('the single-pass merge clock agrees with git log -S for every window id', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'booking-clock-single-pass-'));
+  try {
+    const run = (env, ...args) => {
+      const result = spawnSync('git', args, {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { ...process.env, ...env, GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+          GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    let minute = 0;
+    const commit = (ids, message) => {
+      mkdirSync(join(dir, 'server/release'), { recursive: true });
+      const body = { version: 1, windows: ids.map((id) => ({ id })), databaseWindows: [] };
+      writeFileSync(join(dir, FILE), JSON.stringify(body, null, 2) + '\n');
+      const when = `2026-11-0${1 + Math.floor(minute / 60)}T10:${String(minute++ % 60).padStart(2, '0')}:00Z`;
+      run({ GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when }, 'add', '-A');
+      run({ GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when }, 'commit', '-qm', message);
+    };
+    run({}, 'init', '-q', '-b', 'main');
+    commit(['w-1'], 'first booking');
+    commit(['w-1', 'w-10'], 'a longer id that contains the first');
+    commit(['w-10'], 'w-1 withdrawn');
+    run({}, 'checkout', '-q', '-b', 'side');
+    commit(['w-10', 'side-1'], 'booked on a side branch');
+    run({}, 'checkout', '-q', 'main');
+    commit(['w-10', 'w-1'], 'w-1 rebooked');
+    run({ GIT_AUTHOR_DATE: '2026-11-03T09:00:00Z', GIT_COMMITTER_DATE: '2026-11-03T09:00:00Z' },
+      'merge', '-q', '--no-ff', '-X', 'theirs', '-m', 'merge side', 'side');
+    commit(['w-10', 'w-1', 'side-1', 'twice', 'twice'], 'an id written twice');
+    const base = run({}, 'rev-parse', 'HEAD');
+    const ids = ['w-1', 'w-10', 'side-1', 'twice', 'never-on-main', 'w-'];
+    const probe = `
+      import * as m from ${JSON.stringify(new URL('../../scripts/ci/check-owner-window-notice-after-merge.mjs', import.meta.url).href)};
+      const ids = ${JSON.stringify(ids)};
+      const one = m.gitBookedAt(${JSON.stringify(base)}, ids);
+      const ref = m.gitBookedAtPerId(${JSON.stringify(base)});
+      console.log(JSON.stringify(ids.map((id) => [id, one(id), ref(id)])));
+    `;
+    const out = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { cwd: dir, encoding: 'utf8' });
+    assert.equal(out.status, 0, out.stderr);
+    const rows = JSON.parse(out.stdout);
+    for (const [id, single, perId] of rows) assert.equal(single, perId, `${id}: single pass ${single} vs git log -S ${perId}`);
+    assert.ok(rows.some(([, single]) => single === null), 'an id main never held has no merge clock');
+    assert.ok(rows.filter(([, single]) => single !== null).length >= 4, 'the fixture exercises booked ids');
+    const bad = spawnSync(process.execPath, ['--input-type=module', '-e', probe.replace(JSON.stringify(base), '"no-such-base"').replace(JSON.stringify(base), '"no-such-base"')], { cwd: dir, encoding: 'utf8' });
+    assert.notEqual(bad.status, 0, 'an unknown base still fails closed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

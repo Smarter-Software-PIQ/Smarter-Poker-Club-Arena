@@ -7,7 +7,11 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { OPTION_SWITCH_OFF_ONLY_NAMES, OPTION_SWITCH_PLAIN_NAMES } from './HorseOptionSwitch.js';
+import {
+  OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_PLAIN_NAMES,
+  OPTION_SWITCH_SHADOW_NAMES,
+} from './HorseOptionSwitch.js';
 import { STYLE_SWITCH_OPTIONS } from './HorseStyleSwitch.js';
 import {
   OPTION_SWITCH_BASE_MIGRATION,
@@ -78,13 +82,14 @@ describe('a Horse option added after the switch is installed ships as a follow-u
     expect(constraint(sql, 'ca_horse_style_switch_on_cites_authority')).toBe(
       constraint(read(OPTION_SWITCH_BASE_MIGRATION), 'ca_horse_style_switch_on_cites_authority')
     );
-    // off-only and the style states, the same shape as the base
+    // off-only, the shadow options (2026-11-18) and the style states
     const fits =
-      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
+      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR \(state = 'shadow' AND option IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
         constraint(sql, 'ca_horse_style_switch_state_fits_option')
       )!;
     expect(sorted(quoted(fits[1]!))).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
-    expect(sorted(quoted(fits[2]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    expect(sorted(quoted(fits[2]!))).toEqual(sorted(OPTION_SWITCH_SHADOW_NAMES));
+    expect(sorted(quoted(fits[3]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
     // the states function: style, then off-only before plain
     const body =
       /CREATE OR REPLACE FUNCTION public\.fn_ca_horse_option_switch_states\(p_option text\)[\s\S]*?AS \$function\$([\s\S]*?)\$function\$;/.exec(
@@ -98,6 +103,7 @@ describe('a Horse option added after the switch is installed ships as a follow-u
     ).toEqual([
       { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
       { names: sorted(OPTION_SWITCH_OFF_ONLY_NAMES), states: ['off'] },
+      { names: sorted(OPTION_SWITCH_SHADOW_NAMES), states: ['off', 'shadow', 'on'] },
       { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
     ]);
     // idempotent: drop-if-exists then add, create or replace; no table, column, index, trigger or row
@@ -125,6 +131,12 @@ describe('a Horse option added after the switch is installed ships as a follow-u
       sorted(quoted(/IF r\.state = 'on' AND r\.option IN \(([^)]*)\)/.exec(block)![1]!))
     ).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
     expect(block).not.toMatch(/UPDATE|DELETE|INSERT/);
+    // a shadow or canary row the new lists no longer allow raises too, and the file refuses to install while the
+    // switch functions still tell the style options by shadow
+    expect(block).toMatch(/RAISE EXCEPTION 'switch row % is % and the option no longer takes it/);
+    expect(block).toMatch(
+      /RAISE EXCEPTION 'the switch functions still tell the style options by shadow: install \*_the_horse_option_switch_tells_style_options_by_name\.sql first'/
+    );
     // the read-back proves the answer for every registered name where it is installed
     expect(run).toMatch(
       /DO \$readback\$[\s\S]*RAISE EXCEPTION 'a registered option does not answer with its states'/

@@ -83,7 +83,10 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
 import { omahaRankMask, omahaStraightOutRanks } from './HorseOmahaCardImpact.js';
 import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
-import { omahaCashOnlyExcludes, omahaIcmPremiumOf } from './HorseOmahaTournamentScope.js';
+import {
+  omahaCategoricalCashOnlyExcludes,
+  omahaIcmPremiumOf,
+} from './HorseOmahaTournamentScope.js';
 import {
   omahaStrategyGameInScope,
   omahaStrategyConstant,
@@ -328,8 +331,9 @@ export function omahaDrawRaiseBarOf(
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
       // HorseLogic.isTournamentMode: the engine's explicit mode wins;
-      // omahaStrategyInTournaments opens its public tournament scope.
-      tournament: omahaCashOnlyExcludes(player, gs),
+      // omahaStrategyInTournaments opens its public tournament scope; the bar is a
+      // categorical rule (omahaTournamentsExcludeCategoricalRules on: never in a tournament).
+      tournament: omahaCategoricalCashOnlyExcludes(player, gs),
       allInOrFold: gs.allInOrFold === true,
     });
   } catch {

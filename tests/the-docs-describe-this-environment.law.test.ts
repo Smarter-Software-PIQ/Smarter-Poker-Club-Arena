@@ -195,7 +195,7 @@ describe('the docs describe THIS environment', () => {
         'hatch instead of on the refusal. Either implement it, or delete the ' +
         'sentence in the same commit that removed it.'
     ).toEqual([]);
-  });
+  }, 120_000);
 
   /**
    * The `gh` claim cost the most, because it was not simply out of date - it

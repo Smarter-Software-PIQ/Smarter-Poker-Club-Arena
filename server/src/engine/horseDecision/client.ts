@@ -132,6 +132,7 @@ import {
   deliveredSwitchConfigsPrevious,
   horseDecisionReceiptRefusalForGates,
   omahaPricedRaiseGateCandidates,
+  omahaPricedInLightningGateCandidates,
   omahaStrategyInPlo6GateCandidates,
   horseGovernorSnapshotIsValid,
   horseComputeMetadataIsValid,
@@ -2227,6 +2228,11 @@ export class LiveHorseDecisionWorkerClient {
         ),
         omahaPricedRaiseGateCandidates(
           active.request.opts as Readonly<Record<string, unknown>> | undefined,
+          this.deliveredSwitchConfigs.current,
+          previous
+        ),
+        omahaPricedInLightningGateCandidates(
+          active.request.opts,
           this.deliveredSwitchConfigs.current,
           previous
         )

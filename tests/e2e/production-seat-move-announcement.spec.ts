@@ -14,6 +14,11 @@ import {
   selectClassicCashCandidate,
 } from './support/cashTableCandidates';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
+import {
+  missingFixtureError,
+  proveClassicCashSourceAbsence,
+  proveSeatMoveDestinationAbsence,
+} from './support/productionFixture';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const ENGINE_HOST = 'engine.smarter.poker';
@@ -266,23 +271,33 @@ test('the published table explains controlled seat moves without moving a player
       .getByRole('button', { name: 'All', exact: true });
     await allStatuses.click();
     await expect(allStatuses).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator(CASH_TABLE_CARD_SELECTOR).first()).toBeVisible({ timeout: 30_000 });
-    const candidates = await page
+    // An empty lobby is not yet an absence: the catalogue below decides.
+    const cardsShown = await page
       .locator(CASH_TABLE_CARD_SELECTOR)
-      .evaluateAll(collectVisibleCashCandidates, CASH_SPECTATOR_ACTION.source);
-    expect(
-      candidates.length,
-      'the reserved club needs an occupied cash spectator subject'
-    ).toBeGreaterThan(0);
+      .first()
+      .waitFor({ state: 'visible', timeout: 30_000 })
+      .then(
+        () => true,
+        () => false
+      );
+    const candidates = cardsShown
+      ? await page
+          .locator(CASH_TABLE_CARD_SELECTOR)
+          .evaluateAll(collectVisibleCashCandidates, CASH_SPECTATOR_ACTION.source)
+      : [];
     const catalogueRead = await cashRead;
     if (catalogueRead.error || !catalogueRead.rows)
       throw new Error(`The cash catalogue was unreadable: ${catalogueRead.error}`);
     const catalogue = catalogueRead.rows;
     const source = selectClassicCashCandidate(candidates, catalogue);
+    // By kind: a must-move cluster table, running with 2+ seated. Only the
+    // catalogue's own count may call it absent; a miss stays red.
     if (!source)
-      throw new Error(
-        'The classic hero proof needs a visible occupied cash table with an exact must_move cluster catalogue row.'
-      );
+      throw missingFixtureError(proveClassicCashSourceAbsence(candidates, catalogue), {
+        selector:
+          'The classic hero proof needs a visible occupied cash table with an exact must_move cluster catalogue row.',
+        candidates,
+      });
     subjectTableId = source.id;
     evidence.subjectMode = {
       tableId: source.id,
@@ -302,8 +317,12 @@ test('the published table explains controlled seat moves without moving a player
         table.id !== source.id && table.id !== main?.id && !isMainTable(table) && table.name.trim()
     );
     if (!main || !other)
-      throw new Error(
-        'The readable catalogue needs a role=main destination and a distinct non-main destination.'
+      throw missingFixtureError(
+        proveSeatMoveDestinationAbsence(catalogue, source.id, isMainTable),
+        {
+          selector:
+            'The readable catalogue needs a role=main destination and a distinct non-main destination.',
+        }
       );
 
     const row = page.locator(`[data-testid="lobby-game-row"][data-id="${source.id}"]`);
