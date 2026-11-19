@@ -83,6 +83,11 @@ export function formatStatus(st) {
     out.push('main: UNKNOWN - the rulesets could not be read (token lacks Administration: read?)');
   } else if (!st.frozen) {
     out.push('main: OPEN - no active ruleset blocks updates to refs/heads/main');
+  } else if (st.scoped) {
+    out.push('main: OPEN - only release inputs are held (scripts/ci/release-freeze-scope.mjs GUARDED); client, docs, tests and engine source merge and ship now');
+    out.push(`  window:  ${st.windowId || 'unknown'} (from the ${VARIABLE_NAME} variable)`);
+    out.push(`  release inputs held until: ${st.until} (${rel(now, st.until)})`);
+    if (st.release) out.push(`  protects release: ${st.release}`);
   } else {
     out.push('main: FROZEN');
     for (const r of st.rulesets) out.push(`  ruleset: ${r.id} "${r.name}"`);
