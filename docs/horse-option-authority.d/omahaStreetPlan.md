@@ -38,3 +38,9 @@ HorseOmahaStreetPlan.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on 
 ## Limits
 
 First layer only: no flop, no preflop stack-to-pot check, heads-up only, priors not fitted; the decision is mutated in place to carry its plan (audit item 7, NOT done); the river follow was unverified in the league fingerprint. About 50-60 ms per decision with the option on (builder).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

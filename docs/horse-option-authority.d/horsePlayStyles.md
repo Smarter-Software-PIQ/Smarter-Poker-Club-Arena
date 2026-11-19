@@ -117,3 +117,9 @@ Verdict by the declared rule: pressure WINNING against current (no cell losing; 
 - Seating does not look at the style: a tight Horse can be seated at a floored table, where it plays current. The seating change (horsePlayStyleTightSeating, default off) is written as a patch for the cash lane, which owns HorseFleetManager and HorseSessionRotator (personas2-20261116/seating.patch); it is not in source.
 - The depth rule uses the stacks at the start of the hand (stack plus chips put in), read from the decision state.
 - The committed league cards (plo4/plo5 `_horse_play_style_tight` and `_pressure`) play the live Hybrid profile (`hybridBaseline: true`, 2026-11-16), as the evaluation above did; before that date they used the retired production styles.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

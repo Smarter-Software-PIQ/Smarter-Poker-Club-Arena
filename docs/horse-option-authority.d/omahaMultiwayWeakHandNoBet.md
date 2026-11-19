@@ -38,3 +38,9 @@ HorseOmahaMultiwayDiscipline.test.ts (16 seeds per class: top pair three-way on 
 ## Limits
 
 Stated, not measured: the shown range 0.5, the 2% margin. Measured: the priors 0.31 / 0.60 (full sweep, heads-up Horse bets with one pair or less: turn 145 of 468, river 68 of 113 everyone folded), heads-up rates used per opponent multiway. On the turn the river is not played after either line, so the check is valued at showdown and a draw's later value is not counted beyond the nut-class and combo exclusions.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

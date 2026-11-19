@@ -44,3 +44,9 @@ One definition (`omahaComboDrawForRaise`, `HorseOmahaBigDrawAggression.ts`) serv
 ## Live change on this head (review B2, 2026-11-16)
 
 This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: For this option the in-position raise with a big draw on a PLO4/PLO5 cash flop or turn no longer fires for a pair with the nut flush draw (with or without a gutshot) or a pair with a wrap and no flush draw: those decisions keep today's check, call or fold instead of the raise. Two pair with the nut flush draw or a nut wrap, which this rule raised in position live today, no longer gets this rule's raise either (the call stays): the one combo-draw definition is false at two pair or better. One raise is ADDED: a nut wrap (thirteen or more straight outs, nine or more to the nut straight) that also holds a non-nut flush draw, below two pair, was held as not a combo draw live (the call stood) and now counts as a combo draw, so in position facing a bet on the flop or turn this rule may turn that call into a raise. Nothing changes out of position (no raise, no new bet, as before).
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

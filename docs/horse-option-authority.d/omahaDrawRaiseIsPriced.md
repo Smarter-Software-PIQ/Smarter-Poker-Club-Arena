@@ -51,3 +51,9 @@ Every opponent figure a priced comparison reads now comes from his own KIND's pr
 ## Limits
 
 The fold-to-raise prior (0.42 x 0.42 = 0.18) agrees with the measured flop figure (11 of 65 heads-up raises folded to, 0.17; turn 9 of 39, 0.23; persons and Horses together). The out-of-position realization 0.8 is the big-draw module constant, not measured. One or two opponents only; three or more keep the decision given.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: LEGACY (as of 2026-11-19 this file records a replay in prose only; it was not written by the scorer's --row, so the scorer commit and the validity of its arms' option sets are not recorded. A row needs a new run)

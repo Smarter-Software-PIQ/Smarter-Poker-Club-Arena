@@ -40,3 +40,9 @@ HorseOmahaCardImpact.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on 
 ## Limits
 
 Keeps its own opponent-range sampler (not unified with omahaFacingBetEv: known duplication, follow-up). Multiway, flop and facing-bet decisions are outside. Turn cost 35-50 ms measured by the builder under load.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)

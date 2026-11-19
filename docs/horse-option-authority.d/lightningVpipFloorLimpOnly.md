@@ -65,3 +65,9 @@ No pool session is ended by the floor today, for a person or for a Horse. The ru
 ## What the activation row must contain
 
 `option = 'lightningVpipFloorLimpOnly'`, `state = 'on'`, note `authority: lightningVpipFloorLimpOnly docs/horse-option-authority.d/lightningVpipFloorLimpOnly.md sha256 <the sha256 of this file as merged>`, written by `fn_ca_horse_option_switch_set`, only after the serving engine build knows the option name and the switch-list migration that adds it is installed.
+
+## Replay
+
+Machine-read (README.md, "The Replay row"); a run row is written by the scorer and copied unedited.
+
+- Replay: NOT RUN (as of 2026-11-19 no replay of this option on real audited decisions, off against on, scored by server/scripts/audited-decision-replay.ts with --row, is recorded for it)
