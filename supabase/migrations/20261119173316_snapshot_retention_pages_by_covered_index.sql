@@ -164,6 +164,15 @@ $function$;
 REVOKE ALL ON FUNCTION public.sp_prune_hand_state_snapshots(integer) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.sp_prune_hand_state_snapshots(integer) TO service_role;
 
+-- @probe-for: public.sp_prune_hand_state_snapshots
+DO $probe$
+BEGIN
+ PERFORM public.sp_prune_hand_state_snapshots(1);
+ RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+ IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 -- CREATE OR REPLACE preserves the existing function identity and ACL.
 -- No cron, timeout, retention duration, payout or disposal predicate changes.
 
