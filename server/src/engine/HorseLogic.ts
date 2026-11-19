@@ -9353,10 +9353,10 @@ function omahaBigBetCallFoldCells(
   try {
     const v81On = opts.v81OmahaBigBetCalls !== false;
     const v84On = opts.v84OmahaRiverReraiseCalls !== false;
-    const v86On =
-      opts.v86PloOverhaul !== false &&
-      opts.v40Omaha !== false &&
-      !(String(gs.gameVariant) === 'plo6' && opts.v58Plo6RiverNuts === false);
+    // Each option switches only its own rule (ROWFIX 2026-11-18, PLO6-HILO improvement 2): the V86 cells
+    // no longer go off in PLO6 when v58Plo6RiverNuts (the paired-river M1 fold) is switched off. Both are
+    // release-default on with no switch row in production, where this is unchanged.
+    const v86On = opts.v86PloOverhaul !== false && opts.v40Omaha !== false;
     const v87On = opts.v87DeepDiveDiscipline !== false;
     if (!v81On && !v84On && !v86On && !v87On) return decision;
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
