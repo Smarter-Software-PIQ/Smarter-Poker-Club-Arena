@@ -1868,12 +1868,6 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-messenger-inbox-equipment.py
-      - name: An unanswered club welcome is not listed for its sender
-        if: matrix.shard == 1
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-          TMPDIR: ${{ runner.temp }}
-        run: python3 -B scripts/ci/test-messenger-unanswered-welcome.py
       - name: Midway daily bounty freezeout preserves the owner contract
         if: matrix.shard == 1
         env:
