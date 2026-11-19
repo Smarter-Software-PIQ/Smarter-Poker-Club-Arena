@@ -1,0 +1,49 @@
+name: A capacity check never upgrades the tournament lock
+
+# Production alert 445924 (migration 20261119235115). Runs
+# scripts/ci/test-rebuy-capacity-lock-order.py against a throwaway PostgreSQL
+# 17 cluster, never production: the exact production pre-image of
+# fn_ensure_late_registration_capacity (md5-checked fixture) must reproduce the
+# rebuy/hand-commit deadlock first, and after the unmodified migration file the
+# same sequence must finish with no wait and no 40P01, two capacity checks must
+# still serialise, and the function's ACL and SECURITY DEFINER must hold.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261119235115_a_rebuy_never_upgrades_its_tournament_row_lock.sql
+      - scripts/ci/fixtures/rebuy-capacity-lock-order/**
+      - scripts/ci/test-rebuy-capacity-lock-order.py
+      - tests/a-capacity-check-never-upgrades-the-tournament-lock.law.test.ts
+      - .github/workflows/rebuy-capacity-lock-order.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rebuy-capacity-lock-order-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuy-capacity-lock-order:
+    name: A capacity check never upgrades the tournament lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: A capacity check never upgrades the tournament lock
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-rebuy-capacity-lock-order.py --output artifacts/rebuy-capacity-lock-order
+      - name: Retain the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuy-capacity-lock-order-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/rebuy-capacity-lock-order/
+          retention-days: 7
+          if-no-files-found: warn
