@@ -42,7 +42,7 @@ describe('LightningHorseVpipLedger', () => {
     poolSessionId,
     isHorse: true,
   });
-  it('counts every dealt hand of a Horse per pool sitting, and no person', () => {
+  it('counts every dealt hand per pool sitting, people and Horses alike', () => {
     const l = new LightningHorseVpipLedger();
     const people = { playerId: 'p', poolSessionId: 'sp', isHorse: false };
     l.record(
@@ -52,7 +52,7 @@ describe('LightningHorseVpipLedger', () => {
     l.record([horse('a', 's1'), horse('b', 's2'), people], [forced('b', 'bb'), act('b', 'check')]);
     expect(l.read('s1')).toEqual({ hands: 2, vpipHands: 1 });
     expect(l.read('s2')).toEqual({ hands: 2, vpipHands: 0 });
-    expect(l.read('sp')).toEqual({ hands: 0, vpipHands: 0 });
+    expect(l.read('sp')).toEqual({ hands: 2, vpipHands: 1 });
     expect(l.read(undefined)).toEqual({ hands: 0, vpipHands: 0 });
     // a new sitting of the same Horse starts again
     l.record([horse('a', 's9')], [act('a', 'raise')]);
@@ -82,17 +82,47 @@ describe('LightningHorseVpipLedger.readWindow (the pool window the decision judg
     l.record([horse], entered ? [act('a', 'call')] : [act('a', 'fold')]);
   it('returns the last n hands, how many entered and whether the oldest of them was entered', () => {
     const l = new LightningHorseVpipLedger();
-    expect(l.readWindow('s1', 9)).toEqual({ hands: 0, vpipHands: 0, leavingEntered: false });
+    expect(l.readWindow('s1', 9)).toMatchObject({ hands: 0, vpipHands: 0, leavingEntered: false });
     for (const e of [true, false, false, true, false, false, false, false, false, true, false])
       hand(l, e);
     // eleven hands; the last nine are F F T F F F F F T... oldest first: hands 3..11
-    expect(l.readWindow('s1', 9)).toEqual({ hands: 9, vpipHands: 2, leavingEntered: false });
-    expect(l.readWindow('s1', 8)).toEqual({ hands: 8, vpipHands: 2, leavingEntered: true });
+    expect(l.readWindow('s1', 9)).toMatchObject({ hands: 9, vpipHands: 2, leavingEntered: false });
+    expect(l.readWindow('s1', 8)).toMatchObject({ hands: 8, vpipHands: 2, leavingEntered: true });
     // younger than the window: what there is, and nothing is leaving yet
     const y = new LightningHorseVpipLedger();
     hand(y, true);
-    expect(y.readWindow('s1', 9)).toEqual({ hands: 1, vpipHands: 1, leavingEntered: false });
-    expect(y.readWindow(undefined, 9)).toEqual({ hands: 0, vpipHands: 0, leavingEntered: false });
+    expect(y.readWindow('s1', 9)).toMatchObject({ hands: 1, vpipHands: 1, leavingEntered: false });
+    expect(y.readWindow(undefined, 9)).toMatchObject({
+      hands: 0,
+      vpipHands: 0,
+      leavingEntered: false,
+    });
+  });
+  it('files hands by hand number, in deal order, once each (a fold counted before its hand settles)', () => {
+    const l = new LightningHorseVpipLedger();
+    // hand 12 is folded and counted first; hand 11, still open at the time, settles after it
+    l.record([horse], [act('a', 'fold')], 12);
+    l.record([horse], [act('a', 'call')], 11);
+    // the settlement of 12 offers it again: counted once
+    l.record([horse], [act('a', 'fold')], 12);
+    expect(l.read('s1')).toEqual({ hands: 2, vpipHands: 1 });
+    // deal order: 11 (entered) is the oldest
+    expect(l.readWindow('s1', 2)).toMatchObject({ hands: 2, vpipHands: 1, leavingEntered: true });
+  });
+  it('knows a sitting it met from its first hand from one carried over a restart', () => {
+    let now = 1_000_000;
+    const l = new LightningHorseVpipLedger(100, () => now, 120_000);
+    // the process starts: every sitting met within two minutes was already running
+    l.record([horse], [act('a', 'fold')], 1);
+    now += 119_000;
+    l.record([{ playerId: 'b', poolSessionId: 's2' }], [act('b', 'fold')], 2);
+    // a sitting that first appears later began under this process
+    now += 60_000;
+    expect(l.readWindow('s3', 9).fromFirstHand).toBe(true);
+    l.record([{ playerId: 'c', poolSessionId: 's3' }], [act('c', 'fold')], 3);
+    expect(l.readWindow('s1', 9).fromFirstHand).toBe(false);
+    expect(l.readWindow('s2', 9).fromFirstHand).toBe(false);
+    expect(l.readWindow('s3', 9)).toMatchObject({ hands: 1, fromFirstHand: true });
   });
   it('keeps a bounded tail per sitting', () => {
     const l = new LightningHorseVpipLedger();
@@ -103,7 +133,7 @@ describe('LightningHorseVpipLedger.readWindow (the pool window the decision judg
 });
 
 describe('lightningHorseVpipFloorInput', () => {
-  const window = { hands: 9, vpipHands: 3, leavingEntered: false };
+  const window = { hands: 9, vpipHands: 3, leavingEntered: false, fromFirstHand: false };
   const asked: number[] = [];
   const own = (n: number) => {
     asked.push(n);
@@ -127,6 +157,24 @@ describe('lightningHorseVpipFloorInput', () => {
       own
     );
     expect(asked.at(-1)).toBe(29);
+    // the game's vpip_window first, as fn_nit_policy reads it; maintain_hands only as the fallback
+    expect(
+      lightningHorseVpipFloorInput(
+        {
+          nit_game: true,
+          maintain_percent_min: 40,
+          maintain_hands: 30,
+          ruleset_snapshot: { vpip_window: 10 },
+        },
+        own
+      )?.windowHands
+    ).toBe(10);
+    expect(
+      lightningHorseVpipFloorInput(
+        { nit_game: true, maintain_percent_min: 40, maintain_hands: 30, vpip_window: 12 },
+        own
+      )?.windowHands
+    ).toBe(12);
     expect(
       lightningHorseVpipFloorInput({ nit_game: true, maintain_percent_min: 40 }, own)?.windowHands
     ).toBe(10);

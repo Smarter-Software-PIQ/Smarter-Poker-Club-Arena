@@ -124,7 +124,7 @@ describe('lightningVpipFloorLimpOnlyInputs', () => {
       shortfallHands: 0,
       preempt: false,
     });
-    // a new sitting and every sitting after a restart: fewer than window - 1 hands, no action
+    // a count carried over a restart, younger than the window: no action until it holds it
     for (const hands of [0, 2, 5, 8]) expect(at({ hands, vpipHands: 0 })).toBeNull();
     // a count that is not the window before this hand is refused (it would judge another sample)
     expect(at({ hands: 20, vpipHands: 4 })).toBeNull();
@@ -138,6 +138,53 @@ describe('lightningVpipFloorLimpOnlyInputs', () => {
       needHands: 5,
       shortfallHands: 2,
     });
+  });
+
+  it('a new sitting met from its first hand is judged from that hand: a tight Horse is never short at its first full window', () => {
+    const fresh = (hands: number, vpipHands: number) =>
+      lightningVpipFloorLimpOnlyInputs(
+        gs({ floor: 40, windowHands: 10, own: { hands, vpipHands, fromFirstHand: true } }),
+        on,
+        false
+      );
+    // every prefix at the floor: ceil(0.4 x (hands + 1))
+    expect(fresh(0, 0)).toMatchObject({ needHands: 1, shortfallHands: 1, preempt: false });
+    expect(fresh(1, 1)).toMatchObject({ needHands: 1, shortfallHands: 0 });
+    expect(fresh(2, 1)).toMatchObject({ needHands: 2, shortfallHands: 1 });
+    expect(fresh(7, 3)).toMatchObject({ needHands: 4, shortfallHands: 1 });
+    expect(fresh(8, 4)).toMatchObject({ needHands: 4, shortfallHands: 0, preempt: false });
+    // carried over a restart (not from its first hand): nothing
+    expect(
+      lightningVpipFloorLimpOnlyInputs(
+        gs({ floor: 40, windowHands: 10, own: { hands: 5, vpipHands: 0, fromFirstHand: false } }),
+        on,
+        false
+      )
+    ).toBeNull();
+    // a Horse that would enter nothing on its own, every fold limpable: at the floor at hand ten,
+    // and still there with one raised pot (no limp possible) anywhere in its first ten hands
+    const ledger = new LightningHorseVpipLedger(100, () => 0, -1);
+    for (const raisedAt of [-1, 0, 2, 5, 7, 9]) {
+      const ps = 'fresh-' + raisedAt;
+      const entered: boolean[] = [];
+      for (let h = 0; h < 10; h++) {
+        const own = ledger.readWindow(ps, 9);
+        expect(own.fromFirstHand).toBe(true);
+        const ask = lightningVpipFloorLimpOnlyInputs(
+          gs({ floor: 40, windowHands: 10, own }),
+          on,
+          false
+        );
+        const limp = h !== raisedAt && ask !== null && ask.shortfallHands > 0;
+        entered.push(limp);
+        ledger.record(
+          [{ playerId: 'h', poolSessionId: ps }],
+          limp ? [{ userId: 'h', stage: 'preflop', action: 'call' }] : [],
+          h + 1
+        );
+      }
+      expect(entered.filter(Boolean).length).toBeGreaterThanOrEqual(4);
+    }
   });
 
   it('lands on the floor, not over it: a 25% Horse limps only what the window needs, and no catch-up binge', () => {
@@ -157,7 +204,7 @@ describe('lightningVpipFloorLimpOnlyInputs', () => {
       for (let h = 0; h < 400; h++) {
         const e = rand() < 0.245;
         ledger.record(
-          [{ playerId: 'h', poolSessionId: 's', isHorse: true }],
+          [{ playerId: 'h', poolSessionId: 's' }],
           e ? [{ userId: 'h', stage: 'preflop', action: 'call' }] : []
         );
       }
@@ -174,7 +221,7 @@ describe('lightningVpipFloorLimpOnlyInputs', () => {
         const e = natural || limp;
         entered.push(e);
         ledger.record(
-          [{ playerId: 'h', poolSessionId: 's', isHorse: true }],
+          [{ playerId: 'h', poolSessionId: 's' }],
           e ? [{ userId: 'h', stage: 'preflop', action: 'call' }] : []
         );
       }

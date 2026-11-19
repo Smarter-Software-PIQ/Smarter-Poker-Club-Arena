@@ -1976,14 +1976,15 @@ export interface HorseGameStateV2 extends HorseGameState {
    * settled hands of this pool sitting (LightningHorseVpipLedger.readWindow):
    * own.hands of them (fewer when the count is younger), own.vpipHands
    * entered, own.leavingEntered = the oldest of them was entered (it leaves
-   * the window at the next hand). Deliberately NOT vpipFloor / ownVpip: only
+   * the window at the next hand), own.fromFirstHand = this process saw the
+   * sitting from its first hand (a younger count is then its whole history). Deliberately NOT vpipFloor / ownVpip: only
    * lightningVpipFloorLimpOnly reads it, so with that option off a pool
    * decision is the one it was. Absent at a table and in an unfloored pool.
    */
   lightningVpipFloor?: {
     floor: number;
     windowHands: number;
-    own: { hands: number; vpipHands: number; leavingEntered?: boolean };
+    own: { hands: number; vpipHands: number; leavingEntered?: boolean; fromFirstHand?: boolean };
   };
   /** ALL-IN-OR-FOLD table: preflop is fold or shove and nothing else. */
   allInOrFold?: boolean;
@@ -3512,8 +3513,9 @@ export interface HorseDecideOpts {
    * window and the Horse's own count this pool sitting in
    * gs.lightningVpipFloor (never in vpipFloor, so the table floor's widening
    * and call-down still cannot fire in a pool), and with this on the floor
-   * has exactly the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep,
-   * the same selection per variant): a Horse under its line turns a preflop
+   * has exactly the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep:
+   * 'every' when the window is short, so the fewest limps on every variant,
+   * and 'priced' for the one-hand-early limp): a Horse under its line turns a preflop
    * fold in a pot nobody has raised, for at most the big blind and less than
    * its stack, into the limp or the small blind's completion. It never
    * raises, never calls a raise and never acts postflop; raised after the
@@ -5847,9 +5849,13 @@ export function vpipFloorLimpOnlyStep(
  * limps go to the better hands and a poor one waits. The game's floor is read
  * from the game: no floor, no field, no action (owner 2026-11-18 11:03).
  *
- * After an engine restart, and in a new sitting, the count holds fewer than
- * window - 1 hands and this returns null: the first window - 1 hands are
- * played unfloored (nine hands in a ten-hand game), the bound on the restart.
+ * A new sitting this process saw from its first hand (own.fromFirstHand) is
+ * judged from that hand, every prefix of the sitting at the floor
+ * (need = ceil(floor x (hands + 1)) until the window is full), so a tight
+ * Horse reaches its first full window at the floor (review F3). A sitting
+ * carried over an engine restart has a count younger than its history: this
+ * returns null until the count holds window - 1 hands, so at most nine hands
+ * in a ten-hand game are played unfloored, the bound on the restart.
  */
 export function lightningVpipFloorLimpOnlyInputs(
   gs: {
@@ -5860,7 +5866,7 @@ export function lightningVpipFloorLimpOnlyInputs(
     lightningVpipFloor?: {
       floor: number;
       windowHands: number;
-      own: { hands: number; vpipHands: number; leavingEntered?: boolean };
+      own: { hands: number; vpipHands: number; leavingEntered?: boolean; fromFirstHand?: boolean };
     };
   },
   opts: HorseDecideOpts,
@@ -5886,9 +5892,19 @@ export function lightningVpipFloorLimpOnlyInputs(
   if (!Number.isInteger(window) || !(window > 0)) return null;
   if (!Number.isInteger(hands) || !Number.isInteger(entered)) return null;
   if (entered < 0 || entered > hands) return null;
-  // the window before this hand, exactly: younger counts (a new sitting, a restart) take no action
-  if (hands !== window - 1) return null;
-  const needHands = Math.ceil((floor * window) / 100 - 1e-9);
+  let needHands: number;
+  if (hands === window - 1) {
+    // the window that ends with this hand
+    needHands = Math.ceil((floor * window) / 100 - 1e-9);
+  } else if (hands < window - 1 && f.own.fromFirstHand === true) {
+    // a new sitting whose whole history is on the count: every prefix at the floor, so a tight
+    // Horse is never short at its first full window (hands 1, 3, 6 and 8 of ten at 40%), with
+    // slack for a raised pot on the way
+    needHands = Math.ceil((floor * (hands + 1)) / 100 - 1e-9);
+  } else {
+    // a count carried over a restart, younger than the window: no action until it holds it
+    return null;
+  }
   const shortfallHands = Math.max(0, needHands - entered);
   return {
     floor,
@@ -5896,7 +5912,11 @@ export function lightningVpipFloorLimpOnlyInputs(
     needHands,
     enteredHands: entered,
     shortfallHands,
-    preempt: shortfallHands === 0 && entered === needHands && f.own.leavingEntered === true,
+    preempt:
+      hands === window - 1 &&
+      shortfallHands === 0 &&
+      entered === needHands &&
+      f.own.leavingEntered === true,
   };
 }
 

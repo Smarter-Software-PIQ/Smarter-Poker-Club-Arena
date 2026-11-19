@@ -23,7 +23,7 @@ export const BASE: HorseDecideOpts = { ...PRODUCTION_28372C9A };
 export interface PoolFloor {
   floor: number;
   windowHands: number;
-  own: { hands: number; vpipHands: number; leavingEntered?: boolean };
+  own: { hands: number; vpipHands: number; leavingEntered?: boolean; fromFirstHand?: boolean };
 }
 
 /** Turns the shared table state into a Lightning pool decision (no table floor fields). */

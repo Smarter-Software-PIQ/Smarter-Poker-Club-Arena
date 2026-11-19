@@ -3016,6 +3016,9 @@ export class LightningHandHost {
     this.foldTypes.set(userId, type);
     if (this.releasedOrRecorded.has(userId)) return;
     this.releasedOrRecorded.add(userId);
+    // The hand is over for them: it counts on their sitting now, in deal order, before the fast
+    // fold deals them the next one (LightningHorseVpipLedger, review F1).
+    this.recordVpipHand([userId]);
     // Their bank can change no further in this hand: record it now, so a
     // second hand they are dealt meanwhile reads what this one left.
     this.recordBank(userId);
@@ -3387,6 +3390,22 @@ export class LightningHandHost {
     }
   }
 
+  /** These players' hand is over: one dealt hand each on their sitting, once per hand number. */
+  private recordVpipHand(userIds: readonly string[]): void {
+    try {
+      const who = userIds
+        .map((id) => this.participants.get(id))
+        .filter((p): p is NonNullable<typeof p> => !!p);
+      (this.deps.horseVpipLedger ?? lightningHorseVpipLedger).record(
+        who,
+        this.actions as ReadonlyArray<Record<string, unknown>>,
+        this.handNumber
+      );
+    } catch {
+      /* the count never affects the hand */
+    }
+  }
+
   /** LightningHorseResults: the settled hand's exact horse nets, play and reviews. */
   private recordForHorseScoreboard(
     state: GameState,
@@ -3398,11 +3417,8 @@ export class LightningHandHost {
     playedAtMs = this.now()
   ) {
     const participants = [...this.participants.values()];
-    // The settled hand counts once for every Horse dealt in (LightningHorseVpipLedger).
-    (this.deps.horseVpipLedger ?? lightningHorseVpipLedger).record(
-      participants,
-      this.actions as ReadonlyArray<Record<string, unknown>>
-    );
+    // The settled hand counts once for every player dealt in; a folder was counted at its fold.
+    this.recordVpipHand(participants.map((p) => p.playerId));
     void recordLightningHorseResults(
       {
         handHistoryId,
