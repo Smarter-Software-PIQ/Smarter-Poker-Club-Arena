@@ -42,23 +42,20 @@ function latestBody(): { file: string; body: string } {
 }
 
 describe('a satellite seat never waits on promo winnings', () => {
+  // 20261119053144 widened this: no entry fee settles, a seat or a paid entry
+  // (tests/a-promo-winnings-credit-never-settles-promo-progress.law.test.ts).
   const { body } = latestBody();
-  const seatReturn = body.search(/entitlement_kind\s*=\s*'satellite_seat'[\s\S]*?RETURN;/);
-  const settle = body.indexOf('fn_ca_promo_profit_settle(');
+  const code = body.replace(/--[^\n]*/g, '');
 
-  it('still consumes the entry fee of every charge first', () => {
-    const consume = body.indexOf('fn_ca_promo_profit_consume_entry_fee(p_charge)');
-    expect(consume).toBeGreaterThan(-1);
-    expect(seatReturn).toBeGreaterThan(consume);
+  it('still consumes the entry fee of every charge', () => {
+    expect(code).toContain('fn_ca_promo_profit_consume_entry_fee(p_charge)');
   });
 
-  it('returns for a satellite seat before any winnings settle runs', () => {
-    expect(seatReturn).toBeGreaterThan(-1);
-    expect(settle).toBeGreaterThan(seatReturn);
+  it('never runs the winnings settle, so a seat award cannot wait on it', () => {
+    expect(code).not.toContain('fn_ca_promo_profit_settle(');
   });
 
-  it('finds the seat by its own entitlement row and not by a session setting', () => {
-    expect(body).toMatch(/tournament_refund_entitlements[\s\S]*source_ledger_id\s*=\s*p_charge/);
-    expect(body).not.toMatch(/current_setting\(/);
+  it('decides nothing from a session setting', () => {
+    expect(code).not.toMatch(/current_setting\(/);
   });
 });
