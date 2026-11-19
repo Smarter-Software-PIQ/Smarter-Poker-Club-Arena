@@ -1191,7 +1191,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaPricedPriorsByOpponentKind',
-    "PLO Strategy lane 2026-11-18 (priced2; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Every prior and reference rate the priced families read is the opponent's KIND's, measured (HorseOmahaPricedMode.omahaPricedKindPrior: a person's bluff prior, bet rate, fold rate and card-impact bluff share for a person, a Horse's for a Horse; his posterior re-centred on it), the card-impact read starts at his kind's figures, and a spot a priced family cannot price falls CLOSED: the categorical rule acts as with the family off, beside the family's _unpriced_kept receipt (omahaTurnRiverRaiseIsPriced owns a spot only where it can be priced). Off: every priced family is byte-identical to #11212. No league yet; do not switch on without a WIN.",
+    "PLO Strategy lane 2026-11-18 (priced2; owner 2026-11-17 11:49: no blanket rules, every decision by math, ranges, equity and EV). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning; default off (read === true). Every prior and reference rate the priced families read is the opponent's KIND's, measured (HorseOmahaPricedMode.omahaPricedKindPrior: a person's bluff prior, bet rate, fold rate and card-impact bluff share for a person, a Horse's for a Horse; his posterior re-centred on it), the card-impact read starts at his kind's figures. A spot a priced family cannot price keeps the decision given, as with the option off: the categorical rule never decides it (ROWFIX 2026-11-18; until then this option made such spots fall CLOSED to the categorical rule, against the no-blanket ruling). Off: every priced family is byte-identical to #11212. No league yet; do not switch on without a WIN.",
     'V94'
   ),
   flag(
@@ -5435,7 +5435,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaTurnRiverRaiseIsPriced)',
-    'a raise in the option scope whose hand could not be counted: the categorical rule acts as with the option off (fall closed)',
+    'a raise in the option scope whose hand could not be counted: the decision given is kept; the categorical rule does not decide it',
     'V94'
   ),
   receipt(
@@ -5453,7 +5453,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_draw_raise_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaDrawRaiseIsPriced)',
-    'the same decision, no sample could be drawn (three or more opponents, one all in): the bar acts as with the option off (fall closed)',
+    'the same decision, no sample could be drawn (three or more opponents, one all in): the raise is kept; the bar does not decide it (fires with omahaPricedPriorsByOpponentKind on)',
     'V94'
   ),
   receipt(
@@ -5483,7 +5483,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_oop_turn_barrel_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaOopTurnBarrelIsPriced)',
-    'the same decision, outside the card-impact model: the categorical rule acts as with the option off (fall closed)',
+    'the same decision, outside the card-impact model: the decision given is kept; the categorical rule does not decide it',
     'V94'
   ),
   receipt(
@@ -5501,7 +5501,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_paired_board_bet_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPairedBoardBetIsPriced)',
-    'the same decision, outside the card-impact model: the categorical rule acts as with the option off (fall closed)',
+    'the same decision, outside the card-impact model: the decision given is kept; the categorical rule does not decide it',
     'V94'
   ),
   receipt(
@@ -5537,7 +5537,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_pressure_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaPressureIsPriced)',
-    'the pressure play against this bettor where no comparison could be computed: the label test acts as with the option off',
+    'the pressure play against this bettor where no comparison could be computed: withheld as with omahaPricedPriorsByOpponentKind off; the label test does not decide it (fires with that option on)',
     'V94'
   ),
   receipt(
@@ -5555,7 +5555,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_priced_big_bet_call_unpriced_kept',
     'HorseOmahaPricedWiring (HorseLogic wager_rules and HorseLogic.decide outside the graph; omahaBigBetCallsArePriced)',
-    'the same decision, the hand could not be counted: the cells act as with the option off (fall closed)',
+    'the same decision, the hand could not be counted: the decision given is kept; the cells do not decide it',
     'V94'
   ),
   receipt(

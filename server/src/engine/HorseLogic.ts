@@ -3753,10 +3753,10 @@ export interface HorseDecideOpts {
   /** PLO Strategy lane 2026-11-18 (priced2, lead ruling on review R2 B1): opt-in (`=== true`). Every prior
    * and reference rate the priced families read is the opponent's KIND's (a person's for a person, a
    * Horse's for a Horse: HorseOmahaPricedMode.omahaPricedKindPrior, measured), the card-impact read starts
-   * at his kind's figures, and a spot a priced family cannot price falls CLOSED (the categorical rule acts
-   * as with the family off, beside its _unpriced_kept receipt; omahaTurnRiverRaiseIsPriced owns a spot
-   * only where it can be priced). Off: every priced family is byte-identical to #11212. Default OFF; no
-   * league yet. */
+   * at his kind's figures. A spot a priced family cannot price keeps the decision given, as with the
+   * option off: the categorical rule never decides it (ROWFIX 2026-11-18; until then this option made such
+   * spots fall CLOSED to the categorical rule). Off: every priced family is byte-identical to #11212.
+   * Default OFF; its league evidence measured the fall-closed version. */
   omahaPricedPriorsByOpponentKind?: boolean;
   /** PLO Strategy lane 2026-11-18 (priced2 review N1, lead ruling on R2 B2): opt-in (`=== true`). The value
    * of a raise counts the re-raisers' losses once (HorseOmahaPricedRules.omahaPricedRaiseAloneEv and the
@@ -9334,13 +9334,10 @@ function omahaBigBetCallFold(
   if (omahaPricedOwnsBigBetCalls(player, gs, opts)) {
     const cell = omahaBigBetCallFoldCells(decision, player, gs, { ...opts, telemetry: false });
     if (cell === decision) return decision;
-    // Unpriceable (null): with omahaPricedPriorsByOpponentKind on the cells decide as with the option
-    // off (fall closed); off, the decision given is kept (#11212).
+    // Unpriceable: the decision given is kept (#11212); the cells never decide it, whatever
+    // omahaPricedPriorsByOpponentKind says (ROWFIX 2026-11-18: no fall closed).
     return (
-      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ??
-      (opts.omahaPricedPriorsByOpponentKind === true
-        ? omahaBigBetCallFoldCells(decision, player, gs, opts)
-        : decision)
+      omahaPricedBigBetCallRule(decision, player, gs, opts, omahaPricedDeps(player, gs)) ?? decision
     );
   }
   return omahaBigBetCallFoldCells(decision, player, gs, opts);
