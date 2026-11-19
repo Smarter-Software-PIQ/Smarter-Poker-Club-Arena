@@ -751,7 +751,10 @@ import {
   RERAISE_RATE_FALLBACK,
   type OmahaReraisedCallPricing,
 } from './HorseOmahaOopReraisedPot.js';
-import { omahaPreflopReraiseDefenceRule } from './HorseOmahaPreflopReraiseDefenceRule.js';
+import {
+  omahaPreflopReraiseDefenceHeadsUpInPosition,
+  omahaPreflopReraiseDefenceRule,
+} from './HorseOmahaPreflopReraiseDefenceRule.js';
 import {
   premiumPreflopAnchors,
   shouldPriceTerminalFlop,
@@ -3567,6 +3570,15 @@ export interface HorseDecideOpts {
    * its declared evaluation passes; league cards plo4/plo5
    * _omaha_preflop_reraise_defence_priced. */
   omahaPreflopReraiseDefencePriced?: boolean;
+  /** THREEBET-2 lane 2026-11-19 (WooWoo audit, THREEBET-DEFENCE: an opener in position folding to one player's 3-bet
+   * folded +EV calls, 148 of 149 at the lower end of the measured realization): opt-in (`=== true`), the companion
+   * scope of omahaPreflopReraiseDefencePriced. Only where the Horse opened, faces exactly one 3-bet heads-up and acts
+   * after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule
+   * .omahaPreflopReraiseDefenceHeadsUpInPosition, one definition for table and fast-table cash; tournaments never)
+   * the decision is the priced one of omahaPreflopReraiseDefencePriced, unchanged. Every other decision, every
+   * out-of-position one included, is the one with this option off. Default OFF until its declared evaluation
+   * passes. */
+  omahaPreflopReraiseDefencePricedInPosition?: boolean;
   /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
    * continues on the flop only with a pair plus a straight or flush draw, or
    * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
@@ -8205,6 +8217,7 @@ function omahaReraisedCallCellJudges(
     omahaOopReraisedPotStrongRange(decision0, player, gs, {
       ...opts,
       omahaPreflopReraiseDefencePriced: false,
+      omahaPreflopReraiseDefencePricedInPosition: false,
       telemetry: false,
     });
     return omahaReraisedCallCellJudged;
@@ -8400,8 +8413,13 @@ function omahaOopReraisedPotStrongRange(
   // call cell below judges (HorseOmahaOopReraisedPot, the live implementation,
   // WooWoo audit lane) belongs to that cell, kept or folded; this option then
   // does not answer and the decision is exactly the one with it off.
+  // omahaPreflopReraiseDefencePricedInPosition (default off): the same priced decision, handed only the spot where
+  // the Horse opened, faces one 3-bet heads-up and acts after the 3-bettor
+  // (omahaPreflopReraiseDefenceHeadsUpInPosition); anywhere else this branch is not entered for it.
   if (
-    opts.omahaPreflopReraiseDefencePriced === true &&
+    (opts.omahaPreflopReraiseDefencePriced === true ||
+      (opts.omahaPreflopReraiseDefencePricedInPosition === true &&
+        omahaPreflopReraiseDefenceHeadsUpInPosition(player, gs))) &&
     !omahaReraisedCallCellJudges(decision0, player, gs, opts)
   ) {
     const priced = omahaPreflopReraiseDefenceRule(decision0, player, gs, {
@@ -8416,6 +8434,7 @@ function omahaOopReraisedPotStrongRange(
         return omahaOopReraisedPotStrongRange(priced, player, gs, {
           ...opts,
           omahaPreflopReraiseDefencePriced: false,
+          omahaPreflopReraiseDefencePricedInPosition: false,
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
           omahaReraiseRangeOutOfPosition: false,
           omahaReraiseRangeEarlyPosition: false,
@@ -8685,6 +8704,7 @@ function omahaReraiseRangeRules(
           omahaReraiseRangeEarlyPosition: false,
           omahaPreflopStackPlan: false,
           omahaPreflopReraiseDefencePriced: false,
+          omahaPreflopReraiseDefencePricedInPosition: false,
           telemetry: false,
         }).action !== 'fold';
     } else {

@@ -202,6 +202,53 @@ export function omahaPreflopReraiserReadOf(
   return { rate, opportunities, foldToReraise };
 }
 
+/**
+ * omahaPreflopReraiseDefencePricedInPosition (THREEBET-2 lane 2026-11-19; default OFF, read `=== true`): the one spot
+ * where the companion option hands the decision to this rule. True only when ALL hold:
+ *   - the spot of omahaPreflopReraiseDefenceSpot (PLO4/PLO5 cash, high only, one board, preflop, no bomb pot, no
+ *     All-In-Or-Fold, not a tournament, fold legal, chips to call);
+ *   - exactly two preflop raises: the first is the Horse's (it opened), the second is the player it faces (one 3-bet,
+ *     no 4-bet, nothing else);
+ *   - heads-up: every other player has folded (a player still in, all in included, ends the spot);
+ *   - POSITION, ONE DEFINITION for every table kind (table cash and fast-table cash alike): the Horse acts after the
+ *     3-bettor on every later street (seat order from the dealer, the small blind first, the dealer last). Heads-up
+ *     this is also what omahaReraisedPositionOf.ipVsRaiser and the older reading kept for fast tables and
+ *     tournaments (omahaReraisedLaneUntouched) give, because nobody else is in the pot; the spot reads none of them.
+ * The opponent's kind is not read: the decision state does not carry who is a person, and the price already reads
+ * the 3-bettor's own measured re-raise rate (the population mean with no evidence). Nothing is keyed to a player.
+ * Everything else (out of position, multiway, a 4-bet, a cold 3-bet, a Horse that did not open) is false, and the
+ * decision is exactly the one with the option off.
+ */
+export function omahaPreflopReraiseDefenceHeadsUpInPosition(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): boolean {
+  try {
+    const found = omahaPreflopReraiseDefenceSpot(player, gs);
+    if (!found || found.spot.preflopRaises !== 2) return false;
+    const raises = (gs.actionHistory ?? []).filter(
+      (a) =>
+        a.stage === 'preflop' &&
+        (a.action === 'raise' ||
+          a.action === 'bet' ||
+          (a.action === 'all_in' && a.isFullRaise !== undefined))
+    );
+    if (raises.length !== 2) return false;
+    if (raises[0]!.seat !== player.seat || raises[1]!.seat !== found.raiserSeat) return false;
+    const othersInHand = (gs.players ?? []).filter(
+      (p) =>
+        p.seat !== player.seat &&
+        p.seat !== found.raiserSeat &&
+        !p.is_folded &&
+        (!p.is_sitting_out || p.is_all_in === true)
+    );
+    if (othersInHand.length > 0) return false;
+    return order(player.seat, gs.dealerSeat) > order(found.raiserSeat, gs.dealerSeat);
+  } catch {
+    return false;
+  }
+}
+
 export interface OmahaPreflopReraiseDefenceAnswer {
   found: OmahaPreflopReraiseDefenceSpotFound;
   verdict: OmahaPreflopDefenceVerdict;

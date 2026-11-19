@@ -24,8 +24,33 @@ describe('the owner preflop range hold lift', () => {
     });
   });
 
-  it('horsePlayStyles is the ONLY name in the lift map, and the lift cites the owner text and its full digest', () => {
-    expect(Object.keys(OPTION_SWITCH_PREFLOP_HOLD_LIFTED)).toEqual(['horsePlayStyles']);
+  it('omahaPreflopReraiseDefencePricedInPosition is switchable on and off; its parent option stays off-only', () => {
+    expect(optionSwitchStatesOf('omahaPreflopReraiseDefencePricedInPosition')).toEqual([
+      'off',
+      'on',
+    ]);
+    expect(optionSwitchOffOnly('omahaPreflopReraiseDefencePricedInPosition')).toBeNull();
+    expect(optionSwitchDecisionOpts({ omahaPreflopReraiseDefencePricedInPosition: 'on' })).toEqual({
+      omahaPreflopReraiseDefencePricedInPosition: true,
+    });
+    expect(optionSwitchOffOnly('omahaPreflopReraiseDefencePriced')?.source).toBe(
+      'owner preflop range hold'
+    );
+    expect(optionSwitchStatesOf('omahaPreflopReraiseDefencePriced')).toEqual(['off']);
+    const lift = OPTION_SWITCH_PREFLOP_HOLD_LIFTED.omahaPreflopReraiseDefencePricedInPosition!;
+    expect(lift.source).toContain(
+      'YOU OWN THE CODEBASE, YOU DECIDE WHAT TURNS ON AND IF ITS READY'
+    );
+    expect(lift.source).toContain('by name, alone');
+    expect(lift.sha256).toMatch(/^63f041c4ca82354b[0-9a-f]{48}$/);
+    expect(Object.isFrozen(lift)).toBe(true);
+  });
+
+  it('the lift map names horsePlayStyles and omahaPreflopReraiseDefencePricedInPosition only, each citing the owner text and its full digest', () => {
+    expect(Object.keys(OPTION_SWITCH_PREFLOP_HOLD_LIFTED)).toEqual([
+      'horsePlayStyles',
+      'omahaPreflopReraiseDefencePricedInPosition',
+    ]);
     const lift = OPTION_SWITCH_PREFLOP_HOLD_LIFTED.horsePlayStyles!;
     expect(lift.source).toContain('2026-11-15 16:42 Chicago');
     expect(lift.source).toContain('MAKE ALL 3 PERSONA');
@@ -41,6 +66,10 @@ describe('the owner preflop range hold lift', () => {
     expect(OPTION_SWITCH_PREFLOP_HELD_NAMES.length).toBeGreaterThanOrEqual(10);
     expect(OPTION_SWITCH_PREFLOP_HELD_NAMES).toContain('holdemPersonaPreflop');
     expect(OPTION_SWITCH_PREFLOP_HELD_NAMES).not.toContain('horsePlayStyles');
+    expect(OPTION_SWITCH_PREFLOP_HELD_NAMES).not.toContain(
+      'omahaPreflopReraiseDefencePricedInPosition'
+    );
+    expect(OPTION_SWITCH_PREFLOP_HELD_NAMES).toContain('omahaPreflopReraiseDefencePriced');
     const registered = new Set(OPTION_SWITCH_REGISTRY.map((e) => e.name));
     for (const name of OPTION_SWITCH_PREFLOP_HELD_NAMES) {
       expect(optionSwitchOffOnly(name)?.source).toBe('owner preflop range hold');
