@@ -75,9 +75,9 @@ SET LOCAL statement_timeout = '60s';
 
 DO $requires$
 BEGIN
-  IF md5(pg_get_functiondef('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'::regprocedure)) <> 'b76daaf8587cca4eeac91ec39e9e7ce3'
-     OR md5(pg_get_functiondef('smarter_private.tournament_rebuy_lane_held(uuid,uuid)'::regprocedure)) <> 'd32dad9b538f214bdeb224e1596d5416'
-     OR md5(pg_get_functiondef('public.fn_ca_lock_tournament_rebuy_acquisition(uuid,uuid,uuid)'::regprocedure)) <> '2ea19582f62ecd683304b1f85f17466c' THEN
+  IF md5(pg_get_functiondef(to_regprocedure('public.fn_ca_lock_settlement_lane_for_tournament(uuid,uuid)'))) IS DISTINCT FROM 'b76daaf8587cca4eeac91ec39e9e7ce3'
+     OR md5(pg_get_functiondef(to_regprocedure('smarter_private.tournament_rebuy_lane_held(uuid,uuid)'))) IS DISTINCT FROM 'd32dad9b538f214bdeb224e1596d5416'
+     OR md5(pg_get_functiondef(to_regprocedure('public.fn_ca_lock_tournament_rebuy_acquisition(uuid,uuid,uuid)'))) IS DISTINCT FROM '2ea19582f62ecd683304b1f85f17466c' THEN
     RAISE EXCEPTION 'bounty rebuy B7: 20261119011750 (lane R2) must be installed first';
   END IF;
 END $requires$;

@@ -3,6 +3,7 @@ import { AVATAR_CROWN_TOP } from '../../../src/components/table/avatarCrownBound
 import {
   NINE_SEAT_PHONE_RAIL_BUST,
   PHONE_AVATAR_MIN_HEIGHT_PX,
+  SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX,
 } from '../../../src/components/table/mobileAvatarSize';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -40,7 +41,11 @@ export async function waitForMobileAvatarGrowth(page: Page) {
                   ? scaler.getBoundingClientRect().width / scaler.offsetWidth
                   : 1;
               const nine = page.dataset.seats === '9';
-              const watching = page.dataset.hero === 'false';
+              // The spectator floor holds only where the spectator size fits
+              // (mobileAvatarSize.ts SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX); a
+              // height-bound phone keeps the six-seat floor, never lower.
+              const tallEnough = innerHeight / ratio >= floors.spectatorMinLayoutHeight;
+              const watching = page.dataset.hero === 'false' && tallEnough;
               const painted = Array.from(
                 page.querySelectorAll<HTMLElement>('.seat:not(.seat--empty) .seat__avatar--bust')
               ).filter((avatar) => avatar.style.getPropertyValue('--sp-mobile-art-scale'));
@@ -74,7 +79,11 @@ export async function waitForMobileAvatarGrowth(page: Page) {
               }
               return short.length ? `below the approved size: ${short.join(' ')}` : 'ok';
             },
-            { ...PHONE_AVATAR_MIN_HEIGHT_PX, nineSeatRailBust: NINE_SEAT_PHONE_RAIL_BUST }
+            {
+              ...PHONE_AVATAR_MIN_HEIGHT_PX,
+              nineSeatRailBust: NINE_SEAT_PHONE_RAIL_BUST,
+              spectatorMinLayoutHeight: SPECTATOR_PHONE_MIN_LAYOUT_HEIGHT_PX,
+            }
           ),
       {
         timeout: 15_000,
