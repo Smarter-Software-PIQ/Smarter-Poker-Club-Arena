@@ -376,6 +376,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaStrategyInPlo6',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
+  // 2026-11-18: read `=== true`, off in source (HorseLogic); measured harm on real hands (OPTION_SWITCH_OFF_ONLY)
+  'omahaReraisedPotFlopContinueNeedsEquityShape',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -562,6 +564,15 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     'PROVISIONAL (raw rows lost with SSD1): Horse-only PLO4 -1.84 bb/100 (SE 0.88, z -2.09), PLO5 -0.83 (SE 0.78), field pooled +0.25 +/- 1.64, with the opponent-kind priors and this correction on together (priced2 config 0, fad0d304ffd)',
     '2026-11-18 priced2 league (priced2-013U37/PASS-BAR.md configuration 0, eval/RUN1-LOST-SSD1.md)'
   ),
+  // 2026-11-18 WooWoo 48-hour audit (lead ruling): measured harm on real hands, switched OFF live at
+  // 2026-11-18T01:42:08Z (switch audit row 69). Off-only until a priced replacement passes its declared evaluation.
+  omahaReraisedPotFlopContinueNeedsEquityShape: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'measured harm on real hands: its rule omaha_reraised_flop_continue_folded took re-raised-pot heads-up flop folds from 9 of 30 to 37 of 69; switching it off removes 15 of 15 of its folds (13 audited wrong or questionable) and breaks 0 audited-correct calls or raises',
+    source:
+      'WooWoo 48-hour audit, 2026-11-18 (repairs/FLOP-DEFENCE/ATTRIBUTION.md; SWITCH-AUDIT.md anomaly 5); switched off live 2026-11-18T01:42:08Z',
+  }),
   omahaPricedMix: ploFailed(
     'Horse-only PLO5 -1.95 bb/100 (SE 0.94, z -2.07), with all nine families on in both arms (before the bluff double-count fix)',
     '2026-11-17 priced-rules finish post (priced-01BNteGZ/eval2/VERDICTS.txt, PASS-BAR-v2.md)'
