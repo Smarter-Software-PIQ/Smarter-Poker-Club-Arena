@@ -11472,50 +11472,26 @@ function omahaFacingBetEvCount(
         }
       );
     let verdict = verdictOf(spot, read);
-    // One river verdict per decision (integration of 2026-11-19). Precedence on a heads-up river
-    // facing a person's first bet: omahaFacingBetValueIsRangeRelative first; omahaPairedBoardRiverIsPriced
-    // only when the value region did not price the spot (off, or outside its spot); whichever of
-    // them prices the spot replaces the bluff-catch pricing of omahaRiverBluffCatchIsPriced, if that ran.
-    // With any one of them alone the decision is the one its own branch gives.
+    // One river verdict per decision (Horse fixes integration, 2026-11-19). On a heads-up river
+    // facing a person's first bet: omahaPairedBoardRiverIsPriced owns the paired-board nut-class spot
+    // and goes first; omahaFacingBetValueIsRangeRelative prices the spot only when the paired-river
+    // verdict is absent (option off, or outside its spot). The verdict of the one that acted keeps its
+    // marker (pairedRiverPriced or valueRange) and replaces the bluff-catch pricing of
+    // omahaRiverBluffCatchIsPriced, if that ran. With any one of them alone the decision is the one
+    // its own branch gives.
     const withoutBluffCatch = <V extends { riverBluffCatch?: unknown }>(v: V): V => {
       if (v.riverBluffCatch === undefined) return v;
       const copy = { ...v };
       delete copy.riverBluffCatch;
       return copy;
     };
-    let rangePriced = false;
-    // omahaFacingBetValueIsRangeRelative (default off): on the river, heads-up against a person's
-    // first bet, his bets are his measured betting range on this board, not a share of all holdings.
-    if (
-      verdict &&
-      valueRangeRelative &&
-      !isTournamentMode(gs) &&
-      omahaOpponentKindOf(
-        gs,
-        (gs.players ?? []).find((p) => p.seat === spot.bettorSeat)?.user_id
-      ) === 'person'
-    ) {
-      const ranged = omahaFacingBetValueRangeOver(
-        spot,
-        verdict,
-        player.cards ?? [],
-        gs.communityCards ?? [],
-        player.knownDeadCards ?? [],
-        gs.actionHistory,
-        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
-      );
-      if (ranged) {
-        verdict = withoutBluffCatch(ranged);
-        rangePriced = true;
-      }
-    }
+    let pairedRiverActed = false;
     // omahaPairedBoardRiverIsPriced (default off): a nut-class straight or flush on a paired river,
     // heads-up against the first bet, is priced on his line-conditioned range.
     // A person's bet only: the river frequencies are measured on people.
     if (
       verdict &&
       pairedRiverPriced &&
-      !rangePriced &&
       !isTournamentMode(gs) &&
       omahaOpponentKindOf(
         gs,
@@ -11533,7 +11509,33 @@ function omahaFacingBetEvCount(
         rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
         player.seat
       );
-      if (priced) verdict = withoutBluffCatch(priced);
+      if (priced) {
+        verdict = withoutBluffCatch(priced);
+        pairedRiverActed = true;
+      }
+    }
+    // omahaFacingBetValueIsRangeRelative (default off): on the river, heads-up against a person's
+    // first bet, his bets are his measured betting range on this board, not a share of all holdings.
+    if (
+      verdict &&
+      valueRangeRelative &&
+      !pairedRiverActed &&
+      !isTournamentMode(gs) &&
+      omahaOpponentKindOf(
+        gs,
+        (gs.players ?? []).find((p) => p.seat === spot.bettorSeat)?.user_id
+      ) === 'person'
+    ) {
+      const ranged = omahaFacingBetValueRangeOver(
+        spot,
+        verdict,
+        player.cards ?? [],
+        gs.communityCards ?? [],
+        player.knownDeadCards ?? [],
+        gs.actionHistory,
+        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+      );
+      if (ranged) verdict = withoutBluffCatch(ranged);
     }
     if (verdict) {
       answer = { spot, verdict };

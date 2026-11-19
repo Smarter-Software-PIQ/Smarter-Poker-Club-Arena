@@ -188,6 +188,9 @@ export interface EvSpot {
    * model fitted on people, in place of mdfFold x foldMul. The card-removal delta still applies on top.
    * Null for an opponent or wager it does not price (that opponent keeps mdfFold). Never read when hero
    * faces a bet. Absent: exactly as before.
+   * omahaFlopBetUsesMeasuredFoldShare (default off; HorseOmahaFlopBetMeasuredFoldShare) supplies the
+   * same field on the flop from his measured fold to a Horse flop bet, only when the people model did
+   * not price the spot (HorseLogic: one fold share per decision).
    */
   foldShareOf?: (opponent: number, potFacing: number, wager: number) => number | null;
   /** PRNG for the mixed strategy */
@@ -202,15 +205,6 @@ export interface EvSpot {
    * every bet is priced fold or call, exactly as before.
    */
   raiseBranch?: (wager: number) => EvRaiseBranch | null;
-  /**
-   * omahaFlopBetUsesMeasuredFoldShare (default off;
-   * HorseOmahaFlopBetMeasuredFoldShare): the fold share of opponent `i` facing
-   * the bet `s` into the pot he sees (`potFacing`), facing no bet, taken from
-   * his measured fold to a Horse flop bet in place of mdfFold x foldMul. The
-   * card-removal delta still applies on top. Null for an opponent or wager it
-   * does not price (that opponent keeps mdfFold). Absent: exactly as before.
-   */
-  foldShareOf?: (opponent: number, potFacing: number, wager: number) => number | null;
 }
 
 /** One wager's raise branch (EvSpot.raiseBranch). */
