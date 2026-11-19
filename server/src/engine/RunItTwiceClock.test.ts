@@ -42,20 +42,35 @@ afterEach(() => {
 });
 
 describe('ten-second RIT decision clock', () => {
-  it.each([2, 3] as const)('holds unanimous %sx consent until ten seconds', (runs) => {
-    host.respondToRIT('b', 'accept');
-    host.respondToRIT('c', 'accept');
-    host.respondToRIT('a', undefined, runs);
-    vi.advanceTimersByTime(9_999);
-    expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(0);
-    expect(complete).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(251);
-    expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(1);
-    expect(complete).toHaveBeenCalledTimes(1);
-    expect(rit.getChosenRuns('clock')).toBe(runs);
-  });
+  it.each([2, 3] as const)(
+    'stops the timer and proceeds immediately on unanimous %sx consent (chooser last)',
+    (runs) => {
+      host.respondToRIT('b', 'accept');
+      host.respondToRIT('c', 'accept');
+      expect(complete).not.toHaveBeenCalled();
+      expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(0);
 
-  it('uses exactly ten seconds even when old configuration says 25', () => {
+      host.respondToRIT('a', undefined, runs);
+      // Immediate: 0ms wait, timer cancelled, rit_chooser_decided precedes rit_all_accepted.
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(rit.getChosenRuns('clock')).toBe(runs);
+      expect(rit.isDecisionPending('clock')).toBe(false);
+      expect(scheduler.persistPending('clock').some((d) => d.eventId === 'rit_offer')).toBe(false);
+      expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(1);
+      const decidedIdx = wire.findIndex((e) => e.type === 'rit_chooser_decided');
+      const acceptedIdx = wire.findIndex((e) => e.type === 'rit_all_accepted');
+      expect(decidedIdx).toBeGreaterThanOrEqual(0);
+      expect(decidedIdx).toBeLessThan(acceptedIdx);
+
+      // Passing the original 10s deadline must not double-emit or double-complete.
+      vi.advanceTimersByTime(15_000);
+      expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(1);
+      expect(wire.filter((e) => e.type === 'rit_single_run')).toHaveLength(0);
+      expect(complete).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('uses exactly ten seconds when players do not finish deciding, even when old config says 25', () => {
     expect(rit.offerTimeoutSeconds('clock')).toBe(10);
     vi.advanceTimersByTime(9_999);
     expect(rit.getState('clock')?.status).toBe('offered');
@@ -66,34 +81,51 @@ describe('ten-second RIT decision clock', () => {
     expect(wire.filter((e) => e.type === 'rit_single_run')).toHaveLength(1);
   });
 
-  it.each(['decline', 'once'] as const)('allows an explicit %s to end early', (decision) => {
-    vi.advanceTimersByTime(2_000);
-    if (decision === 'decline') host.respondToRIT('c', 'decline');
-    else host.respondToRIT('a', undefined, 1);
-    vi.advanceTimersByTime(250);
-    expect(complete).toHaveBeenCalledTimes(1);
-    expect(rit.getChosenRuns('clock')).toBe(1);
-    vi.advanceTimersByTime(10_000);
-    expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(0);
-    expect(complete).toHaveBeenCalledTimes(1);
-  });
+  it.each(['decline', 'once'] as const)(
+    'stops the timer and proceeds immediately on explicit %s',
+    (decision) => {
+      vi.advanceTimersByTime(2_000);
+      if (decision === 'decline') host.respondToRIT('c', 'decline');
+      else host.respondToRIT('a', undefined, 1);
+      // Immediate: 0ms wait, no waiting for the 250ms poll or 10s deadline.
+      expect(complete).toHaveBeenCalledTimes(1);
+      expect(rit.getChosenRuns('clock')).toBe(1);
+      expect(rit.isDecisionPending('clock')).toBe(false);
+      expect(scheduler.persistPending('clock').some((d) => d.eventId === 'rit_offer')).toBe(false);
+      expect(wire.filter((e) => e.type === 'rit_single_run')).toHaveLength(1);
 
-  it('does not shorten the window when the chooser is first', () => {
+      vi.advanceTimersByTime(15_000);
+      expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(0);
+      expect(wire.filter((e) => e.type === 'rit_single_run')).toHaveLength(1);
+      expect(complete).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('stops the timer and proceeds immediately when the chooser is first and last responder accepts', () => {
     host.respondToRIT('a', undefined, 3);
-    vi.advanceTimersByTime(5_000);
+    vi.advanceTimersByTime(2_000);
     host.respondToRIT('b', 'accept');
-    host.respondToRIT('c', 'accept');
-    vi.advanceTimersByTime(4_999);
     expect(complete).not.toHaveBeenCalled();
     expect(wire.some((e) => e.type === 'rit_all_accepted')).toBe(false);
-    vi.advanceTimersByTime(251);
+
+    host.respondToRIT('c', 'accept');
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(rit.getChosenRuns('clock')).toBe(3);
+    expect(scheduler.persistPending('clock').some((d) => d.eventId === 'rit_offer')).toBe(false);
+    expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(1);
+    const updateIdx = wire.map((e) => e.type).lastIndexOf('rit_response_update');
+    const acceptedIdx = wire.findIndex((e) => e.type === 'rit_all_accepted');
+    expect(updateIdx).toBeGreaterThanOrEqual(0);
+    expect(updateIdx).toBeLessThan(acceptedIdx);
+
+    vi.advanceTimersByTime(15_000);
+    expect(wire.filter((e) => e.type === 'rit_all_accepted')).toHaveLength(1);
     expect(complete).toHaveBeenCalledTimes(1);
   });
 
-  it('a paused unanimous offer keeps its remaining decision time', () => {
+  it('a paused pending offer keeps its remaining decision time', () => {
     host.respondToRIT('a', undefined, 2);
     host.respondToRIT('b', 'accept');
-    host.respondToRIT('c', 'accept');
     vi.advanceTimersByTime(2_000);
     rit.pauseForWeeklyPayout('clock', 'owner');
     vi.advanceTimersByTime(20_000);
