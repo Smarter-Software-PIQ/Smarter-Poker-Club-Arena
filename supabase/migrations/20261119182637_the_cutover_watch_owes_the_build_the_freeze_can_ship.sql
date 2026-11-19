@@ -31,6 +31,8 @@
 -- 679981e63a1a85b011177e8eb45f8571 at authoring); the anchor must match once.
 -- Pinned by tests/the-four-am-build-is-certified-against-the-frozen-copy.law.test.ts.
 --
+-- @live-proof: strpos(pg_get_functiondef('public.fn_ca_engine_cutover_watch(timestamp with time zone)'::regprocedure), 'interval ''-45 minutes'') AT TIME ZONE c_tz') > 0
+--
 -- @probe-exempt: public.fn_ca_engine_cutover_watch the watch calls GitHub and engine.smarter.poker over extensions.http, which a probe must not do from an install transaction; its 5-minute cron runs it right after install
 
 BEGIN;
