@@ -577,15 +577,18 @@ function sampledResized(
  * flop or turn, facing a wager, one or two opponents, none all in), and only for the exact chips of
  * one of the sizes the comparison prices there (omahaPricedSampledCandidates, public state alone):
  * an all-in where the Horse's whole stack is one of them, a raise to exactly one of the others.
+ * `inLightning`: the decision's own omahaPricedInLightning (the receipt context's gate), as for
+ * omahaPricedAdmitsRaiseToCall; absent or false, Lightning is outside as before.
  */
 export function omahaPricedSampledAdmitsResize(
   player: SeatPlayer,
   gs: HorseGameStateV2,
   action: string,
-  amount: number | null | undefined
+  amount: number | null | undefined,
+  inLightning = false
 ): boolean {
   try {
-    if (!omahaPricedInScope(player, gs)) return false;
+    if (!omahaPricedInScope(player, gs, { omahaPricedInLightning: inLightning })) return false;
     const spot = sampledSpot(player, gs);
     if (!spot) return false;
     const heroAll = num(player.bet) + num(player.stack);
@@ -958,7 +961,7 @@ export function omahaPricedPressureWithheld(
  * whose pressure raise the sampled comparison admitted: `admitted` is the caller's own record of
  * THIS decision (HorseLogic's per-decision memo, set by the brain where it priced the pressure
  * raise, bound to the state object of the decision and cleared when the decision starts and when
- * it ends). This module holds no state. A draw the bar names is left to
+ * it ends). This module holds no decision state. A draw the bar names is left to
  * omahaPricedDrawRaiseRule where that rule owns it (it prices and sizes the same way). The raise is
  * priced again here: where it is no longer priced above the call, or the size given is already the
  * size of highest value, the decision is returned as given. Receipt:
@@ -976,7 +979,10 @@ export function omahaPricedPressureRaiseSized(
     return decision;
   if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
   try {
-    if (!omahaPricedInScope(player, gs)) return decision;
+    // The scope of the pricing that admitted the raise (omahaPricedPressureWithheld reads the same opts):
+    // Lightning only with the decision's own omahaPricedInLightning. The scope receipt is the admission's.
+    if (!omahaPricedInScope(player, gs, { omahaPricedInLightning: omahaPricedInLightningOn(opts) }))
+      return decision;
     const spot = sampledSpot(player, gs);
     if (!spot) return decision;
     if (

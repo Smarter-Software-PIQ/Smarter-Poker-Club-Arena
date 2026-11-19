@@ -775,6 +775,41 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
       else expect(owned.fires).toContain('omaha_priced_pressure_raise_resized');
     }
   );
+  it('in a Lightning pool the pressure raise is sized, and its size admitted, only with omahaPricedInLightning', () => {
+    const lightning = (st: ReturnType<typeof pricedSpot>) => {
+      (st.gs as unknown as { publicMemoryDomain: object }).publicMemoryDomain = {
+        version: 1,
+        speed: 'lightning',
+        ante: 'bb',
+      };
+      return st;
+    };
+    const table = pricedSpot({ hole: 'QsQd7c4c2s', board: BOARD, potBefore: 50, bet: 50 });
+    const atTable = sized(table, minRaise(table), true);
+    expect(atTable.fires).toContain('omaha_priced_pressure_raise_resized');
+    const st = lightning(pricedSpot({ hole: 'QsQd7c4c2s', board: BOARD, potBefore: 50, bet: 50 }));
+    const d = minRaise(st);
+    // the scope option off, unset or not exactly true: Lightning is outside the priced scope, as before
+    for (const off of [
+      PRESS,
+      { ...PRESS, omahaPricedInLightning: false },
+      { ...PRESS, omahaPricedInLightning: 1 },
+    ] as HorseDecideOpts[])
+      expect(sized(st, d, true, off).out).toBe(d);
+    expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', atTable.out.amount)).toBe(false);
+    expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', atTable.out.amount, false)).toBe(
+      false
+    );
+    // on: the same size as at a table, and the receipt admission follows the same gate
+    const on = sized(st, d, true, { ...PRESS, omahaPricedInLightning: true } as HorseDecideOpts);
+    expect(on.fires).toContain('omaha_priced_pressure_raise_resized');
+    expect([on.out.action, on.out.amount]).toEqual([atTable.out.action, atTable.out.amount]);
+    expect(omahaPricedSampledAdmitsResize(st.hero, st.gs, 'raise', on.out.amount, true)).toBe(true);
+    // the gate opens nothing at a table
+    expect(omahaPricedSampledAdmitsResize(table.hero, table.gs, 'raise', on.out.amount, true)).toBe(
+      omahaPricedSampledAdmitsResize(table.hero, table.gs, 'raise', on.out.amount)
+    );
+  });
   it('N1: a pressure raise the price withholds, or priced with the size option off, tells the caller nothing', () => {
     const air = pricedSpot({ hole: '2c3c7s8sKc', board: BOARD, potBefore: 100, bet: 20 });
     const told: { sampledAtPrice?: boolean } = {};
@@ -866,6 +901,20 @@ describe('review notes (REVIEW-7339ae3f40e N1, N2, N4 to N9)', () => {
       })
     ).toBeNull();
     // nothing of the decision is held once it has answered
+    expect(omahaDecisionMemosHeld()).toEqual([]);
+    // review note C2: the SAME state object decided a second time, its pressure raise not priced (mind off),
+    // inherits nothing from the decision just made on it
+    enableBrainTelemetry();
+    drainFires();
+    seedFastRandom(seed);
+    HorseLogic.decide(on.now.hero, on.now.gs, LIVE.style, LIVE.mods, {
+      observeMind: false,
+      decisionTimeMs: 1794938400000,
+      telemetry: true,
+      ...WHOLE,
+      mind: false,
+    } as never);
+    expect(drainFires().map((f) => f.feature)).not.toContain('omaha_priced_pressure_raise_resized');
     expect(omahaDecisionMemosHeld()).toEqual([]);
     // the same decision again answers the same
     expect(wholeBytes(whole(st, WHOLE, seed).d)).toBe(wholeBytes(on.d));

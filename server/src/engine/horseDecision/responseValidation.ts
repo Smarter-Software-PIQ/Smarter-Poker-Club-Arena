@@ -1656,7 +1656,8 @@ function policyGraphIsValidInScope(
         context.player,
         context.gameState,
         transition.after.action,
-        transition.after.amount
+        transition.after.amount,
+        context.omahaPricedInLightning === true
       );
     // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
     // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
