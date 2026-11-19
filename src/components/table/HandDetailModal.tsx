@@ -1189,15 +1189,18 @@ export function HandDetailModal({
               type="button"
               aria-label="Copy Link To This Hand"
               onClick={() => {
-                const link = sendableHandLink(hand);
-                if (!link) return;
                 setShareStatus(null);
-                // Counted as sent only once the sheet sent it or the copy
-                // happened; a dismissed sheet or a refused copy sends nothing.
-                const short = link === shortLink.url;
-                void sendLink(hand, link).then((sent) => {
-                  if (sent && short) shortLink.markSent();
-                });
+                void (async () => {
+                  // A short link still being made is waited for, never
+                  // replaced by the long one (Dan 2026-11-18).
+                  const made = shortLink.pending ? await shortLink.ready() : shortLink.url;
+                  const link = made ?? sendableHandLink(hand);
+                  if (!link) return;
+                  // Counted as sent only once the sheet sent it or the copy
+                  // happened; a dismissed sheet or a refused copy sends nothing.
+                  const sent = await sendLink(hand, link);
+                  if (sent && made) shortLink.markSent();
+                })();
               }}
             >
               {copied === 'link' ? 'Copied' : copied === 'sent' ? 'Sent' : 'Link'}
