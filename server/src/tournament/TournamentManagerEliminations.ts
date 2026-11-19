@@ -58,6 +58,22 @@ import {
 } from './terminalSettlementRpc.js';
 import type { VerifiedSatelliteSettlementReceipt } from './satelliteSettlementReceipt.js';
 import type { VerifiedSatelliteQualifierReceipt } from './satelliteQualifierReceipt.js';
+
+/**
+ * A tournament chip purchase refused before it wrote anything, because a lock
+ * it needed was busy (55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY: the player's keys,
+ * or a bounty settle past its 500 ms bound, 20261119013430). The same request
+ * is idempotent, so the caller may send it again.
+ */
+export function isTournamentPurchasePlayerBusy(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
+  return (
+    !!error &&
+    error.code === '55P03' &&
+    String(error.message ?? '').includes('TOURNAMENT_PURCHASE_PLAYER_BUSY')
+  );
+}
 import {
   resolveOriginalSatelliteQualifierOutcome,
   readSatelliteQualifierState,
@@ -2790,6 +2806,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   static readonly HORSE_REBUY_INPUT_RETRY_MS = 2_000;
   static readonly HORSE_REBUY_INPUT_MAX_PASSES = 16;
   static readonly HORSE_REBUY_INPUT_CONCURRENCY = 4;
+  /** In-place retries of a purchase refused 55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY. */
+  static readonly HORSE_REBUY_BUSY_RETRIES = 3;
 
   protected override horseRebuyOfferMayHaveOpened(): void {
     this.answerHorseRebuyOffersNow(0);
@@ -3229,7 +3247,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               }
               startedAtMs = Date.now();
               diagnostic('purchase_started', undefined, startedAtMs);
-              const { data, error } = await supabase.rpc('process_tournament_rebuy', {
+              const request = {
                 p_tournament_id: this.tournamentId,
                 p_user_id: h.id,
                 p_rebuy_type: recoveryType,
@@ -3238,7 +3256,29 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 p_cost: null,
                 p_chips: null,
                 p_current_level: this.currentLevel,
-              });
+              };
+              let { data, error } = await supabase.rpc('process_tournament_rebuy', request);
+              // 20261119013430: a purchase whose bounty settle waited over its
+              // 500 ms lock bound (or whose player keys were busy) is refused
+              // with 55P03 TOURNAMENT_PURCHASE_PLAYER_BUSY before anything is
+              // written. It is the same idempotent request, so retry it in place,
+              // bounded, inside the decision window.
+              for (
+                let attempt = 1;
+                attempt <= TournamentManagerEliminations.HORSE_REBUY_BUSY_RETRIES &&
+                isTournamentPurchasePlayerBusy(error) &&
+                mayMutate() &&
+                !isMaintenanceFrozen() &&
+                !(
+                  timing?.promptUntilMs !== null &&
+                  timing?.promptUntilMs !== undefined &&
+                  Date.now() >= timing.promptUntilMs
+                );
+                attempt++
+              ) {
+                await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
+                ({ data, error } = await supabase.rpc('process_tournament_rebuy', request));
+              }
               diagnostic(
                 error || (data as { success?: boolean } | null)?.success !== true
                   ? 'purchase_unproven'
@@ -3724,7 +3764,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     ]);
   }
 
-  private bustGuardPrefetchMap?: Map<string, ReturnType<TournamentManagerEliminations['readBustGuard']>>;
+  private bustGuardPrefetchMap?: Map<
+    string,
+    ReturnType<TournamentManagerEliminations['readBustGuard']>
+  >;
   protected get bustGuardPrefetch() {
     return (this.bustGuardPrefetchMap ??= new Map());
   }
