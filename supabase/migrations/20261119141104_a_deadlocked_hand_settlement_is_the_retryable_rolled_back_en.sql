@@ -64,6 +64,8 @@
 --
 -- @live-proof: position('HAND_SETTLEMENT_TRANSIENT_INNER_REFUSAL' IN pg_get_functiondef('public.fn_ca_commit_hand_settlement_before_lease_generation(uuid,bigint,jsonb,numeric,numeric,text,numeric,jsonb,jsonb)'::regprocedure))>0
 
+-- @stale-pin-ok: b49192e78f472d7a931bcf20de46a702 smarter_private.original_hand_correction_sources_match() already returns false on production (read 2026-11-19), so its one-time door is closed and nothing changes there
+
 BEGIN;
 
 SET LOCAL lock_timeout = '3s';
@@ -105,5 +107,29 @@ BEGIN
   EXECUTE replace(v_def, v_old, v_new);
 END
 $migration$;
+
+-- The rewritten body runs once before COMMIT. A random table id passes payload
+-- validation, hashes the request, takes only shared/advisory locks on keys no
+-- hand uses, finds no prior receipt and returns table_not_found before any live
+-- row is read for update, so plpgsql compiles the whole new body here and a
+-- broken edit rolls the migration back. The changed branch itself is proved
+-- natively by scripts/ci/test-a-deadlocked-hand-settlement-is-retried.sh.
+-- @probe-for: public.fn_ca_commit_hand_settlement_before_lease_generation
+DO $probe$
+DECLARE v_t uuid := gen_random_uuid(); v_r jsonb;
+BEGIN
+  v_r := public.fn_ca_commit_hand_settlement_before_lease_generation(
+    v_t, 1000000,
+    jsonb_build_array(jsonb_build_object('user_id', gen_random_uuid(), 'stack', 0, 'stack_before', 0)),
+    0, 0, 'migration-probe', 0,
+    jsonb_build_object('table_id', v_t, 'hand_number', '1000000'),
+    '[]'::jsonb);
+  IF v_r->>'reason' IS DISTINCT FROM 'table_not_found' THEN
+    RAISE EXCEPTION 'probe expected table_not_found, got %', v_r USING ERRCODE = 'P0001';
+  END IF;
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
 
 COMMIT;
