@@ -361,7 +361,10 @@ describe('the wiring and the migration agree with the engine', () => {
     );
     expect(runtime).not.toContain('this.styleSwitch.current()');
     const lane = read('lane.ts');
-    expect(lane).toContain('read: options.styleSwitchRead ?? readStyleSwitchFromDatabase');
+    // the read is the same; the option registry publish rides the same tick (optionRegistryPublisher.ts)
+    expect(lane).toContain(
+      'const switchRead = options.styleSwitchRead ?? readStyleSwitchFromDatabase;'
+    );
     expect(lane).toContain('broadcast: (message) => singleton?.broadcastStyleSwitch(message)');
     expect(lane).toContain('styleSwitchDelivery?.stop();');
   });

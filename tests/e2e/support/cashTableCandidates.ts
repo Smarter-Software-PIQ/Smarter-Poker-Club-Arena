@@ -47,6 +47,27 @@ export function collectVisibleCashCandidates(cards: Element[], actionPattern: st
     .map(({ id, name, players, capacityHint }) => ({ id, name, players, capacityHint }));
 }
 
+/** A LAYOUT PROOF REACHES A FULL-RING TABLE (2026-11-19). The selector kept
+ * the first three busiest tables per tab, and the fixture club ran 17 occupied
+ * six-seat tables to 3 nine-seat ones, so the 6+9 layout proof failed on
+ * "Both occupied table layouts require live screenshot proof" while nine-seat
+ * tables were dealing. A candidate whose capacity a proof still needs is
+ * admitted past the per-tab limit until each required capacity has one. */
+export function admitsForCoverage(
+  selectedHints: ReadonlySet<string>,
+  capacityHint: string | undefined,
+  cover: readonly string[] | undefined
+): boolean {
+  return !!capacityHint && !!cover?.includes(capacityHint) && !selectedHints.has(capacityHint);
+}
+
+export function coverageComplete(
+  selectedHints: ReadonlySet<string>,
+  cover: readonly string[] | undefined
+): boolean {
+  return !cover || cover.every((hint) => selectedHints.has(hint));
+}
+
 /** Hints order attempts only. A cluster can show an aggregate capacity, and
  * only the opened table can establish which layout was actually verified. */
 export function takeNextLayoutCandidate<T extends { candidate: { capacityHint?: string } }>(
