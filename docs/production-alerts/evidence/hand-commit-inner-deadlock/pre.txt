@@ -1,0 +1,1 @@
+pre 40P01: {"error": "deadlock detected", "reason": "rolled_back", "success": false, "sqlstate": "40P01", "table_id": "11111111-1111-1111-1111-111111111111", "hand_number": 2000001, "atomic_hand_commit": false}
