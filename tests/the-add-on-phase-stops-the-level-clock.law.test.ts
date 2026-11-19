@@ -115,6 +115,26 @@ describe('the add-on phase stops the level clock a player reads', () => {
     expect(remaining(resumed, t0 + 33.5 * MIN)).toBe(5 * 60);
   });
 
+  it('a maintenance thaw stretching addon_period_ends_at past a minute does not trap non-early add-ons in drain', () => {
+    const stretched = minutesEvent({
+      addon_from_start: false,
+      addon_period_started_at: iso(t0 + 31.5 * MIN),
+      addon_period_ends_at: iso(t0 + 34.5 * MIN),
+    });
+    expect(addOnClockHold(stretched, t0 + 33 * MIN).phase).toBe('minute');
+    expect(remaining(stretched, t0 + 33 * MIN)).toBe(6 * 60);
+    expect(addOnClockHold(stretched, t0 + 34.5 * MIN + 2000).phase).toBe('releasing');
+    expect(addOnClockHold(stretched, t0 + 34.5 * MIN + 11_000).phase).toBe('none');
+
+    // Legacy early offer (addon_from_start: true) spanning > 1 min still drains at the boundary.
+    const early = minutesEvent({
+      addon_from_start: true,
+      addon_period_started_at: iso(t0),
+      addon_period_ends_at: iso(t0 + 30 * MIN),
+    });
+    expect(addOnClockHold(early, t0 + 30.5 * MIN).phase).toBe('drain');
+  });
+
   it('a row never re-read is trusted again after the grace, not held for ever', () => {
     const held = minutesEvent({
       addon_period_started_at: iso(t0 + 31.5 * MIN),

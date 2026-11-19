@@ -13,6 +13,10 @@ import {
   type LobbyTournamentRow,
 } from '../../src/components/lobby/lobbyEntries';
 import { tournamentClockLine } from '../../src/components/lobby/LobbyTable';
+import {
+  noteMaintenanceClock,
+  resetMaintenanceLevelClockForTests,
+} from '../../src/utils/maintenanceLevelClock';
 
 /*
  * Dan 2026-11-06: "FIX IT SO IT ALWAYS SHOWS THE COUNT DOWN", then "FULLY
@@ -166,6 +170,34 @@ describe('lateRegCountdown - ordinary events and the daily freeze', () => {
     expect(lateRegCountdown(row, at('2026-11-07T09:40:00Z'))!.endMs).toBe(
       at('2026-11-07T10:40:00Z')
     );
+  });
+
+  it('keeps the 04:00 Chicago freeze counted while the maintenance freeze is in progress', () => {
+    const row = nightly({
+      add_on_available: false,
+      late_reg_mins: 0,
+      synchronized_breaks: false,
+      late_reg_levels: 6,
+      current_level: 0,
+      started_at: '2026-11-07T09:30:00Z',
+      level_started_at: '2026-11-07T09:35:00Z',
+    });
+    const freezeStart = at('2026-11-07T10:00:00Z');
+    const midFreeze = at('2026-11-07T10:02:00Z');
+    try {
+      noteMaintenanceClock(
+        {
+          active: true,
+          phase: 'counting_down',
+          breakStartedAtMs: freezeStart,
+          breakId: freezeStart - 2 * 60_000,
+        },
+        midFreeze
+      );
+      expect(lateRegCountdown(row, midFreeze)!.endMs).toBe(at('2026-11-07T10:40:00Z'));
+    } finally {
+      resetMaintenanceLevelClockForTests();
+    }
   });
 
   it('follows Chicago daylight time for the freeze (04:00 CDT is 09:00 UTC)', () => {

@@ -494,7 +494,25 @@ fi
 # the core count costs minutes; a refused run costs the whole gate again. This
 # only delays the push: the hook and every check it runs are unchanged, and
 # after AGENT_PUSH_LOAD_WAIT_SECONDS (default 900, 0 disables) it pushes anyway.
-if [ "$(uname -s)" = Darwin ]; then
+#
+# ONLY A HEAVY LOCAL STAGE IS WORTH WAITING FOR (Dan, 2026-11-19 12:54
+# Chicago: "EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER
+# VERIFICATIONS"). The hook starts the engine project only for a push that
+# changes an engine, database or dependency-manifest path; every other push
+# runs static guards and a handful of directly related tests, so holding it
+# for up to fifteen minutes bought nothing. CA_HEAVY_PATHS is the same
+# expression the hook uses. A diff that cannot be read counts as heavy.
+CA_HEAVY_PATHS='^(server/|supabase/|package(-lock)?\.json$)'
+heavy_local_stage() {
+  local base changed
+  base=$(git merge-base HEAD "refs/remotes/$REMOTE/main" 2>/dev/null) || return 0
+  [ -n "$base" ] || return 0
+  changed=$(git diff --name-only "$base" HEAD 2>/dev/null) || return 0
+  printf '%s\n' "$changed" | grep -qE "$CA_HEAVY_PATHS"
+}
+if [ "$(uname -s)" = Darwin ] && ! heavy_local_stage; then
+  say "not waiting on the Mac's load: this push changes no engine, database or dependency-manifest path, so the hook runs static guards and directly related tests only"
+elif [ "$(uname -s)" = Darwin ]; then
   cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
   budget=${AGENT_PUSH_LOAD_WAIT_SECONDS:-900}
   waited=0
