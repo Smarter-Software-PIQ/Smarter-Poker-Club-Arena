@@ -1257,7 +1257,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // Moved 2026-11-11 (job-token boundary): `changes` no longer holds
       // actions: write; the cancel moved to retire_superseded, which runs only
       // default-branch code on same-repository pull requests.
-      changes: 'b9a459646b7051a1c001fba30bec0ff866ad563fe460961052a13e369b2d56cf',
+      // Moved 2026-11-19 (native qualification image): `changes` publishes native_image.
+      changes: 'e311bf4f2f20a76ff2a46fa31c51a0f140a0ccadac76394d7ae62070f74d17e6',
       retire_superseded: 'fa5219bebe82fd707e0a7f21dac8b96902727de56d63f864986b252a0720425b',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
       stub_gate: '118f1b051bd24a3616cea41a6892985553c577d67f9cb39b2120f3d5a74391ca',
@@ -1271,13 +1272,18 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
       accounting_postgres: 'f2cde001f3fe6542ceb807b51c0fce3d65f26610fdc43a8234a995f9bda29620',
       server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
-      server: '2f21fe942c1e2397520fe372a5b46b95e252bc6276e017f95013a2a24a62d9c1',
+      // Added 2026-11-19: builds native qualification image when its inputs change.
+      native_qualification_image:
+        'bfa42b6b249314ab3191e5a4c8b5bc09ed3da27edbfdd25cf0669bc71a453c9a',
+      // Moved 2026-11-19: `server` also requires native_qualification_image.
+      server: '9bf2f5c85eea2ea8609a857f7ea7f33cedeb035f076b1768a36e64f9abd71c14',
       verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',
-      build: '5d384174da91ace2f98e73648c13fe44208e7cf8d02d79b7e875e5eef458b4b3',
-      'live-e2e': 'fae9db0fd7b5ad3a502a34981574aa5ac43c01d763d2a0c518a7d98572ae796d',
+      // Moved 2026-11-19: browser installs route through scripts/ci/ubuntu-apt.sh.
+      build: 'cd42cbbec5d4b57b11fda5105aca130d731e138742bff8601d30414595e38dba',
+      'live-e2e': 'd54d3d14d52059d1ee3d29dfdc2c15de31410e64ac7ca7dae892157625b1e48d',
       'post-deploy-check': '86936192ff526aab46d57a6e263e27475c3e60da754b0f04f4948ec40b8b4fcd',
-      'css-beats-e2e': '3e68cd87692edbdbd19e4700fadd4841af06bc04b59ed970d72420c0e50e802f',
-      'diamond-playfield-e2e': '42e350a9ed24cccd9539ca47631848f9022b027839632712c71070531802957e',
+      'css-beats-e2e': '41b6f7eb3e542e0c401182a0014d8b5b7e684805ced5ca506bb0f19bf9ffc03a',
+      'diamond-playfield-e2e': 'ed5aed5f3b2f83c8c98beb4860b8554ccc2494cce17bb9bed8e7e7f4a3651607',
       'css-beats-gate': '79747df21d67d09db6eaee0451c2e2cb8befbfdac82fc45c497760bb4d8521f2',
     };
     expect(Object.keys(normalized.jobs)).toEqual(Object.keys(expectedJobs));
@@ -1683,6 +1689,23 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // tests/the-postgres-signing-key-comes-from-the-checkout.law.test.ts).
     // Normalize exactly that one line back to the reviewed download; every
     // other byte of the workflow stays fingerprinted.
+    // The one shared Ubuntu apt entry point (2026-11-19): normalize its single
+    // line back to the reviewed inline apt-get install so every other byte of
+    // the workflow stays fingerprinted.
+    const sharedAptInstall =
+      '  bash scripts/ci/ubuntu-apt.sh install build-essential bison flex pkg-config curl libssl-dev';
+    const sharedAptSteps = normalized.jobs['native-smoke'].steps.filter((step: { run?: string }) =>
+      step.run?.includes(sharedAptInstall)
+    );
+    expect(sharedAptSteps).toHaveLength(1);
+    sharedAptSteps[0].run = sharedAptSteps[0].run.replace(
+      sharedAptInstall,
+      [
+        '  sudo python3 scripts/ci/ubuntu-apt-mirror.py',
+        '  sudo apt-get update',
+        '  sudo apt-get install -y --no-install-recommends build-essential bison flex pkg-config curl libssl-dev',
+      ].join('\n')
+    );
     // The one shared installer (2026-11-07): normalize its two lines back to
     // the reviewed inline install before the key normalization below.
     const nativeShared = [

@@ -713,11 +713,12 @@ describe('Phase 4 remediation: it proves what it says, and says nothing CI does 
     expect(SERVER).toMatch(/^ {4}if: always\(\)$/m);
     expect(SERVER).toContain('ACCOUNTING_RESULT: ${{ needs.accounting_postgres.result }}');
     expect(SERVER, 'the gate no longer fails on a bad accounting result').toContain('exit 1');
-    // The header quotes the needs list verbatim; the quotation is compared with
-    // what the workflow actually says, so the header cannot rot.
+    // The header quotes the historical needs list; every job it claims must
+    // still be in server's needs list (adding further gates like
+    // native_qualification_image strengthens server without weakening the claim).
     const claimed = SQL.match(/`needs: \[([^\]]*)\]`/)?.[1];
     expect(claimed, 'the header no longer quotes the needs list it is arguing from').toBeTruthy();
-    expect((claimed ?? '').split(',').map((s) => s.trim())).toEqual(needs);
+    expect(needs).toEqual(expect.arrayContaining((claimed ?? '').split(',').map((s) => s.trim())));
     expect(SQL).toContain('.github/workflows/ci.yml');
     expect(SQL).toContain('Server Engine (typecheck + tests)');
   });
