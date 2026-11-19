@@ -4402,6 +4402,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaEvFoldModel: true },
     b: { omahaEvFoldModel: false },
   })),
+  // OMAHA EV FOLD MODEL, HEADS-UP POT (2026-11-19, lane HU-OMAHA; HorseMind
+  // OMAHA_EV_FOLD_MODEL_HEADS_UP, default OFF): a flop or turn EV bet into one
+  // opponent is priced on the heads-up cell. Both arms carry production's live
+  // Omaha set (the pooled model on), a adds the option.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_ev_fold_model_heads_up`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true, omahaEvFoldModelHeadsUp: true },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaEvFoldModel: true },
+  })),
   // No tournament card: the model is cash only (tournament Omaha players fold
   // about MDF), so a tournament table is inert by construction (0 of 12,000
   // plo4 40bb tournament pairs diverged).

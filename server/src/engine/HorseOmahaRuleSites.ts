@@ -542,6 +542,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaTightOpponent: outside('a read response, preflop'),
   omahaTightOpponentSteal: outside(PREFLOP),
   omahaEvFoldModel: outside('a model switch'),
+  omahaEvFoldModelHeadsUp: priced(
+    'the EV bet engine fold multiplier of one opponent heads-up: the measured heads-up fold share over MDF scaled by his shrunk fold to a bet on the street (default OFF)'
+  ),
   omahaStrategyInTournaments: outside('a scope gate (tournaments)'),
   omahaTournamentsExcludeCategoricalRules: outside(
     'a scope gate (tournaments): with it on the categorical rules here stay cash-only'

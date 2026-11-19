@@ -2281,6 +2281,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha threshold calibration'
   ),
   flag(
+    'omahaEvFoldModelHeadsUp',
+    "HU-OMAHA lane 2026-11-19 (rebuild of the intent of 2301473c493, Heads Up / Hand Analysis chats: Omaha EV fold variants for heads-up; owner 2026-11-17: no blanket rule, every decision from ranges, equity, price and EV): with omahaEvFoldModel on, at a PLO4 / PLO5 cash table, one board, no bomb pot, a flop or turn bet the EV bet engine prices into exactly ONE opponent uses the heads-up cell (HorseMind OMAHA_EV_FOLD_MODEL_HEADS_UP) instead of the pooled cell: people answering a Horse's first flop or turn bet heads-up folded at about MDF (fold over MDF PLO4 flop 0.968 n 1,127, turn 0.960 n 777; PLO5 flop 0.954 n 860, turn 0.969 n 623; 2026-11-04..2026-11-18, the FOLD-MODEL lane's extract), while the pooled 1.289 / 1.458 is carried by multiway answers. The opponent's fold is his measured fold to a bet on that street (the street record) or else his postflop fold-to-bet counters, shrunk toward the heads-up person population with 16 pseudo-observations; a cell below 300 person answers falls back to the variant's pooled heads-up cell. Nothing is keyed to a hand class, a bet size or an account. Default OFF (opt-in, read === true) until its declared evaluation passes; off, byte-identical; league cards plo4/plo5 _omaha_ev_fold_model_heads_up",
+    'Omaha threshold calibration'
+  ),
+  flag(
     'omahaNeutralUnknown',
     '2026-11-13 owner directive: an unknown Omaha opponent receives a neutral, explicitly uncertain read; the shared aggressive raise presumption (presumedAggressorRead) is skipped and only the opponent own measured read applies. Default off until its league comparison is accepted.',
     'Omaha neutral unknown'
@@ -8189,6 +8194,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_ev_fold_model_priced',
     'HorseMind.omahaEvFoldMulOf (omahaEvFoldModel)',
     'the Omaha EV fold model priced one opponent fold for the EV bet engine at a PLO4, PLO5 or PLO6 cash table (one count per opponent priced)',
+    'Omaha threshold calibration'
+  ),
+  // Zero in production by design: omahaEvFoldModelHeadsUp is default off, so a fire means the option was turned on.
+  receipt(
+    'omaha_ev_fold_model_heads_up_priced',
+    'HorseMind.omahaEvFoldMulOf (omahaEvFoldModelHeadsUp)',
+    'the heads-up cell of the Omaha EV fold model priced the one opponent of a PLO4 or PLO5 cash flop or turn EV bet (one count per opponent priced)',
     'Omaha threshold calibration'
   ),
   // Zero in production by design: readBreakEvenBluff is default off, so a fire means the flag was turned on.

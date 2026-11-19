@@ -5189,6 +5189,13 @@ export interface HorseDecideOpts {
    *  OMAHA_EV_FOLD_MODEL where people's answers are thin, scaled by his own read relative to people), in
    *  place of mdfFold x foldMul (OMAHA_EV_FOLD_MODEL was fitted with Horses pooled in). Default off. */
   omahaFoldModelFittedOnPeople?: boolean;
+  /** OMAHA EV FOLD MODEL, HEADS-UP POT (2026-11-19, lane HU-OMAHA; rebuild of the intent of 2301473c493): with
+   *  omahaEvFoldModel on, at a PLO4 / PLO5 cash table, one board, no bomb pot, a flop or turn bet the EV bet engine
+   *  prices into exactly ONE opponent uses the heads-up cell (HorseMind OMAHA_EV_FOLD_MODEL_HEADS_UP: people facing
+   *  a Horse bet heads-up fold about MDF, foldOverMdf 0.95-0.97, not the pooled 1.29 / 1.46 that multiway answers
+   *  carry) scaled by his fold to a bet on that street, shrunk toward the heads-up person population. Default OFF
+   *  (opt-in, read `=== true`); off, every decision is byte-identical. */
+  omahaEvFoldModelHeadsUp?: boolean;
   /** Owner directive 2026-11-13 (Omaha read): an unknown Omaha opponent gets a
    *  neutral read (no presumed aggressive raise width) instead of
    *  presumedAggressorRead. Default OFF; true enables it. */
@@ -14485,6 +14492,8 @@ export class HorseLogic {
       breakEvenBluff: opts.readBreakEvenBluff === true,
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
+      // omahaEvFoldModelHeadsUp (default off): the key exists only when it is true.
+      ...(opts.omahaEvFoldModelHeadsUp === true ? { omahaEvFoldModelHeadsUp: true } : {}),
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
       ...(opts.omahaManiacReRaiseWidthMeasured === true &&
       omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gameState, opts) &&
@@ -21207,6 +21216,16 @@ export class HorseLogic {
     const allBoards36: Card[][] = [gs.communityCards, ...extraBoards];
     const nBoards36 = allBoards36.length;
     const multiBoard36 = nBoards36 >= 2;
+    // omahaEvFoldModelHeadsUp (default off): the street a flop or turn EV bet into exactly one opponent is priced
+    // on (HorseMind.omahaEvFoldMulOf reads it only with the option on, in PLO4/PLO5 cash); null otherwise.
+    const evFoldHeadsUpStreet: 'flop' | 'turn' | null =
+      opts.omahaEvFoldModelHeadsUp === true &&
+      opponents.length === 1 &&
+      !multiBoard36 &&
+      gs.bombPot !== true &&
+      (street === 'flop' || street === 'turn')
+        ? street
+        : null;
     const LOCK_EQ36 = 0.93;
     let lockedBoards36 = 0;
     let unlockedSum36 = 0;
@@ -23101,7 +23120,7 @@ export class HorseLogic {
             let foldMul = 1;
             if (useMind) {
               try {
-                foldMul = HorseMind.evFoldMul(o.user_id, useCounterAdapt);
+                foldMul = HorseMind.evFoldMul(o.user_id, useCounterAdapt, evFoldHeadsUpStreet);
                 foldMul = v53BarrelFoldMul(foldMul, o.user_id);
               } catch {
                 /* an unavailable read keeps the neutral fold model */
@@ -24759,7 +24778,7 @@ export class HorseLogic {
           let foldMul = 1;
           if (useMind) {
             try {
-              foldMul = HorseMind.evFoldMul(o.user_id, useCounterAdapt);
+              foldMul = HorseMind.evFoldMul(o.user_id, useCounterAdapt, evFoldHeadsUpStreet);
               foldMul = v53BarrelFoldMul(foldMul, o.user_id);
               const oppRead86 = v86 ? HorseMind.opponentRead(o.user_id) : null;
               if (v86 && oppRead86 !== null && oppRead86.presumed !== true) {
