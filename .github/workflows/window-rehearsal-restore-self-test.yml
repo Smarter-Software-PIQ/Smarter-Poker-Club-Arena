@@ -15,6 +15,10 @@ on:
       - .github/workflows/window-migrations-install-before-merge.yml
       - .github/workflows/window-rehearsal-restore-self-test.yml
 
+concurrency:
+  group: window-rehearsal-restore-self-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
