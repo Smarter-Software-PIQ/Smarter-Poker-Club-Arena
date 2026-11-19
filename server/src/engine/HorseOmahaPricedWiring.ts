@@ -5,8 +5,9 @@
  * categorical PLO4/PLO5 cash rule acts, behind its own default-OFF option
  * (read `=== true`). It returns the decision the priced comparison
  * (HorseOmahaPricedRules) reaches, or null when the decision is outside the
- * option's scope (another game, a tournament, Lightning, hi-lo, more than one
- * board, a bomb pot), in which case the caller's rule acts exactly as before.
+ * option's scope (another game, a tournament, Lightning unless
+ * omahaPricedInLightning is on, hi-lo, more than one board, a bomb pot), in
+ * which case the caller's rule acts exactly as before.
  * Inside the scope the categorical rule does not decide: the comparison's
  * answer stands, and where no comparison can be computed the decision given
  * is kept and the receipt says so.
@@ -73,8 +74,25 @@ export interface OmahaPricedDeps {
 const num = (v: unknown): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0;
 
-/** PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning: the scope of every option here. */
-export function omahaPricedInScope(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+/**
+ * omahaPricedInLightning (PLO Strategy lane 2026-11-18, default OFF, read `=== true`): the Lightning pools
+ * (gs.publicMemoryDomain.speed === 'lightning') are inside the priced scope, so each priced option whose OWN
+ * switch is on also decides Lightning PLO4/PLO5 cash. It turns no priced option on by itself. Unset or false:
+ * Lightning is outside the scope exactly as before (byte-identical).
+ */
+export type OmahaPricedScopeOpts = Pick<HorseDecideOpts, 'omahaPricedInLightning' | 'telemetry'>;
+export const omahaPricedInLightningOn = (opts: OmahaPricedScopeOpts | null | undefined): boolean =>
+  opts?.omahaPricedInLightning === true;
+
+/**
+ * PLO4/PLO5 cash, one board, high only, no bomb pot, not Lightning (Lightning too when the decision's
+ * omahaPricedInLightning is on): the scope of every option here.
+ */
+export function omahaPricedInScope(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts?: OmahaPricedScopeOpts | null
+): boolean {
   try {
     if (!OMAHA_PRICED_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase())) return false;
     if (omahaIsTournamentMode(gs)) return false;
@@ -88,11 +106,15 @@ export function omahaPricedInScope(player: SeatPlayer, gs: HorseGameStateV2): bo
     )
       return false;
     const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
-    if (speed === 'lightning') return false;
-    return (
+    if (speed === 'lightning' && !omahaPricedInLightningOn(opts)) return false;
+    const inScope =
       Array.isArray(player.cards) &&
-      player.cards.length === Number(String(gs.gameVariant).toLowerCase().at(-1))
-    );
+      player.cards.length === Number(String(gs.gameVariant).toLowerCase().at(-1));
+    // Once per decision (BrainTelemetry ONCE_PER_DECISION_RECEIPTS): a priced option that is on was in scope in
+    // a Lightning pool because omahaPricedInLightning opened it.
+    if (inScope && speed === 'lightning' && telemetryOn(opts ?? undefined))
+      noteFire('omaha_priced_in_lightning_scope_seen');
+    return inScope;
   } catch {
     return false;
   }
@@ -323,10 +345,11 @@ export function omahaPricedTurnRiverRaiseRule(
   opts: HorseDecideOpts,
   deps: OmahaPricedDeps
 ): HorseDecision | null {
-  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  if (opts.omahaTurnRiverRaiseIsPriced !== true || !omahaPricedInScope(player, gs, opts))
+    return null;
   const tele = telemetryOn(opts);
   try {
-    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    const scope = omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts));
     if (!scope) return null;
     const raises = omahaDecisionRaises(decision, player, scope);
     if (
@@ -408,21 +431,26 @@ export function omahaPricedOwnsTurnRiverRaise(
 ): boolean {
   return (
     opts.omahaTurnRiverRaiseIsPriced === true &&
-    omahaPricedInScope(player, gs) &&
+    omahaPricedInScope(player, gs, opts) &&
     // every spot in scope, priceable or not (#11212): the inner nut rule never decides one
-    omahaRaiseNeedsNutsScope(player, gs) !== null
+    omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts)) !== null
   );
 }
 
-/** Receipt validation: a priced raise that became a call, with a hand that is not nut class, for the exact chips. */
+/**
+ * Receipt validation: a priced raise that became a call, with a hand that is not nut class, for the exact chips.
+ * `inLightning`: the decision's own omahaPricedInLightning (the receipt context's gate); absent or false, Lightning
+ * is outside as before.
+ */
 export function omahaPricedAdmitsRaiseToCall(
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  amount: number | null | undefined
+  amount: number | null | undefined,
+  inLightning = false
 ): boolean {
   try {
-    if (!omahaPricedInScope(player, gs)) return false;
-    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    if (!omahaPricedInScope(player, gs, { omahaPricedInLightning: inLightning })) return false;
+    const scope = omahaRaiseNeedsNutsScope(player, gs, inLightning);
     if (!scope || scope.allIn || omahaNutClassNow(player, gs)) return false;
     return typeof amount === 'number' && Math.abs(amount - scope.paid) < 1e-9;
   } catch {
@@ -495,7 +523,7 @@ export function omahaPricedOwnsDrawRaise(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
-  return opts.omahaDrawRaiseIsPriced === true && omahaPricedInScope(player, gs);
+  return opts.omahaDrawRaiseIsPriced === true && omahaPricedInScope(player, gs, opts);
 }
 
 /**
@@ -666,7 +694,8 @@ export function omahaPricedOopTurnBarrelRule(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision | null {
-  if (opts.omahaOopTurnBarrelIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  if (opts.omahaOopTurnBarrelIsPriced !== true || !omahaPricedInScope(player, gs, opts))
+    return null;
   return ownBetRule(decision, player, gs, opts, {
     kept: () => noteFire('omaha_priced_oop_turn_barrel_kept'),
     checked: () => noteFire('omaha_priced_oop_turn_barrel_checked'),
@@ -700,7 +729,7 @@ export function omahaPricedOwnsPairedBoardBet(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
-  return opts.omahaPairedBoardBetIsPriced === true && omahaPricedInScope(player, gs);
+  return opts.omahaPairedBoardBetIsPriced === true && omahaPricedInScope(player, gs, opts);
 }
 
 /**
@@ -740,7 +769,7 @@ export function omahaPricedPressureWithheld(
   opts: HorseDecideOpts,
   deps: OmahaPricedDeps
 ): boolean | null {
-  if (opts.omahaPressureIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  if (opts.omahaPressureIsPriced !== true || !omahaPricedInScope(player, gs, opts)) return null;
   const tele = telemetryOn(opts);
   try {
     const stage = String(gs.stage ?? '');
@@ -851,7 +880,7 @@ export function omahaPricedBigBetCallRule(
       if (tele) noteFire('omaha_priced_big_bet_raise_kept');
       return decision;
     }
-    const scope = omahaRaiseNeedsNutsScope(player, gs);
+    const scope = omahaRaiseNeedsNutsScope(player, gs, omahaPricedInLightningOn(opts));
     if (verdict.callStands && scope) {
       if (tele) noteFire('omaha_priced_big_bet_raise_called');
       return omahaRaiseNeedsNutsCall(decision, scope);
@@ -879,7 +908,8 @@ export function omahaPricedUnderpairFolds(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean | null {
-  if (opts.omahaUnderpairMultiwayIsPriced !== true || !omahaPricedInScope(player, gs)) return null;
+  if (opts.omahaUnderpairMultiwayIsPriced !== true || !omahaPricedInScope(player, gs, opts))
+    return null;
   try {
     if (String(gs.stage ?? '') !== 'flop') return null;
     const eq = omahaBigDrawEquities(
@@ -917,7 +947,8 @@ export function omahaPricedOwnsBigBetCalls(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): boolean {
-  if (opts.omahaBigBetCallsArePriced !== true || !omahaPricedInScope(player, gs)) return false;
+  if (opts.omahaBigBetCallsArePriced !== true || !omahaPricedInScope(player, gs, opts))
+    return false;
   const stage = String(gs.stage ?? '');
   return stage === 'turn' || stage === 'river';
 }

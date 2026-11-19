@@ -71,25 +71,51 @@ export const DAILY_GUARD_CHICAGO = { from: [3, 50], until: [4, 10] };
  * AUTOMATICALLY AT 4AM CST EVERY DAY"). The 03:30 selector admits only a
  * Backup certificate whose restored copy holds every migration production has
  * installed (select-daily-engine.py: "Backup copy lacks installed
- * migration"). On 2026-11-16 and 2026-11-17 ordinary installs after the last
- * copy stranded every candidate, and the routine run kept serving. The
- * nightly Backup refresh runs at 00:07 Chicago (backup-engine.yml schedule,
- * three chances to 00:41), so an ordinary merged migration is held from 23:45
- * until the seal has had its chance (04:15): it waits once, inside this same
- * dispatcher run, and installs at 04:15. Nothing is retried or watched; the
- * merge's own run is the one bounded wait. Window files keep their 04:00
- * route; a hand dispatch of Apply Merged Migration stays the outage route
- * (it stales that night's certificate, and the selector then keeps serving).
- * The range wraps midnight.
+ * migration") AND every ordinary migration the exact candidate adds ("Backup
+ * copy lacks the exact candidate migration(s)"). On 2026-11-16 and
+ * 2026-11-17 ordinary installs after the last copy stranded every candidate,
+ * so an ordinary merged migration is held until the seal has had its chance
+ * (04:15): it waits once, inside this same dispatcher run, and installs at
+ * 04:15. Nothing is retried or watched; the merge's own run is the one
+ * bounded wait. Window files keep their 04:00 route; a hand dispatch of Apply
+ * Merged Migration stays the outage route (it stales that night's
+ * certificate, and the selector then keeps serving).
+ *
+ * THE HOLD STARTS AS LATE AS A CERTIFICATE CAN STILL FOLLOW IT (2026-11-19).
+ * It used to start at 23:45, sized for a 00:07 nightly Backup schedule. That
+ * schedule is not what refreshes the copy: GitHub delivered it at 13:52-15:37
+ * UTC (07:52-09:37 Chicago) every day measured 11-14..11-19, and the copy is
+ * refreshed by contents on every Backup push run (backup-engine.yml "Decide
+ * whether the production copy is due"), and every merge that adds a
+ * migration triggers one. Holding from 23:45 meant a migration merged at
+ * 23:45-01:00 could never be on any copy before 03:30, so every engine fix
+ * that carried one, or descended from one, was refused "Backup copy lacks
+ * the exact candidate migration(s) 20261119013426, 20261119013430, ..." on
+ * 2026-11-19 (Stage 44462209828) and four merged engine fixes waited a day.
+ * The hold now starts at the last instant whose install a Backup certificate
+ * is still sure to follow before 03:30: the install can land just after a
+ * run copied (that run finishes, then the next run copies and certifies), so
+ * two full runs, BACKUP_CERTIFICATE_WORST_MINUTES, must fit between the
+ * hold's start and the selection cutoff. Before the hold, production may
+ * change and the next Backup run copies it; inside it, production stays
+ * exactly the copy the 03:30 selection judges.
  */
-export const RELEASE_SCHEMA_FREEZE_CHICAGO = { from: [23, 45], until: [4, 15] };
+export const RELEASE_SCHEMA_FREEZE_CHICAGO = { from: [0, 45], until: [4, 15] };
+/** select-daily-engine.py cutoff(): certificates count only if made by 03:30 Chicago. */
+export const DAILY_SELECTION_CHICAGO = [3, 30];
+/**
+ * Two full Backup runs (refresh + certify) plus pickup, measured over the 29
+ * most recent successful backup-engine.yml runs on 2026-11-19: refresh +
+ * certify min 43.2, p50 62.0, p90 67.3, max 68.7 minutes. 2 x 69 + 2 = 140.
+ */
+export const BACKUP_CERTIFICATE_WORST_MINUTES = 140;
 /**
  * The one bounded wait the merger may spend outside the nightly release
  * schema freeze. It covers every ordinary file at any minute of the day: the
  * worst hourly case is a merge at :49 waiting to :04 (15 min). Only a
  * CONCURRENTLY-preamble file merged late in the hour can exceed it, and that
  * is refused out loud. A hold by RELEASE_SCHEMA_FREEZE_CHICAGO (worst: a
- * merge at 23:45 Chicago held to 04:15, 270 min) has its own bound,
+ * merge at 00:45 Chicago held to 04:15, 210 min) has its own bound,
  * RELEASE_FREEZE_WAIT_BUDGET_MINUTES (job timeout 300 minutes).
  */
 export const WAIT_BUDGET_MINUTES = 22;
@@ -120,6 +146,13 @@ export function inReleaseSchemaFreeze(ms) {
   const from = RELEASE_SCHEMA_FREEZE_CHICAGO.from[0] * 60 + RELEASE_SCHEMA_FREEZE_CHICAGO.from[1];
   const until = RELEASE_SCHEMA_FREEZE_CHICAGO.until[0] * 60 + RELEASE_SCHEMA_FREEZE_CHICAGO.until[1];
   return from > until ? m >= from || m < until : m >= from && m < until;
+}
+
+const two = (n) => (n < 10 ? `0${n}` : `${n}`);
+const hhmm = ([h, m]) => `${two(h)}:${two(m)}`;
+/** "00:45-04:15": the hold as the dispatcher names it on the PR. */
+export function releaseFreezeLabel() {
+  return `${hhmm(RELEASE_SCHEMA_FREEZE_CHICAGO.from)}-${hhmm(RELEASE_SCHEMA_FREEZE_CHICAGO.until)}`;
 }
 
 /** Minutes needed before :50 UTC for `count` files, preamble or not. */
@@ -254,6 +287,7 @@ export function planDispatch(added, readSql, now, modified = []) {
     // The wait (if any) is the nightly release schema freeze, not the
     // ordinary :50-:03 break: the shell says so on the PR.
     heldForDailyRelease,
+    releaseFreezeChicago: releaseFreezeLabel(),
     withinBudget: waitSeconds !== null && waitSeconds <= budget,
   };
 }
