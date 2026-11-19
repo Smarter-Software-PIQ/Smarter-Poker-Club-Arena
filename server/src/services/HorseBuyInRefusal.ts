@@ -37,6 +37,7 @@ export type BuyInRefusal =
   | 'no_diamonds'
   | 'lightning_paced'
   | 'lightning_demand'
+  | 'hourly_cap'
   | 'refused';
 
 /**
@@ -46,6 +47,10 @@ export type BuyInRefusal =
  */
 export function classifyBuyInRefusal(message: string | null | undefined): BuyInRefusal {
   const m = String(message ?? '');
+  /* The hourly cash-table door (fn_cash_hourly_table_admit, 2026-11-16): cap
+     reached, start paced, arrival paced, capacity lock busy. A floor answer,
+     never a defect of the table asked. */
+  if (m.includes('cash_hourly_')) return 'hourly_cap';
   if (m.includes('LIGHTNING_ADMISSION_PACED')) return 'lightning_paced';
   if (m.includes('LIGHTNING_ADMISSION_DEMAND')) return 'lightning_demand';
   if (m.includes('FOUR TABLE LIMIT')) return 'four_game_limit';

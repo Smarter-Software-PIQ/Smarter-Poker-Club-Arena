@@ -33,6 +33,8 @@
  * by TournamentService.getCurrentLevelState and the lobby/blinds clocks.
  */
 
+import { addOnClockNow, type AddOnClockRow } from './addOnLevelClock';
+
 /** The engine's countdown starts exactly this long after the announcement on
  *  every scheduled break (MaintenanceBreak.beginCountdown anchors it to
  *  announcedAt + LAST_HAND_LEAD_MS), which is the freezeStartedAt the thaw
@@ -50,7 +52,7 @@ export interface MaintenanceClockInput {
   breakId: number | null;
 }
 
-export interface LevelClockRow {
+export interface LevelClockRow extends AddOnClockRow {
   id?: string | null;
   status?: string | null;
   on_break?: boolean | null;
@@ -88,8 +90,16 @@ export function noteMaintenanceClock(input: MaintenanceClockInput, nowMs: number
   }
 }
 
-/** The instant a tournament's level clock is measured at. */
+/**
+ * The instant a tournament's level clock is measured at: stopped by a
+ * maintenance break, and by the event's own add-on phase (Dan 2026-11-18,
+ * utils/addOnLevelClock). Whichever stopped it first is where it stands.
+ */
 export function levelClockNow(row: LevelClockRow | null | undefined, nowMs: number): number {
+  return addOnClockNow(row, maintenanceClockNow(row, nowMs));
+}
+
+function maintenanceClockNow(row: LevelClockRow | null | undefined, nowMs: number): number {
   if (!row || String(row.status ?? '').toUpperCase() !== 'RUNNING') return nowMs;
   const anchor = row.level_started_at ?? null;
   const id = row.id ?? null;

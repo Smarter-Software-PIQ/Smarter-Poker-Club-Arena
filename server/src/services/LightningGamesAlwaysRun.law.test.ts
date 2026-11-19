@@ -233,7 +233,9 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
     const rotator = readFileSync(new URL('./HorseSessionRotator.ts', import.meta.url), 'utf8');
     // The fifth reader was the PLO activity-hour widening, removed when the
     // work schedule became a gate (owner 2026-11-12, HorseWorkSchedule).
-    expect(fleet.split('cashPlanLightningHumanGames,').length - 1).toBe(4);
+    // PIN MOVED 2026-11-18, back to 5: the variety-first plan (HorseVarietyFirst)
+    // asks the walk's own admission, with the same person read, for an empty table.
+    expect(fleet.split('cashPlanLightningHumanGames,').length - 1).toBe(5);
     expect(fleet.split("supabase.rpc('fn_plo_lightning_post_human_demand')").length - 1).toBe(2);
     expect(fleet.split('lightningGamesWithPlayingHumans(').length - 1).toBe(2);
     expect(rotator).toContain('lightningGamesWithPlayingHumans(');

@@ -146,5 +146,28 @@ P -c 'DROP FUNCTION fixture_causal_snapshot(uuid)'
 for scenario in qualification evidence-matrix pending-snapshot independent-pending multiple-predecessors watermark-refusals; do
   P -f "$FIX/$scenario.sql"
 done
+# A stored candidate proof is trusted only while its exact row versions are
+# live. The unchanged joined reader and the verdict captured before the
+# migration are the oracles; the pg_temp oracle and its calls share one connection.
+STORED_PROOF_MIG="$(ls "$ROOT"/supabase/migrations/*_a_bounty_collect_reads_each_knockout_proof_once.sql)"
+P -Atc "SELECT replace(pg_get_functiondef('public.fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamptz)'::regprocedure),'public.fn_pko_claim_predecessor_status_v1(', 'pg_temp.fixture_original_predecessor(')||';'" >"$TMP/joined-predecessor.sql"
+node --input-type=module - "$ROOT" "$STORED_PROOF_MIG" >"$TMP/stored-proof-guarded.sql" <<'JS'
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const [root,path]=process.argv.slice(2);
+const file=path.slice(root.length+1);
+const {stalePinGuardSQL}=await import(pathToFileURL(root+'/scripts/ci/migration-stale-pins.mjs'));
+const source=readFileSync(path,'utf8');
+process.stdout.write(stalePinGuardSQL(file,source,source));
+JS
+# The migration pins the production grants of the obligation collector.
+P -c 'REVOKE ALL ON FUNCTION public.fn_collect_bounty_obligation(uuid) FROM PUBLIC,anon,authenticated,service_role' -c 'GRANT EXECUTE ON FUNCTION public.fn_collect_bounty_obligation(uuid) TO service_role'
+P -f "$TMP/joined-predecessor.sql" -f "$TMP/stored-proof-guarded.sql" -f "$FIX/stored-proof.sql"
+P -f "$STORED_PROOF_MIG"
+P -c 'DROP FUNCTION fixture_causal_snapshot(uuid)'
+for scenario in qualification evidence-matrix pending-snapshot independent-pending multiple-predecessors watermark-refusals; do
+  P -f "$FIX/$scenario.sql"
+done
+echo 'PASS: stored candidate proofs equal the joined reader in every evidence state, and replay'
 python3 -B "$FIX/full-native.py" --root "$ROOT" --evidence "$TMP/full-financial" --pg-bin "$BIN"
 echo 'PASS: causal PKO admission, immutable replay and bounded native concurrency'
