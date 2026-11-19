@@ -127,6 +127,28 @@ describe('CommittedSeatShow', () => {
     expect(f.readSeats).not.toHaveBeenCalled();
   });
 
+  it('never throws into the move path that calls it', () => {
+    const report = vi.fn();
+    const broken = new CommittedSeatShow({
+      tables: () => {
+        throw new Error('registry unavailable');
+      },
+      readSeats: async () => [],
+      active: () => true,
+      report,
+    });
+    expect(() => broken.moved('table-a')).not.toThrow();
+    expect(report).toHaveBeenCalledTimes(1);
+    // An engine double that predates the show method is simply skipped.
+    const old = new CommittedSeatShow({
+      tables: () => [['table-a', {} as SeatShowingEngine]],
+      readSeats: async () => [],
+      active: () => true,
+      report,
+    });
+    expect(() => old.moved('table-a')).not.toThrow();
+  });
+
   it('reports a failed read and stays usable', async () => {
     const f = field([row('table-a', 'late', 4, 10_000)]);
     f.readSeats.mockRejectedValueOnce(new Error('boom'));

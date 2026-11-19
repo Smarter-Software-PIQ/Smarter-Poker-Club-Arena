@@ -865,27 +865,36 @@ export class TournamentManager extends TournamentManagerEliminations {
    * A TOURNAMENT CHAIR IS SHOWN THE MOMENT IT IS TAKEN (Dan 2026-11-18). See
    * committedSeatShow.ts. Display only: one read, no write, no seat authority.
    */
-  private readonly committedSeatShow = new CommittedSeatShow({
-    tables: () =>
-      [...this.tableEngines].filter(([tableId, engine]) =>
-        this.gameServer.ownsTournamentTableEngine(tableId, engine)
-      ),
-    readSeats: async (tableIds) => {
-      const read = await selectInChunks<CommittedSeatRow>(
-        tableIds,
-        (batch) =>
-          supabase
-            .from('table_seats')
-            .select('table_id, user_id, occupancy_id, seat_number, stack')
-            .in('table_id', batch)
-            .is('left_at', null),
-        'Tournament.committedSeatShow'
-      );
-      return read.complete ? read.rows : null;
-    },
-    active: () => this.isRunning() && !this.tournamentFinished,
-    report: (error, context) => reportError(error, context, { tournamentId: this.tournamentId }),
-  });
+  private committedSeatShowOwned?: CommittedSeatShow;
+
+  /** Built on first use, so a manager assembled without its constructor still has one. */
+  private get committedSeatShow(): CommittedSeatShow {
+    return (this.committedSeatShowOwned ??= this.buildCommittedSeatShow());
+  }
+
+  private buildCommittedSeatShow(): CommittedSeatShow {
+    return new CommittedSeatShow({
+      tables: () =>
+        [...this.tableEngines].filter(([tableId, engine]) =>
+          this.gameServer.ownsTournamentTableEngine(tableId, engine)
+        ),
+      readSeats: async (tableIds) => {
+        const read = await selectInChunks<CommittedSeatRow>(
+          tableIds,
+          (batch) =>
+            supabase
+              .from('table_seats')
+              .select('table_id, user_id, occupancy_id, seat_number, stack')
+              .in('table_id', batch)
+              .is('left_at', null),
+          'Tournament.committedSeatShow'
+        );
+        return read.complete ? read.rows : null;
+      },
+      active: () => this.isRunning() && !this.tournamentFinished,
+      report: (error, context) => reportError(error, context, { tournamentId: this.tournamentId }),
+    });
+  }
 
   /** The database committed a seat or a stack in this field (a manager wake). */
   showCommittedSeats(): void {

@@ -63,12 +63,18 @@ export class CommittedSeatShow {
 
   /** A certified move landed at this table. */
   moved(tableId: string): void {
-    if (!this.deps.active()) return;
-    const engine = this.deps.tables().find(([id]) => id === tableId)?.[1];
-    if (!engine) return;
-    engine
-      .showCommittedTournamentSeats()
-      .catch((error) => this.deps.report(error, 'Tournament.committed_seat_show_move_failed'));
+    // Called inside the move path, after the move is certified: showing the
+    // chair is never allowed to throw into it.
+    try {
+      if (!this.deps.active()) return;
+      const engine = this.deps.tables().find(([id]) => id === tableId)?.[1];
+      if (typeof engine?.showCommittedTournamentSeats !== 'function') return;
+      engine
+        .showCommittedTournamentSeats()
+        .catch((error) => this.deps.report(error, 'Tournament.committed_seat_show_move_failed'));
+    } catch (error) {
+      this.deps.report(error, 'Tournament.committed_seat_show_move_failed');
+    }
   }
 
   /**
@@ -112,6 +118,7 @@ export class CommittedSeatShow {
     await Promise.all(
       tables.map(async ([tableId, engine]) => {
         if (owned.get(tableId) !== engine) return;
+        if (typeof engine.tournamentSeatsNeedShowing !== 'function') return;
         if (!engine.tournamentSeatsNeedShowing(byTable.get(tableId) ?? [])) return;
         await engine.showCommittedTournamentSeats();
       })
