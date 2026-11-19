@@ -1,0 +1,70 @@
+name: plpgsql_check catches a body that cannot run
+
+# scripts/ci/plpgsql-check-changed.sh runs inside the window rehearsal
+# (window-migrations-install-before-merge.yml, pull_request_target, so it
+# executes the DEFAULT BRANCH's copy). This proves the script on the pull
+# request that changes it, in the rehearsal's own image: the 2026-11-18 defect
+# (incident d2d79c4f, a row source aliased like a PL/pgSQL variable) must fail
+# it with 42702, and the 20261118202500 repair must pass it. No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/ci/plpgsql-check-changed.sh
+      - scripts/ci/fixtures/plpgsql-check/**
+      - .github/workflows/plpgsql-check-catches-a-body-that-cannot-run.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plpgsql-check-catches-a-body-that-cannot-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plpgsql-check:
+    name: plpgsql_check refuses the ambiguous alias and passes its repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the rehearsal's own image
+        run: |
+          set -euo pipefail
+          docker run -d --name plc-db -e POSTGRES_PASSWORD=plc-only supabase/postgres:17.6.1.063 \
+            postgres -D /etc/postgresql >/dev/null
+          for _ in $(seq 1 60); do
+            docker exec -e PGPASSWORD=plc-only plc-db psql -U supabase_admin -d postgres -Atc \
+              "select 1 from pg_roles where rolname='service_role'" 2>/dev/null | grep -qx 1 && break
+            sleep 2
+          done
+          docker exec -e PGPASSWORD=plc-only plc-db psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -qc \
+            'CREATE EXTENSION IF NOT EXISTS plpgsql_check WITH SCHEMA extensions'
+      - name: Install both fixtures
+        run: |
+          set -euo pipefail
+          for f in scripts/ci/fixtures/plpgsql-check/*.sql; do
+            docker exec -i -e PGPASSWORD=plc-only plc-db psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q < "$f"
+          done
+      - name: The 2026-11-18 defect is refused, by name
+        env:
+          REHEARSAL_PSQL: docker exec -i -e PGPASSWORD=plc-only plc-db psql -U supabase_admin -d postgres
+          MIG_DIR: scripts/ci/fixtures/plpgsql-check
+        run: |
+          set -uo pipefail
+          echo scripts/ci/fixtures/plpgsql-check/20261118164000_ambiguous_row_source_alias.sql > "$RUNNER_TEMP/bad.txt"
+          CHANGED="$RUNNER_TEMP/bad.txt" bash scripts/ci/plpgsql-check-changed.sh 2> "$RUNNER_TEMP/bad.log"
+          rc=$?
+          cat "$RUNNER_TEMP/bad.log"
+          [ "$rc" -eq 1 ] || { echo "::error::expected exit 1 for the ambiguous alias, got $rc"; exit 1; }
+          grep -q 'ERROR.*ca_fixture_capture(jsonb).*42702' "$RUNNER_TEMP/bad.log" \
+            || { echo "::error::the refusal did not name 42702 on ca_fixture_capture"; exit 1; }
+      - name: The 20261118202500 repair passes
+        env:
+          REHEARSAL_PSQL: docker exec -i -e PGPASSWORD=plc-only plc-db psql -U supabase_admin -d postgres
+          MIG_DIR: scripts/ci/fixtures/plpgsql-check
+        run: |
+          set -euo pipefail
+          echo scripts/ci/fixtures/plpgsql-check/20261118202500_named_row_source.sql > "$RUNNER_TEMP/good.txt"
+          CHANGED="$RUNNER_TEMP/good.txt" bash scripts/ci/plpgsql-check-changed.sh
