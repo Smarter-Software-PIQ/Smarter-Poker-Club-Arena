@@ -99,7 +99,9 @@ import {
   HAND_COMPLETION,
   handCompletionHoldMs,
   boardClearMs,
+  ritRevealTimelineMs,
 } from '../config/handCompletionSpec.js';
+import { REBUY_PAUSE_MAX_MS } from './handCadenceSpec.js';
 import { cashRebuyMinimum } from '../config/cashBuyIn.js';
 import { maintenanceActiveNow, isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import { presenceFromFsm } from '../lightning/LightningPresence.js';
@@ -1447,6 +1449,19 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // only starts after the 700ms sweep, so 2900ms of animation was
           // being cut off by a 2600ms hold and the next hand was dealt over
           // the number telling the player what they had just won.
+          const ritStreetsPerRun = [3, 4, 5].filter(
+            (n) => n > this.currentHandRitBaseBoardCount
+          ).length;
+          const ritRevealMs =
+            this.currentHandRitBoards >= 2
+              ? Math.round(
+                  ritRevealTimelineMs({
+                    runs: this.currentHandRitBoards,
+                    streetsPerRun: ritStreetsPerRun,
+                    speed: 1,
+                  }).doneAt
+                )
+              : undefined;
           const resultDisplayMs = handCompletionHoldMs({
             wentToShowdown,
             showdownHands,
@@ -1458,7 +1473,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             ritRuns: this.currentHandRitBoards,
             // Streets each board still deals: flop at 3 cards, turn at 4,
             // river at 5 — count the stops past the shared base board.
-            ritStreetsPerRun: [3, 4, 5].filter((n) => n > this.currentHandRitBaseBoardCount).length,
+            ritStreetsPerRun,
             // MULTI-POT FIX 2026-08-28: how many award groups the client is
             // about to animate, counted the SAME way it groups them — one per
             // (board, pot, hi/lo half) that actually pays. Without this the
@@ -1519,6 +1534,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           this.armNextHandRest(
             Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(wentToShowdown))
           );
+          const restMs = Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(wentToShowdown));
 
           // ── Dan's Rebuy Pause (2026-08-24) ──
           // Give busted players 5 seconds to process the UI modal and hit rebuy before the next hand starts.
@@ -1542,6 +1558,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           //
           // See CLAUDE.md section 10.5. There is no "equal outcome by a
           // different mechanism" exemption: timing is part of the outcome.
+          let rebuyPauseMs = 0;
           const justBustedPlayers = activePlayers.filter((p) => p.stack === 0);
           if (justBustedPlayers.length > 0) {
             let needsRebuyPause = false;
@@ -1758,12 +1775,23 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                  answered — declined, or rebought (stack positive again). It
                  covers horses by the same test, because the pause has to look
                  identical from the outside either way. */
+              const rebuyPauseStart = Date.now();
               await this.waitForRebuyDecisions(
                 justBustedPlayers.map((p) => p.user_id).filter(Boolean),
-                5000
+                REBUY_PAUSE_MAX_MS
               );
+              rebuyPauseMs = Math.max(0, Math.round(Date.now() - rebuyPauseStart));
             }
           }
+          // Incident 075013fd lane 3: record actual pause times so the NEXT
+          // hand's hand_history.cadence lets fn_ca_hand_gap_unintended_delay
+          // grade cash_bust and rit hands alongside every other shape.
+          this.pendingPriorHandCadence = {
+            hold_ms: Math.round(resultDisplayMs),
+            rest_ms: Math.round(restMs),
+            rebuy_pause_ms: rebuyPauseMs,
+            ...(ritRevealMs !== undefined ? { rit_reveal_ms: ritRevealMs } : {}),
+          };
 
           // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──
           //
@@ -3257,6 +3285,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       const handNumber = this.handCount;
       const handStartMs = Date.now(); // FIX 149: Capture hand start time for telemetry
       this.currentHandStartedAt = handStartMs;
+      this.currentHandCadence = this.pendingPriorHandCadence;
+      this.pendingPriorHandCadence = null;
       this.currentHandHoleCards.clear();
       this.currentHandWentToFlop = false;
       this.currentHandPotSize = 0;

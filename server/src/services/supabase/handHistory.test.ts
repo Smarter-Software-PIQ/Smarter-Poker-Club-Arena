@@ -1255,6 +1255,27 @@ describe('logHandHistory - accepted-hand transaction', () => {
     await logHandHistory({ ...atomicParams(GLOBAL_HAND + 509), killPot: null });
     expect('kill_pot' in (rpcCalls[0].args.p_hand_row as Record<string, unknown>)).toBe(false);
   });
+
+  it('persists the cadence record in the same authoritative hand payload, and only when present', async () => {
+    acceptAtomicHand();
+    const cashBustCadence = { hold_ms: 1850, rest_ms: 1500, rebuy_pause_ms: 3420 };
+    await logHandHistory({ ...atomicParams(GLOBAL_HAND + 510), cadence: cashBustCadence });
+    expect(rpcCalls).toHaveLength(1);
+    expect((rpcCalls[0].args.p_hand_row as Record<string, unknown>).cadence).toEqual(
+      cashBustCadence
+    );
+
+    rpcCalls.length = 0;
+    acceptAtomicHand();
+    const ritCadence = { hold_ms: 18950, rest_ms: 1500, rebuy_pause_ms: 0, rit_reveal_ms: 17100 };
+    await logHandHistory({ ...atomicParams(GLOBAL_HAND + 511), cadence: ritCadence });
+    expect((rpcCalls[0].args.p_hand_row as Record<string, unknown>).cadence).toEqual(ritCadence);
+
+    rpcCalls.length = 0;
+    acceptAtomicHand();
+    await logHandHistory({ ...atomicParams(GLOBAL_HAND + 512), cadence: null });
+    expect('cadence' in (rpcCalls[0].args.p_hand_row as Record<string, unknown>)).toBe(false);
+  });
 });
 
 describe('buildHandHistoryTiers (Bible V8 §2.18, derived not stored)', () => {
