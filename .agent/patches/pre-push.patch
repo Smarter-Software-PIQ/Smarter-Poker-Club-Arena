@@ -1,0 +1,319 @@
+diff --git a/.husky/pre-push b/.husky/pre-push
+index d7d894a4c67..0f1a2c2c570 100755
+--- a/.husky/pre-push
++++ b/.husky/pre-push
+@@ -1065,6 +1065,49 @@ if [ "$CASH_INPUT_CHANGED" = yes ]; then
+   fi
+ fi
+ 
++# LOCAL TEST SCOPE (Dan, 2026-11-19 12:54 Chicago). The owner order, verbatim:
++# "WHAT CAN WE DO TO CHANGE THE 7 LAYER VERIFICATIONS BEFORE EVERYTHING IS
++# PUSHED AND PUBLISHED?! THAT SEEMS HIGHLY EXCESSIVE AND CAN BE OPTIMIZED AND
++# ENHANCED BETTER. EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER
++# VERIFICATIONS"
++#
++# Measured that day: a push changing scripts/ci, one workflow, two documents
++# and two small tests waited on the Mac's load and then ran for more than
++# twenty minutes here, because one changed workflow selected every test that
++# mentions the workflow directory (438 client files, 14 engine files) and the
++# required hosted checks then ran the same suites again on the same commit.
++#
++# The rule now. Every static guard above still runs on every push. For tests,
++# a push that changes no engine, database or dependency-manifest path, and
++# whose client suite the required hosted check is admitted to run, executes
++# here ONLY the tests directly related to it: the changed test files, and the
++# tests that name a changed file by its repository path. A file named by more
++# than CA_LOCAL_CONTRACT_LIMIT tests is a widely read input; its readers are
++# the hosted Client Unit Tests job, not a second local copy of it. The engine
++# suite, PostgreSQL accounting and the isolated simulations are never started
++# from here for such a push. Anything else (an engine or database path, a
++# dependency manifest, a diff that could not be classified, or a push whose
++# client suite hosted CI would NOT run) keeps the full local selection below.
++# Hosted CI, the protected merge, publication and live proof stay mandatory.
++CA_HEAVY_PATHS='^(server/|supabase/|package(-lock)?\.json$)'
++CA_LOCAL_CONTRACT_LIMIT=60
++CA_LOCAL_SCOPE=full
++CA_HOSTED_SERVER=no
++if [ -n "$FILES" ] && ! printf '%s\n' $FILES | grep -qE "$CA_HEAVY_PATHS"; then
++  # The same classifier the hosted workflow uses to admit its jobs. Any error
++  # prints nothing, which keeps the full local selection.
++  CA_HOSTED=$(node --input-type=module -e '
++    import { pathToFileURL } from "node:url";
++    import { resolve } from "node:path";
++    const { classifyChangedPaths } = await import(pathToFileURL(resolve("scripts/ci/classify-ci-changes.mjs")).href);
++    const flags = classifyChangedPaths(process.argv.slice(1));
++    console.log([flags.src || flags.tests ? "client" : "", flags.server ? "server" : ""].join(" "));
++  ' $FILES 2>/dev/null) || CA_HOSTED=""
++  case "$CA_HOSTED" in *client*) CA_LOCAL_SCOPE=related ;; esac
++  case "$CA_HOSTED" in *server*) CA_HOSTED_SERVER=yes ;; esac
++fi
++echo "[club-arena pre-push] local test scope: $CA_LOCAL_SCOPE"
++
+ # BEGIN TARGETED CLIENT PREFLIGHT
+ # Select executable contracts for every changed path, including documents,
+ # workflows, scripts and deleted files. Import tracing alone misses readFileSync.
+@@ -1084,6 +1127,41 @@ for f in $FILES; do
+     esac
+   fi
+ done
++if [ "$CA_LOCAL_SCOPE" = related ]; then
++  # Directly related only: one pass over tests/ for every changed path (and,
++  # for client source, the same path without its extension, which is how an
++  # import names it). Deleted paths stay in the set. No import-graph tracing:
++  # the hosted suite covers transitive importers on this same commit.
++  CHANGED_SRC=""
++  UNCHANGED_NATIVE_CONTRACTS=$(node "$CA_TREE_TOP/scripts/ci/source-contract-inventory.mjs" $FILES) || exit 1
++  UNCHANGED_NATIVE_CONTRACTS=$(printf '%s\n' "$UNCHANGED_NATIVE_CONTRACTS" | tr '\n' ' ')
++  CA_PATH_PATTERNS=()
++  for f in $FILES; do
++    CA_PATH_PATTERNS+=(-e "$f")
++    case "$f" in
++      *.test.ts|*.test.tsx|*.d.ts) ;;
++      src/*.ts|src/*.tsx) CA_PATH_PATTERNS+=(-e "${f%.*}") ;;
++    esac
++  done
++  CA_READERS=$(grep -rHoF --include='*.test.ts' --include='*.test.tsx' --include='*.test.mjs' "${CA_PATH_PATTERNS[@]}" tests/ 2>/dev/null \
++    | awk -v limit="$CA_LOCAL_CONTRACT_LIMIT" '
++        { i = index($0, ":"); t = substr($0, 1, i - 1); k = substr($0, i + 1)
++          if (k ~ /^src\//) sub(/\.tsx?$/, "", k)
++          if (!((k SUBSEP t) in seen)) { seen[k SUBSEP t] = 1; n[k]++; list[k] = list[k] " " t } }
++        END { for (k in n) if (n[k] > limit) print "WIDE " k " " n[k]; else { m = split(list[k], a, " "); for (j = 1; j <= m; j++) print "RUN " a[j] } }' \
++    | sort -u) || CA_READERS=""
++  printf '%s\n' "$CA_READERS" | sed -n 's/^WIDE \([^ ]*\) \(.*\)$/[club-arena pre-push] \1 is named by \2 tests: left to the required hosted Client Unit Tests job./p'
++  for t in $(printf '%s\n' "$CA_READERS" | sed -n 's/^RUN //p'); do
++    case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
++    case "$t" in
++      *.test.mjs)
++        if grep -q 'node:test' "$t"; then
++          case " $NODE_TESTS " in *" $t "*) ;; *) NODE_TESTS="$NODE_TESTS $t" ;; esac
++        fi ;;
++      *) case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac ;;
++    esac
++  done
++else
+ # Evidence packs repeat names across hundreds of shard directories. A source
+ # contract depends on the basename, so search each distinct name exactly once.
+ # Keep deleted paths in this set: their consumers still need verification.
+@@ -1114,6 +1192,7 @@ if [ "${#CONTRACT_PATTERNS[@]}" -gt 0 ]; then
+     fi
+   done
+ fi
++fi
+ # CENSUSES OF THE TEST TREE (2026-11-14). Two contracts read every file under
+ # tests/ rather than naming one: the law registry (a new *.law.test.* needs its
+ # docs/laws.d entry) and the source-window rule (no test may bound a source pin
+@@ -1228,6 +1307,10 @@ if [ -f server/package.json ]; then
+   # Workflow readers live in the server Vitest project too. A CI-only edit
+   # must exercise their literal contracts before hosted qualification starts.
+   SERVER_WORKFLOW_BASENAMES=$(printf '%s\n' $FILES | sed -n '/^\.github\/workflows\//s#.*/##p' | sort -u)
++  # Owner order 2026-11-19: with no engine path in the push and the required
++  # hosted Server Engine check admitted for it, the engine project is not
++  # started from here. A client or tooling push never runs the server gate.
++  if [ "$CA_HOSTED_SERVER" = yes ]; then SERVER_WORKFLOW_BASENAMES=""; fi
+   if [ -n "$SERVER_WORKFLOW_BASENAMES" ]; then
+     SERVER_WORKFLOW_BASENAMES="$SERVER_WORKFLOW_BASENAMES .github/workflows"
+   fi
+diff --git a/PUBLISHING.md b/PUBLISHING.md
+index d126aa98e85..0c793944059 100644
+--- a/PUBLISHING.md
++++ b/PUBLISHING.md
+@@ -279,7 +279,7 @@ Before dispatch, run `python3 -B server/scripts/engine-release-installed-migrati
+ 
+ ## Before submission
+ 
+-Run the applicable local prechecks on the final candidate before push, as required by `docs/agent-policy/OWNER-POLICY.md`. Include source contracts reading changed Markdown/workflows/scripts and qualification manifests, not only imported-code tests. Resolve missing or stale owned dependencies and actual failures before submission; never defer an available local check to the first hosted run. Record exact input and results in the task checkpoint. Hosted CI, protected merge, publisher admission and applicable live proof remain mandatory.
++Run the applicable local prechecks on the final candidate before push, as required by `docs/agent-policy/OWNER-POLICY.md`. Owner order (Dan, 2026-11-19 12:54 Chicago), verbatim: "WHAT CAN WE DO TO CHANGE THE 7 LAYER VERIFICATIONS BEFORE EVERYTHING IS PUSHED AND PUBLISHED?! THAT SEEMS HIGHLY EXCESSIVE AND CAN BE OPTIMIZED AND ENHANCED BETTER. EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER VERIFICATIONS". Under that order the local pre-push gate (`.husky/pre-push`, driven by `scripts/agent-push.sh`) runs every static guard on every push and, for tests, only those directly related to the change: the changed test files and the tests that name a changed file by its repository path, including source contracts reading changed Markdown/workflows/scripts and qualification manifests. For a push that changes no `server/**`, `supabase/**` or root `package.json`/`package-lock.json` path, and whose client suite the required hosted check is admitted to run, the gate does not start the server engine suite, PostgreSQL accounting qualification, isolated simulations or a broad client run; a changed file named by more than 60 tests is left to the required hosted Client Unit Tests job, and `scripts/agent-push.sh` does not wait on machine load. Engine, database and dependency-manifest changes, a diff that cannot be classified, and a push whose client suite hosted CI would not run keep the full local selection. Resolve missing or stale owned dependencies and actual failures before submission; never skip or bypass a check the local gate selects. Record exact input and results in the task checkpoint. Hosted CI, protected merge, publisher admission and applicable live proof remain mandatory.
+ 
+ ## Access prerequisites and continued ownership
+ 
+diff --git a/docs/agent-policy/OWNER-POLICY.md b/docs/agent-policy/OWNER-POLICY.md
+index 9d865aed99a..4778c5c24ac 100644
+--- a/docs/agent-policy/OWNER-POLICY.md
++++ b/docs/agent-policy/OWNER-POLICY.md
+@@ -38,7 +38,9 @@ On the Mac run `python3 /Users/smarter.poker/Documents/ssd-tools/ssd-paths.py wo
+ 
+ This direction supersedes older instructions to stop solely because SSD1 or its canonical parent path is unavailable. It does not authorize writing internally, moving others' work, bypassing tool permissions or activating old chats. Full procedure: `/Users/smarter.poker/Documents/MAC-STORAGE.md`.
+ 
+-Applicable local checks must run before push or publication requests, on the exact candidate. Inspect the final diff and actual workflow: compilation, affected tests/builds, source contracts reading Markdown/scripts/workflows, configuration and qualification manifests all count. Record commands, actual results, tested revision/tree and provider-only pending checks. Recheck affected evidence after edits or integration. Missing tools, stale manifests or incomplete dependencies must be repaired; neither a checkpoint nor hosted CI substitutes for an available local check. Never bypass hooks or weaken assertions.
++Applicable local checks must run before push or publication requests, on the exact candidate. Inspect the final diff and actual workflow: compilation, affected tests/builds, source contracts reading Markdown/scripts/workflows, configuration and qualification manifests all count. Record commands, actual results, tested revision/tree and provider-only pending checks. Recheck affected evidence after edits or integration. Missing tools, stale manifests or incomplete dependencies must be repaired; a checkpoint never substitutes for a check the local gate selects. Never bypass hooks or weaken assertions.
++
++Local test scope, owner order of November 19, 2026 (Dan, 12:54 Chicago), verbatim: "WHAT CAN WE DO TO CHANGE THE 7 LAYER VERIFICATIONS BEFORE EVERYTHING IS PUSHED AND PUBLISHED?! THAT SEEMS HIGHLY EXCESSIVE AND CAN BE OPTIMIZED AND ENHANCED BETTER. EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER VERIFICATIONS". The local pre-push gate keeps every static guard and runs only the tests directly related to the changed files: the changed test files and the tests that name a changed file by its repository path. Whole suites that a required hosted check runs on the same commit (server engine, PostgreSQL accounting qualification, isolated simulations, the broad client suite) are not repeated locally for a change outside `server/**`, `supabase/**` and the root dependency manifests, and the push helper does not wait on machine load for such a change. Changes inside those paths, a diff that cannot be classified, and a push whose client suite hosted CI would not run keep the full local selection. Hosted CI, protected merge, publication and live proof stay mandatory.
+ 
+ The SSD authorization permits locked dependencies for local prechecks in a private task-owned directory. Never install through a shared `node_modules` symlink or mutate another task's cache. Hooks inspect and validate; they do not repair shared dependencies. This supersedes the older blanket Mac dependency deferral for this limited purpose. The SSD is local storage, not remote server RAM or permission to restore retired production infrastructure.
+ 
+diff --git a/docs/agent-policy/policy-manifest.json b/docs/agent-policy/policy-manifest.json
+index b9df47d1be8..066e0e8c868 100644
+--- a/docs/agent-policy/policy-manifest.json
++++ b/docs/agent-policy/policy-manifest.json
+@@ -2,7 +2,7 @@
+   "schemaVersion": 1,
+   "policyVersion": "2.9",
+   "files": {
+-    "OWNER-POLICY.md": "f5633d1b9e2b3d3ad7f30dea9e89691ec3044e05ff68471e7d9d8de36e079256",
++    "OWNER-POLICY.md": "785331f6f437d66efd8654ba05dcd3ee7356c31dca88133dabd73d4fa3aa953f",
+     "OPERATING-LAW.md": "a8bc3c04dce3354ebdd51a89c0b7d715af3344edcc794d33f6b3ad64506961d5",
+     "HARDENING.md": "d5fc451ce5caf6d6b5e64597a13883e1246581678fe53c962339d0a66136993e",
+     "REFERENCE-INDEX.md": "adce89c3f838f2f373cd504a00329d53906404d1dd42a647f672af6c16f95555",
+diff --git a/scripts/agent-push.sh b/scripts/agent-push.sh
+index e56d9b86fd1..ce60bd4da0e 100755
+--- a/scripts/agent-push.sh
++++ b/scripts/agent-push.sh
+@@ -494,7 +494,25 @@ fi
+ # the core count costs minutes; a refused run costs the whole gate again. This
+ # only delays the push: the hook and every check it runs are unchanged, and
+ # after AGENT_PUSH_LOAD_WAIT_SECONDS (default 900, 0 disables) it pushes anyway.
+-if [ "$(uname -s)" = Darwin ]; then
++#
++# ONLY A HEAVY LOCAL STAGE IS WORTH WAITING FOR (Dan, 2026-11-19 12:54
++# Chicago: "EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER
++# VERIFICATIONS"). The hook starts the engine project only for a push that
++# changes an engine, database or dependency-manifest path; every other push
++# runs static guards and a handful of directly related tests, so holding it
++# for up to fifteen minutes bought nothing. CA_HEAVY_PATHS is the same
++# expression the hook uses. A diff that cannot be read counts as heavy.
++CA_HEAVY_PATHS='^(server/|supabase/|package(-lock)?\.json$)'
++heavy_local_stage() {
++  local base changed
++  base=$(git merge-base HEAD "refs/remotes/$REMOTE/main" 2>/dev/null) || return 0
++  [ -n "$base" ] || return 0
++  changed=$(git diff --name-only "$base" HEAD 2>/dev/null) || return 0
++  printf '%s\n' "$changed" | grep -qE "$CA_HEAVY_PATHS"
++}
++if [ "$(uname -s)" = Darwin ] && ! heavy_local_stage; then
++  say "not waiting on the Mac's load: this push changes no engine, database or dependency-manifest path, so the hook runs static guards and directly related tests only"
++elif [ "$(uname -s)" = Darwin ]; then
+   cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
+   budget=${AGENT_PUSH_LOAD_WAIT_SECONDS:-900}
+   waited=0
+diff --git a/tests/operations/delivery-check-dedup.test.mjs b/tests/operations/delivery-check-dedup.test.mjs
+index 9bc56add2a4..48774803d5c 100644
+--- a/tests/operations/delivery-check-dedup.test.mjs
++++ b/tests/operations/delivery-check-dedup.test.mjs
+@@ -62,7 +62,11 @@ test('invalid cash qualification pins stop before expensive test execution', ()
+ 
+ const serverGate = hook.slice(hook.indexOf('SERVER_VITEST='), hook.indexOf('\nif [ "$FAIL" -ne 0 ]; then'));
+ for (const failure of [false, true]) {
+-  test(`workflow edits execute server readers once and propagate failure=${failure}`, () => {
++  // Owner order 2026-11-19: this is the FULL local selection, kept for engine,
++  // database, dependency-manifest and unclassified pushes. Any other push
++  // leaves these readers to the required hosted checks
++  // (tests/unit/prePushRunsOnlyRelatedTests.test.ts).
++  test(`full local selection: workflow edits execute server readers once and propagate failure=${failure}`, () => {
+     const dir = mkdtempSync(join(tmpdir(), 'server-workflow-reader-'));
+     try {
+       for (const [file, body] of Object.entries({
+@@ -95,7 +99,7 @@ for (const failure of [false, true]) {
+ }
+ 
+ for (const failure of [false, true]) {
+-  test(`workflow directory readers execute locally once; failure=${failure}`, () => {
++  test(`full local selection: workflow directory readers execute locally once; failure=${failure}`, () => {
+     const dir = mkdtempSync(join(tmpdir(), 'client-workflow-reader-'));
+     try {
+       installInventory(dir);
+diff --git a/tests/unit/prePushRunsOnlyRelatedTests.test.ts b/tests/unit/prePushRunsOnlyRelatedTests.test.ts
+new file mode 100644
+index 00000000000..a8b2771873a
+--- /dev/null
++++ b/tests/unit/prePushRunsOnlyRelatedTests.test.ts
+@@ -0,0 +1,100 @@
++import { describe, expect, it, vi } from 'vitest';
++import { readFileSync } from 'node:fs';
++import { spawnSync } from 'node:child_process';
++
++// Owner order (Dan, 2026-11-19 12:54 Chicago), verbatim:
++// "WHAT CAN WE DO TO CHANGE THE 7 LAYER VERIFICATIONS BEFORE EVERYTHING IS
++// PUSHED AND PUBLISHED?! THAT SEEMS HIGHLY EXCESSIVE AND CAN BE OPTIMIZED AND
++// ENHANCED BETTER. EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER
++// VERIFICATIONS"
++//
++// The local pre-push gate keeps its static guards and runs only tests directly
++// related to the changed files. Suites the required hosted checks run on the
++// same commit are not repeated locally unless the push changes an engine,
++// database or dependency-manifest path, or cannot be classified.
++vi.setConfig({ testTimeout: 120_000 });
++
++const hook = readFileSync('.husky/pre-push', 'utf8');
++const helper = readFileSync('scripts/agent-push.sh', 'utf8');
++const ORDER_TAIL = 'EVEN SIMPLE CHANGES LIKE UI ARE GOING THROUGH A 7 LAYER VERIFICATIONS';
++const HEAVY = "CA_HEAVY_PATHS='^(server/|supabase/|package(-lock)?\\.json$)'";
++
++// The selection block of the real hook, run against a chosen file list.
++function select(files: string) {
++  const start = hook.indexOf('\nCA_HEAVY_PATHS=');
++  const end = hook.indexOf('\n# CENSUSES OF THE TEST TREE');
++  expect(start).toBeGreaterThan(0);
++  expect(end).toBeGreaterThan(start);
++  const script = [
++    'set -e',
++    'CA_TREE_TOP=$PWD; CHANGED_TESTS=""; NODE_TESTS=""; CHANGED_SRC=""',
++    `FILES="${files}"`,
++    hook.slice(start, end),
++    'echo "SCOPE=$CA_LOCAL_SCOPE HOSTED_SERVER=$CA_HOSTED_SERVER"',
++    'echo "COUNT=$(printf "%s\\n" $CHANGED_TESTS $NODE_TESTS | grep -c . || true)"',
++    'echo "SRC=[$CHANGED_SRC]"',
++  ].join('\n');
++  const run = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
++  expect(run.status, run.stderr).toBe(0);
++  return run.stdout;
++}
++
++describe('the local pre-push gate runs only directly related tests', () => {
++  it('uses one heavy-path expression in the hook and in the push helper', () => {
++    expect(hook).toContain(HEAVY);
++    expect(helper).toContain(HEAVY);
++  });
++
++  it('a tooling and workflow push selects direct readers and never the engine project', () => {
++    const out = select('.github/workflows/ci.yml scripts/ci/execution-preview.mjs PUBLISHING.md');
++    expect(out).toContain('SCOPE=related HOSTED_SERVER=yes');
++    expect(out).toMatch(
++      /\.github\/workflows\/ci\.yml is named by \d+ tests: left to the required hosted Client Unit Tests job\./
++    );
++    const count = Number(/COUNT=(\d+)/.exec(out)?.[1]);
++    expect(count).toBeGreaterThan(0);
++    expect(count).toBeLessThanOrEqual(120);
++    // With the hosted Server Engine check admitted, no workflow reader in
++    // server/src is selected, so the server gate has nothing to run.
++    expect(hook).toContain(
++      'if [ "$CA_HOSTED_SERVER" = yes ]; then SERVER_WORKFLOW_BASENAMES=""; fi'
++    );
++  });
++
++  it('a client-only push runs no import-graph sweep', () => {
++    const out = select('src/App.tsx public/favicon.ico');
++    expect(out).toContain('SCOPE=related HOSTED_SERVER=no');
++    expect(out).toContain('SRC=[]');
++  });
++
++  it('an engine or database path keeps the full local selection', () => {
++    expect(select('server/src/engine/HorseLogic.ts src/App.tsx')).toContain('SCOPE=full');
++    expect(select('supabase/migrations/20260101000000_x.sql')).toContain('SCOPE=full');
++    expect(select('package-lock.json')).toContain('SCOPE=full');
++  });
++
++  it('a push whose client suite hosted CI would not run keeps the full local selection', () => {
++    expect(select('docs/some-note.md')).toContain('SCOPE=full');
++  });
++
++  it('the helper waits on machine load only for a heavy local stage', () => {
++    expect(helper).toContain('if [ "$(uname -s)" = Darwin ] && ! heavy_local_stage; then');
++    expect(helper).toMatch(
++      /heavy_local_stage\(\) \{[\s\S]*?\|\| return 0[\s\S]*?grep -qE "\$CA_HEAVY_PATHS"\n\}/
++    );
++  });
++
++  it('the hook, the publishing guide and the owner policy record the order and keep the later gates', () => {
++    const publishing = readFileSync('PUBLISHING.md', 'utf8');
++    const policy = readFileSync('docs/agent-policy/OWNER-POLICY.md', 'utf8');
++    expect(hook).toContain('# VERIFICATIONS"');
++    expect(publishing).toContain(ORDER_TAIL);
++    expect(policy).toContain(ORDER_TAIL);
++    expect(publishing).toContain(
++      'Hosted CI, protected merge, publisher admission and applicable live proof remain mandatory.'
++    );
++    expect(policy).toContain(
++      'Hosted CI, protected merge, publication and live proof stay mandatory.'
++    );
++  });
++});
