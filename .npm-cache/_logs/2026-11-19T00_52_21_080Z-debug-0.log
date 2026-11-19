@@ -1,0 +1,18 @@
+0 verbose cli /Users/smarter.poker/.nvm/versions/node/v24.15.0/bin/node /Users/smarter.poker/.nvm/versions/node/v24.15.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.12.1
+2 info using node@v24.15.0
+3 silly config load:file:/Users/smarter.poker/.nvm/versions/node/v24.15.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/.npmrc
+5 silly config load:file:/Users/smarter.poker/.npmrc
+6 silly config load:file:/Users/smarter.poker/.nvm/versions/node/v24.15.0/etc/npmrc
+7 verbose title npm exec vitest run src/CashRestartKeepsItsPlayers.test.ts
+8 verbose argv "exec" "--" "vitest" "run" "src/CashRestartKeepsItsPlayers.test.ts"
+9 verbose logfile logs-max:10 dir:/Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/.npm-cache/_logs/2026-11-19T00_52_21_080Z-
+10 verbose logfile /Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/.npm-cache/_logs/2026-11-19T00_52_21_080Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix
+13 verbose os Darwin 25.5.0
+14 verbose node v24.15.0
+15 verbose npm  v11.12.1
+16 verbose exit 1
+17 verbose code 1

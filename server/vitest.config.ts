@@ -21,7 +21,7 @@ export default defineConfig({
     // ONE definition, imported. It used to be a literal 10_000 here, and two
     // tests independently chose 10_000 as their own wall-clock wait budget -
     // the same number as the ceiling, so the wait could never finish before
-    // vitest killed it and the failure printed "Test timed out in 10000ms"
+    // vitest killed it and the failure printed "Test timed out in 20000ms"
     // with no cause attached. src/testing/waitBudget.ts holds the pair apart
     // and theWaitBudgetFitsUnderTheCeiling.law.test.ts keeps them apart.
     testTimeout: TEST_TIMEOUT_MS,

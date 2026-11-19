@@ -1,0 +1,184 @@
+0 verbose cli /Users/smarter.poker/.nvm/versions/node/v24.15.0/bin/node /Users/smarter.poker/.nvm/versions/node/v24.15.0/bin/npm
+1 info using npm@11.12.1
+2 info using node@v24.15.0
+3 silly config load:file:/Users/smarter.poker/.nvm/versions/node/v24.15.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/server/.npmrc
+5 silly config load:file:/Users/smarter.poker/.npmrc
+6 silly config load:file:/Users/smarter.poker/.nvm/versions/node/v24.15.0/etc/npmrc
+7 verbose title npm ci
+8 verbose argv "ci" "--ignore-scripts" "--no-audit" "--no-fund"
+9 verbose logfile logs-max:10 dir:/Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/server/.npm-cache/_logs/2026-11-19T00_16_35_238Z-
+10 verbose logfile /Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/server/.npm-cache/_logs/2026-11-19T00_16_35_238Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:17381195776 maxSize:4345298944 maxEntrySize:2172649472
+13 silly packumentCache heap:17381195776 maxSize:4345298944 maxEntrySize:2172649472
+14 silly idealTree buildDeps
+15 silly reify moves {}
+16 http cache xtend@https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz 1ms (cache hit)
+17 http cache ws@https://registry.npmjs.org/ws/-/ws-8.22.0.tgz 0ms (cache hit)
+18 http cache why-is-node-running@https://registry.npmjs.org/why-is-node-running/-/why-is-node-running-2.3.0.tgz 0ms (cache hit)
+19 http cache vite-node@https://registry.npmjs.org/vite-node/-/vite-node-2.1.9.tgz 0ms (cache hit)
+20 http cache vite@https://registry.npmjs.org/vite/-/vite-5.4.21.tgz 0ms (cache hit)
+21 http cache undici-types@https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz 0ms (cache hit)
+22 http cache uuid@https://registry.npmjs.org/uuid/-/uuid-13.0.0.tgz 0ms (cache hit)
+23 http cache typescript@https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz 0ms (cache hit)
+24 http cache vitest@https://registry.npmjs.org/vitest/-/vitest-2.1.9.tgz 0ms (cache hit)
+25 http cache tslib@https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz 0ms (cache hit)
+26 http cache tsx@https://registry.npmjs.org/tsx/-/tsx-4.21.0.tgz 0ms (cache hit)
+27 http cache tinyspy@https://registry.npmjs.org/tinyspy/-/tinyspy-3.0.2.tgz 0ms (cache hit)
+28 http cache tinybench@https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz 0ms (cache hit)
+29 http cache tinypool@https://registry.npmjs.org/tinypool/-/tinypool-1.1.1.tgz 0ms (cache hit)
+30 http cache split2@https://registry.npmjs.org/split2/-/split2-4.2.0.tgz 0ms (cache hit)
+31 http cache std-env@https://registry.npmjs.org/std-env/-/std-env-3.10.0.tgz 0ms (cache hit)
+32 http cache siginfo@https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz 0ms (cache hit)
+33 http cache tinyrainbow@https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-1.2.0.tgz 0ms (cache hit)
+34 http cache resolve-pkg-maps@https://registry.npmjs.org/resolve-pkg-maps/-/resolve-pkg-maps-1.0.0.tgz 0ms (cache hit)
+35 http cache rollup@https://registry.npmjs.org/rollup/-/rollup-4.60.1.tgz 0ms (cache hit)
+36 http cache tinyexec@https://registry.npmjs.org/tinyexec/-/tinyexec-0.3.2.tgz 0ms (cache hit)
+37 http cache source-map-js@https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz 0ms (cache hit)
+38 http cache postgres-array@https://registry.npmjs.org/postgres-array/-/postgres-array-2.0.0.tgz 0ms (cache hit)
+39 http cache postcss@https://registry.npmjs.org/postcss/-/postcss-8.5.9.tgz 0ms (cache hit)
+40 http cache postgres-date@https://registry.npmjs.org/postgres-date/-/postgres-date-1.0.7.tgz 0ms (cache hit)
+41 http cache picocolors@https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz 0ms (cache hit)
+42 http cache pgpass@https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz 0ms (cache hit)
+43 http cache postgres-bytea@https://registry.npmjs.org/postgres-bytea/-/postgres-bytea-1.0.1.tgz 0ms (cache hit)
+44 http cache pg-types@https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz 0ms (cache hit)
+45 http cache pg-protocol@https://registry.npmjs.org/pg-protocol/-/pg-protocol-1.16.0.tgz 0ms (cache hit)
+46 http cache pg-pool@https://registry.npmjs.org/pg-pool/-/pg-pool-3.14.0.tgz 0ms (cache hit)
+47 http cache pg-connection-string@https://registry.npmjs.org/pg-connection-string/-/pg-connection-string-2.14.0.tgz 0ms (cache hit)
+48 http cache pg-int8@https://registry.npmjs.org/pg-int8/-/pg-int8-1.0.1.tgz 0ms (cache hit)
+49 http cache pg@https://registry.npmjs.org/pg/-/pg-8.23.0.tgz 0ms (cache hit)
+50 http cache pg-cloudflare@https://registry.npmjs.org/pg-cloudflare/-/pg-cloudflare-1.4.0.tgz 0ms (cache hit)
+51 http cache pathval@https://registry.npmjs.org/pathval/-/pathval-2.0.1.tgz 0ms (cache hit)
+52 http cache magic-string@https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz 0ms (cache hit)
+53 http cache stackback@https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz 0ms (cache hit)
+54 http cache nanoid@https://registry.npmjs.org/nanoid/-/nanoid-3.3.11.tgz 0ms (cache hit)
+55 http cache ms@https://registry.npmjs.org/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+56 http cache postgres-interval@https://registry.npmjs.org/postgres-interval/-/postgres-interval-1.2.0.tgz 0ms (cache hit)
+57 http cache get-tsconfig@https://registry.npmjs.org/get-tsconfig/-/get-tsconfig-4.13.6.tgz 0ms (cache hit)
+58 http cache loupe@https://registry.npmjs.org/loupe/-/loupe-3.2.1.tgz 0ms (cache hit)
+59 http cache fsevents@https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz 0ms (cache hit)
+60 http cache iceberg-js@https://registry.npmjs.org/iceberg-js/-/iceberg-js-0.8.1.tgz 0ms (cache hit)
+61 http cache pathe@https://registry.npmjs.org/pathe/-/pathe-1.1.2.tgz 0ms (cache hit)
+62 http cache fast-json-patch@https://registry.npmjs.org/fast-json-patch/-/fast-json-patch-3.1.1.tgz 0ms (cache hit)
+63 http cache estree-walker@https://registry.npmjs.org/estree-walker/-/estree-walker-3.0.3.tgz 0ms (cache hit)
+64 http cache es-module-lexer@https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-1.7.0.tgz 0ms (cache hit)
+65 http cache deep-eql@https://registry.npmjs.org/deep-eql/-/deep-eql-5.0.2.tgz 0ms (cache hit)
+66 http cache esbuild@https://registry.npmjs.org/esbuild/-/esbuild-0.27.3.tgz 0ms (cache hit)
+67 http cache cac@https://registry.npmjs.org/cac/-/cac-6.7.14.tgz 0ms (cache hit)
+68 http cache expect-type@https://registry.npmjs.org/expect-type/-/expect-type-1.3.0.tgz 0ms (cache hit)
+69 http cache @vitest/spy@https://registry.npmjs.org/@vitest/spy/-/spy-2.1.9.tgz 0ms (cache hit)
+70 http cache @vitest/runner@https://registry.npmjs.org/@vitest/runner/-/runner-2.1.9.tgz 0ms (cache hit)
+71 http cache @vitest/snapshot@https://registry.npmjs.org/@vitest/snapshot/-/snapshot-2.1.9.tgz 0ms (cache hit)
+72 http cache chai@https://registry.npmjs.org/chai/-/chai-5.3.3.tgz 0ms (cache hit)
+73 http cache @vitest/pretty-format@https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-2.1.9.tgz 0ms (cache hit)
+74 http cache @vitest/mocker@https://registry.npmjs.org/@vitest/mocker/-/mocker-2.1.9.tgz 0ms (cache hit)
+75 http cache @vitest/expect@https://registry.npmjs.org/@vitest/expect/-/expect-2.1.9.tgz 0ms (cache hit)
+76 http cache @vitest/utils@https://registry.npmjs.org/@vitest/utils/-/utils-2.1.9.tgz 0ms (cache hit)
+77 http cache @types/uuid@https://registry.npmjs.org/@types/uuid/-/uuid-10.0.0.tgz 0ms (cache hit)
+78 http cache assertion-error@https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz 0ms (cache hit)
+79 http cache debug@https://registry.npmjs.org/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+80 http cache @types/phoenix@https://registry.npmjs.org/@types/phoenix/-/phoenix-1.6.7.tgz 0ms (cache hit)
+81 http cache @types/pg@https://registry.npmjs.org/@types/pg/-/pg-8.23.1.tgz 0ms (cache hit)
+82 http cache @types/estree@https://registry.npmjs.org/@types/estree/-/estree-1.0.8.tgz 0ms (cache hit)
+83 http cache @types/node@https://registry.npmjs.org/@types/node/-/node-22.19.15.tgz 0ms (cache hit)
+84 http cache check-error@https://registry.npmjs.org/check-error/-/check-error-2.1.3.tgz 0ms (cache hit)
+85 http cache @supabase/supabase-js@https://registry.npmjs.org/@supabase/supabase-js/-/supabase-js-2.98.0.tgz 0ms (cache hit)
+86 http cache @supabase/auth-js@https://registry.npmjs.org/@supabase/auth-js/-/auth-js-2.98.0.tgz 0ms (cache hit)
+87 http cache @supabase/storage-js@https://registry.npmjs.org/@supabase/storage-js/-/storage-js-2.98.0.tgz 0ms (cache hit)
+88 http cache @supabase/realtime-js@https://registry.npmjs.org/@supabase/realtime-js/-/realtime-js-2.98.0.tgz 0ms (cache hit)
+89 http cache @supabase/functions-js@https://registry.npmjs.org/@supabase/functions-js/-/functions-js-2.98.0.tgz 0ms (cache hit)
+90 http cache @types/ws@https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz 0ms (cache hit)
+91 http cache @rollup/rollup-darwin-arm64@https://registry.npmjs.org/@rollup/rollup-darwin-arm64/-/rollup-darwin-arm64-4.60.1.tgz 0ms (cache hit)
+92 http cache @supabase/postgrest-js@https://registry.npmjs.org/@supabase/postgrest-js/-/postgrest-js-2.98.0.tgz 0ms (cache hit)
+93 http cache @esbuild/darwin-arm64@https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.27.3.tgz 0ms (cache hit)
+94 http cache @jridgewell/sourcemap-codec@https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz 0ms (cache hit)
+95 http cache esbuild@https://registry.npmjs.org/esbuild/-/esbuild-0.21.5.tgz 0ms (cache hit)
+96 http cache @esbuild/darwin-arm64@https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.21.5.tgz 0ms (cache hit)
+97 silly ADD node_modules/xtend
+98 silly ADD node_modules/ws
+99 silly ADD node_modules/why-is-node-running
+100 silly ADD node_modules/vitest
+101 silly ADD node_modules/vite-node
+102 silly ADD node_modules/vite
+103 silly ADD node_modules/vite/node_modules/esbuild
+104 silly ADD node_modules/vite/node_modules/@esbuild/darwin-arm64
+105 silly ADD node_modules/uuid
+106 silly ADD node_modules/undici-types
+107 silly ADD node_modules/typescript
+108 silly ADD node_modules/tsx
+109 silly ADD node_modules/tslib
+110 silly ADD node_modules/tinyspy
+111 silly ADD node_modules/tinyrainbow
+112 silly ADD node_modules/tinypool
+113 silly ADD node_modules/tinyexec
+114 silly ADD node_modules/tinybench
+115 silly ADD node_modules/std-env
+116 silly ADD node_modules/stackback
+117 silly ADD node_modules/split2
+118 silly ADD node_modules/source-map-js
+119 silly ADD node_modules/siginfo
+120 silly ADD node_modules/rollup
+121 silly ADD node_modules/resolve-pkg-maps
+122 silly ADD node_modules/postgres-interval
+123 silly ADD node_modules/postgres-date
+124 silly ADD node_modules/postgres-bytea
+125 silly ADD node_modules/postgres-array
+126 silly ADD node_modules/postcss
+127 silly ADD node_modules/picocolors
+128 silly ADD node_modules/pgpass
+129 silly ADD node_modules/pg-types
+130 silly ADD node_modules/pg-protocol
+131 silly ADD node_modules/pg-pool
+132 silly ADD node_modules/pg-int8
+133 silly ADD node_modules/pg-connection-string
+134 silly ADD node_modules/pg-cloudflare
+135 silly ADD node_modules/pg
+136 silly ADD node_modules/pathval
+137 silly ADD node_modules/pathe
+138 silly ADD node_modules/nanoid
+139 silly ADD node_modules/ms
+140 silly ADD node_modules/magic-string
+141 silly ADD node_modules/loupe
+142 silly ADD node_modules/iceberg-js
+143 silly ADD node_modules/get-tsconfig
+144 silly ADD node_modules/fsevents
+145 silly ADD node_modules/fast-json-patch
+146 silly ADD node_modules/expect-type
+147 silly ADD node_modules/estree-walker
+148 silly ADD node_modules/esbuild
+149 silly ADD node_modules/es-module-lexer
+150 silly ADD node_modules/deep-eql
+151 silly ADD node_modules/debug
+152 silly ADD node_modules/check-error
+153 silly ADD node_modules/chai
+154 silly ADD node_modules/cac
+155 silly ADD node_modules/assertion-error
+156 silly ADD node_modules/@vitest/utils
+157 silly ADD node_modules/@vitest/spy
+158 silly ADD node_modules/@vitest/snapshot
+159 silly ADD node_modules/@vitest/runner
+160 silly ADD node_modules/@vitest/pretty-format
+161 silly ADD node_modules/@vitest/mocker
+162 silly ADD node_modules/@vitest/expect
+163 silly ADD node_modules/@types/ws
+164 silly ADD node_modules/@types/uuid
+165 silly ADD node_modules/@types/phoenix
+166 silly ADD node_modules/@types/pg
+167 silly ADD node_modules/@types/node
+168 silly ADD node_modules/@types/estree
+169 silly ADD node_modules/@supabase/supabase-js
+170 silly ADD node_modules/@supabase/storage-js
+171 silly ADD node_modules/@supabase/realtime-js
+172 silly ADD node_modules/@supabase/postgrest-js
+173 silly ADD node_modules/@supabase/functions-js
+174 silly ADD node_modules/@supabase/auth-js
+175 silly ADD node_modules/@rollup/rollup-darwin-arm64
+176 silly ADD node_modules/@jridgewell/sourcemap-codec
+177 silly ADD node_modules/@esbuild/darwin-arm64
+178 verbose cwd /Volumes/SmarterWork/agent-work/extreme-capacity/club-arena-fix/server
+179 verbose os Darwin 25.5.0
+180 verbose node v24.15.0
+181 verbose npm  v11.12.1
+182 verbose exit 0
+183 info ok
