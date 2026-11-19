@@ -1138,6 +1138,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetValueIsRangeRelative',
+    "Lane VALUE-REGION 2026-11-18 (hand 59993188: a Horse folded the nut flush on the river at a price of 26.0% because the facing-bet verdict's value region is the strongest share of ALL five-card holdings, which on that paired board held only full houses): inside omahaFacingBetEv only, PLO4/PLO5 cash, one board, the river, heads-up, the first bet of the street made by a person (a Horse's bet keeps the facing-bet verdict). The bettor's bets are his range on this board (his preflop re-raise width from the engine's preflop re-raise defence, the Horse's exact blockers) weighted by the MEASURED density of the strength percentile people bet at, by his earlier postflop aggression and the bet's share of the pot read continuously (1,201 recorded river bets by people with known cards, HorseOmahaFacingBetValueRange.ts); EV(call) at the actual price against that range, after rake, against the rule's one margin is the verdict. No value percentile and no separate bluff prior. Default OFF (read === true): its declared evaluation of 2026-11-18 FAILED (repairs/VALUE-REGION); league cards plo4/plo5 _omaha_facing_bet_value_is_range_relative",
+    'V94'
+  ),
+  flag(
     'omahaTurnRiverRaiseNeedsNuts',
     'Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair, no redraw, raised a pot bet on the PLO5 turn into the nut straight; "NEVER A RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand, player, price and pot dependent) and 12:30 (draws). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning: on the turn and the river, facing a bet or a raise, any final raise, re-raise, check-raise or all-in raise stands only when the hand is nut class now (omahaNutClassNow); on the turn an in-position combo-draw raise the 12:30 rule permits stands too. Every other raise becomes a call or a fold: the exact-hand facing-bet EV verdict against the bettor read (population prior unmeasured), else the OOP turn facing-bet verdict, else fold at a price of a third of the pot after the call or more. The outermost conversion on the facing-bet path (HorseOmahaTurnRiverRaiseNeedsNuts.ts). Default OFF (read === true); league cards plo4/plo5 _omaha_turn_river_raise_needs_nuts',
     'V94'

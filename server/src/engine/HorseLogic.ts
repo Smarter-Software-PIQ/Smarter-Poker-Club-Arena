@@ -113,6 +113,7 @@ import {
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import { omahaFacingBetValueRangeOver } from './HorseOmahaFacingBetValueRange.js';
 import { omahaFlopFacingBetEvRule } from './HorseOmahaFlopFacingBetEvRule.js';
 import { omahaFlopEvBehindContinue } from './HorseOmahaFlopFacingBetEv.js';
 import { omahaShownFieldMixUnit } from './HorseOmahaFacingBetEvShownField.js';
@@ -495,7 +496,11 @@ import {
   omahaRaiseNeedsNutsPriceFolds,
   omahaRaiseNeedsNutsScope,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
-import { omahaPricedModeOf, withOmahaPricedMode } from './HorseOmahaPricedMode.js';
+import {
+  omahaOpponentKindOf,
+  omahaPricedModeOf,
+  withOmahaPricedMode,
+} from './HorseOmahaPricedMode.js';
 import { withOmahaReadByStreetDecision } from './HorseOmahaReadByStreetRule.js';
 import {
   omahaPricedBigBetCallRule,
@@ -3709,6 +3714,18 @@ export interface HorseDecideOpts {
    *  (HorseOmahaRiverBluffCatch.ts). Default OFF until its declared
    *  evaluation passes. */
   omahaRiverBluffCatchIsPriced?: boolean;
+  /** Lane VALUE-REGION 2026-11-18 (hand 59993188: the nut flush folded on the
+   *  river at a price of 26.0% because the facing-bet verdict's value region is
+   *  the strongest share of ALL five-card holdings, which on that board held
+   *  only full houses). Inside omahaFacingBetEv only: PLO4/PLO5 cash, the
+   *  river, heads-up, the first bet of the street, made by a person. The
+   *  bettor's bets are his range on this board (his preflop re-raise width, the
+   *  Horse's blockers) weighted by the MEASURED density of the strength
+   *  percentile people bet at, by his earlier aggression and the bet's share of
+   *  the pot (HorseOmahaFacingBetValueRange.ts); EV(call) at the actual price
+   *  against that range is the verdict. No value percentile, no bluff prior.
+   *  Default OFF until its declared evaluation passes. */
+  omahaFacingBetValueIsRangeRelative?: boolean;
   /** Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair with no
    * redraw raised a pot bet on the turn into the nut straight; "NEVER A
    * RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand,
@@ -11312,6 +11329,7 @@ let omahaFacingBetEvCountMemo: {
   runoutRealization: boolean;
   shownField: boolean;
   riverBluffCatch: boolean;
+  valueRangeRelative: boolean;
   answer: OmahaFacingBetEvAnswer | null;
 } | null = null;
 
@@ -11346,6 +11364,7 @@ function omahaFacingBetEvCount(
   const runoutRealization = opts.omahaTurnCallRealizationByRunout === true;
   const shownField = opts.omahaFacingBetEvShownField === true && !isTournamentMode(gs);
   const riverBluffCatch = opts.omahaRiverBluffCatchIsPriced === true && !isTournamentMode(gs);
+  const valueRangeRelative = opts.omahaFacingBetValueIsRangeRelative === true;
   const memo = omahaFacingBetEvCountMemo;
   if (
     memo &&
@@ -11356,7 +11375,8 @@ function omahaFacingBetEvCount(
     memo.plo6RiverUnpaired === plo6RiverUnpaired &&
     memo.runoutRealization === runoutRealization &&
     memo.shownField === shownField &&
-    memo.riverBluffCatch === riverBluffCatch
+    memo.riverBluffCatch === riverBluffCatch &&
+    memo.valueRangeRelative === valueRangeRelative
   )
     return memo.answer;
   let answer: OmahaFacingBetEvAnswer | null = null;
@@ -11435,7 +11455,31 @@ function omahaFacingBetEvCount(
             : {}),
         }
       );
-    const verdict = verdictOf(spot, read);
+    let verdict = verdictOf(spot, read);
+    // omahaFacingBetValueIsRangeRelative (default off): on the river, heads-up against a person's
+    // first bet, his bets are his measured betting range on this board, not a share of all holdings.
+    if (
+      verdict &&
+      valueRangeRelative &&
+      !isTournamentMode(gs) &&
+      omahaOpponentKindOf(
+        gs,
+        (gs.players ?? []).find((p) => p.seat === spot.bettorSeat)?.user_id
+      ) === 'person'
+    ) {
+      const ranged = omahaFacingBetValueRangeOver(
+        spot,
+        verdict,
+        player.cards ?? [],
+        gs.communityCards ?? [],
+        player.knownDeadCards ?? [],
+        gs.actionHistory,
+        rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat))
+      );
+      // One river verdict per decision: when the value region prices the spot it is the verdict
+      // (the bluff-catch pricing of omahaRiverBluffCatchIsPriced, if it ran, is dropped with it).
+      if (ranged) verdict = { ...ranged, riverBluffCatch: undefined };
+    }
     if (verdict) {
       answer = { spot, verdict };
       // Receipt: the continuous inputs changed the verdict the stepped tables and the label cap give.
@@ -11454,6 +11498,7 @@ function omahaFacingBetEvCount(
     runoutRealization,
     shownField,
     riverBluffCatch,
+    valueRangeRelative,
     answer,
   };
   return answer;
