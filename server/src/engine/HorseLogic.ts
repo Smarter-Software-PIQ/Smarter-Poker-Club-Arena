@@ -8696,7 +8696,7 @@ function omahaReraisedCallVsRaise(
     if (String(gs.stage ?? '') !== 'preflop') return standing;
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (variant !== 'plo4' && variant !== 'plo5') return standing;
-    if (omahaCashOnlyExcludes(player, gs) || omahaReraisedLaneUntouched(gs)) return standing;
+    if (omahaCashOnlyExcludes(player, gs) || omahaReraisedLaneUntouched(gs, opts)) return standing;
     if (gs.bombPot === true || gs.allInOrFold === true) return standing;
     if (gs.communityCards2?.length || gs.communityCards3?.length) return standing;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : variantInfo(gs.gameVariant).isHiLo)
