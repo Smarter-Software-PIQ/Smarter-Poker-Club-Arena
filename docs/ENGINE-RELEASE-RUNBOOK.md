@@ -161,6 +161,26 @@ to production; the current engine keeps running by design.
 
 Run `python3 -B server/scripts/engine-release-installed-migrations.py candidate-ready --repo . --serving SERVING_SHA --sha TARGET_SHA` using the configured read-only `DATABASE_URL`, or supply `--production FRESH_SCHEMA_EVIDENCE_JSON` from a fresh installed listing. It checks all ordinary added or changed candidate files, including byte-bound recordings whose installed name differs from their filename. Missing versions, wrong installed names and malformed or ambiguous recording claims refuse. Retain the separate certified-copy equality and required-function checks. A changed recording manifest requires fresh release and physical Backup qualification; this command never installs or replays SQL.
 
+### 1.4 Freezing main for an owner window says when it ends
+
+A freeze of `refs/heads/main` (the `RELEASE FREEZE` repository ruleset, id 27627940) is applied and lifted only with `scripts/ci/main-freeze.mjs`, and only for a window booked in `server/release/owner-maintenance-windows.json`:
+
+```bash
+node scripts/ci/main-freeze.mjs freeze --window <window id>          # dry run: prints the name and variable it will write
+node scripts/ci/main-freeze.mjs freeze --window <window id> --apply  # needs Administration: write and Variables: write
+node scripts/ci/main-freeze.mjs thaw --apply                         # enforcement=disabled, same ruleset id
+```
+
+Freezing renames the ruleset to `RELEASE FREEZE until <notAfter>Z (<window id>) <sha8 of contains>` and writes the repository variable `MAIN_RELEASE_FREEZE` (JSON: `state`, `windowId`, `notBefore`, `notAfter`, `release`, `rulesetId`). It refuses a window that is not booked or has already ended, so a freeze never claims an end the bookings do not support. Thawing disables the same ruleset (the id stays stable), resets its name to the bare prefix and marks the variable `lifted`. Neither touches the database freeze `smarter_private.ca_release_freeze`, the engine or any bypass list.
+
+Any session reads the state with one command, read-only:
+
+```bash
+node scripts/ci/main-freeze-status.mjs          # or --json
+```
+
+It prints `main: OPEN`, `main: FROZEN` (ruleset, window, until, release) or `main: UNKNOWN` (rulesets unreadable; never reported as open), any booked windows open now, and the next booked window. A ruleset applied by hand without a label is still bounded: the helper reports the latest-ending booked window covering now, marked `INFERRED`. `OVERDUE` means the booked `notAfter` has passed and the ruleset is still active; the custodian thaws it, nothing lifts it on a clock. Do not poll the ruleset to learn when merges resume: read the `until` line and come back then. Tests: `node --test tests/operations/main-freeze-status.test.mjs` (fixtures only, no network).
+
 ## 2. Adding to the engine
 
 1. **Claim an owned worktree.** `bash scripts/agent-workspace.sh <agent> <slug> --print-path`

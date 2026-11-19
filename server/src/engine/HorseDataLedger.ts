@@ -1753,6 +1753,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-14'
   ),
   receipt(
+    'raise_ladder_*',
+    'RaiseLadderAlarm (live raise-ladder alarm, measurement only; ServerTableEngineHandEvents PLAYER_ACTION)',
+    'raise_ladder_<variant>_<horse_only|mixed>_seen: a no-limit or pot-limit street reached 4 consecutive minimum raises (a full raise whose increment is the minimum legal raise; calls between raises do not break the run, a larger raise, a short all in or a new street ends it; fixed limit is not counted), fired once per street on the 4th; <variant> is the watchcounter variant, horse_only when every raiser of the run is a Horse, mixed otherwise; changes no action; occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
     'style_shadow*',
     'horseDecision workerRuntime (STYLE READ shadow)',
     'style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen: an AGGREGATE counter over a fixed key set of at most 68,600 keys (no hand, seat or amount), one fire per changed decision of a style option in shadow (the one re-decision with that option on differs from the committed one in action or amount; a size-only change has <actual> = <wouldBe> and is counted apart from the 30-decision evaluation gate); per-decision detail is reconstructed from the decision journal (replay state carries the switch state) joined to ca_hand_facts; style_shadow_unchanged_seen: the re-decision kept the action; style_shadow_rotated_out_seen: another engaged option of the same decision was not re-decided (one re-decision per decision, rotated by decision key); style_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen: no re-decision because work was queued, the committed decision exceeded the 15 ms budget, or the governor scale moved; style_shadow_scale_mismatch_seen: the re-decision ran at another scale and was discarded; style_shadow_redecide_over_budget_seen: a re-decision took more than 15 ms; style_shadow_redecide_failed_seen / _unencodable_seen: a re-decision or its receipt threw (nothing committed changes); occurrence counters; named *_seen',

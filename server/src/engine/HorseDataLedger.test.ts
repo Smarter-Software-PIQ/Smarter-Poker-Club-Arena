@@ -132,6 +132,8 @@ const RECEIPT_ONLY_FILES = [
   'engine/HorseOmahaPreflopReraiseDefenceRule.ts',
   // Omaha read by street (2026-11-18, default off): the per-decision installer counts its one receipt.
   'engine/HorseOmahaReadByStreetRule.ts',
+  // Live raise-ladder alarm (2026-11-18, measurement only): the 4th consecutive minimum raise of a street.
+  'engine/RaiseLadderAlarm.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

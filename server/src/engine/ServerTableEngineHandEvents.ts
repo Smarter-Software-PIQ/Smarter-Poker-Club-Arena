@@ -37,6 +37,7 @@ import { noteHorseTelemetryOpportunity } from './BrainTelemetry.js';
 import { prewarmHorseDecisionStreet } from './horseDecision/client.js';
 
 import { carryHorseTurnClock } from './HorseTurnClockReceipt.js';
+import { noteRaiseLadder } from './RaiseLadderAlarm.js';
 import { storedHorsePublicNode } from './HorsePublicActionNode.js';
 
 export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettlement {
@@ -736,6 +737,14 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
           carryHorseTurnClock(
             event.record,
             this.currentHandActions[this.currentHandActions.length - 1]!
+          );
+
+          // RaiseLadderAlarm.ts (measurement only): the 4th consecutive minimum raise of a street fires one
+          // raise_ladder_<variant>_<horse_only|mixed>_seen receipt. It reads the stamp HandController retained against
+          // this record and the seated Horse flags; it changes nothing about the action or the hand.
+          noteRaiseLadder(
+            event.record,
+            (userId) => this.seatedPlayers.find((p) => p.user_id === userId)?.is_horse === true
           );
 
           // ── ADDITIVE event-sourcing shadow (#1): record PlayerActed ──
