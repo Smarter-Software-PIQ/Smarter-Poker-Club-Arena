@@ -1,6 +1,7 @@
 import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
+import { priceLightningRunout } from './LightningRunoutEquity.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
 import { recheckHorseQualifiedBeforeAcceptance } from '../engine/HorseQualifiedAcceptance.js';
@@ -549,6 +550,10 @@ export class LightningHandHost {
   private state: LightningHostState = 'created';
   private handId: string;
   private handNumber = 0;
+  /** The first all-in runout's equity for runoutEquityHand (LightningRunoutEquity). */
+  private runoutEquity: import('./LightningRunoutEquity.js').RunoutEquity | null = null;
+  private runoutEquityHand: number | null = null;
+  private runoutEquityToken = 0;
   private hostTableId = '';
   private rules: LightningHostRules | null = null;
   private hc: HandController | null = null;
@@ -1596,6 +1601,7 @@ export class LightningHandHost {
       }
       case 'ALL_IN_RUNOUT':
         this.clearTurn();
+        this.priceRunoutEquity(event);
         this.runoutRevealActive = true;
         this.publishState();
         void this.runOut();
@@ -1629,6 +1635,54 @@ export class LightningHandHost {
         break;
       default:
         break;
+    }
+  }
+
+  /**
+   * A LIGHTNING RUNOUT CARRIES ITS EQUITY (2026-11-18). The first all-in point
+   * of the hand is priced on the shared equity worker pool, exactly as a
+   * Classic table prices it, and kept for this hand's stats facts. Never
+   * awaited and never throws: the runout and the settlement do not wait for
+   * it, and a result for a hand that is no longer this host's current hand is
+   * dropped. A price still running when the hand completes is simply absent.
+   */
+  private priceRunoutEquity(event: {
+    board: Card[];
+    board2?: Card[];
+    board3?: Card[];
+    players: SeatPlayer[];
+  }): void {
+    try {
+      if (this.runoutEquityHand === this.handNumber) return; // first all-in point only
+      const hand = this.handNumber;
+      const hc = this.hc;
+      const token = ++this.runoutEquityToken;
+      this.runoutEquityHand = hand;
+      this.runoutEquity = null;
+      const boards = [
+        event.board ?? [],
+        ...[event.board2, event.board3].filter(
+          (b): b is Card[] => Array.isArray(b) && b.length > 0
+        ),
+      ];
+      void priceLightningRunout({
+        players: event.players ?? [],
+        boards,
+        variant: hc?.getGameVariant?.() || String(this.rules?.game_variant || 'nlh'),
+        pots: hc?.computeLivePots?.() ?? null,
+      })
+        .then((equity) => {
+          if (token === this.runoutEquityToken && this.handNumber === hand && this.hc === hc) {
+            this.runoutEquity = equity;
+          }
+        })
+        .catch((err: unknown) => {
+          // priceLightningRunout resolves null rather than rejecting; this catch
+          // is the guarantee, so a broken pricer can never reject unhandled.
+          reportError(err, 'LightningHandHost.runout_equity_failed');
+        });
+    } catch (err) {
+      reportError(err, 'LightningHandHost.runout_equity_failed');
     }
   }
 
@@ -3342,6 +3396,7 @@ export class LightningHandHost {
         players: state.players,
         stacksBefore: new Map(participants.map((p) => [p.playerId, p.stackBefore])),
         allInRunoutWitness: this.hc?.getAllInRunoutWitness() ?? null,
+        allInEquity: this.runoutEquityHand === this.handNumber ? this.runoutEquity : null,
         winners: this.winners,
         actions: this.actions,
         participants,
@@ -3768,28 +3823,33 @@ export class LightningHandHost {
           `; hand #${this.handNumber} waited ${attempts} attempt(s). One alert per table stall episode; ` +
           'the outbox row remains authoritative and the projection worker is its successor'
         : `Lightning hand ${this.hostTableId}#${this.handNumber} committed, but its post-commit envelope was refused (${why.reason}); the outbox row remains authoritative and the projection worker is its successor`;
-    void raiseFinancialAlert('critical', 'LightningHandHost.post_commit_obligations_pending', message, {
-      table_id: this.hostTableId,
-      hand_number: this.handNumber,
-      hand_id: handHistoryId,
-      lightning_hand_id: this.handId,
-      attempts,
-      error: describeError(lastError),
-      outcome: why.kind,
-      last_reason: why.reason,
-      ...(why.kind === 'stalled'
-        ? {
-            episode_key: `${this.hostTableId}:${why.episode.firstOldestHandId}`,
-            first_seen_oldest_hand_id: why.episode.firstOldestHandId,
-            oldest_pending_hand_id: why.oldestHandId,
-            oldest_pending_hand_number: why.oldest?.handNumber ?? null,
-            oldest_pending_committed_at: why.oldest?.committedAt ?? null,
-            oldest_pending_age_ms: ageMs,
-            stalled_hands: why.episode.stalledHands,
-            oldest_pending_max_age_ms: why.episode.maxOldestAgeMs,
-          }
-        : {}),
-    }).catch((alertError) =>
+    void raiseFinancialAlert(
+      'critical',
+      'LightningHandHost.post_commit_obligations_pending',
+      message,
+      {
+        table_id: this.hostTableId,
+        hand_number: this.handNumber,
+        hand_id: handHistoryId,
+        lightning_hand_id: this.handId,
+        attempts,
+        error: describeError(lastError),
+        outcome: why.kind,
+        last_reason: why.reason,
+        ...(why.kind === 'stalled'
+          ? {
+              episode_key: `${this.hostTableId}:${why.episode.firstOldestHandId}`,
+              first_seen_oldest_hand_id: why.episode.firstOldestHandId,
+              oldest_pending_hand_id: why.oldestHandId,
+              oldest_pending_hand_number: why.oldest?.handNumber ?? null,
+              oldest_pending_committed_at: why.oldest?.committedAt ?? null,
+              oldest_pending_age_ms: ageMs,
+              stalled_hands: why.episode.stalledHands,
+              oldest_pending_max_age_ms: why.episode.maxOldestAgeMs,
+            }
+          : {}),
+      }
+    ).catch((alertError) =>
       this.logger.error(
         `[LightningHost:${this.instanceId}] post-commit alert not filed`,
         alertError
