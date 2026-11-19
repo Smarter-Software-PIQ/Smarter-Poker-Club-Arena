@@ -1,0 +1,3 @@
+# tests/the-fleet-degraded-run-never-shadows-the-digest.law.test.ts
+
+`fn_sp_daily_metrics_compute` gained a horse-fleet `max_degraded_run` measure (#11308) whose derived column was aliased `d`, a name the function already declares for its digest block. PL/pgSQL could not resolve `WHERE d`, so the `sp-daily-metrics-snapshot` cron failed on every run from 06:15 UTC on 2026-11-19 and the morning digest's snapshot stopped being written; `CREATE FUNCTION` checks syntax only, so it installed cleanly. This law pins the repair: the column is named `is_degraded` and read qualified as `r.is_degraded`, the change is a pinned pre/postimage substitution, and the migration executes the new body before COMMIT on a day with no rows, so a body that cannot plan never reaches production.

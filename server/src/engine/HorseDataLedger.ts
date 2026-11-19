@@ -1108,6 +1108,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'lightningVpipFloorLimpOnly',
+    'Owner 2026-11-18 10:52 Chicago ("yes if a game requires a vpip horses must always follow"): every Lightning Games row carries a 40% VPIP floor in the ten-hand mode (migration 20261023230001, "Lightning uses 40% minimum VPIP and a BB ante") and the Lightning decision snapshot carried neither the floor nor the Horse own figure (production 2026-11-18, PLO5 1/2 pool: 49 Horses, 19,842 dealt hands, VPIP 24.6%, 48 of 48 with ten or more hands under 40%). The Lightning snapshot now carries the floor, the window and the Horse own last hands this pool sitting in deal order in lightningVpipFloor (LightningHorseVpipLedger; never in vpipFloor, so vpipFloorMul and vpipFloorCallDown still cannot fire in a pool), and with this on the floor has the one action of vpipFloorLimpOnly (vpipFloorLimpOnlyStep): judged over the window of the game, rolling and projected with this hand (2026-11-19), when folding would leave the window under ceil(floor x window) entered hands (a new sitting seen from its first hand: every prefix at the floor; a count carried over a restart: nothing until it holds window - 1 hands), and one hand early only when priced, a preflop fold in a pot nobody has raised, for at most the big blind and less than the stack, becomes the limp or the small blind completion; never a raise, never a call of a raise, nothing postflop; no All-In-Or-Fold hand, no tournament. Independent of vpipFloorLimpOnly, which never governs a pool. No pool session is ended by the floor today, for a person or a Horse (the parked anchor runs the sit-out clock alone). Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPositionInLightning',
+    'Lightning parity lane 2026-11-18 (owner 10:51 Chicago: the same fixes are to be active in the Lightning PLO5 game): the re-raised-pot pricing of #11287 (finding F-02, position by seat order = acts after the re-raiser; the measured realization: players who called the price read by their bands or charged as dilution, a raiser or caller still to act carries no charge) excluded Lightning (omahaReraisedLaneUntouched). With this on a Lightning PLO4/PLO5 cash call of a re-raise is priced as a table call is (omahaReraisedCallPricingOf); off, Lightning keeps the reading it had (after every player in for the price, a raiser still to act counted, 0.35 each on heads-up equity). The measurements are Classic-table hands (12,473 calls, 2026-10-15..11-17), none from a pool. Tournaments unchanged. Default off (opt-in) until its declared evaluation on Lightning hands passes.',
+    'V94'
+  ),
+  flag(
     'omahaManiacReRaiseWidthMeasured',
     'Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and called his re-raises; the decisions replay as v53_pressure_four_bet and the maniac price call, priced against a range the read sets at his whole raising width (0.69) for his 3-bet and 0.58 for his 5-bet. With this on (PLO4/PLO5 cash) a measured maniac whose re-raises rest on 12 or more decayed opportunities is read on a re-raising line at his own re-raise rate (never wider than today); the price arithmetic and its margins are unchanged. HorseMind.bandFor. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -1266,7 +1276,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaFlopBetPricesTheRaise',
     'WooWoo audit FLOPBET-RAISE 2026-11-18 (finding FOURBET F1; owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 8 days PLO4/PLO5 to 2026-11-18 06:16Z: Horse 4-bettor flop bets heads-up vs persons were raised 15/93 = 16% [10, 25] with mean -120 bb when raised; the v38 EV engine priced each flop bet fold-or-call only): PLO4/PLO5 cash in the priced scope, flop, heads-up against a person, nothing to call: every v38 bet size gets the raise branch (his measured raising share 0.15, the Horse equity against the strongest 0.15 of his holdings on the board, the Horse priced call-off or fold, marginal rake); against a Horse or an unknown kind the two-branch price is kept (no measured raise share). Default off',
     'V94'
-  ),  flag(
+  ),
+  flag(
     'omahaFlopBetUsesMeasuredFoldShare',
     'WooWoo audit FOLD-SHARE 2026-11-18 (finding FOURBET F1 root cause; owner: "EVERY DECISION NEEDS TO BE 100% INDEPENDANT AND DATA AND MATH DERRIVED AND BY RANGES, NEVER BLANKETS"; 2026-11-04..18 PLO4/PLO5 cash: persons folded 617/1,987 = 0.311 heads-up to a Horse first flop bet where the v38 base fold model credits 0.379 (0.439 at the population read) before the V53/V86/style multipliers; OMAHA_EV_FOLD_MODEL foldOverMdf was fitted on every seat pooled): PLO4/PLO5 cash in the priced scope, flop, heads-up against a person, nothing to call: his fold share to every v38 bet size is the fitted person model (size, pot type, SPR band, variant, position) shifted by his durable fold read shrunk toward the person population (OMAHA_FLOP_BET_PERSON_FOLD_FIT), replacing mdfFold x foldMul for him; Horses, unknown kinds, multiway and facing-bet spots unchanged; default OFF',
     'V94'
@@ -2822,6 +2833,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.vpipFloorMul'
   ),
   state(
+    'lightningVpipFloor',
+    "a floored Lightning pool only (built by LightningHorse.buildLightningHorseSnapshot, never by a table): the game's floor in percent, its window and this Horse's last window - 1 hands this pool sitting, how many entered and whether the oldest was entered (LightningHorseVpipLedger.readWindow); read only with lightningVpipFloorLimpOnly on and outside the policy sampling key",
+    'HorseLogic.lightningVpipFloorLimpOnlyInputs'
+  ),
+  state(
     'tournament',
     'Phase 6 context: tournament facts and actual dealt-hand blinds/census/M; immutable successful cache provenance is bound by the worker and v2 attribution through the accepted execution witness/journal. Provenance is observational and excluded from policy sampling; legacy v1 evidence remains unqualified for this new source join.',
     'HorseDecisionWorkerRuntime.assertPhase6TournamentSnapshot; HorseLogic.icmRisk / decidePreflopV7 / endgameAdjust / satelliteRead / evaluateTournamentUtility'
@@ -3417,6 +3433,33 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'under its line but the price is not a one big blind limp (a raised pot, a straddle, the whole stack or a priced refusal): the floor took no action and the fold stands',
     'VPIP',
     'vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_seen',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'a preflop decision of a floored Lightning pool under lightningVpipFloorLimpOnly: the floor may only limp (owner 2026-11-18)',
+    'VPIP'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_limp',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'under its line in a Lightning pool, a preflop fold in an unraised pot for at most the big blind became the limp or the small blind completion',
+    'VPIP',
+    'lightning_vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_fold_kept',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'under its line in an unraised Lightning pot, the limp of this hand was priced below what the floor pays at this distance from the line (vpipFloorLimpOnlySelects): the fold stands',
+    'VPIP',
+    'lightning_vpip_floor_limp_only_seen'
+  ),
+  receipt(
+    'lightning_vpip_floor_limp_only_priced_out',
+    'HorseLogic (VPIP floor in a Lightning pool, lightningVpipFloorLimpOnly)',
+    'under its line in a Lightning pool but the price is not a one big blind limp (a raised pot, the whole stack or a priced refusal): the floor took no action and the fold stands',
+    'VPIP',
+    'lightning_vpip_floor_limp_only_seen'
   ),
   receipt(
     'v15_nut_status',
@@ -5815,7 +5858,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic v38 EV engine (HorseOmahaFlopBetMeasuredFoldShare; omahaFlopBetUsesMeasuredFoldShare)',
     'the same spot could not be priced with the measured fold share (opponent a Horse or of unknown kind, all in, no model row or no price): mdfFold x foldMul is kept',
     'V94'
-  ),  receipt(
+  ),
+  receipt(
     'omaha_fold_model_fitted_on_people_priced',
     'HorseLogic v38 EV engine (HorseOmahaFoldModelFittedOnPeople; omahaFoldModelFittedOnPeople)',
     'a PLO4/PLO5 cash heads-up flop or turn decision facing no bet against a person in which every bet size was priced with the fold model fitted on people',

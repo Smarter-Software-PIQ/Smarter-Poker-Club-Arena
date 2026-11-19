@@ -186,6 +186,11 @@ import { buildLightningStatsFacts, type LightningFactsBuilder } from './Lightnin
 import { horseDailyRollupContract } from '../services/HorseDailyRollupContract.js';
 import { writeHandFacts } from '../services/supabase/handFacts.js';
 import { lightningVpipFloor } from './LightningHorseResults.js';
+import {
+  lightningHorseVpipFloorInput,
+  lightningHorseVpipLedger,
+  type LightningHorseVpipLedger,
+} from './LightningHorseVpipLedger.js';
 import type { HorseReviewInput } from '../services/HorseHandReview.js';
 import {
   horseOpponentMemorySchema,
@@ -475,6 +480,8 @@ export interface LightningHandHostDeps {
   horseObservation?: Partial<Pick<LightningObservationDeps, 'schema' | 'readProfiles' | 'report'>>;
   /** Files the settled hand on the horse scoreboard (LightningHorseResults). Injected for tests. */
   recordHorseResults?: (input: HorseReviewInput) => Promise<void>;
+  /** The Horses' own VPIP count per pool sitting (the process-wide ledger otherwise). */
+  horseVpipLedger?: LightningHorseVpipLedger;
   /** Builds the hand's private stats facts (LightningHandFacts). Injected for tests. */
   statsFacts?: LightningFactsBuilder;
   /** The jackpot payout doors (injected for tests; the physical ones otherwise). */
@@ -1955,6 +1962,7 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        vpipFloor: this.horseVpipFloorFor(userId),
         savedProfileHumanIds: [...this.participants.values()]
           .filter(confirmedHuman)
           .map((p) => p.playerId),
@@ -2559,6 +2567,7 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        vpipFloor: this.horseVpipFloorFor(userId),
         savedProfileHumanIds: [...this.participants.values()]
           .filter(confirmedHuman)
           .map((p) => p.playerId),
@@ -3061,6 +3070,9 @@ export class LightningHandHost {
     this.foldTypes.set(userId, type);
     if (this.releasedOrRecorded.has(userId)) return;
     this.releasedOrRecorded.add(userId);
+    // The hand is over for them: it counts on their sitting now, in deal order, before the fast
+    // fold deals them the next one (LightningHorseVpipLedger, review F1).
+    this.recordVpipHand([userId]);
     // Their bank can change no further in this hand: record it now, so a
     // second hand they are dealt meanwhile reads what this one left.
     this.recordBank(userId);
@@ -3422,6 +3434,33 @@ export class LightningHandHost {
     }
   }
 
+  /** The pool's floor and this Horse's last hands this sitting (its window), or null in an unfloored pool. */
+  private horseVpipFloorFor(userId: string) {
+    try {
+      const ledger = this.deps.horseVpipLedger ?? lightningHorseVpipLedger;
+      const sitting = this.participants.get(userId)?.poolSessionId;
+      return lightningHorseVpipFloorInput(this.rules, (hands) => ledger.readWindow(sitting, hands));
+    } catch {
+      return null;
+    }
+  }
+
+  /** These players' hand is over: one dealt hand each on their sitting, once per hand number. */
+  private recordVpipHand(userIds: readonly string[]): void {
+    try {
+      const who = userIds
+        .map((id) => this.participants.get(id))
+        .filter((p): p is NonNullable<typeof p> => !!p);
+      (this.deps.horseVpipLedger ?? lightningHorseVpipLedger).record(
+        who,
+        this.actions as ReadonlyArray<Record<string, unknown>>,
+        this.handNumber
+      );
+    } catch {
+      /* the count never affects the hand */
+    }
+  }
+
   /** LightningHorseResults: the settled hand's exact horse nets, play and reviews. */
   private recordForHorseScoreboard(
     state: GameState,
@@ -3433,6 +3472,8 @@ export class LightningHandHost {
     playedAtMs = this.now()
   ) {
     const participants = [...this.participants.values()];
+    // The settled hand counts once for every player dealt in; a folder was counted at its fold.
+    this.recordVpipHand(participants.map((p) => p.playerId));
     void recordLightningHorseResults(
       {
         handHistoryId,
