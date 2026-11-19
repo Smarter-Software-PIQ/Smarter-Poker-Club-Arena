@@ -22,8 +22,17 @@
  * Measurement plumbing: no database, no production caller.
  */
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadline.js';
 import { horseSwitchArms } from '../benchmark/HorseSwitchArms.js';
@@ -37,6 +46,7 @@ import {
   addLightningEvalLatency,
   emptyDeadlineCounts,
   lightningEvalCellKey,
+  lightningEvalCompletedRuns,
   lightningEvalDeadlineMiss,
   lightningEvalEffectiveStackBB,
   lightningEvalHistogramPercentile,
@@ -84,12 +94,17 @@ import {
   lightningEvalSeedClassOf,
   lightningEvalStackLabel,
   mergeLightningEvalPairs,
+  openLightningEvalRunFiles,
   runLightningPairedEval,
   type LightningEvalArmPlayer,
   type LightningEvalArmSpec,
   type LightningEvalConfig,
   type LightningEvalPairRow,
 } from './LightningPairedEval.test-support.js';
+import {
+  lightningEvalRegisteredMocks,
+  openLightningEvalFixtureScope,
+} from './LightningPairedEvalRelease.test-support.js';
 
 /** The seeded deck: the engine's own Fisher-Yates on a fixed stream. */
 const deck = { state: 1 };
@@ -102,6 +117,16 @@ const armGraph: { fastRandom: () => number } = { fastRandom: () => 0 };
  * are comparable only when each starts cold.
  */
 const playArm: LightningEvalArmPlayer = async (input) => {
+  // D10: the mocks this arm's module factories and hands build leave the
+  // process-wide registries with the arm, so its module graph can be collected.
+  const fixtures = openLightningEvalFixtureScope();
+  try {
+    return await playArmOnFreshGraph(input);
+  } finally {
+    fixtures.release();
+  }
+};
+const playArmOnFreshGraph: LightningEvalArmPlayer = async (input) => {
   vi.resetModules();
   vi.doMock('../services/supabase/client.js', () => ({
     supabase: {
@@ -115,7 +140,12 @@ const playArm: LightningEvalArmPlayer = async (input) => {
     maintenanceSupabase: {},
   }));
   vi.doMock('../services/errorReporter.js', () => ({
-    reportError: vi.fn(),
+    // NOT a vi.fn (D10): a mock keeps every call's arguments, and the host
+    // reports one Error per hand here ("Lightning original journal identity
+    // unavailable", there is no database). Each Error's captured stack frames
+    // hold the hand's host, so a recording mock kept every hand of the arm
+    // alive: about 0.6 MB per hand, the whole heap inside one 2,200-hand cell.
+    reportError: () => {},
     describeError: String,
   }));
   vi.doMock('../engine/CryptoRandom.js', async (importOriginal) => {
@@ -142,6 +172,13 @@ const playArm: LightningEvalArmPlayer = async (input) => {
     },
   });
 };
+
+/** The worker's resident set and heap, for the per-cell line (D10 is read from it). */
+function lightningEvalProcessMemory(): string {
+  const m = process.memoryUsage();
+  const mb = (bytes: number) => Math.round(bytes / 1048576);
+  return `rss ${mb(m.rss)} MB, heap used ${mb(m.heapUsed)} MB`;
+}
 
 /** A candidate that changes nothing the brain reads. */
 const NULL_CANDIDATE: LightningEvalArmSpec = {
@@ -1335,6 +1372,218 @@ describe('Lightning harness E1 and E2', () => {
 });
 
 /**
+ * D10 and the files of a runner process (2026-11-19): an arm releases what it
+ * built, a range in play is not a result, a crashed range stops the queue, and
+ * the merge takes a whole (seed, cell) set or nothing.
+ */
+describe('Lightning harness: release, run files and the merge gate', () => {
+  const SEEDS = [41990901, 41990902];
+  const pairRow = (seed: number, h: number): LightningEvalPairRow => ({
+    seed,
+    variant: 'plo4',
+    players: 5,
+    stackBB: 100,
+    field: 'all_horse',
+    villains: 0,
+    counterExploit: false,
+    h,
+    b: 0,
+    c: 1,
+  });
+  const newDir = () => mkdtempSync(join(tmpdir(), 'lightning-eval-files-'));
+  /** One range of a four-cell configuration, two paired rows per (seed, cell). */
+  function playRange(
+    dir: string,
+    from: number,
+    to: number,
+    opts: {
+      seeds?: number[];
+      finish?: boolean;
+      skip?: string;
+      pid?: number;
+      isAlive?: (pid: number) => boolean;
+    } = {}
+  ) {
+    const seeds = opts.seeds ?? SEEDS;
+    const stem = join(dir, `lightning-paired-eval-x-null-cells-${from}-${to}`);
+    const header = { config: 'x', seedClass: 'switch', candidate: 'null', candidateDecideOpts: {} };
+    const files = openLightningEvalRunFiles({
+      stem,
+      pairsHeader: { schema: LIGHTNING_EVAL_PAIRS_SCHEMA, ...header, cells: [from, to] },
+      latencyHeader: { schema: LIGHTNING_EVAL_LATENCY_SCHEMA, ...header, cells: [from, to] },
+      log: () => {},
+      ...(opts.pid !== undefined ? { pid: opts.pid } : {}),
+      ...(opts.isAlive ? { isAlive: opts.isAlive } : {}),
+    });
+    for (const seed of seeds)
+      for (let cell = from; cell < to; cell++) {
+        if (opts.skip === `${seed}/${cell}`) continue;
+        files.appendPairs(seed, cell, [pairRow(seed, 0), pairRow(seed, 1)]);
+        files.appendLatency({ seed } as never);
+      }
+    const finish = () =>
+      files.complete({
+        ...header,
+        deadlineMode: 'measure',
+        seeds,
+        handsPerCell: 2,
+        configCells: 4,
+        cellRange: [from, to],
+        reportDigest: 'digest',
+      });
+    return { stem, finish, completion: opts.finish === false ? null : finish() };
+  }
+
+  it('an arm leaves no mock registered: its hands and module graph can be collected (D10)', async () => {
+    const cell: LightningEvalCell = { variant: 'plo4', players: 5, stackBB: 100, field: 'station' };
+    const before = lightningEvalRegisteredMocks();
+    const played = await playArm({
+      cell,
+      hands: 3,
+      seed: 20261114,
+      baselineDecideOpts: {},
+      arm: { name: 'baseline' },
+    });
+    expect(played.hands).toHaveLength(3);
+    // The host fixture builds about twenty vi.fn per hand; vitest keeps every
+    // one for the life of the process unless the arm takes them out again.
+    expect(lightningEvalRegisteredMocks()).toBe(before);
+    // The arm's error reporter records nothing: a recording mock would hold
+    // every hand through the stack frames of the Error the host reports.
+    const { reportError } = await import('../services/errorReporter.js');
+    expect(vi.isMockFunction(reportError)).toBe(false);
+    // The scope itself: what is registered inside it leaves with release().
+    const scope = openLightningEvalFixtureScope();
+    vi.fn();
+    vi.fn();
+    expect(lightningEvalRegisteredMocks()).toBe(before + 4);
+    expect(scope.release()).toBe(4);
+    expect(lightningEvalRegisteredMocks()).toBe(before);
+  });
+
+  it('a range in play has only .partial side files; completing it names them and writes the marker', () => {
+    const dir = newDir();
+    const open = playRange(dir, 0, 4, { finish: false });
+    expect(readdirSync(dir).sort()).toEqual(
+      ['.latency.jsonl.partial', '.pairs.jsonl.partial', '.running.json'].map(
+        (suffix) => `${basename(open.stem)}${suffix}`
+      )
+    );
+    // Nothing a merge could read yet.
+    expect(() => lightningEvalCompletedRuns(dir)).toThrow(/unfinished range/);
+    const completion = open.finish();
+    expect(readdirSync(dir).sort()).toEqual(
+      ['.complete.json', '.latency.jsonl', '.pairs.jsonl'].map(
+        (suffix) => `${basename(open.stem)}${suffix}`
+      )
+    );
+    expect(completion.units).toHaveLength(8);
+    expect(completion.files.pairs.lines).toBe(17);
+    expect(completion.files.pairs.sha256).toBe(
+      createHash('sha256')
+        .update(readFileSync(`${open.stem}.pairs.jsonl`))
+        .digest('hex')
+    );
+    expect(lightningEvalCompletedRuns(dir).pairsFiles).toEqual([
+      `${basename(open.stem)}.pairs.jsonl`,
+    ]);
+  });
+
+  it('a range that did not play every (seed, cell) cannot be completed', () => {
+    const dir = newDir();
+    const open = playRange(dir, 0, 2, { finish: false, skip: '41990902/1' });
+    expect(() => open.finish()).toThrow(/incomplete, 1 of 4 .*41990902\/1/);
+    // Nothing was renamed and no marker written: the merge refuses the directory.
+    expect(existsSync(`${open.stem}.pairs.jsonl`)).toBe(false);
+    expect(existsSync(`${open.stem}.complete.json`)).toBe(false);
+    expect(() => lightningEvalCompletedRuns(dir)).toThrow(/unfinished range/);
+  });
+
+  it('a crashed range stops the next one; a range still running does not', () => {
+    const dir = newDir();
+    // A process that has really exited (the default liveness probe).
+    const gone = spawnSync(process.execPath, ['-e', '']).pid!;
+    playRange(dir, 0, 2, { finish: false, pid: gone });
+    expect(() => playRange(dir, 2, 4)).toThrow(
+      /STOP\. .*cells-0-2\.running\.json was left by process/
+    );
+    // Nothing of the refused range was written.
+    expect(readdirSync(dir).filter((f) => f.includes('cells-2-4'))).toEqual([]);
+    // The crashed range played again replaces its own unfinished rows.
+    expect(playRange(dir, 0, 2).completion!.units).toHaveLength(4);
+    expect(playRange(dir, 2, 4).completion!.units).toHaveLength(4);
+    expect(lightningEvalCompletedRuns(dir).completions).toHaveLength(2);
+
+    const shared = newDir();
+    // Two runners sharing a queue: the other range's owner is alive.
+    playRange(shared, 0, 2, { finish: false, pid: 111, isAlive: () => true });
+    expect(playRange(shared, 2, 4, { isAlive: () => true }).completion).not.toBeNull();
+  });
+
+  it('refuses a stem another live process is writing, and a stem that already holds a result', () => {
+    const dir = newDir();
+    playRange(dir, 0, 2, { finish: false, pid: 111, isAlive: () => true });
+    expect(() => playRange(dir, 0, 2, { pid: 222, isAlive: () => true })).toThrow(
+      /process 111 is already playing/
+    );
+    const done = newDir();
+    playRange(done, 0, 2);
+    expect(() => playRange(done, 0, 2)).toThrow(/already holds a result/);
+  });
+
+  it('the merge gate takes the whole (seed, cell) set or nothing', () => {
+    const whole = newDir();
+    playRange(whole, 2, 4);
+    playRange(whole, 0, 2);
+    const runs = lightningEvalCompletedRuns(whole);
+    expect(runs.pairsFiles.map((f) => f.match(/cells-\d-\d/)![0])).toEqual([
+      'cells-0-2',
+      'cells-2-4',
+    ]);
+    expect(runs.latencyFiles).toHaveLength(2);
+
+    const hole = newDir();
+    playRange(hole, 0, 2);
+    expect(() => lightningEvalCompletedRuns(hole)).toThrow(
+      /incomplete: cells 2 to 3 of 4 are missing/
+    );
+
+    const crashed = newDir();
+    playRange(crashed, 0, 2);
+    playRange(crashed, 2, 4, { finish: false });
+    expect(() => lightningEvalCompletedRuns(crashed)).toThrow(/unfinished range .*cells-2-4/);
+
+    // Side files with no marker: a run that never finished under the old names.
+    const unmarked = newDir();
+    playRange(unmarked, 0, 4);
+    writeFileSync(join(unmarked, 'lightning-paired-eval-x-null-cells-9-10.pairs.jsonl'), '{}\n');
+    expect(() => lightningEvalCompletedRuns(unmarked)).toThrow(
+      /has no .*cells-9-10\.complete\.json/
+    );
+
+    // Rows written after completion (a stray runner), or a truncated file.
+    const touched = newDir();
+    const range = playRange(touched, 0, 4);
+    appendFileSync(`${range.stem}.pairs.jsonl`, JSON.stringify(pairRow(SEEDS[0]!, 2)) + '\n');
+    expect(() => lightningEvalCompletedRuns(touched)).toThrow(/is not the file the run completed/);
+
+    const twice = newDir();
+    playRange(twice, 0, 3);
+    playRange(twice, 2, 4);
+    expect(() => lightningEvalCompletedRuns(twice)).toThrow(
+      /cell 2 was played by more than one range/
+    );
+
+    const mixed = newDir();
+    playRange(mixed, 0, 2);
+    playRange(mixed, 2, 4, { seeds: [SEEDS[0]!] });
+    expect(() => lightningEvalCompletedRuns(mixed)).toThrow(/more than one run/);
+
+    expect(() => lightningEvalCompletedRuns(newDir())).toThrow(/no completed range/);
+  });
+});
+
+/**
  * THE RUNNER. From server/:
  *   LIGHTNING_EVAL_CONFIG=smoke LIGHTNING_EVAL_OUT=<dir> \
  *     npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
@@ -1425,12 +1674,19 @@ describe.runIf(requested !== undefined && (requested in STAGED || requested === 
       const stem = `${outDir}/lightning-paired-eval-${config.name}-${candidate.name}${
         range ? `-cells-${range.join('-')}` : ''
       }${deadlineMode === 'apply' ? '-deadline-apply' : ''}`;
-      mkdirSync(dirname(stem), { recursive: true });
-      const pairsFile = `${stem}.pairs.jsonl`;
-      const latencyFile = `${stem}.latency.jsonl`;
-      writeFileSync(
-        latencyFile,
-        JSON.stringify({
+      const cellRange: [number, number] =
+        range && range.length === 2 && range.every(Number.isInteger)
+          ? [range[0]!, Math.min(range[1]!, config.cells.length)]
+          : [0, config.cells.length];
+      if (!(cellRange[0] >= 0 && cellRange[0] < cellRange[1]))
+        throw new Error(
+          `LIGHTNING_EVAL_CELLS ${cellRange.join(':')} holds no cell of the ${config.cells.length}`
+        );
+      // The side files carry .partial until the whole range is played and
+      // checked; a range another process left unfinished stops this one here.
+      const files = openLightningEvalRunFiles({
+        stem,
+        latencyHeader: {
           schema: LIGHTNING_EVAL_LATENCY_SCHEMA,
           config: config.name,
           seedClass: config.seedClass,
@@ -1438,41 +1694,33 @@ describe.runIf(requested !== undefined && (requested in STAGED || requested === 
           candidateDecideOpts: candidate.decideOpts ?? {},
           cells: range ?? null,
           deadlineMode,
-        }) + '\n'
-      );
-      writeFileSync(
-        pairsFile,
-        JSON.stringify({
+        },
+        pairsHeader: {
           schema: LIGHTNING_EVAL_PAIRS_SCHEMA,
           config: config.name,
           seedClass: config.seedClass,
           candidate: candidate.name,
           candidateDecideOpts: candidate.decideOpts ?? {},
           cells: range ?? null,
-        }) + '\n'
-      );
+        },
+      });
       const report = await runLightningPairedEval({
         config,
         candidate,
         playArm,
-        ...(range && range.length === 2 && range.every(Number.isInteger)
-          ? { cellRange: [range[0]!, range[1]!] as const }
-          : {}),
-        onPairs: (rows) => {
-          if (rows.length)
-            appendFileSync(pairsFile, rows.map((row) => JSON.stringify(row)).join('\n') + '\n');
-        },
-        onLatency: (row) => appendFileSync(latencyFile, JSON.stringify(row) + '\n'),
+        cellRange,
+        onPairs: (rows, c, i) => files.appendPairs(c.seed, i, rows),
+        onLatency: (row) => files.appendLatency(row),
         deadlineMode,
         onCell: (c, i) =>
           console.log(
-            `[lightning-eval] cell ${i} ${c.cell.variant} ${c.cell.players}p ${lightningEvalStackLabel(c.cell)} ${c.cell.field}: diff ${c.paired.diffBB100} bb/100 (se ${c.paired.seBB100}), divergent decisions ${c.paired.divergentDecisions}`
+            `[lightning-eval] cell ${i} seed ${c.seed} ${c.cell.variant} ${c.cell.players}p ${lightningEvalStackLabel(c.cell)} ${c.cell.field}: diff ${c.paired.diffBB100} bb/100 (se ${c.paired.seBB100}), divergent decisions ${c.paired.divergentDecisions}; process ${lightningEvalProcessMemory()}`
           ),
       });
       writeFileSync(`${stem}.json`, JSON.stringify(report, null, 1));
       writeFileSync(`${stem}.md`, lightningEvalMarkdown(report));
       console.log(
-        `[lightning-eval] wrote ${stem}.json, .md, .pairs.jsonl and .latency.jsonl, digest ${report.digest}; illegal actions ${report.totals.illegalActions}, illegal amounts ${report.totals.illegalAmounts}, chip-conservation violations ${report.totals.conservationViolations}, unsettled hands ${report.totals.unsettledHands}`
+        `[lightning-eval] wrote ${stem}.json and .md (the side files keep .partial until the checks below pass), digest ${report.digest}; illegal actions ${report.totals.illegalActions}, illegal amounts ${report.totals.illegalAmounts}, chip-conservation violations ${report.totals.conservationViolations}, unsettled hands ${report.totals.unsettledHands}`
       );
       console.log(
         `[lightning-eval] deadline and G4\n${lightningEvalLatencyMarkdown(report.latency)}`
@@ -1486,6 +1734,23 @@ describe.runIf(requested !== undefined && (requested in STAGED || requested === 
         if (c.cell.stackMix === 'mixed') expect(c.stacks?.engineStackMismatches).toBe(0);
       if (candidate === NULL_CANDIDATE && deadlineMode === 'measure')
         expect(report.totals.divergentDecisions).toBe(0);
+      // Played and checked: only now do the side files get the names the
+      // merge reads, with the marker that says what they must hold.
+      const completion = files.complete({
+        config: config.name,
+        seedClass: config.seedClass,
+        candidate: candidate.name,
+        candidateDecideOpts: candidate.decideOpts ?? {},
+        deadlineMode,
+        seeds: [...config.seeds],
+        handsPerCell: config.handsPerCell,
+        configCells: config.cells.length,
+        cellRange,
+        reportDigest: report.digest,
+      });
+      console.log(
+        `[lightning-eval] COMPLETE cells ${cellRange.join(':')} of ${config.cells.length}, ${completion.units.length} (seed, cell) units, ${completion.files.pairs.lines - 1} paired rows: ${stem}.pairs.jsonl, .latency.jsonl and .complete.json`
+      );
     }, 7_200_000);
   }
 );
@@ -1503,10 +1768,9 @@ const mergeDir = process.env.LIGHTNING_EVAL_MERGE;
 describe.runIf(Boolean(mergeDir))('the paired Lightning evaluation merge', () => {
   it('merges the paired side files of a directory and prints the pooled figures', () => {
     const dir = mergeDir!;
-    const files = readdirSync(dir)
-      .filter((f) => f.endsWith('.pairs.jsonl'))
-      .sort();
-    if (!files.length) throw new Error(`no *.pairs.jsonl in ${dir}`);
+    // Completed ranges only, and only the whole (seed, cell) set.
+    const runs = lightningEvalCompletedRuns(dir);
+    const files = runs.pairsFiles;
     const rows: LightningEvalPairRow[] = [];
     const candidates = new Set<string>();
     const classes = new Set<string>();
@@ -1527,9 +1791,7 @@ describe.runIf(Boolean(mergeDir))('the paired Lightning evaluation merge', () =>
     if (classes.size !== 1) throw new Error(`more than one seed class in ${dir}`);
     const merged = mergeLightningEvalPairs(rows);
     // The latency side files (G4), when the runs wrote them: the same candidate.
-    const latencyFiles = readdirSync(dir)
-      .filter((f) => f.endsWith('.latency.jsonl'))
-      .sort();
+    const latencyFiles = runs.latencyFiles;
     const latencyRows: LightningEvalLatencyRow[] = [];
     const modes = new Set<string>();
     for (const file of latencyFiles) {

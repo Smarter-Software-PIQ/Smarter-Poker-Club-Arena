@@ -4,11 +4,12 @@ Measurement plumbing for the Lightning Horse programme. No production caller, no
 
 ## Files
 
-| File                                     | Role                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LightningPairedEval.test-support.ts`    | Pure: cells, arms, the declared `smoke` and `full` configurations, seed classes, paired statistics, report schema (`lightning-paired-eval/v2`), the guards' arithmetic (G7 dry streaks, Q3, Q4, entry kinds, chip conservation), the pooled merge of paired hands, the mixed-stack draw (`stackMix`), the deadline arithmetic and its pooled G4 figure, digest, markdown summary |
-| `LightningPairedEvalArm.test-support.ts` | Plays one arm of one cell on the real `LightningHandHost` + `HandController`, every Horse decided by `HorseLogic.decide` on the snapshot the host builds with `buildLightningHorseSnapshot`, learning as the worker learns                                                                                                                                                       |
-| `LightningPairedEval.test.ts`            | The pin (a null candidate makes zero divergent decisions; report schema; the guards' arithmetic), the positive control, the runner (only when `LIGHTNING_EVAL_CONFIG` is set) and the merge (only when `LIGHTNING_EVAL_MERGE` is set)                                                                                                                                            |
+| File                                         | Role                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LightningPairedEval.test-support.ts`        | Pure: cells, arms, the declared `smoke` and `full` configurations, seed classes, paired statistics, report schema (`lightning-paired-eval/v2`), the guards' arithmetic (G7 dry streaks, Q3, Q4, entry kinds, chip conservation), the pooled merge of paired hands, the mixed-stack draw (`stackMix`), the deadline arithmetic and its pooled G4 figure, digest, markdown summary |
+| `LightningPairedEvalArm.test-support.ts`     | Plays one arm of one cell on the real `LightningHandHost` + `HandController`, every Horse decided by `HorseLogic.decide` on the snapshot the host builds with `buildLightningHorseSnapshot`, learning as the worker learns                                                                                                                                                       |
+| `LightningPairedEvalRelease.test-support.ts` | Releases what a hand and an arm built: every `vi.fn` of the host fixture is entered in two process-wide vitest registries that nothing empties; the arm takes its own out after every hand, the caller around every arm (D10)                                                                                                                                                    |
+| `LightningPairedEval.test.ts`                | The pin (a null candidate makes zero divergent decisions; report schema; the guards' arithmetic), the positive control, the runner (only when `LIGHTNING_EVAL_CONFIG` is set) and the merge (only when `LIGHTNING_EVAL_MERGE` is set)                                                                                                                                            |
 
 It is built on the fixture of the Lightning strength matrix (`testing/lightningHostTestKit.ts`, the one behind `aBrainChangeMustWinInLightning.law.test.ts`). The matrix itself and its laws are untouched.
 
@@ -123,7 +124,7 @@ npx vitest run src/lightning/LightningPairedEval.test.ts
 LIGHTNING_EVAL_CONFIG=smoke LIGHTNING_EVAL_OUT=/path/to/your/runs \
   npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
 
-# the full configuration, a slice of cells per process (memory), a candidate
+# the full configuration, a slice of cells per process (to share the work), a candidate
 LIGHTNING_EVAL_CONFIG=full LIGHTNING_EVAL_CELLS=0:10 \
   LIGHTNING_EVAL_CANDIDATE='{"someDefaultOffOption":true}' LIGHTNING_EVAL_OUT=/path/to/your/runs \
   npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
@@ -131,10 +132,32 @@ LIGHTNING_EVAL_CONFIG=full LIGHTNING_EVAL_CELLS=0:10 \
 
 Staged runs (protocol section 7): `LIGHTNING_EVAL_CONFIG=selection` and `LIGHTNING_EVAL_CONFIG=final` deal the declared 270-cell matrix on their own seed class only (five seeds, 2,200 hands per cell and seed; the arithmetic is beside `LIGHTNING_EVAL_STAGE_HANDS_PER_CELL`). Slice with `LIGHTNING_EVAL_CELLS` and pool the slices with `LIGHTNING_EVAL_MERGE`. Selection seeds are dealt only by a frozen candidate; final seeds once.
 
-`LIGHTNING_EVAL_OUT` receives `lightning-paired-eval-<config>-<candidate>[-cells-a-b][-deadline-apply].json`, `.md`, `.pairs.jsonl` and `.latency.jsonl`. Without `LIGHTNING_EVAL_CANDIDATE` the runner plays the null candidate and requires zero divergent decisions. The runner fails on any illegal action or amount (any Horse seat) and on any chip-conservation violation.
+`LIGHTNING_EVAL_OUT` receives `lightning-paired-eval-<config>-<candidate>[-cells-a-b][-deadline-apply].json`, `.md`, `.pairs.jsonl`, `.latency.jsonl` and `.complete.json`. Without `LIGHTNING_EVAL_CANDIDATE` the runner plays the null candidate and requires zero divergent decisions. The runner fails on any illegal action or amount (any Horse seat) and on any chip-conservation violation.
+
+### A range in play is not a result
+
+While a process plays its cell range the side files are `<stem>.pairs.jsonl.partial` and `<stem>.latency.jsonl.partial`, and `<stem>.running.json` names the process. Only when every (seed, cell) of the range has been played AND the run's checks have passed (no illegal action or amount, chips conserved, the null candidate's zero divergent decisions) are they renamed, and `<stem>.complete.json` is written last: the configuration, candidate, seeds, hands per cell, the cell range, every (seed, cell) unit with its row count, and the sha256 of both side files. The run prints one `[lightning-eval] COMPLETE` line. A process that dies or fails leaves `.partial` files and no marker.
+
+The runner refuses to start, before writing anything, when:
+
+- another range of the directory was left unfinished by a process that is gone (`STOP`: the queue ends at the first crash instead of playing on beside a hole). Play that range again (it replaces its own `.partial` files) or delete its `.running.json` and `.partial` files;
+- another live process is playing the same stem;
+- the stem already holds a result (move it away first).
+
+A queue of ranges must also stop on the exit code; vitest exits non-zero when its worker dies:
 
 ```
-# pool every *.pairs.jsonl of a directory (one candidate) and print the pooled figures
+for a in $(seq 0 4 24); do
+  LIGHTNING_EVAL_CONFIG=switch LIGHTNING_EVAL_SWITCH=/path/to/card.json LIGHTNING_EVAL_CELLS=$a:$((a + 4)) \
+    LIGHTNING_EVAL_OUT=/path/to/your/runs \
+    npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared" || { echo "cells $a FAILED: stopping"; exit 1; }
+done
+```
+
+The merge reads completed ranges only and refuses the directory unless they are the whole (seed, cell) set of ONE run: no `.partial` or `.running.json` left, every side file with its marker and the bytes the marker recorded (a file truncated or written to afterwards is refused), the same configuration, candidate, deadline mode, seeds and hands per cell in every range, no cell played twice, no cell missing. A directory written before the marker existed (2026-11-19) is refused too: merge it with the source that wrote it.
+
+```
+# pool the completed ranges of a directory (one candidate, every cell) and print the pooled figures
 LIGHTNING_EVAL_MERGE=/path/to/your/runs \
   npx vitest run src/lightning/LightningPairedEval.test.ts -t "merges"
 ```
@@ -174,6 +197,6 @@ E2. A cell may carry `floor: { vpipPct, windowHands, graceHands, rolling, feedSn
 - A candidate that needs a new host input is injected with `snapshotPatch` until its producer exists; after that it flows through the real `buildLightningHorseSnapshot` with no harness change.
 - A stateful candidate (window or deficit driven) cannot be expressed yet: `snapshotPatch` receives no hand index or subject history (verification D3, not addressed here).
 - Known limit (D7): with one scripted seat the counter-exploitation fields did not measurably punish over-entry at 1,000 hands per cell in verification. Before trusting G5, show a known-bad candidate losing beyond 2 standard errors in the pooled counter-exploitation figure; the two-villain cells are the harder test.
-- Known limit (D10): every arm loads a fresh module graph, so memory grows with the arms played in one process. Run a few cells per process (`LIGHTNING_EVAL_CELLS`) and merge the side files; the verifier's instrumented runs reached 4 GB after about 13 arms (unverified on the plain runner).
+- D10, closed 2026-11-19: memory no longer grows with the hands or the arms played. It was never the module graph by itself; two things kept every hand reachable. (1) The arm's error reporter was a `vi.fn`: a mock keeps the arguments of every call, the host reports one Error per hand (no journal identity without a database), and that Error's captured stack frames hold the hand's host: about 0.6 MB per hand, growing inside one arm. It is a plain function now. (2) Every `vi.fn` of the host fixture (about twenty per hand) stays in two process-wide vitest registries (`mocks` of @vitest/spy, `spies` of tinyspy) for the life of the process, each holding its hand's host and, through its closure, the module graph of its arm. The arm now takes its own out after every hand and the caller after every arm (`LightningPairedEvalRelease.test-support.ts`; a pin test holds the registries level across an arm, and the scope fails loudly if a vitest upgrade moves them). Measured (PLO4, 5 players, a switch card on the live base): 2 cells x 2 seeds x 200 hands peaked at 1,628 MB resident before and 734 MB after on the default heap; with the heap capped at 512 MB (`NODE_OPTIONS=--max-old-space-size=512`) one 2,200-hand cell (both arms) completes at 455 MB peak, and 24 arms in one process complete at 468 MB peak (heap in use 121 to 165 MB at every cell), where the old source ran out of the default heap inside its first 2,200-hand unit. What remains is one arm's module graph and what its Horses learn, not a function of the card's size. Each cell's line prints the process's resident set and heap. `LIGHTNING_EVAL_CELLS` remains, to share a card between processes, not to survive it.
 - The positive control's option (`v8: false`) changes few decisions once every seat has its own random stream (one hand of 24 in its cell): it proves the wiring, not the harness's power.
 - The arm file repeats about twenty lines of the strength matrix (`observeLikeTheWorker`), which that file does not export.
