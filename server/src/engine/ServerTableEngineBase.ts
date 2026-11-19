@@ -3366,7 +3366,7 @@ export abstract class ServerTableEngineBase {
   protected static readonly WATCHDOG_STALL_MS = 45_000;
 
   /** No hand started while the table is dealable. */
-  protected static readonly WATCHDOG_IDLE_MS = 90_000;
+  protected static readonly WATCHDOG_IDLE_MS = 60000;
 
   /**
    * The longer horizon for a dealing loop that is CYCLING but never dealing.
