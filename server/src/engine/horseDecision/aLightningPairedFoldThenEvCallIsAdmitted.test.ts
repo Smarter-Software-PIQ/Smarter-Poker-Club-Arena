@@ -82,6 +82,32 @@ describe('a Lightning PLO5 paired-board fold then facing-bet EV call', () => {
     expect(horseDecisionReceiptRefusal(wrong, 'plo5', at('lightning'))).toBe('policy_graph');
   });
 
+  it('only where the paired-board fold holds: the same hand on an unpaired board stays refused', () => {
+    // 7d 7c Jh 2h (paired) and 7d 3c Jh 2h (one card changed, unpaired): no flush or straight draw for
+    // the hand, so no other admission (the draw raise -> call) applies; only the paired-board fold differs.
+    const card = (rank: string, suit: string) =>
+      ({ rank, suit }) as (typeof FX.gameState.communityCards)[number];
+    const paired = [
+      card('7', 'diamonds'),
+      card('7', 'clubs'),
+      card('J', 'hearts'),
+      card('2', 'hearts'),
+    ];
+    const unpaired = [
+      card('7', 'diamonds'),
+      card('3', 'clubs'),
+      card('J', 'hearts'),
+      card('2', 'hearts'),
+    ];
+    expect(
+      horseDecisionReceiptRefusal(decision(), 'plo5', at('lightning', { communityCards: paired }))
+    ).toBeNull();
+    expect(
+      horseDecisionReceiptRefusal(decision(), 'plo5', at('lightning', { communityCards: unpaired }))
+    ).toBe('policy_graph');
+    // (At a table the nut-rule raise -> call admission still covers it, unchanged by this fix.)
+  });
+
   it('never without the request', () => {
     expect(horseDecisionReceiptRefusal(decision(), 'plo5')).toBe('policy_graph');
   });
