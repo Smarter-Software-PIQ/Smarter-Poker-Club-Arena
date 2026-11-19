@@ -1,0 +1,4 @@
+{
+  "_owner": "feat/club-owner-statement-download",
+  "functions": ["ca_union_statement_document"]
+}

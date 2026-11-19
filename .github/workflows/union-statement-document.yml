@@ -1,0 +1,50 @@
+name: Union statement document reader
+
+# Qualifies migration 20261116034302 (ca_union_statement_document and the club
+# statement list's balance after notes) in a throwaway PostgreSQL 17 cluster,
+# never production: the captured production bodies must pass its md5 guards
+# (and a changed one must be refused); then the reader must equal production's
+# board row for the four real statements of the week 2026-11-02, refuse every
+# caller the existing rules refuse (other club's owner, agent, player, banned
+# admin, stranger, signed out, anon), and list, date and count charge notes
+# once fn_union_invoice_outstanding counts them. Runs
+# scripts/ci/test-union-statement-document-postgres.py. No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261116034302_a_club_owner_can_download_its_union_statement.sql
+      - scripts/ci/test-union-statement-document-postgres.py
+      - scripts/ci/fixtures/union-statement-document/**
+      - tests/fixtures/union-statement-document/**
+      - .github/workflows/union-statement-document.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: union-statement-document-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  union-statement-document:
+    name: Union statement document reader
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Union statement document reader
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-union-statement-document-postgres.py --output artifacts/union-statement-document
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: union-statement-document-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/union-statement-document/results.json
+          retention-days: 7
+          if-no-files-found: warn

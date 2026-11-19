@@ -81,6 +81,8 @@ import { useAuthUser } from '../../hooks/useAuthUser';
 import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
+import { printUnionStatementDocument } from '../../utils/unionStatementDocument';
+import { loadUnionStatementDocument } from '../../utils/unionStatementDownload';
 import { downloadCsv, csvEscape } from '../../utils/downloadCsv';
 import {
   fetchClubDataExport,
@@ -1117,6 +1119,12 @@ export default function ClubDataPage() {
   const [gamesPageError, setGamesPageError] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [showInvoiceDetail, setShowInvoiceDetail] = useState(false);
+  // Download Statement: the server's statement document, the same one the
+  // union downloads (ca_union_statement_document).
+  const [statementDownload, setStatementDownload] = useState<{
+    busy: boolean;
+    note: string | null;
+  }>({ busy: false, note: null });
   const [showInvoiceHistory, setShowInvoiceHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -4207,6 +4215,36 @@ export default function ClubDataPage() {
                         ? 'Hide Statement'
                         : 'View Statement'}
                   </button>
+                  <button
+                    type="button"
+                    className={`${styles.word} sc-ink--white`}
+                    disabled={statementDownload.busy}
+                    aria-label="Download This Union Statement"
+                    onClick={() => {
+                      setStatementDownload({ busy: true, note: null });
+                      void loadUnionStatementDocument(
+                        (fn, args) => supabase.rpc(fn, args),
+                        latestInvoice.invoice_id
+                      ).then((result) => {
+                        if (result.ok) {
+                          printUnionStatementDocument(result.document);
+                          setStatementDownload({ busy: false, note: null });
+                        } else {
+                          if (result.reason === 'failed')
+                            reportError(result.error, 'ClubDataPage.statement_document');
+                          setStatementDownload({
+                            busy: false,
+                            note:
+                              result.reason === 'denied'
+                                ? 'You Do Not Have Access To This Statement.'
+                                : 'Could Not Prepare The Statement. Try Again.',
+                          });
+                        }
+                      });
+                    }}
+                  >
+                    {statementDownload.busy ? 'Preparing Statement' : 'Download Statement'}
+                  </button>
                   {olderInvoices.length > 0 && (
                     <button
                       type="button"
@@ -4219,6 +4257,11 @@ export default function ClubDataPage() {
                         ? 'Hide Earlier Statements'
                         : `Earlier Statements (${olderInvoices.length})`}
                     </button>
+                  )}
+                  {statementDownload.note && (
+                    <span className={`sc-copy sc-ink--red ${styles.stateCopy}`} role="alert">
+                      {statementDownload.note}
+                    </span>
                   )}
                 </div>
               </>
