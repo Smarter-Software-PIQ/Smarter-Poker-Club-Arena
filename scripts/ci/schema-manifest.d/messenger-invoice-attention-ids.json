@@ -1,0 +1,4 @@
+{
+  "_owner": "agent/claude-inboxfn/feat/messenger-invoice-attention-ids",
+  "functions": ["fn_messenger_private_invoice_attention_ids"]
+}
