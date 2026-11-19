@@ -557,7 +557,206 @@ try:
  assert run('rr-cash-untouched-by-tournament',rr_of(rr3))==rr_text
  assert run('rr-counters-shape',"SELECT (SELECT count(*) FROM jsonb_object_keys(counters))::text FROM horse_exact_profiles WHERE user_id='"+rr3+"' AND mode='cash';")=='27'
  assert run('rr-read',"SET ROLE service_role; SELECT reraise_response::text FROM fn_horse_exact_profiles_read(ARRAY['"+rr3+"'],'plo4','cash','full','table','none');")==rr_text
- (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; no production installation'},indent=2))
+ # 2026-11-19 what a flop bet showed and what calling it returned (20261119192551): the same learner, forward only,
+ # no back-fill; the public action log, the board, the holdings the showdown revealed and the winners list only.
+ # Engine twin: HorseOmahaFlopShown. Every stored number is an integer, so parity is exact.
+ fsmig=(ROOT/'supabase/migrations/20261119192551_the_exact_opponent_profile_keeps_what_a_flop_bet_showed.sql').read_text()
+ fs_proof=next(line.removeprefix('-- @live-proof: ') for line in fsmig.splitlines() if line.startswith('-- @live-proof: '))
+ fs_of=lambda uid,mode='cash': "SELECT coalesce(flop_shown::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND mode='"+mode+"';"
+ fs_snapshot="SELECT count(*)||':'||coalesce(md5(string_agg(user_id||variant||mode||size||observed_hands||counters::text||coalesce(long_counters::text,'-')||coalesce(shown_river::text,'-')||coalesce(street_counters::text,'-')||coalesce(reraise_response::text,'-'),'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text)),'-') FROM horse_exact_profiles;"
+ FS_FUNCTIONS=['fn_horse_street_price_increments(jsonb,numeric)','fn_horse_street_price_add(jsonb,jsonb)','fn_horse_flop_shown_straight(int,int)','fn_horse_flop_shown_class(jsonb,text[])','fn_horse_flop_shown_public_class(jsonb,jsonb,text,text[])','fn_horse_flop_shown_increments(jsonb,text[],text[],jsonb,jsonb,jsonb,numeric)','fn_horse_flop_shown_whole(jsonb)','fn_horse_flop_shown_add(jsonb,jsonb)']
+ fs_defs={}
+ for db in ['long_first','postgres']:
+  psql[-1]=db
+  assert run('fs-proof-before-'+db,'SELECT '+fs_proof)=='f'
+  fs_before=run('fs-before-'+db,fs_snapshot)
+  # Refused, and rolled back whole, while hand_history lacks the public showdown columns it reads.
+  try:
+   run('fs-install-no-columns-'+db,fsmig); raise AssertionError('installed without hand_history.hole_cards, winners, big_blind and pot_size')
+  except RuntimeError as e: assert 'the flop-shown record needs hand_history' in str(e),e
+  assert run('fs-refusal-rolled-back-'+db,"SELECT count(*) FROM pg_attribute WHERE attrelid='horse_exact_profiles'::regclass AND attname='flop_shown';")=='0'
+  run('fs-columns-fixture-'+db,"ALTER TABLE hand_history ADD COLUMN hole_cards jsonb, ADD COLUMN winners jsonb, ADD COLUMN big_blind numeric(12,2), ADD COLUMN pot_size numeric(12,2);")
+  run('fs-install-'+db,fsmig)
+  assert run('fs-proof-'+db,'SELECT '+fs_proof)=='t'
+  assert run('fs-no-backfill-'+db,"SELECT count(*) FROM horse_exact_profiles WHERE flop_shown IS NOT NULL OR street_counters_price IS NOT NULL;")=='0'
+  assert run('fs-rows-untouched-'+db,fs_snapshot)==fs_before
+  assert run('fs-private-'+db,"SELECT bool_or(has_function_privilege(r,f,'EXECUTE')) FROM unnest(ARRAY['anon','authenticated','service_role']) r, unnest(ARRAY["+",".join("'"+f+"'" for f in FS_FUNCTIONS)+"]) f;")=='f'
+  fs_defs[db]=run('fs-definition-'+db,trigger_def)
+  run('fs-repeat-'+db,fsmig)
+  assert run('fs-repeat-definition-'+db,trigger_def)==fs_defs[db]
+ assert fs_defs['long_first']==fs_defs['postgres']
+ # The learner is passed the public columns only: never hand_history.players (where a dealt hand could sit).
+ fs_call=fs_defs['postgres'].split('flop_shown_inc:=')[1].split(';')[0]
+ assert fs_call=='public.fn_horse_flop_shown_increments(h.actions,h.community_cards,h.community_cards2,h.hole_cards,h.showdown,h.winners,h.big_blind)',fs_call
+ assert 'h.players' not in fs_defs['postgres']
+ assert fs_defs['postgres'].split('street_price_inc:=')[1].split(';')[0]=='public.fn_horse_street_price_increments(h.actions,h.pot_size)'
+ fs_vectors=json.loads((ROOT/'scripts/ci/fixtures/horse-flop-shown-vectors.json').read_text())
+ FS_SUIT={'s':'spades','h':'hearts','d':'diamonds','c':'clubs'}
+ fs_hole=lambda codes:[{'rank':c[0],'suit':FS_SUIT.get(c[1],c[1:])} for c in codes.split(' ') if c]
+ fs_board=lambda codes:[c[0]+FS_SUIT.get(c[1],c[1:]) for c in codes.split(' ') if c]
+ FS_BET=['nut','strong','weak','strongDraw','air']; FS_CALLER=['made','draw','pair']
+ # The class of a hand on a flop: every pinned and dealt hand, exactly the engine's.
+ fs_classes=fs_vectors['classes']
+ fs_values=",".join("("+str(k)+","+jsonb_literal(fs_hole(v['hole']))+","+text_array(fs_board(v['flop']))+")" for k,v in enumerate(fs_classes))
+ fs_out=run('fs-classes',"SELECT string_agg(coalesce(array_to_string(fn_horse_flop_shown_class(h,f),':'),'null'),E'\\n' ORDER BY k) FROM (VALUES "+fs_values+") v(k,h,f);").split('\n')
+ assert len(fs_out)==len(fs_classes)>=700
+ fs_seen=set()
+ for k,v in enumerate(fs_classes):
+  got='null' if fs_out[k]=='null' else FS_BET[int(fs_out[k].split(':')[0])]+':'+FS_CALLER[int(fs_out[k].split(':')[1])]
+  assert got==v['expected'],(v,got); fs_seen.add(got)
+ assert len(fs_seen)>=11,fs_seen
+ def fs_increments_sql(h): return "fn_horse_flop_shown_increments("+jsonb_literal(h['actions'])+","+text_array(h['community_cards'])+","+text_array(h['community_cards2'])+","+jsonb_literal(h['hole_cards'])+","+jsonb_literal(h['showdown'])+","+jsonb_literal(h['winners'])+","+("NULL" if h['big_blind'] is None else repr(h['big_blind']))+"::numeric)"
+ def fs_row(rec):
+  # exactly the two lists, 40 integers each
+  assert sorted(rec)==['bet','call'] and len(rec['bet'])==40 and len(rec['call'])==40 and all(isinstance(x,int) for x in rec['bet']+rec['call']),rec
+  return rec['bet']+rec['call']
+ def fs_sql(got): return {uid:fs_row(rec) for uid,rec in got.items()}
+ for i,v in enumerate(fs_vectors['named']):
+  got=json.loads(run('fs-vector-'+str(i),"SELECT "+fs_increments_sql(v['hand'])+"::text;"))
+  assert fs_sql(got)==v['expected'],(v['name'],got,v['expected'])
+ # A mucked or unlisted hand is never read: cards written for the mucked caller change nothing.
+ fs_named={v['name'].split(':')[0]:v for v in fs_vectors['named']}
+ assert fs_named['the caller mucks']['expected']==fs_named['a mucked showdown entry is never read, even if cards were written for him']['expected']
+ def fs_number(x):
+  try: return int(x)
+  except ValueError:
+   try: return float(x)
+   except ValueError: return x
+ def fs_decode(v):
+  acts=[]
+  for token in v['log'].split(' '):
+   if not token: continue
+   uid,stage,action,origin,full,amount=token.split(',')
+   act={'stage':stage,'action':action}
+   if uid!='-':act['userId']=uid
+   if origin!='-':act['origin']=origin
+   if full!='-':act['isFullRaise']=full=='1'
+   if amount!='-':act['amount']=fs_number(amount)
+   acts.append(act)
+  hole={part.split('=')[0]:fs_hole(part.split('=')[1]) for part in v['hole'].split(';') if part}
+  return {'actions':acts,'community_cards':fs_board(v['board']),'community_cards2':fs_board(v['board2']) if v['board2'] else None,
+          'hole_cards':hole if v['hole'] else None,
+          'showdown':[{'user_id':x.split(':')[0],'seat':i,'reveal_order':i,'mucked':x.split(':')[1]=='1'} for i,x in enumerate(v['shown'].split(' '))] if v['shown'] else None,
+          'winners':[{'userId':x.split(':')[0],'amount':fs_number(x.split(':')[1])} for x in v['won'].split(' ') if x],'big_blind':v['bb']}
+ fs_cases=fs_vectors['random']
+ fs_out=run('fs-random',"SELECT string_agg(x::text,E'\\n' ORDER BY k) FROM (VALUES "+",".join("("+str(k)+","+fs_increments_sql(fs_decode(v))+")" for k,v in enumerate(fs_cases))+") v(k,x);").split('\n')
+ assert len(fs_out)==len(fs_cases)>=250
+ fs_live=0
+ for k,v in enumerate(fs_cases):
+  got=fs_sql(json.loads(fs_out[k])); fs_live+=bool(got)
+  assert got==v['expected'],(k,got,v['expected'])
+ assert fs_live>=60,fs_live
+ # The add rule against the engine's, through a chain of 160 hands: integers, so exactly equal.
+ def fs_record(step):
+  rec={'bet':[0]*40,'call':[0]*40}
+  for i in range(0,len(step),2):
+   if step[i]<40: rec['bet'][step[i]]=step[i+1]
+   else: rec['call'][step[i]-40]=step[i+1]
+  return rec
+ fs_chain='NULL::jsonb'; fs_checkpoints={c['after']:c['row'] for c in fs_vectors['chain']['checkpoints']}
+ for k,step in enumerate(fs_vectors['chain']['steps'],1):
+  fs_chain="fn_horse_flop_shown_add("+fs_chain+","+jsonb_literal(fs_record(step))+")"
+  if k in fs_checkpoints:
+   raw=run('fs-add-'+str(k),"SELECT coalesce("+fs_chain+"::text,'null');"); got=json.loads(raw); fs_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
+   want=fs_checkpoints[k]
+   assert (got is None)==(want is None),(k,got,want)
+   if got is not None: assert fs_row(got)==want and len(want)==80,(k,got,want)
+ assert len(fs_checkpoints)>=16
+ assert run('fs-add-null-delta',"SELECT fn_horse_flop_shown_add(NULL,NULL) IS NULL AND fn_horse_flop_shown_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb AND fn_horse_flop_shown_add('{\"x\":1}'::jsonb,"+jsonb_literal(fs_record([]))+")='{\"x\":1}'::jsonb AND fn_horse_flop_shown_add(NULL,'7'::jsonb) IS NULL;")=='t'
+ # A damaged stored record never raises inside the accepted hand: a number that is not an integer counts as 0.
+ fs_damaged=json.loads(run('fs-add-damaged',"SELECT fn_horse_flop_shown_add('{\"bet\":[\"x\",2.5,null,1000],\"call\":7}'::jsonb,"+jsonb_literal(fs_record([0,1,40,1,41,5,42,5,43,1]))+")::text;"))
+ assert fs_row(fs_damaged)==[1000,0,0,977,0]+[0]*35+[1000,5,5,1]+[0]*36,fs_damaged
+ assert fs_row(json.loads(run('fs-add-scalar-base',"SELECT fn_horse_flop_shown_add('7'::jsonb,"+jsonb_literal(fs_record([3,1]))+")::text;")))==[0,0,0,1000]+[0]*76
+ assert run('fs-increments-junk',"SELECT fn_horse_flop_shown_increments('{}'::jsonb,NULL,NULL,NULL,NULL,NULL,NULL)::text||fn_horse_flop_shown_increments(NULL,NULL,NULL,NULL,NULL,NULL,NULL)::text||fn_horse_flop_shown_increments('[7,\"x\",null,{\"userId\":5}]'::jsonb,ARRAY['Kspades','8hearts','3clubs'],NULL,'7'::jsonb,'\"x\"'::jsonb,'{}'::jsonb,2)::text;")=='{}{}{}'
+ assert run('fs-class-junk',"SELECT coalesce(fn_horse_flop_shown_class(NULL,NULL)::text,'-')||coalesce(fn_horse_flop_shown_class('7'::jsonb,ARRAY['Kspades','8hearts','3clubs'])::text,'-')||coalesce(fn_horse_flop_shown_class('[1,2,3,4]'::jsonb,ARRAY['Kspades','8hearts','3clubs'])::text,'-')||coalesce(fn_horse_flop_shown_class('[{\"rank\":\"A\",\"suit\":\"spades\"},{\"rank\":\"K\",\"suit\":\"spades\"},{\"rank\":\"Q\",\"suit\":\"spades\"},{\"rank\":\"J\",\"suit\":\"spades\"}]'::jsonb,ARRAY['Kspades','8hearts',NULL])::text,'-');")=='----'
+ # The price behind a fold-to-raise cell (street_counters_price): SQL increments and add rule against the engine's.
+ SP=['flop','turn','river']
+ def sp_row(rec):
+  assert sorted(rec)==['foldToRaise'] and sorted(rec['foldToRaise'])==sorted(SP) and all(sorted(rec['foldToRaise'][s])==['opp','sum'] for s in SP),rec
+  return [rec['foldToRaise'][s][f] for s in SP for f in ('sum','opp')]
+ def sp_same(got,want): return sorted(got)==sorted(want) and all(len(want[u])==6 and all(abs(x-y)<1e-12 for x,y in zip(sp_row(got[u]),want[u])) for u in want)
+ for i,v in enumerate(fs_vectors['priceNamed']):
+  got=json.loads(run('sp-vector-'+str(i),"SELECT fn_horse_street_price_increments("+jsonb_literal(v['actions'])+","+("NULL" if v['pot_size'] is None else repr(v['pot_size']))+"::numeric)::text;"))
+  assert sp_same(got,v['expected']),(v['name'],got,v['expected'])
+ sp_out=run('sp-random',"SELECT string_agg(fn_horse_street_price_increments(a,p)::text,E'\\n' ORDER BY k) FROM (VALUES "+",".join("("+str(k)+","+jsonb_literal(fs_decode(v)['actions'])+","+repr(v['pot'])+"::numeric)" for k,v in enumerate(fs_cases))+") v(k,a,p);").split('\n')
+ assert len(sp_out)==len(fs_cases)
+ sp_live=0
+ for k,v in enumerate(fs_cases):
+  got=json.loads(sp_out[k]); sp_live+=bool(got)
+  assert sp_same(got,v['price']),(k,got,v['price'])
+ assert sp_live>=30,sp_live
+ sp_record=lambda step:{'foldToRaise':{s:{'sum':step[2*i],'opp':step[2*i+1]} for i,s in enumerate(SP)}}
+ sp_chain='NULL::jsonb'; sp_checkpoints={c['after']:c['row'] for c in fs_vectors['priceChain']['checkpoints']}
+ for k,step in enumerate(fs_vectors['priceChain']['steps'],1):
+  sp_chain="fn_horse_street_price_add("+sp_chain+","+jsonb_literal(sp_record(step))+")"
+  if k in sp_checkpoints:
+   raw=run('sp-add-'+str(k),"SET extra_float_digits=1; SELECT coalesce("+sp_chain+"::text,'null');"); got=json.loads(raw); sp_chain=jsonb_literal(got) if got is not None else 'NULL::jsonb'
+   want=sp_checkpoints[k]
+   assert (got is None)==(want is None),(k,got,want)
+   if got is not None: assert all(abs(x-y)<1e-12 for x,y in zip(sp_row(got),want)) and len(want)==6,(k,got,want)
+ assert len(sp_checkpoints)>=12
+ assert run('sp-add-null-delta',"SELECT fn_horse_street_price_add(NULL,NULL) IS NULL AND fn_horse_street_price_add('{\"x\":1}'::jsonb,NULL)='{\"x\":1}'::jsonb AND fn_horse_street_price_add(NULL,"+jsonb_literal(sp_record([0]*6))+") IS NULL;")=='t'
+ assert sp_row(json.loads(run('sp-add-damaged',"SELECT fn_horse_street_price_add('{\"foldToRaise\":{\"flop\":{\"sum\":\"x\",\"opp\":[1]},\"turn\":7}}'::jsonb,"+jsonb_literal(sp_record([0.4,1,0,0,0,0]))+")::text;")))==[0.4,1,0,0,0,0]
+ assert run('sp-increments-junk',"SELECT fn_horse_street_price_increments('{}'::jsonb,100)::text||fn_horse_street_price_increments(NULL,NULL)::text||fn_horse_street_price_increments('[7,\"x\",null,{\"userId\":5}]'::jsonb,100)::text;")=='{}{}{}'
+ # Learning through the protected accepted receipt.
+ fsb='00000000-0000-4000-8000-00000000000d'; fsc='00000000-0000-4000-8000-00000000000e'
+ fa=lambda uid,stage,action,amount,origin='player': {'userId':uid,'stage':stage,'action':action,'amount':amount,'origin':origin}
+ FS_FLOP=['Kspades','8hearts','3clubs','2diamonds','2clubs']
+ fs_line=[fa(fsb,'preflop','raise',6),fa(fsc,'preflop','call',6,'horse_policy'),fa(fsc,'flop','check',0,'horse_policy'),fa(fsb,'flop','bet',10),fa(fsc,'flop','call',10,'horse_policy'),
+          fa(fsc,'turn','check',0,'horse_policy'),fa(fsb,'turn','check',0),fa(fsc,'river','check',0,'horse_policy'),fa(fsb,'river','check',0)]
+ fs_set=fs_hole('Kh Kd 9s 4s'); fs_pair=fs_hole('Ac 8c 7d 6d')
+ def fs_accept(n,hand,tournament=None):
+  row={'table_id':'00000000-0000-4000-8000-000000000001','hand_number':1000000+n,'game_variant':'plo4','horse_exploit_dealt_count':6,'players':[{'userId':fsc,'cards':['Qspades','Qhearts','Qdiamonds','Qclubs']}],'public_memory_domain':domain,'pot_size':52}
+  row.update({k:v for k,v in hand.items() if v is not None})
+  if tournament is not None:row['tournament_id']=tournament
+  return run('fs-accept-'+str(n),"BEGIN; SELECT fn_ca_insert_hand_with_awards('"+json.dumps(row).replace("'","''")+"'::jsonb);INSERT INTO hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) SELECT table_id,hand_number,id,repeat('a',64),'{}' FROM hand_history WHERE hand_number="+str(1000000+n)+"; COMMIT;")
+ fs_hand=lambda hole,shown,winners,**extra: dict({'actions':fs_line,'community_cards':FS_FLOP,'community_cards2':None,'hole_cards':hole,'showdown':[{'user_id':u,'seat':i,'reveal_order':i,'mucked':m} for i,(u,m) in enumerate(shown)],'winners':[{'userId':u,'amount':x} for u,x in winners],'big_blind':2},**extra)
+ fs_plan=[fs_hand({fsb:fs_set,fsc:fs_pair},[(fsb,False),(fsc,False)],[(fsb,30.5)]),   # shown top set; the Horse's pair shown: paid 5 bb, returned -5 bb
+          fs_hand({fsb:fs_set},[(fsb,False),(fsc,True)],[(fsb,30.5)]),                # the caller mucks: unshown
+          fs_hand({fsc:fs_pair},[(fsb,True),(fsc,False)],[(fsc,30.5)]),               # the bettor mucks: no class; the caller won +10.25 bb
+          fs_hand(None,[],[(fsb,30.5)],actions=fs_line[:2]+[fa(fsc,'flop','check',0,'horse_policy'),fa(fsb,'flop','check',0)])]  # no flop bet: nothing
+ for k,hand in enumerate(fs_plan):
+  prior=run('fs-prior-'+str(k),fs_of(fsb))
+  caller_prior=run('fs-caller-prior-'+str(k),"SELECT count(*) FROM horse_exact_profiles WHERE user_id='"+fsc+"' AND flop_shown IS NOT NULL;")
+  fs_accept(500+k,hand)
+  want=run('fs-want-'+str(k),"SELECT coalesce(fn_horse_flop_shown_add("+("NULL" if prior in ('null','') else "'"+prior+"'")+"::jsonb,"+fs_increments_sql(hand)+"->'"+fsb+"')::text,'null');")
+  assert run('fs-learned-'+str(k),fs_of(fsb))==want!='null',(k,want)
+  # The record is the bettor's: the caller's own row never takes it.
+  assert caller_prior=='0'
+ fs_learned=json.loads(run('fs-learned-state',fs_of(fsb))); fs_text=run('fs-learned-text',fs_of(fsb))
+ # cbet (line 0) x rainbow (texture 1) x nut (class 0) = index 5: two shown bets, the first aged once.
+ fs_cells=fs_row(fs_learned)
+ assert fs_cells[5]==977+1000 and sum(fs_cells[:40])==1977,fs_learned
+ # Horse callers (kind 0): pair (cell 3) at 40+12 holds hand 1 aged once and hand 3; unshown (cell 4) at 40+16 holds hand 2.
+ assert fs_cells[52:56]==[977+1000,488+500,-488+1025,2] and fs_cells[56:60]==[1000,500,-500,1],fs_learned
+ assert sum(abs(x) for x in fs_cells[40:52]+fs_cells[60:])==0,fs_learned
+ # The private dealt hand in hand_history.players (four queens for the caller) reached nothing: his class cell is `pair`.
+ # Tournament evidence stays in the tournament row; the counters and the other records are written as before.
+ fs_accept(510,fs_plan[0],tournament='00000000-0000-4000-8000-0000000000f4')
+ assert run('fs-tournament-row',"SELECT flop_shown->'bet'->>5 FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND mode='tournament';")=='1000'
+ assert run('fs-cash-untouched-by-tournament',fs_of(fsb))==fs_text
+ assert run('fs-counters-shape',"SELECT (SELECT count(*) FROM jsonb_object_keys(counters))||':'||(street_counters IS NOT NULL)::text FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND mode='cash';")=='27:true'
+ assert run('fs-read',"SET ROLE service_role; SELECT flop_shown::text FROM fn_horse_exact_profiles_read(ARRAY['"+fsb+"'],'plo4','cash','full','table','none');")==fs_text
+ # The price record through the receipt: the bettor is raised on the flop and folds (20 to add over 52); the raiser,
+ # who faced no raise, keeps none; a hand with no such spot leaves it unchanged.
+ sp_of=lambda uid: "SELECT coalesce(street_counters_price::text,'null') FROM horse_exact_profiles WHERE user_id='"+uid+"' AND mode='cash';"
+ assert run('sp-none-yet',sp_of(fsb))=='null'
+ sp_hand={'actions':[fa(fsb,'preflop','raise',6),fa(fsc,'preflop','call',6,'horse_policy'),fa(fsb,'flop','bet',10),fa(fsc,'flop','raise',30,'horse_policy'),fa(fsb,'flop','fold',0)],'community_cards':FS_FLOP[:3]}
+ for k in range(2): fs_accept(520+k,sp_hand)
+ sp_learned=sp_row(json.loads(run('sp-learned',sp_of(fsb)))); sd=0.5**(1/30)
+ assert abs(sp_learned[0]-(20/52)*(sd+1))<1e-12 and abs(sp_learned[1]-(sd+1))<1e-12 and sp_learned[2:]==[0,0,0,0],sp_learned
+ assert run('sp-raiser-none',sp_of(fsc))=='null'
+ sp_text=run('sp-text',sp_of(fsb)); fs_accept(522,fs_plan[0])
+ assert run('sp-unchanged-without-a-raise',sp_of(fsb))==sp_text
+ assert run('sp-read',"SET ROLE service_role; SELECT street_counters_price::text FROM fn_horse_exact_profiles_read(ARRAY['"+fsb+"'],'plo4','cash','full','table','none');")==sp_text
+ fs_text=run('fs-text-after',fs_of(fsb))
+ # What the records cost a row: the largest values the add rule can reach in every cell (never seen in play), and a
+ # price record at full float precision. Written to the evidence folder; held under a bound.
+ fs_worst={'bet':[43478]*40,'call':[347826,34782608,-34782608,1000000]*10}
+ fs_sizes=run('fs-record-sizes',"SELECT pg_column_size("+jsonb_literal(fs_worst)+")||':'||length("+jsonb_literal(fs_worst)+"::text)||':'||pg_column_size(flop_shown)||':'||length(flop_shown::text)||':'||pg_column_size(street_counters_price)||':'||length(street_counters_price::text)||':'||pg_column_size('{\"foldToRaise\":{\"flop\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345},\"turn\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345},\"river\":{\"sum\":8.123456789012345,\"opp\":21.123456789012345}}}'::jsonb) FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND mode='cash';")
+ assert all(int(x)<1500 for x in fs_sizes.split(':')),fs_sizes
+ assert run('fs-record-bytes',"SELECT pg_column_size(flop_shown)<1400 AND length(flop_shown::text)<700 FROM horse_exact_profiles WHERE user_id='"+fsb+"' AND mode='cash';")=='t'
+ (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; shown river record: SQL increments equal to the engine port on pinned vectors and 300 random public action logs, the 40-shown-bet half-life to 1e-12, refused without hand_history.showdown, forward-only learning with no back-fill, unattributed actor not learned, cash and tournament apart, a hand with no river bet leaves it unchanged, both install orders converge, rerun idempotence and saved read; street read: SQL increments equal to the engine reducer on pinned vectors (hole cards on the log change nothing) and 240 random public action logs with boards, the 30-opportunity half-life to 1e-12 through 120 hands, refused without hand_history.community_cards, forward-only learning with no back-fill, exact cell values through the accepted receipt, a double-board hand teaches no texture cell, forced and preflop-only hands leave it unchanged, cash and tournament apart, both install orders converge, rerun idempotence and saved read; flop-shown record: SQL hand class equal to the engine on pinned and 700 dealt hands, SQL increments equal to the engine reducer on pinned vectors and 260 random hands with amounts, showdown lists and winners, the integer add rule exactly equal through 160 hands, refused without the public showdown columns, forward-only learning with no back-fill, exact cell values through the accepted receipt, a mucked hand and hand_history.players never read, cash and tournament apart, both install orders converge, rerun idempotence and saved read; fold-to-raise price record: SQL increments equal to the engine reducer on pinned vectors and 260 random logs with amounts and pot sizes to 1e-12, the add rule through 120 hands, exact values through the accepted receipt, a hand without such a raise leaves it unchanged, saved read; no production installation'},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
  if started:command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','-w','stop'])

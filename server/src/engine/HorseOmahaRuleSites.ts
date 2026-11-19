@@ -369,6 +369,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaRaiseEvCountsLossesOnce: priced(
     "the re-raisers' losses counted once in the priced raise value; off-only (an input, not a rule site)"
   ),
+  omahaSampledRaiseIsPricedAtEverySize: priced(
+    'the sampled raise at every legal size, its fold share and continuing range at the price each raise lays, the raise made at the priced size (an input, not a rule site)'
+  ),
   omahaPricedMix: priced('mixing between two close priced actions'),
   omahaPricedInLightning: priced(
     'the priced scope opened to the Lightning pools for the priced options that are on (a scope, not a rule site)'
@@ -456,6 +459,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaMultiwayRiverCallNeedsStrength: priced(
     'the multiway river call on its exact-hand expected value; off-only (failed its evaluation)'
+  ),
+  omahaFlopVerdictReadsTheBettor: priced(
+    "the flop facing-bet verdict's bettor range and realization read from that bettor's own street record beside his kind, moved continuously by his sample (an input of the omahaFlopFacingBetEv verdict, not a rule site; default OFF)"
   ),
   omahaReadIsByStreetAndTexture: priced(
     "the opponent read every priced comparison and the value-leader label take, from the decision's street and flop texture, blended continuously with the pooled read (an input, not a rule site)"

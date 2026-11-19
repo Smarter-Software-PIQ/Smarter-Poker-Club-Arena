@@ -47,6 +47,8 @@ import {
   type HorseProfileMods,
 } from '../engine/HorseLogic.js';
 import { HorseMind, readScopeOf, type HorseMindSandbox } from '../engine/HorseMind.js';
+import { seedHorseTimingRandom } from '../engine/horsePublicActionTime.js';
+import { seedHorseBetSizeRandom } from '../engine/horsePublicBetSize.js';
 import {
   seedFastRandom,
   saveFastRandom,
@@ -765,6 +767,34 @@ export function blockStandardError(
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit });
 
+/**
+ * THE BRAIN'S TWO PUBLIC STREAMS ARE PINNED PER DECISION (2026-11-19).
+ * horsePublicBetSize (every public bet size, with omahaBetSizeByPublicState)
+ * and horsePublicActionTime draw from streams production seeds from the
+ * operating system at load, never from a deal. Unpinned, the two passes of a
+ * duplicate pair drew different sizes: IDENTICAL arms with the option on
+ * diverged in 38 and 39 of 300 pairs (seed 20261119), and 0 of 300 with the
+ * stream held. playHand seeds both before every seat's decision from the
+ * deal, the seat and the decision's place in the hand, so the two passes of a
+ * pair draw the same numbers at the same node and an arm that draws more
+ * does not shift a later decision. Benchmark only: production never calls it.
+ */
+export function leaguePinPublicStreams(
+  handSeed: number,
+  seatIdx: number,
+  decisionIndex: number
+): void {
+  let h = (handSeed ^ 0x9e3779b9) >>> 0;
+  for (const x of [seatIdx + 1, decisionIndex + 1]) {
+    h = Math.imul(h ^ (x >>> 0), 0x85ebca6b) >>> 0;
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35) >>> 0;
+    h ^= h >>> 16;
+  }
+  seedHorseBetSizeRandom(h);
+  seedHorseTimingRandom(h ^ 0x5bd1e995);
+}
+
 /** The deck playHand deals for `handSeed`: seeds fastRandom, then Fisher-Yates on it.
  *  The stream is left where playHand continues from it. */
 function leagueShuffledDeck(handSeed: number): Card[] {
@@ -1031,6 +1061,7 @@ export function playHand(
         }) ?? { player: p, gameState: gs };
 
       const toCall = Math.max(0, currentBet - p.bet);
+      leaguePinPublicStreams(handSeed, i, history.length);
       const d: { action: string; amount?: number } =
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
@@ -1419,7 +1450,14 @@ export function playHand(
       });
       // omahaReadIsByStreetAndTexture (2026-11-18): the street read the option uses, learned the way the
       // accepted-hand learner keeps it, only for a hand a seat's configuration reads it in.
-      if (seats.some((_, i) => configOf(i).omahaReadIsByStreetAndTexture === true))
+      // omahaFlopVerdictReadsTheBettor (2026-11-19) reads the same record.
+      if (
+        seats.some(
+          (_, i) =>
+            configOf(i).omahaReadIsByStreetAndTexture === true ||
+            configOf(i).omahaFlopVerdictReadsTheBettor === true
+        )
+      )
         leagueLearnStreetRead(sandbox, history, board, gameVariant, handScope);
     } catch {
       /* the harness is measurement plumbing — never let it break a deal */
@@ -2428,6 +2466,8 @@ export const OMAHA_PRICED_INPUT_CARDS: ReadonlyArray<
 > = [
   ['omahaPricedPriorsByOpponentKind', 'priced_priors_by_opponent_kind'],
   ['omahaRaiseEvCountsLossesOnce', 'raise_ev_counts_losses_once'],
+  // 2026-11-19: the sampled raise (omahaDrawRaiseIsPriced, omahaPressureIsPriced) priced at every legal size
+  ['omahaSampledRaiseIsPricedAtEverySize', 'sampled_raise_is_priced_at_every_size'],
 ];
 export const OMAHA_PRICED_FAMILIES_ON: HorseDecideOpts = Object.freeze(
   Object.fromEntries(OMAHA_PRICED_FAMILY_CARDS.map(([option]) => [option, true]))
@@ -2904,6 +2944,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     productionStyles: true,
     a: { ...OMAHA_LIVE_OPTIONS_20261118, omahaMultiwayCheckedToBetIsPriced: true },
     b: { ...OMAHA_LIVE_OPTIONS_20261118 },
+  })),
+  // 2026-11-19 THE FLOP VERDICT READS THE BETTOR (HorseOmahaFlopBettorRead,
+  // default OFF): the flop facing-bet verdict's value share, non-value share
+  // and later-street realization take this bettor's own street record beside
+  // his kind. It changes nothing by itself: it is an input of
+  // omahaFlopFacingBetEv, so that option is on in BOTH arms (over
+  // production's live set, OMAHA_LIVE_OPTIONS_20261118) and arm A adds the
+  // read. The street record is learned inside the card
+  // (HorseLeagueStreetRead). Guarded by ADefaultOffFlagHasALeagueCard.law.test.ts.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_flop_verdict_reads_the_bettor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      ...OMAHA_LIVE_OPTIONS_20261118,
+      omahaFlopFacingBetEv: true,
+      omahaFlopVerdictReadsTheBettor: true,
+    },
+    b: { ...OMAHA_LIVE_OPTIONS_20261118, omahaFlopFacingBetEv: true },
   })),
   // 2026-11-18 OMAHA SMALL BETS PRICED (HorseOmahaSmallBet, default OFF): on a
   // heads-up turn or river with nothing to call, the owner's check or bet is
@@ -5186,8 +5246,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'horsePublicBetSize.horseBetSizeRandom is seeded from the operating system at load, never from the run seed ' +
       'or the deal, so the two deals of a duplicate pair draw different sizes. With that stream held constant ' +
       '(horseBetSizeRandom mocked to 0.5; 1,676 size draws taken) the same matchup diverged in 0 of 300 pairs, as ' +
-      'did its identical-arm control. So the league card of this option would not report 0.00 +/- 0.00: it would ' +
-      'report unpaired size noise that is no measurement of the option, which is the reason it stays refused. ' +
+      'did its identical-arm control. That noise is closed: playHand now pins the size and timing streams per ' +
+      'decision from the deal, the seat and the decision index (leaguePinPublicStreams, law ' +
+      'aPairedLeagueEvaluationRepeatsItself). Re-measured 2026-11-19 on the pinned league (300 pairs, run seed ' +
+      '20261119, one niced process): 0 of 300 pairs diverged (status inert, 0.00 +/- 0.00 bb/100), and its ' +
+      'identical-arm controls (both arms the b set; both arms the a set) 0 of 300 each. The matchup is inert as ' +
+      'constructed, which is the reason it stays refused. ' +
       'It is measured where the domain exists: the paired Lightning harness (lightning/LightningPairedEval.test.ts, ' +
       'switch card on the live base, E1) under the pre-written bar (PLO lane evidence, ' +
       'plo-handoff-review-01a1cbbd/ltgscopes-01TLQer7J/PASS-BAR.md). What would change this: a league context that ' +

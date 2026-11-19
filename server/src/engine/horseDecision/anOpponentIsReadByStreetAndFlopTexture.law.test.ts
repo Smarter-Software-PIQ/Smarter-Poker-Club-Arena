@@ -391,7 +391,7 @@ describe('an opponent is read by street and by flop texture', () => {
     ).not.toThrow();
   });
 
-  it('8. ONLY ITS OPTION READS IT: outside its owner, its transport and omahaReadIsByStreetAndTexture, no engine source names the read', () => {
+  it('8. ONLY ITS OPTIONS READ IT: outside its owner, its transport, omahaReadIsByStreetAndTexture and omahaFlopVerdictReadsTheBettor, no engine source names the read', () => {
     const root = resolve(process.cwd(), 'src');
     const files: string[] = [];
     const walk = (dir: string) => {
@@ -413,18 +413,25 @@ describe('an opponent is read by street and by flop texture', () => {
     // called only by HorseMind's own two per-street readers (the value-leader label and the facing-bet bet rate,
     // each behind omahaReadByStreetNow().on) and by the option's per-decision installer; and, since the dark batch
     // of 2026-11-18, by the default-off flop defence tree (omahaFlopDefenceIsPriced), which reads the bettor's
-    // counters only inside its own `ctx.flopDefenceTree === true` branch
+    // counters only inside its own `ctx.flopDefenceTree === true` branch;
+    // and, since 2026-11-19 (omahaFlopVerdictReadsTheBettor, default off) also by the flop facing-bet rule, behind
+    // ctx.readsTheBettor === true, for the bettor alone
     expect(naming(/omahaStreetReadOf\(/)).toEqual([
       'engine/HorseMind.ts',
       'engine/HorseOmahaFlopFacingBetEvRule.ts',
       'engine/HorseOmahaReadByStreetRule.ts',
     ]);
     const flopRule = readFileSync(join(root, 'engine/HorseOmahaFlopFacingBetEvRule.ts'), 'utf8');
-    expect(flopRule.match(/omahaStreetReadOf\(/g)).toHaveLength(1);
-    expect(flopRule.indexOf('ctx.flopDefenceTree === true')).toBeGreaterThan(-1);
-    expect(flopRule.indexOf('ctx.flopDefenceTree === true')).toBeLessThan(
-      flopRule.indexOf('omahaStreetReadOf(')
-    );
+    // two calls, each after its own default-off guard: the bettor read (readsTheBettor), then the tree (flopDefenceTree)
+    const flopReads = [...flopRule.matchAll(/omahaStreetReadOf\(/g)].map((m) => m.index ?? -1);
+    expect(flopReads).toHaveLength(2);
+    const bettorGuard = flopRule.indexOf('ctx.readsTheBettor === true');
+    const treeGuard = flopRule.indexOf('ctx.flopDefenceTree === true');
+    expect(bettorGuard).toBeGreaterThan(-1);
+    expect(treeGuard).toBeGreaterThan(-1);
+    expect(bettorGuard).toBeLessThan(flopReads[0]);
+    expect(flopReads[0]).toBeLessThan(treeGuard);
+    expect(treeGuard).toBeLessThan(flopReads[1]);
     const mind = readFileSync(join(root, 'engine/HorseMind.ts'), 'utf8');
     expect(mind.match(/omahaStreetReadOf\(/g)).toHaveLength(3);
     expect(mind.match(/this\.omahaStreetReadOf\(/g)).toHaveLength(2);
@@ -441,6 +448,8 @@ describe('an opponent is read by street and by flop texture', () => {
     expect(naming(/street_counters|copyStreetCounters/)).toEqual([
       'engine/HorseMind.ts',
       'engine/HorseOmahaStreetRead.ts',
+      // the price behind the fold-to-raise cells (2026-11-19, street_counters_price), its own record and law
+      'engine/HorseOmahaStreetReadPrice.ts',
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
       'engine/horseDecision/pooledPublicProfiles.ts',
@@ -453,10 +462,17 @@ describe('an opponent is read by street and by flop texture', () => {
       'engine/HorseMind.ts',
       // the default-off flop defence tree (omahaFlopDefenceIsPriced, dark batch 2026-11-18): the counters' TYPE only
       'engine/HorseOmahaFlopDefenceTree.ts',
+      // omahaFlopVerdictReadsTheBettor's pure read (2026-11-19) and the flop rule that asks for it (flopTextureOf)
+      'engine/HorseOmahaFlopBettorRead.ts',
+      'engine/HorseOmahaFlopFacingBetEvRule.ts',
+      // the flop-shown record (2026-11-19) takes the flop texture and the public flop from it
+      'engine/HorseOmahaFlopShown.ts',
       // omahaReadIsByStreetAndTexture's pure read (2026-11-18)
       'engine/HorseOmahaReadByStreet.ts',
       // its per-decision mode (types only), the one part HorseMind imports
       'engine/HorseOmahaReadByStreetMode.ts',
+      // the price behind the fold-to-raise cells (2026-11-19) takes the streets and the decay from it
+      'engine/HorseOmahaStreetReadPrice.ts',
       'engine/HorseOpponentMemory.ts',
       'engine/horseDecision/observerReads.ts',
     ]);

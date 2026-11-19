@@ -518,6 +518,8 @@ import {
   omahaPricedBlockerBluffAdmits,
   omahaPricedDrawRaiseBarred,
   omahaPricedDrawRaiseRule,
+  omahaPricedPressureRaiseSized,
+  type OmahaPricedPressureAdmission,
   omahaPricedFacingRead,
   omahaPricedNoteFacingInputs,
   omahaPricedOopTurnBarrelRule,
@@ -3447,6 +3449,24 @@ export interface HorseDecideOpts {
    * omahaFlopFacingBetEv on it replaces that verdict's realization in the same spot.
    */
   omahaFlopDefenceIsPriced?: boolean;
+  /** PLO Strategy lane 2026-11-19 (owner 2026-11-16: every decision from the
+   * hand and its equity against the opponent's perceived range for that
+   * action, line and board and his measured tendencies; how far the Horse
+   * moves toward one player's tendency grows smoothly with the sample):
+   * opt-in (`=== true`), and it acts only where omahaFlopFacingBetEv decides
+   * (PLO4/PLO5 cash, the FLOP facing a bet or a raise). The flop verdict also
+   * reads THIS bettor's durable record of his play by street and flop
+   * texture (public actions and board cards; HorseOmahaFlopBettorRead.ts): how often he bets this flop texture on this line moves the value share
+   * and the non-value share of his bet by one measured factor, and how often
+   * he bets the turn and the river moves the share of later streets a
+   * non-value holding bets in the realization model; each rate beside players
+   * of his kind (a person against persons, a Horse against Horses) and moved
+   * from the kind's figure in proportion to his sample, with no threshold
+   * (HorseOmahaFlopBettorRead.ts). With no record for the bettor, the mind
+   * off or a kind the decision does not know, the verdict is exactly
+   * omahaFlopFacingBetEv's. Needs the mind on. Default OFF, not evaluated;
+   * league cards plo4/plo5 _omaha_flop_verdict_reads_the_bettor. */
+  omahaFlopVerdictReadsTheBettor?: boolean;
   /** PLO Strategy lane 2026-11-18 (owner 2026-11-17: no blanket rule; every
    * decision from the opponent's range and the math): opt-in (`=== true`),
    * PLO4/PLO5 cash, flop / turn / river. The opponent read #11215 keeps by
@@ -3961,6 +3981,13 @@ export interface HorseDecideOpts {
    * Off or unset: Lightning stays outside the public size, byte-identical. Default OFF; NOT EVALUATED (refused
    * league matchup; the paired Lightning harness). Receipt omaha_public_bet_size_in_lightning_scope_seen. */
   omahaPublicBetSizeInLightning?: boolean;
+  /** PLO lane 2026-11-19 (verifier defect, HorseOmahaPricedRules.omahaPricedSampledRaise): opt-in
+   * (`=== true`). The sampled raise of omahaDrawRaiseIsPriced and omahaPressureIsPriced prices the fold,
+   * the call and a raise to each legal size (the minimum, the middle, the maximum and the one proposed),
+   * each raise's fold share at the price that raise lays (omahaPricedSampledFoldAtPrice), and the draw
+   * raise is made to the size of highest value. Off: one size, its fold share size-blind (#11212,
+   * byte-identical). Default OFF; no league yet. */
+  omahaSampledRaiseIsPricedAtEverySize?: boolean;
   /** Frequency mixing of the priced rules: when the two best actions of a
    * priced comparison are closer than the comparison's own uncertainty, the
    * lower one is taken with a probability that follows the gap, on a draw
@@ -8561,7 +8588,8 @@ function omahaPostflopPressureWithheld(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
   player?: SeatPlayer,
-  kind: 'raise' | 'call_down' = 'raise'
+  kind: 'raise' | 'call_down' = 'raise',
+  admission?: OmahaPricedPressureAdmission
 ): boolean {
   if (opts.omahaPressureNeedsPostflopAggression !== true || opts.mind === false) return false;
   try {
@@ -8576,7 +8604,8 @@ function omahaPostflopPressureWithheld(
         player,
         gs,
         opts,
-        omahaPricedDeps(player, gs)
+        omahaPricedDeps(player, gs),
+        admission
       );
       if (priced !== null) return priced;
     }
@@ -9931,8 +9960,23 @@ function omahaDrawRules(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
+  // omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced (both default off): a pressure
+  // raise admitted at a priced size is made at that size (the decision itself with either off).
   return omahaBigDrawAggression(
-    omahaNoDrawRaiseFinal(decision, player, gs, opts),
+    omahaNoDrawRaiseFinal(
+      omahaPricedPressureRaiseSized(
+        decision,
+        player,
+        gs,
+        opts,
+        omahaPressureAdmittedAtPriceMemo !== null &&
+          omahaPressureAdmittedAtPriceMemo.gs === gs &&
+          omahaPressureAdmittedAtPriceMemo.seat === player.seat
+      ),
+      player,
+      gs,
+      opts
+    ),
     player,
     gs,
     opts
@@ -11697,6 +11741,7 @@ function omahaFacingBetEvRule(
       bareOverpairContinuation: opts.omahaBareOverpairOopFlopCheck === true,
       ...(opts.omahaFlopDefenceIsPriced === true ? { flopDefenceTree: true } : {}),
       ...(opts.omahaFlopFacingBetEv !== true ? { flopDefenceOnly: true } : {}),
+      readsTheBettor: opts.omahaFlopVerdictReadsTheBettor === true,
     });
   if (opts.omahaFacingBetEv !== true) return decision;
   try {
@@ -12383,6 +12428,15 @@ let omahaStreetPlanRiverMemo: {
   gs: HorseGameStateV2;
   calls: boolean;
 } | null = null;
+/**
+ * omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced (both default off): the brain
+ * priced the pressure raise of the decision in progress and the sampled comparison admitted it at a
+ * priced size. Written only by the brain's V53 pressure block, for the state object and seat it
+ * priced; read by omahaDrawRules on the same state object, which then makes the raise at that
+ * size. Null in every other decision: cleared with the other per-decision memos when a decision
+ * starts and when it ends, so a later decision on the same public spot inherits nothing.
+ */
+let omahaPressureAdmittedAtPriceMemo: { gs: HorseGameStateV2; seat: number } | null = null;
 
 /**
  * The per-decision memos above are keyed by the identity of the player and
@@ -12394,6 +12448,7 @@ let omahaStreetPlanRiverMemo: {
  * keyed by card strings) is cross-decision by design and is not touched.
  */
 function omahaClearDecisionMemos(): void {
+  omahaPressureAdmittedAtPriceMemo = null;
   omahaSmallBetOwned = null;
   omahaSmallBetPress = null;
   omahaFacingBetEvMemo = null;
@@ -12409,6 +12464,7 @@ function omahaClearDecisionMemos(): void {
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
 export function omahaDecisionMemosHeld(): string[] {
   const held: string[] = [];
+  if (omahaPressureAdmittedAtPriceMemo !== null) held.push('omahaPressureAdmittedAtPriceMemo');
   if (omahaSmallBetOwned !== null) held.push('omahaSmallBetOwned');
   if (omahaSmallBetPress !== null) held.push('omahaSmallBetPress');
   if (omahaFacingBetEvMemo !== null) held.push('omahaFacingBetEvMemo');
@@ -26161,14 +26217,19 @@ export class HorseLogic {
         // the pressure play needs the bettor's own postflop betting measured
         // high; a preflop-wide or presumed-aggressive bettor who is a value
         // leader or unmeasured after the flop gets none.
+        const admission53: OmahaPricedPressureAdmission = {};
         if (
           pressure53 !== null &&
           bettor53 &&
-          omahaPostflopPressureWithheld(bettor53, gs, opts, player)
+          omahaPostflopPressureWithheld(bettor53, gs, opts, player, 'raise', admission53)
         ) {
           pressure53 = null;
           if (tele15) noteFire('omaha_pressure_withheld_value_leader');
         }
+        // omahaSampledRaiseIsPricedAtEverySize: the pressure raise stands because a priced size
+        // beats the call; the raise this decision makes is made at that size (omahaDrawRules).
+        if (pressure53 !== null && admission53.sampledAtPrice === true)
+          omahaPressureAdmittedAtPriceMemo = { gs, seat: player.seat };
       } catch {
         pressure53 = null;
       }

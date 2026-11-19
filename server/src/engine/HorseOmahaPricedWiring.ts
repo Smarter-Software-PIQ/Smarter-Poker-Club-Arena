@@ -57,9 +57,12 @@ import {
   omahaPricedRaise,
   omahaPricedRead,
   omahaPricedReadSpread,
+  omahaPricedSampledCandidates,
   omahaPricedSampledRaise,
   type OmahaPricedRaiseVerdict,
   type OmahaPricedRead,
+  type OmahaPricedSampledRow,
+  type OmahaPricedSampledSizes,
   type OmahaPricedStreetRates,
 } from './HorseOmahaPricedRules.js';
 
@@ -509,7 +512,104 @@ function sampledVerdict(
       bet: num(p.bet),
       read: omahaPricedReadOfUser(p.user_id, gs, opts),
     })),
+    sizes: sampledSizes(player, gs, opts, spot.toCall),
   });
+}
+/**
+ * omahaSampledRaiseIsPricedAtEverySize (default OFF): the legal raise-to range of the decision, so
+ * the sampled comparison prices the fold, the call and a raise to each legal size, each raise's fold
+ * share at the price it lays. Null with the option off: the one size given, its fold share
+ * size-blind (#11212, byte-identical).
+ */
+function sampledSizes(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  toCall: number
+): OmahaPricedSampledSizes | null {
+  if (opts.omahaSampledRaiseIsPricedAtEverySize !== true) return null;
+  return legalSampledSizes(player, gs, toCall);
+}
+/** The legal raise-to range and menu of the decision, from the public state alone. */
+function legalSampledSizes(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  toCall: number
+): OmahaPricedSampledSizes {
+  const menu = Array.isArray(gs.legalActions) ? gs.legalActions : null;
+  return {
+    minTo: Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : num(gs.currentBet) * 2,
+    maxTo: potRaiseTo(player, gs, toCall),
+    whole: (gs.bigBlind ?? 1) >= 1,
+    canRaise: menu === null || menu.includes('raise'),
+    canShove: menu === null || menu.includes('all_in'),
+  };
+}
+/**
+ * omahaSampledRaiseIsPricedAtEverySize: the decision that makes the raise at the priced size of
+ * highest value, or null when the size given (`to`, as matched: no more than the Horse or the
+ * deepest opponent holds) is already that size. The Horse's whole stack is the all-in action. A
+ * changed amount voids what was said of the old one (valueSize, continuationGuard).
+ */
+function sampledResized(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  spot: SampledSpot,
+  to: number,
+  best: OmahaPricedSampledRow
+): HorseDecision | null {
+  const heroAll = num(player.bet) + num(player.stack);
+  const cover = Math.max(...spot.live.map((p) => num(p.stack) + num(p.bet)));
+  if (Math.abs(Math.min(to, heroAll, cover) - best.to) < 0.006) return null;
+  const resized: HorseDecision =
+    best.to >= heroAll - 0.005
+      ? { ...decision, action: 'all_in' }
+      : { ...decision, action: 'raise', amount: best.to };
+  if (resized.action === 'all_in') delete resized.amount;
+  delete resized.continuationGuard;
+  delete resized.valueSize;
+  return resized;
+}
+/**
+ * Receipt validation (omahaSampledRaiseIsPricedAtEverySize): a raise or an all-in that became a
+ * raise to another size. The size chosen is priced on the opponent memory, which the request does
+ * not carry, so it is admitted only with the request, only in the sampled spot (PLO4/PLO5 cash,
+ * flop or turn, facing a wager, one or two opponents, none all in), and only for the exact chips of
+ * one of the sizes the comparison prices there (omahaPricedSampledCandidates, public state alone):
+ * an all-in where the Horse's whole stack is one of them, a raise to exactly one of the others.
+ * `inLightning`: the decision's own omahaPricedInLightning (the receipt context's gate), as for
+ * omahaPricedAdmitsRaiseToCall; absent or false, Lightning is outside as before.
+ */
+export function omahaPricedSampledAdmitsResize(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  action: string,
+  amount: number | null | undefined,
+  inLightning = false
+): boolean {
+  try {
+    if (!omahaPricedInScope(player, gs, { omahaPricedInLightning: inLightning })) return false;
+    const spot = sampledSpot(player, gs);
+    if (!spot) return false;
+    const heroAll = num(player.bet) + num(player.stack);
+    const tos = omahaPricedSampledCandidates(
+      {
+        stack: num(player.stack),
+        heroBet: num(player.bet),
+        currentBet: num(gs.currentBet),
+        opponents: spot.live.map((p) => ({ stack: num(p.stack), bet: num(p.bet) })),
+      },
+      legalSampledSizes(player, gs, spot.toCall)
+    );
+    if (action === 'all_in') return tos.some((to) => to >= heroAll - 0.005);
+    return (
+      action === 'raise' &&
+      typeof amount === 'number' &&
+      tos.some((to) => to < heroAll - 0.005 && Math.abs(to - amount) < 1e-9)
+    );
+  } catch {
+    return false;
+  }
 }
 const potRaiseTo = (player: SeatPlayer, gs: HorseGameStateV2, toCall: number): number => {
   const cap = num(gs.currentBet) + num(gs.pot) + toCall;
@@ -621,6 +721,20 @@ export function omahaPricedDrawRaiseRule(
     )
       raise = !raise;
     if (raise) {
+      // omahaSampledRaiseIsPricedAtEverySize: the raise is made to the size of highest value. The
+      // size given is kept when it is that size. A raise the mix took (omahaPricedMix: within the
+      // noise of the call, NOT priced above it) is sized the same way under its own receipt.
+      const best = verdict.best ?? null;
+      const resized = best ? sampledResized(decision, player, spot, to, best) : null;
+      if (resized) {
+        if (tele)
+          noteFire(
+            verdict.raise
+              ? 'omaha_priced_draw_raise_resized'
+              : 'omaha_priced_draw_raise_mixed_resized'
+          );
+        return resized;
+      }
       if (tele) noteFire('omaha_priced_draw_raise_kept');
       return decision;
     }
@@ -762,12 +876,21 @@ export function omahaPricedBlockerBluffAdmits(
  * measured fold rate; river, the exact count), the call-down unless the call
  * is priced above the fold. Null out of scope: the label test acts.
  */
+/**
+ * What omahaPricedPressureWithheld tells its caller beside the answer. `sampledAtPrice`: the raise
+ * was admitted by the sampled comparison at a priced size (omahaSampledRaiseIsPricedAtEverySize).
+ * The object belongs to the caller and to one decision; this module keeps nothing.
+ */
+export interface OmahaPricedPressureAdmission {
+  sampledAtPrice?: boolean;
+}
 export function omahaPricedPressureWithheld(
   kind: 'raise' | 'call_down',
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
-  deps: OmahaPricedDeps
+  deps: OmahaPricedDeps,
+  out?: OmahaPricedPressureAdmission
 ): boolean | null {
   if (opts.omahaPressureIsPriced !== true || !omahaPricedInScope(player, gs, opts)) return null;
   const tele = telemetryOn(opts);
@@ -793,6 +916,10 @@ export function omahaPricedPressureWithheld(
         if (verdict) {
           priceable = true;
           admitted = kind === 'raise' ? verdict.raise : verdict.evCall > 0;
+          // omahaSampledRaiseIsPricedAtEverySize: the raise admitted here is admitted at the
+          // priced size of highest value. The caller is told so, and carries it with its own
+          // decision to the rule that makes the raise at that size (omahaPricedPressureRaiseSized).
+          if (out && kind === 'raise' && verdict.best && verdict.raise) out.sampledAtPrice = true;
         }
       } else if (kind === 'call_down' && stage === 'flop') {
         const eq = omahaBigDrawEquities(
@@ -823,6 +950,60 @@ export function omahaPricedPressureWithheld(
     return !admitted;
   } catch {
     return null;
+  }
+}
+
+/**
+ * omahaSampledRaiseIsPricedAtEverySize with omahaPressureIsPriced: the pressure raise is admitted
+ * when the priced size of highest value is worth more than the call, so the raise the brain then
+ * makes is made AT that size (before, it kept the brain's own size: a minimum raise admitted on the
+ * fold share of the pot raise). Applies to a raise or an all-in facing the wager in a decision
+ * whose pressure raise the sampled comparison admitted: `admitted` is the caller's own record of
+ * THIS decision (HorseLogic's per-decision memo, set by the brain where it priced the pressure
+ * raise, bound to the state object of the decision and cleared when the decision starts and when
+ * it ends). This module holds no decision state. A draw the bar names is left to
+ * omahaPricedDrawRaiseRule where that rule owns it (it prices and sizes the same way). The raise is
+ * priced again here: where it is no longer priced above the call, or the size given is already the
+ * size of highest value, the decision is returned as given. Receipt:
+ * omaha_priced_pressure_raise_resized.
+ */
+export function omahaPricedPressureRaiseSized(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  admitted: boolean
+): HorseDecision {
+  if (admitted !== true) return decision;
+  if (opts.omahaSampledRaiseIsPricedAtEverySize !== true || opts.omahaPressureIsPriced !== true)
+    return decision;
+  if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
+  try {
+    // The scope of the pricing that admitted the raise (omahaPricedPressureWithheld reads the same opts):
+    // Lightning only with the decision's own omahaPricedInLightning. The scope receipt is the admission's.
+    if (!omahaPricedInScope(player, gs, { omahaPricedInLightning: omahaPricedInLightningOn(opts) }))
+      return decision;
+    const spot = sampledSpot(player, gs);
+    if (!spot) return decision;
+    if (
+      opts.omahaNoDrawRaiseOutOfPosition === true &&
+      omahaPricedOwnsDrawRaise(player, gs, opts) &&
+      omahaDrawRaiseBarOf(player, gs) !== null
+    )
+      return decision;
+    const to =
+      decision.action === 'raise' && typeof decision.amount === 'number'
+        ? decision.amount
+        : num(player.bet) + num(player.stack);
+    const verdict = sampledVerdict(player, gs, opts, spot, to);
+    if (!verdict || !verdict.raise || !verdict.best) return decision;
+    const resized = sampledResized(decision, player, spot, to, verdict.best);
+    if (!resized) return decision;
+    if (telemetryOn(opts)) noteFire('omaha_priced_pressure_raise_resized');
+    return resized;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
   }
 }
 
