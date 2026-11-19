@@ -156,4 +156,16 @@ BEGIN
   RAISE EXCEPTION 'Messenger inbox changed beyond the unanswered-welcome predicate';
  END IF;
 END $postflight$;
+-- Executed before COMMIT (tests/a-migration-proves-its-functions-before-commit):
+-- a migration session is a trusted caller (fn_caller_is_engine), and an
+-- unknown user's inbox is empty, so the body runs end to end and writes nothing.
+-- @probe-for: public.fn_get_user_conversations
+DO $probe$
+BEGIN
+  PERFORM * FROM public.fn_get_user_conversations(gen_random_uuid(), NULL);
+  RAISE EXCEPTION 'probe-unwind';
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM <> 'probe-unwind' THEN RAISE; END IF;
+END $probe$;
+
 COMMIT;
