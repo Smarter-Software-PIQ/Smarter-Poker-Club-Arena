@@ -14,6 +14,7 @@ on:
       - supabase/migrations/20261112035143_the_install_watch_reads_a_superseded_migration_as_never_to_b.sql
       - supabase/migrations/20261117165416_the_install_watch_holds_its_page_while_installs_are_switched.sql
       - supabase/migrations/20261119064912_the_install_watch_hour_starts_when_the_dispatcher_may_send.sql
+      - supabase/migrations/20261119195420_the_install_watch_clock_follows_the_0045_schema_hold.sql
       - scripts/ci/merged-migration-dispatch.mjs
       - supabase/migrations/20261109024836_a_missed_engine_cutover_and_a_failing_lobby_close_page_the_o.sql
       - scripts/ci/test-a-merged-migration-left-uninstalled-is-paged.py
