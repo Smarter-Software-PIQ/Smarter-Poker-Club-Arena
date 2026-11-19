@@ -28,6 +28,21 @@ survives a missed hint. An unknown CLI outcome is retained and never automatical
 resubmitted. A halted consumer requires explicit inspection of its recorded
 operation and native chat before recovery. A disconnect alone is not success.
 
+## Halted native turn
+
+A woken operation can halt: on 2026-11-14 the canonical chat consumed the
+queued message, acknowledged 27 of 32 IDs, and its turn ended with "Fatal error:
+application network permission was revoked". The one-wake rule then left the
+operation retained forever and intake stopped for days. On the next explicit
+event (subscription or inbox/ack), an operation in `queued`/`requested` is now
+released only with read-only proof from the native desktop state: no queued item
+remains for the canonical thread in `~/.codex/queue_1.sqlite`, and the thread's
+rollout (path from `~/.codex/state_5.sqlite`) ends with a `task_complete` whose
+turn started at or after the queued message's UUIDv7 time. Its unread IDs stay
+oldest-first in pending and are queued once as a new operation. Any doubt,
+an `uncertain` wake or queue, or an unreadable store keeps the operation
+retained. Status reports `haltedReleases`. No timer is added.
+
 ## Installation and proof
 
 Merge through protected main first. Install a pinned protected checkout with its
