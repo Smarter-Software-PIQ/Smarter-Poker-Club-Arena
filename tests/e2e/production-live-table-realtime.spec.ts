@@ -51,7 +51,9 @@ import {
 import {
   CASH_SPECTATOR_ACTION,
   CASH_TABLE_CARD_SELECTOR,
+  admitsForCoverage,
   collectVisibleCashCandidates,
+  coverageComplete,
   takeNextLayoutCandidate,
 } from './support/cashTableCandidates';
 import { createProgressSilenceGuard } from './support/progressSilence';
@@ -500,7 +502,11 @@ async function cashSpectatorAction(page: Page, tableId: string) {
 async function selectOccupiedRunningCashTables(
   page: Page,
   request: APIRequestContext,
-  options: { perVariantLimit?: number; admitLastHand?: boolean } = {}
+  options: {
+    perVariantLimit?: number;
+    admitLastHand?: boolean;
+    coverCapacities?: readonly string[];
+  } = {}
 ): Promise<{ tables: OccupiedCashTable[]; health: EngineHealth }> {
   const admit = { admitLastHand: options.admitLastHand === true };
   // After the announcement every table parks at its hand boundary, so the
@@ -538,6 +544,8 @@ async function selectOccupiedRunningCashTables(
     : CASH_PROGRESS_CANDIDATES;
   const tables: OccupiedCashTable[] = [];
   const seen = new Set<string>();
+  const hints = new Set<string>();
+  const cover = options.coverCapacities;
   for (const tabName of tabs) {
     await selectCashLobbyTab(page, tabName);
     let variantCount = 0;
@@ -553,24 +561,28 @@ async function selectOccupiedRunningCashTables(
       );
       for (const candidate of batch) {
         const table = selectable(health, candidate);
+        const withinLimits =
+          tables.length < totalLimit &&
+          (!options.perVariantLimit || variantCount < options.perVariantLimit);
         if (
           table &&
           !seen.has(candidate.id) &&
-          tables.length < totalLimit &&
-          (!options.perVariantLimit || variantCount < options.perVariantLimit)
+          (withinLimits || admitsForCoverage(hints, candidate.capacityHint, cover))
         ) {
           seen.add(candidate.id);
           tables.push({ candidate, table, tabName });
+          if (candidate.capacityHint) hints.add(candidate.capacityHint);
           variantCount++;
         }
       }
       if (
-        tables.length >= totalLimit ||
-        (options.perVariantLimit && variantCount >= options.perVariantLimit)
+        coverageComplete(hints, cover) &&
+        (tables.length >= totalLimit ||
+          (options.perVariantLimit && variantCount >= options.perVariantLimit))
       )
         break;
     }
-    if (tables.length >= totalLimit) break;
+    if (coverageComplete(hints, cover) && tables.length >= totalLimit) break;
   }
   if (tables.length > 0) {
     // Tab scanning takes time. Start every contender from the same fresh
@@ -2483,6 +2495,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         let lobbyDocumentSince = Date.now();
         const selected = await selectOccupiedRunningCashTables(page, request, {
           perVariantLimit: 3,
+          coverCapacities: ['6', '9'],
         });
         const capacities = new Set<string>();
         // Keep the reported 393px navigation in coverage while that table is

@@ -1,0 +1,3 @@
+# Owner engine cutover, second November 19 window (7add8b42 after the 14:11 rollback)
+
+Window 2026-11-19-owner-no-notice-engine-1030z was consumed at 14:11 UTC by receiver run 44541019851. Certified 7add8b42c83b was swapped in at 14:16:55 UTC, but the drain had used the break's reserved proof and rollback budget, so the release transaction restored sealed f3e99378ccbb at 14:19:07 UTC as designed. Under the owner's emergency order of 04:18-04:19 Chicago this books window 2026-11-19-owner-no-notice-engine-1510z: admission 15:10 UTC through fixed 21:00 UTC November 19, serving f3e99378ccbb, containing at minimum 7add8b42c83b8bc867b01b88bb52c9e31e1df55c. No player notice; every certification, admission, rollback, seal, thaw and post-seal Backup safeguard applies unchanged.

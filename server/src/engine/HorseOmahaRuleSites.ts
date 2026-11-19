@@ -310,6 +310,21 @@ export const OMAHA_OPEN_RULE_SITES: readonly OmahaOpenRuleSite[] = Object.freeze
       'them needs a river bluff frequency from his measured fold-to-bet read (owner of the river bluff baseline: PLO ' +
       'Strategy lane, not built). With the option on they still withhold bluffs; each is receipted.',
   },
+  {
+    audit: '14 (verifier D9, 2026-11-19)',
+    rule: "the flop 20 big blind mark: a newest-street wager of 20 big blinds or more counts as a big bet in the range read (OppPostflopRead.bigBet), which tiers the bettor's range and conditions the reference brain's sampling, and so moves its flop fold or call",
+    legacyOptions: ['v16SizeCond'],
+    where:
+      'HorseMind range read (newestStreetBigBet, the "existing 20bb street-total threshold"); read by HorseEval omahaAggressorTier and the V16 size-conditioned sampler in HorseLogic',
+    decidesBy: ['size', 'chips'],
+    legacyReceipts: ['range_read_big_bet_counted', 'v16_sizecond_bigbet'],
+    why:
+      'owner: PLO Strategy lane 013U37. On the flop the mark is the reference fold or call input; its priced replacement is the ' +
+      'flop facing-bet expected-value verdict (omahaFlopFacingBetEv, default OFF; when on it takes the flop fold or call away ' +
+      'from the mark and from ploPairedBoardFold). On the turn and river omahaBigBetIsPotShare reads the pot share instead, ' +
+      'which is itself a size line (classed open). The mark has no option of its own: v16SizeCond off strips it with the rest ' +
+      'of the V16 sampler.',
+  },
 ]);
 
 export type OmahaOptionClass =
@@ -388,7 +403,10 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   omahaPairedBoardFoldRespectsPrice: priced(
     'stands aside for the expected-value verdict on the turn and river'
   ),
-  omahaBigBetIsPotShare: priced('reads a turn or river wager by its pot share, not 20 big blinds'),
+  // verifier D10 (2026-11-19): a size line, not a priced comparison
+  omahaBigBetIsPotShare: open(
+    'a pot-share size line: a turn or river wager under 70% of the pot it went into is tiered by its pot share instead of the 20 big blind mark, and the option also gates the limped-pot minimum bet (a bet under 2 BB into 4 BB or more becomes max(2 BB, 40% of the pot)); neither is priced. With omahaSmallBetIsPriced on, the minimum bet replaces a bet that option placed only through its priced size comparison. Owner: PLO Strategy lane 013U37'
+  ),
   omahaFlopFacingBetEv: priced(
     "the flop fold or call facing a bet is one expected-value verdict (default OFF; when on, the flop paired-board fold and the reference brain's 20 big blind mark no longer decide that fold or call)"
   ),
@@ -417,6 +435,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
     'the small bets beside the owner check or bet on the card-impact model with the measured response by pot share (default OFF)'
   ),
   omahaNutClassValueSize: priced('a size among priced sizes'),
+  omahaValueSizeIsUnreadable: priced(
+    'how much of the full pot a nut-class wager is: the measured keep share at the full pot, else a uniform draw in the owner 80-95% pot band (default OFF)'
+  ),
   // wave two (2026-11-16, PR #11211; all default OFF)
   omahaMultiwayWeakHandNoBet: priced(
     'a multiway bet with a weak hand becomes a check only when the bet-versus-check expected value over every live range says so'
@@ -480,6 +501,9 @@ export const OMAHA_OPTION_CLASSES: Readonly<Record<string, OmahaOptionRuling>> =
   ),
   omahaPreflopReraiseDefencePriced: outside(
     'preflop: fold, call and the proposed re-raise by expected value against the measured range (off-only under the preflop hold)'
+  ),
+  omahaPreflopReraiseDefencePricedInPosition: outside(
+    "preflop: only a fold becomes the priced call of omahaPreflopReraiseDefencePriced, for an opener heads-up in position against one person's 3-bet"
   ),
   omahaReraiseRangeOutOfPosition: outside(PREFLOP),
   omahaReraiseRangeEarlyPosition: outside(PREFLOP),

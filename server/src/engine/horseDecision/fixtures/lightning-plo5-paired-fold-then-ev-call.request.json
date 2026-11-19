@@ -1,0 +1,1082 @@
+{
+  "player": {
+    "bet": 0,
+    "cards": [
+      {
+        "rank": "A",
+        "suit": "spades"
+      },
+      {
+        "rank": "J",
+        "suit": "clubs"
+      },
+      {
+        "rank": "9",
+        "suit": "spades"
+      },
+      {
+        "rank": "K",
+        "suit": "spades"
+      },
+      {
+        "rank": "Q",
+        "suit": "diamonds"
+      }
+    ],
+    "deadInvested": 0,
+    "individualAnteInvested": 0,
+    "is_all_in": false,
+    "is_folded": false,
+    "is_horse": true,
+    "is_sitting_out": false,
+    "knownDeadCards": [],
+    "returnedUncalled": 0,
+    "seat": 3,
+    "stack": 12.8,
+    "totalInvested": 16,
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "username": "p3"
+  },
+  "gameState": {
+    "actionHistory": [
+      {
+        "action": "raise",
+        "amount": 8,
+        "isFullRaise": true,
+        "publicNode": {
+          "actorSeat": 3,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": [""],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 2,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 9,
+          "minRaiseTo": 4,
+          "mode": "cash",
+          "pot": 5,
+          "seats": [
+            [1, 412.9, 1, 1, 0, 0, 0],
+            [2, 443.95, 2, 4, 2, 0, 0],
+            [3, 28.8, 0, 0, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 0],
+            [5, 600.9, 0, 0, 0, 0, 0],
+            [6, 408.9, 0, 0, 0, 0, 0]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "preflop",
+          "structure": "pot_limit",
+          "toCall": 2,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 3,
+        "stage": "preflop",
+        "userId": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "action": "fold",
+        "amount": 0,
+        "origin": "horse_policy",
+        "publicNode": {
+          "actorSeat": 4,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": [""],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 8,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 29,
+          "minRaiseTo": 14,
+          "mode": "cash",
+          "pot": 13,
+          "seats": [
+            [1, 412.9, 1, 1, 0, 0, 0],
+            [2, 443.95, 2, 4, 2, 0, 0],
+            [3, 20.8, 8, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 0],
+            [5, 600.9, 0, 0, 0, 0, 0],
+            [6, 408.9, 0, 0, 0, 0, 0]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "preflop",
+          "structure": "pot_limit",
+          "toCall": 8,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 4,
+        "stage": "preflop",
+        "userId": "00000000-0000-4000-8000-000000000002"
+      },
+      {
+        "action": "fold",
+        "amount": 0,
+        "origin": "horse_policy",
+        "publicNode": {
+          "actorSeat": 5,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": [""],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 8,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 29,
+          "minRaiseTo": 14,
+          "mode": "cash",
+          "pot": 13,
+          "seats": [
+            [1, 412.9, 1, 1, 0, 0, 0],
+            [2, 443.95, 2, 4, 2, 0, 0],
+            [3, 20.8, 8, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 0],
+            [6, 408.9, 0, 0, 0, 0, 0]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "preflop",
+          "structure": "pot_limit",
+          "toCall": 8,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 5,
+        "stage": "preflop",
+        "userId": "00000000-0000-4000-8000-000000000003"
+      },
+      {
+        "action": "fold",
+        "amount": 0,
+        "origin": "horse_policy",
+        "publicNode": {
+          "actorSeat": 6,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": [""],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 8,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 29,
+          "minRaiseTo": 14,
+          "mode": "cash",
+          "pot": 13,
+          "seats": [
+            [1, 412.9, 1, 1, 0, 0, 0],
+            [2, 443.95, 2, 4, 2, 0, 0],
+            [3, 20.8, 8, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 0]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "preflop",
+          "structure": "pot_limit",
+          "toCall": 8,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 6,
+        "stage": "preflop",
+        "userId": "00000000-0000-4000-8000-000000000004"
+      },
+      {
+        "action": "fold",
+        "amount": 0,
+        "origin": "horse_policy",
+        "publicNode": {
+          "actorSeat": 1,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": [""],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 8,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 28,
+          "minRaiseTo": 14,
+          "mode": "cash",
+          "pot": 13,
+          "seats": [
+            [1, 412.9, 1, 1, 0, 0, 0],
+            [2, 443.95, 2, 4, 2, 0, 0],
+            [3, 20.8, 8, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 1]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "preflop",
+          "structure": "pot_limit",
+          "toCall": 7,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 1,
+        "stage": "preflop",
+        "userId": "00000000-0000-4000-8000-000000000005"
+      },
+      {
+        "action": "call",
+        "amount": 6,
+        "publicNode": {
+          "actorSeat": 2,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": [""],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 8,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 27,
+          "minRaiseTo": 14,
+          "mode": "cash",
+          "pot": 13,
+          "seats": [
+            [1, 412.9, 1, 1, 0, 0, 1],
+            [2, 443.95, 2, 4, 2, 0, 0],
+            [3, 20.8, 8, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 1]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "preflop",
+          "structure": "pot_limit",
+          "toCall": 6,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 2,
+        "stage": "preflop",
+        "userId": "00000000-0000-4000-8000-000000000006"
+      },
+      {
+        "action": "check",
+        "amount": 0,
+        "publicNode": {
+          "actorSeat": 2,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": ["8s8hJs"],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 0,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "check", "bet", "all_in"],
+          "maxRaiseTo": 19,
+          "minRaiseTo": 2,
+          "mode": "cash",
+          "pot": 19,
+          "seats": [
+            [1, 412.9, 0, 1, 0, 0, 1],
+            [2, 437.95, 0, 10, 2, 0, 0],
+            [3, 20.8, 0, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 1]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "flop",
+          "structure": "pot_limit",
+          "toCall": 0,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 2,
+        "stage": "flop",
+        "userId": "00000000-0000-4000-8000-000000000006"
+      },
+      {
+        "action": "bet",
+        "amount": 8,
+        "isFullRaise": true,
+        "publicNode": {
+          "actorSeat": 3,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": ["8s8hJs"],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 0,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "check", "bet", "all_in"],
+          "maxRaiseTo": 19,
+          "minRaiseTo": 2,
+          "mode": "cash",
+          "pot": 19,
+          "seats": [
+            [1, 412.9, 0, 1, 0, 0, 1],
+            [2, 437.95, 0, 10, 2, 0, 0],
+            [3, 20.8, 0, 8, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 1]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "flop",
+          "structure": "pot_limit",
+          "toCall": 0,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 3,
+        "stage": "flop",
+        "userId": "00000000-0000-4000-8000-000000000001"
+      },
+      {
+        "action": "call",
+        "amount": 8,
+        "publicNode": {
+          "actorSeat": 2,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": ["8s8hJs"],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 8,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "maxRaiseTo": 43,
+          "minRaiseTo": 16,
+          "mode": "cash",
+          "pot": 27,
+          "seats": [
+            [1, 412.9, 0, 1, 0, 0, 1],
+            [2, 437.95, 0, 10, 2, 0, 0],
+            [3, 12.8, 8, 16, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 1]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "flop",
+          "structure": "pot_limit",
+          "toCall": 8,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 2,
+        "stage": "flop",
+        "userId": "00000000-0000-4000-8000-000000000006"
+      },
+      {
+        "action": "bet",
+        "amount": 9,
+        "isFullRaise": true,
+        "publicNode": {
+          "actorSeat": 2,
+          "allInOrFold": false,
+          "ante": 2,
+          "anteType": "big_blind",
+          "asset": "chips",
+          "bigBlind": 2,
+          "boardCount": 1,
+          "boards": ["8s8hJs6h"],
+          "bombPot": false,
+          "chipUnit": 0.01,
+          "currentBet": 0,
+          "dealerSeat": 6,
+          "deductions": {
+            "bbj": {
+              "enabled": true,
+              "feeBB": 0.25,
+              "minPlayersDealt": 3,
+              "minPotBB": 10
+            },
+            "rake": {
+              "cap": 5,
+              "noFlopNoDrop": true,
+              "percent": 10,
+              "playerCountCaps": [
+                [2, 2.5],
+                [3, 5],
+                [4, 5]
+              ]
+            },
+            "rules": "controller-rake-bbj-v1",
+            "status": "captured",
+            "version": 1
+          },
+          "fixedBetSize": null,
+          "legalActions": ["fold", "check", "bet", "all_in"],
+          "maxRaiseTo": 35,
+          "minRaiseTo": 2,
+          "mode": "cash",
+          "pot": 35,
+          "seats": [
+            [1, 412.9, 0, 1, 0, 0, 1],
+            [2, 429.95, 0, 18, 2, 0, 0],
+            [3, 12.8, 0, 16, 0, 0, 0],
+            [4, 350, 0, 0, 0, 0, 1],
+            [5, 600.9, 0, 0, 0, 0, 1],
+            [6, 408.9, 0, 0, 0, 0, 1]
+          ],
+          "smallBlind": 1,
+          "status": "captured",
+          "street": "turn",
+          "structure": "pot_limit",
+          "toCall": 0,
+          "tournamentStage": {
+            "status": "not_applicable",
+            "version": 1
+          },
+          "variant": "plo5",
+          "version": 1,
+          "wagersCapped": false
+        },
+        "seat": 2,
+        "stage": "turn",
+        "userId": "00000000-0000-4000-8000-000000000006"
+      }
+    ],
+    "allInOrFold": false,
+    "ante": 2,
+    "asset": "chips",
+    "bbjConfig": {
+      "enabled": true,
+      "feeBB": 0.25,
+      "minPlayersDealt": 3,
+      "minPotBB": 10
+    },
+    "bettingStructure": "pot_limit",
+    "bigBlind": 2,
+    "bigBlindAnte": true,
+    "blindSeats": {
+      "bigBlind": 2,
+      "smallBlind": 1
+    },
+    "boardCount": 1,
+    "bombPot": false,
+    "chipUnit": 0.01,
+    "commitmentCapRemaining": null,
+    "communityCards": [
+      {
+        "rank": "8",
+        "suit": "spades"
+      },
+      {
+        "rank": "8",
+        "suit": "hearts"
+      },
+      {
+        "rank": "J",
+        "suit": "spades"
+      },
+      {
+        "rank": "6",
+        "suit": "hearts"
+      }
+    ],
+    "communityCards2": [],
+    "communityCards3": [],
+    "contestablePot": 44,
+    "currentBet": 9,
+    "currentPlayerSeat": 3,
+    "dealerSeat": 6,
+    "dealtSeatIds": [1, 2, 3, 4, 5, 6],
+    "fixedBetSize": null,
+    "fixedLimitSmallBet": null,
+    "format": "cash",
+    "gameMode": "cash",
+    "gameVariant": "plo5",
+    "heroSeat": 3,
+    "humanUserIds": [],
+    "lastRaise": 9,
+    "legalActions": ["fold", "call", "all_in"],
+    "maxRaiseTo": null,
+    "minRaise": 9,
+    "minRaiseTo": null,
+    "players": [
+      {
+        "bet": 0,
+        "cards": [],
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "is_all_in": false,
+        "is_folded": true,
+        "is_horse": true,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "seat": 1,
+        "stack": 412.9,
+        "totalInvested": 1,
+        "user_id": "00000000-0000-4000-8000-000000000005",
+        "username": "p1"
+      },
+      {
+        "bet": 9,
+        "cards": [],
+        "deadInvested": 2,
+        "individualAnteInvested": 0,
+        "is_all_in": false,
+        "is_folded": false,
+        "is_horse": true,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "seat": 2,
+        "stack": 420.95,
+        "totalInvested": 27,
+        "user_id": "00000000-0000-4000-8000-000000000006",
+        "username": "p2"
+      },
+      {
+        "bet": 0,
+        "cards": [],
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "is_all_in": false,
+        "is_folded": false,
+        "is_horse": true,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "seat": 3,
+        "stack": 12.8,
+        "totalInvested": 16,
+        "user_id": "00000000-0000-4000-8000-000000000001",
+        "username": "p3"
+      },
+      {
+        "bet": 0,
+        "cards": [],
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "is_all_in": false,
+        "is_folded": true,
+        "is_horse": true,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "seat": 4,
+        "stack": 350,
+        "totalInvested": 0,
+        "user_id": "00000000-0000-4000-8000-000000000002",
+        "username": "p4"
+      },
+      {
+        "bet": 0,
+        "cards": [],
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "is_all_in": false,
+        "is_folded": true,
+        "is_horse": true,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "seat": 5,
+        "stack": 600.9,
+        "totalInvested": 0,
+        "user_id": "00000000-0000-4000-8000-000000000003",
+        "username": "p5"
+      },
+      {
+        "bet": 0,
+        "cards": [],
+        "deadInvested": 0,
+        "individualAnteInvested": 0,
+        "is_all_in": false,
+        "is_folded": true,
+        "is_horse": true,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "seat": 6,
+        "stack": 408.9,
+        "totalInvested": 0,
+        "user_id": "00000000-0000-4000-8000-000000000004",
+        "username": "p6"
+      }
+    ],
+    "pot": 44,
+    "pots": [
+      {
+        "amount": 35,
+        "eligiblePlayers": [
+          "00000000-0000-4000-8000-000000000006",
+          "00000000-0000-4000-8000-000000000001"
+        ]
+      },
+      {
+        "amount": 9,
+        "eligiblePlayers": ["00000000-0000-4000-8000-000000000006"]
+      }
+    ],
+    "publicMemoryDomain": {
+      "ante": "big_blind",
+      "speed": "lightning",
+      "version": 1
+    },
+    "rakeConfig": {
+      "cap": 5,
+      "cashPolicy": {
+        "scope": "midway",
+        "version": 1
+      },
+      "noFlopNoDrop": true,
+      "percent": 10,
+      "playerCountCaps": [
+        {
+          "cap": 2.5,
+          "players": 2
+        },
+        {
+          "cap": 5,
+          "players": 3
+        },
+        {
+          "cap": 5,
+          "players": 4
+        }
+      ]
+    },
+    "smallBlind": 1,
+    "stage": "turn",
+    "stateSchemaVersion": 1,
+    "straddleActive": false,
+    "toCall": 9,
+    "variantRules": {
+      "boardCardsUse": "exactly_three",
+      "deckSize": 52,
+      "holeCardsDealt": 5,
+      "holeCardsUse": "exactly_two",
+      "splitLow8OrBetter": false
+    },
+    "wagersCapped": false
+  },
+  "decision": {
+    "action": "call",
+    "amount": 9,
+    "thinkTime": 2975,
+    "policyGraph": {
+      "finalAction": {
+        "action": "call",
+        "amount": 9
+      },
+      "transitions": [
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": null,
+          "changed": false,
+          "elapsedMs": 7.732641000300646,
+          "node": "reference"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 0.010817000642418861,
+          "node": "reference_legality"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 1.226996999233961,
+          "node": "variant_policy"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 0.001881999894976616,
+          "node": "tournament_utility"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 0.001553000882267952,
+          "node": "tournament_continuation"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 0.036775000393390656,
+          "node": "variant_utility_guard"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 0.32813699916005135,
+          "node": "joint_policy"
+        },
+        {
+          "after": {
+            "action": "all_in",
+            "amount": null
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": false,
+          "elapsedMs": 0.0020829997956752777,
+          "node": "corrective_policy"
+        },
+        {
+          "after": {
+            "action": "call",
+            "amount": 9
+          },
+          "before": {
+            "action": "all_in",
+            "amount": null
+          },
+          "changed": true,
+          "elapsedMs": 9.845138000324368,
+          "node": "wager_rules"
+        },
+        {
+          "after": {
+            "action": "call",
+            "amount": 9
+          },
+          "before": {
+            "action": "call",
+            "amount": 9
+          },
+          "changed": false,
+          "elapsedMs": 0.03766700066626072,
+          "node": "timing"
+        }
+      ],
+      "version": "horse-policy-order-v3"
+    }
+  }
+}

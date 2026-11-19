@@ -854,6 +854,12 @@ export const streetPrewarmTable = (fence: string): string => {
 /** One report per process for a per-Horse evidence fold that threw (executeFastWithUpgradeEvidence). */
 let upgradeEvidenceFoldFailureReported = false;
 
+/** Did any holdem_* receipt fire in this decision's scope (one pass, no allocation beyond the Set iterator)? */
+function firedAnyHoldemReceipt(fired: ReadonlySet<string>): boolean {
+  for (const key of fired) if (key.startsWith('holdem_')) return true;
+  return false;
+}
+
 export class HorseDecisionWorkerRuntime {
   /** Private, actor-bounded read views; never included in IPC or telemetry.
    * Repeated identical fast identities are ambiguous and disable that second
@@ -2977,6 +2983,14 @@ export class HorseDecisionWorkerRuntime {
         reportError(error, 'HorseDecisionWorker.upgrade_evidence_fold_failed');
       }
     }
+    // FORMAT SPLIT FOR THE holdem_* RECEIPTS (2026-11-18, telemetry only): one count per FAST decision in which any
+    // holdem_* receipt fired, by cash or tournament, so a hold'em option's reach can be stated per format without
+    // multiplying every key. Reads the decision's own fire scope after the answer was sent.
+    const holdemTournament = request.gameState.gameMode === 'tournament';
+    if (firedAnyHoldemReceipt(scoped.fired))
+      this.deps.noteFeature(
+        holdemTournament ? 'holdem_option_decision_tournament' : 'holdem_option_decision_cash'
+      );
     return scoped.value;
   }
 
@@ -3528,6 +3542,40 @@ export class HorseDecisionWorkerRuntime {
     }
     const receipt = styleActionReceiptOf(option, applied, committed, without);
     committed.styleActionReceipt = receipt;
+    // PICKED (2026-11-18, NLH-CASH I3): the re-decision answered at the committed scale, so this decision is in the
+    // option's denominator: <option>_changed_action_seen / <option>_receipt_picked_seen is its change rate (a
+    // decision applies several options and only one is re-decided, so the changed count alone is not a rate).
+    if (receipt.without !== null) {
+      switch (option) {
+        case 'styleValueBettorNotManiac':
+          this.deps.noteFeature('style_value_bettor_not_maniac_receipt_picked_seen');
+          break;
+        case 'styleBigBetHonesty':
+          this.deps.noteFeature('style_big_bet_honesty_receipt_picked_seen');
+          break;
+        case 'styleRaiseRespect':
+          this.deps.noteFeature('style_raise_respect_receipt_picked_seen');
+          break;
+        case 'styleTightReRaiserRespect':
+          this.deps.noteFeature('style_tight_reraiser_respect_receipt_picked_seen');
+          break;
+        case 'styleFoldRatePreRepair':
+          this.deps.noteFeature('style_fold_rate_pre_repair_receipt_picked_seen');
+          break;
+        case 'styleValueExtraction':
+          this.deps.noteFeature('style_value_extraction_receipt_picked_seen');
+          break;
+        case 'styleFoldBluff':
+          this.deps.noteFeature('style_fold_bluff_receipt_picked_seen');
+          break;
+        case 'styleTightPlayerExploit':
+          this.deps.noteFeature('style_tight_player_exploit_receipt_picked_seen');
+          break;
+        case 'styleStealTightBlinds':
+          this.deps.noteFeature('style_steal_tight_blinds_receipt_picked_seen');
+          break;
+      }
+    }
     if (!receipt.changed) return;
     switch (option) {
       case 'styleValueBettorNotManiac':

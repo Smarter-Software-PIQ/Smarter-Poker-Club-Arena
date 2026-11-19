@@ -543,14 +543,21 @@ describe('source law: telemetry-gated code in HorseLogic.ts only counts', () => 
         'asks the read for its receipt; the measured width is the same either way',
       ],
       'noteLayer: telemetryOn(opts)': [1, 'a counting callback handed to the preflop layer'],
+      'telemetryOn(opts) ? noteIcmBustPaysPlaceFactorChanged : undefined': [
+        1,
+        'a counting callback (one noteFire) handed to withIcmBustPaysPlace, called once after the decision returns; the decision is the same either way',
+      ],
       'telemetry: telemetryOn(opts),': [5, 'passes the gate to a module that counts with it'],
       'telemetryOn(opts) &&': [1, 'the head of a gated counting expression'],
-      tele: [1, 'the gate passed as an argument to a module that counts with it'],
-      'tele: boolean': [
-        1,
-        'the gate as the parameter of omahaBetSizeByPublicStateRule, read there only to count',
+      tele: [
+        2,
+        'the gate passed as an argument to a module that counts with it (and to omahaValueSizeIsUnreadableRule, which only counts with it)',
       ],
-      'this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele);': [
+      'tele: boolean': [
+        2,
+        'the gate as the parameter of omahaBetSizeByPublicStateRule and omahaValueSizeIsUnreadableRule, read there only to count',
+      ],
+      'this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele),': [
         1,
         'passes the gate to the public bet size rule, which only counts with it; the size is the same either way',
       ],

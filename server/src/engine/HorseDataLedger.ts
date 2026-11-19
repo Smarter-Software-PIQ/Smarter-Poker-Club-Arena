@@ -960,6 +960,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPreflopReraiseDefencePricedInPosition',
+    "THREEBET-2 lane 2026-11-19 (WooWoo audit THREEBET-DEFENCE, measured 2026-11-11..19: a Horse that opened and is in position against one player's 3-bet, heads-up, folded hands with 0.484 mean equity against that player's recorded 3-bet range at a 0.31 price; 148 of 149 of those folds were +EV calls at the lower end of the measured in-position realization 0.82, +4.1 bb each). The companion scope of omahaPreflopReraiseDefencePriced, which stays off-only under the owner preflop hold: only where the Horse opened, faces exactly one PERSON's 3-bet (gs.humanUserIds, else the seat's is_horse) with everyone else folded and acts after the 3-bettor on every later street (HorseOmahaPreflopReraiseDefenceRule.omahaPreflopReraiseDefenceHeadsUpInPosition; one seat-order definition on table cash and fast-table cash; never a tournament), and only when the decision with this option off is a FOLD, the fold becomes a CALL when that option's priced verdict is a call (equity against the 3-bettor's measured re-raise width, measured realization, price after rake; one owner per cell: where the re-raised-pot call cell judges, the fold stands). It never makes a fold, never changes a call, a 4-bet or any other decision, and never invents a raise. Every out-of-position decision, every multiway one, a 4-bet, a cold 3-bet and a Horse's 3-bet are exactly as with this off. Default OFF (read === true) until its declared evaluation passes; switchable on and off (preflop hold lifted for this name alone, HorseOptionSwitch.OPTION_SWITCH_PREFLOP_HOLD_LIFTED).",
+    'V94'
+  ),
+  flag(
     'omahaReraiseRangeOutOfPosition',
     'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges out of position must be capped): a PLO4/PLO5 cash preflop raise that would be the 3-bet or the 4-bet stands, when the Horse will be out of position against the player it re-raises or against a caller in the pot who acts again, only with suited aces, any aces when the re-raise commits (stack-to-pot ratio once it is called at or under 1), or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better). Every other hand calls instead; the call of a 3-bet is judged by the calling rule of omahaOopReraisedPotStrongRange, the call of a single raise stands for a coordinated hand, aces, or equity clearing the price plus the realization margin, and otherwise folds. Blind against blind keeps the ranges of today. Applied outermost, after the VPIP floor and the maniac-pressure paths. Switched separately from omahaReraiseRangeEarlyPosition. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -1333,6 +1338,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaValueSizeIsUnreadable',
+    'WooWoo audit NUT-SIZE lane 2026-11-19 (owner 2026-11-18 23:00 Chicago: "HORSES NEED TO VARY THERE BETS WITH THE NUTS, NOT FULL PUT EVERY TIME, BUT LIKE 80-95% POT"; measured 2026-11-05..19, PLO4/PLO5 cash, 11,741 Horse postflop wagers: a full-pot wager was the exact nuts 55.0% (n 1,280) against 11.9% at 80-95% of the pot (n 2,091), river 57.5% against 2.2%). PLO4/PLO5 cash (table and fast-table cash, never a tournament), pot limit, high only, one board, no bomb pot, postflop (HorseOmahaValueSizeBand.ts): a bet or raise that is already the full pot (95% of the pot-limit increment or more) with a nut-class hand (omahaNutClassNow or the exact river nuts), when the pot-limit maximum is not the whole stack, stays the full pot with the measured street share (flop 0.094, turn 0.509, river 0.469: the share that makes the nut share of the full pot equal that of the 80-95% band) and otherwise is sized uniformly in 80-95% of the pot increment, never under the legal minimum, never over the pot-limit maximum, never the whole stack and never larger than before; two draws from the decision derived stream (read, never advanced). Every non-nut wager, check, call, fold and all-in is unchanged. The last step of the wager_rules node; the table commit guards (riverNutsRaise, fullPotNearPotWager) and the river value alarm keep an accepted band wager. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaRiverNutBlockerBluffReachable',
     'PLO Strategy 2026-11-15: the Omaha nut-blocker river bluff (receipt v86_river_nut_blocker_bluff) is on but has never fired in production, because its made-hand gate is no pair at all (cat <= 1) and the baseline river bluff answers every no-pair heads-up river first. On, the gate is one pair or less, the bottom-pair band its own comment names (one pair, 0.25 to 0.28 equity, nut blocker, heads-up, unpaired board, capped opponent, never a station). Opt-in, default off, read === true; its declared evaluation has not been run.',
     'V94'
@@ -1682,6 +1692,60 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
     'the FAST decision applied styleStealTightBlinds and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed.',
     '2026-11-15'
+  ),
+  receipt(
+    'style_value_bettor_not_maniac_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueBettorNotManiac)',
+    'the R1 receipt re-decided this FAST decision without styleValueBettorNotManiac and got a comparable answer at the committed governor scale: the denominator of style_value_bettor_not_maniac_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_big_bet_honesty_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleBigBetHonesty)',
+    'the R1 receipt re-decided this FAST decision without styleBigBetHonesty and got a comparable answer at the committed governor scale: the denominator of style_big_bet_honesty_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_raise_respect_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleRaiseRespect)',
+    'the R1 receipt re-decided this FAST decision without styleRaiseRespect and got a comparable answer at the committed governor scale: the denominator of style_raise_respect_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_tight_reraiser_respect_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightReRaiserRespect)',
+    'the R1 receipt re-decided this FAST decision without styleTightReRaiserRespect and got a comparable answer at the committed governor scale: the denominator of style_tight_reraiser_respect_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_fold_rate_pre_repair_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldRatePreRepair)',
+    'the R1 receipt re-decided this FAST decision without styleFoldRatePreRepair and got a comparable answer at the committed governor scale: the denominator of style_fold_rate_pre_repair_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_value_extraction_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueExtraction)',
+    'the R1 receipt re-decided this FAST decision without styleValueExtraction and got a comparable answer at the committed governor scale: the denominator of style_value_extraction_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_fold_bluff_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldBluff)',
+    'the R1 receipt re-decided this FAST decision without styleFoldBluff and got a comparable answer at the committed governor scale: the denominator of style_fold_bluff_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_tight_player_exploit_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightPlayerExploit)',
+    'the R1 receipt re-decided this FAST decision without styleTightPlayerExploit and got a comparable answer at the committed governor scale: the denominator of style_tight_player_exploit_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
+  ),
+  receipt(
+    'style_steal_tight_blinds_receipt_picked_seen',
+    'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
+    'the R1 receipt re-decided this FAST decision without styleStealTightBlinds and got a comparable answer at the committed governor scale: the denominator of style_steal_tight_blinds_changed_action_seen (changed / picked is the change rate); occurrence counter; named *_seen',
+    '2026-11-18'
   ),
   receipt(
     'style_tight_limper_isolation_seen',
@@ -3313,6 +3377,86 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'short deck decisions; needs short-deck tables',
     'V15'
   ),
+  // SWITCH REACH COUNTERS (2026-11-18, Horse Switch lane): measurement only, no decision reads any of them. They
+  // let the lane state how many decisions an option switch changes and in which game or format.
+  receipt(
+    'decide_flh',
+    'HorseLogic.decide',
+    "fixed-limit hold'em decisions; a parallel denominator, the same decisions stay inside decide_nlh",
+    '2026-11-18'
+  ),
+  receipt(
+    'decide_flo8',
+    'HorseLogic.decide',
+    'fixed-limit Omaha hi-lo decisions; a parallel denominator, the same decisions stay inside decide_omaha',
+    '2026-11-18'
+  ),
+  receipt(
+    'decide_lightning',
+    'HorseLogic.decide',
+    "Lightning decisions (public memory domain speed 'lightning'), parallel to decide_tournament",
+    '2026-11-18'
+  ),
+  receipt(
+    'holdem_option_decision_cash',
+    'workerRuntime executeFastWithUpgradeEvidence (fire scope)',
+    'a cash FAST decision in which at least one holdem_* receipt fired: the cash share of the holdem_* receipts',
+    '2026-11-18'
+  ),
+  receipt(
+    'holdem_option_decision_tournament',
+    'workerRuntime executeFastWithUpgradeEvidence (fire scope)',
+    'a tournament FAST decision in which at least one holdem_* receipt fired: the tournament share of the holdem_* receipts',
+    '2026-11-18'
+  ),
+  receipt(
+    'tournament_utility_stack_scaled_margin_changed_seen',
+    'HorseLogic phase 7 utility (HorseTournamentUtility, tournamentUtilityStackScaledMargin)',
+    'the stack-scaled margin changed the chosen action: the utility overrode the baseline and the whole-pool margin (the option off) would have kept it',
+    '2026-11-18'
+  ),
+  receipt(
+    'icm_bust_pays_place_factor_changed_seen',
+    'HorseLogic.decide (IcmModel bubbleFactor / pairwiseBubbleFactor, icmBustPaysPlace)',
+    'a live decision in which the paid-bust valuation moved at least one bubble factor off the factor a 0 bust value gives',
+    '2026-11-18'
+  ),
+  receipt(
+    'plo_paired_board_fold_plo6',
+    'HorseLogic pairedBoardFold (ploPairedBoardFold)',
+    'the PLO6 share of plo_paired_board_fold, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'plo_paired_board_river_check_plo6',
+    'HorseLogic pairedBoardRiverCheck (ploPairedBoardRiverCheck)',
+    'the PLO6 share of plo_paired_board_river_check, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'omaha_river_non_nut_raise_flatted_plo6',
+    'HorseLogic wager_rules (omahaRiverNutRaiseOnly)',
+    'the PLO6 share of omaha_river_non_nut_raise_flatted, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'v84_omaha_river_reraise_call_fold_plo6',
+    'HorseLogic omahaBigBetCallFold (v84OmahaRiverReraiseCalls)',
+    'the PLO6 share of v84_omaha_river_reraise_call_fold, fired beside it',
+    '2026-11-18'
+  ),
+  receipt(
+    'v70_facing_open_zone_changed_seen',
+    'HorsePreflop (noteLayer; v70FacingOpenZone)',
+    "two- or three-handed no-limit hold'em preflop: the short-handed zone put the spot on the other side of jam-or-fold from the zone read with the option off",
+    '2026-11-18'
+  ),
+  receipt(
+    'facing_closed_all_in_call_seen',
+    'HorsePreflop (noteLayer; facingClosedAllIn)',
+    'a preflop call facing a closed all-in re-raise that the stack cap refuses and the closed all-in exception lets through',
+    '2026-11-18'
+  ),
   receipt(
     'preflop_v7',
     'HorsePreflop.decidePreflopV7',
@@ -4616,6 +4760,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_value_size_band_applied',
+    'HorseLogic wager_rules (HorseOmahaValueSizeBand, omahaValueSizeIsUnreadable)',
+    'a PLO4/PLO5 cash full-pot bet or raise with a nut-class hand was sized in the owner 80-95% pot band',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_size_full_pot_kept',
+    'HorseLogic wager_rules (HorseOmahaValueSizeBand, omahaValueSizeIsUnreadable)',
+    'a PLO4/PLO5 cash full-pot bet or raise with a nut-class hand stayed the full pot at the measured street share (valid no-change)',
+    'V94'
+  ),
+  receipt(
     'omaha_nut_class_pot_wager',
     'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
     'a PLO4/PLO5 bet or raise with the nuts or an effective-nut hand was sized up to the full pot (or the stack)',
@@ -5156,6 +5312,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_card_impact_paired_board_press_to_small_bet',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact; omahaSmallBetIsPriced on)',
+    'the same paired-board press (paired turn or river, less than a full house, every opponent a measured value leader) is not withheld by the label: with omahaSmallBetIsPriced on it is handed to the small-bet price, which prices it beside the check and the small bets (one owner, by price)',
+    'V94'
+  ),
+  receipt(
     'omaha_card_impact_changed',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
@@ -5200,13 +5362,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_small_bet_priced_bet_vetoed',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
-    'the small bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'the small bet the pricing placed (the limped-pot floor size only where that size won its priced comparison) was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
     'omaha_small_bet_resized_vetoed',
     'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced)',
-    'the resized bet the pricing proposed (after the limped-pot floor) was replaced by a later rule before the decision was final',
+    'the resized bet the pricing placed (the limped-pot floor size only where that size won its priced comparison) was replaced by a later rule before the decision was final',
     'V94'
   ),
   receipt(
@@ -5249,6 +5411,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_multiway_checked_to_bet_owner_check_kept',
     'HorseLogic omahaOwnerRuledFinal (HorseOmahaMultiwayDiscipline, omahaMultiwayCheckedToBetIsPriced)',
     "the priced multiway bet would be checked by an owner-ruled check rule (omahaWagerIsChecked); the owner's check stands",
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_paired_board_press_bet',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
+    "on a paired turn or river with less than a full house against a measured value leader, the card-impact press the label guard (conflict sweep S4) would have withheld was priced beside the check and the small bets and beat the owner's decision by the margin; it is the final action",
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_paired_board_press_bet_vetoed',
+    'HorseLogic omahaOwnBetRules (HorseOmahaSmallBet, omahaSmallBetIsPriced; handed over by omahaCardImpact)',
+    'the paired-board press the small-bet price chose was replaced by a later rule before the decision was final',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_floor_size_priced_taken',
+    'HorseLogic omahaSmallBetRule (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced; omahaBigBetIsPotShare limped-pot floor)',
+    'the limped-pot minimum bet would lift the priced small bet: its size was priced beside the small bet on the same model, was worth more by the margin and no owner-ruled check checks it, so the floor size is placed',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_floor_size_priced_kept',
+    'HorseLogic omahaSmallBetRule (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced; omahaBigBetIsPotShare limped-pot floor)',
+    'the limped-pot minimum bet would lift the priced small bet, but its size was not worth more by the margin on the same model (or an owner-ruled check checks it, or it could not be priced): the priced small bet stands and the floor stands aside',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_checked_to_size_priced_taken',
+    'HorseLogic wager_rules checked-to undersized-value bet (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced)',
+    'the checked-to boat / one-pair-above-flush half-pot bet would replace the priced small bet: the half-pot size was priced beside it on the same model, was worth more by the margin and no owner-ruled check checks it, so it is bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_small_bet_checked_to_size_priced_kept',
+    'HorseLogic wager_rules checked-to undersized-value bet (HorseOmahaSmallBet omahaSmallBetComparesSize, omahaSmallBetIsPriced)',
+    'the checked-to half-pot bet would replace the priced small bet, but its size was not worth more by the margin on the same model (or an owner-ruled check checks it, or it could not be priced): the priced small bet stands',
     'V94'
   ),
   receipt(
