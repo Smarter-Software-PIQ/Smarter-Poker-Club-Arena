@@ -33,12 +33,113 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 1
 fi
 
-# Resolve transfers before filtering heads: GitHub redirects the old repository
-# API, but does not rewrite an old-owner head filter. Trust the maintained
-# approved names plus immutable ID, never an arbitrary redirected owner.
-IDENTITY="$(GH_PAGER=cat gh api -X GET "repos/$SLUG" 2>/dev/null || true)"
 TRUST_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ci/repository-identity.mjs"
-RESOLVED="$(printf '%s' "$IDENTITY" | node --input-type=module -e '
+
+# Query GraphQL first (separate 5,000/hr quota bucket from REST core) so REST
+# core rate-limit exhaustion does not block pushes, while preserving the same
+# repository-identity trust check and fail-closed semantics.
+# `gh` uses its credential store or a standard process-level GH_TOKEN. This
+# guard never opens a repository `.env`, never scrapes another product's
+# credentials, and never copies a token into a command line.
+GQL_QUERY='query($owner: String!, $repo: String!, $branch: String!) {
+  repository(owner: $owner, name: $repo) {
+    databaseId
+    nameWithOwner
+    owner { login }
+    pullRequests(
+      headRefName: $branch
+      states: [OPEN, CLOSED, MERGED]
+      first: 10
+      orderBy: { field: CREATED_AT, direction: DESC }
+    ) {
+      nodes {
+        number
+        state
+        mergedAt
+        headRepositoryOwner { login }
+      }
+    }
+  }
+}'
+
+GQL_RESP="$(GH_PAGER=cat gh api graphql \
+  -f "query=$GQL_QUERY" \
+  -f "owner=$OWNER" \
+  -f "repo=$REPO" \
+  -f "branch=$BRANCH" \
+  2>/dev/null || true)"
+
+VERDICT=""
+if [[ -n "$GQL_RESP" ]]; then
+  GQL_VERDICT="$(printf '%s' "$GQL_RESP" | node --input-type=module -e '
+import {readFileSync} from "node:fs";
+import {pathToFileURL} from "node:url";
+const {isClubArenaRepository}=await import(pathToFileURL(process.argv[1]));
+try {
+  const doc=JSON.parse(readFileSync(0,"utf8"));
+  if (!doc || typeof doc !== "object") { console.log("FALLBACK"); process.exit(0); }
+  if (Array.isArray(doc.errors) && doc.errors.length > 0) { console.log("FALLBACK"); process.exit(0); }
+  const r=doc.data?.repository;
+  if (!r || typeof r !== "object") { console.log("FALLBACK"); process.exit(0); }
+  const requested=process.argv[2];
+  const fullName=r.nameWithOwner;
+  const repoId=r.databaseId;
+  if (requested.endsWith("/Smarter-Poker-Club-Arena")) {
+    if (!isClubArenaRepository(requested,repoId) || !isClubArenaRepository(fullName,repoId)) {
+      console.log("UNTRUSTED");
+      process.exit(0);
+    }
+  } else if (!requested.startsWith("Smarter-Poker/") || fullName!==requested) {
+    console.log("UNTRUSTED");
+    process.exit(0);
+  }
+  if (typeof fullName !== "string" || r.owner?.login !== fullName.split("/")[0]) {
+    console.log("UNTRUSTED");
+    process.exit(0);
+  }
+  const nodes=r.pullRequests?.nodes;
+  if (!Array.isArray(nodes)) { console.log("FALLBACK"); process.exit(0); }
+  const headOwner=fullName.split("/")[0].toLowerCase();
+  const prs=nodes.filter(
+    (p) => p && typeof p === "object" &&
+      typeof p.headRepositoryOwner?.login === "string" &&
+      p.headRepositoryOwner.login.toLowerCase() === headOwner
+  );
+  if (prs.length === 0) {
+    console.log("NONE");
+  } else {
+    prs.sort((a,b) => (Number(b.number) || 0) - (Number(a.number) || 0));
+    const pr=prs[0];
+    const number=pr.number ?? "unknown";
+    if (pr.mergedAt || pr.state === "MERGED") console.log(`MERGED ${number}`);
+    else if (pr.state === "CLOSED") console.log(`CLOSED ${number}`);
+    else if (pr.state === "OPEN") console.log(`OPEN ${number}`);
+    else console.log("ERROR");
+  }
+} catch { console.log("FALLBACK"); }
+' "$TRUST_HELPER" "$SLUG" 2>/dev/null || echo FALLBACK)"
+
+  case "$GQL_VERDICT" in
+    UNTRUSTED)
+      echo "[merged-branch guard] BLOCKED: GitHub did not identify the trusted destination repository." >&2
+      exit 1
+      ;;
+    NONE|OPEN\ *|MERGED\ *|CLOSED\ *|ERROR)
+      VERDICT="$GQL_VERDICT"
+      ;;
+    *)
+      VERDICT=""
+      ;;
+  esac
+fi
+
+if [[ -z "$VERDICT" ]]; then
+  # Fallback to REST if GraphQL failed or was unavailable.
+  # Resolve transfers before filtering heads: GitHub redirects the old repository
+  # API, but does not rewrite an old-owner head filter. Trust the maintained
+  # approved names plus immutable ID, never an arbitrary redirected owner.
+  IDENTITY="$(GH_PAGER=cat gh api -X GET "repos/$SLUG" 2>/dev/null || true)"
+  RESOLVED="$(printf '%s' "$IDENTITY" | node --input-type=module -e '
 import {readFileSync} from "node:fs";
 import {pathToFileURL} from "node:url";
 const {isClubArenaRepository}=await import(pathToFileURL(process.argv[1]));
@@ -52,26 +153,23 @@ try {
   console.log(r.full_name);
 } catch { process.exitCode=1; }
 ' "$TRUST_HELPER" "$SLUG" 2>/dev/null)"
-if [[ -z "$RESOLVED" ]]; then
-  echo "[merged-branch guard] BLOCKED: GitHub did not identify the trusted destination repository." >&2
-  exit 1
-fi
-SLUG="$RESOLVED"
-HEAD_OWNER="${SLUG%%/*}"
+  if [[ -z "$RESOLVED" ]]; then
+    echo "[merged-branch guard] BLOCKED: GitHub did not identify the trusted destination repository." >&2
+    exit 1
+  fi
+  SLUG="$RESOLVED"
+  HEAD_OWNER="${SLUG%%/*}"
 
-# `gh` uses its credential store or a standard process-level GH_TOKEN. This
-# guard never opens a repository `.env`, never scrapes another product's
-# credentials, and never copies a token into a command line.
-RESP="$(GH_PAGER=cat gh api -X GET "repos/$SLUG/pulls" \
-  -f "head=$HEAD_OWNER:$BRANCH" -f state=all -F per_page=10 \
-  2>/dev/null || true)"
+  RESP="$(GH_PAGER=cat gh api -X GET "repos/$SLUG/pulls" \
+    -f "head=$HEAD_OWNER:$BRANCH" -f state=all -F per_page=10 \
+    2>/dev/null || true)"
 
-if [[ -z "$RESP" ]]; then
-  echo "[merged-branch guard] BLOCKED: GitHub CLI did not provide an authenticated verdict for '$BRANCH'." >&2
-  exit 1
-fi
+  if [[ -z "$RESP" ]]; then
+    echo "[merged-branch guard] BLOCKED: GitHub CLI did not provide an authenticated verdict for '$BRANCH'." >&2
+    exit 1
+  fi
 
-VERDICT="$(printf '%s' "$RESP" | python3 -c '
+  VERDICT="$(printf '%s' "$RESP" | python3 -c '
 import json, sys
 try:
     prs = json.load(sys.stdin)
@@ -93,6 +191,7 @@ else:
     else:
         print(f"OPEN {number}")
 ' 2>/dev/null || echo ERROR)"
+fi
 
 case "$VERDICT" in
   NONE|OPEN\ *) exit 0 ;;

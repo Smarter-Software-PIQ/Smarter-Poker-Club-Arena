@@ -243,6 +243,222 @@ esac
     expect(guard).toContain('is not a valid destination branch');
     expect(guard).not.toMatch(/\*\[\^A-Za-z0-9._\/-\]\*\)\s*exit 0/);
   });
+
+  function runGraphqlAndRestGuard({
+    owner = 'Smarter-Software-PIQ',
+    repository = 'Smarter-Poker-Club-Arena',
+    branch = 'fix/graphql-resilience',
+    graphqlResponse = '',
+    graphqlExit = 0,
+    restIdentity = '',
+    restIdentityExit = 0,
+    restPrs = '',
+    restPrsExit = 0,
+  }: {
+    owner?: string;
+    repository?: string;
+    branch?: string;
+    graphqlResponse?: string;
+    graphqlExit?: number;
+    restIdentity?: string;
+    restIdentityExit?: number;
+    restPrs?: string;
+    restPrsExit?: number;
+  }) {
+    const dir = mkdtempSync(join(tmpdir(), 'merged-graphql-'));
+    try {
+      const trace = join(dir, 'trace');
+      writeFileSync(
+        join(dir, 'gh'),
+        `#!/bin/bash
+printf '%s\\n' "$*" >> "$GUARD_TRACE"
+case "$*" in
+  *'api graphql'*)
+    printf '%s' "$GUARD_GQL"
+    exit "$GUARD_GQL_EXIT"
+    ;;
+  *'/pulls'*)
+    printf '%s' "$GUARD_REST_PRS"
+    exit "$GUARD_REST_PRS_EXIT"
+    ;;
+  *)
+    printf '%s' "$GUARD_REST_ID"
+    exit "$GUARD_REST_ID_EXIT"
+    ;;
+esac
+`,
+        { mode: 0o755 }
+      );
+      const result = spawnSync(
+        'bash',
+        [resolve(root, GUARD_PATH), branch, 'origin', `git@github.com:${owner}/${repository}.git`],
+        {
+          cwd: root,
+          encoding: 'utf8',
+          timeout: 5000,
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH}`,
+            GUARD_TRACE: trace,
+            GUARD_GQL: graphqlResponse,
+            GUARD_GQL_EXIT: String(graphqlExit),
+            GUARD_REST_ID: restIdentity,
+            GUARD_REST_ID_EXIT: String(restIdentityExit),
+            GUARD_REST_PRS: restPrs,
+            GUARD_REST_PRS_EXIT: String(restPrsExit),
+          },
+        }
+      );
+      return {
+        status: result.status,
+        output: result.stdout + result.stderr,
+        trace: existsSync(trace) ? readFileSync(trace, 'utf8') : '',
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  const rateLimit403 = JSON.stringify({
+    message: 'API rate limit exceeded for user ID 12345.',
+    documentation_url:
+      'https://docs.github.com/rest/overview/resources-in-the-rest-api#rate-limiting',
+  });
+
+  const graphqlRepo = (nodes: unknown[]) =>
+    JSON.stringify({
+      data: {
+        repository: {
+          databaseId: 1132369872,
+          nameWithOwner: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',
+          owner: { login: 'Smarter-Software-PIQ' },
+          pullRequests: { nodes },
+        },
+      },
+    });
+
+  it('succeeds via GraphQL when REST core returns 403 rate limit exceeded', () => {
+    const openResult = runGraphqlAndRestGuard({
+      owner: 'Smarter-Poker',
+      graphqlResponse: graphqlRepo([
+        {
+          number: 11421,
+          state: 'OPEN',
+          mergedAt: null,
+          headRepositoryOwner: { login: 'Smarter-Software-PIQ' },
+        },
+      ]),
+      restIdentity: rateLimit403,
+      restIdentityExit: 1,
+      restPrs: rateLimit403,
+      restPrsExit: 1,
+    });
+    expect(openResult.status).toBe(0);
+    expect(openResult.trace).toContain('api graphql');
+    expect(openResult.trace).not.toContain('api -X GET');
+
+    const noneResult = runGraphqlAndRestGuard({
+      graphqlResponse: graphqlRepo([]),
+      restIdentity: rateLimit403,
+      restIdentityExit: 1,
+    });
+    expect(noneResult.status).toBe(0);
+    expect(noneResult.trace).toContain('api graphql');
+    expect(noneResult.trace).not.toContain('api -X GET');
+  });
+
+  it('blocks merged and closed branches via GraphQL even when REST core is rate-limited', () => {
+    const merged = runGraphqlAndRestGuard({
+      graphqlResponse: graphqlRepo([
+        {
+          number: 11420,
+          state: 'MERGED',
+          mergedAt: '2026-11-19T18:00:00Z',
+          headRepositoryOwner: { login: 'Smarter-Software-PIQ' },
+        },
+      ]),
+      restIdentity: rateLimit403,
+      restIdentityExit: 1,
+    });
+    expect(merged.status).toBe(1);
+    expect(merged.output).toContain('MERGED pull request #11420');
+    expect(merged.trace).not.toContain('api -X GET');
+
+    const closed = runGraphqlAndRestGuard({
+      graphqlResponse: graphqlRepo([
+        {
+          number: 11419,
+          state: 'CLOSED',
+          mergedAt: null,
+          headRepositoryOwner: { login: 'Smarter-Software-PIQ' },
+        },
+      ]),
+      restIdentity: rateLimit403,
+      restIdentityExit: 1,
+    });
+    expect(closed.status).toBe(1);
+    expect(closed.output).toContain('CLOSED pull request #11419');
+    expect(closed.trace).not.toContain('api -X GET');
+  });
+
+  it('ignores fork PRs with matching branch name in GraphQL results', () => {
+    const result = runGraphqlAndRestGuard({
+      graphqlResponse: graphqlRepo([
+        {
+          number: 9999,
+          state: 'MERGED',
+          mergedAt: '2026-11-19T17:00:00Z',
+          headRepositoryOwner: { login: 'ExternalForkOwner' },
+        },
+      ]),
+      restIdentity: rateLimit403,
+      restIdentityExit: 1,
+    });
+    expect(result.status).toBe(0);
+    expect(result.trace).not.toContain('api -X GET');
+  });
+
+  it('fails closed immediately on untrusted repository identity in GraphQL without falling back to REST', () => {
+    const result = runGraphqlAndRestGuard({
+      owner: 'Smarter-Poker',
+      graphqlResponse: JSON.stringify({
+        data: {
+          repository: {
+            databaseId: 42,
+            nameWithOwner: 'Stranger/Smarter-Poker-Club-Arena',
+            owner: { login: 'Stranger' },
+            pullRequests: { nodes: [] },
+          },
+        },
+      }),
+      restIdentity: JSON.stringify(transferredIdentity),
+      restPrs: '[]',
+    });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain(
+      '[merged-branch guard] BLOCKED: GitHub did not identify the trusted destination repository.'
+    );
+    expect(result.trace).not.toContain('api -X GET');
+  });
+
+  it('fails closed when both GraphQL and REST fail (e.g. both rate-limited or unavailable)', () => {
+    const bothFailed = runGraphqlAndRestGuard({
+      graphqlResponse: JSON.stringify({
+        errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }],
+      }),
+      graphqlExit: 1,
+      restIdentity: rateLimit403,
+      restIdentityExit: 1,
+      restPrs: rateLimit403,
+      restPrsExit: 1,
+    });
+    expect(bothFailed.status).toBe(1);
+    expect(bothFailed.output).toContain(
+      '[merged-branch guard] BLOCKED: GitHub did not identify the trusted destination repository.'
+    );
+    expect(bothFailed.trace).toContain('api graphql');
+    expect(bothFailed.trace).toContain('api -X GET');
+  });
 });
 
 describe('LAW - the test gate can never look at an empty diff', () => {
