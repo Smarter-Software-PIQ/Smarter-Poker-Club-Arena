@@ -420,6 +420,9 @@ jobs:
           sparse-checkout: |
             .github/pgdg
             .github/actions/install-postgres-17
+            scripts/ci/ubuntu-apt.sh
+            scripts/ci/ubuntu-apt-mirror.py
+            scripts/ci/ubuntu-apt-mirrors.txt
             scripts/dr
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
